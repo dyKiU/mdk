@@ -19,14 +19,17 @@ status: overview
 
 # Current State — Implementations & Spec
 
-The private, default-off multi-device experiment qualifies actual original-action
-A/B/C protected settlement, including B Add and C Welcome SQL rollback retries.
-Opaque native singleton continuation is separately qualified over a live relay.
-Enrollment capability remains false while public three-device approval, matched
-Mac/iOS artifacts and actual chat/history acceptance remain open. The native
-verification-pending observation does not prove synchronized delivery. See
-[original ABC evidence](../../device-sync-original-abc-settlement-verification.json)
-and [native singleton evidence](../../device-sync-native-singleton-continuation-verification.json).
+The private, default-off multi-device experiment qualifies original-action A/B/C
+protected settlement and opaque public native three-device enrollment on ready
+isolated accounts. UniFFI/C original-action relay tests and matched host Swift/C
+ABI checks expose protected target selection, explicit existing-device approval,
+bounded enrollment packets and terminal completion observations. Enrollment
+capability remains false pending matched Mac/iOS artifacts and application
+acceptance. Fresh onboarding, ordinary chat delivery and history remain open;
+protected enrollment alone grants no ordinary-chat permission. See
+[original ABC evidence](../../device-sync-original-abc-settlement-verification.json),
+[public native enrollment](../../device-sync-native-three-device-enrollment-verification.json)
+and [binding qualification](../../device-sync-native-three-device-bindings-verification.json).
 
 On master, one durable recovery owner (#1946) authorizes account-history acquisition for startup, receive,
 maintenance, convergence and explicit repair; its coalesced demand and retry pacing survive reopen, and EOSE alone never

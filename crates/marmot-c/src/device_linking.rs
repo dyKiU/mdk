@@ -1,4 +1,4 @@
-//! Opaque verification-only handles. Release handles before their creating client.
+//! Opaque original-action handles. Release handles before their creating client.
 use crate::memory::{boxed, required_str};
 use crate::status::{set_last_error, status_from_error};
 use crate::types::device_linking::*;
@@ -112,7 +112,7 @@ pub unsafe extern "C" fn marmot_begin_device_linking_session(
         }
     })
 }
-/// Approve bounded setup metadata. NULL/zero target means singleton; existing targets stay gated.
+/// Approve bounded setup metadata. NULL/zero target means singleton; selected rosters are actor-validated.
 /// # Safety
 /// Borrowed byte buffers must be valid for their lengths; out/account/client must be valid.
 #[unsafe(no_mangle)]
@@ -406,3 +406,255 @@ pub unsafe extern "C" fn marmot_device_linking_subscription_free(
 
 #[cfg(test)]
 mod tests;
+
+/// An opaque original existing-device action. Clone to retain a list-borrowed handle.
+pub struct MarmotDeviceLinkingApproval {
+    inner: Arc<marmot_uniffi::DeviceLinkingApproval>,
+    runtime: tokio::runtime::Handle,
+}
+/// Embedded borrowed handle, valid until its owning list is freed.
+#[repr(C)]
+pub struct MarmotDeviceLinkingApprovalEntry {
+    pub handle: *mut MarmotDeviceLinkingApproval,
+}
+/// Owned list. Clone selected handles before freeing this list.
+#[repr(C)]
+pub struct MarmotDeviceLinkingApprovalList {
+    pub items: *mut MarmotDeviceLinkingApprovalEntry,
+    pub len: usize,
+}
+impl crate::memory::CFree for MarmotDeviceLinkingApprovalEntry {
+    unsafe fn free_in_place(&mut self) {
+        unsafe { crate::subscriptions::free_plain(self.handle) };
+    }
+}
+impl crate::memory::CFree for MarmotDeviceLinkingApprovalList {
+    unsafe fn free_in_place(&mut self) {
+        unsafe { crate::memory::free_vec(self.items, self.len) };
+    }
+}
+unsafe fn approval<'a>(
+    handle: *const MarmotDeviceLinkingApproval,
+) -> Result<&'a MarmotDeviceLinkingApproval, MarmotStatus> {
+    unsafe { handle.as_ref() }.ok_or(MarmotStatus::NullPointer)
+}
+
+/// Observe protected roster selectors; selection is revalidated by the actor.
+/// # Safety
+/// client/account must remain valid and out writable for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_targets(
+    client: *const MarmotClient,
+    account: *const c_char,
+    out: *mut *mut MarmotDeviceLinkingTargetList,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        arg!(unsafe { preflight_out_ptr(out) });
+        let client = arg!(unsafe { client_ref(client) });
+        let account = arg!(unsafe { required_str(account) });
+        unsafe {
+            deliver(
+                client.block_on(client.marmot.device_linking_targets(account)),
+                out,
+            )
+        }
+    })
+}
+/// Return opaque handles sharing original existing-device actions.
+/// # Safety
+/// client/account must remain valid and out writable. List entries are borrowed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_pending_device_linking_approvals(
+    client: *const MarmotClient,
+    account: *const c_char,
+    out: *mut *mut MarmotDeviceLinkingApprovalList,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        arg!(unsafe { preflight_out_ptr(out) });
+        let client = arg!(unsafe { client_ref(client) });
+        let account = arg!(unsafe { required_str(account) });
+        match client.block_on(client.marmot.pending_device_linking_approvals(account)) {
+            Ok(values) => {
+                let entries = values
+                    .into_iter()
+                    .map(|inner| MarmotDeviceLinkingApprovalEntry {
+                        handle: boxed(MarmotDeviceLinkingApproval {
+                            inner,
+                            runtime: client.runtime.handle().clone(),
+                        }),
+                    })
+                    .collect();
+                let (items, len) = crate::memory::owned_vec(entries);
+                unsafe { *out = boxed(MarmotDeviceLinkingApprovalList { items, len }) };
+                MarmotStatus::Ok
+            }
+            Err(error) => status_from_error(&error),
+        }
+    })
+}
+/// Retain a handle independently of its original list; no new approval action is created.
+/// # Safety
+/// handle must remain valid and out writable; free the returned clone separately.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_approval_clone(
+    handle: *const MarmotDeviceLinkingApproval,
+    out: *mut *mut MarmotDeviceLinkingApproval,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        arg!(unsafe { preflight_out_ptr(out) });
+        let source = arg!(unsafe { approval(handle) });
+        unsafe {
+            *out = boxed(MarmotDeviceLinkingApproval {
+                inner: source.inner.clone(),
+                runtime: source.runtime.clone(),
+            })
+        };
+        MarmotStatus::Ok
+    })
+}
+/// Read finite observation of the same original action, never enrollment permission.
+/// # Safety
+/// handle must remain valid and out writable for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_approval_snapshot(
+    handle: *const MarmotDeviceLinkingApproval,
+    out: *mut *mut MarmotDeviceLinkingApprovalSnapshot,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        arg!(unsafe { preflight_out_ptr(out) });
+        let handle = arg!(unsafe { approval(handle) });
+        unsafe {
+            deliver(
+                block_on_handle(&handle.runtime, handle.inner.snapshot()),
+                out,
+            )
+        }
+    })
+}
+/// Explicit human approval bound to the displayed revision.
+/// # Safety
+/// handle must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_approval_approve(
+    handle: *const MarmotDeviceLinkingApproval,
+    displayed_revision: u64,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        let handle = arg!(unsafe { approval(handle) });
+        unit(block_on_handle(
+            &handle.runtime,
+            handle.inner.approve(displayed_revision),
+        ))
+    })
+}
+/// Validate the complete packet through the same original existing-device action.
+/// # Safety
+/// handle and borrowed bytes must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_approval_receive_enrollment_packet(
+    handle: *const MarmotDeviceLinkingApproval,
+    displayed_revision: u64,
+    bytes: *const u8,
+    len: usize,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        let handle = arg!(unsafe { approval(handle) });
+        let bytes = arg!(unsafe { packet(bytes, len, MAX_PACKET_BYTES) });
+        unit(block_on_handle(
+            &handle.runtime,
+            handle
+                .inner
+                .receive_enrollment_packet(displayed_revision, bytes),
+        ))
+    })
+}
+/// Revoke the exact original action; late packets cannot restore it.
+/// # Safety
+/// handle must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_approval_cancel(
+    handle: *const MarmotDeviceLinkingApproval,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        let handle = arg!(unsafe { approval(handle) });
+        unit(block_on_handle(&handle.runtime, handle.inner.cancel()))
+    })
+}
+/// Export complete all-leaf bytes before the original approver lease transfers.
+/// # Safety
+/// handle must remain valid and out writable for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_session_enrollment_packet(
+    handle: *const MarmotDeviceLinkingSession,
+    displayed_revision: u64,
+    out: *mut *mut MarmotDeviceLinkingBytes,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        arg!(unsafe { preflight_out_ptr(out) });
+        let handle = arg!(unsafe { session(handle) });
+        unsafe {
+            deliver(
+                block_on_handle(
+                    &handle.runtime,
+                    handle.inner.enrollment_packet(displayed_revision),
+                ),
+                out,
+            )
+        }
+    })
+}
+/// Validate the complete packet under the original recipient purpose.
+/// # Safety
+/// handle and borrowed bytes must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_session_receive_enrollment_packet(
+    handle: *const MarmotDeviceLinkingSession,
+    displayed_revision: u64,
+    bytes: *const u8,
+    len: usize,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        let handle = arg!(unsafe { session(handle) });
+        let bytes = arg!(unsafe { packet(bytes, len, MAX_PACKET_BYTES) });
+        unit(block_on_handle(
+            &handle.runtime,
+            handle
+                .inner
+                .receive_enrollment_packet(displayed_revision, bytes),
+        ))
+    })
+}
+/// Finalize original Add publication after explicit recipient packet handling.
+/// # Safety
+/// handle must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_session_finalize_linking(
+    handle: *const MarmotDeviceLinkingSession,
+    displayed_revision: u64,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        let handle = arg!(unsafe { session(handle) });
+        unit(block_on_handle(
+            &handle.runtime,
+            handle.inner.finalize_linking(displayed_revision),
+        ))
+    })
+}
+/// Free a standalone or cloned approval handle; never free a list-borrowed entry.
+/// # Safety
+/// handle must be NULL or library-owned, with no active calls; free before its client.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_approval_free(
+    handle: *mut MarmotDeviceLinkingApproval,
+) {
+    crate::memory::free_guard(|| unsafe { crate::subscriptions::free_plain(handle) });
+}
+/// Deep-free the list and every borrowed entry; retained clones stay valid.
+/// # Safety
+/// list must be NULL or a live library-owned list, released exactly once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_approval_list_free(
+    list: *mut MarmotDeviceLinkingApprovalList,
+) {
+    crate::memory::free_guard(|| unsafe { crate::memory::free_boxed(list) });
+}

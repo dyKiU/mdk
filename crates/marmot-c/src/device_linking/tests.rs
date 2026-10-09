@@ -105,6 +105,18 @@ fn default_device_binding_is_typed_unsupported_and_clears_output() {
             MarmotStatus::DeviceLinkingUnsupported
         );
         assert!(out.is_null());
+        let mut targets = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_device_linking_targets(&client, account.as_ptr(), &mut targets),
+            MarmotStatus::DeviceLinkingUnsupported
+        );
+        assert!(targets.is_null());
+        let mut approvals = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_pending_device_linking_approvals(&client, account.as_ptr(), &mut approvals),
+            MarmotStatus::DeviceLinkingUnsupported
+        );
+        assert!(approvals.is_null());
         let mut caps = std::ptr::null_mut();
         assert_eq!(
             marmot_device_linking_capabilities(&client, &mut caps),
@@ -370,5 +382,424 @@ unsafe fn drain(from: *const MarmotDeviceLinkingSession, to: *const MarmotDevice
             );
         }
         marmot_device_linking_outgoing_packet_list_free(out);
+    }
+}
+
+#[test]
+fn enrollment_outputs_preflight_and_new_records_deep_free() {
+    let _guard = audit::test_lock();
+    #[cfg(feature = "alloc-audit")]
+    let before = audit::live_allocations();
+    unsafe {
+        let mut targets = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_device_linking_targets(std::ptr::null(), std::ptr::null(), &mut targets),
+            MarmotStatus::NullPointer
+        );
+        assert!(targets.is_null());
+        let mut approvals = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_pending_device_linking_approvals(
+                std::ptr::null(),
+                std::ptr::null(),
+                &mut approvals
+            ),
+            MarmotStatus::NullPointer
+        );
+        assert!(approvals.is_null());
+        let mut cloned = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_device_linking_approval_clone(std::ptr::null(), &mut cloned),
+            MarmotStatus::NullPointer
+        );
+        assert!(cloned.is_null());
+        let mut observed = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_device_linking_approval_snapshot(std::ptr::null(), &mut observed),
+            MarmotStatus::NullPointer
+        );
+        assert!(observed.is_null());
+        let mut bytes = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_device_linking_session_enrollment_packet(std::ptr::null(), 0, &mut bytes),
+            MarmotStatus::NullPointer
+        );
+        assert!(bytes.is_null());
+        let values = vec![marmot_uniffi::DeviceLinkingTargetFfi {
+            selector: vec![0, 255, 0],
+            device_count: 3,
+        }];
+        let targets: MarmotDeviceLinkingTargetList = values.into();
+        assert_eq!((*targets.items).device_count, 3);
+        assert_eq!(
+            std::slice::from_raw_parts((*targets.items).selector, (*targets.items).selector_len),
+            &[0, 255, 0]
+        );
+        marmot_device_linking_target_list_free(boxed(targets));
+        marmot_device_linking_approval_snapshot_free(boxed(
+            MarmotDeviceLinkingApprovalSnapshot::from(
+                marmot_uniffi::DeviceLinkingApprovalSnapshotFfi {
+                    revision: u64::MAX,
+                    phase: marmot_uniffi::DeviceLinkingApprovalPhaseFfi::Settled,
+                },
+            ),
+        ));
+        marmot_device_linking_approval_list_free(boxed(MarmotDeviceLinkingApprovalList {
+            items: std::ptr::null_mut(),
+            len: 0,
+        }));
+        marmot_device_linking_approval_list_free(std::ptr::null_mut());
+        marmot_device_linking_approval_free(std::ptr::null_mut());
+        assert_eq!(MarmotDeviceLinkingPhase::EnrollmentComplete as u32, 8);
+        assert_eq!(MarmotDeviceLinkingPhase::Failed as u32, 7);
+    }
+    #[cfg(feature = "alloc-audit")]
+    assert_eq!(before, audit::live_allocations());
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[test]
+fn actual_c_three_device_enrollment_retains_approval_after_list_free() {
+    use nostr::prelude::ToBech32;
+    use std::time::{Duration, Instant};
+    let _guard = audit::test_lock();
+    #[cfg(feature = "alloc-audit")]
+    let before = audit::live_allocations();
+    let relay_runtime = tokio::runtime::Runtime::new().unwrap();
+    let relay = nostr_relay_builder::LocalRelay::new(nostr_relay_builder::RelayBuilder::default());
+    relay_runtime.block_on(relay.run()).unwrap();
+    let url = relay_runtime.block_on(relay.url()).to_string();
+    let keys = nostr::prelude::Keys::generate();
+    let dirs: [tempfile::TempDir; 3] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
+    let clients = dirs
+        .iter()
+        .map(|dir| client(dir.path(), url.clone()))
+        .collect::<Vec<_>>();
+    let accounts = clients
+        .iter()
+        .map(|client| {
+            let account = client
+                .block_on(client.marmot.login(
+                    keys.secret_key().to_bech32().unwrap(),
+                    vec![url.clone()],
+                    Vec::new(),
+                    Vec::new(),
+                ))
+                .unwrap();
+            CString::new(account.account_id_hex).unwrap()
+        })
+        .collect::<Vec<_>>();
+    unsafe {
+        let (initial_a, b) = c_pair(&clients[0], &accounts[0], &clients[1], &accounts[1], None);
+        c_verify(initial_a, b);
+        c_continue(b);
+        c_continue(initial_a);
+        c_wait_complete(initial_a);
+        c_wait_complete(b);
+        assert_eq!(
+            marmot_device_linking_session_cancel(initial_a),
+            MarmotStatus::Ok
+        );
+        assert_eq!(marmot_device_linking_session_cancel(b), MarmotStatus::Ok);
+        marmot_device_linking_session_free(initial_a);
+        marmot_device_linking_session_free(b);
+        let mut targets = std::ptr::null_mut();
+        assert_eq!(
+            marmot_device_linking_targets(&clients[0], accounts[0].as_ptr(), &mut targets),
+            MarmotStatus::Ok
+        );
+        assert_eq!((*targets).len, 1);
+        assert_eq!((*(*targets).items).device_count, 2);
+        let target = &*(*targets).items;
+        let (a, c) = c_pair(
+            &clients[0],
+            &accounts[0],
+            &clients[2],
+            &accounts[2],
+            Some((target.selector, target.selector_len)),
+        );
+        marmot_device_linking_target_list_free(targets);
+        c_verify(a, c);
+        c_continue(c);
+        c_continue(a);
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut retained = std::ptr::null_mut();
+        loop {
+            let mut list = std::ptr::null_mut();
+            assert_eq!(
+                marmot_pending_device_linking_approvals(
+                    &clients[1],
+                    accounts[1].as_ptr(),
+                    &mut list
+                ),
+                MarmotStatus::Ok
+            );
+            if (*list).len > 0 {
+                assert_eq!((*list).len, 1);
+                assert_eq!(
+                    marmot_device_linking_approval_clone((*(*list).items).handle, &mut retained),
+                    MarmotStatus::Ok
+                );
+            }
+            marmot_device_linking_approval_list_free(list);
+            if !retained.is_null() {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "actual encrypted proposal must reach opaque C approval"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        // The original list is gone: this clone retains exactly the same action.
+        let mut observed = std::ptr::null_mut();
+        assert_eq!(
+            marmot_device_linking_approval_snapshot(retained, &mut observed),
+            MarmotStatus::Ok
+        );
+        assert_eq!(
+            (*observed).phase,
+            MarmotDeviceLinkingApprovalPhase::AwaitingApproval
+        );
+        assert_eq!(
+            marmot_device_linking_approval_approve(retained, (*observed).revision + 1),
+            MarmotStatus::DeviceLinkingStaleRevision
+        );
+        assert_eq!(
+            marmot_device_linking_approval_approve(retained, (*observed).revision),
+            MarmotStatus::Ok
+        );
+        marmot_device_linking_approval_snapshot_free(observed);
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let packet = loop {
+            let current = snapshot(a);
+            let mut bytes = std::ptr::null_mut();
+            let status =
+                marmot_device_linking_session_enrollment_packet(a, (*current).revision, &mut bytes);
+            marmot_device_linking_snapshot_free(current);
+            match status {
+                MarmotStatus::Ok => break bytes,
+                MarmotStatus::DeviceLinkingNotReady => assert!(bytes.is_null()),
+                _ => panic!("actual packet export failed: {status:?}"),
+            }
+            assert!(
+                Instant::now() < deadline,
+                "complete all-leaf approval packet must arrive"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert!((*packet).bytes_len <= 16 * 1024);
+        let current = snapshot(c);
+        assert_eq!(
+            marmot_device_linking_session_receive_enrollment_packet(
+                c,
+                (*current).revision,
+                std::ptr::dangling(),
+                usize::MAX
+            ),
+            MarmotStatus::DeviceLinkingInvalidPacket
+        );
+        assert_eq!(
+            marmot_device_linking_session_receive_enrollment_packet(
+                c,
+                (*current).revision,
+                (*packet).bytes,
+                (*packet).bytes_len
+            ),
+            MarmotStatus::Ok
+        );
+        marmot_device_linking_snapshot_free(current);
+        let mut observed = std::ptr::null_mut();
+        assert_eq!(
+            marmot_device_linking_approval_snapshot(retained, &mut observed),
+            MarmotStatus::Ok
+        );
+        assert_eq!(
+            marmot_device_linking_approval_receive_enrollment_packet(
+                retained,
+                (*observed).revision,
+                (*packet).bytes,
+                (*packet).bytes_len
+            ),
+            MarmotStatus::Ok
+        );
+        marmot_device_linking_approval_snapshot_free(observed);
+        marmot_device_linking_bytes_free(packet);
+        let current = snapshot(a);
+        assert_eq!(
+            marmot_device_linking_session_finalize_linking(a, (*current).revision),
+            MarmotStatus::Ok
+        );
+        marmot_device_linking_snapshot_free(current);
+        c_wait_complete(a);
+        c_wait_complete(c);
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let mut observed = std::ptr::null_mut();
+            assert_eq!(
+                marmot_device_linking_approval_snapshot(retained, &mut observed),
+                MarmotStatus::Ok
+            );
+            let settled = (*observed).phase == MarmotDeviceLinkingApprovalPhase::Settled;
+            marmot_device_linking_approval_snapshot_free(observed);
+            if settled {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "original B approval must observe protected completion"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        for (client, account) in clients.iter().zip(&accounts) {
+            let mut targets = std::ptr::null_mut();
+            assert_eq!(
+                marmot_device_linking_targets(client, account.as_ptr(), &mut targets),
+                MarmotStatus::Ok
+            );
+            assert_eq!((*targets).len, 1);
+            assert_eq!((*(*targets).items).device_count, 3);
+            marmot_device_linking_target_list_free(targets);
+        }
+        assert_eq!(marmot_device_linking_session_cancel(a), MarmotStatus::Ok);
+        assert_eq!(marmot_device_linking_session_cancel(c), MarmotStatus::Ok);
+        assert_eq!(
+            marmot_device_linking_approval_cancel(retained),
+            MarmotStatus::Ok
+        );
+        marmot_device_linking_session_free(a);
+        marmot_device_linking_session_free(c);
+        marmot_device_linking_approval_free(retained);
+    }
+    for client in clients {
+        client.block_on(client.marmot.shutdown_and_close()).unwrap();
+    }
+    relay.shutdown();
+    #[cfg(feature = "alloc-audit")]
+    assert_eq!(before, audit::live_allocations());
+}
+
+#[cfg(feature = "experimental-device-sync")]
+unsafe fn c_pair(
+    existing: &MarmotClient,
+    existing_account: &CString,
+    recipient: &MarmotClient,
+    recipient_account: &CString,
+    target: Option<(*const u8, usize)>,
+) -> (
+    *mut MarmotDeviceLinkingSession,
+    *mut MarmotDeviceLinkingSession,
+) {
+    unsafe {
+        let mut c = std::ptr::null_mut();
+        assert_eq!(
+            marmot_begin_device_linking_session(recipient, recipient_account.as_ptr(), &mut c),
+            MarmotStatus::Ok
+        );
+        let mut request = std::ptr::null_mut();
+        assert_eq!(
+            marmot_device_linking_session_setup_packet(c, &mut request),
+            MarmotStatus::Ok
+        );
+        let (target, len) = target.unwrap_or((std::ptr::null(), 0));
+        let mut a = std::ptr::null_mut();
+        assert_eq!(
+            marmot_approve_device_linking_session(
+                existing,
+                existing_account.as_ptr(),
+                (*request).bytes,
+                (*request).bytes_len,
+                target,
+                len,
+                &mut a
+            ),
+            MarmotStatus::Ok
+        );
+        marmot_device_linking_bytes_free(request);
+        let mut challenge = std::ptr::null_mut();
+        assert_eq!(
+            marmot_device_linking_session_setup_packet(a, &mut challenge),
+            MarmotStatus::Ok
+        );
+        assert_eq!(
+            marmot_device_linking_session_receive_setup_packet(
+                c,
+                (*challenge).bytes,
+                (*challenge).bytes_len
+            ),
+            MarmotStatus::Ok
+        );
+        marmot_device_linking_bytes_free(challenge);
+        (a, c)
+    }
+}
+#[cfg(feature = "experimental-device-sync")]
+unsafe fn c_verify(a: *const MarmotDeviceLinkingSession, c: *const MarmotDeviceLinkingSession) {
+    unsafe {
+        for _ in 0..8 {
+            drain(a, c);
+            drain(c, a);
+        }
+        let ac = snapshot(a);
+        let cc = snapshot(c);
+        assert_eq!((*ac).phase, MarmotDeviceLinkingPhase::ComparisonAvailable);
+        assert!(!(*ac).decimals.is_null() && !(*cc).decimals.is_null());
+        assert_eq!((*(*ac).decimals).first, (*(*cc).decimals).first);
+        assert_eq!((*(*ac).decimals).second, (*(*cc).decimals).second);
+        assert_eq!((*(*ac).decimals).third, (*(*cc).decimals).third);
+        assert_eq!(
+            marmot_device_linking_session_confirm_comparison(a, (*ac).revision),
+            MarmotStatus::Ok
+        );
+        assert_eq!(
+            marmot_device_linking_session_confirm_comparison(c, (*cc).revision),
+            MarmotStatus::Ok
+        );
+        marmot_device_linking_snapshot_free(ac);
+        marmot_device_linking_snapshot_free(cc);
+        for _ in 0..8 {
+            drain(a, c);
+            drain(c, a);
+        }
+    }
+}
+#[cfg(feature = "experimental-device-sync")]
+unsafe fn c_continue(handle: *const MarmotDeviceLinkingSession) {
+    unsafe {
+        let current = snapshot(handle);
+        assert_eq!(
+            marmot_device_linking_session_continue_linking(handle, (*current).revision),
+            MarmotStatus::Ok
+        );
+        marmot_device_linking_snapshot_free(current);
+    }
+}
+#[cfg(feature = "experimental-device-sync")]
+unsafe fn c_wait_complete(handle: *const MarmotDeviceLinkingSession) {
+    use std::time::{Duration, Instant};
+    let deadline = Instant::now() + Duration::from_secs(20);
+    unsafe {
+        loop {
+            let current = snapshot(handle);
+            let phase = (*current).phase;
+            if phase == MarmotDeviceLinkingPhase::EnrollmentComplete {
+                assert!((*current).decimals.is_null());
+            }
+            marmot_device_linking_snapshot_free(current);
+            if phase == MarmotDeviceLinkingPhase::EnrollmentComplete {
+                break;
+            }
+            assert!(!matches!(
+                phase,
+                MarmotDeviceLinkingPhase::Failed
+                    | MarmotDeviceLinkingPhase::Cancelled
+                    | MarmotDeviceLinkingPhase::Expired
+            ));
+            assert!(
+                Instant::now() < deadline,
+                "opaque C session must observe actual protected completion"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 }

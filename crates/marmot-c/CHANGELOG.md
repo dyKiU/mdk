@@ -9,6 +9,14 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- Opaque protected target selection, existing-device approval handles, bounded
+  enrollment packets and explicit original-session finalization. Pending approval
+  entries are list-owned; clone a handle before freeing its parent list and free
+  the retained clone separately. Session phase `EnrollmentComplete` appends value8;
+  existing phase values0–7 are unchanged. Use matching generated headers/libraries.
+  Capability remains false pending artifacts and application acceptance; protected
+  enrollment does not establish ordinary chat or history delivery.
+
 - Opaque device-verification session/subscription handles, bounded transport and
   display records, exact cancellation and typed statuses 96–101. The C experimental
   feature forwards the UniFFI opt-in; default methods remain Unsupported.

@@ -816,7 +816,17 @@ typedef enum MarmotDeviceLinkingPhase {
   MARMOT_DEVICE_LINKING_PHASE_CANCELLED,
   MARMOT_DEVICE_LINKING_PHASE_EXPIRED,
   MARMOT_DEVICE_LINKING_PHASE_FAILED,
+  MARMOT_DEVICE_LINKING_PHASE_ENROLLMENT_COMPLETE,
 } MarmotDeviceLinkingPhase;
+
+typedef enum MarmotDeviceLinkingApprovalPhase {
+  MARMOT_DEVICE_LINKING_APPROVAL_PHASE_AWAITING_APPROVAL,
+  MARMOT_DEVICE_LINKING_APPROVAL_PHASE_APPROVED_AWAITING_PACKET,
+  MARMOT_DEVICE_LINKING_APPROVAL_PHASE_AWAITING_SETTLEMENT,
+  MARMOT_DEVICE_LINKING_APPROVAL_PHASE_SETTLED,
+  MARMOT_DEVICE_LINKING_APPROVAL_PHASE_CANCELLED,
+  MARMOT_DEVICE_LINKING_APPROVAL_PHASE_EXPIRED,
+} MarmotDeviceLinkingApprovalPhase;
 
 /**
  * Why a timeline delta fired.
@@ -1202,6 +1212,11 @@ typedef struct MarmotClient MarmotClient;
  * Free before its client. Concurrent next and commands are supported; never free during a call.
  */
 typedef struct MarmotConversationWindowSubscription MarmotConversationWindowSubscription;
+
+/**
+ * An opaque original existing-device action. Clone to retain a list-borrowed handle.
+ */
+typedef struct MarmotDeviceLinkingApproval MarmotDeviceLinkingApproval;
 
 /**
  * Concurrent methods are supported; never free while a call is active.
@@ -4498,6 +4513,40 @@ typedef struct MarmotDeviceLinkingSnapshot {
   enum MarmotDeviceLinkingPhase phase;
   struct MarmotDeviceLinkingDecimals *decimals;
 } MarmotDeviceLinkingSnapshot;
+
+typedef struct MarmotDeviceLinkingTarget {
+  uint8_t *selector;
+  uintptr_t selector_len;
+  uint32_t device_count;
+} MarmotDeviceLinkingTarget;
+
+/**
+ *Owned list; free the root with its `_free` function only.
+ */
+typedef struct MarmotDeviceLinkingTargetList {
+  struct MarmotDeviceLinkingTarget *items;
+  uintptr_t len;
+} MarmotDeviceLinkingTargetList;
+
+/**
+ * Embedded borrowed handle, valid until its owning list is freed.
+ */
+typedef struct MarmotDeviceLinkingApprovalEntry {
+  struct MarmotDeviceLinkingApproval *handle;
+} MarmotDeviceLinkingApprovalEntry;
+
+/**
+ * Owned list. Clone selected handles before freeing this list.
+ */
+typedef struct MarmotDeviceLinkingApprovalList {
+  struct MarmotDeviceLinkingApprovalEntry *items;
+  uintptr_t len;
+} MarmotDeviceLinkingApprovalList;
+
+typedef struct MarmotDeviceLinkingApprovalSnapshot {
+  uint64_t revision;
+  enum MarmotDeviceLinkingApprovalPhase phase;
+} MarmotDeviceLinkingApprovalSnapshot;
 
 /**
  * Stable stream and start-message identifiers.
@@ -9321,7 +9370,7 @@ MarmotStatus marmot_begin_device_linking_session(const struct MarmotClient *clie
                                                  struct MarmotDeviceLinkingSession **out);
 
 /**
- * Approve bounded setup metadata. NULL/zero target means singleton; existing targets stay gated.
+ * Approve bounded setup metadata. NULL/zero target means singleton; selected rosters are actor-validated.
  * # Safety
  * Borrowed byte buffers must be valid for their lengths; out/account/client must be valid.
  */
@@ -9444,6 +9493,106 @@ void marmot_device_linking_session_free(struct MarmotDeviceLinkingSession *handl
  * handle must be NULL or library-owned with no active calls; free before its creating client.
  */
 void marmot_device_linking_subscription_free(struct MarmotDeviceLinkingSubscription *handle);
+
+/**
+ * Observe protected roster selectors; selection is revalidated by the actor.
+ * # Safety
+ * client/account must remain valid and out writable for the call.
+ */
+MarmotStatus marmot_device_linking_targets(const struct MarmotClient *client,
+                                           const char *account,
+                                           struct MarmotDeviceLinkingTargetList **out);
+
+/**
+ * Return opaque handles sharing original existing-device actions.
+ * # Safety
+ * client/account must remain valid and out writable. List entries are borrowed.
+ */
+MarmotStatus marmot_pending_device_linking_approvals(const struct MarmotClient *client,
+                                                     const char *account,
+                                                     struct MarmotDeviceLinkingApprovalList **out);
+
+/**
+ * Retain a handle independently of its original list; no new approval action is created.
+ * # Safety
+ * handle must remain valid and out writable; free the returned clone separately.
+ */
+MarmotStatus marmot_device_linking_approval_clone(const struct MarmotDeviceLinkingApproval *handle,
+                                                  struct MarmotDeviceLinkingApproval **out);
+
+/**
+ * Read finite observation of the same original action, never enrollment permission.
+ * # Safety
+ * handle must remain valid and out writable for the call.
+ */
+MarmotStatus marmot_device_linking_approval_snapshot(const struct MarmotDeviceLinkingApproval *handle,
+                                                     struct MarmotDeviceLinkingApprovalSnapshot **out);
+
+/**
+ * Explicit human approval bound to the displayed revision.
+ * # Safety
+ * handle must remain valid for the call.
+ */
+MarmotStatus marmot_device_linking_approval_approve(const struct MarmotDeviceLinkingApproval *handle,
+                                                    uint64_t displayed_revision);
+
+/**
+ * Validate the complete packet through the same original existing-device action.
+ * # Safety
+ * handle and borrowed bytes must remain valid for the call.
+ */
+MarmotStatus marmot_device_linking_approval_receive_enrollment_packet(const struct MarmotDeviceLinkingApproval *handle,
+                                                                      uint64_t displayed_revision,
+                                                                      const uint8_t *bytes,
+                                                                      uintptr_t len);
+
+/**
+ * Revoke the exact original action; late packets cannot restore it.
+ * # Safety
+ * handle must remain valid for the call.
+ */
+MarmotStatus marmot_device_linking_approval_cancel(const struct MarmotDeviceLinkingApproval *handle);
+
+/**
+ * Export complete all-leaf bytes before the original approver lease transfers.
+ * # Safety
+ * handle must remain valid and out writable for the call.
+ */
+MarmotStatus marmot_device_linking_session_enrollment_packet(const struct MarmotDeviceLinkingSession *handle,
+                                                             uint64_t displayed_revision,
+                                                             struct MarmotDeviceLinkingBytes **out);
+
+/**
+ * Validate the complete packet under the original recipient purpose.
+ * # Safety
+ * handle and borrowed bytes must remain valid for the call.
+ */
+MarmotStatus marmot_device_linking_session_receive_enrollment_packet(const struct MarmotDeviceLinkingSession *handle,
+                                                                     uint64_t displayed_revision,
+                                                                     const uint8_t *bytes,
+                                                                     uintptr_t len);
+
+/**
+ * Finalize original Add publication after explicit recipient packet handling.
+ * # Safety
+ * handle must remain valid for the call.
+ */
+MarmotStatus marmot_device_linking_session_finalize_linking(const struct MarmotDeviceLinkingSession *handle,
+                                                            uint64_t displayed_revision);
+
+/**
+ * Free a standalone or cloned approval handle; never free a list-borrowed entry.
+ * # Safety
+ * handle must be NULL or library-owned, with no active calls; free before its client.
+ */
+void marmot_device_linking_approval_free(struct MarmotDeviceLinkingApproval *handle);
+
+/**
+ * Deep-free the list and every borrowed entry; retained clones stay valid.
+ * # Safety
+ * list must be NULL or a live library-owned list, released exactly once.
+ */
+void marmot_device_linking_approval_list_free(struct MarmotDeviceLinkingApprovalList *list);
 
 /**
  * Create an offline session from a bunker URI, client pairing config, or durable
@@ -11962,6 +12111,25 @@ void marmot_device_linking_outgoing_packet_list_free(struct MarmotDeviceLinkingO
  * ptr must be NULL or a live library-owned result, released exactly once.
  */
 void marmot_device_linking_bytes_free(struct MarmotDeviceLinkingBytes *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_device_linking_approval_snapshot_free(struct MarmotDeviceLinkingApprovalSnapshot *ptr);
+
+/**
+ * Free a list returned by this library. NULL is a no-op.
+ *
+ * # Safety
+ * `list` must be NULL or an unfreed pointer returned by this
+ * library.
+ */
+void marmot_device_linking_target_list_free(struct MarmotDeviceLinkingTargetList *list);
 
 /**
  * Free a value of this type returned by this library. NULL

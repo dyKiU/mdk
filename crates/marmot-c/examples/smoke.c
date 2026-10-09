@@ -38,6 +38,10 @@ _Static_assert(MARMOT_REPORT_REASON_OTHER == 6, "report reason ABI value");
 
 _Static_assert(MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED == 96, "device unsupported ABI");
 _Static_assert(MARMOT_STATUS_DEVICE_LINKING_RUNTIME_UNAVAILABLE == 101, "device runtime ABI");
+_Static_assert(MARMOT_DEVICE_LINKING_PHASE_FAILED == 7, "existing device phase ABI");
+_Static_assert(MARMOT_DEVICE_LINKING_PHASE_ENROLLMENT_COMPLETE == 8, "completed device phase ABI");
+_Static_assert(MARMOT_DEVICE_LINKING_APPROVAL_PHASE_SETTLED == 3, "settled approval ABI");
+
 
 static int failures = 0;
 
@@ -204,6 +208,42 @@ int main(int argc, char **argv) {
     marmot_device_linking_snapshot_free(NULL);
     marmot_device_linking_outgoing_packet_list_free(NULL);
     marmot_device_linking_bytes_free(NULL);
+    struct MarmotDeviceLinkingTargetList *device_targets = NULL;
+    st = marmot_device_linking_targets(client, "missing", &device_targets);
+    check(st == MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED && device_targets == NULL,
+          "default protected targets typed Unsupported before lookup");
+    marmot_device_linking_target_list_free(device_targets);
+    struct MarmotDeviceLinkingApprovalList *approval_list = NULL;
+    st = marmot_pending_device_linking_approvals(client, "missing", &approval_list);
+    check(st == MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED && approval_list == NULL,
+          "default pending approvals typed Unsupported before lookup");
+    marmot_device_linking_approval_list_free(approval_list);
+    struct MarmotDeviceLinkingApproval *approval_clone = NULL;
+    st = marmot_device_linking_approval_clone(NULL, &approval_clone);
+    check(st == MARMOT_STATUS_NULL_POINTER && approval_clone == NULL,
+          "approval clone rejects missing original owner");
+    struct MarmotDeviceLinkingApprovalSnapshot *approval_snapshot = NULL;
+    st = marmot_device_linking_approval_snapshot(NULL, &approval_snapshot);
+    check(st == MARMOT_STATUS_NULL_POINTER && approval_snapshot == NULL,
+          "approval snapshot clears output before missing owner");
+    check(marmot_device_linking_approval_approve(NULL, UINT64_MAX) == MARMOT_STATUS_NULL_POINTER,
+          "approval requires live owner");
+    check(marmot_device_linking_approval_receive_enrollment_packet(NULL, 0, NULL, 0) == MARMOT_STATUS_NULL_POINTER,
+          "approval packet requires live owner");
+    check(marmot_device_linking_approval_cancel(NULL) == MARMOT_STATUS_NULL_POINTER,
+          "approval cancel requires live owner");
+    struct MarmotDeviceLinkingBytes *enrollment_bytes = NULL;
+    st = marmot_device_linking_session_enrollment_packet(NULL, UINT64_MAX, &enrollment_bytes);
+    check(st == MARMOT_STATUS_NULL_POINTER && enrollment_bytes == NULL,
+          "enrollment packet output clears before missing session");
+    check(marmot_device_linking_session_receive_enrollment_packet(NULL, 0, NULL, 0) == MARMOT_STATUS_NULL_POINTER,
+          "recipient packet requires original session");
+    check(marmot_device_linking_session_finalize_linking(NULL, 0) == MARMOT_STATUS_NULL_POINTER,
+          "finalization requires original session");
+    marmot_device_linking_approval_snapshot_free(approval_snapshot);
+    marmot_device_linking_approval_free(approval_clone);
+    marmot_device_linking_bytes_free(enrollment_bytes);
+
 
 
     st = marmot_record_host_performance(client,

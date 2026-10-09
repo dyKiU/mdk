@@ -1,6 +1,7 @@
-//! Thin opaque native verification handles; all consent stays in the App actor.
+//! Thin opaque native linking handles; all consent stays in the App actor.
 use crate::conversions::{
-    DeviceLinkingCapabilitiesFfi, DeviceLinkingOutgoingPacketFfi, DeviceLinkingSnapshotFfi,
+    DeviceLinkingApprovalSnapshotFfi, DeviceLinkingCapabilitiesFfi, DeviceLinkingOutgoingPacketFfi,
+    DeviceLinkingSnapshotFfi, DeviceLinkingTargetFfi,
 };
 use crate::{Marmot, MarmotKitError};
 use std::sync::Arc;
@@ -8,6 +9,10 @@ use std::sync::Arc;
 #[derive(uniffi::Object)]
 pub struct DeviceLinkingSession {
     inner: marmot_app::DeviceLinkingSession,
+}
+#[derive(uniffi::Object)]
+pub struct DeviceLinkingApproval {
+    inner: marmot_app::DeviceLinkingApproval,
 }
 #[derive(uniffi::Object)]
 pub struct DeviceLinkingSubscription {
@@ -18,6 +23,34 @@ impl Marmot {
     /// Actual runtime capabilities; verification completion is never enrollment readiness.
     pub fn device_linking_capabilities(&self) -> DeviceLinkingCapabilitiesFfi {
         self.runtime.accounts().device_linking_capabilities().into()
+    }
+    /// Observe protected roster selectors; the actor revalidates any selected target.
+    pub async fn device_linking_targets(
+        &self,
+        account_ref: String,
+    ) -> Result<Vec<DeviceLinkingTargetFfi>, MarmotKitError> {
+        Ok(self
+            .runtime
+            .accounts()
+            .device_linking_targets(&account_ref)
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+    /// Return opaque handles sharing each original existing-device approval action.
+    pub async fn pending_device_linking_approvals(
+        &self,
+        account_ref: String,
+    ) -> Result<Vec<Arc<DeviceLinkingApproval>>, MarmotKitError> {
+        Ok(self
+            .runtime
+            .accounts()
+            .pending_device_linking_approvals(&account_ref)
+            .await?
+            .into_iter()
+            .map(|inner| Arc::new(DeviceLinkingApproval { inner }))
+            .collect())
     }
     /// Reserve the new device's original purpose and return an opaque verification session.
     pub async fn begin_device_linking_session(
@@ -93,6 +126,28 @@ impl DeviceLinkingSession {
             inner: self.inner.subscribe(),
         })
     }
+    /// Export the bounded complete all-leaf packet before the original lease transfers.
+    pub async fn enrollment_packet(
+        &self,
+        displayed_revision: u64,
+    ) -> Result<Vec<u8>, MarmotKitError> {
+        Ok(self.inner.enrollment_packet(displayed_revision).await?)
+    }
+    /// Validate enrollment bytes under the original recipient action, without host authority.
+    pub async fn receive_enrollment_packet(
+        &self,
+        displayed_revision: u64,
+        packet: Vec<u8>,
+    ) -> Result<(), MarmotKitError> {
+        Ok(self
+            .inner
+            .receive_enrollment_packet(displayed_revision, packet)
+            .await?)
+    }
+    /// Explicitly finalize the original approver action after recipient packet handling.
+    pub async fn finalize_linking(&self, displayed_revision: u64) -> Result<(), MarmotKitError> {
+        Ok(self.inner.finalize_linking(displayed_revision).await?)
+    }
     /// Revoke this exact session before waiting for durable actor cleanup.
     pub async fn cancel(&self) -> Result<(), MarmotKitError> {
         Ok(self.inner.cancel().await?)
@@ -100,6 +155,32 @@ impl DeviceLinkingSession {
     /// Continue original singleton actions after genuine verification of the displayed revision.
     pub async fn continue_linking(&self, displayed_revision: u64) -> Result<(), MarmotKitError> {
         Ok(self.inner.continue_linking(displayed_revision).await?)
+    }
+}
+#[uniffi::export(async_runtime = "tokio")]
+impl DeviceLinkingApproval {
+    /// Finite observation of the exact original existing-device action.
+    pub async fn snapshot(&self) -> Result<DeviceLinkingApprovalSnapshotFfi, MarmotKitError> {
+        Ok(self.inner.snapshot().await?.into())
+    }
+    /// Explicit human approval bound to the revision displayed on this device.
+    pub async fn approve(&self, displayed_revision: u64) -> Result<(), MarmotKitError> {
+        Ok(self.inner.approve(displayed_revision).await?)
+    }
+    /// Validate the complete packet through the same original approval action.
+    pub async fn receive_enrollment_packet(
+        &self,
+        displayed_revision: u64,
+        packet: Vec<u8>,
+    ) -> Result<(), MarmotKitError> {
+        Ok(self
+            .inner
+            .receive_enrollment_packet(displayed_revision, packet)
+            .await?)
+    }
+    /// Revoke the exact original action; cancellation cannot be undone by packet replay.
+    pub async fn cancel(&self) -> Result<(), MarmotKitError> {
+        Ok(self.inner.cancel().await?)
     }
 }
 #[uniffi::export(async_runtime = "tokio")]

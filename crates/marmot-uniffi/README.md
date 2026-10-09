@@ -1075,6 +1075,8 @@ sessions, bounded packet exchange, standard SAS decimals, revision-bound human
 confirmation and closeable observations. Inspect actual runtime capabilities:
 default builds return typed Unsupported, and experimental builds support
 verification with revision-bound singleton continuation through the original
-actor-owned actions. Enrollment capability remains false while the full public
-three-device flow is gated. Completed verification or continuation alone does
+actor-owned actions. Opaque target selection, existing-device approval and
+packet/finalization methods support ready-account protected three-device
+enrollment. Enrollment capability remains false pending matched artifacts and
+application acceptance. Completed verification or continuation alone does
 not report synchronized messages or history.

@@ -445,10 +445,24 @@ wait with DEVICE_LINKING_CLOSED; close does not free the stream. The C statuses
 and StaleRevision; existing numeric statuses remain unchanged. Feature builds
 accept revision-bound singleton continuation after genuine verification, using
 the original actor-owned actions. Enrollment capability remains false until the
-full public three-device flow qualifies. VerificationCompleteEnrollmentPending
+matching artifacts and application acceptance qualify. VerificationCompleteEnrollmentPending
 alone does not establish membership or synchronized chat/history.
 
 Singleton binding continuation, close/re-entry and allocation controls are
 qualified separately from the App protected-settlement relay test. See
 [the focused binding evidence](../../docs/device-sync-native-singleton-binding-parity-verification.json);
 this does not establish full three-device enrollment or native chat/history.
+
+
+Device-linking target lists own their selector byte buffers. Pending approval
+lists own the embedded handle entries: each entry is borrowed until its parent
+list is deep-freed. Use `marmot_device_linking_approval_clone` before freeing that
+list when an approval must outlive it; the clone shares the original action and
+must be released with `marmot_device_linking_approval_free`. Explicit cancel is
+preferred before releasing the last handle. Never separately free a borrowed
+list entry. Approval snapshot records have their own deep-free function.
+
+`EnrollmentComplete` appends session phase8 without renumbering0–7. Existing-
+device approvals have a separate phase enum and report `Settled`. The shared
+contract explains revision-bound packet handling and finalization. Positive
+actions close after settlement; historical completion is not chat/history sync.

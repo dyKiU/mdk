@@ -4,7 +4,8 @@
 builds expose the same public shapes and return `DeviceLinkingUnsupported` before
 account lookup or purpose reservation. The experimental feature supports
 verification and revision-bound singleton continuation: `enrollment_supported`
-remains false while the full public three-device flow is gated. After genuine
+remains false pending matched artifacts and application acceptance. Ready-account
+three-device enrollment is available through the original opaque actions. After genuine
 verification, `continue_linking` schedules the original actor-owned singleton
 actions; before verification it returns `DeviceLinkingNotReady`. `VerificationCompleteEnrollmentPending` describes the
 completed comparison, not membership, delivery or synchronized history.
@@ -14,8 +15,9 @@ completed comparison, not membership, delivery or synchronized history.
 Reserve a session with `begin_device_linking_session(account_ref)` on the new
 device. Transfer its `setup_packet()` to the existing device and call
 `approve_device_linking_session(account_ref, request, None)` there. Return the
-approver's setup packet through `receive_setup_packet`. Existing-group targets
-remain gated. These bounded packets bind actual actor-created identities and
+approver's setup packet through `receive_setup_packet`. For an existing protected group, obtain `device_linking_targets(account_ref)`
+and pass its opaque selector as the target. This is observation only: the actor
+freshly revalidates the selected full tree and the original actions. These bounded packets bind actual actor-created identities and
 purposes; the host never supplies a context, generation, protected predecessor,
 verifier proof or caller deadline.
 
@@ -63,10 +65,32 @@ packet round trips, verify capability/typed factory gates and close the runtime.
 Actual SDK session exchange is separately exercised by the Rust binding tests.
 These checks do not package Apple artifacts or demonstrate chat synchronization.
 
-Singleton continuation is checked through genuine SDK verification and opaque
-A/C binding handles. Close wakes pending observations; the C boundary also
-checks callback re-entry and deep-free accounting. Eight focused controls across
-default and experimental cohorts pass. This binding slice does not expose a
-settlement-complete observation or prove chat/history delivery; actual protected
-settlement has separate App relay evidence. See
-[qualification](../../docs/device-sync-native-singleton-binding-parity-verification.json).
+## Existing protected groups and completion
+
+After both devices finish comparison, call revision-bound `continue_linking` on
+the original new-device and approver sessions. Other current devices poll
+`pending_device_linking_approvals(account_ref)`, display each approval snapshot
+and explicitly submit `approve(displayed_revision)`. Repeated polls share the
+same original action; a retained handle grants no permission after its original
+receipt expires, is cancelled or its worker closes.
+
+The approver polls `enrollment_packet(displayed_revision)` until all original
+leaf approvals are available (`DeviceLinkingNotReady` permits retry). Deliver the
+same bounded packet through the new session's and each existing approval's
+`receive_enrollment_packet` with their displayed revisions. Only then explicitly
+call the approver's `finalize_linking`. All authentication, guarded Add, echo,
+Welcome admission and protected settlement remain inside Rust. The host cannot
+construct approval from a roster or serialized historical records.
+
+`EnrollmentComplete` is appended after the existing session phases; existing
+ordinals remain unchanged. Approval snapshots separately report `Settled`.
+These terminal historical observations require actual original-owner protected
+settlement before being cached. They remain readable after cleanup and expiry;
+positive actions are closed. `VerificationCompleteEnrollmentPending` is only
+comparison progress. Protected enrollment does not admit an ordinary chat,
+deliver a message or synchronize history.
+
+Rust binding relay tests use independently isolated ready accounts and real
+original SDK actions. This does not qualify fresh identity-only onboarding.
+Matched generated-language ABI, Apple artifacts and native application behavior
+require separate checks before enrollment is advertised.
