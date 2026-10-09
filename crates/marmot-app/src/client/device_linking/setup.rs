@@ -122,6 +122,27 @@ impl AppClient {
         ),
         ClientLinkingError,
     > {
+        if let Some(attempt) = self
+            .linking_owner
+            .settlement_attempt
+            .as_ref()
+            .filter(|attempt| attempt.guard.scope() == scope)
+        {
+            // Observation follows the same original memory owner after SDK
+            // custody moves. Neither stored facts nor this phase grant access.
+            if !attempt.guard.is_live() {
+                let error = if std::time::Instant::now() >= attempt.guard.deadline() {
+                    LinkError::Expired
+                } else {
+                    LinkError::Cancelled
+                };
+                return Err(ClientLinkingError::Owner(OwnerError::Verifier(error)));
+            }
+            return Ok((
+                crate::DeviceLinkingPhase::VerificationCompleteEnrollmentPending,
+                None,
+            ));
+        }
         self.scoped_linking_verifier(scope)?
             .native_observation_for_scope(scope, std::time::Instant::now())
             .map_err(ClientLinkingError::Owner)

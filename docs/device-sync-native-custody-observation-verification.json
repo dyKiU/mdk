@@ -1,0 +1,54 @@
+{
+  "baseline": "43f002d7c94f4f680951014e70a157f097e0208e",
+  "scope": "Retain native verification observation after the same original SDK proof moves into recipient enrollment custody. Does not enable native enrollment, chat or history.",
+  "implementation": "Only an exact in-memory original SettlementGuard scope may report verification complete after handoff. It must remain live; revoked or expired owners remain terminal. Stored facts cannot restore this observation. Consumed SAS decimals remain absent.",
+  "source": {
+    "qualified_input_count": 2386,
+    "red_manifest_sha256": "852efcd4eb7c266f8fa3bf1ead89bb103fa48cce8708aadd24c05c022c186e76",
+    "green_manifest_sha256": "fcbe9248de6464b687e942ebc68dda0224d6c36d977f68a1266efdb43e808cf3",
+    "independent_local_manifest_match": true,
+    "changed_during_runs": [],
+    "post_qualification_change": "This evidence document only."
+  },
+  "checks": [
+    {
+      "name": "actual-original-recipient-sdk-handoff-red",
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0,
+      "exit_code": 101,
+      "reason": "actual snapshot Cancelled, expected VerificationCompleteEnrollmentPending",
+      "log_sha256": "eb4d631d4e06fdd23518cae4723fb21a93c058bbb7194d3801716fd561160d39"
+    },
+    {
+      "name": "same-unchanged-regression-green",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "d6581f3ebefc3aa7507eb49bb7d7c77dbdbe67fe53fdae8fb438bbe6815e8328"
+    },
+    {
+      "name": "complete-native-feature-suite",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "4f3cbfa911dddc052a5bdc88bd9cc6beb33c06a2e05eee87a14ee877de2c4840"
+    }
+  ],
+  "commands": [
+    "cargo test --locked -p marmot-app --features experimental-device-sync,test-policy-overrides --lib native_original_recipient_observation_survives_actual_sdk_handoff -- --nocapture",
+    "cargo test --locked -p marmot-app --features experimental-device-sync,test-policy-overrides --lib native_device_linking::tests -- --nocapture"
+  ],
+  "controls": "Actual isolated account workers exchange genuine SDK packets and confirm matching SAS before the same proof is taken. After handoff, verification remains pending with no decimals; continuation stays NotReady and enrollment capability false. Exact cancellation works and an old scope cannot cancel a fresh reservation. Existing native lifecycle tests retain their original scope.",
+  "qualification_pending": [
+    "marmot-app production feature all-target Clippy",
+    "default all-target check",
+    "workspace fmt",
+    "retrieval and independent hash verification of raw M5 terminal logs"
+  ],
+  "pending_reason": "M5 stopped responding over SSH during the production-check runner; fresh SSH connect timed out. Terminal test results and full source manifest were received before the outage. No pending check is reported as passed.",
+  "preserved_harness_failure": "red-v1 did not launch Cargo because SSH PATH lacked Cargo. Corrected direct Rust1.97.1 toolchain PATH in red-v2; red-v1 is not a behavioral regression.",
+  "remaining": "Actual A/B/C settlement, native continuation/UI, final matched artifacts and chat/history delivery remain open."
+}
