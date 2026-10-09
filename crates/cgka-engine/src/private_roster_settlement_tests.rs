@@ -2303,7 +2303,13 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
     b.ingest_private_enrollment_delivery_until(first, deadline)
         .await
         .unwrap();
-    let requests = b.drain_authenticated_enrollment_requests().unwrap();
+    assert!(
+        b.drain_authenticated_enrollment_requests_up_to(0)
+            .unwrap()
+            .is_empty(),
+        "a full App owner must leave the original proof in Core"
+    );
+    let requests = b.drain_authenticated_enrollment_requests_up_to(1).unwrap();
     assert_eq!(
         requests.len(),
         1,

@@ -1421,6 +1421,19 @@ impl AccountDeviceSession {
         self.engine.drain_authenticated_enrollment_requests()
     }
 
+    /// Bounded transfer of original ephemeral observations; never permission.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn drain_authenticated_enrollment_requests_up_to(
+        &mut self,
+        available: usize,
+    ) -> Result<
+        Vec<cgka_engine::private_enrollment_request::AuthenticatedEnrollmentRequest>,
+        EngineError,
+    > {
+        self.engine
+            .drain_authenticated_enrollment_requests_up_to(available)
+    }
+
     pub async fn ingest_delivery(
         &mut self,
         delivery: TransportDelivery,

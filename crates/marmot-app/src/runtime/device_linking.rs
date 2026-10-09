@@ -4823,6 +4823,10 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn device_linking_b_endorsement_later_valid_arrival_remains_selectable() {
+        exercise_enrollment_relay_observation(true, true, Some("late_batch")).await;
+    }
+    #[tokio::test]
     async fn device_linking_received_proposal_rejects_artifact_signed_by_other_current_leaf() {
         exercise_enrollment_relay_observation(true, true, Some("wrong_artifact_carrier")).await;
     }
@@ -5002,7 +5006,7 @@ mod tests {
                     let byte = context["exact_key_package"][0].as_u64().unwrap();
                     context["exact_key_package"][0] = serde_json::json!(byte ^ 1);
                 }
-                "wrong_artifact_carrier" | "mixed_batch" => {
+                "wrong_artifact_carrier" | "mixed_batch" | "late_batch" => {
                     // B's actual signed export is valid for this exact tree,
                     // but the real encrypted request is carried by A.
                     let bytes = observer
@@ -5054,7 +5058,7 @@ mod tests {
                 }
                 if matches!(
                     control,
-                    "tampered_artifact" | "wrong_artifact_carrier" | "mixed_batch"
+                    "tampered_artifact" | "wrong_artifact_carrier" | "mixed_batch" | "late_batch"
                 ) {
                     frame["artifact_digest"] =
                         serde_json::json!(canonical.predecessor.artifact_digest.unwrap());
@@ -5154,7 +5158,20 @@ mod tests {
             }
         }).await.expect("the exact real ciphertext must reach committed crypto/observer disposition before checking metadata");
         assert!(workers.a.app.load_state("test").unwrap().groups.is_empty());
-        if control == Some("mixed_batch") {
+        if matches!(control, Some("mixed_batch" | "late_batch")) {
+            if control == Some("late_batch") {
+                let first = observer
+                    .verifier_command("test", |respond| {
+                        VerifierCommand::ReceivedEnrollmentProposalBindings { respond }
+                    })
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    first.len(),
+                    1,
+                    "retain the actual first invalid observation before a later good arrival"
+                );
+            }
             let event = cgka_traits::app_event::MarmotAppEvent::new(
                 hex::encode(round.anchor.account),
                 0,

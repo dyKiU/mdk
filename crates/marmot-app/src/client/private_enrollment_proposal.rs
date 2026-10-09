@@ -176,18 +176,24 @@ impl AppClient {
         self.linking_owner
             .received_enrollment_proposals
             .retain(|request| std::time::Instant::now() < request.observed_deadline());
-        // Do not drain another bounded Core batch while this owner still holds
-        // one: retaining original proofs must not silently overflow or discard
-        // observations. Core's typed capacity/retry remains independent.
-        if self.linking_owner.received_enrollment_proposals.is_empty() {
-            self.linking_owner.received_enrollment_proposals = self
+        // Retaining an earlier observation must not hide later arrivals. Move
+        // only the remaining App slots; leave excess proofs in Core unchanged.
+        // App retention and Core's shared request/endorsement queue each cap at
+        // 128, giving an explicit aggregate maximum of 256 opaque observations.
+        let available =
+            128usize.saturating_sub(self.linking_owner.received_enrollment_proposals.len());
+        if available > 0 {
+            let received = self
                 .runtime
                 .session_mut()
-                .drain_authenticated_enrollment_requests()
+                .drain_authenticated_enrollment_requests_up_to(available)
                 .map_err(ClientLinkingError::Engine)?
                 .into_iter()
                 .filter(|request| request.proposal_parts().is_some())
-                .collect();
+                .collect::<Vec<_>>();
+            self.linking_owner
+                .received_enrollment_proposals
+                .extend(received);
         }
         Ok(())
     }

@@ -692,6 +692,15 @@ impl<S: StorageProvider + 'static> Engine<S> {
     pub fn drain_authenticated_enrollment_requests(
         &mut self,
     ) -> Result<Vec<AuthenticatedEnrollmentRequest>, EngineError> {
+        self.drain_authenticated_enrollment_requests_up_to(LIMIT)
+    }
+
+    /// Move at most the caller's available retention slots, preserving the
+    /// remaining original observations and their acquisition clocks in Core.
+    pub fn drain_authenticated_enrollment_requests_up_to(
+        &mut self,
+        available: usize,
+    ) -> Result<Vec<AuthenticatedEnrollmentRequest>, EngineError> {
         let mut queue = self
             .enrollment_intake
             .observations
@@ -701,7 +710,11 @@ impl<S: StorageProvider + 'static> Engine<S> {
         let mut requests = Vec::new();
         for observation in queue.drain(..) {
             match observation {
-                EnrollmentObservation::Request(request) => requests.push(*request),
+                EnrollmentObservation::Request(request)
+                    if requests.len() < available.min(LIMIT) =>
+                {
+                    requests.push(*request)
+                }
                 other => retained.push_back(other),
             }
         }
