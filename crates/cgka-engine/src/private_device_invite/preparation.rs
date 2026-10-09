@@ -81,6 +81,8 @@ pub struct PreparedPrivateDeviceInvite {
     group_id: GroupId,
     pub(super) pending: PendingStateRef,
     lease: Box<dyn PrivateInviteLease>,
+    enrollment: Option<crate::private_enrollment_request::OriginalEnrollmentPreparation>,
+    enrollment_input: Option<AuthenticatedPrivateInvite>,
 }
 impl PreparedPrivateDeviceInvite {
     pub fn scope(&self) -> &PrivateInviteScope {
@@ -89,7 +91,20 @@ impl PreparedPrivateDeviceInvite {
     /// Negative housekeeping check of this still-owned original lease. This
     /// result is not a publication permit; dispatch independently rechecks it.
     pub fn check_live_permission(&mut self) -> Result<(), LinkingWelcomeDenied> {
+        if let Some(guard) = &self.enrollment {
+            guard.check_clock()?;
+        }
         self.lease.check_live_before_commit()
+    }
+    pub(crate) fn retain_original_enrollment(
+        &mut self,
+        guard: crate::private_enrollment_request::OriginalEnrollmentPreparation,
+    ) {
+        self.enrollment = Some(guard);
+    }
+    /// Original observation clock metadata only; never a caller-supplied deadline.
+    pub fn enrollment_observation_deadline(&self) -> Option<web_time::Instant> {
+        self.enrollment.as_ref().map(|guard| guard.deadline())
     }
 }
 /// Dedicated trusted publisher. Invoked only while the original lease is live;
@@ -151,6 +166,23 @@ impl<S: StorageProvider> Engine<S> {
             .private_invite_policy
             .clone()
             .ok_or(LinkingWelcomeDenied::NoLiveVerifier)?;
+        let (retry, input) = self.private_invite_preparation_inputs(group_id, &package)?;
+        let mut owned_lease = Some(policy.begin_prepare(&input)?);
+        self.prepare_private_device_invite_with_owned_lease(
+            group_id,
+            input,
+            retry,
+            &mut owned_lease,
+            None,
+        )
+        .await
+    }
+
+    pub(crate) fn private_invite_preparation_inputs(
+        &self,
+        group_id: &GroupId,
+        package: &KeyPackage,
+    ) -> Result<(Option<PrivateInviteFact>, AuthenticatedPrivateInvite), PrivateInviteError> {
         let cap = self
             .storage
             .private_device_invite_storage()
@@ -175,8 +207,8 @@ impl<S: StorageProvider> Engine<S> {
                 return Err(incompatible());
             }
             self.invite_key_package_requirements(group_id)?
-                .validate(&package)?;
-            let parsed = self.parse_key_package(&package)?;
+                .validate(package)?;
+            let parsed = self.parse_key_package(package)?;
             let mut predecessor = crate::device_group_snapshot::CandidateDeviceGroupSnapshot {
                 account: self.identity.self_id().clone(),
                 group_id: group_id.clone(),
@@ -219,9 +251,25 @@ impl<S: StorageProvider> Engine<S> {
                     .map_err(|_| incompatible())?,
             }
         } else {
-            self.validate_private_invite_input(group_id, &package)?
+            self.validate_private_invite_input(group_id, package)?
         };
-        let mut lease = policy.begin_prepare(&input)?;
+        Ok((retry, input))
+    }
+
+    pub(crate) async fn prepare_private_device_invite_with_owned_lease(
+        &mut self,
+        group_id: &GroupId,
+        input: AuthenticatedPrivateInvite,
+        retry: Option<PrivateInviteFact>,
+        owned_lease: &mut Option<Box<dyn PrivateInviteLease>>,
+        mut enrollment: Option<
+            &mut crate::private_enrollment_request::OriginalEnrollmentPreparation,
+        >,
+    ) -> Result<PreparedPrivateDeviceInvite, PrivateInviteError> {
+        let package = input.exact_key_package.clone();
+        let lease = owned_lease
+            .as_mut()
+            .ok_or(LinkingWelcomeDenied::NoLiveVerifier)?;
         lease.check_live_before_commit()?;
         let consent = lease.consent().clone();
         if consent.approver_scope.account.as_slice() != self.identity.self_id().as_slice()
@@ -240,6 +288,9 @@ impl<S: StorageProvider> Engine<S> {
                     )
                     .map_err(|_| EngineError::Backend("private MLS storage load failed".into()))?
                     .ok_or_else(incompatible)?;
+                    if let Some(guard) = enrollment.as_deref() {
+                        guard.validate(self, storage, &group, &input, None)?;
+                    }
                     let ctx =
                         crate::group_lifecycle::build_group_context_snapshot(&group, &provider)?;
                     let fact = if let Some(row) = &retry {
@@ -336,9 +387,15 @@ impl<S: StorageProvider> Engine<S> {
                             .ok_or(LinkingWelcomeDenied::UnsupportedStorage)?
                             .stage_private_invite(&raw)?
                     };
+                    if let Some(guard) = enrollment.as_deref() {
+                        guard.validate(self, storage, &group, &input, Some(&fact))?;
+                    }
                     lease.check_live_before_commit()?;
                     Ok((fact, ctx))
                 })?;
+        if let Some(guard) = enrollment.as_deref_mut() {
+            guard.record_staged(&fact)?;
+        }
         let final_result = async {
             let commit = self
                 .peeler
@@ -396,6 +453,9 @@ impl<S: StorageProvider> Engine<S> {
                         return Err(incompatible());
                     }
                     lease.check_staged(&actual)?;
+                    if let Some(guard) = enrollment.as_deref() {
+                        guard.validate(self, storage, &group, &input, Some(&fact))?;
+                    }
                     storage
                         .private_device_invite_storage()
                         .ok_or(LinkingWelcomeDenied::UnsupportedStorage)?
@@ -438,9 +498,39 @@ impl<S: StorageProvider> Engine<S> {
             scope: fact.scope,
             group_id: group_id.clone(),
             pending,
-            lease,
+            enrollment_input: if enrollment.is_some() {
+                Some(input)
+            } else {
+                None
+            },
+            enrollment: None,
+            lease: owned_lease
+                .take()
+                .ok_or(LinkingWelcomeDenied::NoLiveVerifier)?,
         })
     }
+    fn validate_enrollment_dispatch_at(
+        &self,
+        storage: &S,
+        prepared: &PreparedPrivateDeviceInvite,
+    ) -> Result<(), PrivateInviteError> {
+        let Some(guard) = &prepared.enrollment else {
+            return Ok(());
+        };
+        let input = prepared
+            .enrollment_input
+            .as_ref()
+            .ok_or_else(incompatible)?;
+        let provider = EngineOpenMlsProvider::<S>::new(&self.crypto, storage.mls_storage());
+        let group = MlsGroup::load(
+            provider.storage(),
+            &openmls::group::GroupId::from_slice(prepared.group_id.as_slice()),
+        )
+        .map_err(|_| EngineError::Backend("private MLS storage load failed".into()))?
+        .ok_or_else(incompatible)?;
+        guard.validate(self, storage, &group, input, None)
+    }
+
     fn retire_private_invite_pending(
         &self,
         scope: &PrivateInviteScope,
@@ -558,18 +648,28 @@ impl<S: StorageProvider> Engine<S> {
         prepared: &mut PreparedPrivateDeviceInvite,
         publisher: &dyn TrustedPrivateInvitePublisher,
     ) -> Result<(), PrivateInviteError> {
-        if let Err(error) = prepared.lease.check_live_before_commit() {
+        if let Err(error) = prepared.check_live_permission() {
             self.retire_prepared_private_device_invite(prepared)?;
             return Err(error.into());
+        }
+        let permission = self
+            .storage
+            .with_read_snapshot(|storage| self.validate_enrollment_dispatch_at(storage, prepared));
+        if let Err(error) = permission {
+            if matches!(error, PrivateInviteError::Denied(_)) {
+                self.retire_prepared_private_device_invite(prepared)?;
+            }
+            return Err(error);
         }
         let fact_result =
             self.storage
                 .with_transaction(|storage| -> Result<_, PrivateInviteError> {
+                    self.validate_enrollment_dispatch_at(storage, prepared)?;
                     let fact = storage
                         .private_device_invite_storage()
                         .ok_or(LinkingWelcomeDenied::UnsupportedStorage)?
                         .mark_private_invite_dispatch(&prepared.scope)?;
-                    prepared.lease.check_live_before_commit()?;
+                    prepared.check_live_permission()?;
                     Ok(fact)
                 });
         let fact = match fact_result {
@@ -580,7 +680,7 @@ impl<S: StorageProvider> Engine<S> {
             }
             Err(error) => return Err(error),
         };
-        if let Err(error) = prepared.lease.check_live_before_commit() {
+        if let Err(error) = prepared.check_live_permission() {
             self.storage
                 .private_device_invite_storage()
                 .ok_or(LinkingWelcomeDenied::UnsupportedStorage)?
@@ -590,8 +690,13 @@ impl<S: StorageProvider> Engine<S> {
         let transport = fact.transport.ok_or_else(incompatible)?;
         let mut publication = publisher.publish_commit(&transport.commit);
         let result = std::future::poll_fn(|cx| {
-            if let Err(error) = prepared.lease.check_live_before_commit() {
+            if let Err(error) = prepared.check_live_permission() {
                 return std::task::Poll::Ready(Err(PrivateInviteError::Denied(error)));
+            }
+            if let Err(error) = self.storage.with_read_snapshot(|storage| {
+                self.validate_enrollment_dispatch_at(storage, prepared)
+            }) {
+                return std::task::Poll::Ready(Err(error));
             }
             publication
                 .as_mut()
@@ -666,6 +771,9 @@ impl<S: StorageProvider> Engine<S> {
         prepared: &mut PreparedPrivateDeviceInvite,
     ) -> Result<Vec<TransportMessage>, PrivateInviteError> {
         self.storage.with_read_snapshot(|storage| {
+            if let Some(guard) = &prepared.enrollment {
+                guard.check_owner(self)?;
+            }
             let cap = storage
                 .private_device_invite_storage()
                 .ok_or(LinkingWelcomeDenied::UnsupportedStorage)?;
@@ -780,15 +888,20 @@ impl<S: StorageProvider> Engine<S> {
         prepared: &mut PreparedPrivateDeviceInvite,
         publisher: &dyn TrustedPrivateWelcomePublisher,
     ) -> Result<(), PrivateInviteError> {
-        prepared.lease.check_live_before_commit()?;
+        prepared.check_live_permission()?;
         let messages = self.confirmed_private_welcomes(prepared)?;
         for message in messages {
             // The actor holds exclusive Engine ownership throughout. Recheck the
             // original revocable lease on every poll, including stalled network.
-            prepared.lease.check_live_before_commit()?;
+            prepared.check_live_permission()?;
             let mut work = publisher.publish_welcome(&message);
             std::future::poll_fn(|cx| {
-                if let Err(error) = prepared.lease.check_live_before_commit() {
+                if let Err(error) = prepared.check_live_permission() {
+                    return std::task::Poll::Ready(Err(PrivateInviteError::Denied(error)));
+                }
+                if let Some(guard) = &prepared.enrollment
+                    && let Err(error) = guard.check_owner(self)
+                {
                     return std::task::Poll::Ready(Err(PrivateInviteError::Denied(error)));
                 }
                 work.as_mut()
@@ -796,7 +909,7 @@ impl<S: StorageProvider> Engine<S> {
                     .map(|result| result.map_err(PrivateInviteError::from))
             })
             .await?;
-            prepared.lease.check_live_before_commit()?;
+            prepared.check_live_permission()?;
         }
         Ok(())
     }

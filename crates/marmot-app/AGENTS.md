@@ -583,6 +583,21 @@ and clear it before cancellation's durable cleanup. Lost setup replies must
 cancel only their exact newly owned scope; durable cleanup failure remains typed
 negative state for existing maintenance, with no permission restoration.
 
+
+### Original SDK endorsed Add preparation
+
+`PrepareEndorsedEnrollmentInvite` accepts only the original scope and calls Core
+with the same retained local producer and actual opaque sibling receipts. It
+never begins a new SDK verifier or promotes a received request/count. Incomplete
+preparation must keep automatic later collection live; use only Core's negative
+owner-progress observation for raw retries, not a prematurely latched App flag
+or durable-row reconstruction. Carry the earliest original receipt deadline
+into the actor's publication timer without extending any clock. Lost replies
+cancel that exact original scope. SQL/raw retry and cancellation stay on the
+same continuation. This milestone stages exact C Add only; C original-purpose
+admission, B protected transition, real ABC settlement and native enrollment
+adoption remain independently gated.
+
 ### Native verification-only facade
 
 `native_device_linking` exports opaque process-local sessions, bounded packets,
@@ -602,3 +617,9 @@ qualify. Never report partial verification/publication as synchronized. Default
 methods remain typed Unsupported before account or worker effects. Future native
 bindings must expose the same shapes in both feature cohorts without exporting
 internal context, proof-taking or raw purpose selection.
+
+Endorsed recipient arming compares the actor's original NewDevice context and
+actual unused purpose before SDK take. Keep singleton arming strict. Retain
+sealed evidence through exact SQL/Welcome retry; clear on exact cancellation
+and collection retirement. Lost replies cancel their original scope. Native
+enrollment stays unavailable until B transition and real ABC settlement.

@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "milestone": "Original C SDK/purpose admission and atomic epoch2 three-leaf join; not ABC settlement",
+  "parent_signed_commit": "d36b8820cf4f10cbb5898c6c3e71986ed526089f",
+  "frozen_inputs": 2376,
+  "frozen_input_manifest_sha256": "70352e8c4615ca6e24856a5773e78ce06b68b3a371b55fbddcadc552353fe96e",
+  "shared_target": "MdkRecipientCollectionTargetM5",
+  "handoff": "Refresh non-vendor Rust/Cargo mtimes before hash freeze; bytes unchanged",
+  "red": [
+    {
+      "head": "efa3dc0d1ea36f28467a9bbdcd764b84a46d85e1",
+      "source_sha256": "eb2cb89757b384b1bdad642c49936fc9530fe2f6eb79b696e22f13addc0b4cd2",
+      "tracked_inputs": 2365,
+      "exit_code": 101,
+      "seconds": 78.91,
+      "counts": [
+        {
+          "status": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "bd6a3bbe94543476d688b1608139a82976aed40baa923414d28b7e83a37dd60b"
+    },
+    {
+      "head": "efa3dc0d1ea36f28467a9bbdcd764b84a46d85e1",
+      "source_sha256": "fd59dd6da2c61a311ecdccef487ef95e6f3d18e4d31c30360aa5451a5a5e8d1a",
+      "tracked_inputs": 2367,
+      "exit_code": 101,
+      "seconds": 46.22,
+      "counts": [
+        {
+          "status": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "2fe3e149c9e2ca785978a38109caee726cdc609699c8b76d69ca37ae67fe5f67"
+    }
+  ],
+  "compile_only_failure": "red-v1 stale shared-target dependencies; zero behavioral tests; retained separately",
+  "initial_green": {
+    "head": "efa3dc0d1ea36f28467a9bbdcd764b84a46d85e1",
+    "source_sha256": "596f91b6cb82406efb25220382890d192b83e813469f3f194aa11456037b7f65",
+    "tracked_inputs": 2368,
+    "exit_code": 0,
+    "seconds": 106.48,
+    "counts": [
+      {
+        "status": "ok",
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      }
+    ],
+    "log_sha256": "0ad9f9705cafd3428959de8d7ad0d427354881eeb722b71b47649b448edc191c"
+  },
+  "final_gates": [
+    {
+      "name": "sdk-add",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "device_linking_original_sdk",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 78.89,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "cccf8a68d9e3e3db9d7d8673f2de1790249ef4d13d5ea359aef0a4e096bc7105"
+    },
+    {
+      "name": "core-batch",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--test",
+        "accepted_welcome_receipts",
+        "private_batch",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 105.35,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 13,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "df0f9e4748f28e8af2bcd0118277c3de52427d7efb6769a51e7ff5225721054c"
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "-p",
+        "cgka-session",
+        "-p",
+        "marmot-app",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 71.18,
+      "counts": [],
+      "log_sha256": "6dd45a18fc4fd402223117228af164aee3ddad9ec902b850de151b23bad44c73"
+    },
+    {
+      "name": "default",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "-p",
+        "cgka-session",
+        "-p",
+        "marmot-app",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 50.63,
+      "counts": [],
+      "log_sha256": "a0f24e2cf2c9ca76b2c19eed92622e2e73ab55207e1b1cef077df855d9c8d9fb"
+    },
+    {
+      "name": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 4.19,
+      "counts": [],
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "claims": [
+    "A original SDK-owned producer exports canonical all-leaf evidence within total16KiB before lease transfer",
+    "C matches original internally retained NewDevice SDK context and exact unused purpose, artifact and signatures before SDK release",
+    "Malformed/canonical incomplete/substituted/future/oversize inputs preserve valid original retry",
+    "Actual A Add/relay echo/Welcome installs C epoch2 three-leaf109 and consumes original purpose",
+    "Final-purpose SQL fault rolls back crypto/group/109/purpose; same live SDK/evidence/batch retries autonomously",
+    "Core owner/purpose revalidation before and after peeling and inside SQL supplements independent original SDK lease"
+  ],
+  "remaining": [
+    "B original-action atomic transition and distinct protected origin",
+    "A original-token settlement and real ABC confirmations",
+    "Native enrollment/chat sync/history retrieval remain gated"
+  ],
+  "post_gate_documentation_only": [
+    "README.md",
+    "crates/cgka-engine/AGENTS.md",
+    "crates/marmot-app/AGENTS.md",
+    "docs/device-sync-c-original-recipient-verification.json"
+  ]
+}

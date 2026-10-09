@@ -1,4 +1,5 @@
 //! Private account-client ownership, with identities read from the live session.
+mod enrollment;
 pub(crate) mod setup;
 use super::AppClient;
 use crate::device_linking::invite_gate::RuntimeInviteGate;
@@ -41,6 +42,8 @@ pub(crate) struct AccountLinkingOwner {
     invite: Arc<RuntimeInviteGate>,
     invite_attempt: Option<OwnedPrivateInvite>,
     pub(super) settlement_attempt: Option<super::private_settlement::OwnedSettlementAttempt>,
+    recipient_enrollment:
+        Option<cgka_engine::private_enrollment_request::OwnedEnrollmentRecipientEvidence>,
     welcome_collection: PrivateWelcomeCollection,
     native_setup_request: Option<setup::NewDeviceSetup>,
     pub(super) hidden_transport_group: Option<cgka_traits::GroupId>,
@@ -95,6 +98,7 @@ impl AccountLinkingOwner {
             invite: Arc::new(RuntimeInviteGate::new()),
             invite_attempt: None,
             settlement_attempt: None,
+            recipient_enrollment: None,
             welcome_collection: PrivateWelcomeCollection::default(),
             native_setup_request: None,
             hidden_transport_group: None,
@@ -547,6 +551,76 @@ impl AppClient {
             .map_err(ClientLinkingError::PrivateInvite)?;
         let result = prepared.scope().clone();
         self.linking_owner.invite_attempt.as_mut().unwrap().prepared = Some(prepared);
+        Ok(result)
+    }
+
+    /// Export complete signed metadata without transferring the original SDK lease.
+    pub(crate) fn export_owned_enrollment_recipient_packet(
+        &mut self,
+        scope: &PurposeAttemptScope,
+    ) -> Result<Vec<u8>, ClientLinkingError> {
+        self.check_private_invite_attempt_scope(scope)?;
+        self.collect_owned_enrollment_endorsements(scope)?;
+        let attempt =
+            self.linking_owner
+                .invite_attempt
+                .as_mut()
+                .ok_or(ClientLinkingError::Gate(
+                    cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
+                ))?;
+        let proposal = attempt.proposal.as_mut().ok_or(ClientLinkingError::Gate(
+            cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
+        ))?;
+        let receipts = attempt.endorsements.iter().collect::<Vec<_>>();
+        self.runtime
+            .session()
+            .export_owned_enrollment_recipient_packet(proposal, &receipts)
+            .map_err(ClientLinkingError::Engine)
+    }
+
+    /// Same actor-owned SDK lease, never a second verifier or received proposal.
+    pub(crate) async fn prepare_owned_endorsed_enrollment_invite(
+        &mut self,
+        scope: &PurposeAttemptScope,
+    ) -> Result<cgka_traits::private_device_invite::PrivateInviteScope, ClientLinkingError> {
+        self.check_private_invite_attempt_scope(scope)?;
+        let attempt =
+            self.linking_owner
+                .invite_attempt
+                .as_mut()
+                .ok_or(ClientLinkingError::Gate(
+                    cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
+                ))?;
+        if let Some(prepared) = attempt.prepared.as_mut() {
+            prepared
+                .check_live_permission()
+                .map_err(ClientLinkingError::Gate)?;
+            return Ok(prepared.scope().clone());
+        }
+        if !attempt
+            .proposal
+            .as_ref()
+            .is_some_and(|proposal| proposal.preparation_has_started())
+        {
+            self.collect_owned_enrollment_endorsements(scope)?;
+        }
+        let attempt = self.linking_owner.invite_attempt.as_mut().unwrap();
+        let proposal = attempt.proposal.as_mut().ok_or(ClientLinkingError::Gate(
+            cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
+        ))?;
+        let receipts = attempt.endorsements.iter().collect::<Vec<_>>();
+        let prepared = self
+            .runtime
+            .session_mut()
+            .prepare_private_invite_from_owned_enrollment_proposal(proposal, &receipts)
+            .await
+            .map_err(ClientLinkingError::PrivateInvite)?;
+        let result = prepared.scope().clone();
+        if let Some(deadline) = prepared.enrollment_observation_deadline() {
+            attempt.deadline = attempt.deadline.min(deadline);
+        }
+        attempt.prepared = Some(prepared);
+        attempt.for_add = true;
         Ok(result)
     }
 
@@ -1170,6 +1244,7 @@ impl AppClient {
 
     pub(crate) async fn cancel_device_linking(&mut self) -> Result<(), ClientLinkingError> {
         self.linking_owner.native_setup_request = None;
+        self.linking_owner.recipient_enrollment = None;
         // Revoke admission before terminal fencing or private deletion. The
         // serial owner must not retire a package while its join lease is busy.
         if let Some(attempt) = &self.linking_owner.settlement_attempt {
@@ -1314,12 +1389,22 @@ impl AppClient {
             .ok_or(ClientLinkingError::Collection(CollectionError::Denied))?;
         // Engine independently checks actual transport, tree and the same live
         // lease in its atomic SQL join. Failure retains only exact retry bytes.
-        let group = self
-            .runtime
-            .session_mut()
-            .join_private_linking_welcome_batch(batch.messages, &batch.context)
-            .await
-            .map_err(ClientLinkingError::Engine)?;
+        let group = if let Some(evidence) = self.linking_owner.recipient_enrollment.as_ref() {
+            self.runtime
+                .session_mut()
+                .join_endorsed_private_linking_welcome_batch(
+                    batch.messages,
+                    &batch.context,
+                    evidence,
+                )
+                .await
+        } else {
+            self.runtime
+                .session_mut()
+                .join_private_linking_welcome_batch(batch.messages, &batch.context)
+                .await
+        }
+        .map_err(ClientLinkingError::Engine)?;
         if self.select_owned_private_settlement().is_err() {
             // The join already committed. Keep its original memory continuation
             // for bounded retry; controls remain hidden and uncounted meanwhile.
@@ -1351,6 +1436,7 @@ impl AppClient {
             self.adapter.release_account_delivery(&id);
         }
         self.linking_owner.welcome_collection.clear();
+        self.linking_owner.recipient_enrollment = None;
     }
 }
 
