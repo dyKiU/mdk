@@ -363,6 +363,9 @@ pub(crate) struct OpenMlsApplyOutput {
     pub(crate) enrollment_effects: Vec<crate::private_enrollment_request::EnrollmentEffect>,
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) settlement_positive: bool,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) staged_settlement_admission:
+        Option<std::sync::Arc<crate::private_roster_settlement::LiveSettlementAdmission>>,
     pub(crate) observations: Vec<OpenMlsReplayObservation>,
     pub(crate) group_changes: Vec<AppliedGroupChanges>,
     pub(crate) handled_private_ids: BTreeSet<Vec<u8>>,
@@ -1423,6 +1426,7 @@ pub(crate) fn process_current_openmls_application<S: StorageProvider>(
             enrollment: &mut enrollment_effects,
             enrollment_intake,
             existing_transition: None,
+            staged_admission: None,
             capture: &mut capture_effects,
             settlement: &mut settlement_effects,
             admission: settlement_admission,
@@ -3477,6 +3481,8 @@ fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
         let mut settlement_effects = Vec::new();
         #[cfg(feature = "experimental-device-sync")]
         let mut enrollment_effects = Vec::new();
+        #[cfg(feature = "experimental-device-sync")]
+        let mut staged_admission = None;
         let output = process_openmls_messages_inner(
             storage,
             group_id,
@@ -3489,11 +3495,14 @@ fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
                 enrollment: &mut enrollment_effects,
                 enrollment_intake,
                 existing_transition,
+                staged_admission: Some(&mut staged_admission),
                 capture: &mut capture_effects,
                 settlement: &mut settlement_effects,
                 admission: settlement_admission,
             }),
         )?;
+        #[cfg(feature = "experimental-device-sync")]
+        let active_admission = staged_admission.as_ref().or(settlement_admission);
         update_group_record_from_replay(storage, group_id, &output)?;
         persist_openmls_canonicalization_dispositions(storage, result)?;
         #[cfg(feature = "experimental-device-sync")]
@@ -3530,7 +3539,7 @@ fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
                 storage,
                 group_id,
                 result,
-                settlement_admission,
+                active_admission,
                 enrollment_intake,
             )?;
             enrollment_effects.extend(extra_enrollment);
@@ -3539,7 +3548,7 @@ fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
         }
         #[cfg(feature = "experimental-device-sync")]
         crate::private_roster_settlement_receive::ensure_live(
-            settlement_admission,
+            active_admission,
             settlement_positive,
         )
         .map_err(capture_effect_error)?;
@@ -3554,6 +3563,8 @@ fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
             enrollment_effects,
             #[cfg(feature = "experimental-device-sync")]
             settlement_positive,
+            #[cfg(feature = "experimental-device-sync")]
+            staged_settlement_admission: staged_admission,
             observations: output.observations,
             group_changes: output.group_changes,
             handled_private_ids,
@@ -4347,10 +4358,25 @@ struct PrivateReplayEffects<'a> {
             crate::private_enrollment_endorsement::OwnedExistingEnrollmentTransition,
         >,
     >,
+    staged_admission: Option<
+        &'a mut Option<std::sync::Arc<crate::private_roster_settlement::LiveSettlementAdmission>>,
+    >,
     capture: &'a mut Vec<crate::roster_ack_capture::CaptureEffect>,
     settlement: &'a mut Vec<crate::private_roster_settlement_receive::SettlementEffect>,
     admission:
         Option<&'a std::sync::Arc<crate::private_roster_settlement::LiveSettlementAdmission>>,
+}
+
+#[cfg(feature = "experimental-device-sync")]
+impl PrivateReplayEffects<'_> {
+    fn current_admission(
+        &self,
+    ) -> Option<&std::sync::Arc<crate::private_roster_settlement::LiveSettlementAdmission>> {
+        self.staged_admission
+            .as_ref()
+            .and_then(|slot| slot.as_ref())
+            .or(self.admission)
+    }
 }
 
 /// Authenticate messages against successive source trees for probe or canonical apply.
@@ -4565,7 +4591,7 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                 &mls_group,
                 private_effects
                     .as_ref()
-                    .and_then(|effects| effects.admission),
+                    .and_then(|effects| effects.current_admission()),
             )
             .map_err(capture_effect_error)?
         } else {
@@ -4790,11 +4816,13 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                     private_effects
                         .as_ref()
                         .and_then(|effects| effects.existing_transition)
+                        .cloned()
                 } else {
                     None
                 };
                 #[cfg(feature = "experimental-device-sync")]
                 let bridge_existing = existing
+                    .as_ref()
                     .map(|guard| {
                         guard.approves_commit(
                             storage,
@@ -4818,6 +4846,15 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                     existing
                         .install(storage, group_id, &mls_group, projection.message_digest)
                         .map_err(capture_effect_error)?;
+                    let admission = crate::private_roster_settlement::LiveSettlementAdmission::select_applied_existing(
+                        storage, group_id, &mls_group, existing,
+                    ).map_err(capture_effect_error)?;
+                    let effects = private_effects.as_mut().ok_or_else(|| {
+                        OpenMlsProjectionError::Replay("missing original apply owner".into())
+                    })?;
+                    *effects.staged_admission.as_deref_mut().ok_or_else(|| {
+                        OpenMlsProjectionError::Replay("missing staged admission output".into())
+                    })? = Some(admission);
                 }
                 observations.push(OpenMlsReplayObservation::CommitStaged {
                     message_id: message_id.clone(),
@@ -4900,15 +4937,15 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                     sender_id.as_ref(),
                 ) {
                     if let Some(effects) = private_effects.as_mut() {
-                        effects.settlement.push(
+                        let effect =
                             crate::private_roster_settlement_receive::stage_settlement_effect(
                                 settlement_source,
-                                effects.admission,
+                                effects.current_admission(),
                                 &payload,
                                 sender_id.as_ref(),
                                 &message.id,
-                            ),
-                        );
+                            );
+                        effects.settlement.push(effect);
                     }
                     observations.push(OpenMlsReplayObservation::Ignored {
                         message_id,

@@ -629,3 +629,5 @@ B existing-member transition retry must preserve the original armed action on a
 typed storage error and schedule its exact group's retained convergence input.
 Never reopen a client and rebuild that continuation from private11 or a packet.
 B settlement uses its own original binding/guard, never a fabricated SDK scope.
+
+The original A SDK token retains its settlement continuation before moving into proposal/Add ownership; received observation bounds only shorten its clock. The genuine three-device regression requires A/B/C actual epoch-2 three-leaf Completed rounds, three facts each and validated settled predecessor exports, including B/C SQL rollback retries. Native enrollment/UI/artifact adoption remain separate gates; verification-only native capability does not imply enrollment.

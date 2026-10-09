@@ -176,6 +176,13 @@ pub(crate) fn apply_settlement_effect<S: StorageProvider>(
     }) {
         return Ok(false);
     }
+    let confirmation = PrivateSettlementFact {
+        format_version: 1,
+        generation: round.generation,
+        leaf_index: source.leaf_index,
+        signature_public_key: source.signer,
+        message_id: effect.message_id,
+    };
     match frame.phase {
         SettlementPhase::Challenge => {
             if source.signer != round.anchor.coordinator
@@ -191,18 +198,41 @@ pub(crate) fn apply_settlement_effect<S: StorageProvider>(
             store.bind_round_nonce(round.generation, frame.round_nonce, source.leaf_index)?;
         }
         SettlementPhase::Ack => {
+            if round.round_nonce.is_none() {
+                if source.signer == round.anchor.coordinator {
+                    return Ok(false);
+                }
+                store.defer_remote_ack(
+                    &cgka_traits::private_roster_settlement::PrivateSettlementDeferredAck {
+                        fact: confirmation,
+                        round_nonce: frame.round_nonce,
+                    },
+                )?;
+                ensure_live(Some(&live), true)?;
+                return Ok(true);
+            }
             if round.round_nonce != Some(frame.round_nonce) {
                 return Ok(false);
             }
         }
     }
-    store.record_remote_confirmation(&PrivateSettlementFact {
-        format_version: 1,
-        generation: round.generation,
-        leaf_index: source.leaf_index,
-        signature_public_key: source.signer,
-        message_id: effect.message_id,
-    })?;
+    store.record_remote_confirmation(&confirmation)?;
+    if matches!(frame.phase, SettlementPhase::Challenge) {
+        // Only the actual coordinator's sealed Challenge binds the nonce.
+        // Promote matching earlier receipts inside this same crypto SQL unit;
+        // rollback retains both the ciphertext ratchet and deferred metadata.
+        for ack in &round.deferred_acks {
+            if ack.round_nonce == frame.round_nonce
+                && !store
+                    .read_facts()?
+                    .iter()
+                    .any(|fact| fact.leaf_index == ack.fact.leaf_index && fact != &ack.fact)
+            {
+                store.record_remote_confirmation(&ack.fact)?;
+            }
+        }
+        store.clear_deferred_acks(round.generation)?;
+    }
     ensure_live(Some(&live), true)?;
     Ok(true)
 }

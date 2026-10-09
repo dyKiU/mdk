@@ -613,3 +613,5 @@ generation, deadline, protected Completed predecessor and all-leaf evidence.
 Only canonical actual single-Add apply installs private11 before old-origin
 fences in the same crypto/SQL transaction. Preserve Storage error classification
 through replay so App can retain that same live action after rollback.
+
+Original existing-member Add apply stages its settlement admission inside the crypto SQL transaction and installs memory authority only after commit. Maintenance reuses a round only with the identical original live guard, deadline, anchor and protected generation. ACKs may arrive before the coordinator Challenge: retain bounded sealed receipt metadata without binding nonce or counting a fact; promote matching receipts only under the same live admission and genuine coordinator Challenge in crypto SQL. Cancellation and rollback cannot reconstruct authority.

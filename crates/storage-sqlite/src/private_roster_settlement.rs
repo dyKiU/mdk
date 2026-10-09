@@ -89,8 +89,24 @@ fn validate_state(state: &PrivateSettlementState) -> StorageResult<()> {
     {
         return Err(invalid());
     }
+    let mut pending_slots = HashSet::new();
+    if state.deferred_acks.len() > state.anchor.successor.leaves.len() {
+        return Err(invalid());
+    }
+    for ack in &state.deferred_acks {
+        validate_fact(state, &ack.fact)?;
+        if ack.round_nonce == [0; 32]
+            || ack.fact.signature_public_key == state.anchor.local_device
+            || ack.fact.signature_public_key == state.anchor.coordinator
+            || !pending_slots.insert(ack.fact.leaf_index)
+        {
+            return Err(invalid());
+        }
+    }
     if state.phase == PrivateSettlementPhase::Denied
-        && (state.prepared_ciphertext.is_some() || state.outbound.is_some())
+        && (state.prepared_ciphertext.is_some()
+            || state.outbound.is_some()
+            || !state.deferred_acks.is_empty())
     {
         return Err(invalid());
     }
@@ -274,7 +290,7 @@ impl PrivateRosterSettlementStorage for SqliteAccountStorage {
             if old.as_ref().is_some_and(|s|s.anchor.account!=anchor.account||s.anchor.local_device!=anchor.local_device) {return Err(invalid());}
             let wrong:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM account_state WHERE local_account_id_hex IS NULL OR local_account_id_hex<>?1)",[hex::encode(anchor.account)],|r|r.get(0)).storage()?;
             if wrong {return Err(invalid());}
-            let state=PrivateSettlementState {format_version:1,generation:old.map_or(Some(1),|s|s.generation.checked_add(1)).ok_or_else(invalid)?,phase:PrivateSettlementPhase::Pending,anchor:anchor.clone(),round_nonce:None,coordinator_leaf_index:None,prepared_ciphertext:None,outbound:None};
+            let state=PrivateSettlementState {format_version:1,generation:old.map_or(Some(1),|s|s.generation.checked_add(1)).ok_or_else(invalid)?,phase:PrivateSettlementPhase::Pending,anchor:anchor.clone(),round_nonce:None,coordinator_leaf_index:None,prepared_ciphertext:None,outbound:None,deferred_acks:vec![]};
             let bytes=encode(&state,262144)?;generation(state.generation)?;
             conn.execute("DELETE FROM private_roster_settlement_facts",[]).storage()?;
             conn.execute("INSERT INTO private_roster_settlement VALUES(1,?1,?2,?3,?4,?5) ON CONFLICT(singleton) DO UPDATE SET generation=excluded.generation,account=excluded.account,local_device=excluded.local_device,group_id=excluded.group_id,state=excluded.state",params![generation(state.generation)?,anchor.account.as_slice(),anchor.local_device.as_slice(),anchor.group_id.as_slice(),bytes]).storage()?;
@@ -349,6 +365,46 @@ impl PrivateRosterSettlementStorage for SqliteAccountStorage {
             write(&conn, &state)
         })
     }
+    fn defer_remote_ack(&self, ack: &PrivateSettlementDeferredAck) -> StorageResult<()> {
+        self.with_transaction(|storage| {
+            let conn = storage.lock()?;
+            let mut state = read(&conn)?.ok_or(StorageError::NotFound)?;
+            validate_fact(&state, &ack.fact)?;
+            if state.phase != PrivateSettlementPhase::Pending
+                || state.round_nonce.is_some()
+                || ack.round_nonce == [0; 32]
+                || ack.fact.signature_public_key == state.anchor.local_device
+                || ack.fact.signature_public_key == state.anchor.coordinator
+            {
+                return Err(invalid());
+            }
+            // One bounded receipt per actual remote leaf. A conflicting claim
+            // never replaces the first receipt or establishes coordinator nonce.
+            if state
+                .deferred_acks
+                .iter()
+                .any(|old| old.fact.leaf_index == ack.fact.leaf_index)
+            {
+                return Ok(());
+            }
+            state.deferred_acks.push(ack.clone());
+            write(&conn, &state)
+        })
+    }
+    fn clear_deferred_acks(&self, expected: u64) -> StorageResult<()> {
+        self.with_transaction(|storage| {
+            let conn = storage.lock()?;
+            let mut state = read(&conn)?.ok_or(StorageError::NotFound)?;
+            if state.generation != expected
+                || state.phase == PrivateSettlementPhase::Denied
+                || state.round_nonce.is_none()
+            {
+                return Err(invalid());
+            }
+            state.deferred_acks.clear();
+            write(&conn, &state)
+        })
+    }
     fn put_outbound(&self, expected: u64, bytes: &[u8]) -> StorageResult<()> {
         self.with_transaction(|storage| {
             let conn = storage.lock()?;
@@ -378,6 +434,7 @@ impl PrivateRosterSettlementStorage for SqliteAccountStorage {
             state.phase = PrivateSettlementPhase::Denied;
             state.prepared_ciphertext = None;
             state.outbound = None;
+            state.deferred_acks.clear();
             conn.execute("DELETE FROM private_roster_settlement_facts", [])
                 .storage()?;
             write(&conn, &state)

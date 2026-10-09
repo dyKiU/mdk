@@ -624,6 +624,9 @@ impl AppClient {
         let result = prepared.scope().clone();
         if let Some(deadline) = prepared.enrollment_observation_deadline() {
             attempt.deadline = attempt.deadline.min(deadline);
+            if let Some(settlement) = self.linking_owner.settlement_attempt.as_ref() {
+                settlement.guard.shorten_deadline(deadline);
+            }
         }
         attempt.prepared = Some(prepared);
         attempt.for_add = true;
@@ -653,24 +656,20 @@ impl AppClient {
             let deadline = token.original_deadline().ok_or(ClientLinkingError::Gate(
                 cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
             ))?;
-            let guard = if for_add {
-                Some(Arc::new(
-                    crate::device_linking::settlement::SettlementGuard::from_verified(
-                        &token,
-                        scope,
-                        self.linking_owner.invite.cancellation_fence(),
-                    )
-                    .map_err(ClientLinkingError::Engine)?,
-                ))
-            } else {
-                None
-            };
+            // Preserve this exact SDK token's settlement continuation before
+            // its nonclone lease moves into the proposal/Add owner.
+            let guard = Arc::new(
+                crate::device_linking::settlement::SettlementGuard::from_verified(
+                    &token,
+                    scope,
+                    self.linking_owner.invite.cancellation_fence(),
+                )
+                .map_err(ClientLinkingError::Engine)?,
+            );
             self.arm_private_device_invite(token)?;
-            if let Some(guard) = guard {
-                self.linking_owner.settlement_attempt = Some(
-                    super::private_settlement::OwnedSettlementAttempt::new(guard),
-                );
-            }
+            self.linking_owner.settlement_attempt = Some(
+                super::private_settlement::OwnedSettlementAttempt::new(guard),
+            );
             self.linking_owner.invite_attempt = Some(OwnedPrivateInvite {
                 scope: scope.clone(),
                 group,

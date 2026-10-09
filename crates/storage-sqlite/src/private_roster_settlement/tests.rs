@@ -3,6 +3,251 @@ use super::*;
 use cgka_traits::accepted_device_group_anchor::DeviceGroupAnchorRoster;
 use cgka_traits::device_group_genesis::GenesisLeaf;
 use cgka_traits::{EpochId, GroupId, MessageId};
+
+fn deferred_anchor() -> PrivateSettlementAnchor {
+    let mut value = anchor();
+    value.successor.leaves.push(GenesisLeaf {
+        account: value.account,
+        leaf_index: 8,
+        signature_public_key: [12; 32],
+    });
+    value
+}
+
+fn deferred_ack(generation: u64) -> PrivateSettlementDeferredAck {
+    PrivateSettlementDeferredAck {
+        fact: PrivateSettlementFact {
+            format_version: 1,
+            generation,
+            leaf_index: 8,
+            signature_public_key: [12; 32],
+            message_id: MessageId::new(vec![13; 32]),
+        },
+        round_nonce: [7; 32],
+    }
+}
+
+#[test]
+fn private_settlement_deferred_ack_does_not_bind_nonce_or_count_confirmation() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    let generation = storage.select_round(&deferred_anchor()).unwrap().generation;
+    let ack = deferred_ack(generation);
+    storage.defer_remote_ack(&ack).unwrap();
+    storage.defer_remote_ack(&ack).unwrap();
+    let round = storage.read_round().unwrap().unwrap();
+    assert!(round.phase == PrivateSettlementPhase::Pending);
+    assert!(round.round_nonce.is_none());
+    assert!(round.coordinator_leaf_index.is_none());
+    assert!(round.prepared_ciphertext.is_none());
+    assert!(round.deferred_acks == vec![ack.clone()]);
+    assert!(storage.read_facts().unwrap().is_empty());
+    let mut conflict = ack.clone();
+    conflict.round_nonce = [14; 32];
+    storage.defer_remote_ack(&conflict).unwrap();
+    conflict = ack.clone();
+    conflict.fact.message_id = MessageId::new(vec![14; 32]);
+    storage.defer_remote_ack(&conflict).unwrap();
+    assert!(storage.read_round().unwrap().unwrap().deferred_acks == vec![ack]);
+    assert!(storage.clear_deferred_acks(generation + 1).is_err());
+    assert!(storage.clear_deferred_acks(generation).is_err());
+    storage.bind_round_nonce(generation, [7; 32], 0).unwrap();
+    storage.clear_deferred_acks(generation).unwrap();
+    storage.clear_deferred_acks(generation).unwrap();
+    assert!(
+        storage
+            .read_round()
+            .unwrap()
+            .unwrap()
+            .deferred_acks
+            .is_empty()
+    );
+    assert!(storage.read_facts().unwrap().is_empty());
+}
+
+#[test]
+fn private_settlement_deferred_ack_rejects_wrong_generation_role_and_roster() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    let generation = storage.select_round(&deferred_anchor()).unwrap().generation;
+    let valid = deferred_ack(generation);
+    let mut invalids = Vec::new();
+    let mut ack = valid.clone();
+    ack.fact.generation += 1;
+    invalids.push(ack);
+    let mut ack = valid.clone();
+    ack.round_nonce = [0; 32];
+    invalids.push(ack);
+    let mut ack = valid.clone();
+    ack.fact = fact(generation, true);
+    invalids.push(ack);
+    let mut ack = valid.clone();
+    ack.fact = fact(generation, false);
+    invalids.push(ack);
+    let mut ack = valid.clone();
+    ack.fact.leaf_index = 9;
+    invalids.push(ack);
+    let mut ack = valid.clone();
+    ack.fact.signature_public_key = [15; 32];
+    invalids.push(ack);
+    let mut ack = valid.clone();
+    ack.fact.message_id = MessageId::new(vec![13; 257]);
+    invalids.push(ack);
+    for ack in invalids {
+        assert!(storage.defer_remote_ack(&ack).is_err());
+    }
+    assert!(
+        storage
+            .read_round()
+            .unwrap()
+            .unwrap()
+            .deferred_acks
+            .is_empty()
+    );
+    storage.defer_remote_ack(&valid).unwrap();
+}
+
+#[test]
+fn private_settlement_deferred_ack_rollback_retirement_and_replacement() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    let first = storage.select_round(&deferred_anchor()).unwrap().generation;
+    let ack = deferred_ack(first);
+    let rollback: StorageResult<()> = storage.with_transaction(|storage| {
+        storage.defer_remote_ack(&ack)?;
+        Err(StorageError::Serialization(
+            "injected deferred receipt rollback".into(),
+        ))
+    });
+    assert!(rollback.is_err());
+    assert!(
+        storage
+            .read_round()
+            .unwrap()
+            .unwrap()
+            .deferred_acks
+            .is_empty()
+    );
+    storage.defer_remote_ack(&ack).unwrap();
+    storage.bind_round_nonce(first, [7; 32], 0).unwrap();
+    let rollback: StorageResult<()> = storage.with_transaction(|storage| {
+        storage.clear_deferred_acks(first)?;
+        Err(StorageError::Serialization(
+            "injected deferred retirement rollback".into(),
+        ))
+    });
+    assert!(rollback.is_err());
+    assert!(storage.read_round().unwrap().unwrap().deferred_acks == vec![ack.clone()]);
+    storage.deny_round(first).unwrap();
+    assert!(
+        storage
+            .read_round()
+            .unwrap()
+            .unwrap()
+            .deferred_acks
+            .is_empty()
+    );
+    assert!(storage.defer_remote_ack(&ack).is_err());
+    let second = storage.select_round(&deferred_anchor()).unwrap().generation;
+    storage.defer_remote_ack(&deferred_ack(second)).unwrap();
+    assert!(storage.abandon_pending_on_startup().unwrap());
+    assert!(
+        storage
+            .read_round()
+            .unwrap()
+            .unwrap()
+            .deferred_acks
+            .is_empty()
+    );
+    let third = storage.select_round(&deferred_anchor()).unwrap().generation;
+    storage.defer_remote_ack(&deferred_ack(third)).unwrap();
+    let fourth = storage.select_round(&deferred_anchor()).unwrap().generation;
+    assert!(fourth > third);
+    assert!(
+        storage
+            .read_round()
+            .unwrap()
+            .unwrap()
+            .deferred_acks
+            .is_empty()
+    );
+    assert!(storage.defer_remote_ack(&deferred_ack(third)).is_err());
+}
+
+#[test]
+fn private_settlement_legacy_json_without_deferred_ack_field_remains_readable() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    let generation = selected(&storage);
+    let state = storage.read_round().unwrap().unwrap();
+    let mut legacy = serde_json::to_value(&state).unwrap();
+    legacy.as_object_mut().unwrap().remove("deferred_acks");
+    {
+        let conn = storage.lock().unwrap();
+        conn.execute(
+            "UPDATE private_roster_settlement SET state=?1 WHERE singleton=1",
+            [serde_json::to_vec(&legacy).unwrap()],
+        )
+        .unwrap();
+    }
+    let reopened = storage.read_round().unwrap().unwrap();
+    assert!(reopened.deferred_acks.is_empty());
+    assert_eq!(reopened.generation, generation);
+    assert!(reopened.round_nonce == state.round_nonce);
+    storage
+        .record_remote_confirmation(&fact(generation, false))
+        .unwrap();
+    storage
+        .record_local_confirmation(&fact(generation, true), b"legacy-compatible-cipher")
+        .unwrap();
+    assert!(storage.read_round().unwrap().unwrap().phase == PrivateSettlementPhase::Completed);
+}
+
+#[test]
+fn private_settlement_deferred_ack_storage_is_bounded_by_actual_remote_slots() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    let mut roster = deferred_anchor();
+    for index in 9..134u32 {
+        let mut signer = [0; 32];
+        signer[..4].copy_from_slice(&index.to_be_bytes());
+        roster.successor.leaves.push(GenesisLeaf {
+            account: roster.account,
+            leaf_index: index,
+            signature_public_key: signer,
+        });
+    }
+    assert_eq!(roster.successor.leaves.len(), 128);
+    let generation = storage.select_round(&roster).unwrap().generation;
+    for leaf in roster.successor.leaves.iter().filter(|leaf| {
+        leaf.signature_public_key != roster.local_device
+            && leaf.signature_public_key != roster.coordinator
+    }) {
+        storage
+            .defer_remote_ack(&PrivateSettlementDeferredAck {
+                fact: PrivateSettlementFact {
+                    format_version: 1,
+                    generation,
+                    leaf_index: leaf.leaf_index,
+                    signature_public_key: leaf.signature_public_key,
+                    message_id: MessageId::new(leaf.leaf_index.to_be_bytes().to_vec()),
+                },
+                round_nonce: [7; 32],
+            })
+            .unwrap();
+    }
+    let state = storage.read_round().unwrap().unwrap();
+    assert_eq!(state.deferred_acks.len(), 126);
+    assert!(storage.read_facts().unwrap().is_empty());
+    assert!(state.round_nonce.is_none());
+    let mut corrupt = serde_json::to_value(&state).unwrap();
+    let duplicates = vec![serde_json::to_value(&state.deferred_acks[0]).unwrap(); 129];
+    corrupt["deferred_acks"] = serde_json::Value::Array(duplicates);
+    {
+        let conn = storage.lock().unwrap();
+        conn.execute(
+            "UPDATE private_roster_settlement SET state=?1 WHERE singleton=1",
+            [serde_json::to_vec(&corrupt).unwrap()],
+        )
+        .unwrap();
+    }
+    assert!(storage.read_round().is_err());
+}
 fn anchor() -> PrivateSettlementAnchor {
     PrivateSettlementAnchor {
         origin: PrivateInviteOrigin::Accepted(1),

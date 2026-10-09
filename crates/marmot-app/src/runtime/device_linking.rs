@@ -3221,6 +3221,11 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn device_linking_original_abc_actions_settle_actual_three_device_roster() {
+        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalAbcSettlement).await;
+    }
+
+    #[tokio::test]
     async fn device_linking_b_endorsement_abandoned_reply_burns_original_action() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalDroppedReply).await;
     }
@@ -3239,6 +3244,7 @@ mod tests {
         LocalProposalRecipientAdmission,
         LocalProposalRecipientJoin,
         LocalProposalExistingTransition,
+        LocalProposalAbcSettlement,
         LocalProposalDroppedReply,
         LocalProposalReopen,
         RetainedScope,
@@ -3340,6 +3346,7 @@ mod tests {
                 | ThirdDeviceCheck::LocalProposalRecipientAdmission
                 | ThirdDeviceCheck::LocalProposalRecipientJoin
                 | ThirdDeviceCheck::LocalProposalExistingTransition
+                | ThirdDeviceCheck::LocalProposalAbcSettlement
                 | ThirdDeviceCheck::LocalProposalDroppedReply
                 | ThirdDeviceCheck::LocalProposalReopen
         ) {
@@ -3443,6 +3450,7 @@ mod tests {
                 | ThirdDeviceCheck::LocalProposalRecipientAdmission
                 | ThirdDeviceCheck::LocalProposalRecipientJoin
                 | ThirdDeviceCheck::LocalProposalExistingTransition
+                | ThirdDeviceCheck::LocalProposalAbcSettlement
                 | ThirdDeviceCheck::LocalProposalDroppedReply
                 | ThirdDeviceCheck::LocalProposalReopen
         ) {
@@ -3561,6 +3569,7 @@ mod tests {
                     | ThirdDeviceCheck::LocalProposalRecipientAdmission
                     | ThirdDeviceCheck::LocalProposalRecipientJoin
                     | ThirdDeviceCheck::LocalProposalExistingTransition
+                    | ThirdDeviceCheck::LocalProposalAbcSettlement
                     | ThirdDeviceCheck::LocalProposalReopen
             ) {
                 let bindings = workers
@@ -3585,6 +3594,7 @@ mod tests {
                     | ThirdDeviceCheck::LocalProposalRecipientAdmission
                     | ThirdDeviceCheck::LocalProposalRecipientJoin
                     | ThirdDeviceCheck::LocalProposalExistingTransition
+                    | ThirdDeviceCheck::LocalProposalAbcSettlement
             ) {
                 assert_eq!(
                     workers
@@ -3726,6 +3736,7 @@ mod tests {
                     ThirdDeviceCheck::LocalProposalRecipientAdmission
                         | ThirdDeviceCheck::LocalProposalRecipientJoin
                         | ThirdDeviceCheck::LocalProposalExistingTransition
+                        | ThirdDeviceCheck::LocalProposalAbcSettlement
                 ) {
                     let packet = workers.a.verifier_command("test", |respond|
                         VerifierCommand::ExportOwnedEnrollmentRecipientPacket { scope: a_scope.clone(), respond })
@@ -3816,7 +3827,11 @@ mod tests {
                             == c_purpose,
                         "arming is not acceptance and cannot consume the purpose"
                     );
-                    if check == ThirdDeviceCheck::LocalProposalExistingTransition {
+                    if matches!(
+                        check,
+                        ThirdDeviceCheck::LocalProposalExistingTransition
+                            | ThirdDeviceCheck::LocalProposalAbcSettlement
+                    ) {
                         let mut foreign = selected;
                         foreign[0] ^= 1;
                         assert!(
@@ -3853,15 +3868,19 @@ mod tests {
                         check,
                         ThirdDeviceCheck::LocalProposalRecipientJoin
                             | ThirdDeviceCheck::LocalProposalExistingTransition
+                            | ThirdDeviceCheck::LocalProposalAbcSettlement
                     ) {
                         workers
                             .a
                             .prepare_endorsed_enrollment_invite("test", &a_scope)
                             .await
                             .unwrap();
-                        let b_injector = (check
-                            == ThirdDeviceCheck::LocalProposalExistingTransition)
-                            .then(|| private_commit_injector(&workers.b));
+                        let b_injector = matches!(
+                            check,
+                            ThirdDeviceCheck::LocalProposalExistingTransition
+                                | ThirdDeviceCheck::LocalProposalAbcSettlement
+                        )
+                        .then(|| private_commit_injector(&workers.b));
                         if let Some(injector) = &b_injector {
                             injector.execute_batch("CREATE TRIGGER reject_existing_transition BEFORE INSERT ON existing_device_group_anchor BEGIN SELECT RAISE(ABORT,'injected existing transition rollback'); END;").unwrap();
                         }
@@ -4041,7 +4060,11 @@ mod tests {
                                 .0,
                             2
                         );
-                        if check == ThirdDeviceCheck::LocalProposalExistingTransition {
+                        if matches!(
+                            check,
+                            ThirdDeviceCheck::LocalProposalExistingTransition
+                                | ThirdDeviceCheck::LocalProposalAbcSettlement
+                        ) {
                             let candidate = workers.b.candidate_device_group_snapshot("test", &group).await.unwrap()
                                 .expect("B must observe the actual successor before guarded protected round selection");
                             assert_eq!(candidate.epoch.0, 2);
@@ -4075,7 +4098,8 @@ mod tests {
                                 loop {
                                     if cgka_traits::StorageProvider::private_roster_settlement_storage(&b_storage)
                                         .unwrap().read_round().unwrap().is_some_and(|round|
-                                            round.phase == PrivateSettlementPhase::Pending
+                                            (round.phase == PrivateSettlementPhase::Pending
+                                                || (check == ThirdDeviceCheck::LocalProposalAbcSettlement && round.phase == PrivateSettlementPhase::Completed))
                                             && round.anchor.successor.epoch.0 == 2
                                             && round.anchor.successor.leaves.len() == 3) { break; }
                                     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -4095,31 +4119,32 @@ mod tests {
                             assert!(
                                 matches!(cgka_traits::StorageProvider::private_roster_settlement_storage(&b_storage).unwrap().read_round().unwrap().unwrap().anchor.origin, cgka_traits::private_device_invite::PrivateInviteOrigin::Existing(generation) if generation == protected.generation)
                             );
-                            workers
-                                .b
-                                .verifier_command("test", |respond| {
-                                    VerifierCommand::CancelReceivedEnrollmentEndorsement {
-                                        binding: selected,
-                                        respond,
-                                    }
-                                })
-                                .await
-                                .unwrap();
-                            assert!(
+                            if check == ThirdDeviceCheck::LocalProposalExistingTransition {
                                 workers
                                     .b
                                     .verifier_command("test", |respond| {
-                                        VerifierCommand::ArmExistingMemberEnrollment {
+                                        VerifierCommand::CancelReceivedEnrollmentEndorsement {
                                             binding: selected,
-                                            packet: existing_member_packet.clone(),
                                             respond,
                                         }
                                     })
                                     .await
-                                    .is_err(),
-                                "protected SQL facts and copied complete signatures cannot restore cancelled original B approval"
-                            );
-                            assert!(
+                                    .unwrap();
+                                assert!(
+                                    workers
+                                        .b
+                                        .verifier_command("test", |respond| {
+                                            VerifierCommand::ArmExistingMemberEnrollment {
+                                                binding: selected,
+                                                packet: existing_member_packet.clone(),
+                                                respond,
+                                            }
+                                        })
+                                        .await
+                                        .is_err(),
+                                    "protected SQL facts and copied complete signatures cannot restore cancelled original B approval"
+                                );
+                                assert!(
                                 cgka_traits::StorageProvider::existing_device_group_anchor_storage(
                                     &b_storage
                                 )
@@ -4128,7 +4153,7 @@ mod tests {
                                 .unwrap()
                                     == Some(protected)
                             );
-                            assert!(
+                                assert!(
                                 cgka_traits::StorageProvider::private_roster_settlement_storage(
                                     &b_storage
                                 )
@@ -4138,6 +4163,36 @@ mod tests {
                                 .is_some_and(|round| round.phase == PrivateSettlementPhase::Denied
                                     && round.anchor.successor.epoch.0 == 2)
                             );
+                            } else {
+                                tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                                    loop {
+                                        let settled = [&a_storage, &b_storage, &c_storage].iter().all(|storage| {
+                                            let store = cgka_traits::StorageProvider::private_roster_settlement_storage(*storage).unwrap();
+                                            store.read_round().unwrap().is_some_and(|round|
+                                                round.phase == PrivateSettlementPhase::Completed
+                                                && round.anchor.group_id == group
+                                                && round.anchor.successor.epoch.0 == 2
+                                                && round.anchor.successor.leaves.len() == 3)
+                                                && store.read_facts().unwrap().len() == 3
+                                        });
+                                        if settled { break; }
+                                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                                    }
+                                }).await.unwrap_or_else(|_| {
+                                    let states = [&a_storage, &b_storage, &c_storage].iter().map(|storage| {
+                                        let store = cgka_traits::StorageProvider::private_roster_settlement_storage(*storage).unwrap();
+                                        (store.read_round().unwrap().map(|r| (serde_json::to_string(&r.phase).unwrap(), r.anchor.successor.epoch.0, r.anchor.successor.leaves.len())), store.read_facts().unwrap().len())
+                                    }).collect::<Vec<_>>();
+                                    let rounds = [&a_storage, &b_storage, &c_storage].iter().map(|storage| cgka_traits::StorageProvider::private_roster_settlement_storage(*storage).unwrap().read_round().unwrap().unwrap().anchor).collect::<Vec<_>>();
+                                    let a=&rounds[0]; let b=&rounds[1]; let c=&rounds[2];
+                                    panic!("original ABC settlement timeout: {:?}, ABmatch(commitment,nonce,context,coordinator,tree)={:?}, ACmatch={:?}", states, (a.roster_commitment==b.roster_commitment,a.enrollment_nonce==b.enrollment_nonce,a.context_digest==b.context_digest,a.coordinator==b.coordinator,a.successor==b.successor), (a.roster_commitment==c.roster_commitment,a.enrollment_nonce==c.enrollment_nonce,a.context_digest==c.context_digest,a.coordinator==c.coordinator,a.successor==c.successor));
+                                });
+                                for manager in [&workers.a, &workers.b, &c] {
+                                    let artifact = manager.export_settled_device_predecessor("test", &group).await
+                                        .expect("each final roster must validate its actual protected completed tree");
+                                    assert!(!artifact.unwrap().is_empty());
+                                }
+                            }
                         }
                         assert!(workers.a.app.load_state("test").unwrap().groups.is_empty());
                         assert!(workers.b.app.load_state("test").unwrap().groups.is_empty());
@@ -4547,6 +4602,7 @@ mod tests {
                     | ThirdDeviceCheck::LocalProposalRecipientAdmission
                     | ThirdDeviceCheck::LocalProposalRecipientJoin
                     | ThirdDeviceCheck::LocalProposalExistingTransition
+                    | ThirdDeviceCheck::LocalProposalAbcSettlement
             ) {
                 assert!(
                     workers

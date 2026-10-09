@@ -376,6 +376,7 @@ expression: "serde_json::json!({\"state\":state,\"fact\":fact})"
       }
     },
     "coordinator_leaf_index": 4,
+    "deferred_acks": [],
     "format_version": 1,
     "generation": 2,
     "outbound": null,

@@ -1620,7 +1620,10 @@ impl<S: StorageProvider> Engine<S> {
             }
             #[cfg(feature = "experimental-device-sync")]
             crate::private_roster_settlement_receive::ensure_live(
-                settlement_admission.as_ref(),
+                output
+                    .staged_settlement_admission
+                    .as_ref()
+                    .or(settlement_admission.as_ref()),
                 output.settlement_positive,
             )
             .map_err(|e| OpenMlsProjectionError::Replay(e.to_string()))?;
@@ -1645,6 +1648,8 @@ impl<S: StorageProvider> Engine<S> {
                 output.handled_private_ids,
                 #[cfg(feature = "experimental-device-sync")]
                 output.enrollment_effects,
+                #[cfg(feature = "experimental-device-sync")]
+                output.staged_settlement_admission,
             ))
         })?;
         #[cfg(feature = "experimental-device-sync")]
@@ -1654,12 +1659,17 @@ impl<S: StorageProvider> Engine<S> {
             membership_effects,
             handled_private_ids,
             enrollment_effects,
+            staged_settlement_admission,
         ) = committed;
         #[cfg(not(feature = "experimental-device-sync"))]
         let (group_changes, application_events, membership_effects, handled_private_ids) =
             committed;
         #[cfg(feature = "experimental-device-sync")]
         {
+            if let Some(admission) = staged_settlement_admission {
+                self.commit_applied_settlement_admission(admission)
+                    .map_err(crate::openmls_projection::capture_effect_error)?;
+            }
             self.enrollment_intake
                 .finish(&mut enrollment_reservation, enrollment_effects);
             for id in &handled_private_ids {

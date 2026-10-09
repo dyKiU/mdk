@@ -5,7 +5,7 @@ use cgka_traits::device_linking_key_package::PurposeAttemptScope;
 use cgka_traits::private_roster_settlement::PrivateSettlementAnchor;
 use cgka_traits::{EngineError, GroupId};
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use std::time::Instant;
@@ -35,7 +35,7 @@ impl SdkCancellationFence {
 pub(crate) struct SettlementGuard {
     context: LinkingContext,
     scope: PurposeAttemptScope,
-    deadline: Instant,
+    deadline: Mutex<Instant>,
     revoked: AtomicBool,
     cancellation: SdkCancellationFence,
 }
@@ -62,7 +62,7 @@ impl SettlementGuard {
         Ok(Self {
             context: context.clone(),
             scope: scope.clone(),
-            deadline,
+            deadline: Mutex::new(deadline),
             revoked: AtomicBool::new(false),
             cancellation,
         })
@@ -73,10 +73,21 @@ impl SettlementGuard {
     pub(crate) fn is_live(&self) -> bool {
         !self.revoked.load(Ordering::SeqCst)
             && !self.cancellation.is_revoked()
-            && Instant::now() < self.deadline
+            && Instant::now() < self.deadline()
     }
     pub(crate) fn deadline(&self) -> Instant {
-        self.deadline
+        *self
+            .deadline
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+    /// Negative-only observation bound; it cannot extend or revive SDK consent.
+    pub(crate) fn shorten_deadline(&self, deadline: Instant) {
+        let mut original = self
+            .deadline
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        *original = (*original).min(deadline);
     }
     pub(crate) fn scope(&self) -> &PurposeAttemptScope {
         &self.scope
@@ -112,7 +123,7 @@ impl TrustedPrivateSettlementGuard for SettlementGuard {
         {
             return Err(unavailable());
         }
-        Ok(self.deadline)
+        Ok(self.deadline())
     }
 }
 fn unavailable() -> EngineError {

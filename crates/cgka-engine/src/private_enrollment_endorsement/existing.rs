@@ -183,6 +183,63 @@ impl OwnedExistingEnrollmentTransition {
             .map_err(EngineError::Storage)?;
         self.check_live()
     }
+    pub(crate) fn applied_settlement_anchor<S: StorageProvider>(
+        &self,
+        storage: &S,
+        group_id: &GroupId,
+        group: &MlsGroup,
+    ) -> Result<PrivateSettlementAnchor, EngineError> {
+        self.check_live()?;
+        let fact = storage
+            .existing_device_group_anchor_storage()
+            .ok_or_else(denied)?
+            .existing_anchor()?
+            .filter(|fact| !fact.denied)
+            .ok_or_else(denied)?;
+        let draft = &fact.draft;
+        if draft.action_binding != self.metadata.binding
+            || draft.group_id != *group_id
+            || draft.account != self.metadata.account
+            || draft.local_device != self.local_device
+            || !crate::device_group_lineage::AppliedPrivateTree::read(group_id, group)?.is_some_and(
+                |tree| tree.matches(&draft.account, &draft.local_device, &draft.successor),
+            )
+        {
+            return Err(denied());
+        }
+        let mut candidate = crate::device_group_snapshot::CandidateDeviceGroupSnapshot {
+            account: cgka_traits::MemberId::new(draft.account.to_vec()),
+            group_id: group_id.clone(),
+            epoch: draft.successor.epoch,
+            epoch_authenticator_digest: draft.successor.epoch_authenticator_digest,
+            leaves: draft
+                .successor
+                .leaves
+                .iter()
+                .map(|leaf| crate::device_group_snapshot::CandidateDeviceLeaf {
+                    leaf_index: leaf.leaf_index,
+                    signature_public_key: leaf.signature_public_key.to_vec(),
+                })
+                .collect(),
+            roster_commitment: [0; 32],
+        };
+        candidate.roster_commitment = crate::device_group_snapshot::commitment(&candidate);
+        let anchor = PrivateSettlementAnchor {
+            origin: cgka_traits::private_device_invite::PrivateInviteOrigin::Existing(
+                fact.generation,
+            ),
+            account: draft.account,
+            local_device: draft.local_device,
+            group_id: group_id.clone(),
+            successor: draft.successor.clone(),
+            roster_commitment: candidate.roster_commitment,
+            enrollment_nonce: draft.nonce,
+            context_digest: draft.context_digest,
+            coordinator: draft.coordinator,
+        };
+        crate::private_roster_settlement::TrustedPrivateSettlementGuard::validate(self, &anchor)?;
+        Ok(anchor)
+    }
     pub(crate) fn check_applied<S: StorageProvider>(
         &self,
         storage: &S,

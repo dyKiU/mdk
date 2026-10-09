@@ -82,3 +82,5 @@ successor metadata contract and optional default-unavailable storage accessor.
 `PrivateInviteOrigin::Existing` is a separate local generation, never an SDK
 scope or accepted-recipient/confirmed-publication fact. Serialized drafts and
 retained rows cannot recreate the original action or a settlement guard.
+
+Private settlement deferred ACKs are bounded authenticated receipt metadata, never counted facts, coordinator nonce binding, clocks or live authorization. The JSON state field defaults empty for legacy records; no public host grant inlet is added.

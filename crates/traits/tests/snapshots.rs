@@ -1187,6 +1187,7 @@ fn snapshot_private_settlement_metadata_is_not_admission() {
         coordinator_leaf_index: Some(4),
         prepared_ciphertext: Some(vec![8]),
         outbound: None,
+        deferred_acks: vec![],
     };
     let fact = PrivateSettlementFact {
         format_version: 1,

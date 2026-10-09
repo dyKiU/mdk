@@ -58,6 +58,29 @@ pub(crate) struct LiveSettlementAdmission {
     guard: Option<Arc<dyn TrustedPrivateSettlementGuard>>,
 }
 impl LiveSettlementAdmission {
+    pub(crate) fn select_applied_existing<S: StorageProvider>(
+        storage: &S,
+        group_id: &GroupId,
+        group: &openmls::group::MlsGroup,
+        guard: Arc<crate::private_enrollment_endorsement::OwnedExistingEnrollmentTransition>,
+    ) -> Result<Arc<Self>, EngineError> {
+        let anchor = guard.applied_settlement_anchor(storage, group_id, group)?;
+        let deadline = guard.validate(&anchor)?;
+        let state = storage
+            .private_roster_settlement_storage()
+            .ok_or_else(unavailable)?
+            .select_round(&anchor)?;
+        if guard.validate(&anchor)? != deadline || Instant::now() >= deadline {
+            return Err(unavailable());
+        }
+        Ok(Arc::new(Self {
+            anchor,
+            generation: state.generation,
+            deadline,
+            cancelled: AtomicBool::new(false),
+            guard: Some(guard),
+        }))
+    }
     pub(crate) fn cancel(&self) {
         self.cancelled.store(true, Ordering::SeqCst);
     }
@@ -183,6 +206,30 @@ impl<S: StorageProvider> Engine<S> {
             {
                 return Err(unavailable());
             }
+            // Maintenance can reach this same original owner after selected
+            // crypto apply already admitted and received its first Challenge.
+            // Reuse only that live in-memory continuation; a matching SQL row
+            // without the identical original guard never grants admission.
+            if let (Some(previous), Some(requested)) = (slot.as_ref(), guard.as_ref())
+                && previous.anchor == anchor
+                && previous.deadline == deadline
+                && previous.is_live()
+                && previous
+                    .guard
+                    .as_ref()
+                    .is_some_and(|original| Arc::ptr_eq(original, requested))
+                && storage
+                    .private_roster_settlement_storage()
+                    .ok_or_else(unavailable)?
+                    .read_round()?
+                    .is_some_and(|round| {
+                        round.generation == previous.generation
+                            && round.anchor == anchor
+                            && round.phase != PrivateSettlementPhase::Denied
+                    })
+            {
+                return Ok(None);
+            }
             let state = storage
                 .private_roster_settlement_storage()
                 .ok_or_else(unavailable)?
@@ -196,8 +243,11 @@ impl<S: StorageProvider> Engine<S> {
             {
                 return Err(unavailable());
             }
-            Ok::<_, EngineError>(state)
+            Ok::<_, EngineError>(Some(state))
         })?;
+        let Some(state) = state else {
+            return Ok(());
+        };
         let admission = Arc::new(LiveSettlementAdmission {
             anchor,
             generation: state.generation,
@@ -276,6 +326,22 @@ impl<S: StorageProvider> Engine<S> {
         // Tree freshness is checked by each crypto seam, including selected
         // apply while its convergence pass is still active.
         Ok(Some(admission))
+    }
+    pub(crate) fn commit_applied_settlement_admission(
+        &self,
+        admission: Arc<LiveSettlementAdmission>,
+    ) -> Result<(), EngineError> {
+        if !admission.is_live() {
+            return Err(unavailable());
+        }
+        let mut slot = self
+            .settlement_admission
+            .lock()
+            .map_err(|_| unavailable())?;
+        if let Some(previous) = slot.replace(admission) {
+            previous.cancel();
+        }
+        Ok(())
     }
     pub(crate) fn checked_settlement_round(
         &self,
