@@ -2554,8 +2554,17 @@ async fn run_app_runtime_account_worker(
                         #[cfg(feature = "experimental-device-sync")]
                         if client.retain_private_welcome_after_storage_error(&err) {
                             // Reopening would revoke the original verifier and
-                            // discard the exact batch. The existing feature tick
+                            // discard the exact batch or armed B action. The existing feature tick
                             // retries only while that same owned lease remains live.
+                            continue 'worker;
+                        }
+                        #[cfg(feature = "experimental-device-sync")]
+                        if let Some(group) = client.existing_enrollment_storage_retry_group(&err) {
+                            // Atomic rollback preserves the same original B owner;
+                            // schedule its retained actual commit, never recreate consent.
+                            let mut groups = client.take_pending_convergence_groups();
+                            groups.push(group);
+                            scheduled_convergence.schedule_retry_groups(groups);
                             continue 'worker;
                         }
                         if client.arm_failed_receive_projection_retry() {
@@ -2869,6 +2878,13 @@ async fn run_app_runtime_account_worker(
                             method = "worker_expiry_tick",
                             "device linking cleanup deferred"
                         );
+                    }
+                    match client.pending_existing_private_settlement() {
+                        Ok(Some(binding)) => super::private_commit::publish_existing_settlement(
+                            &mut client, binding, None, &mut commands, &mut pending, &publication_control, &shared, &app, &account_label,
+                        ).await,
+                        Ok(None) => {},
+                        Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_existing_settlement_tick", "private confirmation selection deferred"),
                     }
                     match client.pending_private_settlement() {
                         Ok(Some(scope)) => {

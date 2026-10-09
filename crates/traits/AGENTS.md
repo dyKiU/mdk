@@ -76,3 +76,9 @@ unavailability apply only to the experimental private profile.
 `src/private_roster_settlement.rs` defines optional bounded anchored round/fact
 persistence metadata. It has no Debug identifiers, live admission, deadline or
 permission. The default StorageProvider accessor is unavailable.
+
+`src/existing_device_group_anchor.rs` defines the distinct existing-member
+successor metadata contract and optional default-unavailable storage accessor.
+`PrivateInviteOrigin::Existing` is a separate local generation, never an SDK
+scope or accepted-recipient/confirmed-publication fact. Serialized drafts and
+retained rows cannot recreate the original action or a settlement guard.

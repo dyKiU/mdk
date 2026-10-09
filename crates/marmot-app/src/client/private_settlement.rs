@@ -19,7 +19,105 @@ impl OwnedSettlementAttempt {
         }
     }
 }
+pub(super) struct OwnedExistingSettlementAttempt {
+    pub(super) guard:
+        Arc<cgka_engine::private_enrollment_endorsement::OwnedExistingEnrollmentTransition>,
+    selected: bool,
+    published: bool,
+}
+impl OwnedExistingSettlementAttempt {
+    pub(super) fn new(
+        guard: Arc<cgka_engine::private_enrollment_endorsement::OwnedExistingEnrollmentTransition>,
+    ) -> Self {
+        Self {
+            guard,
+            selected: false,
+            published: false,
+        }
+    }
+}
 impl AppClient {
+    /// A failed atomic apply must retain the exact live B action. Reopening
+    /// destroys that original owner and cannot reconstruct it from stored rows.
+    pub(crate) fn existing_enrollment_storage_retry_group(
+        &self,
+        error: &crate::AppError,
+    ) -> Option<cgka_traits::GroupId> {
+        if !matches!(
+            error.as_engine_error(),
+            Some(cgka_traits::EngineError::Storage(_))
+        ) {
+            return None;
+        }
+        self.linking_owner
+            .existing_settlement_attempt
+            .as_ref()
+            .filter(|attempt| attempt.guard.is_live())
+            .map(|attempt| attempt.guard.group().clone())
+    }
+
+    pub(crate) fn pending_existing_private_settlement(
+        &mut self,
+    ) -> Result<Option<[u8; 32]>, ClientLinkingError> {
+        let Some(attempt) = self.linking_owner.existing_settlement_attempt.as_mut() else {
+            return Ok(None);
+        };
+        if !attempt.guard.is_live() {
+            return Ok(None);
+        }
+        if !attempt.selected {
+            self.runtime
+                .session()
+                .select_owned_private_roster_settlement(
+                    attempt.guard.group(),
+                    attempt.guard.clone(),
+                )
+                .map_err(ClientLinkingError::Engine)?;
+            attempt.selected = true;
+        }
+        if attempt.published {
+            return Ok(None);
+        }
+        Ok(self
+            .runtime
+            .session()
+            .private_roster_settlement_publication_ready(attempt.guard.group())
+            .map_err(ClientLinkingError::Engine)?
+            .then(|| *attempt.guard.binding()))
+    }
+    pub(crate) fn existing_settlement_control(
+        &self,
+        binding: &[u8; 32],
+    ) -> Result<
+        Arc<cgka_engine::private_enrollment_endorsement::OwnedExistingEnrollmentTransition>,
+        ClientLinkingError,
+    > {
+        self.linking_owner
+            .existing_settlement_attempt
+            .as_ref()
+            .filter(|attempt| attempt.guard.binding() == binding && attempt.guard.is_live())
+            .map(|attempt| attempt.guard.clone())
+            .ok_or_else(denied)
+    }
+    pub(crate) async fn dispatch_existing_private_settlement(
+        &mut self,
+        binding: &[u8; 32],
+    ) -> Result<(), ClientLinkingError> {
+        let guard = self.existing_settlement_control(binding)?;
+        let group = guard.group().clone();
+        self.dispatch_private_settlement_group(&group).await?;
+        if !guard.is_live() {
+            return Err(denied());
+        }
+        let attempt = self
+            .linking_owner
+            .existing_settlement_attempt
+            .as_mut()
+            .filter(|attempt| attempt.guard.binding() == binding)
+            .ok_or_else(denied)?;
+        attempt.published = true;
+        Ok(())
+    }
     pub(super) fn select_owned_private_settlement(&mut self) -> Result<(), ClientLinkingError> {
         let Some(attempt) = self.linking_owner.settlement_attempt.as_mut() else {
             return Ok(());
@@ -89,6 +187,24 @@ impl AppClient {
     ) -> Result<(), ClientLinkingError> {
         let guard = self.private_settlement_control(scope)?;
         let group = guard.group();
+        self.dispatch_private_settlement_group(&group).await?;
+        let attempt = self
+            .linking_owner
+            .settlement_attempt
+            .as_mut()
+            .filter(|attempt| attempt.guard.scope() == scope)
+            .ok_or_else(denied)?;
+        if !guard.is_live() {
+            return Err(denied());
+        }
+        // Relay acceptance is only a publication result, never peer/common knowledge.
+        attempt.published = true;
+        Ok(())
+    }
+    async fn dispatch_private_settlement_group(
+        &mut self,
+        group: &cgka_traits::GroupId,
+    ) -> Result<(), ClientLinkingError> {
         self.refresh_private_transport_route()
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
         self.sync_runtime_groups()
@@ -97,7 +213,7 @@ impl AppClient {
         let component = self
             .runtime
             .session()
-            .app_component(&group, crate::NOSTR_ROUTING_COMPONENT_ID)
+            .app_component(group, crate::NOSTR_ROUTING_COMPONENT_ID)
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?
             .ok_or_else(denied)?;
         let route = cgka_traits::app_components::decode_nostr_routing_v1(&component)
@@ -117,20 +233,9 @@ impl AppClient {
         };
         self.runtime
             .session_mut()
-            .dispatch_private_roster_settlement(&group, &publisher)
+            .dispatch_private_roster_settlement(group, &publisher)
             .await
             .map_err(ClientLinkingError::Engine)?;
-        let attempt = self
-            .linking_owner
-            .settlement_attempt
-            .as_mut()
-            .filter(|attempt| attempt.guard.scope() == scope)
-            .ok_or_else(denied)?;
-        if !guard.is_live() {
-            return Err(denied());
-        }
-        // Relay acceptance is only a publication result, never peer/common knowledge.
-        attempt.published = true;
         Ok(())
     }
 }

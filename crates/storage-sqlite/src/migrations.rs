@@ -875,6 +875,9 @@ mod private_migration_0009_chat_exclusion;
 #[path = "private_migrations/0010_private_roster_settlement.rs"]
 mod private_migration_0010_settlement;
 
+#[path = "private_migrations/0011_existing_device_group_anchor.rs"]
+mod private_migration_0011_existing_anchor;
+
 const PRIVATE_MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -925,6 +928,11 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
         version: 10,
         name: "0010_private_roster_settlement",
         apply: private_migration_0010_settlement::apply,
+    },
+    Migration {
+        version: 11,
+        name: "0011_existing_device_group_anchor",
+        apply: private_migration_0011_existing_anchor::apply,
     },
 ];
 

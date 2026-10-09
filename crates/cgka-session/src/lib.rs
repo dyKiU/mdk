@@ -709,6 +709,20 @@ impl AccountDeviceSession {
             .validate_owned_private_enrollment_endorsement(owned)
     }
     #[cfg(feature = "experimental-device-sync")]
+    pub fn arm_original_existing_enrollment_transition(
+        &self,
+        action: &cgka_engine::private_enrollment_endorsement::OwnedEnrollmentEndorsement,
+        bytes: &[u8],
+    ) -> Result<
+        std::sync::Arc<
+            cgka_engine::private_enrollment_endorsement::OwnedExistingEnrollmentTransition,
+        >,
+        EngineError,
+    > {
+        self.engine
+            .arm_original_existing_enrollment_transition(action, bytes)
+    }
+    #[cfg(feature = "experimental-device-sync")]
     pub fn cancel_private_enrollment_endorsements(&self) -> Result<(), EngineError> {
         self.engine.cancel_private_enrollment_endorsements()
     }

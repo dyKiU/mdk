@@ -68,6 +68,13 @@ impl<S: StorageProvider> Engine<S> {
             {
                 return Ok(true);
             }
+            if let Some(store) = storage.existing_device_group_anchor_storage()
+                && store
+                    .existing_anchor()?
+                    .is_some_and(|row| row.draft.group_id == *group_id)
+            {
+                return Ok(true);
+            }
             if let Some(store) = storage.private_device_invite_storage() {
                 let convert = |error| match error {
                     cgka_traits::private_device_invite::PrivateInviteStorageError::Storage(
@@ -136,6 +143,11 @@ impl<S: StorageProvider> Engine<S> {
                 .confirmed_private_invite()
                 .map_err(ledger_error)?;
             let pending = invite_store.private_invite().map_err(ledger_error)?;
+            let existing = storage
+                .existing_device_group_anchor_storage()
+                .map(|store| store.existing_anchor())
+                .transpose()?
+                .flatten();
             let birth_roster = |birth: &cgka_traits::device_group_genesis::GenesisBirthDraft| {
                 DeviceGroupAnchorRoster {
                     epoch: birth.epoch,
@@ -185,6 +197,16 @@ impl<S: StorageProvider> Engine<S> {
                                 && row.binding.successor == binding.predecessor
                         })
                     }
+                    PrivateInviteOrigin::Existing(generation) => {
+                        existing.as_ref().is_some_and(|row| {
+                            !row.denied
+                                && row.generation == generation
+                                && row.draft.account == fact.scope.account
+                                && row.draft.local_device == fact.scope.local_device
+                                && row.draft.group_id == binding.group_id
+                                && row.draft.successor == binding.predecessor
+                        })
+                    }
                 };
                 if !protected {
                     return Ok(None);
@@ -194,6 +216,20 @@ impl<S: StorageProvider> Engine<S> {
                     fact.scope.account,
                     fact.scope.local_device,
                     binding.predecessor.clone(),
+                )
+            } else if let Some(row) = existing.as_ref().filter(|row| !row.denied) {
+                // Conflicting live origins cannot choose a route by precedence.
+                if confirmed.as_ref().is_some_and(|v| !v.denied)
+                    || accepted.as_ref().is_some_and(|v| !v.denied)
+                    || genesis.as_ref().is_some_and(|v| !v.active_denied)
+                {
+                    return Ok(None);
+                }
+                (
+                    row.draft.group_id.clone(),
+                    row.draft.account,
+                    row.draft.local_device,
+                    row.draft.successor.clone(),
                 )
             } else if let Some(row) = confirmed.as_ref().filter(|row| !row.denied) {
                 (

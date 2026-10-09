@@ -189,37 +189,13 @@ impl<S: StorageProvider> Engine<S> {
         scope: &PurposeAttemptScope,
         bytes: &[u8],
     ) -> Result<OwnedEnrollmentRecipientEvidence, EngineError> {
-        if bytes.is_empty() || bytes.len() > PAYLOAD_LIMIT {
-            return Err(unavailable());
-        }
-        let packet: Packet = serde_json::from_slice(bytes).map_err(|_| unavailable())?;
+        let AuthenticatedPacket {
+            packet,
+            artifact,
+            binding,
+            signed_packets,
+        } = decode_packet(self, bytes)?;
         let frame = &packet.request;
-        if serde_json::to_vec(&packet).map_err(|_| unavailable())? != bytes
-            || packet.protocol != PROTOCOL
-            || frame.protocol != PROPOSAL_PROTOCOL
-            || packet.endorsements.is_empty()
-            || packet.endorsements.len() > 128
-            || frame.leaves.len() < 2
-            || frame.leaves.len() > 127
-            || frame.epoch == 0
-            || frame.group_id.is_empty()
-            || frame.group_id.len() > 255
-            || frame.approver_generation == 0
-            || frame.request_nonce == [0; 32]
-            || frame.artifact_digest == [0; 32]
-            || frame.context_digest == [0; 32]
-            || frame.recipient == frame.approver
-            || frame
-                .leaves
-                .iter()
-                .any(|leaf| leaf.signature_public_key == frame.recipient)
-            || !frame
-                .leaves
-                .iter()
-                .any(|leaf| leaf.signature_public_key == frame.approver)
-        {
-            return Err(unavailable());
-        }
         let purpose = self
             .storage
             .device_linking_key_package_storage()
@@ -230,56 +206,16 @@ impl<S: StorageProvider> Engine<S> {
             return Err(unavailable());
         }
         check_purpose(self, &purpose, frame)?;
-        let proposal = frame
-            .proposal
-            .as_ref()
-            .filter(|proposal| proposal.bounded())
-            .ok_or_else(unavailable)?;
-        let artifact_bytes = base64::engine::general_purpose::STANDARD
-            .decode(&proposal.artifact_base64)
-            .map_err(|_| unavailable())?;
-        if base64::engine::general_purpose::STANDARD.encode(&artifact_bytes)
-            != proposal.artifact_base64
-            || <[u8; 32]>::from(Sha256::digest(&artifact_bytes)) != frame.artifact_digest
-        {
-            return Err(unavailable());
-        }
-        let leaves = frame
-            .leaves
-            .iter()
-            .map(|leaf| crate::device_group_snapshot::CandidateDeviceLeaf {
-                leaf_index: leaf.leaf_index,
-                signature_public_key: leaf.signature_public_key.to_vec(),
-            })
-            .collect::<Vec<_>>();
-        let artifact = self.validate_private_device_predecessor(
-            &artifact_bytes,
-            &MemberId::new(frame.account.to_vec()),
-            &GroupId::new(frame.group_id.clone()),
-            cgka_traits::EpochId(frame.epoch),
-            &leaves,
-        )?;
-        let binding = request_binding_digest(frame)?;
-        let signed_packets = packet
-            .endorsements
-            .iter()
-            .map(|encoded| {
-                let bytes = base64::engine::general_purpose::STANDARD
-                    .decode(encoded)
-                    .map_err(|_| unavailable())?;
-                if base64::engine::general_purpose::STANDARD.encode(&bytes) != *encoded {
-                    return Err(unavailable());
-                }
-                Ok(bytes)
-            })
-            .collect::<Result<Vec<_>, EngineError>>()?;
-        let packets = signed_packets.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        self.authenticate_all_private_enrollment_endorsements(&artifact, &binding, &packets)?;
         let evidence = OwnedEnrollmentRecipientEvidence {
             owner: self.enrollment_endorsements.owner_lifetime(),
             scope: scope.clone(),
             deadline: Instant::now() + Duration::from_secs(600),
-            context_json: proposal.context_json.clone(),
+            context_json: frame
+                .proposal
+                .as_ref()
+                .ok_or_else(unavailable)?
+                .context_json
+                .clone(),
             packet,
             artifact,
             binding,
@@ -288,4 +224,157 @@ impl<S: StorageProvider> Engine<S> {
         evidence.check(self, &purpose)?;
         Ok(evidence)
     }
+}
+
+pub(crate) struct ExistingEnrollmentMetadata {
+    pub(crate) account: [u8; 32],
+    pub(crate) group: GroupId,
+    pub(crate) predecessor: cgka_traits::accepted_device_group_anchor::DeviceGroupAnchorRoster,
+    pub(crate) binding: [u8; 32],
+    pub(crate) nonce: [u8; 32],
+    pub(crate) context_digest: [u8; 32],
+    pub(crate) coordinator: [u8; 32],
+    pub(crate) recipient: [u8; 32],
+    pub(crate) key_package_reference: [u8; 32],
+    pub(crate) key_package_digest: [u8; 32],
+    pub(crate) signed_packets: Vec<Vec<u8>>,
+}
+pub(crate) fn authenticate_existing_packet<S: StorageProvider>(
+    engine: &Engine<S>,
+    bytes: &[u8],
+) -> Result<ExistingEnrollmentMetadata, EngineError> {
+    let AuthenticatedPacket {
+        packet,
+        artifact,
+        binding,
+        signed_packets,
+    } = decode_packet(engine, bytes)?;
+    let frame = packet.request;
+    let predecessor = cgka_traits::accepted_device_group_anchor::DeviceGroupAnchorRoster {
+        epoch: cgka_traits::EpochId(frame.epoch),
+        epoch_authenticator_digest: frame.epoch_authenticator_digest,
+        leaves: artifact
+            .leaves()
+            .iter()
+            .map(|leaf| {
+                Ok(cgka_traits::device_group_genesis::GenesisLeaf {
+                    account: frame.account,
+                    leaf_index: leaf.leaf_index,
+                    signature_public_key: leaf
+                        .signature_public_key
+                        .as_slice()
+                        .try_into()
+                        .map_err(|_| unavailable())?,
+                })
+            })
+            .collect::<Result<Vec<_>, EngineError>>()?,
+    };
+    Ok(ExistingEnrollmentMetadata {
+        account: frame.account,
+        group: GroupId::new(frame.group_id),
+        predecessor,
+        binding,
+        nonce: frame.enrollment_nonce,
+        context_digest: frame.context_digest,
+        coordinator: frame.approver,
+        recipient: frame.recipient,
+        key_package_reference: frame
+            .key_package_reference
+            .try_into()
+            .map_err(|_| unavailable())?,
+        key_package_digest: frame.key_package_digest,
+        signed_packets,
+    })
+}
+struct AuthenticatedPacket {
+    packet: Packet,
+    artifact: AuthenticatedPrivatePredecessor,
+    binding: [u8; 32],
+    signed_packets: Vec<Vec<u8>>,
+}
+fn decode_packet<S: StorageProvider>(
+    engine: &Engine<S>,
+    bytes: &[u8],
+) -> Result<AuthenticatedPacket, EngineError> {
+    if bytes.is_empty() || bytes.len() > PAYLOAD_LIMIT {
+        return Err(unavailable());
+    }
+    let packet: Packet = serde_json::from_slice(bytes).map_err(|_| unavailable())?;
+    let frame = &packet.request;
+    if serde_json::to_vec(&packet).map_err(|_| unavailable())? != bytes
+        || packet.protocol != PROTOCOL
+        || frame.protocol != PROPOSAL_PROTOCOL
+        || packet.endorsements.is_empty()
+        || packet.endorsements.len() > 128
+        || frame.leaves.len() < 2
+        || frame.leaves.len() > 127
+        || frame.epoch == 0
+        || frame.group_id.is_empty()
+        || frame.group_id.len() > 255
+        || frame.approver_generation == 0
+        || frame.request_nonce == [0; 32]
+        || frame.artifact_digest == [0; 32]
+        || frame.context_digest == [0; 32]
+        || frame.recipient == frame.approver
+        || frame
+            .leaves
+            .iter()
+            .any(|leaf| leaf.signature_public_key == frame.recipient)
+        || !frame
+            .leaves
+            .iter()
+            .any(|leaf| leaf.signature_public_key == frame.approver)
+    {
+        return Err(unavailable());
+    }
+    let proposal = frame
+        .proposal
+        .as_ref()
+        .filter(|proposal| proposal.bounded())
+        .ok_or_else(unavailable)?;
+    let artifact_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&proposal.artifact_base64)
+        .map_err(|_| unavailable())?;
+    if base64::engine::general_purpose::STANDARD.encode(&artifact_bytes) != proposal.artifact_base64
+        || <[u8; 32]>::from(Sha256::digest(&artifact_bytes)) != frame.artifact_digest
+    {
+        return Err(unavailable());
+    }
+    let leaves = frame
+        .leaves
+        .iter()
+        .map(|leaf| crate::device_group_snapshot::CandidateDeviceLeaf {
+            leaf_index: leaf.leaf_index,
+            signature_public_key: leaf.signature_public_key.to_vec(),
+        })
+        .collect::<Vec<_>>();
+    let artifact = engine.validate_private_device_predecessor(
+        &artifact_bytes,
+        &MemberId::new(frame.account.to_vec()),
+        &GroupId::new(frame.group_id.clone()),
+        cgka_traits::EpochId(frame.epoch),
+        &leaves,
+    )?;
+    let binding = request_binding_digest(frame)?;
+    let signed_packets = packet
+        .endorsements
+        .iter()
+        .map(|encoded| {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .map_err(|_| unavailable())?;
+            if base64::engine::general_purpose::STANDARD.encode(&bytes) != *encoded {
+                return Err(unavailable());
+            }
+            Ok(bytes)
+        })
+        .collect::<Result<Vec<_>, EngineError>>()?;
+    let packets = signed_packets.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    engine.authenticate_all_private_enrollment_endorsements(&artifact, &binding, &packets)?;
+    Ok(AuthenticatedPacket {
+        packet,
+        artifact,
+        binding,
+        signed_packets,
+    })
 }

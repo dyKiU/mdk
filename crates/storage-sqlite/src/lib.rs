@@ -197,6 +197,8 @@ mod accepted_device_group_anchor;
 #[cfg(all(test, feature = "experimental-device-sync"))]
 mod accepted_device_group_anchor_tests;
 #[cfg(feature = "experimental-device-sync")]
+mod existing_device_group_anchor;
+#[cfg(feature = "experimental-device-sync")]
 mod private_device_invite;
 #[cfg(all(test, feature = "experimental-device-sync"))]
 mod private_device_invite_tests;

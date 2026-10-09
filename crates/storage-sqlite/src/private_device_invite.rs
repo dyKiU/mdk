@@ -50,7 +50,8 @@ fn validate_binding(binding: &PrivateInviteBinding) -> Result<()> {
     generation(match binding.origin {
         PrivateInviteOrigin::Genesis(v)
         | PrivateInviteOrigin::Accepted(v)
-        | PrivateInviteOrigin::Confirmed(v) => v,
+        | PrivateInviteOrigin::Confirmed(v)
+        | PrivateInviteOrigin::Existing(v) => v,
     })?;
     bounded(binding.group_id.as_slice(), 255)?;
     if binding.format_version != 1
@@ -290,6 +291,15 @@ pub(crate) fn check_selection_allocation(
     account: &[u8; 32],
     device: &[u8; 32],
 ) -> Result<()> {
+    let existing = crate::existing_device_group_anchor::read(connection).map_err(Error::Storage)?;
+    if let Some(fact) = &existing {
+        if fact.draft.account != *account || fact.draft.local_device != *device {
+            return Err(Error::ScopeMismatch);
+        }
+        if !fact.denied {
+            return Err(Error::Busy);
+        }
+    }
     let pending = read_pending(connection)?;
     let confirmed = read_confirmed(connection)?;
     for scope in pending
@@ -325,7 +335,9 @@ fn check_origin(storage: &SqliteAccountStorage, binding: &PrivateInviteBinding) 
         {
             return Err(Error::ScopeMismatch);
         }
-        if fact.binding.group_id == binding.group_id {
+        if fact.binding.group_id == binding.group_id
+            && (!fact.denied || !matches!(binding.origin, PrivateInviteOrigin::Existing(_)))
+        {
             if fact.denied
                 || binding.origin != PrivateInviteOrigin::Confirmed(fact.scope.staging_generation)
                 || binding.predecessor != fact.binding.successor
@@ -380,6 +392,23 @@ fn check_origin(storage: &SqliteAccountStorage, binding: &PrivateInviteBinding) 
                 || fact.scope.selection_generation != counter
                 || fact.scope.account != binding.approver_scope.account
                 || fact.scope.local_device != binding.approver_scope.local_device
+                || fact.draft.group_id != binding.group_id
+                || fact.draft.successor != binding.predecessor
+            {
+                return Err(Error::ScopeMismatch);
+            }
+        }
+        PrivateInviteOrigin::Existing(counter) => {
+            let fact = storage
+                .existing_device_group_anchor_storage()
+                .ok_or(Error::Unsupported)?
+                .existing_anchor()
+                .map_err(Error::Storage)?
+                .ok_or(Error::ScopeMismatch)?;
+            if fact.denied
+                || fact.generation != counter
+                || fact.draft.account != binding.approver_scope.account
+                || fact.draft.local_device != binding.approver_scope.local_device
                 || fact.draft.group_id != binding.group_id
                 || fact.draft.successor != binding.predecessor
             {

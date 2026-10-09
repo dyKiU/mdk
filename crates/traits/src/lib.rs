@@ -148,6 +148,7 @@ pub mod roster_ack_capture;
 pub mod device_group_genesis;
 
 pub mod accepted_device_group_anchor;
+pub mod existing_device_group_anchor;
 pub mod private_device_invite;
 pub mod private_group_privacy;
 

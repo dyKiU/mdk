@@ -109,6 +109,36 @@ impl AppClient {
         Ok(())
     }
 
+    pub(crate) fn arm_existing_member_enrollment(
+        &mut self,
+        binding: &[u8; 32],
+        packet: &[u8],
+    ) -> Result<(), ClientLinkingError> {
+        if packet.is_empty() || packet.len() > MAX_PART_BYTES {
+            return Err(rejected());
+        }
+        let action = self
+            .linking_owner
+            .received_endorsement
+            .as_ref()
+            .filter(|attempt| {
+                attempt.binding == *binding
+                    && !attempt.cancelled
+                    && std::time::Instant::now() < attempt.deadline
+            })
+            .ok_or_else(rejected)?;
+        let guard = self
+            .runtime
+            .session()
+            .arm_original_existing_enrollment_transition(&action.owned, packet)
+            .map_err(ClientLinkingError::Engine)?;
+        if self.linking_owner.existing_settlement_attempt.is_none() {
+            self.linking_owner.existing_settlement_attempt =
+                Some(super::private_settlement::OwnedExistingSettlementAttempt::new(guard));
+        }
+        Ok(())
+    }
+
     pub(crate) fn cancel_received_enrollment_endorsement(
         &mut self,
         binding: &[u8; 32],
@@ -164,6 +194,10 @@ impl AppClient {
         };
         // Negative fence first, even if the Core cleanup subsequently fails.
         attempt.cancelled = true;
+        if let Some(settlement) = self.linking_owner.existing_settlement_attempt.as_ref() {
+            settlement.guard.cancellation_handle().cancel();
+        }
+
         if now < attempt.deadline
             && !self
                 .linking_owner
@@ -182,6 +216,13 @@ impl AppClient {
             .session()
             .cancel_private_enrollment_endorsements()
             .map_err(ClientLinkingError::Engine)?;
+        if let Some(settlement) = self.linking_owner.existing_settlement_attempt.as_ref() {
+            self.runtime
+                .session()
+                .cancel_private_roster_settlement(settlement.guard.group())
+                .map_err(ClientLinkingError::Engine)?;
+        }
+        self.linking_owner.existing_settlement_attempt = None;
         self.linking_owner.received_endorsement = None;
         Ok(())
     }

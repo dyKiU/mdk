@@ -600,3 +600,16 @@ Original recipient evidence never replaces the SDK lease. Check the same Core
 lifetime/exact purpose before and after peeling and inside actual join SQL;
 compare the declared predecessor to the original lease-approved descriptor.
 Preserve the existing atomic crypto/109/purpose transaction.
+
+Protected successor and route reads also recognize the distinct private11
+Existing origin, always under exact actual indexed tree/owner checks. A matching
+Existing origin conflicts with any other matching live successor origin; no
+precedence grants settlement. Actual changed-tree apply permanently denies its
+retained generation in the adopting crypto SQL unit. Retained provenance may
+exclude hidden groups from chat, including denied rows, without granting a route.
+
+The sealed original B endorsement continuation checks exact original owner,
+generation, deadline, protected Completed predecessor and all-leaf evidence.
+Only canonical actual single-Add apply installs private11 before old-origin
+fences in the same crypto/SQL transaction. Preserve Storage error classification
+through replay so App can retain that same live action after rollback.

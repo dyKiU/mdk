@@ -1,6 +1,6 @@
 ---
 source: crates/traits/tests/snapshots.rs
-expression: "serde_json::json!({\n    \"scope\": scope, \"origins\":\n    [PrivateInviteOrigin::Genesis(4), PrivateInviteOrigin::Accepted(5),\n    PrivateInviteOrigin::Confirmed(6)], \"phases\":\n    [PrivateInvitePhase::RawStaged, PrivateInvitePhase::Wrapped,\n    PrivateInvitePhase::Dispatching, PrivateInvitePhase::PublicationUnknown,\n    PrivateInvitePhase::Retired, PrivateInvitePhase::Confirmed],\n})"
+expression: "serde_json::json!({\n    \"scope\": scope, \"origins\":\n    [PrivateInviteOrigin::Genesis(4), PrivateInviteOrigin::Accepted(5),\n    PrivateInviteOrigin::Confirmed(6), PrivateInviteOrigin::Existing(7)], \"phases\":\n    [PrivateInvitePhase::RawStaged, PrivateInvitePhase::Wrapped,\n    PrivateInvitePhase::Dispatching, PrivateInvitePhase::PublicationUnknown,\n    PrivateInvitePhase::Retired, PrivateInvitePhase::Confirmed],\n})"
 ---
 {
   "origins": [
@@ -15,6 +15,10 @@ expression: "serde_json::json!({\n    \"scope\": scope, \"origins\":\n    [Priva
     {
       "generation": 6,
       "kind": "Confirmed"
+    },
+    {
+      "generation": 7,
+      "kind": "Existing"
     }
   ],
   "phases": [

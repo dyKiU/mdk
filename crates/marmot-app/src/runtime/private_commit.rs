@@ -151,12 +151,15 @@ enum Publication {
         kind: PublicationKind,
     },
     Endorsement([u8; 32]),
+    ExistingSettlement([u8; 32]),
 }
 impl Publication {
     fn identity(&self) -> PublicationIdentity {
         match self {
             Self::Scoped { scope, .. } => PublicationIdentity::Scoped(scope.clone()),
-            Self::Endorsement(binding) => PublicationIdentity::Endorsement(*binding),
+            Self::Endorsement(binding) | Self::ExistingSettlement(binding) => {
+                PublicationIdentity::Endorsement(*binding)
+            }
         }
     }
     fn owned_control(
@@ -185,6 +188,14 @@ impl Publication {
             } => client
                 .private_commit_control(scope)
                 .map(|(deadline, gate)| (deadline, PublicationGate::Invite(gate))),
+            Self::ExistingSettlement(binding) => {
+                client.existing_settlement_control(binding).map(|guard| {
+                    (
+                        guard.deadline(),
+                        PublicationGate::Endorsement(guard.cancellation_handle()),
+                    )
+                })
+            }
             Self::Endorsement(binding) => client
                 .enrollment_endorsement_control(binding)
                 .map(|(deadline, control)| (deadline, PublicationGate::Endorsement(control))),
@@ -211,6 +222,9 @@ impl Publication {
                 scope,
                 kind: PublicationKind::Settlement,
             } => client.dispatch_owned_private_settlement(scope).await,
+            Self::ExistingSettlement(binding) => {
+                client.dispatch_existing_private_settlement(binding).await
+            }
             Self::Endorsement(binding) => {
                 client
                     .dispatch_received_enrollment_endorsement(binding)
@@ -235,7 +249,9 @@ impl Publication {
                 scope,
                 kind: PublicationKind::Commit | PublicationKind::Welcomes,
             } => client.finish_private_commit_interruption(scope),
-            Self::Endorsement(binding) => client.cancel_received_enrollment_endorsement(binding),
+            Self::Endorsement(binding) | Self::ExistingSettlement(binding) => {
+                client.cancel_received_enrollment_endorsement(binding)
+            }
         }
     }
 }
@@ -303,6 +319,34 @@ pub(super) async fn publish_endorsement(
     publish_operation(
         client,
         Publication::Endorsement(binding),
+        respond,
+        commands,
+        pending,
+        control,
+        shared,
+        app,
+        account_label,
+    )
+    .await;
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn publish_existing_settlement(
+    client: &mut crate::client::AppClient,
+    binding: [u8; 32],
+    respond: Option<
+        tokio::sync::oneshot::Sender<Result<(), crate::client::device_linking::ClientLinkingError>>,
+    >,
+    commands: &mut tokio::sync::mpsc::Receiver<super::AccountWorkerCommand>,
+    pending: &mut std::collections::VecDeque<super::AccountWorkerCommand>,
+    control: &PublicationControl,
+    shared: &super::RuntimeSharedServices,
+    app: &crate::MarmotApp,
+    account_label: &str,
+) {
+    publish_operation(
+        client,
+        Publication::ExistingSettlement(binding),
         respond,
         commands,
         pending,

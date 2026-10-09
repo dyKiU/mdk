@@ -42,6 +42,8 @@ pub(crate) struct AccountLinkingOwner {
     invite: Arc<RuntimeInviteGate>,
     invite_attempt: Option<OwnedPrivateInvite>,
     pub(super) settlement_attempt: Option<super::private_settlement::OwnedSettlementAttempt>,
+    pub(super) existing_settlement_attempt:
+        Option<super::private_settlement::OwnedExistingSettlementAttempt>,
     recipient_enrollment:
         Option<cgka_engine::private_enrollment_request::OwnedEnrollmentRecipientEvidence>,
     welcome_collection: PrivateWelcomeCollection,
@@ -60,6 +62,9 @@ impl Drop for AccountLinkingOwner {
         // fences its generation and before the client releases its session.
         if let Some(attempt) = &self.settlement_attempt {
             attempt.guard.revoke();
+        }
+        if let Some(attempt) = &self.existing_settlement_attempt {
+            attempt.guard.cancellation_handle().cancel();
         }
         self.welcome.shutdown();
         self.welcome_collection.clear();
@@ -98,6 +103,7 @@ impl AccountLinkingOwner {
             invite: Arc::new(RuntimeInviteGate::new()),
             invite_attempt: None,
             settlement_attempt: None,
+            existing_settlement_attempt: None,
             recipient_enrollment: None,
             welcome_collection: PrivateWelcomeCollection::default(),
             native_setup_request: None,

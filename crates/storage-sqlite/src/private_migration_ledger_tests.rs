@@ -576,7 +576,7 @@ fn private_settlement_revision10_preserves_constructed_encrypted_revision9_prefi
     let before:Vec<(i64,String,i64)>=conn.prepare("SELECT version,name,applied_at_unix_seconds FROM cgka_experimental_device_sync_schema_migrations ORDER BY version").unwrap().query_map([],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap().map(|r|r.unwrap()).collect();
     drop(conn);
     let mut conn = encrypted(&path);
-    assert_eq!(run_all(&mut conn).unwrap(), 1);
+    assert_eq!(run_all(&mut conn).unwrap(), PRIVATE_MIGRATIONS.len() - 9);
     assert_eq!(run_all(&mut conn).unwrap(), 0);
     let after:Vec<(i64,String,i64)>=conn.prepare("SELECT version,name,applied_at_unix_seconds FROM cgka_experimental_device_sync_schema_migrations WHERE version<=9 ORDER BY version").unwrap().query_map([],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap().map(|r|r.unwrap()).collect();
     assert_eq!(before, after);

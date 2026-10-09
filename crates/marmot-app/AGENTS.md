@@ -624,3 +624,8 @@ actual unused purpose before SDK take. Keep singleton arming strict. Retain
 sealed evidence through exact SQL/Welcome retry; clear on exact cancellation
 and collection retirement. Lost replies cancel their original scope. Native
 enrollment stays unavailable until B transition and real ABC settlement.
+
+B existing-member transition retry must preserve the original armed action on a
+typed storage error and schedule its exact group's retained convergence input.
+Never reopen a client and rebuild that continuation from private11 or a packet.
+B settlement uses its own original binding/guard, never a fabricated SDK scope.

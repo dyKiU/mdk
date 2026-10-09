@@ -26,7 +26,9 @@ fn encode<T: serde::Serialize>(value: &T, max: usize) -> StorageResult<Vec<u8>> 
 }
 fn validate_anchor(anchor: &PrivateSettlementAnchor) -> StorageResult<()> {
     match anchor.origin {
-        PrivateInviteOrigin::Accepted(n) | PrivateInviteOrigin::Confirmed(n) => {
+        PrivateInviteOrigin::Accepted(n)
+        | PrivateInviteOrigin::Confirmed(n)
+        | PrivateInviteOrigin::Existing(n) => {
             generation(n)?;
         }
         _ => return Err(invalid()),

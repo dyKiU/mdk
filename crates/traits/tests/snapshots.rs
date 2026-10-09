@@ -1131,7 +1131,7 @@ fn snapshot_private_device_invite_scope_origins_and_phases() {
         "private_device_invite_scope_origins_phases",
         serde_json::json!({
             "scope": scope,
-            "origins": [PrivateInviteOrigin::Genesis(4), PrivateInviteOrigin::Accepted(5), PrivateInviteOrigin::Confirmed(6)],
+            "origins": [PrivateInviteOrigin::Genesis(4), PrivateInviteOrigin::Accepted(5), PrivateInviteOrigin::Confirmed(6), PrivateInviteOrigin::Existing(7)],
             "phases": [PrivateInvitePhase::RawStaged, PrivateInvitePhase::Wrapped, PrivateInvitePhase::Dispatching,
                 PrivateInvitePhase::PublicationUnknown, PrivateInvitePhase::Retired, PrivateInvitePhase::Confirmed],
         })

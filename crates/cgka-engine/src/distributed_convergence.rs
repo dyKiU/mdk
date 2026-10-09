@@ -1557,6 +1557,11 @@ impl<S: StorageProvider> Engine<S> {
             .enrollment_intake
             .reserve()
             .map_err(crate::openmls_projection::capture_effect_error)?;
+        #[cfg(feature = "experimental-device-sync")]
+        let existing_transition = self
+            .enrollment_endorsements
+            .existing_transition()
+            .map_err(crate::openmls_projection::capture_effect_error)?;
         let committed = self.storage.with_transaction(|storage| {
             let output = apply_openmls_canonicalization_result_with_profile_policy_and_settlement(
                 storage,
@@ -1568,6 +1573,8 @@ impl<S: StorageProvider> Engine<S> {
                 settlement_admission.as_ref(),
                 #[cfg(feature = "experimental-device-sync")]
                 Some(&self.enrollment_intake),
+                #[cfg(feature = "experimental-device-sync")]
+                existing_transition.as_ref(),
             )?;
             #[cfg(feature = "experimental-device-sync")]
             let mut output = output;
@@ -1625,6 +1632,12 @@ impl<S: StorageProvider> Engine<S> {
                         "private enrollment metadata final check failed".into(),
                     )
                 })?;
+            #[cfg(feature = "experimental-device-sync")]
+            if let Some(guard) = existing_transition.as_ref() {
+                guard
+                    .check_applied(storage, group_id)
+                    .map_err(crate::openmls_projection::capture_effect_error)?;
+            }
             Ok::<_, OpenMlsProjectionError>((
                 output.group_changes,
                 application_events,

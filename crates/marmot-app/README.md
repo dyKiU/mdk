@@ -709,3 +709,11 @@ qualify enrollment, stalled setup/queue controls, Drop/expiry behavior across al
 native lifecycles, UniFFI/C parity, app artifacts or normal chat/history delivery.
 See `docs/device-sync-native-verification-session-verification.json` for exact
 qualification scope and preserved failures.
+
+Original B enrollment actions can now arm an exact bounded all-leaf packet,
+bridge the actual single C Add inside MLS/SQL, and select a new private settlement
+round through that same live memory owner. Storage failure retains the owning
+client and schedules its exact group retry; reopening cannot restore this action.
+Actual worker coverage injects B transition and C join SQL faults, verifies atomic
+rollback and autonomous same-owner retry, then verifies exact B cancellation.
+This checkpoint does not establish final ABC settlement or native enrollment.

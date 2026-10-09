@@ -89,7 +89,13 @@ pub(crate) fn deny_changed_lineage_for_tree<S: StorageProvider>(
         .map_err(invite_error)?
         .flatten()
         .filter(|fact| !fact.denied && fact.binding.group_id == *group_id);
-    if accepted.is_none() && confirmed.is_none() {
+    let existing_store = storage.existing_device_group_anchor_storage();
+    let existing = existing_store
+        .map(|store| store.existing_anchor())
+        .transpose()?
+        .flatten()
+        .filter(|fact| !fact.denied && fact.draft.group_id == *group_id);
+    if accepted.is_none() && confirmed.is_none() && existing.is_none() {
         return Ok(());
     }
     let actual = AppliedPrivateTree::read(group_id, group)?;
@@ -124,6 +130,21 @@ pub(crate) fn deny_changed_lineage_for_tree<S: StorageProvider>(
             })?
             .deny_confirmed_private_invite(&fact.scope, group_id)
             .map_err(invite_error)?;
+    }
+    if let Some(fact) = existing
+        && !actual.as_ref().is_some_and(|tree| {
+            tree.matches(
+                &fact.draft.account,
+                &fact.draft.local_device,
+                &fact.draft.successor,
+            )
+        })
+    {
+        existing_store
+            .ok_or_else(|| {
+                EngineError::Other("private existing lineage storage unavailable".into())
+            })?
+            .deny_existing_anchor(fact.generation, group_id)?;
     }
     Ok(())
 }

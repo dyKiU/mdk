@@ -1422,6 +1422,7 @@ pub(crate) fn process_current_openmls_application<S: StorageProvider>(
         Some(&mut PrivateReplayEffects {
             enrollment: &mut enrollment_effects,
             enrollment_intake,
+            existing_transition: None,
             capture: &mut capture_effects,
             settlement: &mut settlement_effects,
             admission: settlement_admission,
@@ -2792,9 +2793,12 @@ pub(crate) fn apply_openmls_canonicalization_result_with_profile_policy<S: Stora
         None,
         #[cfg(feature = "experimental-device-sync")]
         None,
+        #[cfg(feature = "experimental-device-sync")]
+        None,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_openmls_canonicalization_result_with_profile_policy_and_settlement<
     S: StorageProvider,
 >(
@@ -2808,6 +2812,9 @@ pub(crate) fn apply_openmls_canonicalization_result_with_profile_policy_and_sett
     >,
     #[cfg(feature = "experimental-device-sync")] enrollment_intake: Option<
         &crate::private_enrollment_request::EnrollmentIntake,
+    >,
+    #[cfg(feature = "experimental-device-sync")] existing_transition: Option<
+        &std::sync::Arc<crate::private_enrollment_endorsement::OwnedExistingEnrollmentTransition>,
     >,
 ) -> Result<OpenMlsApplyOutput, OpenMlsProjectionError> {
     let current_epoch = storage
@@ -2938,6 +2945,7 @@ pub(crate) fn apply_openmls_canonicalization_result_with_profile_policy_and_sett
             PrivateReplayInputs {
                 settlement_admission,
                 enrollment_intake,
+                existing_transition,
             },
         )?;
         if apply_start_epoch < current_epoch || restore_own_checkpoint {
@@ -2946,6 +2954,12 @@ pub(crate) fn apply_openmls_canonicalization_result_with_profile_policy_and_sett
         storage
             .release_group_snapshot(group_id, &snapshot)
             .map_err(|e| OpenMlsProjectionError::Snapshot(format!("{e:?}")))?;
+        #[cfg(feature = "experimental-device-sync")]
+        if let Some(guard) = existing_transition {
+            guard
+                .check_applied(storage, group_id)
+                .map_err(capture_effect_error)?;
+        }
         Ok(observations)
     });
 
@@ -3413,6 +3427,11 @@ struct PrivateReplayInputs<'a> {
     settlement_admission:
         Option<&'a std::sync::Arc<crate::private_roster_settlement::LiveSettlementAdmission>>,
     enrollment_intake: Option<&'a crate::private_enrollment_request::EnrollmentIntake>,
+    existing_transition: Option<
+        &'a std::sync::Arc<
+            crate::private_enrollment_endorsement::OwnedExistingEnrollmentTransition,
+        >,
+    >,
 }
 
 /// Atomically merge replay messages, refresh canonical group state and persist dispositions.
@@ -3430,6 +3449,7 @@ fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
     let PrivateReplayInputs {
         settlement_admission,
         enrollment_intake,
+        existing_transition,
     } = private_inputs;
     // #157/#424: the convergence-apply multi-write durable sequence
     // (merge_staged_commit's 7+ provider writes, the Marmot group-record
@@ -3468,6 +3488,7 @@ fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
             Some(&mut PrivateReplayEffects {
                 enrollment: &mut enrollment_effects,
                 enrollment_intake,
+                existing_transition,
                 capture: &mut capture_effects,
                 settlement: &mut settlement_effects,
                 admission: settlement_admission,
@@ -4321,6 +4342,11 @@ fn project_pending_canonicalization_messages(
 struct PrivateReplayEffects<'a> {
     enrollment: &'a mut Vec<crate::private_enrollment_request::EnrollmentEffect>,
     enrollment_intake: Option<&'a crate::private_enrollment_request::EnrollmentIntake>,
+    existing_transition: Option<
+        &'a std::sync::Arc<
+            crate::private_enrollment_endorsement::OwnedExistingEnrollmentTransition,
+        >,
+    >,
     capture: &'a mut Vec<crate::roster_ack_capture::CaptureEffect>,
     settlement: &'a mut Vec<crate::private_roster_settlement_receive::SettlementEffect>,
     admission:
@@ -4759,11 +4785,40 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                     .map(|_| group_activity::GroupActivitySnapshot::capture(&mls_group));
                 let additions = group_activity::staged_additions(&staged)?;
                 let leavers = group_activity::staged_leavers(&mls_group, &staged);
+                #[cfg(feature = "experimental-device-sync")]
+                let existing = if retain_replayed_anchors.is_some() {
+                    private_effects
+                        .as_ref()
+                        .and_then(|effects| effects.existing_transition)
+                } else {
+                    None
+                };
+                #[cfg(feature = "experimental-device-sync")]
+                let bridge_existing = existing
+                    .map(|guard| {
+                        guard.approves_commit(
+                            storage,
+                            group_id,
+                            &mls_group,
+                            &staged,
+                            committer_index,
+                            &crypto,
+                        )
+                    })
+                    .transpose()
+                    .map_err(capture_effect_error)?
+                    .unwrap_or(false);
                 mls_group
                     .merge_staged_commit(&provider, *staged)
                     .map_err(|e| {
                         OpenMlsProjectionError::Replay(format!("merge_staged_commit: {e:?}"))
                     })?;
+                #[cfg(feature = "experimental-device-sync")]
+                if bridge_existing && let Some(existing) = existing {
+                    existing
+                        .install(storage, group_id, &mls_group, projection.message_digest)
+                        .map_err(capture_effect_error)?;
+                }
                 observations.push(OpenMlsReplayObservation::CommitStaged {
                     message_id: message_id.clone(),
                     source_epoch,
@@ -5640,7 +5695,7 @@ mod checkpoint_prefix_tests {
 #[path = "openmls_projection/tests/candidate_replay.rs"]
 mod candidate_branch_peel_halt_tests;
 
-/// Preserve the one typed private resource retry across existing replay errors.
+/// Preserve typed resource and storage retry classes across replay errors.
 pub(crate) fn enrollment_replay_error(
     error: OpenMlsProjectionError,
     context: &'static str,
@@ -5649,6 +5704,9 @@ pub(crate) fn enrollment_replay_error(
         OpenMlsProjectionError::PrivateEnrollmentIntakeAtCapacity => {
             EngineError::PrivateEnrollmentIntakeAtCapacity
         }
+        OpenMlsProjectionError::Storage(_) => EngineError::Storage(StorageError::Backend(
+            "canonical replay storage transaction failed".into(),
+        )),
         other => EngineError::Backend(format!("{context}: {other}")),
     }
 }

@@ -761,7 +761,7 @@ impl<S: StorageProvider + 'static> Engine<S> {
     }
 }
 
-mod recipient;
+pub(crate) mod recipient;
 pub use recipient::OwnedEnrollmentRecipientEvidence;
 
 mod producer;

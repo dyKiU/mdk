@@ -33,6 +33,7 @@ pub(crate) struct Lifetime {
 pub(crate) struct EndorsementState {
     lifetime: Arc<Lifetime>,
     active: Mutex<Option<[u8; 32]>>,
+    existing: Mutex<Option<Arc<OwnedExistingEnrollmentTransition>>>,
 }
 impl Lifetime {
     fn register_waker(&self, waker: &std::task::Waker) {
@@ -405,6 +406,7 @@ impl<S: StorageProvider> Engine<S> {
             return Err(denied());
         }
         *active = None;
+        *state.existing.lock().map_err(|_| denied())? = None;
         state.lifetime.wake();
         Ok(())
     }
@@ -593,3 +595,6 @@ pub(crate) fn sign_public_packet_for_test<S: StorageProvider + 'static>(
         .map_err(|_| denied())?;
     serde_json::to_vec(&packet).map_err(|_| denied())
 }
+
+mod existing;
+pub use existing::OwnedExistingEnrollmentTransition;

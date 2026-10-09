@@ -116,3 +116,15 @@ adds `src/private_roster_settlement.rs`/`tests.rs`. Keep core102 and historical
 share the caller's SQL transaction. No public DTO or persisted completion mints
 a live round, enrollment consent or permission. Denied blocks positive writes;
 only Pending is abandoned by explicit startup. Capability is feature-only.
+
+Private revision11 (`src/private_migrations/0011_existing_device_group_anchor.rs`)
+adds bounded `existing_device_group_anchor` metadata for guarded existing-member
+apply. Install before retiring the exact active predecessor and its Completed
+round, inside authenticated single-Add crypto SQL. Require exact owner, origin,
+full indexed predecessor and settlement generation; preserve exact retry and
+rollback. Denied generations cannot reactivate through changed action bindings
+or older same-group predecessors. Ordinary selection cannot orphan an active
+existing origin. Group deletion denies the retained row in its SQL transaction.
+The automatic private-table trigger activates the irreversible negative cohort
+marker; no metadata row reconstructs consent. Core102 and original103–110 stay
+unchanged. Synthetic persistence tests are separate from genuine SDK B proof.

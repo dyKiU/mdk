@@ -1073,6 +1073,13 @@ pub trait StorageProvider:
         None
     }
 
+    /// Optional original existing-member successor metadata. Defaults unavailable.
+    fn existing_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn crate::existing_device_group_anchor::ExistingDeviceGroupStorage> {
+        None
+    }
+
     /// Optional private-group creation provenance. Unsupported backends grant nothing.
     fn device_group_genesis_storage(
         &self,

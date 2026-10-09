@@ -162,6 +162,12 @@ pub(crate) fn delete_group_tx(
 ) -> StorageResult<usize> {
     #[cfg(feature = "experimental-device-sync")]
     crate::private_roster_settlement::deny_for_group_tx(tx, id)?;
+    #[cfg(feature = "experimental-device-sync")]
+    tx.execute(
+        "UPDATE existing_device_group_anchor SET denied=1 WHERE group_id=?1",
+        [id.as_slice()],
+    )
+    .storage()?;
     let mls_group_key = mls_group_key(id)?;
     crate::account_recovery::delete_inventory_tx(
         tx,
