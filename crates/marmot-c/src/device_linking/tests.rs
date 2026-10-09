@@ -150,7 +150,7 @@ fn device_binding_deep_free_preserves_binary_and_optional_decimals() {
 }
 #[cfg(feature = "experimental-device-sync")]
 #[test]
-fn actual_c_sessions_verify_without_enrollment_and_close_is_reentrant() {
+fn actual_c_sessions_continue_original_enrollment_and_close_is_reentrant() {
     use nostr::prelude::ToBech32;
     let _guard = audit::test_lock();
     #[cfg(feature = "alloc-audit")]
@@ -262,9 +262,15 @@ fn actual_c_sessions_verify_without_enrollment_and_close_is_reentrant() {
             (*ac).phase,
             MarmotDeviceLinkingPhase::VerificationCompleteEnrollmentPending
         );
+        let cc = snapshot(c);
+        assert_eq!(
+            marmot_device_linking_session_continue_linking(c, (*cc).revision),
+            MarmotStatus::Ok
+        );
+        marmot_device_linking_snapshot_free(cc);
         assert_eq!(
             marmot_device_linking_session_continue_linking(a, (*ac).revision),
-            MarmotStatus::DeviceLinkingNotReady
+            MarmotStatus::Ok
         );
         marmot_device_linking_snapshot_free(ac);
         let mut sub = std::ptr::null_mut();

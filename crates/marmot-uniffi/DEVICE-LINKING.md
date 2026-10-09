@@ -62,3 +62,11 @@ They generate Swift from the matching host library, compile/run record and binar
 packet round trips, verify capability/typed factory gates and close the runtime.
 Actual SDK session exchange is separately exercised by the Rust binding tests.
 These checks do not package Apple artifacts or demonstrate chat synchronization.
+
+Singleton continuation is checked through genuine SDK verification and opaque
+A/C binding handles. Close wakes pending observations; the C boundary also
+checks callback re-entry and deep-free accounting. Eight focused controls across
+default and experimental cohorts pass. This binding slice does not expose a
+settlement-complete observation or prove chat/history delivery; actual protected
+settlement has separate App relay evidence. See
+[qualification](../../docs/device-sync-native-singleton-binding-parity-verification.json).
