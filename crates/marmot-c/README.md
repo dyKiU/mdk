@@ -15,6 +15,7 @@ per feature.
 - [Integration documentation](#integration-documentation)
 - [Lifecycle and teardown](#lifecycle-and-teardown)
 - [NIP-46 accounts](#nip-46-accounts)
+- [Device verification](#device-verification)
 - Feature notes: [runtime construction](#runtime-construction), [local sends](#local-sends),
   [public event verification](#public-event-verification), [host performance stages](#host-performance-stages),
   [Markdown rendering](#markdown-rendering), [identity references and pseudonyms](#identity-references-and-pseudonyms),
@@ -419,3 +420,27 @@ just c-header
 The mirror surface is macro-generated, so header generation runs cbindgen
 with macro expansion (`RUSTC_BOOTSTRAP=1` on the stable toolchain). CI
 diff-gates the checked-in header.
+
+
+## Device verification
+
+Use the shared [verification contract](../marmot-uniffi/DEVICE-LINKING.md) for
+packet exchange, displayed SAS revisions and capability selection. C returns
+opaque session/subscription handles; free them before their creating client and
+never free a handle during an active call. Session free drops its final native
+owner and schedules exact cancellation; prefer awaited/blocking cancel first.
+
+All required outputs are validated and cleared before reservation, mutation or
+subscription dequeue. Packet buffers are borrowed for the call and bounded to
+512 KiB before copying; the App applies stricter codec limits. Acknowledgement
+UTF-8 is bounded to 134 bytes. Returned bytes, snapshots and packet lists are
+owned; release them using their matching deep-free functions, including empty
+NULL/zero lists. No caller enum/Boolean is accepted by this surface.
+
+Session operations block through the callback-safe runtime bridge.
+`marmot_device_linking_subscription_next` uses milliseconds: zero waits, a timeout
+returns TIMEOUT with NULL output and consumes no update. Explicit close wakes the
+wait with DEVICE_LINKING_CLOSED; close does not free the stream. The C statuses
+96–101 map the six typed device-linking errors, including Unsupported, NotReady
+and StaleRevision; existing numeric statuses remain unchanged. Enrollment remains
+unavailable even after VerificationCompleteEnrollmentPending.

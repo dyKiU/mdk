@@ -13,6 +13,7 @@ Read the documentation at the tag matching your binaries; `master` can describe 
   selection, lifecycle, snapshots, diagnostics and compatibility
 - Runtime setup: [runtime options and client label](#runtime-options-and-client-label),
   [exclusive root ownership](#exclusive-root-ownership), [service endpoint defaults](#service-endpoint-defaults)
+- [Device verification](#device-verification): opaque sessions, SAS comparison and cancellation
 - Accounts and identity: [interactive account onboarding](#interactive-account-onboarding),
   [identity references and profiles](#identity-references-and-profiles),
   [KeyPackage inventory](#keypackage-inventory), [KeyPackage client preference](#keypackage-client-preference),
@@ -1065,3 +1066,13 @@ python3 crates/marmot-uniffi/measure-release-profile.py \
 Apple exporters use raw static-library slices and publish a matching privacy manifest for the consuming Swift target.
 See the [privacy audit and adoption guide](apple-privacy/README.md) for declarations, archive validation, host
 integration changes, and unresolved release questions.
+
+
+## Device verification
+
+[Native device verification](DEVICE-LINKING.md) describes opaque original-purpose
+sessions, bounded packet exchange, standard SAS decimals, revision-bound human
+confirmation and closeable observations. Inspect actual runtime capabilities:
+default builds return typed Unsupported, and experimental builds support
+verification only. Enrollment continuation remains gated; completed verification
+does not report synchronized messages or history.

@@ -494,6 +494,12 @@ pub use commands::moderation::*;
 
 pub use commands::AttachmentTransferSubscription;
 
+pub use commands::{DeviceLinkingSession, DeviceLinkingSubscription};
+pub use conversions::{
+    DeviceLinkingCapabilitiesFfi, DeviceLinkingDecimalsFfi, DeviceLinkingOutgoingPacketFfi,
+    DeviceLinkingPhaseFfi, DeviceLinkingSnapshotFfi,
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;

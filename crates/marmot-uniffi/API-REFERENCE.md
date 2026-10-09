@@ -4333,3 +4333,158 @@ Install or remove an in-memory v5 OTLP audit destination. With `enabled: true`, 
 [Source](src/commands/audit.rs#L54)
 
 </details>
+
+<details>
+<summary>New exports — complete and organize before merging</summary>
+
+### `DeviceLinkingSession::acknowledge_packet`
+
+```rust
+pub async fn acknowledge_packet( &self, acknowledgement_id: String, ) -> Result<(), MarmotKitError>
+```
+
+Record successful transport delivery of the exact outgoing opaque acknowledgement ID. This clears the transport frame only and must never be interpreted as peer comparison, enrollment or synchronized history.
+
+[Source](src/commands/device_linking.rs#L76)
+
+### `DeviceLinkingSession::cancel`
+
+```rust
+pub async fn cancel(&self) -> Result<(), MarmotKitError>
+```
+
+Set exact negative session state before awaiting actor cleanup, independently of positive-operation locks. Await this when possible, close observation streams and discard stale callbacks; cleanup failure never restores permission.
+
+[Source](src/commands/device_linking.rs#L97)
+
+### `DeviceLinkingSession::confirm_comparison`
+
+```rust
+pub async fn confirm_comparison(&self, displayed_revision: u64) -> Result<(), MarmotKitError>
+```
+
+Submit an explicit human comparison for the revision actually displayed. Stale revisions fail before SDK confirmation; both local confirmations and authenticated peer MACs are required. Never substitute a cached Boolean.
+
+[Source](src/commands/device_linking.rs#L87)
+
+### `DeviceLinkingSession::continue_linking`
+
+```rust
+pub async fn continue_linking(&self, displayed_revision: u64) -> Result<(), MarmotKitError>
+```
+
+Enrollment continuation is gated and returns typed NotReady in verification-only feature builds. Default builds are Unsupported; no synchronized completion can be inferred from this operation.
+
+[Source](src/commands/device_linking.rs#L101)
+
+### `DeviceLinkingSession::outgoing_packets`
+
+```rust
+pub async fn outgoing_packets( &self, ) -> Result<Vec<DeviceLinkingOutgoingPacketFfi>, MarmotKitError>
+```
+
+Read bounded SDK transport packets with opaque acknowledgement IDs. Deliver to the peer and acknowledge only transport progress; reading or acknowledging does not grant enrollment consent.
+
+[Source](src/commands/device_linking.rs#L60)
+
+### `DeviceLinkingSession::receive_packet`
+
+```rust
+pub async fn receive_packet(&self, packet: Vec<u8>) -> Result<(), MarmotKitError>
+```
+
+Deliver bounded SDK offer/frame bytes to the original actor. The worker checks canonical codec, context binding and role; bytes cannot select a new purpose or construct consent.
+
+[Source](src/commands/device_linking.rs#L72)
+
+### `DeviceLinkingSession::receive_setup_packet`
+
+```rust
+pub async fn receive_setup_packet(&self, packet: Vec<u8>) -> Result<(), MarmotKitError>
+```
+
+Accept the approver challenge under this session's original recipient purpose. Invalid bounded metadata preserves the valid retry; host-supplied context, generation and proofs are not accepted.
+
+[Source](src/commands/device_linking.rs#L56)
+
+### `DeviceLinkingSession::setup_packet`
+
+```rust
+pub fn setup_packet(&self) -> Vec<u8>
+```
+
+Copy the bounded original setup metadata for the peer transport. Bytes contain no transferable live owner and cannot recreate a session after cancellation, expiry or restart; do not log them.
+
+[Source](src/commands/device_linking.rs#L52)
+
+### `DeviceLinkingSession::snapshot`
+
+```rust
+pub async fn snapshot(&self) -> Result<DeviceLinkingSnapshotFfi, MarmotKitError>
+```
+
+Observe phase, displayed revision and standard SAS decimals from the original SDK. Preserve the revision with the visible comparison; EnrollmentPending does not mean linked or synchronized.
+
+[Source](src/commands/device_linking.rs#L83)
+
+### `DeviceLinkingSession::subscribe`
+
+```rust
+pub fn subscribe(&self) -> Arc<DeviceLinkingSubscription>
+```
+
+Create a coalesced observation stream with an initial snapshot. Drive one receiver, explicitly close it when its UI scope ends, and separately cancel the session; the stream carries no verifier authority.
+
+[Source](src/commands/device_linking.rs#L91)
+
+### `DeviceLinkingSubscription::close`
+
+```rust
+pub fn close(&self)
+```
+
+Close this observation stream and wake waiting reads. This is an independent negative observation control, not session cancellation; use the original session's cancel when ending verification.
+
+[Source](src/commands/device_linking.rs#L112)
+
+### `DeviceLinkingSubscription::next`
+
+```rust
+pub async fn next(&self) -> Result<DeviceLinkingSnapshotFfi, MarmotKitError>
+```
+
+Await the initial/coalesced observation with one active receiver. Explicit `close()` wakes pending reads with typed Closed; cancelled waits do not consume a future update. Session cancellation remains a separate operation.
+
+[Source](src/commands/device_linking.rs#L108)
+
+### `Marmot::approve_device_linking_session`
+
+```rust
+pub async fn approve_device_linking_session( &self, account_ref: String, request: Vec<u8>, target: Option<Vec<u8>>, ) -> Result<Arc<DeviceLinkingSession>, MarmotKitError>
+```
+
+Create the approver challenge from the recipient's bounded original setup request. Use `target=None` for singleton verification; existing-group targets remain gated. This action does not replace explicit SAS comparison or authorize enrollment.
+
+[Source](src/commands/device_linking.rs#L35)
+
+### `Marmot::begin_device_linking_session`
+
+```rust
+pub async fn begin_device_linking_session( &self, account_ref: String, ) -> Result<Arc<DeviceLinkingSession>, MarmotKitError>
+```
+
+Reserve the new device's original purpose in its serial worker and retain the returned opaque session in the account UI scope. Default builds return typed Unsupported before account effects; cancellation requires a fresh attempt rather than packet-based restoration.
+
+[Source](src/commands/device_linking.rs#L23)
+
+### `Marmot::device_linking_capabilities`
+
+```rust
+pub fn device_linking_capabilities(&self) -> DeviceLinkingCapabilitiesFfi
+```
+
+Read actual Rust support before presenting device verification. Default builds report verification false; enrollment remains false in this verification-only surface. See [device verification](DEVICE-LINKING.md).
+
+[Source](src/commands/device_linking.rs#L19)
+
+</details>

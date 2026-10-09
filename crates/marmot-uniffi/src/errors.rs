@@ -322,6 +322,23 @@ pub enum MarmotKitError {
     ConversationWindowMessageNotRetained,
     #[error("invalid app component: {details}")]
     InvalidAppComponent { details: String },
+    #[error("Device verification is not supported by this build")]
+    DeviceLinkingUnsupported,
+
+    #[error("Device verification session is closed")]
+    DeviceLinkingClosed,
+
+    #[error("Invalid device verification packet")]
+    DeviceLinkingInvalidPacket,
+
+    #[error("Device verification is not ready for this action")]
+    DeviceLinkingNotReady,
+
+    #[error("The displayed device verification state is stale")]
+    DeviceLinkingStaleRevision,
+
+    #[error("Device verification runtime is unavailable")]
+    DeviceLinkingRuntimeUnavailable,
 }
 
 impl From<AppError> for MarmotKitError {
@@ -1165,6 +1182,21 @@ impl From<marmot_app::ConversationWindowError> for MarmotKitError {
             E::Presentation(e) => Self::ConversationWindowPresentation {
                 details: e.to_string(),
             },
+        }
+    }
+}
+
+impl From<marmot_app::DeviceLinkingError> for MarmotKitError {
+    fn from(value: marmot_app::DeviceLinkingError) -> Self {
+        match value {
+            marmot_app::DeviceLinkingError::Unsupported => Self::DeviceLinkingUnsupported,
+            marmot_app::DeviceLinkingError::Closed => Self::DeviceLinkingClosed,
+            marmot_app::DeviceLinkingError::InvalidPacket => Self::DeviceLinkingInvalidPacket,
+            marmot_app::DeviceLinkingError::NotReady => Self::DeviceLinkingNotReady,
+            marmot_app::DeviceLinkingError::StaleRevision => Self::DeviceLinkingStaleRevision,
+            marmot_app::DeviceLinkingError::RuntimeUnavailable => {
+                Self::DeviceLinkingRuntimeUnavailable
+            }
         }
     }
 }

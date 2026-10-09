@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Opaque device-verification sessions expose standard SAS decimals, revision-bound
+  confirmation, bounded transport and closeable observations. The default build
+  returns typed Unsupported; experimental builds support verification only and
+  keep enrollment gated. Regenerate Swift/Kotlin alongside the matching library.
+
 ### Breaking changes
 
 - Native lifecycle events add `LocalGroupCopyTerminated`, `LocalGroupCopyRestored`,

@@ -178,6 +178,12 @@ enum MarmotStatus
    */
   MARMOT_STATUS_ATTACHMENT_ACCOUNT_SIGNED_OUT = 94,
   MARMOT_STATUS_INVALID_APP_COMPONENT = 95,
+  MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED = 96,
+  MARMOT_STATUS_DEVICE_LINKING_CLOSED = 97,
+  MARMOT_STATUS_DEVICE_LINKING_INVALID_PACKET = 98,
+  MARMOT_STATUS_DEVICE_LINKING_NOT_READY = 99,
+  MARMOT_STATUS_DEVICE_LINKING_STALE_REVISION = 100,
+  MARMOT_STATUS_DEVICE_LINKING_RUNTIME_UNAVAILABLE = 101,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -801,6 +807,17 @@ typedef enum MarmotReportReason {
   MARMOT_REPORT_REASON_OTHER,
 } MarmotReportReason;
 
+typedef enum MarmotDeviceLinkingPhase {
+  MARMOT_DEVICE_LINKING_PHASE_AWAITING_SETUP,
+  MARMOT_DEVICE_LINKING_PHASE_AWAITING_PEER,
+  MARMOT_DEVICE_LINKING_PHASE_COMPARISON_AVAILABLE,
+  MARMOT_DEVICE_LINKING_PHASE_AWAITING_PEER_VERIFICATION,
+  MARMOT_DEVICE_LINKING_PHASE_VERIFICATION_COMPLETE_ENROLLMENT_PENDING,
+  MARMOT_DEVICE_LINKING_PHASE_CANCELLED,
+  MARMOT_DEVICE_LINKING_PHASE_EXPIRED,
+  MARMOT_DEVICE_LINKING_PHASE_FAILED,
+} MarmotDeviceLinkingPhase;
+
 /**
  * Why a timeline delta fired.
  */
@@ -1185,6 +1202,16 @@ typedef struct MarmotClient MarmotClient;
  * Free before its client. Concurrent next and commands are supported; never free during a call.
  */
 typedef struct MarmotConversationWindowSubscription MarmotConversationWindowSubscription;
+
+/**
+ * Concurrent methods are supported; never free while a call is active.
+ */
+typedef struct MarmotDeviceLinkingSession MarmotDeviceLinkingSession;
+
+/**
+ * Independent closeable observation stream; free before its client.
+ */
+typedef struct MarmotDeviceLinkingSubscription MarmotDeviceLinkingSubscription;
 
 /**
  * Opaque handle to the top-level event firehose: one subscription,
@@ -4432,6 +4459,45 @@ typedef struct MarmotReportDismissalPage {
   uintptr_t labels_len;
   char *next_cursor;
 } MarmotReportDismissalPage;
+
+typedef struct MarmotDeviceLinkingCapabilities {
+  bool verification_supported;
+  bool enrollment_supported;
+} MarmotDeviceLinkingCapabilities;
+
+/**
+ * Owned setup bytes. Free with marmot_device_linking_bytes_free.
+ */
+typedef struct MarmotDeviceLinkingBytes {
+  uint8_t *bytes;
+  uintptr_t bytes_len;
+} MarmotDeviceLinkingBytes;
+
+typedef struct MarmotDeviceLinkingOutgoingPacket {
+  char *acknowledgement_id;
+  uint8_t *bytes;
+  uintptr_t bytes_len;
+} MarmotDeviceLinkingOutgoingPacket;
+
+/**
+ *Owned list; free the root with its `_free` function only.
+ */
+typedef struct MarmotDeviceLinkingOutgoingPacketList {
+  struct MarmotDeviceLinkingOutgoingPacket *items;
+  uintptr_t len;
+} MarmotDeviceLinkingOutgoingPacketList;
+
+typedef struct MarmotDeviceLinkingDecimals {
+  uint16_t first;
+  uint16_t second;
+  uint16_t third;
+} MarmotDeviceLinkingDecimals;
+
+typedef struct MarmotDeviceLinkingSnapshot {
+  uint64_t revision;
+  enum MarmotDeviceLinkingPhase phase;
+  struct MarmotDeviceLinkingDecimals *decimals;
+} MarmotDeviceLinkingSnapshot;
 
 /**
  * Stable stream and start-message identifiers.
@@ -9238,6 +9304,148 @@ MarmotStatus marmot_report_message(const struct MarmotClient *client,
 MarmotStatus marmot_verify_public_nostr_event_json(const char *event_json, uint8_t *out);
 
 /**
+ * Read actual runtime capabilities; enrollment support remains false.
+ * # Safety
+ * client must be live and out writable; release the returned record with its matching free.
+ */
+MarmotStatus marmot_device_linking_capabilities(const struct MarmotClient *client,
+                                                struct MarmotDeviceLinkingCapabilities **out);
+
+/**
+ * Reserve an opaque new-device verification session. Default builds return Unsupported.
+ * # Safety
+ * client/account must remain valid for the call and out must be writable.
+ */
+MarmotStatus marmot_begin_device_linking_session(const struct MarmotClient *client,
+                                                 const char *account,
+                                                 struct MarmotDeviceLinkingSession **out);
+
+/**
+ * Approve bounded setup metadata. NULL/zero target means singleton; existing targets stay gated.
+ * # Safety
+ * Borrowed byte buffers must be valid for their lengths; out/account/client must be valid.
+ */
+MarmotStatus marmot_approve_device_linking_session(const struct MarmotClient *client,
+                                                   const char *account,
+                                                   const uint8_t *request,
+                                                   uintptr_t request_len,
+                                                   const uint8_t *target,
+                                                   uintptr_t target_len,
+                                                   struct MarmotDeviceLinkingSession **out);
+
+/**
+ * Read verification setup packet; no proof or permission is exported.
+ * # Safety
+ * handle must be live, out writable; free the returned record with its matching free.
+ */
+MarmotStatus marmot_device_linking_session_setup_packet(const struct MarmotDeviceLinkingSession *handle,
+                                                        struct MarmotDeviceLinkingBytes **out);
+
+/**
+ * Read verification outgoing packets; no proof or permission is exported.
+ * # Safety
+ * handle must be live, out writable; free the returned record with its matching free.
+ */
+MarmotStatus marmot_device_linking_session_outgoing_packets(const struct MarmotDeviceLinkingSession *handle,
+                                                            struct MarmotDeviceLinkingOutgoingPacketList **out);
+
+/**
+ * Read verification snapshot; no proof or permission is exported.
+ * # Safety
+ * handle must be live, out writable; free the returned record with its matching free.
+ */
+MarmotStatus marmot_device_linking_session_snapshot(const struct MarmotDeviceLinkingSession *handle,
+                                                    struct MarmotDeviceLinkingSnapshot **out);
+
+/**
+ * Deliver bounded original receive setup packet bytes; App authenticates its codec/binding.
+ * # Safety
+ * handle must be live and bytes valid for len; bytes are copied, never retained or freed.
+ */
+MarmotStatus marmot_device_linking_session_receive_setup_packet(const struct MarmotDeviceLinkingSession *handle,
+                                                                const uint8_t *bytes,
+                                                                uintptr_t len);
+
+/**
+ * Deliver bounded original receive packet bytes; App authenticates its codec/binding.
+ * # Safety
+ * handle must be live and bytes valid for len; bytes are copied, never retained or freed.
+ */
+MarmotStatus marmot_device_linking_session_receive_packet(const struct MarmotDeviceLinkingSession *handle,
+                                                          const uint8_t *bytes,
+                                                          uintptr_t len);
+
+/**
+ * Apply confirm comparison to the displayed revision; enrollment continuation remains gated.
+ * # Safety
+ * handle must remain live for the call.
+ */
+MarmotStatus marmot_device_linking_session_confirm_comparison(const struct MarmotDeviceLinkingSession *handle,
+                                                              uint64_t displayed_revision);
+
+/**
+ * Apply continue linking to the displayed revision; enrollment continuation remains gated.
+ * # Safety
+ * handle must remain live for the call.
+ */
+MarmotStatus marmot_device_linking_session_continue_linking(const struct MarmotDeviceLinkingSession *handle,
+                                                            uint64_t displayed_revision);
+
+/**
+ * Acknowledge bounded UTF-8 transport metadata only; never approves enrollment.
+ * # Safety
+ * handle must be live and id valid for id_len; bytes are borrowed for this call.
+ */
+MarmotStatus marmot_device_linking_session_acknowledge_packet(const struct MarmotDeviceLinkingSession *handle,
+                                                              const uint8_t *id,
+                                                              uintptr_t id_len);
+
+/**
+ * Create an independent observation stream. Close wakes concurrent next calls.
+ * # Safety
+ * handle must be live and out writable; free the stream before its client.
+ */
+MarmotStatus marmot_device_linking_session_subscribe(const struct MarmotDeviceLinkingSession *handle,
+                                                     struct MarmotDeviceLinkingSubscription **out);
+
+/**
+ * Exact cancellation bypasses positive native operation locks; errors never restore permission.
+ * # Safety
+ * handle must remain live for this call.
+ */
+MarmotStatus marmot_device_linking_session_cancel(const struct MarmotDeviceLinkingSession *handle);
+
+/**
+ * Receive a coalesced observation. timeout_ms=0 waits until update/close; timeout consumes no update.
+ * # Safety
+ * handle must remain live, out writable. One receiver per stream; concurrent close is allowed.
+ */
+MarmotStatus marmot_device_linking_subscription_next(const struct MarmotDeviceLinkingSubscription *handle,
+                                                     uint32_t timeout_ms,
+                                                     struct MarmotDeviceLinkingSnapshot **out);
+
+/**
+ * Close this observation stream without freeing it or granting any permission.
+ * # Safety
+ * handle must remain live; concurrent next is allowed.
+ */
+MarmotStatus marmot_device_linking_subscription_close(const struct MarmotDeviceLinkingSubscription *handle);
+
+/**
+ * Free the opaque session; NULL is a no-op. Session destruction schedules exact cancellation.
+ * # Safety
+ * handle must be NULL or library-owned with no active calls; free before its creating client.
+ */
+void marmot_device_linking_session_free(struct MarmotDeviceLinkingSession *handle);
+
+/**
+ * Free the opaque subscription; NULL is a no-op. Session destruction schedules exact cancellation.
+ * # Safety
+ * handle must be NULL or library-owned with no active calls; free before its creating client.
+ */
+void marmot_device_linking_subscription_free(struct MarmotDeviceLinkingSubscription *handle);
+
+/**
  * Create an offline session from a bunker URI, client pairing config, or durable
  * export. The creating client must outlive the session. Client communication keys
  * remain session-local; persist them through the host's encrypted vault export.
@@ -11718,6 +11926,42 @@ void marmot_content_report_page_free(struct MarmotContentReportPage *ptr);
  * this library.
  */
 void marmot_report_dismissal_page_free(struct MarmotReportDismissalPage *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_device_linking_capabilities_free(struct MarmotDeviceLinkingCapabilities *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_device_linking_snapshot_free(struct MarmotDeviceLinkingSnapshot *ptr);
+
+/**
+ * Free a list returned by this library. NULL is a no-op.
+ *
+ * # Safety
+ * `list` must be NULL or an unfreed pointer returned by this
+ * library.
+ */
+void marmot_device_linking_outgoing_packet_list_free(struct MarmotDeviceLinkingOutgoingPacketList *list);
+
+/**
+ * Release owned setup bytes. NULL is a no-op.
+ * # Safety
+ * ptr must be NULL or a live library-owned result, released exactly once.
+ */
+void marmot_device_linking_bytes_free(struct MarmotDeviceLinkingBytes *ptr);
 
 /**
  * Free a value of this type returned by this library. NULL

@@ -9,6 +9,12 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- Opaque device-verification session/subscription handles, bounded transport and
+  display records, exact cancellation and typed statuses 96–101. The C experimental
+  feature forwards the UniFFI opt-in; default methods remain Unsupported.
+  Use matching generated headers/libraries and deep-free all returned records.
+  Verification does not establish enrollment or synchronized chat/history.
+
 - The C event surface appends local-copy termination/restoration and removed-device-leaf
   events; existing discriminants remain unchanged. Recompile with the matching
   header and native library and handle the new event kinds. Restoration describes

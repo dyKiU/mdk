@@ -54,3 +54,6 @@ mod attachment_access;
 
 mod attachment_controls;
 pub use attachment_controls::AttachmentTransferSubscription;
+
+mod device_linking;
+pub use device_linking::{DeviceLinkingSession, DeviceLinkingSubscription};

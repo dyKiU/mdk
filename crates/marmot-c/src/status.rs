@@ -136,6 +136,12 @@ pub enum MarmotStatus {
     /// A signed-out account cannot grant automatic network permission.
     AttachmentAccountSignedOut = 94,
     InvalidAppComponent = 95,
+    DeviceLinkingUnsupported = 96,
+    DeviceLinkingClosed = 97,
+    DeviceLinkingInvalidPacket = 98,
+    DeviceLinkingNotReady = 99,
+    DeviceLinkingStaleRevision = 100,
+    DeviceLinkingRuntimeUnavailable = 101,
 }
 
 thread_local! {
@@ -219,6 +225,15 @@ pub(crate) fn status_from_error(err: &MarmotKitError) -> MarmotStatus {
         MarmotKitError::EncryptionFailed { .. } => MarmotStatus::EncryptionFailed,
         MarmotKitError::Io { .. } => MarmotStatus::Io,
         MarmotKitError::Runtime { .. } => MarmotStatus::Runtime,
+        MarmotKitError::DeviceLinkingUnsupported => MarmotStatus::DeviceLinkingUnsupported,
+        MarmotKitError::DeviceLinkingClosed => MarmotStatus::DeviceLinkingClosed,
+        MarmotKitError::DeviceLinkingInvalidPacket => MarmotStatus::DeviceLinkingInvalidPacket,
+        MarmotKitError::DeviceLinkingNotReady => MarmotStatus::DeviceLinkingNotReady,
+        MarmotKitError::DeviceLinkingStaleRevision => MarmotStatus::DeviceLinkingStaleRevision,
+        MarmotKitError::DeviceLinkingRuntimeUnavailable => {
+            MarmotStatus::DeviceLinkingRuntimeUnavailable
+        }
+
         MarmotKitError::ExternalSignerUnavailable { .. } => MarmotStatus::ExternalSignerUnavailable,
         MarmotKitError::ExternalSignerMismatch => MarmotStatus::ExternalSignerMismatch,
         MarmotKitError::ExternalSignerRejected => MarmotStatus::ExternalSignerRejected,
