@@ -9,15 +9,170 @@ use cgka_traits::{GroupId, KeyPackage, MemberId};
 use sha2::{Digest, Sha256};
 
 const MAX_PART_BYTES: usize = 16 * 1024;
+struct ValidatedProposalParts {
+    artifact: Vec<u8>,
+    package: KeyPackage,
+    context_digest: [u8; 32],
+}
+pub(super) struct OwnedReceivedEndorsement {
+    binding: [u8; 32],
+    deadline: std::time::Instant,
+    owned: cgka_engine::private_enrollment_endorsement::OwnedEnrollmentEndorsement,
+    cancelled: bool,
+}
+
 fn rejected() -> ClientLinkingError {
     ClientLinkingError::Owner(OwnerError::Verifier(LinkError::InvalidContext))
 }
 impl AppClient {
+    /// Read-only correlation of actual retained observations; not approval.
+    pub(crate) fn received_enrollment_proposal_bindings(
+        &mut self,
+    ) -> Result<Vec<[u8; 32]>, ClientLinkingError> {
+        self.retain_received_enrollment_proposals()?;
+        self.linking_owner
+            .received_enrollment_proposals
+            .iter()
+            .map(|request| request.binding_digest().map_err(ClientLinkingError::Engine))
+            .collect()
+    }
+
+    /// Explicit action on the exact retained, source-authenticated observation.
+    /// Neither the selector nor the signed packet is SDK or Add permission.
+    pub(crate) fn endorse_received_enrollment_proposal(
+        &mut self,
+        binding: &[u8; 32],
+    ) -> Result<(), ClientLinkingError> {
+        let now = std::time::Instant::now();
+        self.linking_owner
+            .cancelled_endorsements
+            .retain(|(_, deadline)| now < *deadline);
+        if self
+            .linking_owner
+            .cancelled_endorsements
+            .iter()
+            .any(|(cancelled, _)| cancelled == binding)
+        {
+            return Err(rejected());
+        }
+        if let Some(attempt) = self.linking_owner.received_endorsement.as_ref() {
+            if attempt.binding != *binding || attempt.cancelled || now >= attempt.deadline {
+                return Err(rejected());
+            }
+            self.runtime
+                .session()
+                .validate_owned_private_enrollment_endorsement(&attempt.owned)
+                .map_err(ClientLinkingError::Engine)?;
+            attempt.owned.wire().map_err(ClientLinkingError::Engine)?;
+            return Ok(());
+        }
+        self.retain_received_enrollment_proposals()?;
+        let mut selected = None;
+        for request in &self.linking_owner.received_enrollment_proposals {
+            if request
+                .binding_digest()
+                .map_err(ClientLinkingError::Engine)?
+                == *binding
+            {
+                selected = Some(request);
+                break;
+            }
+        }
+        let request = selected.ok_or_else(rejected)?;
+        let parts = self.authenticate_received_enrollment_proposal(request)?;
+        let deadline = request.observed_deadline();
+        let owned = self
+            .runtime
+            .session()
+            .endorse_private_enrollment_request(
+                request,
+                &parts.artifact,
+                &parts.package,
+                &parts.context_digest,
+            )
+            .map_err(ClientLinkingError::Engine)?;
+        self.runtime
+            .session()
+            .validate_owned_private_enrollment_endorsement(&owned)
+            .map_err(ClientLinkingError::Engine)?;
+        owned.wire().map_err(ClientLinkingError::Engine)?;
+        self.linking_owner.received_endorsement = Some(OwnedReceivedEndorsement {
+            binding: *binding,
+            deadline,
+            owned,
+            cancelled: false,
+        });
+        Ok(())
+    }
+
+    pub(crate) fn cancel_received_enrollment_endorsement(
+        &mut self,
+        binding: &[u8; 32],
+    ) -> Result<(), ClientLinkingError> {
+        if !self
+            .linking_owner
+            .received_endorsement
+            .as_ref()
+            .is_some_and(|attempt| &attempt.binding == binding)
+        {
+            return Err(rejected());
+        }
+        self.cancel_owned_enrollment_endorsement()
+    }
+
+    pub(super) fn maintain_received_enrollment_endorsement(
+        &mut self,
+        now: std::time::Instant,
+    ) -> Result<(), ClientLinkingError> {
+        self.linking_owner
+            .cancelled_endorsements
+            .retain(|(_, deadline)| now < *deadline);
+        if self
+            .linking_owner
+            .received_endorsement
+            .as_ref()
+            .is_some_and(|attempt| now >= attempt.deadline)
+        {
+            self.cancel_owned_enrollment_endorsement()?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn cancel_owned_enrollment_endorsement(&mut self) -> Result<(), ClientLinkingError> {
+        let now = std::time::Instant::now();
+        self.linking_owner
+            .cancelled_endorsements
+            .retain(|(_, deadline)| now < *deadline);
+        let Some(attempt) = self.linking_owner.received_endorsement.as_mut() else {
+            return Ok(());
+        };
+        // Negative fence first, even if the Core cleanup subsequently fails.
+        attempt.cancelled = true;
+        if now < attempt.deadline
+            && !self
+                .linking_owner
+                .cancelled_endorsements
+                .iter()
+                .any(|(binding, _)| binding == &attempt.binding)
+        {
+            if self.linking_owner.cancelled_endorsements.len() >= 128 {
+                return Err(rejected());
+            }
+            self.linking_owner
+                .cancelled_endorsements
+                .push((attempt.binding, attempt.deadline));
+        }
+        self.runtime
+            .session()
+            .cancel_private_enrollment_endorsements()
+            .map_err(ClientLinkingError::Engine)?;
+        self.linking_owner.received_endorsement = None;
+        Ok(())
+    }
+
     /// Internal serial-account intake. Retain only the actual opaque request and
     /// its original acquisition lifetime; this never creates approval or consent.
-    pub(crate) fn validate_received_enrollment_proposals(
-        &mut self,
-    ) -> Result<usize, ClientLinkingError> {
+    fn retain_received_enrollment_proposals(&mut self) -> Result<(), ClientLinkingError> {
         self.linking_owner
             .received_enrollment_proposals
             .retain(|request| std::time::Instant::now() < request.observed_deadline());
@@ -34,6 +189,13 @@ impl AppClient {
                 .filter(|request| request.proposal_parts().is_some())
                 .collect();
         }
+        Ok(())
+    }
+
+    pub(crate) fn validate_received_enrollment_proposals(
+        &mut self,
+    ) -> Result<usize, ClientLinkingError> {
+        self.retain_received_enrollment_proposals()?;
         for request in &self.linking_owner.received_enrollment_proposals {
             self.authenticate_received_enrollment_proposal(request)?;
         }
@@ -43,7 +205,7 @@ impl AppClient {
     fn authenticate_received_enrollment_proposal(
         &self,
         request: &AuthenticatedEnrollmentRequest,
-    ) -> Result<(), ClientLinkingError> {
+    ) -> Result<ValidatedProposalParts, ClientLinkingError> {
         let (encoded, json) = request.proposal_parts().ok_or_else(rejected)?;
         if encoded.len() > MAX_PART_BYTES
             || json.len() > MAX_PART_BYTES
@@ -122,13 +284,7 @@ impl AppClient {
         let authenticated = self
             .runtime
             .session()
-            .validate_private_device_predecessor(
-                &artifact,
-                &account,
-                &group,
-                actual.epoch,
-                &actual.leaves,
-            )
+            .validate_private_enrollment_request_predecessor(request, &artifact)
             .map_err(ClientLinkingError::Engine)?;
         if authenticated.artifact_digest() != request.artifact_digest() {
             return Err(rejected());
@@ -154,6 +310,10 @@ impl AppClient {
         // No await, mutation or admission occurs between the fresh protected
         // tree reads and this original-deadline check. The account actor owns
         // group mutation exclusively; the opaque request stays in this owner.
-        Ok(())
+        Ok(ValidatedProposalParts {
+            artifact,
+            package,
+            context_digest: *request.context_digest(),
+        })
     }
 }

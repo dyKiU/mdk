@@ -556,3 +556,7 @@ keep exact cipher/wrapper bytes in the owner. Never stage Add, ordinary Sent wor
 or reconstruct consent from this proposal. App must separately supply genuine
 original SDK metadata, explicit all-current-leaf approval and guarded publication.
 The three Core tests inject policy and minimal context; they are not SDK proof.
+
+## Received endorsement fences
+
+`private_enrollment_request.rs` seals the actual protected origin and Completed generation into each opaque observation. `private_enrollment_predecessor.rs::validate_private_enrollment_request_predecessor` authenticates the artifact against that original selection and its occupied carrier via public OpenMLS `Verifiable` APIs. `private_enrollment_endorsement.rs` requires the same fresh selection before creating or validating an owned action. Keep the portable signature test separate from original-SDK local approval; its test-only signer creates no owned continuation.

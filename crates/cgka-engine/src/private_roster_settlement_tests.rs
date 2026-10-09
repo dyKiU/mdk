@@ -1919,14 +1919,25 @@ async fn endorsement_fixture(lifetime: Option<Duration>) -> EndorsementFixture {
 #[tokio::test]
 async fn private_enrollment_endorsement_all_real_leaf_signatures_and_negative_packets() {
     let f = endorsement_fixture(None).await;
-    let a =
+    assert!(
         f.a.endorse_private_enrollment_request(&f.request, &f.artifact, &f.package, &[10; 32])
-            .unwrap();
+            .is_err(),
+        "a different engine cannot adopt the original received selection"
+    );
+    // A did not receive B's opaque observation. This tests portable signatures,
+    // not an A-owned approval or its original SDK continuation.
+    let binding = f.request.binding_digest().unwrap();
+    let a = crate::private_enrollment_endorsement::sign_public_packet_for_test(
+        &f.a,
+        &GroupId::new(f.request.group_id().to_vec()),
+        binding,
+    )
+    .unwrap();
     let b =
         f.b.endorse_private_enrollment_request(&f.request, &f.artifact, &f.package, &[10; 32])
             .unwrap();
     let binding = f.request.binding_digest().unwrap();
-    let wires = [a.wire().unwrap(), b.wire().unwrap()];
+    let wires = [a.as_slice(), b.wire().unwrap()];
     let proof =
         f.b.authenticate_all_private_enrollment_endorsements(&f.authenticated, &binding, &wires)
             .unwrap();
@@ -2332,4 +2343,77 @@ async fn private_enrollment_local_proposal_reopened_shared_policy_cannot_use_ori
 #[tokio::test]
 async fn private_enrollment_local_proposal_core_teardown_cannot_preserve_original_owner() {
     exercise_local_enrollment_proposal(LocalProposalOwnerControl::Drop).await;
+}
+
+async fn exercise_endorsement_reselection(create_before: bool) {
+    let mut f = endorsement_fixture(None).await;
+    let group = GroupId::new(f.request.group_id().to_vec());
+    let before =
+        f.b.validated_settled_device_roster(&group)
+            .unwrap()
+            .unwrap()
+            .candidate()
+            .clone();
+    let old_generation =
+        f.b.storage
+            .private_roster_settlement_storage()
+            .unwrap()
+            .read_round()
+            .unwrap()
+            .unwrap()
+            .generation;
+    let owned = create_before.then(|| {
+        f.b.endorse_private_enrollment_request(&f.request, &f.artifact, &f.package, &[10; 32])
+            .unwrap()
+    });
+    f.a.select_private_roster_settlement(&group).unwrap();
+    f.b.select_private_roster_settlement(&group).unwrap();
+    let SendResult::ApplicationMessage { msg: challenge, .. } =
+        f.a.start_private_roster_settlement(&group).await.unwrap()
+    else {
+        panic!("encrypted challenge expected");
+    };
+    f.b.ingest(challenge).await.unwrap();
+    let SendResult::ApplicationMessage { msg: ack, .. } =
+        f.b.prepare_private_roster_ack(&group).await.unwrap()
+    else {
+        panic!("encrypted ACK expected");
+    };
+    f.a.ingest(ack).await.unwrap();
+    let current =
+        f.b.validated_settled_device_roster(&group)
+            .unwrap()
+            .unwrap();
+    assert!(current.candidate() == &before);
+    let new_generation =
+        f.b.storage
+            .private_roster_settlement_storage()
+            .unwrap()
+            .read_round()
+            .unwrap()
+            .unwrap()
+            .generation;
+    assert!(new_generation > old_generation);
+    if let Some(owned) = owned {
+        assert!(
+            f.b.validate_owned_private_enrollment_endorsement(&owned)
+                .is_err(),
+            "same tree cannot revive an original action"
+        );
+    } else {
+        assert!(
+            f.b.endorse_private_enrollment_request(&f.request, &f.artifact, &f.package, &[10; 32])
+                .is_err(),
+            "an old received observation cannot be laundered into the replacement Completed generation"
+        );
+    }
+}
+
+#[tokio::test]
+async fn private_enrollment_endorsement_same_tree_completed_reselection_denies_original_action() {
+    exercise_endorsement_reselection(true).await;
+}
+#[tokio::test]
+async fn private_enrollment_endorsement_reselection_denies_first_action_on_old_observation() {
+    exercise_endorsement_reselection(false).await;
 }

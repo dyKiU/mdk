@@ -72,8 +72,17 @@ pub struct AuthenticatedEnrollmentRequest {
     predecessor: cgka_traits::accepted_device_group_anchor::DeviceGroupAnchorRoster,
     frame: RequestFrame,
     observed_deadline: Instant,
+    protected_origin: cgka_traits::private_device_invite::PrivateInviteOrigin,
+    settlement_generation: u64,
 }
 impl AuthenticatedEnrollmentRequest {
+    pub(crate) fn matches_protected_selection(
+        &self,
+        origin: &cgka_traits::private_device_invite::PrivateInviteOrigin,
+        generation: u64,
+    ) -> bool {
+        &self.protected_origin == origin && self.settlement_generation == generation
+    }
     /// Canonical request correlation only; no approval or SDK authority.
     pub fn binding_digest(&self) -> Result<[u8; 32], EngineError> {
         request_binding_digest(&self.frame)
@@ -604,6 +613,8 @@ pub(crate) fn stage(
         source_signer: signer,
         message_id: message_id.clone(),
         predecessor: tree.clone(),
+        protected_origin: state.anchor.origin.clone(),
+        settlement_generation: generation,
         frame,
         observed_deadline,
     });

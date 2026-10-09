@@ -547,3 +547,7 @@ DTO as consent. `PublicationKind::Proposal` uses the existing bounded worker
 negative controls. It publishes private control metadata without an Add, Welcome,
 chat mirror or sibling approval. The genuine regression branches after fresh
 artifact-bound A/C SDK completion over a completed A/B predecessor.
+
+### Explicit received endorsement action
+
+`client/private_enrollment_proposal.rs` separates bounded observation retention and hash selectors from selected-request authentication. The worker's internal `EndorseReceivedEnrollmentProposal` action holds a nonserialized Core continuation in `AccountLinkingOwner`; it accepts no context/artifact/package approval DTO. Preserve the original observed deadline, exact protected origin/generation, abandoned-reply cleanup and bounded cancelled-receipt fence. Do not expose the packet as SDK consent or use count validation to authorize a choice. Publication and A-owned collection remain separate.

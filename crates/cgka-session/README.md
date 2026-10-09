@@ -132,3 +132,5 @@ member or granting consent. Neither method authorizes native enrollment or histo
 `prepare_private_enrollment_proposal` and `wrap_private_enrollment_proposal` are
 feature-only thin Core forwarders. The caller retains the nonclone original-owner
 producer; Session supplies no SDK evidence, transport policy, Add or approval.
+
+The experimental Session endorsement methods are thin Core forwards: source-bound received-artifact validation, explicit endorsement creation, fresh owned-endorsement validation and negative cancellation. They accept the actual opaque Core observation and retain Core ownership checks; they provide no transport, serialized permission, native proof or admission bypass.

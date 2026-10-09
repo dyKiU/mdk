@@ -75,6 +75,8 @@ pub struct OwnedEnrollmentEndorsement {
     generation: u64,
     deadline: Instant,
     predecessor: CandidateDeviceGroupSnapshot,
+    origin: cgka_traits::private_device_invite::PrivateInviteOrigin,
+    settlement_generation: u64,
     wire: Vec<u8>,
 }
 impl OwnedEnrollmentEndorsement {
@@ -111,7 +113,7 @@ impl AuthenticatedAllLeafEndorsements {
         &self.artifact_digest
     }
 }
-fn matches_current(
+pub(crate) fn matches_current(
     request: &AuthenticatedEnrollmentRequest,
     current: &CandidateDeviceGroupSnapshot,
 ) -> bool {
@@ -163,16 +165,13 @@ impl<S: StorageProvider> Engine<S> {
                 .validated_settled_device_roster(&group)?
                 .ok_or_else(denied)?;
             let candidate = current.candidate();
-            if !matches_current(request, candidate) {
+            if !request
+                .matches_protected_selection(current.origin(), current.settlement_generation())
+                || !matches_current(request, candidate)
+            {
                 return Err(denied());
             }
-            let proof = self.validate_private_device_predecessor(
-                artifact,
-                &candidate.account,
-                &group,
-                candidate.epoch,
-                &candidate.leaves,
-            )?;
+            let proof = self.validate_private_enrollment_request_predecessor(request, artifact)?;
             if proof.artifact_digest() != request.artifact_digest() {
                 return Err(denied());
             }
@@ -185,8 +184,13 @@ impl<S: StorageProvider> Engine<S> {
             {
                 return Err(denied());
             }
-            Ok(candidate.clone())
+            Ok((
+                candidate.clone(),
+                current.origin().clone(),
+                current.settlement_generation(),
+            ))
         })?;
+        let (current, origin, settlement_generation) = current;
         let source_signer: [u8; 32] = self
             .identity
             .signer
@@ -229,6 +233,8 @@ impl<S: StorageProvider> Engine<S> {
             generation,
             deadline,
             predecessor: current,
+            origin,
+            settlement_generation,
             wire,
         })
     }
@@ -244,7 +250,10 @@ impl<S: StorageProvider> Engine<S> {
         let settled = self
             .validated_settled_device_roster(&endorsement.predecessor.group_id)?
             .ok_or_else(denied)?;
-        if settled.candidate() != &endorsement.predecessor {
+        if settled.candidate() != &endorsement.predecessor
+            || settled.origin() != &endorsement.origin
+            || settled.settlement_generation() != endorsement.settlement_generation
+        {
             return Err(denied());
         }
         Ok(())
@@ -314,4 +323,41 @@ impl<S: StorageProvider> Engine<S> {
             leaf_count: indices.len(),
         })
     }
+}
+
+/// Portable signature fixture only: no owned action, consent, or live authority.
+#[cfg(test)]
+pub(crate) fn sign_public_packet_for_test<S: StorageProvider + 'static>(
+    engine: &Engine<S>,
+    group: &GroupId,
+    binding: [u8; 32],
+) -> Result<Vec<u8>, EngineError> {
+    let settled = engine
+        .validated_settled_device_roster(group)?
+        .ok_or_else(denied)?;
+    let source_signer: [u8; 32] = engine
+        .identity
+        .signer
+        .public()
+        .try_into()
+        .map_err(|_| denied())?;
+    let own = settled
+        .candidate()
+        .leaves
+        .iter()
+        .find(|leaf| leaf.signature_public_key.as_slice() == source_signer)
+        .ok_or_else(denied)?;
+    let mut packet = Packet {
+        protocol: PROTOCOL.into(),
+        source_index: own.leaf_index,
+        source_signer,
+        binding_digest: binding,
+        signature: Vec::new(),
+    };
+    packet.signature = engine
+        .identity
+        .signer
+        .sign(&signing_input(&packet))
+        .map_err(|_| denied())?;
+    serde_json::to_vec(&packet).map_err(|_| denied())
 }

@@ -11,6 +11,17 @@ use tokio::sync::oneshot;
 
 type Reply<T> = oneshot::Sender<Result<T, ClientLinkingError>>;
 pub(crate) enum VerifierCommand {
+    ReceivedEnrollmentProposalBindings {
+        respond: Reply<Vec<[u8; 32]>>,
+    },
+    CancelReceivedEnrollmentEndorsement {
+        binding: [u8; 32],
+        respond: Reply<()>,
+    },
+    EndorseReceivedEnrollmentProposal {
+        binding: [u8; 32],
+        respond: Reply<()>,
+    },
     PrepareEnrollmentProposal {
         scope: PurposeAttemptScope,
         respond: Reply<()>,
@@ -140,6 +151,18 @@ pub(super) async fn handle_verifier_command(
     publication_control: &super::private_commit::PublicationControl,
 ) {
     match command {
+        VerifierCommand::ReceivedEnrollmentProposalBindings { respond } => {
+            let _ = respond.send(client.received_enrollment_proposal_bindings());
+        }
+        VerifierCommand::EndorseReceivedEnrollmentProposal { binding, respond } => {
+            let result = client.endorse_received_enrollment_proposal(&binding);
+            if respond.send(result).is_err() {
+                let _ = client.cancel_received_enrollment_endorsement(&binding);
+            }
+        }
+        VerifierCommand::CancelReceivedEnrollmentEndorsement { binding, respond } => {
+            let _ = respond.send(client.cancel_received_enrollment_endorsement(&binding));
+        }
         VerifierCommand::ValidateReceivedEnrollmentProposals { respond } => {
             let _ = respond.send(client.validate_received_enrollment_proposals());
         }
@@ -2992,9 +3015,26 @@ mod tests {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposal).await;
     }
 
+    #[tokio::test]
+    async fn device_linking_original_sdk_received_proposal_requires_explicit_b_owner() {
+        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalEndorsement).await;
+    }
+
+    #[tokio::test]
+    async fn device_linking_b_endorsement_abandoned_reply_burns_original_action() {
+        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalDroppedReply).await;
+    }
+    #[tokio::test]
+    async fn device_linking_b_endorsement_encrypted_reopen_cannot_restore_action() {
+        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalReopen).await;
+    }
+
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum ThirdDeviceCheck {
         LocalProposal,
+        LocalProposalEndorsement,
+        LocalProposalDroppedReply,
+        LocalProposalReopen,
         RetainedScope,
         Settlement,
         UnapprovedPublication,
@@ -3086,6 +3126,9 @@ mod tests {
             ThirdDeviceCheck::UnapprovedPublication
                 | ThirdDeviceCheck::ArtifactPreparation
                 | ThirdDeviceCheck::LocalProposal
+                | ThirdDeviceCheck::LocalProposalEndorsement
+                | ThirdDeviceCheck::LocalProposalDroppedReply
+                | ThirdDeviceCheck::LocalProposalReopen
         ) {
             use sha2::{Digest, Sha256};
             let artifact = workers
@@ -3177,7 +3220,13 @@ mod tests {
             drain(&c, &prepared.scope, &workers.a, &a_scope).await;
             drain(&workers.a, &a_scope, &c, &prepared.scope).await;
         }
-        if check == ThirdDeviceCheck::LocalProposal {
+        if matches!(
+            check,
+            ThirdDeviceCheck::LocalProposal
+                | ThirdDeviceCheck::LocalProposalEndorsement
+                | ThirdDeviceCheck::LocalProposalDroppedReply
+                | ThirdDeviceCheck::LocalProposalReopen
+        ) {
             let c_storage = c.app.account_storage("test").unwrap();
             let c_purpose =
                 cgka_traits::StorageProvider::device_linking_key_package_storage(&c_storage)
@@ -3284,6 +3333,149 @@ mod tests {
             })
             .await
             .expect("B must authenticate the actual received A/C SDK proposal");
+            if matches!(
+                check,
+                ThirdDeviceCheck::LocalProposalEndorsement | ThirdDeviceCheck::LocalProposalReopen
+            ) {
+                let bindings = workers
+                    .b
+                    .verifier_command("test", |respond| {
+                        VerifierCommand::ReceivedEnrollmentProposalBindings { respond }
+                    })
+                    .await
+                    .unwrap();
+                assert_eq!(bindings.len(), 1);
+                workers.b.verifier_command("test", |respond|
+                    VerifierCommand::EndorseReceivedEnrollmentProposal {
+                        binding: bindings[0], respond,
+                    }).await.expect("B's explicit action on the actual received SDK proposal must retain its owned endorsement");
+            }
+
+            // Wrong selectors cannot affect the exact original B action.
+            let bindings = workers
+                .b
+                .verifier_command("test", |respond| {
+                    VerifierCommand::ReceivedEnrollmentProposalBindings { respond }
+                })
+                .await
+                .unwrap();
+            let binding = bindings[0];
+            let mut reopened_round = None;
+            if check == ThirdDeviceCheck::LocalProposalDroppedReply {
+                let commands = workers.b.worker_commands("test").await.unwrap();
+                let (respond, receiver) = tokio::sync::oneshot::channel();
+                drop(receiver);
+                commands
+                    .send(AccountWorkerCommand::DeviceLinkingVerifier(Box::new(
+                        VerifierCommand::EndorseReceivedEnrollmentProposal { binding, respond },
+                    )))
+                    .await
+                    .unwrap();
+                // Serial command barrier: the abandoned action already ran and
+                // cleanup must have burned this exact original receipt.
+                workers
+                    .b
+                    .verifier_command("test", |respond| {
+                        VerifierCommand::ReceivedEnrollmentProposalBindings { respond }
+                    })
+                    .await
+                    .unwrap();
+                assert!(
+                    workers
+                        .b
+                        .verifier_command("test", |respond| {
+                            VerifierCommand::EndorseReceivedEnrollmentProposal { binding, respond }
+                        })
+                        .await
+                        .is_err(),
+                    "an abandoned original action cannot be recreated from its receipt"
+                );
+            }
+            if check == ThirdDeviceCheck::LocalProposalReopen {
+                workers.runtime_b.shutdown_and_close().await.unwrap();
+                let app = MarmotApp::with_relay(
+                    workers.directories[1].path(),
+                    relay.url().await.to_string(),
+                );
+                let reopened = MarmotAppRuntime::new(app);
+                reopened.reconcile_accounts().await.unwrap();
+                let b = reopened.accounts();
+                assert!(
+                    b.verifier_command("test", |respond| {
+                        VerifierCommand::ReceivedEnrollmentProposalBindings { respond }
+                    })
+                    .await
+                    .unwrap()
+                    .is_empty()
+                );
+                assert!(
+                    b.verifier_command("test", |respond| {
+                        VerifierCommand::EndorseReceivedEnrollmentProposal { binding, respond }
+                    })
+                    .await
+                    .is_err(),
+                    "encrypted reopen cannot restore the old observation or owned action"
+                );
+                assert_eq!(
+                    b.candidate_device_group_snapshot("test", &group)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .epoch
+                        .0,
+                    1
+                );
+                assert!(b.app.load_state("test").unwrap().groups.is_empty());
+                let storage = b.app.account_storage("test").unwrap();
+                reopened_round =
+                    cgka_traits::StorageProvider::private_roster_settlement_storage(&storage)
+                        .unwrap()
+                        .read_round()
+                        .unwrap();
+                assert!(reopened_round == b_before);
+                reopened.shutdown_and_close().await.unwrap();
+            }
+            if check == ThirdDeviceCheck::LocalProposalEndorsement {
+                let mut wrong = binding;
+                wrong[0] ^= 1;
+                assert!(
+                    workers
+                        .b
+                        .verifier_command("test", |respond| {
+                            VerifierCommand::CancelReceivedEnrollmentEndorsement {
+                                binding: wrong,
+                                respond,
+                            }
+                        })
+                        .await
+                        .is_err()
+                );
+                workers
+                    .b
+                    .verifier_command("test", |respond| {
+                        VerifierCommand::EndorseReceivedEnrollmentProposal { binding, respond }
+                    })
+                    .await
+                    .unwrap();
+                workers
+                    .b
+                    .verifier_command("test", |respond| {
+                        VerifierCommand::CancelReceivedEnrollmentEndorsement { binding, respond }
+                    })
+                    .await
+                    .unwrap();
+                assert!(
+                    workers
+                        .b
+                        .verifier_command("test", |respond| {
+                            VerifierCommand::EndorseReceivedEnrollmentProposal { binding, respond }
+                        })
+                        .await
+                        .is_err(),
+                    "cancelled original receipt cannot create a later action with the same selector"
+                );
+            }
+
             assert!(
                 cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
                     .unwrap()
@@ -3291,13 +3483,15 @@ mod tests {
                     .unwrap()
                     == before
             );
-            assert!(
+            let b_after = if check == ThirdDeviceCheck::LocalProposalReopen {
+                reopened_round
+            } else {
                 cgka_traits::StorageProvider::private_roster_settlement_storage(&b_storage)
                     .unwrap()
                     .read_round()
                     .unwrap()
-                    == b_before
-            );
+            };
+            assert!(b_after == b_before);
             assert_eq!(
                 workers
                     .a
@@ -3324,7 +3518,9 @@ mod tests {
                     == c_purpose
             );
             assert!(workers.a.app.load_state("test").unwrap().groups.is_empty());
-            assert!(workers.b.app.load_state("test").unwrap().groups.is_empty());
+            if check != ThirdDeviceCheck::LocalProposalReopen {
+                assert!(workers.b.app.load_state("test").unwrap().groups.is_empty());
+            }
             workers
                 .a
                 .cancel_device_linking("test", &a_scope)
@@ -3339,7 +3535,9 @@ mod tests {
             );
             runtime_c.shutdown_and_close().await.unwrap();
             workers.runtime_a.shutdown_and_close().await.unwrap();
-            workers.runtime_b.shutdown_and_close().await.unwrap();
+            if check != ThirdDeviceCheck::LocalProposalReopen {
+                workers.runtime_b.shutdown_and_close().await.unwrap();
+            }
             relay.shutdown();
             return;
         }
@@ -4620,6 +4818,16 @@ mod tests {
         exercise_enrollment_relay_observation(true, true, Some("substituted_package")).await;
     }
     #[tokio::test]
+    async fn device_linking_b_endorsement_valid_selection_survives_wrong_carrier_batch() {
+        exercise_enrollment_relay_observation(true, true, Some("mixed_batch")).await;
+    }
+
+    #[tokio::test]
+    async fn device_linking_received_proposal_rejects_artifact_signed_by_other_current_leaf() {
+        exercise_enrollment_relay_observation(true, true, Some("wrong_artifact_carrier")).await;
+    }
+
+    #[tokio::test]
     async fn device_linking_received_proposal_rejects_tampered_artifact() {
         exercise_enrollment_relay_observation(true, true, Some("tampered_artifact")).await;
     }
@@ -4777,6 +4985,7 @@ mod tests {
                 "artifact_base64":artifact_base64, "context_json":context_json
             });
         }
+        let valid_frame = frame.clone();
         if let Some(control) = control.filter(|control| *control != "v1") {
             use base64::Engine as _;
             use sha2::{Digest, Sha256};
@@ -4792,6 +5001,19 @@ mod tests {
                 "substituted_package" => {
                     let byte = context["exact_key_package"][0].as_u64().unwrap();
                     context["exact_key_package"][0] = serde_json::json!(byte ^ 1);
+                }
+                "wrong_artifact_carrier" | "mixed_batch" => {
+                    // B's actual signed export is valid for this exact tree,
+                    // but the real encrypted request is carried by A.
+                    let bytes = observer
+                        .export_settled_device_predecessor("test", &group_id)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    let hash: [u8; 32] = Sha256::digest(&bytes).into();
+                    parts["artifact_base64"] =
+                        serde_json::json!(base64::engine::general_purpose::STANDARD.encode(bytes));
+                    context["predecessor"]["artifact_digest"] = serde_json::json!(hash);
                 }
                 "tampered_artifact" => {
                     let mut bytes = base64::engine::general_purpose::STANDARD
@@ -4830,7 +5052,10 @@ mod tests {
                 if let Ok(digest) = canonical.digest() {
                     frame["context_digest"] = serde_json::json!(digest);
                 }
-                if control == "tampered_artifact" {
+                if matches!(
+                    control,
+                    "tampered_artifact" | "wrong_artifact_carrier" | "mixed_batch"
+                ) {
                     frame["artifact_digest"] =
                         serde_json::json!(canonical.predecessor.artifact_digest.unwrap());
                 }
@@ -4929,7 +5154,78 @@ mod tests {
             }
         }).await.expect("the exact real ciphertext must reach committed crypto/observer disposition before checking metadata");
         assert!(workers.a.app.load_state("test").unwrap().groups.is_empty());
-        if validate {
+        if control == Some("mixed_batch") {
+            let event = cgka_traits::app_event::MarmotAppEvent::new(
+                hex::encode(round.anchor.account),
+                0,
+                38175,
+                vec![],
+                valid_frame.to_string(),
+            );
+            let cipher = source_group
+                .create_message(&provider, &signer, &event.encode().unwrap())
+                .unwrap()
+                .tls_serialize_detached()
+                .unwrap();
+            let id = cgka_traits::MessageId::new(sha2::Sha256::digest(&cipher).to_vec());
+            let wrapped = transport_nostr_peeler::NostrMlsPeeler::new()
+                .wrap_group_message(
+                    &cgka_traits::transport::EncryptedPayload {
+                        ciphertext: cipher,
+                        aad: vec![],
+                    },
+                    &context,
+                )
+                .await
+                .unwrap();
+            let signed =
+                transport_nostr_peeler::NostrTransportEvent::from_transport_message(&wrapped)
+                    .unwrap()
+                    .to_verified_nostr_event()
+                    .unwrap();
+            publisher.send_event(&signed).await.unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                while !cgka_traits::MessageStorage::get_message(&receiver, &id)
+                    .is_ok_and(|row| row.state == cgka_traits::message::MessageState::Processed)
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("both real encrypted requests must reach durable observer disposition");
+            let bindings = observer
+                .verifier_command("test", |respond| {
+                    VerifierCommand::ReceivedEnrollmentProposalBindings { respond }
+                })
+                .await
+                .expect("opaque selectors must not authenticate unrelated noise");
+            assert_eq!(bindings.len(), 2);
+            let mut accepted = 0;
+            for binding in bindings {
+                if observer
+                    .verifier_command("test", |respond| {
+                        VerifierCommand::EndorseReceivedEnrollmentProposal { binding, respond }
+                    })
+                    .await
+                    .is_ok()
+                {
+                    accepted += 1;
+                    observer
+                        .verifier_command("test", |respond| {
+                            VerifierCommand::CancelReceivedEnrollmentEndorsement {
+                                binding,
+                                respond,
+                            }
+                        })
+                        .await
+                        .unwrap();
+                }
+            }
+            assert_eq!(
+                accepted, 1,
+                "exact valid selection must work despite an unrelated wrong-carrier request"
+            );
+        } else if validate {
             let result = observer
                 .verifier_command("test", |respond| {
                     VerifierCommand::ValidateReceivedEnrollmentProposals { respond }

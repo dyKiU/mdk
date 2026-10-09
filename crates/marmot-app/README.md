@@ -619,3 +619,7 @@ the received proposal with the existing strict validator. Exact retry retains th
 original owner, and a proposal continuation cannot become an Add continuation.
 This creates metadata only: all-current-leaf endorsement, recipient admission and
 atomic sibling transition remain separate requirements.
+
+The serial account worker now supports an explicit B endorsement action selected by an actual retained request's binding hash. It authenticates only that selected request, so unrelated invalid proposals do not block a valid choice. The one account-owned continuation retains the original observation deadline and exact Core ownership/selection fences. Exact retries reuse it; wrong cancellation selectors cannot affect it. Cancellation and abandoned replies burn the original receipt's action, and encrypted reopen restores neither the observation nor the action. Cancelled receipt identities are bounded to 128 within their original lifetimes.
+
+This is internal endorsement custody, not endorsement publication, A's signature collection, sibling transition, recipient admission or a native API. See `docs/device-sync-b-endorsement-verification.json` for actual regressions and qualification limits.

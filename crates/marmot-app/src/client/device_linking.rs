@@ -29,6 +29,9 @@ struct OwnedPrivateInvite {
 
 pub(crate) struct AccountLinkingOwner {
     verifier: LinkingOwner,
+    pub(super) received_endorsement:
+        Option<super::private_enrollment_proposal::OwnedReceivedEndorsement>,
+    pub(super) cancelled_endorsements: Vec<([u8; 32], std::time::Instant)>,
     pub(super) received_enrollment_proposals:
         Vec<cgka_engine::private_enrollment_request::AuthenticatedEnrollmentRequest>,
     welcome: Arc<RuntimeWelcomeGate>,
@@ -81,6 +84,8 @@ impl AccountLinkingOwner {
             .map_err(|_| invalid_identity())?;
         Ok(Self {
             received_enrollment_proposals: Vec::new(),
+            received_endorsement: None,
+            cancelled_endorsements: Vec::new(),
             verifier: LinkingOwner::attach_after_restart_fence(storage, account, device),
             welcome: Arc::new(RuntimeWelcomeGate::new()),
             invite: Arc::new(RuntimeInviteGate::new()),
@@ -977,6 +982,7 @@ impl AppClient {
         &mut self,
         now: std::time::Instant,
     ) -> Result<(), ClientLinkingError> {
+        self.maintain_received_enrollment_endorsement(now)?;
         let reservation_live = self
             .linking_owner
             .verifier
@@ -1070,6 +1076,7 @@ impl AppClient {
         if let Some(attempt) = &self.linking_owner.settlement_attempt {
             attempt.guard.revoke();
         }
+        let endorsement_cancel = self.cancel_owned_enrollment_endorsement();
         self.linking_owner.received_enrollment_proposals.clear();
         self.linking_owner.invite.cancel();
         let welcome_cancel = self
@@ -1086,6 +1093,7 @@ impl AppClient {
             .cancel()
             .map_err(ClientLinkingError::Owner);
         let settlement_cancel = self.revoke_owned_private_settlement();
+        endorsement_cancel?;
         welcome_cancel?;
         settlement_cancel?;
         verifier_cancel?;

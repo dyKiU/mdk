@@ -77,10 +77,16 @@ impl LiveSettlementAdmission {
 /// Opaque fresh protected lineage and all-leaf settlement observation.
 /// No constructor, Clone or serde; neither metadata accessor supplies SDK consent.
 pub struct ValidatedSettledDeviceRoster {
+    settlement_generation: u64,
     candidate: CandidateDeviceGroupSnapshot,
     origin: cgka_traits::private_device_invite::PrivateInviteOrigin,
 }
 impl ValidatedSettledDeviceRoster {
+    /// Protected completed-round identity only; never admission or consent.
+    pub fn settlement_generation(&self) -> u64 {
+        self.settlement_generation
+    }
+
     pub fn candidate(&self) -> &CandidateDeviceGroupSnapshot {
         &self.candidate
     }
@@ -118,6 +124,7 @@ impl<S: StorageProvider> Engine<S> {
                 return Ok(None);
             }
             Ok(Some(ValidatedSettledDeviceRoster {
+                settlement_generation: state.generation,
                 candidate: evidence.candidate().clone(),
                 origin: evidence.settlement_anchor().origin.clone(),
             }))

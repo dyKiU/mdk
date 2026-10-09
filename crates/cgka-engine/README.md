@@ -494,3 +494,9 @@ tests inject policy; App's genuine SDK producer and automatic publication remain
 separate work. A wrapped declaration is metadata, not sibling approval, Add or
 recipient admission. See `docs/device-sync-local-proposal-verification.json` for
 actual regression counts and limits.
+
+### Received-request endorsement ownership
+
+`validate_private_enrollment_request_predecessor` verifies the exact GroupInfo signature under the occupied MLS request carrier, after portable tree authentication. The opaque received request retains its original protected origin and Completed selection generation. A replacement Completed round, even with an unchanged tree, denies both first endorsement and later handoff. `OwnedEnrollmentEndorsement` also retains the original Engine identity, cancellation generation and observation deadline. Packets remain signature metadata; they cannot recreate the owned action or permit an Add.
+
+The portable all-leaf signature fixture signs A's public packet with its actual key and exercises B's genuine received action. It explicitly rejects passing B's opaque observation into A's action; it does not qualify an original-SDK A approval. Focused evidence is in `docs/device-sync-b-endorsement-verification.json`.

@@ -76,6 +76,63 @@ impl<S: StorageProvider> Engine<S> {
         expected_epoch: cgka_traits::EpochId,
         expected_leaves: &[crate::device_group_snapshot::CandidateDeviceLeaf],
     ) -> Result<AuthenticatedPrivatePredecessor, EngineError> {
+        self.validate_private_predecessor_inner(
+            artifact,
+            expected_account,
+            expected_group,
+            expected_epoch,
+            expected_leaves,
+            None,
+        )
+    }
+
+    /// Authenticate an actually received request's artifact against its exact
+    /// occupied carrier and fresh protected local predecessor. Metadata only.
+    pub fn validate_private_enrollment_request_predecessor(
+        &self,
+        request: &crate::private_enrollment_request::AuthenticatedEnrollmentRequest,
+        artifact: &[u8],
+    ) -> Result<AuthenticatedPrivatePredecessor, EngineError> {
+        let mismatch = || EngineError::Other("private predecessor carrier mismatch".into());
+        if web_time::Instant::now() >= request.observed_deadline() {
+            return Err(mismatch());
+        }
+        let group = GroupId::new(request.group_id().to_vec());
+        self.storage.with_read_snapshot(|_| {
+            let settled = self
+                .validated_settled_device_roster(&group)?
+                .ok_or_else(mismatch)?;
+            let candidate = settled.candidate();
+            if !request
+                .matches_protected_selection(settled.origin(), settled.settlement_generation())
+                || !crate::private_enrollment_endorsement::matches_current(request, candidate)
+                || !candidate.leaves.iter().any(|leaf| {
+                    leaf.leaf_index == request.source_index()
+                        && leaf.signature_public_key.as_slice() == request.source_signer()
+                })
+            {
+                return Err(mismatch());
+            }
+            self.validate_private_predecessor_inner(
+                artifact,
+                &candidate.account,
+                &group,
+                candidate.epoch,
+                &candidate.leaves,
+                Some(request.source_signer()),
+            )
+        })
+    }
+
+    fn validate_private_predecessor_inner(
+        &self,
+        artifact: &[u8],
+        expected_account: &cgka_traits::MemberId,
+        expected_group: &GroupId,
+        expected_epoch: cgka_traits::EpochId,
+        expected_leaves: &[crate::device_group_snapshot::CandidateDeviceLeaf],
+        expected_source: Option<&[u8; 32]>,
+    ) -> Result<AuthenticatedPrivatePredecessor, EngineError> {
         use cgka_traits::app_components::{APP_COMPONENTS_COMPONENT_ID, decode_components_list};
         use cgka_traits::device_group_genesis::{
             PRIVATE_DEVICE_GROUP_COMPONENT_ID, PRIVATE_DEVICE_GROUP_PROFILE,
@@ -121,12 +178,23 @@ impl<S: StorageProvider> Engine<S> {
             .clone();
         // This is a new provider per call. Never install its public-group rows in
         // account storage or use this operation to restore an MLS member copy.
+        let source_info = expected_source.map(|source| (source, info.clone()));
         let scratch = openmls_memory_storage::MemoryStorage::default();
         let (public, _) =
             PublicGroup::from_external(&self.crypto, &scratch, tree, info, ProposalStore::new())
                 .map_err(|_| {
                     EngineError::Other("private predecessor authentication failed".into())
                 })?;
+        if let Some((source, source_info)) = source_info {
+            use openmls::prelude::{SignaturePublicKey, Verifiable};
+            let key = SignaturePublicKey::from(source.as_slice())
+                .into_signature_public_key_enriched(
+                    public.group_context().ciphersuite().signature_algorithm(),
+                );
+            source_info
+                .verify(&self.crypto, &key)
+                .map_err(|_| EngineError::Other("private predecessor carrier mismatch".into()))?;
+        }
         let group_id = GroupId::new(public.group_id().as_slice().to_vec());
         let epoch = cgka_traits::EpochId(public.group_context().epoch().as_u64());
         if group_id != *expected_group

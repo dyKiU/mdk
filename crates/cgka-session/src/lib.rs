@@ -676,6 +676,43 @@ impl AccountDeviceSession {
         self.engine.install_trusted_private_invite_policy(policy);
     }
 
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn validate_private_enrollment_request_predecessor(
+        &self,
+        request: &cgka_engine::private_enrollment_request::AuthenticatedEnrollmentRequest,
+        artifact: &[u8],
+    ) -> Result<
+        cgka_engine::private_enrollment_predecessor::AuthenticatedPrivatePredecessor,
+        EngineError,
+    > {
+        self.engine
+            .validate_private_enrollment_request_predecessor(request, artifact)
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn endorse_private_enrollment_request(
+        &self,
+        request: &cgka_engine::private_enrollment_request::AuthenticatedEnrollmentRequest,
+        artifact: &[u8],
+        package: &KeyPackage,
+        context_digest: &[u8; 32],
+    ) -> Result<cgka_engine::private_enrollment_endorsement::OwnedEnrollmentEndorsement, EngineError>
+    {
+        self.engine
+            .endorse_private_enrollment_request(request, artifact, package, context_digest)
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn validate_owned_private_enrollment_endorsement(
+        &self,
+        owned: &cgka_engine::private_enrollment_endorsement::OwnedEnrollmentEndorsement,
+    ) -> Result<(), EngineError> {
+        self.engine
+            .validate_owned_private_enrollment_endorsement(owned)
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn cancel_private_enrollment_endorsements(&self) -> Result<(), EngineError> {
+        self.engine.cancel_private_enrollment_endorsements()
+    }
+
     /// Original-owner proposal metadata; never an Add or admission grant.
     #[cfg(feature = "experimental-device-sync")]
     pub fn prepare_private_enrollment_proposal(
