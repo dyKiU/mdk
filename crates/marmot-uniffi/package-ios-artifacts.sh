@@ -123,10 +123,7 @@ simulator_library_sha="$(shasum -a 256 "$XCFRAMEWORK/${simulator_artifact#Marmot
 
 cp "$SWIFT_BINDING" "$DIST_DIR/$swift_name"
 
-analytics_features='["otlp-export"]'
-if [[ "${PRODUCT_ANALYTICS_EXPORT:-}" == "1" || "${PRODUCT_ANALYTICS_EXPORT:-}" == "true" ]]; then
-  analytics_features='["otlp-export", "product-analytics-export"]'
-fi
+artifact_features="$(python3 "$TOOL_DIR/marmotkit_features.py" json)"
 profile_json="$(python3 "$TOOL_DIR/release-profile-json.py")"
 python3 -c 'import json,sys; json.loads(sys.argv[1])' "$profile_json"
 cat > "$DIST_DIR/$manifest_name" <<EOF
@@ -142,7 +139,7 @@ cat > "$DIST_DIR/$manifest_name" <<EOF
   "cargo_lock_sha256": "$lock_sha",
   "rustc": "$rust_version",
   "cargo": "$cargo_version",
-  "features": $analytics_features,
+  "features": $artifact_features,
   "ios_targets": ["aarch64-apple-ios", "aarch64-apple-ios-sim"],
   "ios_deployment_target": "$deployment_target",
   "rust_release_profile": $profile_json,

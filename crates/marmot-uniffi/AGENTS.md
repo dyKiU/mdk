@@ -40,6 +40,7 @@ Expose `marmot-app` behavior through bindings, following [MDK's host boundary](.
 - Own the host Swift/Kotlin DTO round-trip checks: `chat-projections-smoke.sh`, `options-smoke.sh`,
   `audit-v4-smoke.sh`, `details-markdown-smoke.sh` and `usage-diagnostics-smoke.sh`.
 - Own `build-provenance.py`, `test-build-phases.py`, `test-android-artifact.py` and `test-native-archive.py`.
+- Own `marmotkit_features.py`; keep default-off Apple experimental feature selection identical across native compilation, Swift generation, manifests and provenance verification. Do not advertise it for Android without corresponding builder support.
 - Own `marmotkit-endpoints.env` build-time defaults for audit-log tracker, relay-telemetry OTLP and optional
   product-analytics route URLs.
 - Keep generated bindings out of git; host apps vendor artifacts from `output/` after running the scripts.

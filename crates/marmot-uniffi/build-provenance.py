@@ -8,6 +8,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+from marmotkit_features import selected_features
+
 
 PARTS = {
     "ios": {"swift", "ios-device", "ios-simulator"},
@@ -25,13 +27,12 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def feature_set():
-    def enabled(name):
-        return os.environ.get(name, "0").lower() in {"1", "true"}
-
+def feature_set(*, include_experimental):
+    selected = selected_features(include_experimental=include_experimental)
     return {
-        "otlp_export": enabled("OTLP_EXPORT"),
-        "product_analytics_export": enabled("PRODUCT_ANALYTICS_EXPORT"),
+        "otlp_export": "otlp-export" in selected,
+        "product_analytics_export": "product-analytics-export" in selected,
+        "experimental_device_sync": "experimental-device-sync" in selected,
     }
 
 
@@ -46,7 +47,7 @@ def record(part, destination):
     data = dict(part=part, source_sha=command("git", "rev-parse", "HEAD"),
                 builder_sha=os.environ["BUILDER_SHA"],
                 workflow_run_id=os.environ.get("GITHUB_RUN_ID", "local"),
-                release_profile_sha256=sha256(profile), feature_set=feature_set(),
+                release_profile_sha256=sha256(profile), feature_set=feature_set(include_experimental=part in PARTS["ios"] | PARTS["macos"]),
                 rustc=command("rustc", "--version"), cargo=command("cargo", "--version"))
     if part in PARTS["android"] - {"kotlin"}:
         ndk = Path(os.environ["ANDROID_NDK_HOME"])
@@ -97,7 +98,7 @@ def verify(platform, paths, artifact_root=None):
         "builder_sha": os.environ["BUILDER_SHA"],
         "workflow_run_id": os.environ.get("GITHUB_RUN_ID", "local"),
         "release_profile_sha256": sha256(Path(__file__).with_name("marmotkit-release-profile.env")),
-        "feature_set": feature_set(),
+        "feature_set": feature_set(include_experimental=platform in {"ios", "macos"}),
     }
     for record in records:
         for key, value in expected.items():
