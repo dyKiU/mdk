@@ -8,6 +8,9 @@ UniFFI bindings (MarmotKit) for the Marmot app runtime. For integration concepts
 - `src/lib.rs`: the `Marmot` object, constructors and `MarmotOptions`; `src/errors.rs`: `MarmotKitError`.
 - `src/commands/`: `#[uniffi::export] impl Marmot` blocks, one module per feature family.
 - `src/conversions/`: `…Ffi` records/enums and their conversions from `marmot-app` types, one module per family.
+- `src/commands/device_linking.rs` exposes opaque App verification handles;
+  `src/conversions/device_linking.rs` owns their display-only records. See
+  `DEVICE-LINKING.md`; verification capability must not imply enrollment.
 - `src/subscriptions.rs`, `src/subscriptions/`: subscription objects and screen-window handles.
 - `src/markdown.rs` (Markdown display DTOs), `src/publisher.rs` (agent publisher handle), `src/secret_store.rs` and
   `src/external_signer.rs` (host callback traits), `src/bin/uniffi-bindgen.rs` (binding generator).

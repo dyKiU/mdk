@@ -37,6 +37,9 @@ across the boundary. That deserves its own focused design + tests rather than a 
   `c_subscription!` generates the shared surface (handle, callback type, blocking `*_next` with timeout → `MARMOT_STATUS_TIMEOUT`, shutdown →
   `MARMOT_STATUS_CLOSED`, callback install/clear/free); subscribe functions, snapshots, and per-subscription extras
   are hand-written.
+- `src/device_linking.rs` wraps the actual UniFFI session/subscription objects.
+  Keep preflight before effects, callback-safe blocking, bounded byte copies and
+  typed device-linking status values; account policy stays in App.
 - `src/memory.rs` is the only allocation chokepoint; the `alloc-audit` test feature counts live allocations so tests
   can prove deep-free completeness.
 - `src/status.rs` owns `MarmotStatus` and the thread-local last-error channel. `src/secret_store.rs` (host secret-store

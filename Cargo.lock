@@ -4015,10 +4015,10 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tracing",
+ "web-time",
  "windows-native-keyring-store",
  "zbus-secret-service-keyring-store",
  "zeroize",
- "web-time",
 ]
 
 [[package]]

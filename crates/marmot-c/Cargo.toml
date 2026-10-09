@@ -12,6 +12,7 @@ crate-type = ["cdylib", "staticlib", "lib"]
 [features]
 otlp-export = ["marmot-uniffi/otlp-export"]
 product-analytics-export = ["marmot-uniffi/product-analytics-export"]
+experimental-device-sync = ["marmot-uniffi/experimental-device-sync"]
 default = []
 # Test-only accounting of every FFI allocation/free pair; used by the
 # roundtrip tests to prove deep-free completeness. Never enable in release
