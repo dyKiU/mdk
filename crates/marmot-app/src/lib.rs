@@ -98,9 +98,10 @@ mod conversions;
 mod device_linking;
 mod native_device_linking;
 pub use native_device_linking::{
+    DeviceLinkingApproval, DeviceLinkingApprovalPhase, DeviceLinkingApprovalSnapshot,
     DeviceLinkingCapabilities, DeviceLinkingDecimals, DeviceLinkingError,
     DeviceLinkingOutgoingPacket, DeviceLinkingPhase, DeviceLinkingSession, DeviceLinkingSnapshot,
-    DeviceLinkingSubscription,
+    DeviceLinkingSubscription, DeviceLinkingTarget,
 };
 mod directory;
 mod drafts;

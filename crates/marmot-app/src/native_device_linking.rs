@@ -143,3 +143,81 @@ mod tests;
 
 #[cfg(feature = "experimental-device-sync")]
 mod enabled;
+
+/// A selector for an observed protected roster, never enrollment permission.
+#[derive(Clone, PartialEq, Eq)]
+pub struct DeviceLinkingTarget {
+    pub selector: Vec<u8>,
+    pub device_count: u32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeviceLinkingApprovalPhase {
+    AwaitingApproval,
+    ApprovedAwaitingPacket,
+    AwaitingSettlement,
+    Settled,
+    Cancelled,
+    Expired,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeviceLinkingApprovalSnapshot {
+    pub revision: u64,
+    pub phase: DeviceLinkingApprovalPhase,
+}
+pub struct DeviceLinkingApproval {
+    _private: (),
+}
+fn unavailable_enrollment() -> DeviceLinkingError {
+    if cfg!(feature = "experimental-device-sync") {
+        DeviceLinkingError::NotReady
+    } else {
+        DeviceLinkingError::Unsupported
+    }
+}
+impl AccountManager {
+    pub async fn device_linking_targets(
+        &self,
+        _account_ref: &str,
+    ) -> Result<Vec<DeviceLinkingTarget>, DeviceLinkingError> {
+        Err(unavailable_enrollment())
+    }
+    pub async fn pending_device_linking_approvals(
+        &self,
+        _account_ref: &str,
+    ) -> Result<Vec<DeviceLinkingApproval>, DeviceLinkingError> {
+        Err(unavailable_enrollment())
+    }
+}
+impl DeviceLinkingSession {
+    pub async fn enrollment_packet(&self, _revision: u64) -> Result<Vec<u8>, DeviceLinkingError> {
+        Err(unavailable_enrollment())
+    }
+    pub async fn receive_enrollment_packet(
+        &self,
+        _revision: u64,
+        _packet: Vec<u8>,
+    ) -> Result<(), DeviceLinkingError> {
+        Err(unavailable_enrollment())
+    }
+    pub async fn finalize_linking(&self, _revision: u64) -> Result<(), DeviceLinkingError> {
+        Err(unavailable_enrollment())
+    }
+}
+impl DeviceLinkingApproval {
+    pub async fn snapshot(&self) -> Result<DeviceLinkingApprovalSnapshot, DeviceLinkingError> {
+        Err(unavailable_enrollment())
+    }
+    pub async fn approve(&self, _revision: u64) -> Result<(), DeviceLinkingError> {
+        Err(unavailable_enrollment())
+    }
+    pub async fn receive_enrollment_packet(
+        &self,
+        _revision: u64,
+        _packet: Vec<u8>,
+    ) -> Result<(), DeviceLinkingError> {
+        Err(unavailable_enrollment())
+    }
+    pub async fn cancel(&self) -> Result<(), DeviceLinkingError> {
+        Err(unavailable_enrollment())
+    }
+}
