@@ -653,3 +653,18 @@ atomic sibling transition remain separate requirements.
 The serial account worker now supports an explicit B endorsement action selected by an actual retained request's binding hash. It authenticates only that selected request, so unrelated invalid proposals do not block a valid choice. The one account-owned continuation retains the original observation deadline and exact Core ownership/selection fences. Exact retries reuse it; wrong cancellation selectors cannot affect it. Cancellation and abandoned replies burn the original receipt's action, and encrypted reopen restores neither the observation nor the action. Cancelled receipt identities are bounded to 128 within their original lifetimes.
 
 This is internal endorsement custody, not endorsement publication, A's signature collection, sibling transition, recipient admission or a native API. See `docs/device-sync-b-endorsement-verification.json` for actual regressions and qualification limits.
+
+
+### Private device setup packets
+
+The default-off account client creates bounded canonical setup packets from its
+actual reserved purpose KeyPackage and live identity. The approver chooses a
+protected singleton genesis or an actual completed predecessor; native callers
+cannot supply a linking context, generation, verifier proof or protected origin.
+The original recipient request binds the challenge and starts the stock SDK
+NewDevice flow. Exact challenge retry observes that same live flow; cancellation
+or encrypted reopen cannot recreate it from packet bytes.
+
+These factories remain internal. They do not export a native session, authorize
+Add, admit a multi-leaf Welcome or report chat/history synchronization. The scoped
+qualification record is `docs/device-sync-native-setup-verification.json`.

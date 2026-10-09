@@ -551,3 +551,16 @@ artifact-bound A/C SDK completion over a completed A/B predecessor.
 ### Explicit received endorsement action
 
 `client/private_enrollment_proposal.rs` separates bounded observation retention and hash selectors from selected-request authentication. The worker's internal `EndorseReceivedEnrollmentProposal` action holds a nonserialized Core continuation in `AccountLinkingOwner`; it accepts no context/artifact/package approval DTO. Preserve the original observed deadline, exact protected origin/generation, abandoned-reply cleanup and bounded cancelled-receipt fence. Do not expose the packet as SDK consent or use count validation to authorize a choice. Publication and A-owned collection remain separate.
+
+
+### Actor-created setup packets
+
+`client/device_linking/setup.rs` creates request/challenge packets internally
+from the actual reserved purpose and fresh protected genesis or Completed
+predecessor. Preserve canonical bounded decoding and actual signed single-use
+KeyPackage checks before approver reservation. The process-local recipient handle
+retains its original scope and challenge digest; exact retry must recheck the
+actual SDK lifetime instead of restarting it. Never expose these internal
+handles, `LinkingContext`, artifacts or proof-taking as a host approval API.
+The stock SDK starts SAS from NewDevice, with both local confirmations and peer
+MACs required. Setup success is verification only, not membership or history.

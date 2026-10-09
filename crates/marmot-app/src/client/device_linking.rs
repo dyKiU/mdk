@@ -1,4 +1,5 @@
 //! Private account-client ownership, with identities read from the live session.
+mod setup;
 use super::AppClient;
 use crate::device_linking::invite_gate::RuntimeInviteGate;
 use crate::device_linking::runtime_gate::RuntimeWelcomeGate;
