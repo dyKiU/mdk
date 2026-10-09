@@ -447,3 +447,8 @@ accept revision-bound singleton continuation after genuine verification, using
 the original actor-owned actions. Enrollment capability remains false until the
 full public three-device flow qualifies. VerificationCompleteEnrollmentPending
 alone does not establish membership or synchronized chat/history.
+
+Singleton binding continuation, close/re-entry and allocation controls are
+qualified separately from the App protected-settlement relay test. See
+[the focused binding evidence](../../docs/device-sync-native-singleton-binding-parity-verification.json);
+this does not establish full three-device enrollment or native chat/history.

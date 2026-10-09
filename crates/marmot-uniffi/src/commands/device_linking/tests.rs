@@ -36,8 +36,9 @@ async fn default_binding_refuses_before_account_effects() {
 
 #[cfg(feature = "experimental-device-sync")]
 #[tokio::test(flavor = "multi_thread")]
-async fn native_binding_completes_real_sdk_and_close_wakes_waiter() {
-    let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+async fn native_binding_continues_original_actions_and_close_wakes_waiter() {
+    let relay = nostr_relay_builder::LocalRelay::new(nostr_relay_builder::RelayBuilder::default());
+    relay.run().await.unwrap();
     let relay_url = relay.url().await.to_string();
     let keys = nostr::prelude::Keys::generate();
     let dirs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
@@ -98,11 +99,12 @@ async fn native_binding_completes_real_sdk_and_close_wakes_waiter() {
         DeviceLinkingPhaseFfi::VerificationCompleteEnrollmentPending
     );
     assert!(!kits[0].device_linking_capabilities().enrollment_supported);
-    assert!(matches!(
-        a.continue_linking(a.snapshot().await.unwrap().revision)
-            .await,
-        Err(MarmotKitError::DeviceLinkingNotReady)
-    ));
+    c.continue_linking(c.snapshot().await.unwrap().revision)
+        .await
+        .unwrap();
+    a.continue_linking(a.snapshot().await.unwrap().revision)
+        .await
+        .unwrap();
     let sub = a.subscribe();
     sub.next().await.unwrap();
     let pending = {
