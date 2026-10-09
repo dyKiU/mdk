@@ -1,0 +1,144 @@
+{
+  "scope": "Deliberately denying selected ordinary-chat copy boundary; no request, admission, transport or history implementation.",
+  "base": "519b15dfa35b1c7570bdafcf81b6ba6ac20a7541",
+  "evidence": {
+    "red-v1": {
+      "head": "519b15dfa35b1c7570bdafcf81b6ba6ac20a7541",
+      "behavioral_fixture_sha256": "f9ebeace388ac34f3284535a5858ec3ea9b5507a587b7608d3e030458effcce6",
+      "input_count": 2397,
+      "source_manifest_sha256": "5a08d127fc60619c77e948f2513d965eaa517ac08ae523e6d148893eaa848222",
+      "gates": [
+        {
+          "gate": "native",
+          "exit_code": 101,
+          "seconds": 83.4,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "852b577331bd2b2bbb35b9c9a5a05332c31af9af9161f835fe7d3a4042c96fd6"
+        },
+        {
+          "gate": "default",
+          "exit_code": 0,
+          "seconds": 56.4,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "1b9fdaf3838a971d5b3e1b380ee6ddd06a1eb348cdfa764d638243d88950ce93"
+        },
+        {
+          "gate": "clippy",
+          "exit_code": 0,
+          "seconds": 37.55,
+          "counts": [],
+          "log_sha256": "98de2d15e3c9c1f31f23ad681a3854e71eaf9f4e519d551735ae9f98615eae45"
+        },
+        {
+          "gate": "check",
+          "exit_code": 0,
+          "seconds": 26.06,
+          "counts": [],
+          "log_sha256": "089863fd74c76b40c109bf0e74bbcf3a49393745277cfa4991b87cd85c78b436"
+        },
+        {
+          "gate": "fmt",
+          "exit_code": 1,
+          "seconds": 3.39,
+          "counts": [],
+          "log_sha256": "7b13a4518dfee8958e26b060d793d3b474c343f2cbf893db5edbc803917b4b13"
+        }
+      ]
+    },
+    "green-v1": {
+      "head": "519b15dfa35b1c7570bdafcf81b6ba6ac20a7541",
+      "behavioral_fixture_sha256": "ad73e769ff93bcd73195923c4492bf12e5d1fc317462a3111ed8ef1a20b6d8ad",
+      "input_count": 2397,
+      "source_manifest_sha256": "0dfe8694a5905fd29d6d890398c484ad75afd591da8637b78387b81ce77c7fa5",
+      "gates": [
+        {
+          "gate": "native",
+          "exit_code": 101,
+          "seconds": 29.14,
+          "counts": [],
+          "log_sha256": "72b9479b99b603497dfa4fed3aeac41e87b386479971da2f0e948f770d4885c1"
+        }
+      ]
+    },
+    "green-v2": {
+      "head": "519b15dfa35b1c7570bdafcf81b6ba6ac20a7541",
+      "behavioral_fixture_sha256": "ff61179ea0643fde96ffcec14ca258744e0308be27620be4c3024fffd2ecf9e9",
+      "input_count": 2397,
+      "source_manifest_sha256": "37e8416f415304bb41e204b5f88d5c0ab01b2248e2bf822f1c7d1f5c7271e94d",
+      "gates": [
+        {
+          "gate": "native",
+          "exit_code": 0,
+          "seconds": 61.77,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "4b03bc7f8c66d739de1cbc79e21d77ed70cc1d46b2da3bba5a3111a945af4232"
+        },
+        {
+          "gate": "default",
+          "exit_code": 0,
+          "seconds": 44.03,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "a1428e374bba146bcd4c748c80b736f46d6b44e62227841a7e1b0a38459bca17"
+        },
+        {
+          "gate": "clippy",
+          "exit_code": 0,
+          "seconds": 26.39,
+          "counts": [],
+          "log_sha256": "7f5cec8726081a962d9abb587c3044ca5a02a8046092c810026dda0966ca0932"
+        },
+        {
+          "gate": "check",
+          "exit_code": 0,
+          "seconds": 19.79,
+          "counts": [],
+          "log_sha256": "7cb1e6c566102c22fa32894e54e723d4012ca0f9fd843e40347d1efef92d804a"
+        },
+        {
+          "gate": "fmt",
+          "exit_code": 0,
+          "seconds": 3.38,
+          "counts": [],
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  },
+  "red_assertion": "assert!(missing.is_ok(), \"explicit selected-chat copy request is unavailable: {:?}\", missing.err());",
+  "red_to_intermediate_green_fixture_patch": "--- red/tests.rs\n+++ green/tests.rs\n@@ -1,3 +1,4 @@\n+#[cfg(not(feature = \"experimental-device-sync\"))]\n use super::*;\n use crate::{MarmotApp, MarmotAppRuntime};\n \n@@ -22,9 +23,10 @@\n     feature = \"test-policy-overrides\"\n ))]\n mod actual {\n-    use super::*;\n+    use crate::{MarmotApp, MarmotAppRuntime};\n     use crate::native_device_linking::*;\n     use marmot_account::AccountHome;\n+    use cgka_traits::{StorageProvider, storage::KeyPackageBundleStorage};\n     async fn drain(from: &DeviceLinkingSession, to: &DeviceLinkingSession) {\n         for packet in from.outgoing_packets().await.unwrap() {\n             to.receive_packet(packet.bytes).await.unwrap();\n@@ -272,16 +274,25 @@\n             .pop()\n             .unwrap();\n         assert_eq!(target.device_count, 3);\n+        let before_bundles: Vec<_> = apps.iter().map(|app| app.account_storage(\"test\").unwrap().stored_key_package_bundles().unwrap()).collect();\n+        let before_fanouts: Vec<_> = apps.iter().map(|app| app.account_storage(\"test\").unwrap().list_outbound_fanouts().unwrap()).collect();\n         let missing = managers[0]\n             .begin_selected_chat_copy(\"test\", &chat, target.selector)\n             .await;\n-        // Deliberately unavailable implementation makes this behavioral RED.\n-        // Success in this slice means only an opaque request, not enrollment.\n-        assert!(\n-            missing.is_ok(),\n-            \"explicit selected-chat copy request is unavailable: {:?}\",\n-            missing.err()\n-        );\n+        assert!(matches!(missing, Err(crate::SelectedChatCopyError::NotReady)));\n+        for (i, app) in apps.iter().enumerate() {\n+            let storage = app.account_storage(\"test\").unwrap();\n+            // Compare private material without formatting it on a failed assertion.\n+            assert!(storage.stored_key_package_bundles().unwrap() == before_bundles[i]);\n+            assert!(storage.list_outbound_fanouts().unwrap() == before_fanouts[i]);\n+        }\n+        for app in &apps[1..] {\n+            assert!(app.group(\"test\", &chat_hex).unwrap().is_none());\n+            assert!(app.timeline_message(\"test\", &chat_hex, &before_id).unwrap().is_none());\n+        }\n+        for runtime in [&runtimes[0], &d_runtime] {\n+            assert_eq!(runtime.group_mls_state(\"test\", &chat).await.unwrap().member_count, 2);\n+        }\n         for runtime in runtimes {\n             runtime.shutdown_and_close().await.unwrap();\n         }\n",
+  "subsequent_test_only_changes": "Imported OutboundFanoutStorage correctly; scoped imports by feature; rustfmt layout. Final committed test asserts NotReady and no bundle/fanout/group-copy effects.",
+  "qualification": "Actual public ABC Completed, actual Current A/D ordinary group, actual D prejoin projection; final feature denying control1/default unsupported1 plus App production all-target Clippy/default all-target check/fmt green. All2397 final source inputs and all gate raw log hashes independently matched locally.",
+  "limitations": [
+    "No selected-chat permission or private recipient-purpose implementation.",
+    "No ordinary sibling delivery/history/native artifact acceptance.",
+    "Native observation timeout lifecycle issue remains separately open."
+  ]
+}

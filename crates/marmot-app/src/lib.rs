@@ -97,12 +97,14 @@ mod conversions;
 )]
 mod device_linking;
 mod native_device_linking;
+mod selected_chat_copy;
 pub use native_device_linking::{
     DeviceLinkingApproval, DeviceLinkingApprovalPhase, DeviceLinkingApprovalSnapshot,
     DeviceLinkingCapabilities, DeviceLinkingDecimals, DeviceLinkingError,
     DeviceLinkingOutgoingPacket, DeviceLinkingPhase, DeviceLinkingSession, DeviceLinkingSnapshot,
     DeviceLinkingSubscription, DeviceLinkingTarget,
 };
+pub use selected_chat_copy::{SelectedChatCopy, SelectedChatCopyError};
 mod directory;
 mod drafts;
 mod local_submissions;
