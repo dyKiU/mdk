@@ -128,3 +128,7 @@ Experimental predecessor export and validation are thin Engine forwards. Export
 requires fresh protected completed lineage. Portable validation checks bounded
 signed public metadata in separate scratch storage, without installing an MLS
 member or granting consent. Neither method authorizes native enrollment or history.
+
+`prepare_private_enrollment_proposal` and `wrap_private_enrollment_proposal` are
+feature-only thin Core forwarders. The caller retains the nonclone original-owner
+producer; Session supplies no SDK evidence, transport policy, Add or approval.

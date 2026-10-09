@@ -537,3 +537,13 @@ reopen does not restore observations or ownership. This command returns aggregat
 metadata only: no SDK consent, endorsement, transition, native proof or permission.
 Original selection-generation and artifact-signer policy remain separate approval
 requirements; do not infer them from tree equality or a successful count.
+
+Original SDK proposal production is scope-only inside `runtime/device_linking.rs`.
+`client/device_linking.rs` shares genuine token take/fresh predecessor arming with
+invite preparation, then retains the opaque Core producer under that exact owner.
+`RuntimeInviteGate::Lease::enrollment_proposal_metadata` reads only the live sealed
+SDK token, original deadline and cancellation fence; never accept a host context
+DTO as consent. `PublicationKind::Proposal` uses the existing bounded worker
+negative controls. It publishes private control metadata without an Add, Welcome,
+chat mirror or sibling approval. The genuine regression branches after fresh
+artifact-bound A/C SDK completion over a completed A/B predecessor.

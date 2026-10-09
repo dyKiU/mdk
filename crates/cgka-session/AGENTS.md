@@ -49,3 +49,7 @@ a Welcome or settle publication.
 Experimental predecessor metadata export/validation remain thin Engine forwards.
 Use scratch public storage for portable authentication; never restore a member or
 consent from its result. SDK context and all-leaf approval belong to the App owner.
+
+Private enrollment proposal preparation/wrapping are thin feature-only Engine
+forwards. Retain the opaque original-owner producer in App custody across retries;
+never rebuild it from request metadata, storage or an SDK context DTO.

@@ -11,8 +11,22 @@ use tokio::sync::oneshot;
 
 type Reply<T> = oneshot::Sender<Result<T, ClientLinkingError>>;
 pub(crate) enum VerifierCommand {
+    PrepareEnrollmentProposal {
+        scope: PurposeAttemptScope,
+        respond: Reply<()>,
+    },
+    PublishEnrollmentProposal {
+        scope: PurposeAttemptScope,
+        respond: Reply<()>,
+    },
     ValidateReceivedEnrollmentProposals {
         respond: Reply<usize>,
+    },
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    CurrentEnrollmentEndpointEoseForTest {
+        group: GroupId,
+        endpoint: cgka_traits::TransportEndpoint,
+        respond: Reply<bool>,
     },
     #[cfg(all(test, feature = "test-policy-overrides"))]
     EnrollmentEndpointEoseForTest {
@@ -128,6 +142,31 @@ pub(super) async fn handle_verifier_command(
     match command {
         VerifierCommand::ValidateReceivedEnrollmentProposals { respond } => {
             let _ = respond.send(client.validate_received_enrollment_proposals());
+        }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        VerifierCommand::CurrentEnrollmentEndpointEoseForTest {
+            group,
+            endpoint,
+            respond,
+        } => {
+            let component = client
+                .runtime
+                .session()
+                .app_component(&group, crate::NOSTR_ROUTING_COMPONENT_ID)
+                .unwrap()
+                .unwrap();
+            let route = cgka_traits::app_components::decode_nostr_routing_v1(&component).unwrap();
+            let result = client
+                .app
+                .relay_plane
+                .enrollment_endpoint_eose_for_test(
+                    &client.runtime.session().self_id(),
+                    &group,
+                    &route.nostr_group_id,
+                    endpoint,
+                )
+                .await;
+            let _ = respond.send(Ok(result));
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         VerifierCommand::EnrollmentEndpointEoseForTest {
@@ -270,6 +309,22 @@ pub(super) async fn handle_verifier_command(
             {
                 tracing::debug!(target: "marmot_app::device_linking", method = "worker_abandoned_recipient_arm", "device linking cleanup deferred");
             }
+        }
+        VerifierCommand::PrepareEnrollmentProposal { scope, respond } => {
+            let result = client.prepare_owned_enrollment_proposal(&scope).await;
+            if result.is_ok()
+                && let Ok((_, gate)) = client.enrollment_proposal_control(&scope)
+            {
+                publication_control.install(scope.clone(), gate);
+            }
+            if respond.send(result).is_err() {
+                let _ = client.cancel_device_linking_scope(&scope).await;
+            }
+        }
+        VerifierCommand::PublishEnrollmentProposal { respond, .. } => {
+            let _ = respond.send(Err(ClientLinkingError::Gate(
+                cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
+            )));
         }
         VerifierCommand::PreparePrivateInvite { scope, respond } => {
             let result = client.prepare_private_device_invite(&scope).await;
@@ -534,6 +589,32 @@ impl AccountManager {
     ) -> Result<(), ClientLinkingError> {
         self.verifier_command(account_ref, |respond| {
             VerifierCommand::ArmSingletonRecipient {
+                scope: scope.clone(),
+                respond,
+            }
+        })
+        .await
+    }
+    pub(crate) async fn prepare_enrollment_proposal(
+        &self,
+        account_ref: &str,
+        scope: &PurposeAttemptScope,
+    ) -> Result<(), ClientLinkingError> {
+        self.verifier_command(account_ref, |respond| {
+            VerifierCommand::PrepareEnrollmentProposal {
+                scope: scope.clone(),
+                respond,
+            }
+        })
+        .await
+    }
+    pub(crate) async fn publish_enrollment_proposal(
+        &self,
+        account_ref: &str,
+        scope: &PurposeAttemptScope,
+    ) -> Result<(), ClientLinkingError> {
+        self.verifier_command(account_ref, |respond| {
+            VerifierCommand::PublishEnrollmentProposal {
                 scope: scope.clone(),
                 respond,
             }
@@ -2906,8 +2987,14 @@ mod tests {
         exercise_third_device_invite(ThirdDeviceCheck::ArtifactPreparation).await;
     }
 
+    #[tokio::test]
+    async fn device_linking_original_sdk_produces_received_proposal_without_add() {
+        exercise_third_device_invite(ThirdDeviceCheck::LocalProposal).await;
+    }
+
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum ThirdDeviceCheck {
+        LocalProposal,
         RetainedScope,
         Settlement,
         UnapprovedPublication,
@@ -2996,7 +3083,9 @@ mod tests {
         let mut context = context;
         let begin = if matches!(
             check,
-            ThirdDeviceCheck::UnapprovedPublication | ThirdDeviceCheck::ArtifactPreparation
+            ThirdDeviceCheck::UnapprovedPublication
+                | ThirdDeviceCheck::ArtifactPreparation
+                | ThirdDeviceCheck::LocalProposal
         ) {
             use sha2::{Digest, Sha256};
             let artifact = workers
@@ -3087,6 +3176,172 @@ mod tests {
         for _ in 0..8 {
             drain(&c, &prepared.scope, &workers.a, &a_scope).await;
             drain(&workers.a, &a_scope, &c, &prepared.scope).await;
+        }
+        if check == ThirdDeviceCheck::LocalProposal {
+            let c_storage = c.app.account_storage("test").unwrap();
+            let c_purpose =
+                cgka_traits::StorageProvider::device_linking_key_package_storage(&c_storage)
+                    .unwrap()
+                    .purpose_key_package()
+                    .unwrap();
+            assert!(c_purpose.as_ref().is_some_and(|package| !package.consumed));
+            let a_anchor =
+                cgka_traits::StorageProvider::accepted_device_group_anchor_storage(&a_storage)
+                    .unwrap()
+                    .accepted_anchor()
+                    .unwrap();
+            let before = cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
+                .unwrap()
+                .private_invite()
+                .unwrap();
+            let b_before =
+                cgka_traits::StorageProvider::private_roster_settlement_storage(&b_storage)
+                    .unwrap()
+                    .read_round()
+                    .unwrap();
+            workers
+                .a
+                .prepare_enrollment_proposal("test", &a_scope)
+                .await
+                .expect("the original fresh A/C SDK owner must produce its encrypted proposal");
+            workers
+                .a
+                .prepare_enrollment_proposal("test", &a_scope)
+                .await
+                .unwrap();
+            // Caller metadata cannot substitute a different generation or
+            // turn the retained original proposal into an Add continuation.
+            let mut future = a_scope.clone();
+            future.generation += 1;
+            assert!(
+                workers
+                    .a
+                    .prepare_enrollment_proposal("test", &future)
+                    .await
+                    .is_err()
+            );
+            assert!(
+                workers
+                    .a
+                    .cancel_device_linking("test", &future)
+                    .await
+                    .is_err()
+            );
+            assert!(
+                workers
+                    .a
+                    .prepare_private_device_invite("test", &a_scope)
+                    .await
+                    .is_err()
+            );
+            workers
+                .a
+                .prepare_enrollment_proposal("test", &a_scope)
+                .await
+                .unwrap();
+            let endpoint = cgka_traits::TransportEndpoint(relay.url().await.to_string());
+            tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                loop {
+                    if workers
+                        .b
+                        .verifier_command("test", |respond| {
+                            VerifierCommand::CurrentEnrollmentEndpointEoseForTest {
+                                group: group.clone(),
+                                endpoint: endpoint.clone(),
+                                respond,
+                            }
+                        })
+                        .await
+                        .unwrap()
+                    {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("the exact B private route must reach current EOSE before the live proposal");
+            workers
+                .a
+                .publish_enrollment_proposal("test", &a_scope)
+                .await
+                .unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                loop {
+                    if workers
+                        .b
+                        .verifier_command("test", |respond| {
+                            VerifierCommand::ValidateReceivedEnrollmentProposals { respond }
+                        })
+                        .await
+                        .unwrap()
+                        == 1
+                    {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("B must authenticate the actual received A/C SDK proposal");
+            assert!(
+                cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
+                    .unwrap()
+                    .private_invite()
+                    .unwrap()
+                    == before
+            );
+            assert!(
+                cgka_traits::StorageProvider::private_roster_settlement_storage(&b_storage)
+                    .unwrap()
+                    .read_round()
+                    .unwrap()
+                    == b_before
+            );
+            assert_eq!(
+                workers
+                    .a
+                    .candidate_device_group_snapshot("test", &group)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .epoch
+                    .0,
+                1
+            );
+            assert!(
+                cgka_traits::StorageProvider::accepted_device_group_anchor_storage(&a_storage)
+                    .unwrap()
+                    .accepted_anchor()
+                    .unwrap()
+                    == a_anchor
+            );
+            assert!(
+                cgka_traits::StorageProvider::device_linking_key_package_storage(&c_storage)
+                    .unwrap()
+                    .purpose_key_package()
+                    .unwrap()
+                    == c_purpose
+            );
+            assert!(workers.a.app.load_state("test").unwrap().groups.is_empty());
+            assert!(workers.b.app.load_state("test").unwrap().groups.is_empty());
+            workers
+                .a
+                .cancel_device_linking("test", &a_scope)
+                .await
+                .unwrap();
+            assert!(
+                workers
+                    .a
+                    .publish_enrollment_proposal("test", &a_scope)
+                    .await
+                    .is_err()
+            );
+            runtime_c.shutdown_and_close().await.unwrap();
+            workers.runtime_a.shutdown_and_close().await.unwrap();
+            workers.runtime_b.shutdown_and_close().await.unwrap();
+            relay.shutdown();
+            return;
         }
         workers
             .a

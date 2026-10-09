@@ -676,6 +676,26 @@ impl AccountDeviceSession {
         self.engine.install_trusted_private_invite_policy(policy);
     }
 
+    /// Original-owner proposal metadata; never an Add or admission grant.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn prepare_private_enrollment_proposal(
+        &mut self,
+        group: &GroupId,
+        package: KeyPackage,
+    ) -> Result<cgka_engine::private_enrollment_request::OwnedLocalEnrollmentProposal, EngineError>
+    {
+        self.engine
+            .prepare_private_enrollment_proposal(group, package)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn wrap_private_enrollment_proposal(
+        &mut self,
+        proposal: &mut cgka_engine::private_enrollment_request::OwnedLocalEnrollmentProposal,
+    ) -> Result<TransportMessage, EngineError> {
+        self.engine.wrap_private_enrollment_proposal(proposal).await
+    }
+
     /// Dedicated private enrollment preparation; no ordinary publish work.
     #[cfg(feature = "experimental-device-sync")]
     pub async fn prepare_private_device_invite(

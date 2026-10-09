@@ -120,6 +120,7 @@ fn snapshot_read(
 
 #[derive(Clone, Copy)]
 pub(super) enum PublicationKind {
+    Proposal,
     Commit,
     Welcomes,
     Settlement,
@@ -145,6 +146,9 @@ pub(super) async fn publish(
     use crate::client::device_linking::ClientLinkingError;
     use cgka_traits::device_linking_key_package::LinkingWelcomeDenied;
     let owned_control = match kind {
+        PublicationKind::Proposal => client
+            .enrollment_proposal_control(&scope)
+            .map(|(deadline, gate)| (deadline, PublicationGate::Invite(gate))),
         PublicationKind::Settlement => client
             .private_settlement_control(&scope)
             .map(|guard| (guard.deadline(), PublicationGate::Settlement(guard))),
@@ -180,6 +184,7 @@ pub(super) async fn publish(
     let mut shutdown = shared.lifecycle().subscribe_shutdown();
     let mut work = Box::pin(async {
         match kind {
+            PublicationKind::Proposal => client.dispatch_owned_enrollment_proposal(&scope).await,
             PublicationKind::Commit => client.dispatch_owned_private_commit(&scope).await,
             PublicationKind::Welcomes => client.dispatch_owned_private_welcomes(&scope).await,
             PublicationKind::Settlement => client.dispatch_owned_private_settlement(&scope).await,
@@ -235,6 +240,9 @@ pub(super) async fn publish(
     drop(work);
     let result = if interrupted {
         match kind {
+            PublicationKind::Proposal => {
+                client.cancel_device_linking_scope(&scope).await.and(result)
+            }
             PublicationKind::Settlement => client.revoke_owned_private_settlement().and(result),
             PublicationKind::Commit | PublicationKind::Welcomes => client
                 .finish_private_commit_interruption(&scope)
@@ -249,11 +257,16 @@ pub(super) async fn publish(
     *pending = deferred;
     if let Some(respond) = respond
         && respond.send(result).is_err()
-        && client.private_commit_control(&scope).is_ok()
+        && (client.private_commit_control(&scope).is_ok()
+            || client.enrollment_proposal_control(&scope).is_ok())
     {
         // A reply can close just after a pre-intent error completed. Revoke that
         // still-owned preparation too, while retaining it if cleanup SQL fails.
-        if client.finish_private_commit_interruption(&scope).is_err() {
+        let cleanup = match kind {
+            PublicationKind::Proposal => client.cancel_device_linking_scope(&scope).await,
+            _ => client.finish_private_commit_interruption(&scope),
+        };
+        if cleanup.is_err() {
             tracing::debug!(target: "marmot_app::device_linking", method = "worker_abandoned_private_dispatch", "device linking cleanup deferred");
         }
     }

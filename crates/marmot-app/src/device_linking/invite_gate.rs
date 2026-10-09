@@ -334,6 +334,34 @@ impl PrivateInviteLease for Lease {
     fn consent(&self) -> &PrivateInviteConsent {
         &self.consent
     }
+    fn enrollment_proposal_metadata(
+        &mut self,
+    ) -> GateResult<cgka_engine::private_device_invite::PrivateEnrollmentProposalMetadata> {
+        let armed = self.state.live(
+            self.clock.now(),
+            self.cancelled.load(Ordering::Acquire),
+            self.closed.load(Ordering::Acquire),
+        )?;
+        // Only the original sealed SDK token supplies this metadata. This does
+        // not create approval; the retained lease still checks its original
+        // deadline and cancellation counter at every producer phase.
+        let context = &armed.token.context;
+        Ok(
+            cgka_engine::private_device_invite::PrivateEnrollmentProposalMetadata {
+                context_json: serde_json::to_string(context)
+                    .map_err(|_| LinkingWelcomeDenied::ContextMismatch)?,
+                artifact_digest: context
+                    .predecessor
+                    .artifact_digest
+                    .ok_or(LinkingWelcomeDenied::ContextMismatch)?,
+                original_deadline: armed
+                    .token
+                    .owner_deadline
+                    .ok_or(LinkingWelcomeDenied::NoLiveVerifier)?,
+            },
+        )
+    }
+
     fn check_staged(&mut self, actual: &AuthenticatedPrivateAdd) -> GateResult<()> {
         let armed = self.state.live(
             self.clock.now(),

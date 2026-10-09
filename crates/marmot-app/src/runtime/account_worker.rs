@@ -4433,6 +4433,31 @@ async fn handle_account_worker_command(
     #[cfg(feature = "experimental-device-sync")]
     let command = match command {
         AccountWorkerCommand::DeviceLinkingVerifier(command) => match *command {
+            super::device_linking::VerifierCommand::PublishEnrollmentProposal {
+                scope,
+                respond,
+            } => {
+                super::private_commit::publish(
+                    client,
+                    scope,
+                    super::private_commit::PublicationKind::Proposal,
+                    Some(respond),
+                    context.commands,
+                    context.pending,
+                    context.publication_control,
+                    context.shared,
+                    context.app,
+                    context.account_label,
+                )
+                .await;
+                publish_client_pending_applied_summary(
+                    client,
+                    context.events,
+                    context.account_id_hex,
+                    context.account_label,
+                );
+                return;
+            }
             super::device_linking::VerifierCommand::PublishPrivateCommit { scope, respond } => {
                 super::private_commit::publish(
                     client,

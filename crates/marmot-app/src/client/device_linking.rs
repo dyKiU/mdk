@@ -23,6 +23,8 @@ struct OwnedPrivateInvite {
     package: KeyPackage,
     deadline: std::time::Instant,
     prepared: Option<cgka_engine::private_device_invite::PreparedPrivateDeviceInvite>,
+    proposal: Option<cgka_engine::private_enrollment_request::OwnedLocalEnrollmentProposal>,
+    for_add: bool,
 }
 
 pub(crate) struct AccountLinkingOwner {
@@ -517,6 +519,32 @@ impl AppClient {
         &mut self,
         scope: &PurposeAttemptScope,
     ) -> Result<cgka_traits::private_device_invite::PrivateInviteScope, ClientLinkingError> {
+        self.ensure_owned_private_invite(scope, true).await?;
+        let attempt = self.linking_owner.invite_attempt.as_mut().unwrap();
+        if let Some(prepared) = attempt.prepared.as_mut() {
+            prepared
+                .check_live_permission()
+                .map_err(ClientLinkingError::Gate)?;
+            return Ok(prepared.scope().clone());
+        }
+        let group = attempt.group.clone();
+        let package = attempt.package.clone();
+        let prepared = self
+            .runtime
+            .session_mut()
+            .prepare_private_device_invite(&group, package)
+            .await
+            .map_err(ClientLinkingError::PrivateInvite)?;
+        let result = prepared.scope().clone();
+        self.linking_owner.invite_attempt.as_mut().unwrap().prepared = Some(prepared);
+        Ok(result)
+    }
+
+    async fn ensure_owned_private_invite(
+        &mut self,
+        scope: &PurposeAttemptScope,
+        for_add: bool,
+    ) -> Result<(), ClientLinkingError> {
         self.check_private_invite_attempt_scope(scope)?;
         if self.linking_owner.invite_attempt.is_none() {
             let token = self.take_device_linking_verified(scope).await?;
@@ -535,46 +563,150 @@ impl AppClient {
             let deadline = token.original_deadline().ok_or(ClientLinkingError::Gate(
                 cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
             ))?;
-            let guard = Arc::new(
-                crate::device_linking::settlement::SettlementGuard::from_verified(
-                    &token,
-                    scope,
-                    self.linking_owner.invite.cancellation_fence(),
-                )
-                .map_err(ClientLinkingError::Engine)?,
-            );
+            let guard = if for_add {
+                Some(Arc::new(
+                    crate::device_linking::settlement::SettlementGuard::from_verified(
+                        &token,
+                        scope,
+                        self.linking_owner.invite.cancellation_fence(),
+                    )
+                    .map_err(ClientLinkingError::Engine)?,
+                ))
+            } else {
+                None
+            };
             self.arm_private_device_invite(token)?;
-            self.linking_owner.settlement_attempt = Some(
-                super::private_settlement::OwnedSettlementAttempt::new(guard),
-            );
+            if let Some(guard) = guard {
+                self.linking_owner.settlement_attempt = Some(
+                    super::private_settlement::OwnedSettlementAttempt::new(guard),
+                );
+            }
             self.linking_owner.invite_attempt = Some(OwnedPrivateInvite {
                 scope: scope.clone(),
                 group,
                 package,
                 deadline,
                 prepared: None,
+                proposal: None,
+                for_add,
             });
         }
-        let attempt = self.linking_owner.invite_attempt.as_mut().unwrap();
-        if let Some(prepared) = attempt.prepared.as_mut() {
-            prepared
-                .check_live_permission()
-                .map_err(ClientLinkingError::Gate)?;
-            return Ok(prepared.scope().clone());
+        let attempt = self.linking_owner.invite_attempt.as_ref().unwrap();
+        if for_add != attempt.for_add {
+            return Err(ClientLinkingError::Gate(
+                cgka_traits::device_linking_key_package::LinkingWelcomeDenied::ContextMismatch,
+            ));
         }
-        // Only these exact verifier-bound inputs may retry a raw draft. The
-        // Engine independently checks the original gate before/after each phase.
-        let group = attempt.group.clone();
-        let package = attempt.package.clone();
-        let prepared = self
+        Ok(())
+    }
+
+    /// Scope-only internal proposal creation retains the actual SDK lease.
+    pub(crate) async fn prepare_owned_enrollment_proposal(
+        &mut self,
+        scope: &PurposeAttemptScope,
+    ) -> Result<(), ClientLinkingError> {
+        self.ensure_owned_private_invite(scope, false).await?;
+        let attempt = self.linking_owner.invite_attempt.as_mut().unwrap();
+        if attempt.prepared.is_some() {
+            return Err(ClientLinkingError::Gate(
+                cgka_traits::device_linking_key_package::LinkingWelcomeDenied::ContextMismatch,
+            ));
+        }
+        if let Some(proposal) = attempt.proposal.as_mut() {
+            proposal
+                .binding_digest()
+                .map_err(ClientLinkingError::Engine)?;
+            return Ok(());
+        }
+        let proposal = self
             .runtime
             .session_mut()
-            .prepare_private_device_invite(&group, package)
+            .prepare_private_enrollment_proposal(&attempt.group, attempt.package.clone())
+            .map_err(ClientLinkingError::Engine)?;
+        attempt.proposal = Some(proposal);
+        Ok(())
+    }
+
+    pub(crate) fn enrollment_proposal_control(
+        &self,
+        scope: &PurposeAttemptScope,
+    ) -> Result<(std::time::Instant, Arc<RuntimeInviteGate>), ClientLinkingError> {
+        self.check_private_invite_attempt_scope(scope)?;
+        let attempt = self
+            .linking_owner
+            .invite_attempt
+            .as_ref()
+            .filter(|attempt| attempt.proposal.is_some())
+            .ok_or(ClientLinkingError::Gate(
+                cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
+            ))?;
+        Ok((attempt.deadline, self.linking_owner.invite.clone()))
+    }
+
+    pub(crate) async fn dispatch_owned_enrollment_proposal(
+        &mut self,
+        scope: &PurposeAttemptScope,
+    ) -> Result<(), ClientLinkingError> {
+        self.enrollment_proposal_control(scope)?;
+        self.refresh_private_transport_route()
+            .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
+        self.sync_runtime_groups()
             .await
-            .map_err(ClientLinkingError::PrivateInvite)?;
-        let result = prepared.scope().clone();
-        self.linking_owner.invite_attempt.as_mut().unwrap().prepared = Some(prepared);
-        Ok(result)
+            .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
+        let attempt = self.linking_owner.invite_attempt.as_mut().unwrap();
+        let proposal = attempt.proposal.as_mut().unwrap();
+        let message = self
+            .runtime
+            .session_mut()
+            .wrap_private_enrollment_proposal(proposal)
+            .await
+            .map_err(ClientLinkingError::Engine)?;
+        let component = self
+            .runtime
+            .session()
+            .app_component(&attempt.group, crate::NOSTR_ROUTING_COMPONENT_ID)
+            .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?
+            .ok_or(ClientLinkingError::Gate(
+                cgka_traits::device_linking_key_package::LinkingWelcomeDenied::ContextMismatch,
+            ))?;
+        let route =
+            cgka_traits::app_components::decode_nostr_routing_v1(&component).map_err(|_| {
+                ClientLinkingError::Gate(
+                    cgka_traits::device_linking_key_package::LinkingWelcomeDenied::ContextMismatch,
+                )
+            })?;
+        proposal
+            .binding_digest()
+            .map_err(ClientLinkingError::Engine)?;
+        let report = self
+            .adapter
+            .publish_private_enrollment_proposal(
+                cgka_traits::transport_adapter::TransportPublishRequest {
+                    account_id: self.runtime.session().self_id(),
+                    message,
+                    target: cgka_traits::TransportPublishTarget::Group {
+                        group_id: attempt.group.clone(),
+                        transport_group_id: route.nostr_group_id.to_vec(),
+                        endpoints: route
+                            .relays
+                            .into_iter()
+                            .map(cgka_traits::TransportEndpoint)
+                            .collect(),
+                    },
+                    required_acks: 1,
+                },
+            )
+            .await
+            .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
+        proposal
+            .binding_digest()
+            .map_err(ClientLinkingError::Engine)?;
+        if !report.met_required_acks() {
+            return Err(ClientLinkingError::Engine(cgka_traits::EngineError::Other(
+                "private proposal publication uncertain".into(),
+            )));
+        }
+        Ok(())
     }
 
     fn check_private_invite_attempt_scope(
@@ -897,11 +1029,19 @@ impl AppClient {
                 ) => false,
                 Err(error) => return Err(ClientLinkingError::Gate(error)),
             },
-            None => self
+            None => match self
                 .linking_owner
-                .invite
-                .maintain()
-                .map_err(ClientLinkingError::Gate)?,
+                .invite_attempt
+                .as_mut()
+                .and_then(|attempt| attempt.proposal.as_mut())
+            {
+                Some(proposal) => proposal.binding_digest().is_ok(),
+                None => self
+                    .linking_owner
+                    .invite
+                    .maintain()
+                    .map_err(ClientLinkingError::Gate)?,
+            },
         };
         if !invite_live {
             self.retire_owned_private_invite()?;

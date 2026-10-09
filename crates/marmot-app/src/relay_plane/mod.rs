@@ -3354,6 +3354,15 @@ impl MarmotRelayPlaneAccountAdapter {
         self.publish_with_local_mirror(request, false).await
     }
 
+    /// Encrypted proposal receipt is metadata, never a local chat mirror.
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) async fn publish_private_enrollment_proposal(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        self.publish_with_local_mirror(request, false).await
+    }
+
     /// Private confirmation ACKs are never ordinary chat echoes.
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) async fn publish_private_confirmation(

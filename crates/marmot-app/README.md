@@ -609,3 +609,13 @@ protected tree, retaining the original bounded observation lifetime. V1 remains
 metadata only. Successful validation supplies no SDK consent, endorsement, new
 membership, native API or history grant. Account-owner approval and atomic sibling
 transition remain separate work.
+
+The internal scope-only enrollment proposal producer now uses the original
+Approver SDK token after a fresh artifact-bound A/C verification over an actual
+completed A/B predecessor. The account worker retains the opaque Core producer
+and its original deadline; private control publication uses the existing bounded
+cancellation/shutdown loop and suppresses local chat mirroring. B authenticates
+the received proposal with the existing strict validator. Exact retry retains the
+original owner, and a proposal continuation cannot become an Add continuation.
+This creates metadata only: all-current-leaf endorsement, recipient admission and
+atomic sibling transition remain separate requirements.
