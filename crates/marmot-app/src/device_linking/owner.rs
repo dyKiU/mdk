@@ -280,6 +280,31 @@ impl LinkingOwner {
         let result = self.linker.acknowledge(token, now).await;
         self.after(result)
     }
+    /// Observations cannot consume a proof or reconstruct permission from SQL.
+    pub(crate) fn native_observation_for_scope(
+        &mut self,
+        scope: &cgka_traits::device_linking_key_package::PurposeAttemptScope,
+        now: Instant,
+    ) -> OwnerResult<(
+        crate::DeviceLinkingPhase,
+        Option<crate::DeviceLinkingDecimals>,
+    )> {
+        self.check_scope(scope)?;
+        self.check_deadline(now)?;
+        if self.generation != Some(scope.generation) {
+            return Err(OwnerError::Verifier(LinkError::StaleFlow));
+        }
+        if self.linker.attempt.is_none() {
+            if self.binding.is_some() {
+                return Err(OwnerError::Verifier(LinkError::Cancelled));
+            }
+            return Ok((crate::DeviceLinkingPhase::AwaitingSetup, None));
+        }
+        self.guard(now)?;
+        let result = self.linker.native_observation(now);
+        self.after(result)
+    }
+
     pub(crate) fn decimals(&mut self, now: Instant) -> OwnerResult<Option<(u16, u16, u16)>> {
         self.guard(now)?;
         let result = self.linker.decimals(now);

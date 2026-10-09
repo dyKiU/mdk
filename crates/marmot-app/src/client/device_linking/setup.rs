@@ -112,6 +112,20 @@ fn decode_packet<T: DeserializeOwned + Serialize>(
 }
 
 impl AppClient {
+    pub(crate) fn linking_native_observation(
+        &mut self,
+        scope: &PurposeAttemptScope,
+    ) -> Result<
+        (
+            crate::DeviceLinkingPhase,
+            Option<crate::DeviceLinkingDecimals>,
+        ),
+        ClientLinkingError,
+    > {
+        self.scoped_linking_verifier(scope)?
+            .native_observation_for_scope(scope, std::time::Instant::now())
+            .map_err(ClientLinkingError::Owner)
+    }
     pub(crate) async fn reserve_owned_linking_setup_request(
         &mut self,
     ) -> Result<SetupPacket, ClientLinkingError> {

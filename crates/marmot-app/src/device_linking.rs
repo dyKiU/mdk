@@ -532,6 +532,40 @@ impl DeviceLinker {
         }
         Ok(())
     }
+    pub(crate) fn native_observation(
+        &mut self,
+        now: Instant,
+    ) -> Result<(
+        crate::DeviceLinkingPhase,
+        Option<crate::DeviceLinkingDecimals>,
+    )> {
+        let a = self.live(now)?;
+        let decimals = a
+            .sas
+            .as_ref()
+            .and_then(Sas::decimals)
+            .map(|(first, second, third)| crate::DeviceLinkingDecimals {
+                first,
+                second,
+                third,
+            });
+        let phase = if !a.peer_admitted {
+            crate::DeviceLinkingPhase::AwaitingPeer
+        } else if a.local_confirmed
+            && a.sas.as_ref().is_some_and(Sas::is_done)
+            && a.outbox.is_empty()
+        {
+            crate::DeviceLinkingPhase::VerificationCompleteEnrollmentPending
+        } else if a.local_confirmed {
+            crate::DeviceLinkingPhase::AwaitingPeerVerification
+        } else if decimals.is_some() {
+            crate::DeviceLinkingPhase::ComparisonAvailable
+        } else {
+            crate::DeviceLinkingPhase::AwaitingPeerVerification
+        };
+        Ok((phase, decimals))
+    }
+
     pub(crate) fn outgoing(&mut self, now: Instant) -> Result<Vec<LinkFrame>> {
         Ok(self.live(now)?.outbox.iter().cloned().collect())
     }
@@ -623,6 +657,7 @@ pub(crate) mod invite_gate;
 
 #[path = "device_linking/wire.rs"]
 mod wire;
+pub(crate) use wire::MAX_PACKET_BYTES as MAX_VERIFIER_PACKET_BYTES;
 
 #[path = "device_linking/welcome_collection.rs"]
 pub(crate) mod welcome_collection;
