@@ -53,3 +53,10 @@ lifetimes, blocking calls, preflight, timeouts and deep frees. Match source,
 generated Swift/Kotlin, C header and native library feature cohorts. Source tests
 do not establish native artifact or app adoption; validate the matched generated
 bindings and actual applications before offering enrollment.
+
+The host Swift ABI checks run with `./crates/marmot-uniffi/device-linking-smoke.sh`
+and `EXPERIMENTAL_DEVICE_SYNC=1 ./crates/marmot-uniffi/device-linking-smoke.sh`.
+They generate Swift from the matching host library, compile/run record and binary
+packet round trips, verify capability/typed factory gates and close the runtime.
+Actual SDK session exchange is separately exercised by the Rust binding tests.
+These checks do not package Apple artifacts or demonstrate chat synchronization.

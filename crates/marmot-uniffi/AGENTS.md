@@ -40,6 +40,10 @@ Expose `marmot-app` behavior through bindings, following [MDK's host boundary](.
 - Build scripts retain complete no-argument builds and expose generation/native/assembly phases for release CI.
   Keep `test-build-phases.py` covering phase isolation, required assembly inputs and deployment/strip behavior.
   Shared Swift generation feeds both Apple assemblers; transfer phase inputs only from the same workflow run.
+- Own the host Swift verification ABI gate `device-linking-smoke.sh`: default and
+  experimental cohorts use the same feature selector for generator/library and
+  verify display records, binary packets and typed factory gates. This is not
+  native enrollment or Apple artifact validation.
 - Own the host Swift/Kotlin DTO round-trip checks: `chat-projections-smoke.sh`, `options-smoke.sh`,
   `audit-v4-smoke.sh`, `details-markdown-smoke.sh` and `usage-diagnostics-smoke.sh`.
 - Own `build-provenance.py`, `test-build-phases.py`, `test-android-artifact.py` and `test-native-archive.py`.
