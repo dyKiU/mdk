@@ -7,6 +7,8 @@ publish.workspace = true
 
 [features]
 default = []
+# Private experimental SAS/linking adapter; no adopted Marmot wire identifiers.
+experimental-device-sync = ["marmot-account/experimental-device-sync", "dep:matrix-sdk-crypto", "dep:ruma", "storage-sqlite/experimental-device-sync", "cgka-session/experimental-device-sync", "transport-nostr-peeler/experimental-device-sync", "transport-nostr-adapter/experimental-device-sync"]
 product-analytics-export = []
 # Test-only convergence timing/rewind overrides. Never enable in app artifacts.
 test-policy-overrides = [
@@ -21,6 +23,8 @@ otlp-export = ["dep:opentelemetry-proto", "dep:prost"]
 media-benchmarks = []
 
 [dependencies]
+matrix-sdk-crypto = { version = "=0.19.1", default-features = false, optional = true }
+ruma = { version = "=0.17.0", features = ["client-api-c"], optional = true }
 async-trait.workspace = true
 base64.workspace = true
 chrono.workspace = true
@@ -66,6 +70,11 @@ url.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+openmls.workspace = true
+openmls_basic_credential.workspace = true
+openmls_rust_crypto.workspace = true
+openmls_traits.workspace = true
+tls_codec.workspace = true
 criterion.workspace = true
 keyring-core.workspace = true
 marmot-forensics.workspace = true

@@ -23,6 +23,10 @@ async fn worker_lookup_skips_reconcile() {
     manager.workers.lock().await.insert(
         account.account_id_hex.clone(),
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: true,
             handle: tokio::spawn(async move {
                 let _ = stopped.await;
@@ -970,6 +974,10 @@ async fn managed_account_worker_shutdown_aborts_unresponsive_task_after_timeout(
         std::future::pending::<()>().await;
     });
     let worker = ManagedAccountWorker {
+        #[cfg(feature = "experimental-device-sync")]
+        publication_control: std::sync::Arc::new(
+            crate::runtime::private_commit::PublicationControl::default(),
+        ),
         ready: true,
         media_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(
             crate::runtime::MEDIA_COMMAND_QUEUE_LIMIT,
@@ -2472,6 +2480,10 @@ async fn account_manager_shutdown_drains_worker_inserted_by_in_flight_catch_up()
         workers.lock().await.insert(
             "replacement".to_owned(),
             ManagedAccountWorker {
+                #[cfg(feature = "experimental-device-sync")]
+                publication_control: std::sync::Arc::new(
+                    crate::runtime::private_commit::PublicationControl::default(),
+                ),
                 ready: true,
                 media_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(
                     crate::runtime::MEDIA_COMMAND_QUEUE_LIMIT,
@@ -2910,6 +2922,10 @@ async fn finished_worker_is_replaced_on_first_requested_lookup() {
     manager.workers.lock().await.insert(
         account.account_id_hex.clone(),
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: true,
             handle,
             commands: old_commands.clone(),
@@ -2942,6 +2958,10 @@ async fn finished_worker_is_replaced_on_first_batch_reconcile() {
     manager.workers.lock().await.insert(
         account.account_id_hex.clone(),
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: true,
             handle,
             commands: old_commands.clone(),
@@ -3447,6 +3467,10 @@ async fn stuck_worker_reap_does_not_block_a_healthy_account() {
     manager.workers.lock().await.insert(
         alice.account_id_hex.clone(),
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: false,
             handle: tokio::task::spawn_blocking(move || {
                 let _ = release_rx.recv();
@@ -3522,6 +3546,10 @@ async fn deactivation_waits_for_worker_abort_before_committing_sign_out() {
     manager.workers.lock().await.insert(
         alice.account_id_hex.clone(),
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: true,
             handle: tokio::spawn(async {
                 std::future::pending::<()>().await;
@@ -3778,6 +3806,10 @@ async fn catch_up_error_from_ready_account_takes_precedence_over_sibling_backoff
     manager.workers.lock().await.insert(
         bob.account_id_hex,
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: true,
             handle,
             commands,

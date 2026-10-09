@@ -407,3 +407,205 @@ cargo test -p marmot-app --features otlp-export
 ```
 
 See [`AGENTS.md`](AGENTS.md) for the module map, invariants, and privacy-safe telemetry rules.
+
+## Experimental device verification
+
+`experimental-device-sync` enables a private per-device adapter using the stock
+Matrix SDK 0.19.1 SAS request/commitment/key/MAC/done flow and standard decimal
+display. It binds the exact account, device identities, KeyPackage bytes and
+reference, device group, canonical indexed predecessor roster, nonce, and both durable reservation
+generations to contextual verifier identities. No Matrix server is contacted.
+Private context version 2 additionally binds a nonzero predecessor-artifact digest
+for a nonzero-epoch roster with at least two occupied leaves, under a separate
+hash domain. Version 1 retains its original serialization and domain and rejects
+that added field. The raw SDK adapter checks this binding; it does not authenticate
+the artifact or authorize multi-leaf enrollment. Account-runtime setup and recipient
+admission remain separate gates.
+
+The private framing is not an adopted Marmot wire protocol. Offers and verifier
+frames have a versioned, kind-separated binary envelope with a bounded canonical
+JSON body. Decoders reject oversized, truncated, trailing and cross-kind packets;
+frames also bound their UTF-8 acknowledgement token. Decoding does not assign
+trust: live context, signed-key-directory and stock verifier checks still run
+before accepting peer data. The codec does not expose enrollment permissions or
+provide a relay/QR transport on its own.
+
+Each instance requires its own confirmation and a verified peer MAC before
+producing an internal, one-shot pairing result. That result does not authorize
+enrollment, messaging, or history. Exact device-group Welcome validation and an
+authoritative settled roster remain separate integration requirements. The
+adapter has an isolated account-scoped owner using storage 104: it reserves the
+local generation and binds the exact context and SDK flow before output, abandons
+interrupted flows on runtime startup, and persists terminal facts before releasing
+a result. It never restores verifier secrets. Stock Done frames must be delivered
+within the owner's fixed ten-minute deadline, which starts before reservation
+storage or SDK setup and is not extended by request/response timers. Delivery
+must also be explicitly acknowledged before terminal completion. Restart fencing also runs
+through real local-client startup, after exclusive account-session ownership,
+including the managed worker's deferred-hydration/reconnect path. A competing open
+cannot abandon a live flow, and another account's attempts remain untouched.
+The actual account client owns the verifier using its session identity and stored
+MLS signer, installs its private Welcome policy, and revokes retained policy handles
+before releasing the session. Its private prepare/cancel operations reserve exact
+generation-owned material and retire only unjoined purpose packages after terminal
+fencing. Private managed-worker lifecycle commands prepare and cancel exact scoped
+attempts. An independent feature-only timer expires the original reservation or
+sealed approval and retries unjoined package cleanup after storage failure.
+An undeliverable prepared result cancels its exact attempt immediately. A failed
+terminal write retains cancellation for maintenance to retry before expiry;
+discarded verifier secrets are never restored by that retry.
+Private account-client verifier operations bind the exact owned package and
+scope before exchanging offers, frames and two-sided confirmations. Their
+one-shot result leaves Welcome admission closed pending approved-roster
+validation. Private serial-worker commands also exchange scoped offers, frames
+and confirmations between independently managed account sessions. Roster
+enrollment and native bindings remain separate integration requirements.
+The private context includes the predecessor epoch, epoch-authenticator digest
+and strictly ordered indexed device signers. The approver must be present and the
+recipient absent. The join policy compares the authenticated Current-profile tree
+against exactly that predecessor plus the recipient at the next epoch, including
+real leaf indices and account credentials. These checks bind intended contents;
+a durable approved predecessor anchor and complete settlement remain required.
+
+Run the adapter and genuine managed-worker linking tests with:
+
+```sh
+cargo test --locked --lib -p marmot-app --features experimental-device-sync,test-policy-overrides device_linking
+```
+
+The optional verifier requires newer shared dependencies in Cargo.lock; default
+builds also use those pins and need validation. Package and conformance versions
+remain unchanged.
+
+### Experimental private origin bootstrap
+
+The default-off device-linking core creates a protected self-only private group
+through its serial account worker. Approver pairing setup freshly validates the
+actual selected genesis or opaque completed settled predecessor, account-device
+signer and exact indexed predecessor before
+starting verification. An ordinary one-member conversation cannot serve as this
+origin. A completed birth persists across a dropped reply or restart without
+reconstructing verifier consent.
+
+The private account runtime also owns an Approver consent policy for the
+dedicated Engine Add-preparation path. It accepts the completed stock SAS result
+and fresh private-origin evidence, retains the original deadline through staging
+and wrapping, and consumes permission when committed preparation is dropped.
+Cancellation and account teardown revoke retained policies and held leases.
+Durable facts cannot recreate this permission.
+
+This remains an internal, default-off path. Settled successor bootstrap,
+publication confirmation, Welcome promotion, complete ACK settlement, native
+commands and chat/history authorization remain integration requirements.
+
+
+### Experimental owned invite preparation
+
+The serial account worker consumes Approver evidence internally, refreshes the
+selected protected origin and retains one opaque preparation under the original
+SDK deadline. Repeated preparation resolves that same attempt; another
+reservation is refused while it is owned. Scoped cancellation validates identity
+and generation first. Expiry and dropped RPC replies revoke the lease and retry
+exact cleanup without reconstructing permission. Prepared cleanup retains the
+opaque object when its durable rollback fails.
+
+Private genesis creation supplies authenticated Nostr routing through the
+existing App relay policy before birth capture. `ProbePeeler` forwards private
+batch wrapping and authenticated single-chunk metadata to the actual injected
+Nostr implementation; its observation layer does
+not replace that implementation. The private batch remains in its dedicated
+outgoing ledger. Preparation alone does not publish it, settle membership or
+start history transfer. Native enrollment bindings remain absent.
+
+The private recipient collector bounds authenticated NIP59 chunks and transport
+hints, checks the actual live purpose/SAS context before retaining each chunk,
+and preserves the original owner deadline across authentication. Exact duplicates
+are harmless; conflicting artifacts, indices and mixed contexts are refused.
+An unrelated rejected purpose does not erase the live collection. Complete
+batches still require fresh Engine lease/full-tree validation and atomic SQL
+admission. The module is not wired to the serial recipient coordinator yet;
+collector tests and real MLS admission fixtures do not prove relay delivery,
+settled device-roster authority, chat/history authorization or native adoption.
+
+Experimental recipient bootstrap currently admits only a fresh epoch-zero singleton
+predecessor after real two-sided SAS and exact owned purpose checks. Arming exposes
+only the next transport/tree validation phase, never a chat/history grant. Later
+multi-leaf enrollment, runtime collection/join and settlement remain separate.
+
+### Experimental private commit publication
+
+The internal account worker publishes one exact frozen private commit through
+the actual relay adapter. The original owned consent lease remains live until
+durable intent and the network boundary. Pre-intent SQL failure preserves exact
+still-live retry; uncertain publication preserves the MLS pending commit and
+never recreates consent. Cancellation, shutdown, lost replies and the original
+deadline interrupt a stalled publisher independently of serial queue saturation.
+Only eight ordinary commands may be deferred while publication waits.
+
+The actor derives routes from authenticated private-group components without
+creating a conversation projection. A relay acknowledgment leaves publication
+Unknown, with no confirmed successor and no Welcome delivery. One hidden
+subscription now derives from freshly checked protected lineage and actual MLS
+state; exact authenticated echo intake may reconcile the staged Add without
+creating a chat. Private publication withholds the ordinary local mirror, so an
+acknowledgment cannot fabricate its own confirmation. Recipient delivery and
+complete roster/history settlement remain separate integration work.
+
+A permanent account/device/group negative privacy fence now survives marker
+removal and selection replacement for actual private births and joins. Historical
+relay retrieval still needs qualification before native integration; identifiers
+already lost before the fence upgrade cannot be reconstructed.
+
+### Experimental uncertain private-commit acquisition
+
+`client/private_echo.rs` adds a bounded exact-ID fallback only for a protected
+`PublicationUnknown` private commit whose actual selected MLS state and signed
+routing component still authenticate. Normal recovery compares that same route
+first; the fallback never races an account comparison job. It shares process
+recovery credits and runs network acquisition off-worker, leaving cancellation,
+shutdown, and ordinary actor commands responsive. One request has at most four
+checked endpoints, one event ID, two received items / one MiB per endpoint, and a
+two-second deadline. A single five-second retry slot bounds repeated attempts.
+
+The actor rechecks full protected scope, binding, exact signed transport and
+current crypto route after the await, then uses ordinary recovered-delivery
+admission. Only actual Engine own-echo validation may confirm membership;
+neither fetching bytes nor relay ACK restores SAS, delivery, roster or history
+permission. Empty, unavailable, truncated or failed requests preserve Unknown.
+Account shutdown aborts the task. The request deadline is not an aggregate
+startup-latency bound: comparison route rotation and resource credits can delay
+its start. Endpoint sets beyond the bounded first four and comparison overflow
+are not proof of complete retrieval or history coverage. Native rollout remains
+unqualified.
+
+The bounded exact-ID reconciliation inlet accepts durable Dispatching as well as
+Unknown after restart. This supplies no live publisher or SDK lease and cannot
+redispatch. Genuine intent interruption, encrypted reopen, ordinary cursor
+advancement and real unsupported-Negentropy relay acquisition are regression
+controls; authenticated Engine own-echo processing alone confirms membership.
+
+A fresh completed settled predecessor may start a new Approver SAS exchange only
+after protected lineage, actual tree and every indexed confirmation revalidate.
+Invite arming refreshes that opaque proof after SDK completion and binds its
+protected accepted/confirmed origin to the original live Approver token. Engine
+preparation independently checks the same origin, exact predecessor and one-recipient
+Add under the original deadline. Public metadata or persisted completion alone
+cannot arm consent. Recipient multi-leaf admission and existing-sibling protected
+successor handoff remain unimplemented; three-device enrollment is not complete.
+
+The internal artifact-backed pairing setup authenticates bounded public predecessor
+metadata before beginning version-2 SDK verification. The Approver additionally
+rechecks its complete protected local roster, full epoch-authenticator descriptor
+and exact fresh own export. Session forwards metadata checks into scratch Core
+storage. Rejected metadata does not bind the purpose or start the SDK; a dropped
+successful setup reply cancels that exact reservation. This setup does not arm
+multi-leaf Welcome admission, gather existing-member approval or grant history.
+
+
+The default-off private enrollment proposal validator runs inside the serial
+account worker. It authenticates the received v2 canonical context, actual package
+and signed predecessor artifact against the crypto request and fresh local
+protected tree, retaining the original bounded observation lifetime. V1 remains
+metadata only. Successful validation supplies no SDK consent, endorsement, new
+membership, native API or history grant. Account-owner approval and atomic sibling
+transition remain separate work.

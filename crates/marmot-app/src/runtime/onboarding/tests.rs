@@ -3707,6 +3707,10 @@ fn controlled_reap_worker() -> (
     });
     (
         ManagedAccountWorker {
+            #[cfg(feature = "experimental-device-sync")]
+            publication_control: std::sync::Arc::new(
+                crate::runtime::private_commit::PublicationControl::default(),
+            ),
             ready: true,
             media_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(
                 crate::runtime::MEDIA_COMMAND_QUEUE_LIMIT,

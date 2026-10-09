@@ -142,6 +142,8 @@ pub(crate) struct ManagedAccountWorker {
     pub(crate) commands: mpsc::Sender<AccountWorkerCommand>,
     pub(crate) media_admission: Arc<Semaphore>,
     pub(crate) shutdown: oneshot::Sender<()>,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(super) publication_control: Arc<super::private_commit::PublicationControl>,
 }
 
 impl ManagedAccountWorker {
@@ -151,6 +153,8 @@ impl ManagedAccountWorker {
     }
 
     pub(crate) async fn shutdown_with_timeout(self, wait: Duration) {
+        #[cfg(feature = "experimental-device-sync")]
+        self.publication_control.shutdown();
         let _ = self.shutdown.send(());
         let mut handle = self.handle;
         tokio::select! {
@@ -333,9 +337,36 @@ pub(crate) struct AccountWorkerRuntime {
     pub(crate) events: broadcast::Sender<MarmotAppEvent>,
     pub(crate) lifecycle: RuntimeLifecycle,
     pub(crate) shared: RuntimeSharedServices,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(super) publication_control: Arc<super::private_commit::PublicationControl>,
 }
 
 pub(crate) enum AccountWorkerCommand {
+    #[cfg(feature = "experimental-device-sync")]
+    DeviceLinkingVerifier(Box<super::device_linking::VerifierCommand>),
+    #[cfg(feature = "experimental-device-sync")]
+    PrepareDeviceLinking {
+        respond: oneshot::Sender<
+            Result<
+                crate::client::device_linking::PreparedDeviceLinking,
+                crate::client::device_linking::ClientLinkingError,
+            >,
+        >,
+    },
+    #[cfg(feature = "experimental-device-sync")]
+    CancelDeviceLinking {
+        scope: cgka_traits::device_linking_key_package::PurposeAttemptScope,
+        respond: oneshot::Sender<Result<(), crate::client::device_linking::ClientLinkingError>>,
+    },
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    MaintainDeviceLinkingAtForTest {
+        now: Instant,
+        respond: oneshot::Sender<Result<(), crate::client::device_linking::ClientLinkingError>>,
+    },
     CatchUp {
         respond: oneshot::Sender<Result<(), AccountCatchUpFailure>>,
     },
@@ -978,6 +1009,8 @@ async fn run_app_runtime_account_worker(
         events,
         lifecycle,
         shared,
+        #[cfg(feature = "experimental-device-sync")]
+        publication_control,
     } = runtime;
     let mut lifecycle_shutdown = lifecycle.subscribe_shutdown();
     let mut open_client = std::pin::pin!(app.runtime_local_client(
@@ -1710,6 +1743,8 @@ async fn run_app_runtime_account_worker(
                         shared: &shared,
                         media_http: &media_http,
                         scheduled_convergence: &mut scheduled_convergence,
+                        #[cfg(feature = "experimental-device-sync")]
+                        publication_control: &publication_control,
                     },
                 )
                 .await;
@@ -1743,6 +1778,10 @@ async fn run_app_runtime_account_worker(
     let product_backlog = shared.product_analytics.backlog_source();
     let mut maintenance_tick = interval(Duration::from_secs(15));
     maintenance_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    #[cfg(feature = "experimental-device-sync")]
+    let mut linking_tick = interval(Duration::from_secs(1));
+    #[cfg(feature = "experimental-device-sync")]
+    linking_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut legacy_message_promotion = LegacyMessagePromotionSchedule::new();
     let mut presentation_maintenance = super::presentation::PresentationMaintenance::default();
     let mut presentation_wakeups = app.presentation_signals.subscribe_work();
@@ -1773,7 +1812,17 @@ async fn run_app_runtime_account_worker(
 
     let mut yield_to_convergence = false;
     let mut comparison_recovery: Option<ComparisonRecoveryJob> = None;
+    #[cfg(feature = "experimental-device-sync")]
+    let mut private_echo_recovery: Option<crate::client::private_echo::PrivateEchoTask> = None;
+    // One original envelope, never serialized/reconstructed or clock-renewed.
+    let mut enrollment_capacity_retry: Option<
+        Box<transport_nostr_adapter::ObservedTransportDelivery>,
+    > = None;
     'worker: loop {
+        #[cfg(feature = "experimental-device-sync")]
+        let private_echo_busy = private_echo_recovery.is_some();
+        #[cfg(not(feature = "experimental-device-sync"))]
+        let private_echo_busy = false;
         // A pass whose network wait ended admits its owned batch a few events
         // per turn. The select below then serves commands and live input
         // before the next turn.
@@ -1885,6 +1934,31 @@ async fn run_app_runtime_account_worker(
                     client.finish_audit_recording();
                 }
                 break 'worker;
+            }
+            completed = async {
+                #[cfg(feature = "experimental-device-sync")]
+                { private_echo_recovery.as_mut().expect("private recovery task exists").wait().await }
+                #[cfg(not(feature = "experimental-device-sync"))]
+                std::future::pending::<std::convert::Infallible>().await
+            }, if {
+                #[cfg(feature = "experimental-device-sync")]
+                { private_echo_recovery.is_some() }
+                #[cfg(not(feature = "experimental-device-sync"))]
+                { false }
+            } => {
+                #[cfg(not(feature = "experimental-device-sync"))]
+                match completed {}
+                #[cfg(feature = "experimental-device-sync")]
+                {
+                    let task = private_echo_recovery.take().expect("completed private recovery exists");
+                    let failed = match completed {
+                        Ok(Ok(result)) => client.admit_private_echo_recovery(&task.plan, result).await.is_err(),
+                        Ok(Err(_)) | Err(_) => true,
+                    };
+                    if failed {
+                        tracing::debug!(target: "marmot_app::device_linking", method = "private_echo_recovery", "private event acquisition deferred");
+                    }
+                }
             }
             completed = async {
                 comparison_recovery
@@ -2052,6 +2126,8 @@ async fn run_app_runtime_account_worker(
                                         shared: &shared,
                                         media_http: &media_http,
                                         scheduled_convergence: &mut scheduled_convergence,
+                        #[cfg(feature = "experimental-device-sync")]
+                        publication_control: &publication_control,
                                     },
                                 )
                                 .await;
@@ -2147,7 +2223,7 @@ async fn run_app_runtime_account_worker(
                                         let observation = backfill_armed.then(|| shared.product_analytics.begin(
                                             crate::ProductFamily::Recovery, "backfill", crate::ProductUnit::Attempt,
                                         )).flatten();
-                                        let backfill_result = if comparison_recovery.is_some() {
+                                        let backfill_result = if comparison_recovery.is_some() || private_echo_busy {
                                             Ok(EpochBackfillRunOutcome::Deferred)
                                         } else {
                                             match start_pending_recovery_job(
@@ -2225,7 +2301,14 @@ async fn run_app_runtime_account_worker(
                     phase.finish(TelemetryOutcome::Success);
                 }
             }
-            received = client.receive_next_delivery(), if !client.has_pending_effect_projections() => {
+            received = async {
+                if enrollment_capacity_retry.is_some() {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(
+                        enrollment_capacity_retry.take().expect("one exact capacity envelope"),
+                    ))
+                } else { client.receive_next_delivery().await }
+            }, if !client.has_pending_effect_projections() => {
                 #[cfg(test)]
                 if let Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(delivery)) = &received
                     && let (Ok(event_id), Some(subscription_id)) = (
@@ -2257,7 +2340,15 @@ async fn run_app_runtime_account_worker(
                 let receive_observation = shared.app_performance_telemetry().observe(RuntimeOp::WorkerReceive);
                 let result = match received {
                     Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(delivery)) => {
-                        client.ingest_received_delivery(*delivery).await
+                        let result = client.ingest_observed_received_delivery(&delivery).await;
+                        #[cfg(feature = "experimental-device-sync")]
+                        if matches!(result.as_ref().err().and_then(AppError::as_engine_error),
+                            Some(cgka_traits::error::EngineError::PrivateEnrollmentIntakeAtCapacity)) {
+                            enrollment_capacity_retry = Some(delivery);
+                            // No seen/cursor stamp, no reconnect, and commands remain live.
+                            continue 'worker;
+                        }
+                        result
                     }
                     // receive_next_delivery persisted the loss. The owned
                     // comparison job dispatched below recovers it off the
@@ -2322,7 +2413,7 @@ async fn run_app_runtime_account_worker(
                         // A live job already owns this account's grant.
                         // Keep this delivered message complete and let
                         // that job settle the still-durable recovery debt.
-                        let backfill_result = if comparison_recovery.is_some() {
+                        let backfill_result = if comparison_recovery.is_some() || private_echo_busy {
                             PendingRecoveryJob::Settled(Ok(EpochBackfillRunOutcome::Deferred))
                         } else {
                             start_pending_recovery_job(
@@ -2381,6 +2472,13 @@ async fn run_app_runtime_account_worker(
                             &account_label,
                             account_error_message("runtime receive failed", &err),
                         );
+                        #[cfg(feature = "experimental-device-sync")]
+                        if client.retain_private_welcome_after_storage_error(&err) {
+                            // Reopening would revoke the original verifier and
+                            // discard the exact batch. The existing feature tick
+                            // retries only while that same owned lease remains live.
+                            continue 'worker;
+                        }
                         if client.arm_failed_receive_projection_retry() {
                             // Reopening cannot reconstruct consumed activity events
                             // or the output of a batch awaiting its state checkpoint.
@@ -2691,6 +2789,50 @@ async fn run_app_runtime_account_worker(
             _ = tokio::task::yield_now(), if comparison_recovery.as_ref().is_some_and(|job| job.network.is_none()) => {
                 continue 'worker;
             }
+            // Pairing expiry cannot wait for optional network recovery. The
+            // original deadline is also checked by every verifier/join access.
+            _ = async {
+                #[cfg(feature = "experimental-device-sync")]
+                { linking_tick.tick().await; }
+                #[cfg(not(feature = "experimental-device-sync"))]
+                std::future::pending::<()>().await;
+            }, if cfg!(feature = "experimental-device-sync") => {
+                #[cfg(feature = "experimental-device-sync")]
+                if !lifecycle.is_stopping() {
+                    if client.maintain_device_linking(Instant::now()).await.is_err() {
+                        tracing::debug!(
+                            target: "marmot_app::device_linking",
+                            method = "worker_expiry_tick",
+                            "device linking cleanup deferred"
+                        );
+                    }
+                    match client.pending_private_settlement() {
+                        Ok(Some(scope)) => {
+                            super::private_commit::publish(
+                                &mut client, scope, super::private_commit::PublicationKind::Settlement,
+                                None, &mut commands, &mut pending, &publication_control, &shared, &app,
+                                &account_label,
+                            ).await;
+                        }
+                        Ok(None) => {}
+                        // Keep only the original deadline/continuation for a
+                        // bounded retry; diagnostics never expose scope or SQL.
+                        Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_settlement_tick", "private confirmation selection deferred"),
+                    }
+                    scheduled_runtime_group_subscription_refresh.observe_pending(
+                        client.has_pending_runtime_group_subscription_refresh(), &command_tx,
+                    );
+                }
+                #[cfg(feature = "experimental-device-sync")]
+                if !lifecycle.is_stopping() && comparison_recovery.is_none() && private_echo_recovery.is_none()
+                    && let Some(credit) = recovery_credits::try_acquire_recovery_credit(&shared.recovery_credit_pool())
+                {
+                    match client.start_private_echo_recovery(credit) {
+                        Ok(task) => private_echo_recovery = task,
+                        Err(error) => tracing::debug!(target: "marmot_app::device_linking", method = "private_echo_selection", error_kind = error.kind(), "private acquisition selection deferred"),
+                    }
+                }
+            }
             _ = maintenance_tick.tick() => {
                 local_submission_due = true;
                 attachment_due = true;
@@ -2704,7 +2846,7 @@ async fn run_app_runtime_account_worker(
                 if lifecycle.is_stopping() {
                     continue 'worker;
                 }
-                if comparison_recovery.is_some() {
+                if comparison_recovery.is_some() || private_echo_busy {
                     continue 'worker;
                 }
                 let phase = shared.app_performance_telemetry().observe(RuntimeOp::WorkerMaintenance);
@@ -2805,13 +2947,12 @@ async fn run_app_runtime_account_worker(
                 let observation = backfill_armed.then(|| shared.product_analytics.begin(
                     crate::ProductFamily::Recovery, "backfill", crate::ProductUnit::Attempt,
                 )).flatten();
-                let backfill_result = match start_pending_recovery_job(
-                    &mut client,
-                    &shared,
-                    EpochBackfillExecutionSeam::Maintenance,
-                )
-                .await
-                {
+                let next_recovery = if private_echo_busy {
+                    PendingRecoveryJob::Settled(Ok(EpochBackfillRunOutcome::Deferred))
+                } else {
+                    start_pending_recovery_job(&mut client, &shared, EpochBackfillExecutionSeam::Maintenance).await
+                };
+                let backfill_result = match next_recovery {
                     PendingRecoveryJob::Started {
                         grant,
                         execution,
@@ -2856,6 +2997,8 @@ async fn run_app_runtime_account_worker(
             }
         }
     }
+    #[cfg(feature = "experimental-device-sync")]
+    drop(private_echo_recovery);
     // An admission in progress keeps its durable prefix; its debt waits for
     // the next session.
     if let Some(network) = comparison_recovery.and_then(|job| job.network) {
@@ -4258,6 +4401,8 @@ struct AccountWorkerCommandContext<'a> {
     shared: &'a RuntimeSharedServices,
     media_http: &'a MediaHttpContext,
     scheduled_convergence: &'a mut ScheduledConvergence,
+    #[cfg(feature = "experimental-device-sync")]
+    publication_control: &'a super::private_commit::PublicationControl,
 }
 
 // Keep response ownership and error classification outside the large async dispatch
@@ -4285,6 +4430,57 @@ async fn handle_account_worker_command(
     command: AccountWorkerCommand,
     context: AccountWorkerCommandContext<'_>,
 ) {
+    #[cfg(feature = "experimental-device-sync")]
+    let command = match command {
+        AccountWorkerCommand::DeviceLinkingVerifier(command) => match *command {
+            super::device_linking::VerifierCommand::PublishPrivateCommit { scope, respond } => {
+                super::private_commit::publish(
+                    client,
+                    scope,
+                    super::private_commit::PublicationKind::Commit,
+                    Some(respond),
+                    context.commands,
+                    context.pending,
+                    context.publication_control,
+                    context.shared,
+                    context.app,
+                    context.account_label,
+                )
+                .await;
+                publish_client_pending_applied_summary(
+                    client,
+                    context.events,
+                    context.account_id_hex,
+                    context.account_label,
+                );
+                return;
+            }
+            super::device_linking::VerifierCommand::PublishPrivateWelcomes { scope, respond } => {
+                super::private_commit::publish(
+                    client,
+                    scope,
+                    super::private_commit::PublicationKind::Welcomes,
+                    Some(respond),
+                    context.commands,
+                    context.pending,
+                    context.publication_control,
+                    context.shared,
+                    context.app,
+                    context.account_label,
+                )
+                .await;
+                publish_client_pending_applied_summary(
+                    client,
+                    context.events,
+                    context.account_id_hex,
+                    context.account_label,
+                );
+                return;
+            }
+            other => AccountWorkerCommand::DeviceLinkingVerifier(Box::new(other)),
+        },
+        other => other,
+    };
     if (context.media_http.permits.is_closed()
         || context.media_http.permits.available_permits() == 0)
         && command.needs_media_slot()
@@ -4322,9 +4518,50 @@ fn account_worker_command_future<'a>(
         shared,
         media_http,
         scheduled_convergence,
+        #[cfg(feature = "experimental-device-sync")]
+        publication_control,
     } = context;
     let storage_permit = shared.product_analytics.permit();
     match command {
+        #[cfg(feature = "experimental-device-sync")]
+        AccountWorkerCommand::DeviceLinkingVerifier(command) => Box::pin(async move {
+            super::device_linking::handle_verifier_command(client, *command, publication_control)
+                .await;
+            true
+        }),
+        #[cfg(feature = "experimental-device-sync")]
+        AccountWorkerCommand::PrepareDeviceLinking { respond } => Box::pin(async move {
+            // Retire an undeliverable preparation in the same serial turn.
+            if let Err(Ok(prepared)) = respond.send(client.prepare_device_linking().await)
+                && client
+                    .cancel_device_linking_scope(&prepared.scope)
+                    .await
+                    .is_err()
+            {
+                tracing::debug!(
+                    target: "marmot_app::device_linking",
+                    method = "worker_abandoned_prepare",
+                    "device linking cleanup deferred"
+                );
+            }
+            true
+        }),
+        #[cfg(feature = "experimental-device-sync")]
+        AccountWorkerCommand::CancelDeviceLinking { scope, respond } => Box::pin(async move {
+            let _ = respond.send(client.cancel_device_linking_scope(&scope).await);
+            true
+        }),
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        AccountWorkerCommand::MaintainDeviceLinkingAtForTest { now, respond } => {
+            Box::pin(async move {
+                let _ = respond.send(client.maintain_device_linking(now).await);
+                true
+            })
+        }
         AccountWorkerCommand::ConnectivityRestored { respond } => Box::pin(async move {
             let result = client.note_connectivity_restored().map(|_| ());
             scheduled_convergence.wake_after_connectivity_restored();
@@ -6032,7 +6269,7 @@ fn member_ids_page_after_hydration(
     client.member_ids_page(group_ids)
 }
 
-fn group_roster_from_snapshot(
+pub(super) fn group_roster_from_snapshot(
     app: &MarmotApp,
     account_label: &str,
     snapshot: &crate::client::GroupReadSnapshot,
@@ -7212,6 +7449,64 @@ mod tests {
         }
     }
 
+    #[cfg(all(
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    #[tokio::test]
+    async fn device_linking_abandoned_prepare_retires_its_exact_attempt() {
+        use cgka_traits::StorageProvider;
+
+        let dir = tempfile::tempdir().unwrap();
+        AccountHome::open(dir.path())
+            .create_account("alice")
+            .unwrap();
+        let app = MarmotApp::with_relay(dir.path(), "wss://relay.example")
+            .with_test_relay_client(Arc::new(ScriptedPushRelayClient::default()));
+        let runtime = super::super::MarmotAppRuntime::new(app.clone());
+        runtime.reconcile_accounts().await.unwrap();
+        let accounts = runtime.accounts();
+        let commands = accounts.worker_commands("alice").await.unwrap();
+        let (respond, receiver) = oneshot::channel();
+        drop(receiver);
+        commands
+            .send(AccountWorkerCommand::PrepareDeviceLinking { respond })
+            .await
+            .unwrap();
+        // A serial command is the barrier; this clock cannot expire the attempt.
+        accounts
+            .maintain_device_linking_at_for_test("alice", std::time::Instant::now())
+            .await
+            .unwrap();
+        let storage = app.account_storage("alice").unwrap();
+        assert!(
+            storage
+                .device_linking_key_package_storage()
+                .unwrap()
+                .purpose_key_package()
+                .unwrap()
+                .is_none(),
+            "a prepared attempt whose caller disappeared must be retired immediately"
+        );
+        let next = accounts.prepare_device_linking("alice").await.unwrap();
+        assert_eq!(next.scope.generation, 2);
+        assert!(
+            storage
+                .device_linking_key_package_storage()
+                .unwrap()
+                .purpose_key_package()
+                .unwrap()
+                .unwrap()
+                .scope
+                == next.scope
+        );
+        accounts
+            .cancel_device_linking("alice", &next.scope)
+            .await
+            .unwrap();
+        runtime.shutdown().await;
+    }
+
     #[tokio::test]
     async fn conversation_capture_retries_while_snapshot_work_owns_client_even_without_snapshot() {
         let dir = tempfile::tempdir().unwrap();
@@ -8134,6 +8429,9 @@ mod tests {
         let (events, _) = broadcast::channel(8);
         let (ready, readiness) = oneshot::channel();
         let (shutdown, shutdown_rx) = oneshot::channel();
+        #[cfg(feature = "experimental-device-sync")]
+        let publication_control =
+            Arc::new(super::super::private_commit::PublicationControl::default());
         let worker = spawn_app_runtime_account_worker(
             AccountWorkerRuntime {
                 app: app.clone(),
@@ -8143,6 +8441,8 @@ mod tests {
                 events,
                 lifecycle: shared.lifecycle(),
                 shared: shared.clone(),
+                #[cfg(feature = "experimental-device-sync")]
+                publication_control: publication_control.clone(),
             },
             commands.clone(),
             receiver,
@@ -8160,6 +8460,8 @@ mod tests {
                 commands: commands.clone(),
                 shutdown,
                 media_admission: admission.clone(),
+                #[cfg(feature = "experimental-device-sync")]
+                publication_control,
             },
         );
         timeout(Duration::from_secs(5), readiness)
@@ -9129,6 +9431,9 @@ mod tests {
                     shared: &shared,
                     media_http: &media_http,
                     scheduled_convergence: &mut scheduled_convergence,
+                    #[cfg(feature = "experimental-device-sync")]
+                    publication_control: &super::super::private_commit::PublicationControl::default(
+                    ),
                 },
             )
             .await;
@@ -9467,6 +9772,7 @@ mod tests {
         summary
             .events
             .push(cgka_traits::engine::GroupEvent::MessageReceived {
+                source_leaf: None,
                 group_id,
                 message_id: message_id.clone(),
                 sender: cgka_traits::MemberId::new(vec![0x11; 32]),
@@ -9932,6 +10238,8 @@ mod tests {
             let (command_tx, mut commands) = mpsc::channel(4);
             let mut pending = VecDeque::new();
             let mut scheduled_convergence = ScheduledConvergence::new(Duration::ZERO);
+            #[cfg(feature = "experimental-device-sync")]
+            let publication_control = super::super::private_commit::PublicationControl::default();
             let handler = handle_account_worker_command(
                 &mut client,
                 AccountWorkerCommand::RepairFullHistory { respond },
@@ -9945,6 +10253,8 @@ mod tests {
                     shared: &shared,
                     media_http: &media_http,
                     scheduled_convergence: &mut scheduled_convergence,
+                    #[cfg(feature = "experimental-device-sync")]
+                    publication_control: &publication_control,
                 },
             );
             let observer = async {

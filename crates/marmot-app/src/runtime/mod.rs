@@ -110,6 +110,15 @@ pub use attachment_history::{
 mod avatar_access;
 pub use avatar_access::{LocalAvatarRead, MAX_AVATAR_BATCH_BYTES, MAX_AVATAR_BATCH_ITEMS};
 mod commands;
+#[cfg(feature = "experimental-device-sync")]
+#[allow(
+    dead_code,
+    reason = "private worker lifecycle before native pairing integration"
+)]
+mod device_linking;
+#[cfg(feature = "experimental-device-sync")]
+mod private_commit;
+
 mod event_routing;
 mod local_submissions;
 mod onboarding;
@@ -6848,6 +6857,9 @@ impl AccountManager {
                         AccountStartupProgress::new(self.shared.app_performance_telemetry());
                     let (shutdown_tx, shutdown_rx) = oneshot::channel();
                     let (command_tx, command_rx) = mpsc::channel(8);
+                    #[cfg(feature = "experimental-device-sync")]
+                    let publication_control =
+                        Arc::new(private_commit::PublicationControl::default());
                     let handle = spawn_app_runtime_account_worker(
                         AccountWorkerRuntime {
                             app: self.app.clone(),
@@ -6857,6 +6869,8 @@ impl AccountManager {
                             events: self.events.clone(),
                             lifecycle: self.shared.lifecycle(),
                             shared: self.shared.clone(),
+                            #[cfg(feature = "experimental-device-sync")]
+                            publication_control: publication_control.clone(),
                         },
                         command_tx.clone(),
                         command_rx,
@@ -6872,6 +6886,8 @@ impl AccountManager {
                             commands: command_tx,
                             media_admission: Arc::new(Semaphore::new(MEDIA_COMMAND_QUEUE_LIMIT)),
                             shutdown: shutdown_tx,
+                            #[cfg(feature = "experimental-device-sync")]
+                            publication_control,
                         },
                     );
                     ready_receivers.push((account_id, Instant::now(), ready_rx, startup_progress));

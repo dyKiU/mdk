@@ -228,6 +228,8 @@ pub struct MarmotRelayPlaneAccountAdapter {
     /// The queue generation `delivery_rx` belongs to.
     delivery_epoch: u64,
     incremental_activation: Arc<Mutex<Option<IncrementalActivation>>>,
+    #[cfg(feature = "experimental-device-sync")]
+    private_observation_group: Arc<std::sync::RwLock<Option<cgka_traits::GroupId>>>,
 }
 
 #[derive(Clone)]
@@ -258,7 +260,7 @@ pub(crate) enum AccountDeliveryRecoveryMarkerError {
 
 #[derive(Debug)]
 enum AccountDeliveryEvent {
-    Delivery(Box<TransportDelivery>),
+    Delivery(Box<transport_nostr_adapter::ObservedTransportDelivery>),
     Overflow { generation: u64 },
 }
 
@@ -293,7 +295,7 @@ pub(crate) struct AccountDeliveryPlacementCounts {
 
 #[derive(Debug)]
 pub(crate) enum AccountDeliveryReceive {
-    Delivery(Box<TransportDelivery>),
+    Delivery(Box<transport_nostr_adapter::ObservedTransportDelivery>),
     Overflow(AccountDeliveryOverflow),
 }
 
@@ -1432,6 +1434,8 @@ impl MarmotRelayPlane {
             delivery_overflow,
             delivery_epoch,
             incremental_activation: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "experimental-device-sync")]
+            private_observation_group: Arc::new(std::sync::RwLock::new(None)),
         }
     }
 
@@ -2161,11 +2165,41 @@ impl MarmotRelayPlane {
         let transport = self.inner.transport.clone();
         let adapter = transport.adapter.clone();
         let handle = handle.spawn(async move {
-            while let Ok(Some(delivery)) = adapter.receive().await {
+            while let Ok(Some(delivery)) = adapter.receive_observed().await {
                 route_account_delivery(&transport, delivery);
             }
         });
         *router = Some(handle);
+    }
+
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) async fn enrollment_endpoint_eose_for_test(
+        &self,
+        account: &MemberId,
+        group: &cgka_traits::GroupId,
+        transport_group: &[u8],
+        endpoint: TransportEndpoint,
+    ) -> bool {
+        let adapter = &self.inner.transport.adapter;
+        let Some(attempt) = adapter.account_subscription_attempt(account).await else {
+            return false;
+        };
+        let subscription = transport_nostr_adapter::NostrSubscription::Group {
+            account_id: account.clone(),
+            group_id: group.clone(),
+            transport_group_id: transport_group.to_vec(),
+            endpoints: vec![endpoint.clone()],
+            since: None,
+            attempt,
+        };
+        adapter
+            .subscription_endpoint_eose(&subscription.subscription_id(), &endpoint)
+            .await
+            == Some(true)
     }
 
     #[cfg(test)]
@@ -2758,6 +2792,8 @@ async fn run_relay_notification_consumer_scoped(
     source: Arc<dyn RelayNotificationSource>,
 ) -> RelayNotificationConsumerOutcome {
     let (sender, mut event_rx) = mpsc::channel(RELAY_NOTIFICATION_EVENT_QUEUE_CAPACITY);
+    #[cfg(feature = "experimental-device-sync")]
+    let mut acquisition = adapter.live_notification_receiver(account_id.clone());
     // Channel capacity returns to its maximum when a panicked worker drops
     // the receiver, even though queued work was discarded. Count admitted
     // items independently until each worker operation actually finishes.
@@ -2766,7 +2802,7 @@ async fn run_relay_notification_consumer_scoped(
     #[cfg(test)]
     let worker_failure_hook = source.worker_failure_hook();
     let mut worker = tokio::spawn(async move {
-        while let Some(notification) = event_rx.recv().await {
+        while let Some((notification, capture)) = event_rx.recv().await {
             #[cfg(test)]
             if let Some(hook) = &worker_failure_hook {
                 let fail = hook.fail_once.swap(false, Ordering::SeqCst);
@@ -2778,7 +2814,14 @@ async fn run_relay_notification_consumer_scoped(
                     }
                 }
             }
-            if handle_relay_notification(notification, &adapter, account_id.as_ref()).await {
+            if handle_relay_notification_captured(
+                notification,
+                &adapter,
+                account_id.as_ref(),
+                capture,
+            )
+            .await
+            {
                 worker_pending.fetch_sub(1, Ordering::SeqCst);
                 return true;
             }
@@ -2816,8 +2859,12 @@ async fn run_relay_notification_consumer_scoped(
                             )
                         };
                     }
+                    #[cfg(feature = "experimental-device-sync")]
+                    let capture = capture_live_notification(&mut acquisition, &notification).await;
+                    #[cfg(not(feature = "experimental-device-sync"))]
+                    let capture = ();
                     pending.fetch_add(1, Ordering::SeqCst);
-                    if let Err(error) = sender.try_send(notification) {
+                    if let Err(error) = sender.try_send((notification, capture)) {
                         pending.fetch_sub(1, Ordering::SeqCst);
                         let skipped = match error {
                             mpsc::error::TrySendError::Full(_) => {
@@ -2863,10 +2910,67 @@ async fn run_relay_notification_consumer_scoped(
     }
 }
 
+#[cfg(test)]
 async fn handle_relay_notification(
     notification: ClientNotification,
     adapter: &NostrTransportAdapter,
     account_id: Option<&MemberId>,
+) -> bool {
+    handle_relay_notification_captured(
+        notification,
+        adapter,
+        account_id,
+        #[cfg(feature = "experimental-device-sync")]
+        None,
+        #[cfg(not(feature = "experimental-device-sync"))]
+        (),
+    )
+    .await
+}
+
+#[cfg(feature = "experimental-device-sync")]
+async fn capture_live_notification(
+    acquisition: &mut transport_nostr_adapter::LiveNotificationReceiver,
+    notification: &ClientNotification,
+) -> Option<transport_nostr_adapter::CapturedLiveRelayEvent> {
+    match notification {
+        ClientNotification::Message { relay_url, message } => {
+            if let RelayMessage::EndOfStoredEvents(subscription) = message.as_ref() {
+                acquisition
+                    .observe_eose(
+                        TransportEndpoint(relay_url.to_string()),
+                        subscription.as_str(),
+                    )
+                    .await;
+            }
+            None
+        }
+        ClientNotification::Event {
+            relay_url,
+            subscription_id,
+            event,
+        } => {
+            let event = NostrTransportEvent::from_nostr_event(event).ok()?;
+            acquisition
+                .capture(&transport_nostr_adapter::NostrRelayEvent {
+                    endpoint: TransportEndpoint(relay_url.to_string()),
+                    subscription_id: Some(subscription_id.to_string()),
+                    event,
+                })
+                .ok()
+        }
+        _ => None,
+    }
+}
+
+async fn handle_relay_notification_captured(
+    notification: ClientNotification,
+    adapter: &NostrTransportAdapter,
+    account_id: Option<&MemberId>,
+    #[cfg(feature = "experimental-device-sync")] capture: Option<
+        transport_nostr_adapter::CapturedLiveRelayEvent,
+    >,
+    #[cfg(not(feature = "experimental-device-sync"))] _capture: (),
 ) -> bool {
     match notification {
         ClientNotification::Event {
@@ -2889,6 +2993,11 @@ async fn handle_relay_notification(
                 };
                 // Account notifications feed only account/group delivery.
                 // Public directory interests use the anonymous receiver.
+                #[cfg(feature = "experimental-device-sync")]
+                let _ = adapter
+                    .handle_captured_live_relay_event(account_id, relay_event, capture)
+                    .await;
+                #[cfg(not(feature = "experimental-device-sync"))]
                 let _ = if let Some(account_id) = account_id {
                     adapter
                         .handle_reconciled_event(account_id, relay_event)
@@ -3227,6 +3336,108 @@ fn push_eose_repair_report(transport: &RelayPlaneTransport, report: EoseRepairRe
 }
 
 impl MarmotRelayPlaneAccountAdapter {
+    /// Private COMMIT relay acknowledgments must not manufacture an inbound echo.
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) async fn publish_private_commit(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        self.publish_with_local_mirror(request, false).await
+    }
+
+    /// Private Welcome ACKs are not a recipient join or a local echo.
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) async fn publish_private_welcome(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        self.publish_with_local_mirror(request, false).await
+    }
+
+    /// Private confirmation ACKs are never ordinary chat echoes.
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) async fn publish_private_confirmation(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        self.publish_with_local_mirror(request, false).await
+    }
+
+    async fn publish_with_local_mirror(
+        &self,
+        request: TransportPublishRequest,
+        mirror_local: bool,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        if request.account_id != self.account_id {
+            return Err(TransportAdapterError::AccountNotActive(request.account_id));
+        }
+        let request = self
+            .relay_plane
+            .inner
+            .relay_safety
+            .sanitize_publish_request(request)
+            .map_err(TransportAdapterError::Publish)?;
+        request.validate_envelope_matches_target()?;
+        let event = NostrTransportEvent::from_transport_message(&request.message)
+            .map_err(|e| TransportAdapterError::Publish(format!("Nostr payload: {e}")))?;
+        // Welcome fanout keeps its account publisher; a blocked inbox write
+        // cannot stall the independent anonymous group publisher.
+        let publication = async {
+            if matches!(
+                request.target,
+                cgka_traits::TransportPublishTarget::Group { .. }
+            ) {
+                self.publish_signed_event(
+                    self.publish_client.as_ref(),
+                    request.target.endpoints(),
+                    &event,
+                    request.required_acks,
+                )
+                .await
+            } else {
+                self.publish_client
+                    .publish_event_for_account(
+                        &self.account_id,
+                        request.target.endpoints(),
+                        &event,
+                        request.required_acks,
+                    )
+                    .await
+            }
+        };
+        let outcome = self
+            .relay_plane
+            .inner
+            .transport
+            .adapter
+            .publish_event_with_client(publication, request.required_acks)
+            .await?;
+        let local_fanout_endpoints = if !outcome.accepted.is_empty() {
+            outcome
+                .accepted
+                .iter()
+                .map(|receipt| receipt.endpoint.clone())
+                .collect::<Vec<_>>()
+        } else if outcome.failed.is_empty() {
+            request.target.endpoints().to_vec()
+        } else {
+            Vec::new()
+        };
+        if mirror_local && !local_fanout_endpoints.is_empty() {
+            let mut local_message = request.message.clone();
+            if let Some(message_id) = outcome.message_id.clone() {
+                local_message.id = message_id;
+            }
+            self.relay_plane
+                .inner
+                .transport
+                .adapter
+                .deliver_local_publish(&local_message, &local_fanout_endpoints)
+                .await?;
+        }
+        Ok(publish_report_from_outcome(outcome, request))
+    }
+
     pub(super) async fn publish_signed_event(
         &self,
         fallback: &dyn NostrRelayClient,
@@ -3510,6 +3721,37 @@ impl MarmotRelayPlaneAccountAdapter {
 
     /// This account's deliveries for one owned comparison event. The worker
     /// admits them directly, never through the live queue.
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) fn set_private_observation_group(
+        &self,
+        selected: Option<cgka_traits::GroupId>,
+    ) -> Result<(), TransportAdapterError> {
+        *self.private_observation_group.write().map_err(|_| {
+            TransportAdapterError::Subscription("private observation selection unavailable".into())
+        })? = selected;
+        Ok(())
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    async fn configure_private_observation_group(&self) -> Result<(), TransportAdapterError> {
+        let selected = self
+            .private_observation_group
+            .read()
+            .map_err(|_| {
+                TransportAdapterError::Subscription(
+                    "private observation selection unavailable".into(),
+                )
+            })?
+            .clone();
+        self.relay_plane
+            .inner
+            .transport
+            .adapter
+            .configure_private_observation_group(&self.account_id, selected)
+            .await;
+        Ok(())
+    }
+
     pub(crate) async fn recovered_deliveries(
         &self,
         event: transport_nostr_adapter::NostrRelayEvent,
@@ -3858,6 +4100,8 @@ impl TransportAdapter for MarmotRelayPlaneAccountAdapter {
             .relay_safety
             .sanitize_activation(activation)
             .map_err(TransportAdapterError::Subscription)?;
+        #[cfg(feature = "experimental-device-sync")]
+        self.configure_private_observation_group().await?;
         let incremental = activation.since.map(|since| IncrementalActivation {
             inbox_endpoints: activation.inbox_endpoints.clone(),
             since,
@@ -3898,6 +4142,8 @@ impl TransportAdapter for MarmotRelayPlaneAccountAdapter {
             .relay_safety
             .sanitize_group_sync(sync)
             .map_err(TransportAdapterError::Subscription)?;
+        #[cfg(feature = "experimental-device-sync")]
+        self.configure_private_observation_group().await?;
         self.relay_plane
             .inner
             .transport
@@ -3921,79 +4167,12 @@ impl TransportAdapter for MarmotRelayPlaneAccountAdapter {
         &self,
         request: TransportPublishRequest,
     ) -> Result<TransportPublishReport, TransportAdapterError> {
-        if request.account_id != self.account_id {
-            return Err(TransportAdapterError::AccountNotActive(request.account_id));
-        }
-        let request = self
-            .relay_plane
-            .inner
-            .relay_safety
-            .sanitize_publish_request(request)
-            .map_err(TransportAdapterError::Publish)?;
-        request.validate_envelope_matches_target()?;
-        let event = NostrTransportEvent::from_transport_message(&request.message)
-            .map_err(|e| TransportAdapterError::Publish(format!("Nostr payload: {e}")))?;
-        // Welcome fanout keeps its account publisher; a blocked inbox write
-        // cannot stall the independent anonymous group publisher.
-        let publication = async {
-            if matches!(
-                request.target,
-                cgka_traits::TransportPublishTarget::Group { .. }
-            ) {
-                self.publish_signed_event(
-                    self.publish_client.as_ref(),
-                    request.target.endpoints(),
-                    &event,
-                    request.required_acks,
-                )
-                .await
-            } else {
-                self.publish_client
-                    .publish_event_for_account(
-                        &self.account_id,
-                        request.target.endpoints(),
-                        &event,
-                        request.required_acks,
-                    )
-                    .await
-            }
-        };
-        let outcome = self
-            .relay_plane
-            .inner
-            .transport
-            .adapter
-            .publish_event_with_client(publication, request.required_acks)
-            .await?;
-        let local_fanout_endpoints = if !outcome.accepted.is_empty() {
-            outcome
-                .accepted
-                .iter()
-                .map(|receipt| receipt.endpoint.clone())
-                .collect::<Vec<_>>()
-        } else if outcome.failed.is_empty() {
-            request.target.endpoints().to_vec()
-        } else {
-            Vec::new()
-        };
-        if !local_fanout_endpoints.is_empty() {
-            let mut local_message = request.message.clone();
-            if let Some(message_id) = outcome.message_id.clone() {
-                local_message.id = message_id;
-            }
-            self.relay_plane
-                .inner
-                .transport
-                .adapter
-                .deliver_local_publish(&local_message, &local_fanout_endpoints)
-                .await?;
-        }
-        Ok(publish_report_from_outcome(outcome, request))
+        self.publish_with_local_mirror(request, true).await
     }
 
     async fn receive(&self) -> Result<Option<TransportDelivery>, TransportAdapterError> {
         match self.receive_account_delivery().await? {
-            Some(AccountDeliveryReceive::Delivery(delivery)) => Ok(Some(*delivery)),
+            Some(AccountDeliveryReceive::Delivery(delivery)) => Ok(Some(delivery.into_delivery())),
             Some(AccountDeliveryReceive::Overflow(_)) => Err(TransportAdapterError::Other(
                 "account delivery overflow recovery required".to_owned(),
             )),
@@ -4013,7 +4192,11 @@ impl TransportAdapter for MarmotRelayPlaneAccountAdapter {
 /// holds one of those. Only when the spill cannot take it does the delivery
 /// join an explicit loss generation, using the one channel slot reserved for
 /// its control record.
-fn route_account_delivery(transport: &RelayPlaneTransport, delivery: TransportDelivery) {
+fn route_account_delivery(
+    transport: &RelayPlaneTransport,
+    delivery: impl Into<transport_nostr_adapter::ObservedTransportDelivery>,
+) {
+    let delivery = delivery.into();
     let Some(route) = account_deliveries_read(&transport.account_deliveries)
         .get(&delivery.account_id)
         .cloned()
@@ -4067,7 +4250,7 @@ fn route_account_delivery(transport: &RelayPlaneTransport, delivery: TransportDe
             let spilled = route
                 .spill
                 .as_ref()
-                .is_some_and(|spill| spill.offer(delivery));
+                .is_some_and(|spill| spill.offer(delivery.into_delivery()));
             if !spilled {
                 // Record the loss before releasing the placement's fence, so
                 // the cursor stays fenced throughout.

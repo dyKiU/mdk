@@ -104,7 +104,7 @@ impl AppClient {
         }
         Ok(self
             .next_spilled_delivery()?
-            .map(|delivery| AccountDeliveryReceive::Delivery(Box::new(delivery))))
+            .map(|delivery| AccountDeliveryReceive::Delivery(Box::new(delivery.into()))))
     }
 
     fn next_spilled_delivery(&mut self) -> Result<Option<TransportDelivery>, AppError> {
@@ -528,7 +528,7 @@ mod tests {
         }
         assert!(matches!(
             received,
-            Some(crate::relay_plane::AccountDeliveryReceive::Delivery(d)) if *d == delivery(5)
+            Some(crate::relay_plane::AccountDeliveryReceive::Delivery(d)) if d.delivery == delivery(5)
         ));
     }
 

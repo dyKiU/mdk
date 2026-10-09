@@ -5,6 +5,113 @@ use marmot_account::AccountHome;
 use nostr_relay_builder::MockRelay;
 use std::{path::Path, time::Duration};
 
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn private_batch_round_trip_uses_product_probe_peeler() {
+    use cgka_traits::peeler::PrivateLinkingWelcomeContext;
+    use sha2::{Digest, Sha256};
+
+    let keys = nostr::prelude::Keys::generate();
+    let payload = EncryptedPayload {
+        ciphertext: vec![17; 100_000],
+        aad: vec![],
+    };
+    let context = PrivateLinkingWelcomeContext {
+        account: keys.public_key().to_bytes(),
+        approver: [2; 32],
+        recipient: [3; 32],
+        approver_generation: 1,
+        recipient_generation: 2,
+        group_id: GroupId::new(vec![4; 16]),
+        nonce: [5; 32],
+        context_digest: [6; 32],
+        key_package_reference: [7; 32],
+        key_package_digest: [8; 32],
+        commit_digest: [9; 32],
+        welcome_digest: Sha256::digest(&payload.ciphertext).into(),
+    };
+    let probe = ProbePeeler {
+        inner: NostrMlsPeeler::new().with_welcome_signer(keys),
+        slot: Arc::new(Mutex::new(PeelSlot::default())),
+    };
+    let transport: &dyn TransportPeeler = &probe;
+    let mut batch = transport
+        .wrap_private_linking_welcome(&payload, &context)
+        .await
+        .unwrap();
+    batch.reverse();
+    assert_eq!(
+        transport
+            .peel_private_linking_welcome_batch(&batch, &context)
+            .await
+            .unwrap(),
+        payload.ciphertext
+    );
+    assert!(
+        transport
+            .peel_private_linking_welcome_batch(&batch[..1], &context)
+            .await
+            .is_err()
+    );
+    let mut wrong_context = context.clone();
+    wrong_context.recipient_generation += 1;
+    assert!(
+        transport
+            .peel_private_linking_welcome_batch(&batch, &wrong_context)
+            .await
+            .is_err()
+    );
+    assert!(transport.peel_welcome(&batch[0]).await.is_err());
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn private_chunk_observation_uses_product_peeler_trait() {
+    use cgka_traits::peeler::PrivateLinkingWelcomeContext;
+    use sha2::{Digest, Sha256};
+
+    let keys = nostr::prelude::Keys::generate();
+    let payload = EncryptedPayload {
+        ciphertext: vec![17; 100_000],
+        aad: vec![],
+    };
+    let context = PrivateLinkingWelcomeContext {
+        account: keys.public_key().to_bytes(),
+        approver: [2; 32],
+        recipient: [3; 32],
+        approver_generation: 1,
+        recipient_generation: 2,
+        group_id: GroupId::new(vec![4; 16]),
+        nonce: [5; 32],
+        context_digest: [6; 32],
+        key_package_reference: [7; 32],
+        key_package_digest: [8; 32],
+        commit_digest: [9; 32],
+        welcome_digest: Sha256::digest(&payload.ciphertext).into(),
+    };
+    let probe = ProbePeeler {
+        inner: NostrMlsPeeler::new().with_welcome_signer(keys),
+        slot: Arc::new(Mutex::new(PeelSlot::default())),
+    };
+    let transport: &dyn TransportPeeler = &probe;
+    let mut batch = transport
+        .wrap_private_linking_welcome(&payload, &context)
+        .await
+        .unwrap();
+    batch.reverse();
+    let observation = transport.observe_private_linking_welcome(&batch[0]).await;
+    assert!(
+        observation.is_ok(),
+        "actual App peeler must expose authenticated bounded chunk metadata"
+    );
+    let observation = observation.unwrap();
+    assert!(observation.context == context);
+    assert_eq!(observation.index, batch.len() - 1);
+    assert_eq!(observation.count, batch.len());
+    assert_eq!(observation.total, payload.ciphertext.len());
+    assert!(transport.peel_welcome(&batch[0]).await.is_err());
+}
+
 fn actual_v5_rows(app: &MarmotApp, account: &str) -> Vec<Record> {
     let dir = app.account_dir(account);
     let paths = std::fs::read_dir(dir)

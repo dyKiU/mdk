@@ -127,6 +127,14 @@ pub(crate) struct ComparisonNetworkResult {
 }
 
 impl ComparisonNetworkResult {
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) fn attempted_group(&self, route: &[u8; 32]) -> bool {
+        self.routes.iter().any(|result| {
+            result.route == TransportReconciliationRoute::Group(*route)
+                && !matches!(result.result, ComparisonRouteWorkResult::Skipped)
+        })
+    }
+
     /// What each route's relays returned, for a pass discarded before any
     /// admission exists: counts only, nothing admitted or certified. A route
     /// counts as answered only when its comparison ran and every failed relay
@@ -448,6 +456,9 @@ impl AppClient {
                 .observe_unsettled_routes(network.unsettled_routes());
             return stable.map(|_| None);
         }
+        #[cfg(feature = "experimental-device-sync")]
+        self.note_private_echo_comparison(&network)
+            .map_err(super::super::private_echo::PrivateEchoError::into_app)?;
         let mut admission = ComparisonAdmission::default();
         for (index, route) in network.routes.into_iter().enumerate() {
             let inventory = grant

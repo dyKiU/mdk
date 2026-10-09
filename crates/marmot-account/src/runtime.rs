@@ -2642,13 +2642,46 @@ where
     pub async fn ingest_delivery_with_observer(
         &mut self,
         delivery: TransportDelivery,
+        observe: impl FnMut(AccountIngestPhase, Duration, bool) + Send,
+    ) -> AccountResult<AccountIngestEffects> {
+        self.ingest_delivery_observed(delivery, None, observe).await
+    }
+
+    /// Share observer and effect ordering while limiting ephemeral acquisition lifetime.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn ingest_private_enrollment_delivery_with_observer_until(
+        &mut self,
+        delivery: TransportDelivery,
+        deadline: web_time::Instant,
+        observe: impl FnMut(AccountIngestPhase, Duration, bool) + Send,
+    ) -> AccountResult<AccountIngestEffects> {
+        self.ingest_delivery_observed(delivery, Some(deadline), observe)
+            .await
+    }
+
+    async fn ingest_delivery_observed(
+        &mut self,
+        delivery: TransportDelivery,
+        deadline: Option<web_time::Instant>,
         mut observe: impl FnMut(AccountIngestPhase, Duration, bool) + Send,
     ) -> AccountResult<AccountIngestEffects> {
         if delivery.account_id != self.session.self_id() {
             return Err(AccountError::WrongAccountDelivery);
         }
         let started = Instant::now();
-        let ingested = self.session.ingest_delivery(delivery).await;
+        #[cfg(feature = "experimental-device-sync")]
+        let ingested = if let Some(deadline) = deadline {
+            self.session
+                .ingest_private_enrollment_delivery_until(delivery, deadline)
+                .await
+        } else {
+            self.session.ingest_delivery(delivery).await
+        };
+        #[cfg(not(feature = "experimental-device-sync"))]
+        let ingested = {
+            let _ = deadline;
+            self.session.ingest_delivery(delivery).await
+        };
         observe(
             AccountIngestPhase::Engine,
             started.elapsed(),

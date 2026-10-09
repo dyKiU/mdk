@@ -80,6 +80,36 @@ pub(crate) struct ProbePeeler {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl TransportPeeler for ProbePeeler {
+    #[cfg(feature = "experimental-device-sync")]
+    async fn observe_private_linking_welcome(
+        &self,
+        message: &TransportMessage,
+    ) -> Result<cgka_traits::peeler::PrivateLinkingWelcomeObservation, PeelerError> {
+        self.inner.observe_private_linking_welcome(message).await
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    async fn peel_private_linking_welcome_batch(
+        &self,
+        messages: &[TransportMessage],
+        context: &cgka_traits::peeler::PrivateLinkingWelcomeContext,
+    ) -> Result<Vec<u8>, PeelerError> {
+        self.inner
+            .peel_private_linking_welcome_batch(messages, context)
+            .await
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    async fn wrap_private_linking_welcome(
+        &self,
+        payload: &EncryptedPayload,
+        context: &cgka_traits::peeler::PrivateLinkingWelcomeContext,
+    ) -> Result<Vec<TransportMessage>, PeelerError> {
+        self.inner
+            .wrap_private_linking_welcome(payload, context)
+            .await
+    }
+
     async fn peel_group_message(
         &self,
         msg: &TransportMessage,

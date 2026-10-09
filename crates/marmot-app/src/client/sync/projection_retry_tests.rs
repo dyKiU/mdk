@@ -736,6 +736,7 @@ async fn failed_message_projection_does_not_duplicate_its_deferred_summary() {
     .unwrap();
     let effects = marmot_account::AccountDeviceEffects {
         events: vec![GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: group.clone(),
             message_id: cgka_traits::MessageId::new(vec![0x81; 32]),
@@ -894,6 +895,7 @@ async fn second_local_delete_discards_retry_that_crossed_the_old_frontier() {
             .unwrap();
         let effects = marmot_account::AccountDeviceEffects {
             events: vec![GroupEvent::MessageReceived {
+                source_leaf: None,
                 authority: None,
                 group_id: group.clone(),
                 message_id: sent.reports[0].message_id.clone(),

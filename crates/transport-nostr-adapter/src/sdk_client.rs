@@ -1357,12 +1357,16 @@ impl NostrSdkRelayClient {
             loss.notification_receiver_replaced();
             const EVENT_QUEUE_CAPACITY: usize = 256;
             let (sender, mut event_rx) = mpsc::channel(EVENT_QUEUE_CAPACITY);
+            #[cfg(feature = "experimental-device-sync")]
+            let mut acquisition = adapter.live_notification_receiver(None);
             let pending = Arc::new(AtomicU64::new(0));
             let worker_pending = pending.clone();
             #[cfg(test)]
             let forwarder_event_entered = loss.forwarder_event_entered.clone();
             let mut worker = tokio::spawn(async move {
-                while let Some(notification) = event_rx.recv().await {
+                while let Some((notification, capture)) = event_rx.recv().await {
+                    #[cfg(not(feature = "experimental-device-sync"))]
+                    let _ = capture;
                     #[cfg(test)]
                     if matches!(notification, ClientNotification::Event { .. }) {
                         forwarder_event_entered.store(true, Ordering::SeqCst);
@@ -1379,13 +1383,17 @@ impl NostrSdkRelayClient {
                                     method = "spawn_notification_forwarder",
                                     "forwarding SDK relay event"
                                 );
+                                let relay_event = NostrRelayEvent {
+                                    endpoint: TransportEndpoint(relay_url.to_string()),
+                                    subscription_id: Some(subscription_id.to_string()),
+                                    event,
+                                };
+                                #[cfg(feature = "experimental-device-sync")]
                                 let _ = adapter
-                                    .handle_relay_event(NostrRelayEvent {
-                                        endpoint: TransportEndpoint(relay_url.to_string()),
-                                        subscription_id: Some(subscription_id.to_string()),
-                                        event,
-                                    })
+                                    .handle_captured_live_relay_event(None, relay_event, capture)
                                     .await;
+                                #[cfg(not(feature = "experimental-device-sync"))]
+                                let _ = adapter.handle_relay_event(relay_event).await;
                             }
                         }
                         ClientNotification::Message { relay_url, message } => match *message {
@@ -1446,8 +1454,42 @@ impl NostrSdkRelayClient {
                 match update {
                     NotificationUpdate::Notification(ClientNotification::Shutdown) => break,
                     NotificationUpdate::Notification(notification) => {
+                        #[cfg(feature = "experimental-device-sync")]
+                        let capture = match &notification {
+                            ClientNotification::Message { relay_url, message } => {
+                                if let RelayMessage::EndOfStoredEvents(subscription) =
+                                    message.as_ref()
+                                {
+                                    acquisition
+                                        .observe_eose(
+                                            TransportEndpoint(relay_url.to_string()),
+                                            subscription.as_str(),
+                                        )
+                                        .await;
+                                }
+                                None
+                            }
+                            ClientNotification::Event {
+                                relay_url,
+                                subscription_id,
+                                event,
+                            } => NostrTransportEvent::from_nostr_event(event).ok().and_then(
+                                |event| {
+                                    acquisition
+                                        .capture(&NostrRelayEvent {
+                                            endpoint: TransportEndpoint(relay_url.to_string()),
+                                            subscription_id: Some(subscription_id.to_string()),
+                                            event,
+                                        })
+                                        .ok()
+                                },
+                            ),
+                            _ => None,
+                        };
+                        #[cfg(not(feature = "experimental-device-sync"))]
+                        let capture = ();
                         pending.fetch_add(1, Ordering::SeqCst);
-                        if sender.try_send(notification).is_err() {
+                        if sender.try_send((notification, capture)).is_err() {
                             pending.fetch_sub(1, Ordering::SeqCst);
                             let abandoned = 1 + pending.load(Ordering::SeqCst);
                             worker_guard.loss_accounted = true;
@@ -5623,6 +5665,451 @@ mod tests {
         timeout(Duration::from_secs(2), forwarder)
             .await
             .expect("forwarder exits on shutdown")
+            .unwrap();
+        relay.shutdown();
+    }
+
+    /// Real SDK REQs and signed relay carriers; the wrapper only stalls the
+    /// caller's completion after the actual private subscription was issued.
+    #[cfg(feature = "experimental-device-sync")]
+    struct PausedPrivateIssue {
+        sdk: NostrSdkRelayClient,
+        paused: AtomicBool,
+        entered: tokio::sync::Notify,
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    #[async_trait]
+    impl NostrRelayClient for PausedPrivateIssue {
+        async fn subscribe(
+            &self,
+            subscription: NostrSubscription,
+        ) -> Result<(), TransportAdapterError> {
+            self.sdk.subscribe(subscription).await
+        }
+        async fn unsubscribe(
+            &self,
+            subscription: NostrSubscription,
+        ) -> Result<(), TransportAdapterError> {
+            self.sdk.unsubscribe(subscription).await
+        }
+        fn supports_scoped_subscriptions(&self) -> bool {
+            true
+        }
+        async fn subscribe_scoped(
+            &self,
+            subscription: NostrSubscription,
+            id: String,
+        ) -> Result<(), TransportAdapterError> {
+            self.sdk.subscribe_scoped(subscription, id).await?;
+            if self.paused.load(Ordering::SeqCst) {
+                self.entered.notify_one();
+                std::future::pending::<()>().await;
+            }
+            Ok(())
+        }
+        async fn unsubscribe_scoped(
+            &self,
+            subscription: NostrSubscription,
+            id: String,
+        ) -> Result<(), TransportAdapterError> {
+            self.sdk.unsubscribe_scoped(subscription, id).await
+        }
+        async fn unsubscribe_account(
+            &self,
+            account: &MemberId,
+        ) -> Result<(), TransportAdapterError> {
+            self.sdk.unsubscribe_account(account).await
+        }
+        async fn publish_event(
+            &self,
+            endpoints: &[TransportEndpoint],
+            event: &NostrTransportEvent,
+            required: usize,
+        ) -> Result<NostrPublishOutcome, TransportAdapterError> {
+            NostrRelayClient::publish_event(&self.sdk, endpoints, event, required).await
+        }
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    #[tokio::test]
+    async fn enrollment_acquisition_cancelled_issued_request_revokes_freshness_and_can_reactivate()
+    {
+        let relay = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let endpoint = TransportEndpoint(relay.url().await.to_string());
+        let sdk = NostrSdkRelayClient::new(Client::default());
+        let paused = Arc::new(PausedPrivateIssue {
+            sdk: sdk.clone(),
+            paused: AtomicBool::new(true),
+            entered: tokio::sync::Notify::new(),
+        });
+        let adapter = NostrTransportAdapter::new(paused.clone());
+        let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
+        let account = MemberId::new(Keys::generate().public_key().to_bytes().to_vec());
+        let group = crate::TransportGroupSubscription {
+            group_id: cgka_traits::GroupId::new(vec![0x71; 16]),
+            transport_group_id: vec![0x82; 32],
+            endpoints: vec![endpoint.clone()],
+            retained_since: None,
+        };
+        adapter
+            .configure_private_observation_group(&account, Some(group.group_id.clone()))
+            .await;
+        let activation = crate::TransportAccountActivation {
+            account_id: account.clone(),
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: vec![group.clone()],
+            since: None,
+        };
+        let activation_task = tokio::spawn({
+            let adapter = adapter.clone();
+            let activation = activation.clone();
+            async move { adapter.activate_account(activation).await }
+        });
+        timeout(Duration::from_secs(20), paused.entered.notified())
+            .await
+            .expect("actual scoped REQ has completed at the SDK boundary");
+        let attempt = adapter
+            .account_subscription_attempt(&account)
+            .await
+            .unwrap();
+        let logical = crate::group_subscription(&account, &group, None, attempt).subscription_id();
+        timeout(Duration::from_secs(20), async {
+            while adapter
+                .subscription_endpoint_eose(&logical, &endpoint)
+                .await
+                != Some(true)
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("actual issued request reached EOSE before cancellation");
+        activation_task.abort();
+        assert!(activation_task.await.unwrap_err().is_cancelled());
+        // A cancellation cleanup holding the lifecycle lock must finish before
+        // a subsequent owner operation; this does not manufacture EOSE.
+        drop(adapter.subscription_lock.lock().await);
+        let publisher = Client::default();
+        publisher
+            .add_relay(relay.url().await.to_string())
+            .await
+            .unwrap();
+        publisher.connect().await;
+        let signed = stored_group_event(&group.transport_group_id, crate::unix_now_seconds());
+        let id = signed.id.to_bytes();
+        publisher.send_event(&signed).await.unwrap();
+        let observed = timeout(Duration::from_secs(20), adapter.receive_observed())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(
+            observed.message.id.as_slice() == id.as_slice(),
+            "actual signed carrier reached the abandoned request"
+        );
+        assert!(
+            observed.observation.is_none(),
+            "cancelled issued activation cannot retain positive freshness"
+        );
+        paused.paused.store(false, Ordering::SeqCst);
+        adapter.activate_account(activation).await.unwrap();
+        let next = adapter
+            .account_subscription_attempt(&account)
+            .await
+            .unwrap();
+        assert!(next > attempt);
+        let next_logical =
+            crate::group_subscription(&account, &group, None, next).subscription_id();
+        timeout(Duration::from_secs(20), async {
+            while adapter
+                .subscription_endpoint_eose(&next_logical, &endpoint)
+                .await
+                != Some(true)
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("fresh replacement EOSE");
+        while timeout(Duration::from_millis(30), adapter.receive_observed())
+            .await
+            .is_ok()
+        {}
+        let fresh = stored_group_event(&group.transport_group_id, crate::unix_now_seconds() + 1);
+        let fresh_id = fresh.id.to_bytes();
+        publisher.send_event(&fresh).await.unwrap();
+        let observed = timeout(Duration::from_secs(20), adapter.receive_observed())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(observed.message.id.as_slice() == fresh_id.as_slice());
+        assert!(
+            observed.observation.is_some(),
+            "reactivation preserves genuine live intake"
+        );
+        publisher.shutdown().await;
+        sdk.client.shutdown().await;
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .unwrap()
+            .unwrap();
+        relay.shutdown();
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    #[tokio::test]
+    async fn enrollment_acquisition_failed_private_route_sync_burns_freshness_until_valid_reissue()
+    {
+        let relay = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let endpoint = TransportEndpoint(relay.url().await.to_string());
+        let sdk = NostrSdkRelayClient::new(Client::default());
+        let adapter = NostrTransportAdapter::new(Arc::new(sdk.clone()));
+        let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
+        let account = MemberId::new(Keys::generate().public_key().to_bytes().to_vec());
+        let group = crate::TransportGroupSubscription {
+            group_id: cgka_traits::GroupId::new(vec![0x41; 16]),
+            transport_group_id: vec![0x52; 32],
+            endpoints: vec![endpoint.clone()],
+            retained_since: None,
+        };
+        adapter
+            .configure_private_observation_group(&account, Some(group.group_id.clone()))
+            .await;
+        adapter
+            .activate_account(crate::TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![endpoint.clone()],
+                group_subscriptions: vec![group.clone()],
+                since: None,
+            })
+            .await
+            .unwrap();
+        let attempt = adapter
+            .account_subscription_attempt(&account)
+            .await
+            .unwrap();
+        let logical = crate::group_subscription(&account, &group, None, attempt).subscription_id();
+        timeout(Duration::from_secs(20), async {
+            while adapter
+                .subscription_endpoint_eose(&logical, &endpoint)
+                .await
+                != Some(true)
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("actual initial private request EOSE");
+        let failed = adapter
+            .sync_account_groups(cgka_traits::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: vec![],
+                since: None,
+            })
+            .await;
+        assert!(
+            matches!(failed, Err(TransportAdapterError::Subscription(_))),
+            "a missing protected current route must fail before replacement REQ"
+        );
+        let publisher = Client::default();
+        publisher
+            .add_relay(relay.url().await.to_string())
+            .await
+            .unwrap();
+        publisher.connect().await;
+        let signed = stored_group_event(&group.transport_group_id, crate::unix_now_seconds());
+        let id = signed.id.to_bytes();
+        publisher.send_event(&signed).await.unwrap();
+        let observed = timeout(Duration::from_secs(20), adapter.receive_observed())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(
+            observed.message.id.as_slice() == id.as_slice(),
+            "old actual request remains observable for this negative control"
+        );
+        assert!(
+            observed.observation.is_none(),
+            "failed private route synchronization must not retain old positive freshness"
+        );
+        adapter
+            .sync_account_groups(cgka_traits::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: vec![group.clone()],
+                since: None,
+            })
+            .await
+            .unwrap();
+        timeout(Duration::from_secs(20), async {
+            while adapter
+                .subscription_endpoint_eose(&logical, &endpoint)
+                .await
+                != Some(true)
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("valid replacement must reach genuine new EOSE");
+        while timeout(Duration::from_millis(30), adapter.receive_observed())
+            .await
+            .is_ok()
+        {}
+        let signed = stored_group_event(&group.transport_group_id, crate::unix_now_seconds() + 1);
+        let id = signed.id.to_bytes();
+        publisher.send_event(&signed).await.unwrap();
+        let observed = timeout(Duration::from_secs(20), adapter.receive_observed())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(observed.message.id.as_slice() == id.as_slice());
+        assert!(
+            observed.observation.is_some(),
+            "valid retry must preserve live acquisition"
+        );
+        publisher.shutdown().await;
+        sdk.client.shutdown().await;
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .unwrap()
+            .unwrap();
+        relay.shutdown();
+    }
+
+    /// Genuine SDK/WebSocket replay acquisition, not membership or MLS admission.
+    #[cfg(feature = "experimental-device-sync")]
+    #[tokio::test]
+    async fn enrollment_acquisition_reissued_same_wire_scope_cannot_reuse_old_eose() {
+        let relay = nostr_sdk::local_relay::MockRelay::run().await.unwrap();
+        let endpoint = TransportEndpoint(relay.url().await.to_string());
+        let sdk = NostrSdkRelayClient::new(Client::default());
+        let adapter = NostrTransportAdapter::new(Arc::new(sdk.clone()));
+        let forwarder = sdk.spawn_notification_forwarder(adapter.clone());
+        let account = MemberId::new(Keys::generate().public_key().to_bytes().to_vec());
+        let group_id = cgka_traits::GroupId::new(vec![0xb2; 16]);
+        let old = crate::TransportGroupSubscription {
+            group_id: group_id.clone(),
+            transport_group_id: vec![0xc3; 32],
+            endpoints: vec![endpoint.clone()],
+            retained_since: None,
+        };
+        let now = crate::unix_now_seconds();
+        let stored = stored_group_event(&old.transport_group_id, now - 100);
+        let stored_id = stored.id.to_bytes();
+        relay.add_event(stored).await.unwrap();
+        adapter
+            .configure_private_observation_group(&account, Some(group_id.clone()))
+            .await;
+        adapter
+            .activate_account(crate::TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![endpoint.clone()],
+                group_subscriptions: vec![old.clone()],
+                since: Some(Timestamp(now)),
+            })
+            .await
+            .unwrap();
+        let attempt = adapter
+            .account_subscription_attempt(&account)
+            .await
+            .unwrap();
+        let original_id =
+            crate::group_subscription(&account, &old, None, attempt).subscription_id();
+        timeout(Duration::from_secs(20), async {
+            while adapter
+                .subscription_endpoint_eose(&original_id, &endpoint)
+                .await
+                != Some(true)
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("actual original issued route must reach EOSE");
+        assert!(
+            timeout(Duration::from_millis(50), adapter.receive_observed())
+                .await
+                .is_err(),
+            "initial cursor must actually exclude the older stored carrier"
+        );
+        let new = crate::TransportGroupSubscription {
+            transport_group_id: vec![0xd4; 32],
+            ..old.clone()
+        };
+        let retained = crate::TransportGroupSubscription {
+            retained_since: Some(Timestamp(now - 200)),
+            ..old.clone()
+        };
+        adapter
+            .sync_account_groups(cgka_traits::TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: vec![new.clone(), retained.clone()],
+                since: Some(Timestamp(now)),
+            })
+            .await
+            .unwrap();
+        assert!(
+            crate::group_subscription(&account, &retained, None, attempt).subscription_id()
+                == original_id,
+            "ordinary retained-floor reissue currently uses the same exact wire scope"
+        );
+        let recovered = timeout(Duration::from_secs(20), adapter.receive_observed())
+            .await
+            .expect("actual widened relay REQ must recover the excluded carrier")
+            .unwrap()
+            .unwrap();
+        assert!(
+            recovered.message.id.as_slice() == stored_id.as_slice(),
+            "recovery must be the exact older signed carrier"
+        );
+        assert!(
+            recovered.observation.is_none(),
+            "EOSE of the previous same-ID REQ cannot qualify replay backlog of the widened REQ as fresh"
+        );
+        let new_logical =
+            crate::group_subscription(&account, &new, None, attempt).subscription_id();
+        timeout(Duration::from_secs(20), async {
+            while adapter
+                .subscription_endpoint_eose(&new_logical, &endpoint)
+                .await
+                != Some(true)
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("new exact private issued scope must reach actual EOSE");
+        let new_signed = stored_group_event(&new.transport_group_id, crate::unix_now_seconds());
+        let new_id = new_signed.id.to_bytes();
+        let publisher = Client::default();
+        publisher
+            .add_relay(relay.url().await.to_string())
+            .await
+            .unwrap();
+        publisher.connect().await;
+        publisher.send_event(&new_signed).await.unwrap();
+        let fresh = timeout(Duration::from_secs(20), adapter.receive_observed())
+            .await
+            .expect("post-EOSE real publisher must remain live after route replacement")
+            .unwrap()
+            .unwrap();
+        assert!(
+            fresh.message.id.as_slice() == new_id.as_slice(),
+            "actual new signed carrier must match"
+        );
+        assert!(
+            fresh.observation.is_some(),
+            "reissue must preserve positive acquisition on the newly issued scope"
+        );
+        publisher.shutdown().await;
+        sdk.client.shutdown().await;
+        timeout(Duration::from_secs(2), forwarder)
+            .await
+            .expect("forwarder exits")
             .unwrap();
         relay.shutdown();
     }
