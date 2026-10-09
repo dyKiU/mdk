@@ -560,3 +560,18 @@ The three Core tests inject policy and minimal context; they are not SDK proof.
 ## Received endorsement fences
 
 `private_enrollment_request.rs` seals the actual protected origin and Completed generation into each opaque observation. `private_enrollment_predecessor.rs::validate_private_enrollment_request_predecessor` authenticates the artifact against that original selection and its occupied carrier via public OpenMLS `Verifiable` APIs. `private_enrollment_endorsement.rs` requires the same fresh selection before creating or validating an owned action. Keep the portable signature test separate from original-SDK local approval; its test-only signer creates no owned continuation.
+
+## Private endorsement publication and original local collection
+
+Kind38176 is the separately classified encrypted endorsement control. Its actual
+MLS receipt shares the bounded128 intake queue and transactional direct/replay
+effect seam with requests; ordinary/history ingestion cannot mint receipts.
+`wrap_private_enrollment_endorsement` retains exact ciphertext after wrap failure,
+rolls ratchets back on SQL failure and rechecks the original protected selection
+after awaits/cached retry. The exact-generation cancellation handle only revokes
+and wakes a stalled wrap; stale handles must not cancel later generations.
+`endorse_owned_local_enrollment_proposal` signs only through the original trusted
+lease. Collection accepts actual received sibling receipts plus that local signature
+under fresh origin/generation/tree checks. It returns authentication metadata,
+never an Add, sibling transition or recipient admission capability. Core fixture
+policies are not stock SDK proof; App publication and ABC settlement are separate.

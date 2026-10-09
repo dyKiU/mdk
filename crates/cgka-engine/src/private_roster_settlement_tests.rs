@@ -1861,7 +1861,13 @@ struct EndorsementFixture {
     authenticated: crate::private_enrollment_predecessor::AuthenticatedPrivatePredecessor,
 }
 async fn endorsement_fixture(lifetime: Option<Duration>) -> EndorsementFixture {
-    let (a, b, group) = complete_pair(SqliteAccountStorage::in_memory().unwrap()).await;
+    endorsement_fixture_with_storage(lifetime, SqliteAccountStorage::in_memory().unwrap()).await
+}
+async fn endorsement_fixture_with_storage(
+    lifetime: Option<Duration>,
+    storage: SqliteAccountStorage,
+) -> EndorsementFixture {
+    let (a, b, group) = complete_pair(storage).await;
     let artifact = a
         .export_settled_device_predecessor(&group)
         .unwrap()
@@ -2230,7 +2236,7 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
         deadline,
         live: live.clone(),
     }));
-    let result = a.prepare_private_enrollment_proposal(&group, package);
+    let result = a.prepare_private_enrollment_proposal(&group, package.clone());
     assert!(
         result.is_ok(),
         "original trusted lease must seal a local proposal before staging Add"
@@ -2258,6 +2264,11 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
         reopened.hydrate_all_stored_groups().unwrap();
         reopened.install_trusted_private_invite_policy(
             a.private_invite_policy.as_ref().unwrap().clone(),
+        );
+        assert!(
+            reopened
+                .endorse_owned_local_enrollment_proposal(&mut proposal)
+                .is_err()
         );
         assert!(
             reopened
@@ -2313,6 +2324,122 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
             .iter()
             .all(|event| !matches!(event, GroupEvent::MessageReceived { .. }))
     );
+    if matches!(control, LocalProposalOwnerControl::Retain) {
+        let mut b_owned = b
+            .endorse_private_enrollment_request(&requests[0], &artifact, &package, &[10; 32])
+            .unwrap();
+        assert!(
+            a.wrap_private_enrollment_endorsement(&mut b_owned)
+                .await
+                .is_err()
+        );
+        let b_message = b
+            .wrap_private_enrollment_endorsement(&mut b_owned)
+            .await
+            .unwrap();
+        let retry = b
+            .wrap_private_enrollment_endorsement(&mut b_owned)
+            .await
+            .unwrap();
+        assert_eq!(b_message.id, retry.id);
+        assert_eq!(b_message.payload, retry.payload);
+        let own_wire = a
+            .endorse_owned_local_enrollment_proposal(&mut proposal)
+            .unwrap();
+        assert_eq!(
+            own_wire,
+            a.endorse_owned_local_enrollment_proposal(&mut proposal)
+                .unwrap()
+        );
+        assert!(
+            a.authenticate_owned_local_enrollment_endorsements(&mut proposal, &[])
+                .is_err()
+        );
+        a.drain_events();
+        a.ingest_private_enrollment_delivery_until(b_message, deadline)
+            .await
+            .unwrap();
+        let received = a.drain_authenticated_enrollment_endorsements().unwrap();
+        assert_eq!(
+            received.len(),
+            1,
+            "B encrypted endorsement must be authenticated from actual MLS intake"
+        );
+        assert!(
+            a.drain_authenticated_enrollment_requests()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            a.drain_events()
+                .iter()
+                .all(|event| !matches!(event, GroupEvent::MessageReceived { .. }))
+        );
+        let complete = a
+            .authenticate_owned_local_enrollment_endorsements(&mut proposal, &[&received[0]])
+            .unwrap();
+        assert_eq!(complete.leaf_count(), 2);
+        assert_eq!(complete.binding_digest(), &binding);
+        assert!(
+            b.authenticate_owned_local_enrollment_endorsements(&mut proposal, &[&received[0]])
+                .is_err()
+        );
+        let mut substituted: serde_json::Value = serde_json::from_slice(&received[0].wire).unwrap();
+        substituted["binding_digest"] = serde_json::json!(([55u8; 32]));
+        let mut altered = received;
+        let original_wire = std::mem::replace(
+            &mut altered[0].wire,
+            serde_json::to_vec(&substituted).unwrap(),
+        );
+        assert!(
+            a.authenticate_owned_local_enrollment_endorsements(&mut proposal, &[&altered[0]])
+                .is_err()
+        );
+        altered[0].wire = original_wire;
+        let received = altered;
+
+        a.select_private_roster_settlement(&group).unwrap();
+        b.select_private_roster_settlement(&group).unwrap();
+        let SendResult::ApplicationMessage { msg: challenge, .. } =
+            a.start_private_roster_settlement(&group).await.unwrap()
+        else {
+            panic!("real challenge expected");
+        };
+        b.ingest(challenge).await.unwrap();
+        let SendResult::ApplicationMessage { msg: ack, .. } =
+            b.prepare_private_roster_ack(&group).await.unwrap()
+        else {
+            panic!("real ACK expected");
+        };
+        a.ingest(ack).await.unwrap();
+        assert_eq!(
+            a.validated_settled_device_roster(&group)
+                .unwrap()
+                .unwrap()
+                .candidate(),
+            &before
+        );
+        assert!(
+            a.authenticate_owned_local_enrollment_endorsements(&mut proposal, &[&received[0]])
+                .is_err(),
+            "same genuine tree under a new Completed generation must not restore collection"
+        );
+        b.cancel_private_enrollment_endorsements().unwrap();
+        assert!(
+            b.wrap_private_enrollment_endorsement(&mut b_owned)
+                .await
+                .is_err()
+        );
+        live.store(false, Ordering::SeqCst);
+        assert!(
+            a.endorse_owned_local_enrollment_proposal(&mut proposal)
+                .is_err()
+        );
+        assert!(
+            a.authenticate_owned_local_enrollment_endorsements(&mut proposal, &[&received[0]])
+                .is_err()
+        );
+    }
     if matches!(control, LocalProposalOwnerControl::Drop) {
         drop(a);
         assert!(
@@ -2416,4 +2543,234 @@ async fn private_enrollment_endorsement_same_tree_completed_reselection_denies_o
 #[tokio::test]
 async fn private_enrollment_endorsement_reselection_denies_first_action_on_old_observation() {
     exercise_endorsement_reselection(false).await;
+}
+
+struct EndorsementWrapPeeler {
+    mode: std::sync::atomic::AtomicUsize,
+    invalidate: Option<SqliteAccountStorage>,
+    calls: Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+}
+#[async_trait::async_trait]
+impl cgka_traits::peeler::TransportPeeler for EndorsementWrapPeeler {
+    async fn peel_group_message(
+        &self,
+        msg: &cgka_traits::TransportMessage,
+        ctx: &cgka_traits::group_context::GroupContextSnapshot,
+    ) -> Result<cgka_traits::ingest::PeeledMessage, cgka_traits::PeelerError> {
+        crate::device_group_genesis::tests::PassthroughPeeler
+            .peel_group_message(msg, ctx)
+            .await
+    }
+    async fn peel_welcome(
+        &self,
+        msg: &cgka_traits::TransportMessage,
+    ) -> Result<cgka_traits::ingest::PeeledMessage, cgka_traits::PeelerError> {
+        crate::device_group_genesis::tests::PassthroughPeeler
+            .peel_welcome(msg)
+            .await
+    }
+    async fn wrap_welcome(
+        &self,
+        payload: &cgka_traits::EncryptedPayload,
+        recipient: &cgka_traits::MemberId,
+    ) -> Result<cgka_traits::TransportMessage, cgka_traits::PeelerError> {
+        crate::device_group_genesis::tests::PassthroughPeeler
+            .wrap_welcome(payload, recipient)
+            .await
+    }
+    async fn wrap_group_message(
+        &self,
+        payload: &cgka_traits::EncryptedPayload,
+        ctx: &cgka_traits::group_context::GroupContextSnapshot,
+    ) -> Result<cgka_traits::TransportMessage, cgka_traits::PeelerError> {
+        self.calls.lock().unwrap().push(payload.ciphertext.clone());
+        match self.mode.load(std::sync::atomic::Ordering::SeqCst) {
+            1 => {
+                self.mode.store(0, std::sync::atomic::Ordering::SeqCst);
+                Err(cgka_traits::PeelerError::DecryptFailed)
+            }
+            2 => std::future::pending().await,
+            3 => {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                let store = self
+                    .invalidate
+                    .as_ref()
+                    .unwrap()
+                    .private_roster_settlement_storage()
+                    .unwrap();
+                let generation = store.read_round().unwrap().unwrap().generation;
+                store.deny_round(generation).unwrap();
+                crate::device_group_genesis::tests::PassthroughPeeler
+                    .wrap_group_message(payload, ctx)
+                    .await
+            }
+            _ => {
+                crate::device_group_genesis::tests::PassthroughPeeler
+                    .wrap_group_message(payload, ctx)
+                    .await
+            }
+        }
+    }
+}
+#[tokio::test]
+async fn private_enrollment_endorsement_failed_wrap_reuses_ciphertext_and_stalled_cancel_wakes() {
+    use std::sync::atomic::AtomicUsize;
+    let mut f = endorsement_fixture(None).await;
+    let mut owned =
+        f.b.endorse_private_enrollment_request(&f.request, &f.artifact, &f.package, &[10; 32])
+            .unwrap();
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    f.b.peeler = Box::new(EndorsementWrapPeeler {
+        mode: AtomicUsize::new(1),
+        invalidate: None,
+        calls: calls.clone(),
+    });
+    assert!(matches!(
+        f.b.wrap_private_enrollment_endorsement(&mut owned).await,
+        Err(EngineError::Peeler(_))
+    ));
+    let message =
+        f.b.wrap_private_enrollment_endorsement(&mut owned)
+            .await
+            .unwrap();
+    let retry =
+        f.b.wrap_private_enrollment_endorsement(&mut owned)
+            .await
+            .unwrap();
+    assert_eq!(message.id, retry.id);
+    assert_eq!(calls.lock().unwrap().len(), 2);
+    {
+        let observed = calls.lock().unwrap();
+        assert_eq!(observed[0], observed[1]);
+    }
+    let stale = owned.cancellation_handle();
+    f.b.cancel_private_enrollment_endorsements().unwrap();
+    let mut fresh =
+        f.b.endorse_private_enrollment_request(&f.request, &f.artifact, &f.package, &[10; 32])
+            .unwrap();
+    stale.cancel();
+    f.b.validate_owned_private_enrollment_endorsement(&fresh)
+        .unwrap();
+    let cancel = fresh.cancellation_handle();
+    f.b.peeler = Box::new(EndorsementWrapPeeler {
+        mode: AtomicUsize::new(2),
+        invalidate: None,
+        calls: calls.clone(),
+    });
+    let operation = f.b.wrap_private_enrollment_endorsement(&mut fresh);
+    let revocation = async {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        cancel.cancel();
+    };
+    let (result, _) = tokio::time::timeout(Duration::from_secs(1), async {
+        tokio::join!(operation, revocation)
+    })
+    .await
+    .expect("negative revocation must wake the stalled Core wrap");
+    assert!(result.is_err());
+    assert!(
+        f.b.wrap_private_enrollment_endorsement(&mut fresh)
+            .await
+            .is_err()
+    );
+    assert_eq!(calls.lock().unwrap().len(), 3);
+}
+#[tokio::test]
+async fn private_enrollment_endorsement_send_sql_fault_rolls_back_actual_ratchet() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("isolated-endorsement-send.db");
+    let key = SqlCipherKey::new("18".repeat(32)).unwrap();
+    let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let mut f = endorsement_fixture_with_storage(None, storage).await;
+    let mut owned =
+        f.b.endorse_private_enrollment_request(&f.request, &f.artifact, &f.package, &[10; 32])
+            .unwrap();
+    let injector = rusqlite::Connection::open(&path).unwrap();
+    storage_sqlite::open_hardened_sqlcipher(
+        &injector,
+        &key,
+        storage_sqlite::SqlCipherHardening::default(),
+    )
+    .unwrap();
+    let before = crypto_digest(&injector);
+    injector.execute_batch("CREATE TRIGGER fail_endorsement_ratchet BEFORE INSERT ON openmls_values BEGIN SELECT RAISE(ABORT,'isolated endorsement ratchet fault'); END;").unwrap();
+    assert!(
+        f.b.wrap_private_enrollment_endorsement(&mut owned)
+            .await
+            .is_err()
+    );
+    assert_eq!(before, crypto_digest(&injector));
+    injector
+        .execute_batch("DROP TRIGGER fail_endorsement_ratchet")
+        .unwrap();
+    let message =
+        f.b.wrap_private_enrollment_endorsement(&mut owned)
+            .await
+            .unwrap();
+    assert_ne!(before, crypto_digest(&injector));
+    f.a.ingest_private_enrollment_delivery(message)
+        .await
+        .unwrap();
+    assert_eq!(
+        f.a.drain_authenticated_enrollment_endorsements()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn private_enrollment_endorsement_malformed_and_wrong_kind_are_private_controls() {
+    let sender = cgka_traits::MemberId::new(vec![1; 32]);
+    for (kind, content) in [
+        (38176, "{broken"),
+        (
+            1,
+            "{\"protocol\":\"whitenoise.experimental.enrollment-endorsement.v1\"}",
+        ),
+        (
+            1,
+            "{\"protocol\":\"whitenoise.experimental.enrollment-request.v2\"}",
+        ),
+    ] {
+        let payload = cgka_traits::app_event::MarmotAppEvent::new(
+            hex::encode(sender.as_slice()),
+            0,
+            kind,
+            vec![],
+            content,
+        )
+        .encode()
+        .unwrap();
+        assert!(crate::private_enrollment_request::is_request_payload(
+            &payload,
+            Some(&sender)
+        ));
+    }
+}
+
+#[tokio::test]
+async fn private_enrollment_endorsement_protected_selection_denial_during_await_refuses_handoff() {
+    let mut f = endorsement_fixture(None).await;
+    let mut owned =
+        f.b.endorse_private_enrollment_request(&f.request, &f.artifact, &f.package, &[10; 32])
+            .unwrap();
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    f.b.peeler = Box::new(EndorsementWrapPeeler {
+        mode: std::sync::atomic::AtomicUsize::new(3),
+        invalidate: Some(f.b.storage.clone()),
+        calls: calls.clone(),
+    });
+    assert!(
+        f.b.wrap_private_enrollment_endorsement(&mut owned)
+            .await
+            .is_err(),
+        "a real negative protected-state write while wrapping must deny handing out transport"
+    );
+    assert!(
+        f.b.wrap_private_enrollment_endorsement(&mut owned)
+            .await
+            .is_err()
+    );
+    assert_eq!(calls.lock().unwrap().len(), 1);
 }

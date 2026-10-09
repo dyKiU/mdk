@@ -500,3 +500,11 @@ actual regression counts and limits.
 `validate_private_enrollment_request_predecessor` verifies the exact GroupInfo signature under the occupied MLS request carrier, after portable tree authentication. The opaque received request retains its original protected origin and Completed selection generation. A replacement Completed round, even with an unchanged tree, denies both first endorsement and later handoff. `OwnedEnrollmentEndorsement` also retains the original Engine identity, cancellation generation and observation deadline. Packets remain signature metadata; they cannot recreate the owned action or permit an Add.
 
 The portable all-leaf signature fixture signs A's public packet with its actual key and exercises B's genuine received action. It explicitly rejects passing B's opaque observation into A's action; it does not qualify an original-SDK A approval. Focused evidence is in `docs/device-sync-b-endorsement-verification.json`.
+
+The default-off Core endorsement transport uses kind38176. The original B action
+retains one MLS ciphertext and exact wrapped transport for retry; SQL failure
+rolls back the send ratchet, and cancellation wakes a stalled wrap. Fresh intake
+produces an opaque authenticated receipt without a chat event. A can sign its own
+approval and verify all occupied leaves only through its original local proposal
+lease, under the same protected selection. The result remains metadata; these
+Core methods do not perform App publication, Add admission or ABC settlement.

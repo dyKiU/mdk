@@ -15,7 +15,8 @@ use std::sync::{
 };
 use web_time::Instant;
 
-const PROTOCOL: &str = "whitenoise.experimental.enrollment-endorsement.v1";
+pub(crate) const ENDORSEMENT_KIND: u64 = 38176;
+pub(crate) const PROTOCOL: &str = "whitenoise.experimental.enrollment-endorsement.v1";
 const DOMAIN: &[u8] = b"whitenoise-private-enrollment-endorsement-v1\0";
 const MAX_PACKET_BYTES: usize = 2048;
 
@@ -26,6 +27,7 @@ fn denied() -> EngineError {
 pub(crate) struct Lifetime {
     generation: AtomicU64,
     closed: AtomicBool,
+    wake: Mutex<Option<std::task::Waker>>,
 }
 #[derive(Default)]
 pub(crate) struct EndorsementState {
@@ -33,6 +35,19 @@ pub(crate) struct EndorsementState {
     active: Mutex<Option<[u8; 32]>>,
 }
 impl Lifetime {
+    fn register_waker(&self, waker: &std::task::Waker) {
+        *self.wake.lock().unwrap_or_else(|error| error.into_inner()) = Some(waker.clone());
+    }
+    fn wake(&self) {
+        let waker = self
+            .wake
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        if let Some(waker) = waker {
+            waker.wake();
+        }
+    }
     pub(crate) fn is_open(&self) -> bool {
         !self.closed.load(Ordering::SeqCst)
     }
@@ -49,6 +64,7 @@ impl EndorsementState {
 impl Drop for EndorsementState {
     fn drop(&mut self) {
         self.lifetime.closed.store(true, Ordering::SeqCst);
+        self.lifetime.wake();
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -68,6 +84,29 @@ fn signing_input(packet: &Packet) -> Vec<u8> {
     bytes.extend_from_slice(&packet.binding_digest);
     bytes
 }
+/// Exact original-generation negative control. It can revoke, never restore.
+#[derive(Clone)]
+pub struct EnrollmentEndorsementCancellation {
+    owner: Weak<Lifetime>,
+    generation: u64,
+}
+impl EnrollmentEndorsementCancellation {
+    pub fn cancel(&self) {
+        if let Some(owner) = self.owner.upgrade() {
+            if let Some(next) = self.generation.checked_add(1) {
+                let _ = owner.generation.compare_exchange(
+                    self.generation,
+                    next,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                );
+            } else {
+                owner.closed.store(true, Ordering::SeqCst);
+            }
+            owner.wake();
+        }
+    }
+}
 /// One current engine's bounded explicit action. No Clone, Serde or constructor.
 /// A copied wire packet cannot reconstruct this existing-member continuation.
 pub struct OwnedEnrollmentEndorsement {
@@ -78,8 +117,16 @@ pub struct OwnedEnrollmentEndorsement {
     origin: cgka_traits::private_device_invite::PrivateInviteOrigin,
     settlement_generation: u64,
     wire: Vec<u8>,
+    ciphertext: Option<Vec<u8>>,
+    wrapped: Option<cgka_traits::TransportMessage>,
 }
 impl OwnedEnrollmentEndorsement {
+    pub fn cancellation_handle(&self) -> EnrollmentEndorsementCancellation {
+        EnrollmentEndorsementCancellation {
+            owner: self.owner.clone(),
+            generation: self.generation,
+        }
+    }
     fn live(&self) -> Result<Arc<Lifetime>, EngineError> {
         let owner = self.owner.upgrade().ok_or_else(denied)?;
         if owner.closed.load(Ordering::SeqCst)
@@ -95,6 +142,80 @@ impl OwnedEnrollmentEndorsement {
         self.live()?;
         Ok(&self.wire)
     }
+}
+/// Actual private MLS receipt; no Clone/Serde/constructor or enrollment authority.
+pub struct AuthenticatedEnrollmentEndorsement {
+    pub(crate) predecessor: cgka_traits::accepted_device_group_anchor::DeviceGroupAnchorRoster,
+    pub(crate) origin: cgka_traits::private_device_invite::PrivateInviteOrigin,
+    pub(crate) settlement_generation: u64,
+    pub(crate) deadline: Instant,
+    pub(crate) source_index: u32,
+    pub(crate) source_signer: [u8; 32],
+    pub(crate) wire: Vec<u8>,
+}
+pub(crate) fn received_observation(
+    content: &str,
+    index: u32,
+    signer: [u8; 32],
+    state: &cgka_traits::private_roster_settlement::PrivateSettlementState,
+    deadline: Instant,
+) -> Option<AuthenticatedEnrollmentEndorsement> {
+    if content.len() > MAX_PACKET_BYTES || Instant::now() >= deadline {
+        return None;
+    }
+    let packet: Packet = serde_json::from_str(content).ok()?;
+    if packet.protocol != PROTOCOL
+        || packet.source_index != index
+        || packet.source_signer != signer
+        || packet.binding_digest == [0; 32]
+        || packet.signature.len() != 64
+        || serde_json::to_string(&packet).ok()?.as_str() != content
+    {
+        return None;
+    }
+    Some(AuthenticatedEnrollmentEndorsement {
+        predecessor: state.anchor.successor.clone(),
+        origin: state.anchor.origin.clone(),
+        settlement_generation: state.generation,
+        deadline,
+        source_index: index,
+        source_signer: signer,
+        wire: content.as_bytes().to_vec(),
+    })
+}
+pub(crate) fn sign_packet<S: StorageProvider>(
+    engine: &Engine<S>,
+    current: &CandidateDeviceGroupSnapshot,
+    binding: [u8; 32],
+) -> Result<Vec<u8>, EngineError> {
+    let source_signer: [u8; 32] = engine
+        .identity
+        .signer
+        .public()
+        .try_into()
+        .map_err(|_| denied())?;
+    let own = current
+        .leaves
+        .iter()
+        .find(|leaf| leaf.signature_public_key.as_slice() == source_signer)
+        .ok_or_else(denied)?;
+    let mut packet = Packet {
+        protocol: PROTOCOL.into(),
+        source_index: own.leaf_index,
+        source_signer,
+        binding_digest: binding,
+        signature: Vec::new(),
+    };
+    packet.signature = engine
+        .identity
+        .signer
+        .sign(&signing_input(&packet))
+        .map_err(|_| denied())?;
+    let wire = serde_json::to_vec(&packet).map_err(|_| denied())?;
+    if wire.len() > MAX_PACKET_BYTES {
+        return Err(denied());
+    }
+    Ok(wire)
 }
 /// Portable all-leaf signature metadata, never an owner/SAS/admission constructor.
 pub struct AuthenticatedAllLeafEndorsements {
@@ -236,6 +357,8 @@ impl<S: StorageProvider> Engine<S> {
             origin,
             settlement_generation,
             wire,
+            ciphertext: None,
+            wrapped: None,
         })
     }
     /// Fresh local validation for later existing-member handoff, never wire restore.
@@ -274,7 +397,95 @@ impl<S: StorageProvider> Engine<S> {
             return Err(denied());
         }
         *active = None;
+        state.lifetime.wake();
         Ok(())
+    }
+    /// Encrypt the original B action once. A failed wrap retains exact cipher;
+    /// failed SQL rolls back the send ratchet. Cached retries recheck selection.
+    pub async fn wrap_private_enrollment_endorsement(
+        &mut self,
+        endorsement: &mut OwnedEnrollmentEndorsement,
+    ) -> Result<cgka_traits::TransportMessage, EngineError> {
+        use openmls::group::MlsGroup;
+        use openmls_traits::OpenMlsProvider;
+        use tls_codec::Serialize;
+        self.validate_owned_private_enrollment_endorsement(endorsement)?;
+        if let Some(wrapped) = &endorsement.wrapped {
+            return Ok(wrapped.clone());
+        }
+        let group_id = endorsement.predecessor.group_id.clone();
+        let ctx = self.storage.with_read_snapshot(|storage| {
+            let provider = crate::provider::EngineOpenMlsProvider::<S>::new(
+                &self.crypto,
+                storage.mls_storage(),
+            );
+            self.with_mls_group(&group_id, |mls| {
+                crate::group_lifecycle::build_group_context_snapshot(mls, &provider)
+            })
+        })?;
+        if endorsement.ciphertext.is_none() {
+            let payload = cgka_traits::app_event::MarmotAppEvent::new(
+                hex::encode(self.identity.self_id().as_slice()),
+                0,
+                ENDORSEMENT_KIND,
+                vec![],
+                String::from_utf8(endorsement.wire.clone()).map_err(|_| denied())?,
+            )
+            .encode()
+            .map_err(|_| denied())?;
+            if payload.len() > 16 * 1024 {
+                return Err(denied());
+            }
+            let encrypted = self.storage.with_transaction(|storage| {
+                self.validate_owned_private_enrollment_endorsement(endorsement)?;
+                let provider = crate::provider::EngineOpenMlsProvider::<S>::new(
+                    &self.crypto,
+                    storage.mls_storage(),
+                );
+                let mut group = MlsGroup::load(
+                    provider.storage(),
+                    &openmls::group::GroupId::from_slice(group_id.as_slice()),
+                )
+                .map_err(|_| denied())?
+                .ok_or_else(denied)?;
+                let cipher = group
+                    .create_message(&provider, &self.identity.signer, &payload)
+                    .map_err(|_| denied())?
+                    .tls_serialize_detached()
+                    .map_err(|_| denied())?;
+                endorsement.live()?;
+                Ok::<_, EngineError>(cipher)
+            });
+            self.mls_group_cache.forget_group(&group_id);
+            endorsement.ciphertext = Some(encrypted?);
+        }
+        let payload = cgka_traits::EncryptedPayload {
+            ciphertext: endorsement.ciphertext.as_ref().ok_or_else(denied)?.clone(),
+            aad: vec![],
+        };
+        let remaining = endorsement
+            .deadline
+            .saturating_duration_since(Instant::now());
+        let mut operation = self.peeler.wrap_group_message(&payload, &ctx);
+        let wrapping = std::future::poll_fn(|cx| {
+            if let Some(owner) = endorsement.owner.upgrade() {
+                owner.register_waker(cx.waker());
+            }
+            if let Err(error) = endorsement.live() {
+                return std::task::Poll::Ready(Err(error));
+            }
+            operation
+                .as_mut()
+                .poll(cx)
+                .map(|result| result.map_err(EngineError::Peeler))
+        });
+        let wrapped = crate::deadline::timeout(remaining, wrapping)
+            .await
+            .map_err(|_| denied())??;
+        self.validate_owned_private_enrollment_endorsement(endorsement)?;
+        let wrapped = crate::message_processor::route_wrapped_group_message(wrapped, &ctx);
+        endorsement.wrapped = Some(wrapped.clone());
+        Ok(wrapped)
     }
     /// Verify every occupied predecessor leaf once against actual authenticated
     /// public-tree keys. Completeness does not restore a live owner's approval.

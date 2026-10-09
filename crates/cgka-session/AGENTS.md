@@ -53,3 +53,7 @@ consent from its result. SDK context and all-leaf approval belong to the App own
 Private enrollment proposal preparation/wrapping are thin feature-only Engine
 forwards. Retain the opaque original-owner producer in App custody across retries;
 never rebuild it from request metadata, storage or an SDK context DTO.
+
+Endorsement wrapping/receipt draining and original local proposal signature/
+collection remain thin Core forwarders. Never reconstruct the original action
+from a wire packet or treat complete signatures as transition/join permission.

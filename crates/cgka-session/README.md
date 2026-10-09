@@ -134,3 +134,7 @@ feature-only thin Core forwarders. The caller retains the nonclone original-owne
 producer; Session supplies no SDK evidence, transport policy, Add or approval.
 
 The experimental Session endorsement methods are thin Core forwards: source-bound received-artifact validation, explicit endorsement creation, fresh owned-endorsement validation and negative cancellation. They accept the actual opaque Core observation and retain Core ownership checks; they provide no transport, serialized permission, native proof or admission bypass.
+
+Feature-only endorsement wrapping, actual receipt draining and original local
+proposal signature/collection are thin Core forwards. The caller retains opaque
+original actions; Session provides no SDK evidence or transition permission.

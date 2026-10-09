@@ -1,0 +1,141 @@
+{
+  "format": 1,
+  "base_commit": "8249ac8fbe7891831f7181c1542439afc0952c1e",
+  "scope": "Core frozen B endorsement wrapping/actual private intake and original local proposal signature/all-leaf metadata collection; thin Session forwards. App B publication, C admission and ABC settlement remain absent.",
+  "toolchain": "Rust1.97.1 / M5 / debug0 / jobs2 / testthreads4 / FD4096 / reused MdkRecipientCollectionTargetM5",
+  "source_manifest": {
+    "remote": "/Users/pj/project/build/mdk-endorsement-core-v2-input.json",
+    "sha256": "5e3be5cfa464f76d9ff1b71be86cef6661d6ed2ade4d095bf0cf37a67fa43531",
+    "paths": 2342,
+    "compiled_delta_sha256": {
+      "crates/cgka-engine/src/private_enrollment_endorsement.rs": "7d2a8c344a349218b3feebc0798ba91194b4fbb5f667ef19e8675ed3f4699d3f",
+      "crates/cgka-engine/src/private_enrollment_request.rs": "083f254e21a9f34e77c6770c5e1e41901cea52a022e522c2b2353d8578b1f134",
+      "crates/cgka-engine/src/private_enrollment_request/producer.rs": "781ca770d1b758b765a70592f2d42dabfba009e707d5678c6d9a5e9448c7b3e9",
+      "crates/cgka-engine/src/private_roster_settlement_tests.rs": "f7f546985853f82e79afbdfe9b927176f4210a9d842aec87097c4508fdd4891c",
+      "crates/cgka-session/src/lib.rs": "81fc7c7f2ba981aa2d81761d51c11b5277d5c42801c90992d45a930c55c12059"
+    },
+    "verification": "Every tracked input hash checked before and after every terminal gate; compiled changes independently match local candidate."
+  },
+  "qualification": [
+    {
+      "name": "cancel",
+      "exit_code": 0,
+      "seconds": 8.41,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "d60f7674acfac4c97c0fe6b183b9cb0299e72977c964de6c80b8c53cd66b24ea"
+    },
+    {
+      "name": "await",
+      "exit_code": 0,
+      "seconds": 2.92,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "7056481434f89fed6dec57807228f8f936e85028875a04148b7c93323ce2f9f4"
+    },
+    {
+      "name": "local",
+      "exit_code": 0,
+      "seconds": 3.06,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "57730a1c9dda38d862d57bef067ded35e614264f143bcd0215ddc569229f6f26"
+    },
+    {
+      "name": "sdk-owner",
+      "exit_code": 0,
+      "seconds": 55.1,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "ef4b9a5bf92e724db1e27ff3708510d5be09e56048cb637b58f3e1d3d88ca63f"
+    },
+    {
+      "name": "feature-clippy",
+      "exit_code": 0,
+      "seconds": 0.75,
+      "counts": [],
+      "sha256": "2a7f2bc267ab84a783d3e33a26c82086964c4f5a781be885b3a698fdde636801"
+    },
+    {
+      "name": "default",
+      "exit_code": 0,
+      "seconds": 6.45,
+      "counts": [],
+      "sha256": "6e99391854bf6f48c8ccc1e195cb946f972ace1aab4c89b0a58a7ec202626b48"
+    },
+    {
+      "name": "fmt",
+      "exit_code": 0,
+      "seconds": 4.18,
+      "counts": [],
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "historical_cohort": {
+    "source_manifest_sha256": "179c8b05f45cc6b05363752a61f49a581f7edf4b6bd6d6059d9f70b6eb7e3fbc",
+    "results": {
+      "source_files": 2342,
+      "runs": [
+        {
+          "name": "core-family",
+          "exit_code": 0,
+          "seconds": 317.36,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 47,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "6862528391d2564017d2133daef99ad4c90012814fe6eac8d80378337ef0ecd5"
+        },
+        {
+          "name": "session",
+          "exit_code": 101,
+          "seconds": 1.84,
+          "counts": [],
+          "sha256": "2081aa2457881381525cb1f22972e4329c7abb0cda621f6573bbe0f94c7123f2"
+        }
+      ]
+    },
+    "classification": "Prior-source Core47 passed. Production Session compile failed because futures was dev/WASM-only. Final source replaces AtomicWaker with std Mutex<Option<Waker>>; focused changed controls/native gates above qualify that change, not an unchanged47 repeat."
+  },
+  "native_preflight": {
+    "initial_log_sha256": "cbd80cd4800755775ac63207bf801f81344e4e95214518373b18bf5dfc11c3ec",
+    "initial_failure": "Clippy large_enum_variant624-byte request vs168-byte receipt; boxed request variant.",
+    "corrected_log_sha256": "371a9c5a456cb665dfa661c5ee6c46c7a960000b4afb3fc4d14b844b5301b7bb",
+    "corrected_exit_code": 0
+  },
+  "limits": [
+    "Core policy fixtures are injected trusted-policy tests, not new stock-SDK signature/collection proof. The existing actual App SDK/B-custody regression passed separately.",
+    "No full App/workspace suite, native artifact adoption, network B publication, third-device transition or history qualification.",
+    "The joint Core request/endorsement queue is bounded128. App retention/later-arrival liveness remains a separate required slice.",
+    "All-leaf output is authenticated metadata, never an Add, B transition, C admission or SDK consent constructor.",
+    "Prior cohort tests overlap final focused checks; do not add counts as unique tests."
+  ]
+}

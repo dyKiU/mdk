@@ -30,6 +30,7 @@ pub struct OwnedLocalEnrollmentProposal {
     payload: Vec<u8>,
     ciphertext: Option<Vec<u8>>,
     wrapped: Option<TransportMessage>,
+    own_endorsement: Option<Vec<u8>>,
 }
 impl OwnedLocalEnrollmentProposal {
     pub fn binding_digest(&mut self) -> Result<[u8; 32], EngineError> {
@@ -196,10 +197,11 @@ impl<S: StorageProvider> Engine<S> {
             payload,
             ciphertext: None,
             wrapped: None,
+            own_endorsement: None,
         })
     }
 
-    fn check_local_enrollment_proposal(
+    pub(crate) fn check_local_enrollment_proposal(
         &self,
         proposal: &mut OwnedLocalEnrollmentProposal,
     ) -> Result<(), EngineError> {
@@ -241,6 +243,99 @@ impl<S: StorageProvider> Engine<S> {
         proposal.check_live()
     }
 
+    /// The local signature comes only from the original trusted SDK lease.
+    /// Own MLS echoes and remote received-request objects cannot issue it.
+    pub fn endorse_owned_local_enrollment_proposal(
+        &self,
+        proposal: &mut OwnedLocalEnrollmentProposal,
+    ) -> Result<Vec<u8>, EngineError> {
+        self.check_local_enrollment_proposal(proposal)?;
+        if let Some(wire) = &proposal.own_endorsement {
+            return Ok(wire.clone());
+        }
+        let binding = proposal.binding_digest()?;
+        let wire = crate::private_enrollment_endorsement::sign_packet(
+            self,
+            &proposal.predecessor,
+            binding,
+        )?;
+        self.check_local_enrollment_proposal(proposal)?;
+        proposal.own_endorsement = Some(wire.clone());
+        Ok(wire)
+    }
+    /// All-current-leaf authentication under the live original local proposal.
+    /// The result is metadata; it cannot construct Add, recipient or B authority.
+    pub fn authenticate_owned_local_enrollment_endorsements(
+        &self,
+        proposal: &mut OwnedLocalEnrollmentProposal,
+        received: &[&crate::private_enrollment_endorsement::AuthenticatedEnrollmentEndorsement],
+    ) -> Result<crate::private_enrollment_endorsement::AuthenticatedAllLeafEndorsements, EngineError>
+    {
+        self.check_local_enrollment_proposal(proposal)?;
+        if received.len().checked_add(1) != Some(proposal.predecessor.leaves.len()) {
+            return Err(unavailable());
+        }
+        let own = self.endorse_owned_local_enrollment_proposal(proposal)?;
+        let settled = self
+            .validated_settled_device_roster(&proposal.predecessor.group_id)?
+            .ok_or_else(unavailable)?;
+        for receipt in received {
+            if Instant::now() >= receipt.deadline
+                || receipt.origin != *settled.origin()
+                || receipt.settlement_generation != proposal.selection_generation
+                || receipt.predecessor.epoch != proposal.predecessor.epoch
+                || receipt.predecessor.epoch_authenticator_digest
+                    != proposal.predecessor.epoch_authenticator_digest
+                || receipt.predecessor.leaves.len() != proposal.predecessor.leaves.len()
+                || !receipt
+                    .predecessor
+                    .leaves
+                    .iter()
+                    .zip(&proposal.predecessor.leaves)
+                    .all(|(a, b)| {
+                        a.leaf_index == b.leaf_index
+                            && a.signature_public_key.as_slice() == b.signature_public_key
+                    })
+                || receipt.source_signer == proposal.frame.approver
+                || !proposal.predecessor.leaves.iter().any(|leaf| {
+                    leaf.leaf_index == receipt.source_index
+                        && leaf.signature_public_key.as_slice() == receipt.source_signer
+                })
+            {
+                return Err(unavailable());
+            }
+        }
+        let encoded = &proposal
+            .frame
+            .proposal
+            .as_ref()
+            .ok_or_else(unavailable)?
+            .artifact_base64;
+        let artifact = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|_| unavailable())?;
+        let authenticated = self.validate_private_device_predecessor(
+            &artifact,
+            &proposal.predecessor.account,
+            &proposal.predecessor.group_id,
+            proposal.predecessor.epoch,
+            &proposal.predecessor.leaves,
+        )?;
+        if authenticated.artifact_digest() != &proposal.frame.artifact_digest {
+            return Err(unavailable());
+        }
+        let mut packets = Vec::with_capacity(received.len() + 1);
+        packets.push(own.as_slice());
+        packets.extend(received.iter().map(|receipt| receipt.wire.as_slice()));
+        let binding = proposal.binding_digest()?;
+        let result = self.authenticate_all_private_enrollment_endorsements(
+            &authenticated,
+            &binding,
+            &packets,
+        )?;
+        self.check_local_enrollment_proposal(proposal)?;
+        Ok(result)
+    }
     /// Commit the actual send ratchet once and retain exact ciphertext across
     /// transient wrapping retries. Successful wrapping remains control metadata;
     /// publication and any later Add require their own original-owner checks.

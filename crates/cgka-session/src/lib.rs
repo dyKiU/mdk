@@ -1371,6 +1371,45 @@ impl AccountDeviceSession {
         })
     }
 
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn wrap_private_enrollment_endorsement(
+        &mut self,
+        endorsement: &mut cgka_engine::private_enrollment_endorsement::OwnedEnrollmentEndorsement,
+    ) -> Result<TransportMessage, EngineError> {
+        self.engine
+            .wrap_private_enrollment_endorsement(endorsement)
+            .await
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn drain_authenticated_enrollment_endorsements(
+        &mut self,
+    ) -> Result<
+        Vec<cgka_engine::private_enrollment_endorsement::AuthenticatedEnrollmentEndorsement>,
+        EngineError,
+    > {
+        self.engine.drain_authenticated_enrollment_endorsements()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn endorse_owned_local_enrollment_proposal(
+        &self,
+        proposal: &mut cgka_engine::private_enrollment_request::OwnedLocalEnrollmentProposal,
+    ) -> Result<Vec<u8>, EngineError> {
+        self.engine
+            .endorse_owned_local_enrollment_proposal(proposal)
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn authenticate_owned_local_enrollment_endorsements(
+        &self,
+        proposal: &mut cgka_engine::private_enrollment_request::OwnedLocalEnrollmentProposal,
+        received: &[&cgka_engine::private_enrollment_endorsement::AuthenticatedEnrollmentEndorsement],
+    ) -> Result<
+        cgka_engine::private_enrollment_endorsement::AuthenticatedAllLeafEndorsements,
+        EngineError,
+    > {
+        self.engine
+            .authenticate_owned_local_enrollment_endorsements(proposal, received)
+    }
+
     /// Drain ephemeral authenticated enrollment declarations, never permission.
     #[cfg(feature = "experimental-device-sync")]
     pub fn drain_authenticated_enrollment_requests(

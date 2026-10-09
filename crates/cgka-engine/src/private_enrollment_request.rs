@@ -170,13 +170,17 @@ struct IntakeState {
 #[derive(Default)]
 pub(crate) struct EnrollmentIntake {
     state: Mutex<IntakeState>,
-    observations: Mutex<VecDeque<AuthenticatedEnrollmentRequest>>,
+    observations: Mutex<VecDeque<EnrollmentObservation>>,
+}
+pub(crate) enum EnrollmentObservation {
+    Request(Box<AuthenticatedEnrollmentRequest>),
+    Endorsement(crate::private_enrollment_endorsement::AuthenticatedEnrollmentEndorsement),
 }
 pub(crate) struct EnrollmentEffect {
     pub(crate) message_id: MessageId,
     delivery_id: Option<MessageId>,
     generation: u64,
-    observation: Option<AuthenticatedEnrollmentRequest>,
+    observation: Option<EnrollmentObservation>,
 }
 fn unavailable() -> EngineError {
     EngineError::Backend("private enrollment metadata intake unavailable".into())
@@ -302,12 +306,11 @@ impl EnrollmentIntake {
 
     pub(crate) fn reserve(
         &self,
-    ) -> Result<std::sync::MutexGuard<'_, VecDeque<AuthenticatedEnrollmentRequest>>, EngineError>
-    {
+    ) -> Result<std::sync::MutexGuard<'_, VecDeque<EnrollmentObservation>>, EngineError> {
         self.observations.lock().map_err(|_| unavailable())
     }
     pub(crate) fn check_capacity(
-        reservation: &VecDeque<AuthenticatedEnrollmentRequest>,
+        reservation: &VecDeque<EnrollmentObservation>,
         effects: &[EnrollmentEffect],
     ) -> Result<(), EngineError> {
         if reservation
@@ -374,7 +377,7 @@ impl EnrollmentIntake {
     /// observations or reconstruct any future live-delivery identity.
     pub(crate) fn finish(
         &self,
-        reservation: &mut VecDeque<AuthenticatedEnrollmentRequest>,
+        reservation: &mut VecDeque<EnrollmentObservation>,
         effects: Vec<EnrollmentEffect>,
     ) {
         let mut slot = match self.state.lock() {
@@ -516,7 +519,10 @@ pub(crate) fn seal<S: StorageProvider>(
 pub(crate) fn is_request_payload(payload: &[u8], sender: Option<&MemberId>) -> bool {
     let Some(sender) = sender else { return false };
     if let Ok(event) = crate::app_payload::validate_app_payload_for_sender(payload, sender)
-        && event.kind == REQUEST_KIND
+        && matches!(
+            event.kind,
+            REQUEST_KIND | crate::private_enrollment_endorsement::ENDORSEMENT_KIND
+        )
     {
         return true;
     }
@@ -528,8 +534,16 @@ pub(crate) fn is_request_payload(payload: &[u8], sender: Option<&MemberId>) -> b
         crate::app_payload::validate_app_payload_for_sender(payload, sender)
             .ok()
             .is_some_and(|event| {
-                serde_json::from_str::<Hint>(&event.content)
-                    .is_ok_and(|hint| hint.protocol.as_deref() == Some(REQUEST_PROTOCOL))
+                serde_json::from_str::<Hint>(&event.content).is_ok_and(|hint| {
+                    matches!(
+                        hint.protocol.as_deref(),
+                        Some(
+                            REQUEST_PROTOCOL
+                                | PROPOSAL_PROTOCOL
+                                | crate::private_enrollment_endorsement::PROTOCOL
+                        )
+                    )
+                })
             })
     }
 }
@@ -565,6 +579,17 @@ pub(crate) fn stage(
     let Ok(event) = crate::app_payload::validate_app_payload_for_sender(payload, sender) else {
         return effect;
     };
+    if event.kind == crate::private_enrollment_endorsement::ENDORSEMENT_KIND {
+        effect.observation = crate::private_enrollment_endorsement::received_observation(
+            &event.content,
+            index,
+            signer,
+            &state,
+            observed_deadline,
+        )
+        .map(EnrollmentObservation::Endorsement);
+        return effect;
+    }
     if event.kind != REQUEST_KIND {
         return effect;
     }
@@ -608,16 +633,18 @@ pub(crate) fn stage(
     {
         return effect;
     }
-    effect.observation = Some(AuthenticatedEnrollmentRequest {
-        source_index: index,
-        source_signer: signer,
-        message_id: message_id.clone(),
-        predecessor: tree.clone(),
-        protected_origin: state.anchor.origin.clone(),
-        settlement_generation: generation,
-        frame,
-        observed_deadline,
-    });
+    effect.observation = Some(EnrollmentObservation::Request(Box::new(
+        AuthenticatedEnrollmentRequest {
+            source_index: index,
+            source_signer: signer,
+            message_id: message_id.clone(),
+            predecessor: tree.clone(),
+            protected_origin: state.anchor.origin.clone(),
+            settlement_generation: generation,
+            frame,
+            observed_deadline,
+        },
+    )));
     effect
 }
 impl<S: StorageProvider + 'static> Engine<S> {
@@ -665,13 +692,44 @@ impl<S: StorageProvider + 'static> Engine<S> {
     pub fn drain_authenticated_enrollment_requests(
         &mut self,
     ) -> Result<Vec<AuthenticatedEnrollmentRequest>, EngineError> {
-        Ok(self
+        let mut queue = self
             .enrollment_intake
             .observations
             .lock()
-            .map_err(|_| unavailable())?
-            .drain(..)
-            .collect())
+            .map_err(|_| unavailable())?;
+        let mut retained = VecDeque::new();
+        let mut requests = Vec::new();
+        for observation in queue.drain(..) {
+            match observation {
+                EnrollmentObservation::Request(request) => requests.push(*request),
+                other => retained.push_back(other),
+            }
+        }
+        *queue = retained;
+        Ok(requests)
+    }
+    /// Newly received source-authenticated endorsement metadata, never consent.
+    pub fn drain_authenticated_enrollment_endorsements(
+        &mut self,
+    ) -> Result<
+        Vec<crate::private_enrollment_endorsement::AuthenticatedEnrollmentEndorsement>,
+        EngineError,
+    > {
+        let mut queue = self
+            .enrollment_intake
+            .observations
+            .lock()
+            .map_err(|_| unavailable())?;
+        let mut retained = VecDeque::new();
+        let mut endorsements = Vec::new();
+        for observation in queue.drain(..) {
+            match observation {
+                EnrollmentObservation::Endorsement(endorsement) => endorsements.push(endorsement),
+                other => retained.push_back(other),
+            }
+        }
+        *queue = retained;
+        Ok(endorsements)
     }
 }
 
