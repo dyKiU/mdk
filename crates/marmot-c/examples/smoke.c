@@ -36,6 +36,9 @@ _Static_assert(MARMOT_REPORT_REASON_SPAM == 4, "report reason ABI value");
 _Static_assert(MARMOT_REPORT_REASON_IMPERSONATION == 5, "report reason ABI value");
 _Static_assert(MARMOT_REPORT_REASON_OTHER == 6, "report reason ABI value");
 
+_Static_assert(MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED == 96, "device unsupported ABI");
+_Static_assert(MARMOT_STATUS_DEVICE_LINKING_RUNTIME_UNAVAILABLE == 101, "device runtime ABI");
+
 static int failures = 0;
 
 static void ok(const char *what) {
@@ -182,6 +185,26 @@ int main(int argc, char **argv) {
         return 1;
     }
     ok("client constructed");
+
+    /* Default builds expose stable verification shapes without reserving a purpose. */
+    struct MarmotDeviceLinkingCapabilities *device_caps = NULL;
+    st = marmot_device_linking_capabilities(client, &device_caps);
+    check(st == MARMOT_STATUS_OK && device_caps != NULL, "device capability ABI");
+    if (device_caps != NULL) {
+        check(!device_caps->verification_supported && !device_caps->enrollment_supported,
+              "default device capabilities disabled");
+    }
+    marmot_device_linking_capabilities_free(device_caps);
+    struct MarmotDeviceLinkingSession *device_session = NULL;
+    st = marmot_begin_device_linking_session(client, "missing", &device_session);
+    check(st == MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED && device_session == NULL,
+          "default device factory typed Unsupported before lookup");
+    marmot_device_linking_session_free(device_session);
+    marmot_device_linking_subscription_free(NULL);
+    marmot_device_linking_snapshot_free(NULL);
+    marmot_device_linking_outgoing_packet_list_free(NULL);
+    marmot_device_linking_bytes_free(NULL);
+
 
     st = marmot_record_host_performance(client,
         MARMOT_HOST_PERFORMANCE_OPERATION_CONVERSATION_COMPOSER_READY, 125,

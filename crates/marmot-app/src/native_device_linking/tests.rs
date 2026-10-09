@@ -168,4 +168,138 @@ mod actual {
             runtime.shutdown_and_close().await.unwrap();
         }
     }
+
+    #[tokio::test]
+    async fn native_drop_closes_observation_and_allows_fresh_original_purpose() {
+        let (_dirs, runtimes) = workers().await;
+        let manager = runtimes[1].accounts();
+        let session = manager.begin_device_linking_session("test").await.unwrap();
+        let old_setup = session.setup_packet();
+        let subscription = session.subscribe();
+        subscription.next().await.unwrap();
+        drop(session);
+        let closed = tokio::time::timeout(std::time::Duration::from_secs(2), subscription.next())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(closed.phase, DeviceLinkingPhase::Cancelled);
+        assert!(closed.decimals.is_none());
+        let next = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                if let Ok(next) = manager.begin_device_linking_session("test").await {
+                    break next;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_ne!(next.setup_packet(), old_setup);
+        assert_eq!(
+            next.snapshot().await.unwrap().phase,
+            DeviceLinkingPhase::AwaitingSetup
+        );
+        next.cancel().await.unwrap();
+        for runtime in runtimes {
+            runtime.shutdown_and_close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn native_subscription_close_wakes_both_change_and_receiver_admission() {
+        let (_dirs, runtimes) = workers().await;
+        let session = runtimes[1]
+            .accounts()
+            .begin_device_linking_session("test")
+            .await
+            .unwrap();
+        let sub = Arc::new(session.subscribe());
+        sub.next().await.unwrap();
+        let first = {
+            let sub = sub.clone();
+            tokio::spawn(async move { sub.next().await })
+        };
+        tokio::task::yield_now().await;
+        let second = {
+            let sub = sub.clone();
+            tokio::spawn(async move { sub.next().await })
+        };
+        tokio::task::yield_now().await;
+        sub.close();
+        for pending in [first, second] {
+            assert!(matches!(
+                tokio::time::timeout(std::time::Duration::from_secs(2), pending)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                Err(DeviceLinkingError::Closed)
+            ));
+        }
+        assert_eq!(
+            session.snapshot().await.unwrap().phase,
+            DeviceLinkingPhase::AwaitingSetup
+        );
+        session.cancel().await.unwrap();
+        for runtime in runtimes {
+            runtime.shutdown_and_close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn native_original_worker_expiry_cannot_revive_terminal_session() {
+        let (_dirs, runtimes) = workers().await;
+        let manager = runtimes[1].accounts();
+        let session = manager.begin_device_linking_session("test").await.unwrap();
+        let old_setup = session.setup_packet();
+        manager
+            .maintain_device_linking_at_for_test(
+                "test",
+                std::time::Instant::now() + std::time::Duration::from_secs(3600),
+            )
+            .await
+            .unwrap();
+        let terminal = session.snapshot().await.unwrap();
+        assert!(matches!(
+            terminal.phase,
+            DeviceLinkingPhase::Expired
+                | DeviceLinkingPhase::Cancelled
+                | DeviceLinkingPhase::Failed
+        ));
+        assert!(terminal.decimals.is_none());
+        assert!(matches!(
+            session.confirm_comparison(terminal.revision).await,
+            Err(DeviceLinkingError::Closed)
+        ));
+        assert!(matches!(
+            session.outgoing_packets().await,
+            Err(DeviceLinkingError::Closed)
+        ));
+        let next = manager.begin_device_linking_session("test").await.unwrap();
+        assert_ne!(next.setup_packet(), old_setup);
+        assert_eq!(session.snapshot().await.unwrap(), terminal);
+        next.cancel().await.unwrap();
+        for runtime in runtimes {
+            runtime.shutdown_and_close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn native_shutdown_closes_original_session_without_a_new_worker() {
+        let (_dirs, runtimes) = workers().await;
+        let manager = runtimes[1].accounts();
+        let session = manager.begin_device_linking_session("test").await.unwrap();
+        runtimes[1].shutdown_and_close().await.unwrap();
+        let terminal = session.snapshot().await.unwrap();
+        assert!(matches!(
+            terminal.phase,
+            DeviceLinkingPhase::Cancelled | DeviceLinkingPhase::Failed
+        ));
+        assert!(matches!(
+            session.continue_linking(terminal.revision).await,
+            Err(DeviceLinkingError::Closed)
+        ));
+        assert!(manager.begin_device_linking_session("test").await.is_err());
+        assert_eq!(session.snapshot().await.unwrap(), terminal);
+        runtimes[0].shutdown_and_close().await.unwrap();
+    }
 }

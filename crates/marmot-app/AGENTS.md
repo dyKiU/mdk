@@ -300,10 +300,11 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
 
 - `experimental-device-sync`: private stock Matrix SAS adapter in `src/device_linking.rs`
   and synthetic tests in `src/device_linking/tests.rs`. Default off; no enrollment,
-  history authorization, native bindings, or adopted Marmot framing. Verified results
+  history authorization, native enrollment, or adopted Marmot framing. Verified results
   remain internal and one-shot. `device_linking/owner.rs` couples real SAS with
   storage 104 restart/terminal fences. Private verifier commands run through the
-  serial account worker; native bindings and roster enrollment remain absent.
+  serial account worker; native verification bindings forward opaque App sessions,
+  while native roster enrollment remains gated.
   Its fixed monotonic deadline starts before reservation storage/setup and bounds
   every SDK operation; a delayed setup or request/response must never extend it.
   `lib.rs` successful exclusive local-client open abandons pending durable attempts
