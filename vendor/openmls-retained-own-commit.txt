@@ -1,0 +1,12 @@
+tree bca033984a7f587104239134cb24a776a8628812
+parent 410b6be9c308f996c87b0803fda010da4d57b4a8
+author dyKiU <dykui@protonmail.com> 1791500759 +0100
+committer dyKiU <dykui@protonmail.com> 1791500759 +0100
+gpgsig -----BEGIN SSH SIGNATURE-----
+ U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgtLMTS9U21wpIzWAY9j+U9IkBOf
+ F28Vrq0LgeNekY/egAAAADZ2l0AAAAAAAAAAZzaGE1MTIAAABTAAAAC3NzaC1lZDI1NTE5
+ AAAAQCWLBQatyXvxtwOMBxF8XYaL8GtV+lWc+nKz7KvVswZAgY/ev1TFWfPbhwtfccHqZ6
+ TTHG3wz/CKwWu8QzrtgwU=
+ -----END SSH SIGNATURE-----
+
+Preserve stock validation for legacy own commit echoes
