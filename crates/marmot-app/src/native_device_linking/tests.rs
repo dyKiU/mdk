@@ -66,6 +66,79 @@ mod actual {
     }
 
     #[tokio::test]
+    async fn native_original_recipient_observation_survives_actual_sdk_handoff() {
+        let (_dirs, runtimes) = workers().await;
+        let manager = runtimes[1].accounts();
+        let c = manager.begin_device_linking_session("test").await.unwrap();
+        let a = runtimes[0]
+            .accounts()
+            .approve_device_linking_session("test", c.setup_packet(), None)
+            .await
+            .unwrap();
+        c.receive_setup_packet(a.setup_packet()).await.unwrap();
+        for _ in 0..8 {
+            drain(&a, &c).await;
+            drain(&c, &a).await;
+        }
+        let ac = a.snapshot().await.unwrap();
+        let cc = c.snapshot().await.unwrap();
+        assert_eq!(ac.phase, DeviceLinkingPhase::ComparisonAvailable);
+        assert_eq!(ac.decimals, cc.decimals);
+        a.confirm_comparison(ac.revision).await.unwrap();
+        c.confirm_comparison(cc.revision).await.unwrap();
+        for _ in 0..8 {
+            drain(&a, &c).await;
+            drain(&c, &a).await;
+        }
+        let verified = c.snapshot().await.unwrap();
+        assert_eq!(
+            verified.phase,
+            DeviceLinkingPhase::VerificationCompleteEnrollmentPending
+        );
+        // The scoped internal actor command takes this same genuine SDK result.
+        // It does not join a group, mint a new proof or reconstruct from SQL.
+        let scope = c.original_scope_for_test().clone();
+        manager
+            .arm_singleton_device_welcome("test", &scope)
+            .await
+            .unwrap();
+        let retained = c.snapshot().await.unwrap();
+        assert_eq!(
+            retained.phase,
+            DeviceLinkingPhase::VerificationCompleteEnrollmentPending,
+            "native observation must follow the original live guard after SDK custody moves"
+        );
+        assert!(
+            retained.decimals.is_none(),
+            "consumed comparison data must not be reconstructed"
+        );
+        assert!(matches!(
+            c.continue_linking(retained.revision).await,
+            Err(DeviceLinkingError::NotReady)
+        ));
+        assert!(!manager.device_linking_capabilities().enrollment_supported);
+        c.cancel().await.unwrap();
+        assert_eq!(
+            c.snapshot().await.unwrap().phase,
+            DeviceLinkingPhase::Cancelled
+        );
+        let fresh = manager.begin_device_linking_session("test").await.unwrap();
+        assert!(
+            c.cancel().await.is_err(),
+            "old scope cannot cancel the fresh reservation"
+        );
+        assert_eq!(
+            fresh.snapshot().await.unwrap().phase,
+            DeviceLinkingPhase::AwaitingSetup
+        );
+        fresh.cancel().await.unwrap();
+        a.cancel().await.unwrap();
+        for runtime in runtimes {
+            runtime.shutdown_and_close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn opaque_native_sessions_complete_real_sdk_with_revision_bound_human_actions() {
         let (_dirs, runtimes) = workers().await;
         let c = runtimes[1]

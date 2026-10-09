@@ -174,6 +174,13 @@ impl AccountManager {
     }
 }
 impl DeviceLinkingSession {
+    // Test inspection of the original actor-owned identity, never a native API
+    // or a constructor for a proof, scope or continuation.
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn original_scope_for_test(&self) -> &PurposeAttemptScope {
+        &self.inner.scope
+    }
+
     fn new(
         manager: AccountManager,
         account: String,
