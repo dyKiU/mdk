@@ -442,5 +442,8 @@ Session operations block through the callback-safe runtime bridge.
 returns TIMEOUT with NULL output and consumes no update. Explicit close wakes the
 wait with DEVICE_LINKING_CLOSED; close does not free the stream. The C statuses
 96–101 map the six typed device-linking errors, including Unsupported, NotReady
-and StaleRevision; existing numeric statuses remain unchanged. Enrollment remains
-unavailable even after VerificationCompleteEnrollmentPending.
+and StaleRevision; existing numeric statuses remain unchanged. Feature builds
+accept revision-bound singleton continuation after genuine verification, using
+the original actor-owned actions. Enrollment capability remains false until the
+full public three-device flow qualifies. VerificationCompleteEnrollmentPending
+alone does not establish membership or synchronized chat/history.

@@ -66,6 +66,121 @@ mod actual {
     }
 
     #[tokio::test]
+    async fn native_public_continuation_settles_actual_original_pair_over_live_relay() {
+        use cgka_traits::StorageProvider;
+        use cgka_traits::private_roster_settlement::PrivateSettlementPhase;
+
+        let relay =
+            nostr_relay_builder::LocalRelay::new(nostr_relay_builder::RelayBuilder::default());
+        relay.run().await.unwrap();
+        let url = relay.url().await.to_string();
+        let keys = nostr::prelude::Keys::generate();
+        let dirs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+        let apps = std::array::from_fn::<_, 2, _>(|index| {
+            AccountHome::open(dirs[index].path())
+                .import_account("test", &keys.secret_key().to_secret_hex())
+                .unwrap();
+            MarmotApp::with_relay(dirs[index].path(), &url)
+        });
+        let runtimes = apps.clone().map(MarmotAppRuntime::new);
+        for runtime in &runtimes {
+            runtime.reconcile_accounts().await.unwrap();
+        }
+        let c = runtimes[1]
+            .accounts()
+            .begin_device_linking_session("test")
+            .await
+            .unwrap();
+        let initial = c.snapshot().await.unwrap();
+        assert!(matches!(
+            c.continue_linking(initial.revision).await,
+            Err(DeviceLinkingError::NotReady)
+        ));
+        let a = runtimes[0]
+            .accounts()
+            .approve_device_linking_session("test", c.setup_packet(), None)
+            .await
+            .unwrap();
+        c.receive_setup_packet(a.setup_packet()).await.unwrap();
+        for _ in 0..8 {
+            drain(&a, &c).await;
+            drain(&c, &a).await;
+        }
+        let ac = a.snapshot().await.unwrap();
+        let cc = c.snapshot().await.unwrap();
+        assert_eq!(ac.phase, DeviceLinkingPhase::ComparisonAvailable);
+        assert_eq!(ac.decimals, cc.decimals);
+        a.confirm_comparison(ac.revision).await.unwrap();
+        c.confirm_comparison(cc.revision).await.unwrap();
+        for _ in 0..8 {
+            drain(&a, &c).await;
+            drain(&c, &a).await;
+        }
+        let verified_c = c.snapshot().await.unwrap();
+        let verified_a = a.snapshot().await.unwrap();
+        assert_eq!(
+            verified_c.phase,
+            DeviceLinkingPhase::VerificationCompleteEnrollmentPending
+        );
+        assert_eq!(
+            verified_a.phase,
+            DeviceLinkingPhase::VerificationCompleteEnrollmentPending
+        );
+        // Only the public opaque sessions continue these exact SDK actions.
+        // No internal scope, proof-taking, recipient arm or injected grant.
+        assert!(matches!(
+            c.continue_linking(verified_c.revision + 1).await,
+            Err(DeviceLinkingError::StaleRevision)
+        ));
+        c.continue_linking(verified_c.revision)
+            .await
+            .expect("the original verified native recipient must continue enrollment");
+        c.continue_linking(c.snapshot().await.unwrap().revision)
+            .await
+            .expect("a duplicate continuation must preserve the same original owner");
+        a.continue_linking(verified_a.revision)
+            .await
+            .expect("the original verified native approver must continue enrollment");
+
+        let result = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                if apps.iter().all(|app| {
+                    let storage = app.account_storage("test").unwrap();
+                    let store = storage.private_roster_settlement_storage().unwrap();
+                    store.read_round().unwrap().is_some_and(|round| {
+                        round.phase == PrivateSettlementPhase::Completed
+                            && round.anchor.successor.leaves.len() == 2
+                            && store.read_facts().unwrap().len() == 2
+                    })
+                }) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        let hidden = apps
+            .iter()
+            .all(|app| app.load_state("test").unwrap().groups.is_empty());
+        let recipient_revision = c.snapshot().await.unwrap().revision;
+        c.cancel().await.unwrap();
+        assert_eq!(
+            c.snapshot().await.unwrap().phase,
+            DeviceLinkingPhase::Cancelled
+        );
+        assert!(matches!(
+            c.continue_linking(recipient_revision).await,
+            Err(DeviceLinkingError::Closed)
+        ));
+        for runtime in runtimes {
+            runtime.shutdown_and_close().await.unwrap();
+        }
+        relay.shutdown();
+        assert!(hidden, "device-control enrollment must not project a chat");
+        result.expect("public native continuation must settle both actual original device leaves");
+    }
+
+    #[tokio::test]
     async fn native_original_recipient_observation_survives_actual_sdk_handoff() {
         let (_dirs, runtimes) = workers().await;
         let manager = runtimes[1].accounts();
@@ -112,10 +227,6 @@ mod actual {
             retained.decimals.is_none(),
             "consumed comparison data must not be reconstructed"
         );
-        assert!(matches!(
-            c.continue_linking(retained.revision).await,
-            Err(DeviceLinkingError::NotReady)
-        ));
         assert!(!manager.device_linking_capabilities().enrollment_supported);
         c.cancel().await.unwrap();
         assert_eq!(
@@ -194,11 +305,9 @@ mod actual {
                 .device_linking_capabilities()
                 .enrollment_supported
         );
-        assert!(matches!(
-            a.continue_linking(a.snapshot().await.unwrap().revision)
-                .await,
-            Err(DeviceLinkingError::NotReady)
-        ));
+        a.continue_linking(a.snapshot().await.unwrap().revision)
+            .await
+            .unwrap();
         a.cancel().await.unwrap();
         c.cancel().await.unwrap();
         for runtime in runtimes {

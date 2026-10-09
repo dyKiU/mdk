@@ -2879,6 +2879,18 @@ async fn run_app_runtime_account_worker(
                             "device linking cleanup deferred"
                         );
                     }
+                    match client.pending_native_private_publication() {
+                        Ok(Some((scope, kind))) => {
+                            let kind = match kind {
+                                crate::client::device_linking::native_enrollment::NativeInvitePublication::Commit => super::private_commit::PublicationKind::Commit,
+                                crate::client::device_linking::native_enrollment::NativeInvitePublication::Welcomes => super::private_commit::PublicationKind::Welcomes,
+                            };
+                            super::private_commit::publish(&mut client, scope, kind, None,
+                                &mut commands, &mut pending, &publication_control, &shared, &app, &account_label).await;
+                        }
+                        Ok(None) => {},
+                        Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_native_enrollment_tick", "native enrollment publication deferred"),
+                    }
                     match client.pending_existing_private_settlement() {
                         Ok(Some(binding)) => super::private_commit::publish_existing_settlement(
                             &mut client, binding, None, &mut commands, &mut pending, &publication_control, &shared, &app, &account_label,

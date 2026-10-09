@@ -5264,7 +5264,7 @@ Deep-free the owned setup bytes returned by this library exactly once. NULL is a
 MarmotStatus marmot_device_linking_capabilities(const struct MarmotClient *client, struct MarmotDeviceLinkingCapabilities **out);
 ```
 
-Read actual Rust verification/enrollment capabilities. Required output is cleared before client access; deep-free the returned record. Enrollment remains false in this verification-only surface.
+Read actual Rust verification/enrollment capabilities. Required output is cleared before client access; deep-free the returned record. Enrollment remains false while full public three-device enrollment is gated; experimental singleton continuation does not imply chat/history delivery.
 
 [Header contract](include/marmot.h#L9311)
 
@@ -5324,7 +5324,7 @@ Apply explicit human confirmation to the displayed revision. Stale revisions ret
 MarmotStatus marmot_device_linking_session_continue_linking(const struct MarmotDeviceLinkingSession *handle, uint64_t displayed_revision);
 ```
 
-Enrollment remains gated and returns DEVICE_LINKING_NOT_READY in feature builds. VerificationCompleteEnrollmentPending must not be interpreted as linked or synchronized.
+After genuine verification, feature builds accept revision-bound singleton continuation through the original actor-owned actions. Before verification or for gated existing-group enrollment, return DEVICE_LINKING_NOT_READY. VerificationCompleteEnrollmentPending must not be interpreted as linked or synchronized.
 
 [Header contract](include/marmot.h#L9391)
 

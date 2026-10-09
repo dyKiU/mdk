@@ -1074,5 +1074,7 @@ integration changes, and unresolved release questions.
 sessions, bounded packet exchange, standard SAS decimals, revision-bound human
 confirmation and closeable observations. Inspect actual runtime capabilities:
 default builds return typed Unsupported, and experimental builds support
-verification only. Enrollment continuation remains gated; completed verification
-does not report synchronized messages or history.
+verification with revision-bound singleton continuation through the original
+actor-owned actions. Enrollment capability remains false while the full public
+three-device flow is gated. Completed verification or continuation alone does
+not report synchronized messages or history.

@@ -1,7 +1,7 @@
 ---
 title: "Current State — Implementations & Spec"
 created: 2026-04-19
-updated: 2026-10-02
+updated: 2026-10-09
 tags: [marmot, overview, current-state, implementations]
 status: overview
 ---
@@ -18,6 +18,15 @@ status: overview
 > explicit group evolution.
 
 # Current State — Implementations & Spec
+
+The private, default-off multi-device experiment qualifies actual original-action
+A/B/C protected settlement, including B Add and C Welcome SQL rollback retries.
+Opaque native singleton continuation is separately qualified over a live relay.
+Enrollment capability remains false while public three-device approval, matched
+Mac/iOS artifacts and actual chat/history acceptance remain open. The native
+verification-pending observation does not prove synchronized delivery. See
+[original ABC evidence](../../device-sync-original-abc-settlement-verification.json)
+and [native singleton evidence](../../device-sync-native-singleton-continuation-verification.json).
 
 On master, one durable recovery owner (#1946) authorizes account-history acquisition for startup, receive,
 maintenance, convergence and explicit repair; its coalesced demand and retry pacing survive reopen, and EOSE alone never

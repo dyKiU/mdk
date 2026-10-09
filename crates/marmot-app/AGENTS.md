@@ -611,10 +611,12 @@ negative cancellation before positive-operation lock acquisition, terminal state
 against late replies and exact asynchronous Drop cleanup. Subscription close must
 wake both waiting receiver admission and a pending change read.
 
-The current public surface supports verification only. Keep enrollment capability
-false and both existing-group target selection and continuation unavailable until
-real original-purpose C admission, protected B transition and ABC settlement
-qualify. Never report partial verification/publication as synchronized. Default
+Keep enrollment capability false and existing-group target selection unavailable
+until the public original-action three-device flow qualifies. Revision-bound
+singleton continuation is qualified through the original A/C actors. Its private
+scheduling intent is ephemeral and never permission: check the original live
+owner, cancel exact scopes on lost replies, publish Welcomes only after the
+authenticated Add echo, and prune on revocation, expiry or cancellation. Never report partial verification/publication as synchronized. Default
 methods remain typed Unsupported before account or worker effects. Future native
 bindings must expose the same shapes in both feature cohorts without exporting
 internal context, proof-taking or raw purpose selection.
@@ -623,7 +625,8 @@ Endorsed recipient arming compares the actor's original NewDevice context and
 actual unused purpose before SDK take. Keep singleton arming strict. Retain
 sealed evidence through exact SQL/Welcome retry; clear on exact cancellation
 and collection retirement. Lost replies cancel their original scope. Native
-enrollment stays unavailable until B transition and real ABC settlement.
+three-device enrollment stays unavailable until its public opaque B transition
+and actual ABC settlement qualify.
 
 B existing-member transition retry must preserve the original armed action on a
 typed storage error and schedule its exact group's retained convergence input.

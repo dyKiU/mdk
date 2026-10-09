@@ -701,14 +701,16 @@ address is the resolved account storage label, while the original private scope
 checks actual account/device identity on every command.
 
 Default builds expose the same shapes but return `Unsupported` before account
-resolution or reservation. Feature builds advertise verification only:
-`enrollment_supported` remains false, existing-group targets and
-`continue_linking` return `NotReady`. The terminal verification observation is
-`VerificationCompleteEnrollmentPending`, never synchronized. This slice does not
-qualify enrollment, stalled setup/queue controls, Drop/expiry behavior across all
-native lifecycles, UniFFI/C parity, app artifacts or normal chat/history delivery.
-See `docs/device-sync-native-verification-session-verification.json` for exact
-qualification scope and preserved failures.
+resolution or reservation. Feature builds keep `enrollment_supported` false and
+existing-group targets return `NotReady`. After genuine verification,
+revision-bound `continue_linking` supports singleton enrollment through the
+original recipient and approver actions. The actor publishes Add, waits for its
+authenticated echo, publishes Welcomes and drives protected settlement. The
+public observation remains `VerificationCompleteEnrollmentPending`; it alone
+proves neither membership nor synchronized chat/history. Full public three-device
+enrollment, matched app artifacts and normal chat/history delivery remain open.
+See `docs/device-sync-native-singleton-continuation-verification.json` for the
+actual public-API relay test and its qualification scope.
 
 Original B enrollment actions can now arm an exact bounded all-leaf packet,
 bridge the actual single C Add inside MLS/SQL, and select a new private settlement
@@ -716,4 +718,7 @@ round through that same live memory owner. Storage failure retains the owning
 client and schedules its exact group retry; reopening cannot restore this action.
 Actual worker coverage injects B transition and C join SQL faults, verifies atomic
 rollback and autonomous same-owner retry, then verifies exact B cancellation.
-This checkpoint does not establish final ABC settlement or native enrollment.
+The original-action three-device backend regression establishes actual ABC
+settlement, including both SQL rollback retries. Public native singleton
+continuation is separately qualified; public three-device enrollment and app
+adoption remain separate gates.
