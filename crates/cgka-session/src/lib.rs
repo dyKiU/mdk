@@ -748,6 +748,21 @@ impl AccountDeviceSession {
             .await
     }
 
+    /// Transfers only the original SDK producer lease and actual sealed receipts.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn prepare_private_invite_from_owned_enrollment_proposal(
+        &mut self,
+        proposal: &mut cgka_engine::private_enrollment_request::OwnedLocalEnrollmentProposal,
+        receipts: &[&cgka_engine::private_enrollment_endorsement::AuthenticatedEnrollmentEndorsement],
+    ) -> Result<
+        cgka_engine::private_device_invite::PreparedPrivateDeviceInvite,
+        cgka_engine::private_device_invite::PrivateInviteError,
+    > {
+        self.engine
+            .prepare_private_invite_from_owned_enrollment_proposal(proposal, receipts)
+            .await
+    }
+
     /// Borrowed private dispatch preserves the caller's original live lease on
     /// pre-intent storage failure; uncertain publication cannot be redispatched.
     #[cfg(feature = "experimental-device-sync")]

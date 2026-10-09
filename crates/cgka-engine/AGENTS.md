@@ -552,8 +552,9 @@ weak originating Core lifetime; neither shared policy Arc nor reopened protected
 SQL state may transfer the owned proposal. Core teardown permanently ends it.
 Recheck actual tree/generation/origin, policy identity, cancellation and original
 deadline even for cached wrapper retries. Commit the real send ratchet once and
-keep exact cipher/wrapper bytes in the owner. Never stage Add, ordinary Sent work
-or reconstruct consent from this proposal. App must separately supply genuine
+keep exact cipher/wrapper bytes in the owner. The proposal producer never stages Add or ordinary Sent work, and cannot
+reconstruct consent. Only the dedicated original-lease handoff below may stage
+an endorsed Add. App must separately supply genuine
 original SDK metadata, explicit all-current-leaf approval and guarded publication.
 The three Core tests inject policy and minimal context; they are not SDK proof.
 
@@ -575,3 +576,22 @@ lease. Collection accepts actual received sibling receipts plus that local signa
 under fresh origin/generation/tree checks. It returns authentication metadata,
 never an Add, sibling transition or recipient admission capability. Core fixture
 policies are not stock SDK proof; App publication and ABC settlement are separate.
+
+
+## Original endorsed proposal to Add handoff
+
+`producer/add_handoff.rs` authenticates actual sealed sibling receipts plus the
+original local signature, then borrows the same SDK-owned lease slot through
+shared private preparation. Never swap policy, drop/recreate the lease, begin a
+second verifier or turn collection counts into permission. The nonclone guard
+retains original owner/policy, protected Completed generation/origin, exact
+predecessor/artifact/binding and original observation clocks. Pending MLS is
+allowed only for its remembered exact raw staging scope/digests; the internal
+predecessor-tree helper does not widen public Completed/candidate queries.
+Raw SQL rollback preserves original custody; cache failure retries the same raw
+ciphertexts/generation. On success the same guard moves into Prepared and the
+producer loses its lease. Dispatch rechecks inside intent SQL and network polls;
+Welcome delivery retains original owner/clocks plus actual110 confirmation.
+`preparation_has_started` and the retained minimum deadline are observation-only
+metadata, never positive capabilities. Core expiry fixtures inject a trusted
+policy/attempt; stock SDK proof lives in the separate real App worker tests.

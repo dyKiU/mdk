@@ -13,6 +13,10 @@ use tokio::sync::oneshot;
 type Reply<T> = oneshot::Sender<Result<T, ClientLinkingError>>;
 pub(crate) enum VerifierCommand {
     Setup(setup::SetupCommand),
+    PrepareEndorsedEnrollmentInvite {
+        scope: PurposeAttemptScope,
+        respond: Reply<cgka_traits::private_device_invite::PrivateInviteScope>,
+    },
     PublishReceivedEnrollmentEndorsement {
         binding: [u8; 32],
         respond: Reply<()>,
@@ -162,6 +166,19 @@ pub(super) async fn handle_verifier_command(
 ) {
     match command {
         VerifierCommand::Setup(command) => setup::handle(client, command).await,
+        VerifierCommand::PrepareEndorsedEnrollmentInvite { scope, respond } => {
+            let result = client
+                .prepare_owned_endorsed_enrollment_invite(&scope)
+                .await;
+            if result.is_ok()
+                && let Ok((_, gate)) = client.private_commit_control(&scope)
+            {
+                publication_control.install(scope.clone(), gate);
+            }
+            if respond.send(result).is_err() {
+                let _ = client.cancel_device_linking_scope(&scope).await;
+            }
+        }
         VerifierCommand::PublishReceivedEnrollmentEndorsement { binding, respond } => {
             let _ = binding;
             let _ = respond.send(Err(ClientLinkingError::Gate(
@@ -703,6 +720,19 @@ impl AccountManager {
     ) -> Result<(), ClientLinkingError> {
         self.verifier_command(account_ref, |respond| {
             VerifierCommand::PublishEnrollmentProposal {
+                scope: scope.clone(),
+                respond,
+            }
+        })
+        .await
+    }
+    pub(crate) async fn prepare_endorsed_enrollment_invite(
+        &self,
+        account_ref: &str,
+        scope: &PurposeAttemptScope,
+    ) -> Result<cgka_traits::private_device_invite::PrivateInviteScope, ClientLinkingError> {
+        self.verifier_command(account_ref, |respond| {
+            VerifierCommand::PrepareEndorsedEnrollmentInvite {
                 scope: scope.clone(),
                 respond,
             }
@@ -3091,6 +3121,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn device_linking_original_sdk_endorsed_proposal_transfers_to_trusted_add() {
+        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalTrustedAdd).await;
+    }
+
+    #[tokio::test]
+    async fn device_linking_original_sdk_incomplete_handoff_retries_after_actual_b_receipt() {
+        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalTrustedAddRetry).await;
+    }
+
+    #[tokio::test]
     async fn device_linking_b_endorsement_abandoned_reply_burns_original_action() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalDroppedReply).await;
     }
@@ -3104,6 +3144,8 @@ mod tests {
         LocalProposal,
         LocalProposalEndorsement,
         LocalProposalCollection,
+        LocalProposalTrustedAdd,
+        LocalProposalTrustedAddRetry,
         LocalProposalDroppedReply,
         LocalProposalReopen,
         RetainedScope,
@@ -3192,6 +3234,7 @@ mod tests {
             recipient: prepared.scope.local_device,
         };
         let mut context = context;
+        let expected_package_reference = context.key_package_reference;
         let begin = if matches!(
             check,
             ThirdDeviceCheck::UnapprovedPublication
@@ -3199,6 +3242,8 @@ mod tests {
                 | ThirdDeviceCheck::LocalProposal
                 | ThirdDeviceCheck::LocalProposalEndorsement
                 | ThirdDeviceCheck::LocalProposalCollection
+                | ThirdDeviceCheck::LocalProposalTrustedAdd
+                | ThirdDeviceCheck::LocalProposalTrustedAddRetry
                 | ThirdDeviceCheck::LocalProposalDroppedReply
                 | ThirdDeviceCheck::LocalProposalReopen
         ) {
@@ -3297,6 +3342,8 @@ mod tests {
             ThirdDeviceCheck::LocalProposal
                 | ThirdDeviceCheck::LocalProposalEndorsement
                 | ThirdDeviceCheck::LocalProposalCollection
+                | ThirdDeviceCheck::LocalProposalTrustedAdd
+                | ThirdDeviceCheck::LocalProposalTrustedAddRetry
                 | ThirdDeviceCheck::LocalProposalDroppedReply
                 | ThirdDeviceCheck::LocalProposalReopen
         ) {
@@ -3410,6 +3457,8 @@ mod tests {
                 check,
                 ThirdDeviceCheck::LocalProposalEndorsement
                     | ThirdDeviceCheck::LocalProposalCollection
+                    | ThirdDeviceCheck::LocalProposalTrustedAdd
+                    | ThirdDeviceCheck::LocalProposalTrustedAddRetry
                     | ThirdDeviceCheck::LocalProposalReopen
             ) {
                 let bindings = workers
@@ -3426,7 +3475,12 @@ mod tests {
                     }).await.expect("B's explicit action on the actual received SDK proposal must retain its owned endorsement");
             }
 
-            if check == ThirdDeviceCheck::LocalProposalCollection {
+            if matches!(
+                check,
+                ThirdDeviceCheck::LocalProposalCollection
+                    | ThirdDeviceCheck::LocalProposalTrustedAdd
+                    | ThirdDeviceCheck::LocalProposalTrustedAddRetry
+            ) {
                 assert_eq!(
                     workers
                         .a
@@ -3461,6 +3515,16 @@ mod tests {
                 })
                 .await
                 .expect("A's exact current private route must reach EOSE before B publication");
+                if check == ThirdDeviceCheck::LocalProposalTrustedAddRetry {
+                    assert!(
+                        workers
+                            .a
+                            .prepare_endorsed_enrollment_invite("test", &a_scope)
+                            .await
+                            .is_err(),
+                        "A cannot stage before B has actually published its approval"
+                    );
+                }
                 let selected = workers
                     .b
                     .verifier_command("test", |respond| {
@@ -3480,6 +3544,44 @@ mod tests {
                     .expect(
                         "B's original explicit action must publish its real encrypted endorsement",
                     );
+                if check == ThirdDeviceCheck::LocalProposalTrustedAddRetry {
+                    let owned = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                        loop {
+                            if let Ok(owned) = workers.a.prepare_endorsed_enrollment_invite("test", &a_scope).await {
+                                break owned;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                        }
+                    }).await.expect("incomplete original handoff must automatically collect B's later actual receipt and retry");
+                    let fact =
+                        cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
+                            .unwrap()
+                            .private_invite()
+                            .unwrap()
+                            .unwrap();
+                    assert!(fact.scope == owned);
+                    assert_eq!(fact.raw.binding.successor.epoch.0, 2);
+                    assert_eq!(fact.raw.binding.successor.leaves.len(), 3);
+                    assert!(
+                        cgka_traits::StorageProvider::device_linking_key_package_storage(
+                            &c_storage
+                        )
+                        .unwrap()
+                        .purpose_key_package()
+                        .unwrap()
+                            == c_purpose
+                    );
+                    workers
+                        .a
+                        .cancel_device_linking("test", &a_scope)
+                        .await
+                        .unwrap();
+                    runtime_c.shutdown_and_close().await.unwrap();
+                    workers.runtime_a.shutdown_and_close().await.unwrap();
+                    workers.runtime_b.shutdown_and_close().await.unwrap();
+                    relay.shutdown();
+                    return;
+                }
                 tokio::time::timeout(std::time::Duration::from_secs(20), async {
                     loop {
                         if workers.a.verifier_command("test", |respond|
@@ -3514,6 +3616,170 @@ mod tests {
                         .is_err(),
                     "future scope cannot collect the original A proposal"
                 );
+                if check == ThirdDeviceCheck::LocalProposalTrustedAdd {
+                    assert!(
+                        workers
+                            .a
+                            .verifier_command("test", |respond| {
+                                VerifierCommand::PrepareEndorsedEnrollmentInvite {
+                                    scope: future.clone(),
+                                    respond,
+                                }
+                            })
+                            .await
+                            .is_err(),
+                        "future scope cannot transfer the original lease"
+                    );
+                    let path = workers.a.app.account_storage_path("test");
+                    let keys = workers
+                        .a
+                        .app
+                        .account_home()
+                        .load_signing_keys("test")
+                        .unwrap();
+                    let key = workers
+                        .a
+                        .app
+                        .sqlcipher_key(
+                            "test",
+                            &keys,
+                            &path,
+                            crate::sqlcipher::SqlcipherDatabaseKind::Session,
+                        )
+                        .unwrap();
+                    let injector = rusqlite::Connection::open(&path).unwrap();
+                    storage_sqlite::open_hardened_sqlcipher(
+                        &injector,
+                        &key,
+                        storage_sqlite::SqlCipherHardening::cipher_only(),
+                    )
+                    .unwrap();
+                    injector.execute_batch("CREATE TRIGGER reject_enrollment_raw BEFORE INSERT ON private_device_invite_staging BEGIN SELECT RAISE(ABORT,'injected enrollment raw rollback'); END;").unwrap();
+                    assert!(
+                        workers
+                            .a
+                            .verifier_command("test", |respond| {
+                                VerifierCommand::PrepareEndorsedEnrollmentInvite {
+                                    scope: a_scope.clone(),
+                                    respond,
+                                }
+                            })
+                            .await
+                            .is_err()
+                    );
+                    assert!(
+                        cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
+                            .unwrap()
+                            .private_invite()
+                            .unwrap()
+                            == before,
+                        "raw SQL failure must roll back pending MLS and ledger together"
+                    );
+                    injector.execute_batch("DROP TRIGGER reject_enrollment_raw; CREATE TRIGGER reject_enrollment_wrap BEFORE UPDATE OF transport ON private_device_invite_staging WHEN NEW.phase = 1 BEGIN SELECT RAISE(ABORT,'injected enrollment wrapper rollback'); END;").unwrap();
+                    assert!(
+                        workers
+                            .a
+                            .verifier_command("test", |respond| {
+                                VerifierCommand::PrepareEndorsedEnrollmentInvite {
+                                    scope: a_scope.clone(),
+                                    respond,
+                                }
+                            })
+                            .await
+                            .is_err()
+                    );
+                    let raw_retry =
+                        cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
+                            .unwrap()
+                            .private_invite()
+                            .unwrap()
+                            .unwrap();
+                    assert!(
+                        raw_retry.phase
+                            == cgka_traits::private_device_invite::PrivateInvitePhase::RawStaged
+                    );
+                    assert!(raw_retry.transport.is_none());
+                    injector
+                        .execute_batch("DROP TRIGGER reject_enrollment_wrap;")
+                        .unwrap();
+                    let owned = workers.a.verifier_command("test", |respond|
+                        VerifierCommand::PrepareEndorsedEnrollmentInvite { scope: a_scope.clone(), respond })
+                        .await.expect("complete actual endorsements must transfer the same original SDK lease into trusted Add preparation");
+                    assert_eq!(owned.account, a_scope.account);
+                    assert_eq!(owned.local_device, a_scope.local_device);
+                    let fact =
+                        cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
+                            .unwrap()
+                            .private_invite()
+                            .unwrap()
+                            .unwrap();
+                    assert!(fact.scope == raw_retry.scope);
+                    assert!(
+                        fact.raw == raw_retry.raw,
+                        "retry must retain original exact MLS ciphertexts and staging generation"
+                    );
+                    assert_eq!(fact.raw.binding.predecessor.epoch.0, 1);
+                    assert_eq!(fact.raw.binding.successor.epoch.0, 2);
+                    assert_eq!(fact.raw.binding.successor.leaves.len(), 3);
+                    assert_eq!(fact.raw.binding.recipient, prepared.scope.local_device);
+                    assert!(fact.raw.binding.approver_scope == a_scope);
+                    assert_eq!(
+                        fact.raw.binding.key_package_reference,
+                        expected_package_reference
+                    );
+                    assert!(
+                        cgka_traits::StorageProvider::accepted_device_group_anchor_storage(
+                            &a_storage
+                        )
+                        .unwrap()
+                        .accepted_anchor()
+                        .unwrap()
+                            == a_anchor
+                    );
+                    assert!(
+                        cgka_traits::StorageProvider::private_roster_settlement_storage(&b_storage)
+                            .unwrap()
+                            .read_round()
+                            .unwrap()
+                            == b_before
+                    );
+                    assert!(
+                        cgka_traits::StorageProvider::device_linking_key_package_storage(
+                            &c_storage
+                        )
+                        .unwrap()
+                        .purpose_key_package()
+                        .unwrap()
+                            == c_purpose
+                    );
+                    assert!(workers.a.app.load_state("test").unwrap().groups.is_empty());
+                    assert!(workers.b.app.load_state("test").unwrap().groups.is_empty());
+                    assert!(
+                        workers
+                            .a
+                            .collect_owned_enrollment_endorsements("test", &a_scope)
+                            .await
+                            .is_err(),
+                        "transferred proposal cannot reuse the original Add lease as a collection producer"
+                    );
+                    workers
+                        .a
+                        .cancel_device_linking("test", &a_scope)
+                        .await
+                        .unwrap();
+                    assert!(
+                        workers
+                            .a
+                            .publish_private_device_invite_commit("test", &a_scope)
+                            .await
+                            .is_err()
+                    );
+                    runtime_c.shutdown_and_close().await.unwrap();
+                    workers.runtime_a.shutdown_and_close().await.unwrap();
+                    workers.runtime_b.shutdown_and_close().await.unwrap();
+                    relay.shutdown();
+                    return;
+                }
                 let mut wrong = selected;
                 wrong[0] ^= 1;
                 assert!(
@@ -3737,7 +4003,12 @@ mod tests {
                     .await
                     .is_err()
             );
-            if check == ThirdDeviceCheck::LocalProposalCollection {
+            if matches!(
+                check,
+                ThirdDeviceCheck::LocalProposalCollection
+                    | ThirdDeviceCheck::LocalProposalTrustedAdd
+                    | ThirdDeviceCheck::LocalProposalTrustedAddRetry
+            ) {
                 assert!(
                     workers
                         .a

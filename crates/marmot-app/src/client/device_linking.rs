@@ -550,6 +550,52 @@ impl AppClient {
         Ok(result)
     }
 
+    /// Same actor-owned SDK lease, never a second verifier or received proposal.
+    pub(crate) async fn prepare_owned_endorsed_enrollment_invite(
+        &mut self,
+        scope: &PurposeAttemptScope,
+    ) -> Result<cgka_traits::private_device_invite::PrivateInviteScope, ClientLinkingError> {
+        self.check_private_invite_attempt_scope(scope)?;
+        let attempt =
+            self.linking_owner
+                .invite_attempt
+                .as_mut()
+                .ok_or(ClientLinkingError::Gate(
+                    cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
+                ))?;
+        if let Some(prepared) = attempt.prepared.as_mut() {
+            prepared
+                .check_live_permission()
+                .map_err(ClientLinkingError::Gate)?;
+            return Ok(prepared.scope().clone());
+        }
+        if !attempt
+            .proposal
+            .as_ref()
+            .is_some_and(|proposal| proposal.preparation_has_started())
+        {
+            self.collect_owned_enrollment_endorsements(scope)?;
+        }
+        let attempt = self.linking_owner.invite_attempt.as_mut().unwrap();
+        let proposal = attempt.proposal.as_mut().ok_or(ClientLinkingError::Gate(
+            cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
+        ))?;
+        let receipts = attempt.endorsements.iter().collect::<Vec<_>>();
+        let prepared = self
+            .runtime
+            .session_mut()
+            .prepare_private_invite_from_owned_enrollment_proposal(proposal, &receipts)
+            .await
+            .map_err(ClientLinkingError::PrivateInvite)?;
+        let result = prepared.scope().clone();
+        if let Some(deadline) = prepared.enrollment_observation_deadline() {
+            attempt.deadline = attempt.deadline.min(deadline);
+        }
+        attempt.prepared = Some(prepared);
+        attempt.for_add = true;
+        Ok(result)
+    }
+
     async fn ensure_owned_private_invite(
         &mut self,
         scope: &PurposeAttemptScope,

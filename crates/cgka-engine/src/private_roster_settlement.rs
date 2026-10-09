@@ -625,6 +625,17 @@ pub(crate) fn completed_round_for_tree<S: StorageProvider>(
     if actual.pending_commit().is_some() {
         return Ok(None);
     }
+    completed_round_for_predecessor_tree(storage, group, actual)
+}
+
+/// Protected predecessor metadata only. Pending Add callers must separately
+/// hold the original SDK lease and validate their exact memory-owned raw scope;
+/// public settled-roster/candidate APIs continue to reject all pending commits.
+pub(crate) fn completed_round_for_predecessor_tree<S: StorageProvider>(
+    storage: &S,
+    group: &GroupId,
+    actual: &openmls::group::MlsGroup,
+) -> Result<Option<PrivateSettlementState>, EngineError> {
     let Some(store) = storage.private_roster_settlement_storage() else {
         return Ok(None);
     };

@@ -16,12 +16,15 @@ use std::sync::{Arc, Weak};
 use tls_codec::Serialize;
 use web_time::Instant;
 
+pub(super) mod add_handoff;
+
 /// Original owned policy lease; no public constructor, cloning or serialization.
 /// Its local declaration cannot masquerade as an authenticated received message.
 pub struct OwnedLocalEnrollmentProposal {
     owner: Weak<Lifetime>,
     policy: Arc<dyn TrustedPrivateInvitePolicy>,
-    lease: Box<dyn PrivateInviteLease>,
+    lease: Option<Box<dyn PrivateInviteLease>>,
+    handoff: Option<add_handoff::OriginalEnrollmentPreparation>,
     frame: RequestFrame,
     predecessor: CandidateDeviceGroupSnapshot,
     selection_generation: u64,
@@ -40,6 +43,10 @@ impl OwnedLocalEnrollmentProposal {
     pub fn original_deadline(&self) -> Instant {
         self.deadline
     }
+    /// Negative retry progress only. It cannot construct a lease or Add permit.
+    pub fn preparation_has_started(&self) -> bool {
+        self.handoff.is_some()
+    }
     fn check_live(&mut self) -> Result<(), EngineError> {
         if !self.owner.upgrade().is_some_and(|owner| owner.is_open())
             || Instant::now() >= self.deadline
@@ -47,6 +54,8 @@ impl OwnedLocalEnrollmentProposal {
             return Err(unavailable());
         }
         self.lease
+            .as_mut()
+            .ok_or_else(unavailable)?
             .check_live_before_commit()
             .map_err(|_| unavailable())
     }
@@ -188,7 +197,8 @@ impl<S: StorageProvider> Engine<S> {
         Ok(OwnedLocalEnrollmentProposal {
             owner: self.enrollment_endorsements.owner_lifetime(),
             policy,
-            lease,
+            lease: Some(lease),
+            handoff: None,
             frame,
             predecessor: input.predecessor,
             selection_generation,
@@ -205,7 +215,9 @@ impl<S: StorageProvider> Engine<S> {
         &self,
         proposal: &mut OwnedLocalEnrollmentProposal,
     ) -> Result<(), EngineError> {
-        if !self.enrollment_endorsements.owns_lifetime(&proposal.owner) {
+        if proposal.handoff.is_some()
+            || !self.enrollment_endorsements.owns_lifetime(&proposal.owner)
+        {
             return Err(unavailable());
         }
         proposal.check_live()?;
@@ -234,7 +246,13 @@ impl<S: StorageProvider> Engine<S> {
             if settled.candidate() != &proposal.predecessor
                 || input.predecessor != proposal.predecessor
                 || selected.generation != proposal.selection_generation
-                || settled.origin() != &proposal.lease.consent().origin
+                || settled.origin()
+                    != &proposal
+                        .lease
+                        .as_ref()
+                        .ok_or_else(unavailable)?
+                        .consent()
+                        .origin
             {
                 return Err(unavailable());
             }

@@ -582,3 +582,18 @@ wrong scopes before taking custody, preserve it after invalid challenge input,
 and clear it before cancellation's durable cleanup. Lost setup replies must
 cancel only their exact newly owned scope; durable cleanup failure remains typed
 negative state for existing maintenance, with no permission restoration.
+
+
+### Original SDK endorsed Add preparation
+
+`PrepareEndorsedEnrollmentInvite` accepts only the original scope and calls Core
+with the same retained local producer and actual opaque sibling receipts. It
+never begins a new SDK verifier or promotes a received request/count. Incomplete
+preparation must keep automatic later collection live; use only Core's negative
+owner-progress observation for raw retries, not a prematurely latched App flag
+or durable-row reconstruction. Carry the earliest original receipt deadline
+into the actor's publication timer without extending any clock. Lost replies
+cancel that exact original scope. SQL/raw retry and cancellation stay on the
+same continuation. This milestone stages exact C Add only; C original-purpose
+admission, B protected transition, real ABC settlement and native enrollment
+adoption remain independently gated.

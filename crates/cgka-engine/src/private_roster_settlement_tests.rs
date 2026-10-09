@@ -2116,12 +2116,15 @@ async fn private_enrollment_endorsement_actual_changed_tree_denies_owned_handoff
 }
 // Original-owner policy injection tests the Core boundary, never genuine SDK SAS.
 struct LocalProposalPolicy {
+    allow_add: bool,
+    starts: Arc<std::sync::atomic::AtomicUsize>,
     consent: crate::private_device_invite::PrivateInviteConsent,
     artifact_digest: [u8; 32],
     deadline: Instant,
     live: Arc<std::sync::atomic::AtomicBool>,
 }
 struct LocalProposalLease {
+    allow_add: bool,
     consent: crate::private_device_invite::PrivateInviteConsent,
     artifact_digest: [u8; 32],
     deadline: Instant,
@@ -2135,7 +2138,10 @@ impl crate::private_device_invite::TrustedPrivateInvitePolicy for LocalProposalP
         Box<dyn crate::private_device_invite::PrivateInviteLease>,
         cgka_traits::device_linking_key_package::LinkingWelcomeDenied,
     > {
+        self.starts
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(Box::new(LocalProposalLease {
+            allow_add: self.allow_add,
             consent: self.consent.clone(),
             artifact_digest: self.artifact_digest,
             deadline: self.deadline,
@@ -2184,11 +2190,15 @@ impl crate::private_device_invite::PrivateInviteLease for LocalProposalLease {
         &mut self,
         _: &cgka_traits::private_device_invite::PrivateInviteScope,
     ) {
-        panic!("proposal metadata must never consume or stage an Add");
+        assert!(
+            self.allow_add,
+            "proposal metadata alone must never consume or stage an Add"
+        );
     }
 }
 
 enum LocalProposalOwnerControl {
+    HandoffClocks,
     Retain,
     Reopen,
     Drop,
@@ -2220,12 +2230,42 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
     let expected = a.validate_private_invite_input(&group, &package).unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
     let live = Arc::new(AtomicBool::new(true));
+    let approver_generation = if matches!(control, LocalProposalOwnerControl::HandoffClocks) {
+        // Core-only injected trusted policy fixture, never stock SDK verification.
+        let account = a.self_id().as_slice().try_into().unwrap();
+        let device = a.identity.signer.public().try_into().unwrap();
+        let generation = a
+            .storage
+            .reserve_device_linking_attempt(&account, &device)
+            .unwrap();
+        let binding = storage_sqlite::DeviceLinkingBinding {
+            generation,
+            nonce: [11; 32],
+            context_digest: [10; 32],
+        };
+        a.storage.bind_device_linking_context(&binding).unwrap();
+        a.storage
+            .bind_device_linking_flow(&binding, "isolated-core-enrollment-handoff")
+            .unwrap();
+        a.storage
+            .finish_device_linking_attempt(
+                generation,
+                storage_sqlite::DeviceLinkingOutcome::PairingVerified,
+            )
+            .unwrap();
+        generation
+    } else {
+        2
+    };
+    let starts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     a.install_trusted_private_invite_policy(Arc::new(LocalProposalPolicy {
+        allow_add: matches!(control, LocalProposalOwnerControl::HandoffClocks),
+        starts: starts.clone(),
         consent: crate::private_device_invite::PrivateInviteConsent {
             approver_scope: PurposeAttemptScope {
                 account: a.self_id().as_slice().try_into().unwrap(),
                 local_device: a.identity.signer.public().try_into().unwrap(),
-                generation: 2,
+                generation: approver_generation,
             },
             recipient_generation: 1,
             origin,
@@ -2330,7 +2370,10 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
             .iter()
             .all(|event| !matches!(event, GroupEvent::MessageReceived { .. }))
     );
-    if matches!(control, LocalProposalOwnerControl::Retain) {
+    if matches!(
+        control,
+        LocalProposalOwnerControl::Retain | LocalProposalOwnerControl::HandoffClocks
+    ) {
         let mut b_owned = b
             .endorse_private_enrollment_request(&requests[0], &artifact, &package, &[10; 32])
             .unwrap();
@@ -2396,6 +2439,60 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
             b.authenticate_owned_local_enrollment_endorsements(&mut proposal, &[&received[0]])
                 .is_err()
         );
+        if matches!(control, LocalProposalOwnerControl::HandoffClocks) {
+            let mut received = received;
+            let observed = Instant::now() + Duration::from_secs(2);
+            received[0].deadline = observed; // Negative-only shortening of actual receipt provenance.
+            let mut prepared = a
+                .prepare_private_invite_from_owned_enrollment_proposal(
+                    &mut proposal,
+                    &[&received[0]],
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                starts.load(Ordering::SeqCst),
+                1,
+                "handoff must never begin a replacement lease"
+            );
+            assert_eq!(prepared.enrollment_observation_deadline(), Some(observed));
+            assert!(
+                proposal.binding_digest().is_err(),
+                "original producer no longer owns the transferred lease"
+            );
+            tokio::time::sleep(Duration::from_millis(2100)).await;
+            assert!(live.load(Ordering::SeqCst));
+            assert!(
+                Instant::now() < deadline,
+                "original lease clock must still be live"
+            );
+            assert!(
+                prepared.check_live_permission().is_err(),
+                "shorter B receipt clock must remain on Prepared"
+            );
+            let publisher = HandoffExpiryPublisher(std::sync::atomic::AtomicUsize::new(0));
+            assert!(
+                a.dispatch_prepared_private_device_invite(&mut prepared, &publisher)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(
+                publisher.0.load(Ordering::SeqCst),
+                0,
+                "expired approval must not invoke real dispatch"
+            );
+            assert!(
+                a.storage
+                    .private_device_invite_storage()
+                    .unwrap()
+                    .private_invite()
+                    .unwrap()
+                    .unwrap()
+                    .phase
+                    == cgka_traits::private_device_invite::PrivateInvitePhase::Retired
+            );
+            return;
+        }
         let mut substituted: serde_json::Value = serde_json::from_slice(&received[0].wire).unwrap();
         substituted["binding_digest"] = serde_json::json!(([55u8; 32]));
         let mut altered = received;
@@ -2446,6 +2543,12 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
             a.authenticate_owned_local_enrollment_endorsement(&mut proposal, &received[0])
                 .is_err(),
             "single-receipt validation cannot revive the old original SDK lease selection"
+        );
+        assert!(
+            a.prepare_private_invite_from_owned_enrollment_proposal(&mut proposal, &[&received[0]])
+                .await
+                .is_err(),
+            "same-tree new Completed generation must deny original Add handoff"
         );
         b.cancel_private_enrollment_endorsements().unwrap();
         assert!(
@@ -2796,4 +2899,21 @@ async fn private_enrollment_endorsement_protected_selection_denial_during_await_
             .is_err()
     );
     assert_eq!(calls.lock().unwrap().len(), 1);
+}
+
+struct HandoffExpiryPublisher(std::sync::atomic::AtomicUsize);
+#[async_trait::async_trait]
+impl crate::private_device_invite::TrustedPrivateInvitePublisher for HandoffExpiryPublisher {
+    async fn publish_commit(
+        &self,
+        _: &cgka_traits::TransportMessage,
+    ) -> Result<(), cgka_traits::EngineError> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+}
+#[tokio::test]
+async fn private_enrollment_local_proposal_handoff_preserves_original_lease_and_shorter_receipt_clock()
+ {
+    exercise_local_enrollment_proposal(LocalProposalOwnerControl::HandoffClocks).await;
 }
