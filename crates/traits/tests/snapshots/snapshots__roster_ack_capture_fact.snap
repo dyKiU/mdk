@@ -1,0 +1,48 @@
+---
+source: crates/traits/tests/snapshots.rs
+expression: fact
+---
+{
+  "format_version": 1,
+  "generation": 2,
+  "leaf_index": 7,
+  "signature_public_key": [
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3
+  ],
+  "message_id": [
+    4,
+    5,
+    6
+  ]
+}

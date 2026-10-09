@@ -3191,6 +3191,7 @@ fn failed_resurrection_projection_save_retains_local_deletion_frontier() {
         )
         .unwrap();
     let pending_event = GroupEvent::MessageReceived {
+        source_leaf: None,
         authority: None,
         group_id: cgka_traits::GroupId::new(vec![0xaa]),
         message_id: fresh_message_id.clone(),

@@ -12,6 +12,8 @@ group snapshots and rollback must be atomic across Marmot records and group-scop
 - [Layout](#layout)
 - [Operational boundary](#operational-boundary)
 - [Migrations](#migrations)
+- [Experimental synchronized history](#experimental-synchronized-history)
+- [Experimental device linking fences](#experimental-device-linking-fences)
 - [Recovery semantics](#recovery-semantics)
 - [Conversation reads](#conversation-reads)
 - [Account recovery ledger](#account-recovery-ledger)
@@ -74,13 +76,37 @@ larger data-shape changes. Applied migrations are recorded in `cgka_schema_migra
 applies missing migrations after SQLCipher keying and before storage handles are exposed. Message rows follow
 [storage format v2](../../docs/marmot-architecture/storage-format-v2.md).
 
-The three app database categories have independent histories, and no runner reads another store's ledger:
+The three app database categories have independent histories. The account database
+additionally uses a separate experimental schema ledger; no runner reads another
+database's ledger:
 
 | Database | Ledger |
 | --- | --- |
-| `session.sqlite` (per account-device) | `cgka_schema_migrations` |
+| `session.sqlite` (per account-device) | `cgka_schema_migrations` and `cgka_experimental_device_sync_schema_migrations` |
 | `app-cache.sqlite3` (per account, owned by `marmot-app`) | `app_cache_schema_migrations` |
 | `shared.sqlite3` (per installation) | `shared_schema_migrations` |
+
+**Experimental device sync.** Core migration numbers follow the selected upstream
+ledger (currently102). Private revisions1–8 have an independent ordered registry;
+the frozen bodies retain their original file prefixes103–110. Opening a recognized
+old draft database atomically transfers its exact receipts into the private ledger,
+retaining original version/name/time in
+`cgka_experimental_device_sync_migration_bridge_audit`. Exact private schema
+objects, prefix identity and audit bindings are checked. Each bridged receipt has an
+immutable legacy-origin tag; audit and receipt update/delete/replace attempts are
+rejected, and every tagged receipt must retain its exact original audit row.
+The legacy version>102 recognition is valid only for this selected core102 base;
+future upstream103 adoption requires a separately reviewed bridge. Unknown/mixed receipts,
+missing denial triggers and unsupported future private revisions fail closed.
+Bridge, core/private DDL and receipts commit together. A permanent negative
+cohort marker activates atomically on insertion into any private data table;
+cleanup cannot clear it. Default builds refuse old private lineage and activated
+cohorts before migration writes, while ordinary empty additive schemas reopen.
+The marker is never consent or a grant. No archive, crypto, consent, lineage, or
+publication-state rows are reinterpreted. A namespace is not permission
+for stock/older cores to operate on this database: isolated cohort storage and
+no downgrade remain mandatory. This isolated f8b checkpoint does not resolve
+upstream membership integration or authorize native cohort rollout.
 
 **Shared store.** Version `1 / 0001_shared_store` establishes the five original live tables (frozen in
 `shared/v1.sql`); later versions add usage diagnostics and directory presentation. Each body and its ledger row commit
@@ -101,6 +127,70 @@ classification without SQLite's database-controlled message. Fixture provenance 
 
 Account-database compatibility fixtures are described in [`fixtures/README.md`](fixtures/README.md). Old binaries
 refuse an upgraded schema; downgrading a binary requires a pre-upgrade backup.
+
+## Experimental synchronized history
+
+The default-off `experimental-device-sync` feature exposes a bounded account-history archive importer on
+`SqliteAccountStorage`. This storage integration is not a pairing protocol, a continuous replication journal, or an
+end-to-end multi-device client implementation. The caller must authenticate the device-group roster, user consent,
+source and recipient device identities, and complete manifest before admitting a transfer. SHA-256 bindings here
+check the admitted manifest and chunks; they are not signatures or enrollment proofs.
+
+Archive records retain opaque logical bytes and source-device/transfer provenance in separate tables. Import never
+creates engine messages, marks messages processed, writes live app events, advances recovery cursors, or applies
+membership or moderation changes. Reads return completed transfers only, with live authenticated app events taking
+precedence. Client presentation and export are deliberately not integrated yet.
+
+A manifest binds account, group, source and recipient devices, transfer identity, snapshot timestamp ceiling, ordered
+chunk digests, and receiving retention policy. The snapshot timestamp ceiling bounds record timestamps; it is not a
+replication sequence checkpoint. Imports commit each bounded chunk and its retry receipt atomically. Completion alone
+publishes records, tombstones and retention-fence intents. Callback cancellation rolls back the current chunk;
+explicit cancellation permanently fences an incomplete transfer and removes its staged payloads. Both receipts and
+cancellation fences survive encrypted close/reopen.
+
+Receiving retention can shorten source expiry or require expiry when an exporter omits it. Overlapping immutable
+records converge to the earliest local expiry, and retention fences prevent replay resurrection. Conflicting logical
+bodies fail without exposing contents. Reads use bounded keyset pages.
+
+This initial archive implementation caps admission at 128 lifetime transfers per account database, each with at most
+128 chunks of 200 records and a 1 MiB encoded chunk. Current retained record bytes are capped at 512 MiB; cancellation,
+pruning and completed tombstones release that payload quota. Permanent manifest/receipt/fence metadata remains
+bounded by archive admission and is not recycled. Continuous syncing still needs a separately reviewed monotonic
+journal checkpoint and authenticated receipt/fence compaction lifecycle; restarting with arbitrary new transfer IDs
+is not that lifecycle.
+
+Private revision1 (formerly provisional core103) creates the additive archive schema in every build, independent of the experimental API feature.
+Opening an existing database upgrades its schema even with the feature off. Do not run an older core against that
+upgraded database; reverting the binary requires a pre-upgrade backup. Tests use only synthetic in-memory stores and
+temporary encrypted files, never production account storage.
+
+## Experimental device linking fences
+
+The default-off `experimental-device-sync` feature also exposes device-local
+verification attempt storage. Migration 104 creates its additive schema in every
+build. Keep experimental account databases isolated: do not reopen them with an
+older core that cannot read the upgraded schema.
+
+The runtime reserves a checked monotonically increasing local generation before
+any verifier offer. One singleton row belongs to the account and independent local
+device identity; further reservations require a terminal prior attempt. The final
+context nonce/digest and opaque SDK flow are immutable, with exact retries allowed.
+Every command checks the current generation. Old attempts cannot replace a current
+binding or turn a terminal cancellation into successful verification. Generations
+fail closed on integer exhaustion; the row does not impose a lifetime pairing-count
+limit or grow with peer-supplied nonces.
+
+`abandon_device_linking_on_startup` is an explicit account-runtime startup hook,
+called before constructing or restoring a linking flow. It changes pending
+Reserved/Bound/Flow attempts to RestartAbandoned. Do not call it merely when an
+additional storage handle opens during an active attempt. Ephemeral verifier keys
+are not stored, so restart requires a fresh context and verification exchange.
+
+`PairingVerified` records only a verifier-owned terminal fact. It does not prove
+Marmot membership, an accepted Welcome, settled roster authorization, or permission
+to import history. The trusted runtime must validate the local device identity,
+cryptographic input, and those independent enrollment gates. Storage never writes
+live app events, MLS evidence, or roster state for these facts.
 
 ## Recovery semantics
 
@@ -221,3 +311,186 @@ values, and filesystem cache. It measures storage enumeration, not retained MLS 
 wake pressure, and asserts no timing threshold. A 2026-09-06 local run with 4,096 processed plus 2,048 deferred rows
 took about 29.8 ms for the full-row query versus 15.1 ms for metadata, avoiding 8 MiB of payload copies per query. The
 query still enumerates all deferred metadata so an unattempted row beyond a previously attempted prefix stays visible.
+
+### Experimental accepted-Welcome receipts
+
+Migration 105 adds immutable facts for fully accepted Welcome joins. With
+`experimental-device-sync`, SQLite exposes the optional
+`AcceptedWelcomeStorage` capability. The engine writes the exact transport and
+peeled-content IDs, group, consumed KeyPackage reference, own and authenticated
+welcomer account/signature keys, joined epoch, and a SHA256 commitment to the
+joined epoch authenticator in the existing atomic join transaction. Supported
+write failures roll back the entire join, including private KeyPackage consumption.
+Exact retries are idempotent; conflicting records cannot replace earlier facts.
+Group IDs, KeyPackage references, and signature keys use explicit variable-length
+bounds. No exporter secret or replay-state fingerprint is stored.
+
+Unsupported backends and feature-off SQLite expose no receipt capability. A
+receipt is accepted-join evidence, and grants no enrollment, roster settlement,
+messaging, or synchronized-history authorization. Imported archives cannot
+write it. The engine read accessor checks live-group hydration/quarantine before
+returning a found fact. Reset or later branch changes require fresh gate checks;
+a historical receipt never proves the current roster.
+
+Private revision3 (formerly provisional core105) is additive and applied even with the feature off. As with the other private revisions,
+keep a pre-upgrade backup and do not run an older core against the upgraded
+database. Tests use isolated synthetic databases only.
+
+Receipt rows remain immutable historical facts across group deletion and rejoin;
+there is no group foreign key that silently rewrites their lifecycle. A query
+through the engine refuses a deleted, unhydrated, or quarantined group. If a later
+copy rejoins the same group, its new receipt coexists with older ones; an old
+receipt remains historical evidence only. The future enrollment owner must bind
+the exact expected Welcome to its current pairing generation and independently
+check the current authoritative per-leaf roster/branch. It must invalidate pending
+readiness across deletion, removal, rejoin, or branch changes. Merely retaining or
+reading any receipt can never reopen those gates.
+
+Experimental schema 106 adds one generation-owned private-linking KeyPackage
+metadata row per account-device, separate from public key publication slots.
+The optional storage capability is default-off; factory and retirement writes
+share the private OpenMLS bundle's transaction. Creating the package precedes
+freezing the canonical context, which includes its exact bytes/reference. The
+frozen nonce/digest must equal the current durable verifier attempt. Unconsumed
+ownership prevents a new reservation, including after verified-but-unjoined
+pairing. These records and terminal verifier facts never authorize a Welcome.
+The trusted runtime must supply a live ephemeral verification lease, with its
+original deadline; accepted receipt and consumption are committed atomically.
+The additive migration also runs when the feature is off. Do not open an
+upgraded database with an older core. No production databases were used here.
+
+### Experimental roster ACK capture (schema 107)
+
+The default-off `experimental-device-sync` capability stores one locally selected
+same-account group/round and at most 128 occupied-leaf ACK facts. Its checked
+local generation replaces the current round rather than accumulating an
+unbounded peer-nonce ledger. Version-1 state/fact artifacts retain public scope
+metadata only. An exact prepared MLS ciphertext (at most 16 KiB) commits with
+its sender ratchet before asynchronous transport wrapping. The final bounded
+publication and ordinary sent-content markers commit together and clear the
+prepared slot. Current source-epoch/tree bindings and the original selected
+round must agree before the private engine can write a receive fact; a public
+`SourceLeafProof`, copied application event, or synchronized archive is not an
+input to that constructor.
+
+This is fact capture, not a settled roster or an authorization store. There is
+no approved-leaf consent anchor, complete ACK barrier, history/chat grant, or
+continuous replication journal here. A locally stable candidate, SQL verifier
+fact, accepted-Welcome receipt, or these ACK records alone grants nothing.
+Remote challenges cannot allocate a capture scope: a responder must explicitly
+select the same local group first. Replacing the local round retires old facts;
+reopening preserves the selected round, while deleted, incompatible, or changed
+live groups cannot yield current capture facts. The capture remains bounded even
+when a group is deleted because there is only one account-device singleton.
+An actual adopted epoch/branch transition or local group deletion permanently
+invalidates that round and purges its facts and prepared publication. Returning
+to its old tree cannot revive it; only an explicit fresh local selection creates
+a new generation. Read-only branch probes and snapshot restoration do not grant
+or reset this denial. Stored-replay parity is a separate acceptance requirement;
+direct-ingest coverage alone does not establish it.
+Selected apply examines at most 128 additional policy-admitted inputs from its frozen
+selection for private controls. Each uses a fresh MLS object and a temporary
+canonical-state snapshot within the outer SQL unit. A nonprivate or invalid
+attempt explicitly restores its ratchets and releases that snapshot, retaining
+the ordinary disposition; nested transactions alone are not savepoints.
+Only genuine receiver classification can
+produce the private handled identifiers that suppress application invalidation.
+This bounded scan can leave a capture incomplete; overflow is never evidence of
+settlement. Complete branch-selection coverage and a complete ACK barrier remain
+separate acceptance requirements.
+Earlier epochs or permanently invalidated rounds can classify authenticated
+private controls only to suppress ordinary application invalidation. They derive
+no leaf authority, apply no capture effects, and cannot write facts or reset the
+round. Losing-branch and beyond-policy inputs are excluded from this scan.
+
+Migration 107 is additive and unconditional, including feature-off builds.
+Never run an older core against an upgraded account database. Tests use isolated
+synthetic SQLCipher databases; no existing account database is opened for this
+experiment. Private control framing is explicitly experimental and does not
+adopt new Marmot wire identifiers, conformance values, or protocol versions.
+
+### Experimental private-group birth provenance (migration 108)
+
+The unconditional additive migration creates one selected birth-provenance row with immutable account/device scope and a checked locally assigned generation. Runtime capability access is default-off behind `experimental-device-sync`. The protected core factory supplies actual creation metadata within the same transaction as new MLS values and the group projection; the storage DTO alone is never permission or proof of SDK approval.
+
+Birth bytes remain immutable for the selected lineage. Explicit retirement, actual adopted-tree changes, and group deletion set permanent denial without erasing birth. Crypto snapshots do not restore this denial state. A fresh explicit selection replaces the retired row with a checked next generation, keeping the store bounded rather than retaining unlimited historical selections; old generation commands reject. Completed origin can be revalidated against actual original crypto state after reopen, but pending verifier permission is never reconstructed. Accepted successor selection (migration 109) remains distinct. Do not run an older core against an upgraded database.
+
+
+## Experimental accepted device-group anchors
+
+Schema109 stores one account-device selected accepted-successor fact separately
+from immutable local genesis. The default-off storage capability records the exact
+purpose scope, contextual binding, KeyPackage/Welcome digests, canonical
+predecessor and successor indexed rosters, and a checked local selection
+generation. Exact retries retain identity; denial and group deletion permanently
+fence that generation. Installation rejects an active local genesis selection and
+retained owner identity changes. Fresh selections require a newer local pairing
+generation and keep storage bounded without a lifetime allocation cap.
+
+These are trusted-core persistence inputs, never native or wire DTO ingestion.
+The backend participates in the enclosing cryptoSQL transaction but does not
+verify SDK consent, prove the original MLS acceptance, settle the roster or grant
+chat/history access. Actual trusted Welcome integration remains required.
+
+## Experimental outgoing device invites
+
+Provisional migration110 separates the bounded pending Add from the last confirmed
+successor. The optional `experimental-device-sync` storage capability binds raw
+Commit/Welcome digests, exact origin and pairing generations, canonical indexed
+rosters and cached transport bytes. Exact retries reuse the staged identity;
+retiring an undispatched next invite preserves the previous confirmed anchor.
+Dispatch intent and uncertain publication prevent ordinary retirement or
+replacement. Confirmation requires the exact successor and updates both slots in
+one transaction; it cannot clear denial of a confirmed origin.
+
+Unresolved raw/wrapped/dispatched/unknown work blocks a new pairing generation
+and allocation of a replacement genesis or accepted selection. An active
+confirmed lineage also blocks replacement selection. Exact retries of an existing
+accepted fact remain read-only and preserve pending work. These fences do not
+perform startup cleanup or reconcile uncertain publication.
+
+These methods store trusted-core facts. They do not authenticate a supplied MLS
+tree, recreate SDK approval, establish complete roster settlement or make a cached
+Welcome deliverable. The Engine/App coordinator must supply genuine evidence and
+retain the original consent deadline. Actual private Add, publication integration,
+restart reconciliation and adopted-tree denial remain integration requirements.
+The migration numbering is unpublished and conflicts with upstream's proposed
+history-acquisition migration103; reconcile the ledger before native artifacts.
+
+The unpublished110 wrapped artifact now freezes an ordered `welcomes` batch:
+1–86 messages, unique bounded transport IDs (including the commit), exact Welcome
+account envelopes and a 16 MiB total JSON ceiling. Chunk count follows the pinned
+private transport's 24 KiB resource policy for a 2 MiB raw MLS Welcome; it is not a
+universal NIP44 protocol limit. The real peeler authenticates chunk indices and
+context before reassembly. SQLite freezes exact output order/bytes and rejects
+changed retries; these cached events remain unavailable for delivery until actual
+membership confirmation. Old singleton `welcome` JSON fails closed. This local
+schema110 remains provisional; no production database has been upgraded.
+
+### Permanent experimental private-chat exclusion
+
+Private ledger revision9 (`private_migrations/0009_private_group_chat_exclusion.rs`)
+is separate from upstream core102 and the original103–110 audit. Its per-group
+negative fact binds the account and local MLS device identity. Exact repeats are
+idempotent; identity mismatch errors, and update/delete/replace are forbidden.
+No foreign-key cascade or group snapshot restores these facts. Actual private
+birth and accepted joins write them inside their crypto/metadata SQL units.
+One small row remains per locally created or consented private group, including
+after selection replacement or group deletion; there is no peer-driven admission
+or finite lifetime attempt cap. The fact grants no membership or consent.
+
+Upgrade backfills only existing protected selected identifiers as negative
+suppression, preserving all old receipts and facts. It cannot reconstruct an
+older identifier already lost before upgrade when its private marker was also
+removed. Such unpublished historical cohorts cannot claim retroactive privacy
+qualification. Existing strict disabled-feature cohort refusal remains active;
+empty ordinary schemas continue to open normally.
+
+Experimental anchored roster settlement is a separate optional persistence capability
+(`private_roster_settlement.rs`), not generic ACK capture or authorization. It stores
+one checked-generation owner-bound round, at most128 occupied leaf facts, exact
+prepared ciphertext/outbound retries and atomic last-slot completion. Completed
+metadata never mints live admission; Engine must independently validate protected
+origin/current tree and a fixed monotonic live round. No deadline or SDK permission
+is serialized. The account owner must explicitly abandon unfinished rounds on
+authoritative exclusive startup; storage does not run that lifecycle hook itself.

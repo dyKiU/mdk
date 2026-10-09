@@ -19,12 +19,16 @@ what lives here is in [`README.md`](README.md#what-lives-in-here).
 | `src/engine.rs` | Public engine trait, send/create requests, outputs, group events. |
 | `src/storage.rs` | Storage traits, the `StorageProvider` aggregate (`type Mls` / `mls_storage()`), and the snapshot/rollback contract. |
 | `src/engine_state.rs` | Epoch and welcome state machines. |
+| `src/source_leaf.rs` | Optional authenticated source-leaf fact, legacy absence/serialization compatibility, redacted Debug; never authorization. |
+| `src/device_linking_key_package.rs` | Experimental purpose scope/context/public metadata and optional atomic storage contract; typed privacy-safe policy denials, never permission. |
+| `src/accepted_device_group_anchor.rs` | Optional trusted-core accepted-successor persistence contract; canonical predecessor/successor metadata and local selection scope, no Debug, SDK consent or settlement grants. |
+| `src/accepted_welcome.rs` | Experimental accepted-join fact; no Debug of identity bindings or authorization. Optional storage capability defaults unavailable. |
 | `src/welcome.rs` | `PendingWelcome` pending-welcome persistence record. |
 | `src/error.rs` | `EngineError` and `PeelerError` — the engine/peeler error vocabulary. |
 | `src/types.rs` | Core id newtypes (`GroupId`/`MemberId`/`MessageId`), `EpochId`, and the `Backend` enum. |
 | `src/group.rs` | `Group` and `Member` storage records. |
 | `src/message.rs` | `MessageRecord`, `MessageState`, and the `StoredMessagePayload` envelope. |
-| `src/peeler.rs` | The `TransportPeeler` crypto-boundary trait (wasm32 builds drop the `Send` bound). |
+| `src/peeler.rs` | The `TransportPeeler` crypto-boundary trait (wasm32 builds drop the `Send` bound), including default-deny private Welcome wrapping, single-chunk observation, complete-batch reassembly and exact non-authorizing metadata. |
 | `src/transport.rs` | Transport-facing message envelope types. |
 | `src/transport_adapter.rs` | Account-aware adapter trait, publish targets, delivery metadata. |
 | `src/ingest.rs` | Peeled-message content and ingest outcomes. |
@@ -64,3 +68,11 @@ After deliberate snapshot changes:
 ```sh
 cargo insta review
 ```
+
+`src/private_group_privacy.rs` is an optional permanent negative chat-presentation
+store. It has no serialized grant DTO; owner mismatch errors and default accessor
+unavailability apply only to the experimental private profile.
+
+`src/private_roster_settlement.rs` defines optional bounded anchored round/fact
+persistence metadata. It has no Debug identifiers, live admission, deadline or
+permission. The default StorageProvider accessor is unavailable.

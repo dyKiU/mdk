@@ -77,3 +77,43 @@ Versioned with the workspace; no public consumers outside it. Snapshot tests cat
 is a normal trait-evolution change for now.
 
 Agent-facing scope and file map: [`AGENTS.md`](AGENTS.md).
+
+`accepted_welcome::AcceptedWelcomeReceipt` is an experimental immutable
+accepted-join fact with an optional `AcceptedWelcomeStorage` capability. It
+contains public identity bindings and an epoch-authenticator digest, never
+secrets or authorization. Its JSON shape is pinned in the snapshot suite.
+
+Experimental source-leaf evidence uses the optional
+`GroupEvent::MessageReceived.source_leaf` field. Absence remains omitted from
+JSON and old events decode with `None`. `SourceLeafProof` binds a leaf index and
+MLS signature public key to an authenticated source epoch/branch; it grants no
+enrollment or history authorization. Consumers must compare it with current
+authoritative settled state. `Member.id` is the account credential identity and
+`Member.credential` is the MLS signature key; this member view has no actual
+leaf index and is not a settled device roster.
+
+
+The experimental accepted-device-group anchor contract carries bounded
+trusted-core join metadata and a local selected-lineage scope. Its optional
+storage accessor defaults unavailable. Serialized facts are neither SDK consent
+nor roster settlement, and must not be accepted through native/wire DTOs.
+
+The transport peeler also exposes default-deny private-linking Welcome wrapping,
+authenticated single-chunk observation and complete-batch authentication/reassembly. `PrivateLinkingWelcomeContext` is exact transport
+metadata (account, separate device signers, local generations, group, pairing
+nonce/digest, exact KeyPackage and commit/Welcome digests), never an enrollment
+permit. Nostr-specific framing stays in the Nostr peeler.
+
+`PrivateLinkingWelcomeObservation` carries bounded authenticated context, index,
+count and total bytes. It has no Debug/serialization or permission semantics.
+The caller must check known bindings against its actual live SDK attempt before
+buffering; the complete batch and actual MLS tree remain independently validated.
+
+Experimental anchored roster settlement is a separate optional persistence capability
+(`private_roster_settlement.rs`), not generic ACK capture or authorization. It stores
+one checked-generation owner-bound round, at most128 occupied leaf facts, exact
+prepared ciphertext/outbound retries and atomic last-slot completion. Completed
+metadata never mints live admission; Engine must independently validate protected
+origin/current tree and a fixed monotonic live round. No deadline or SDK permission
+is serialized. The account owner must explicitly abandon unfinished rounds on
+authoritative exclusive startup; storage does not run that lifecycle hook itself.

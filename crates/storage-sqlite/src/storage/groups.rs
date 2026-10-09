@@ -160,6 +160,8 @@ pub(crate) fn delete_group_tx(
     tx: &rusqlite::Transaction<'_>,
     id: &GroupId,
 ) -> StorageResult<usize> {
+    #[cfg(feature = "experimental-device-sync")]
+    crate::private_roster_settlement::deny_for_group_tx(tx, id)?;
     let mls_group_key = mls_group_key(id)?;
     crate::account_recovery::delete_inventory_tx(
         tx,
@@ -511,6 +513,7 @@ mod tests {
         store.put_message(&message).unwrap();
         store
             .put_pending_application_event(&GroupEvent::MessageReceived {
+                source_leaf: None,
                 authority: None,
                 group_id: group.id.clone(),
                 message_id: message.id.clone(),
@@ -569,6 +572,7 @@ mod tests {
             .unwrap();
         store
             .put_pending_application_event(&GroupEvent::MessageReceived {
+                source_leaf: None,
                 authority: None,
                 group_id: group.id.clone(),
                 message_id: mid(1),

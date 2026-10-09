@@ -131,6 +131,8 @@ pub trait GroupStorage {
     /// Atomically erase a group's local state and retain a reset cutoff.
     /// Repeated calls while awaiting a Welcome preserve the original cutoff.
     /// This is not an MLS leave or a protocol tombstone.
+    /// Backends advertising private settlement storage must permanently deny
+    /// the group's selected round in the same owned erasure transaction.
     /// Unsupported backends must fail without deleting anything.
     fn forget_group_local(&self, _id: &GroupId, _at: crate::Timestamp) -> StorageResult<bool> {
         Err(StorageError::Backend(
@@ -943,6 +945,18 @@ pub trait DeferredPeelGenerationStorage {
 
 // ── StorageProvider aggregate ───────────────────────────────────────────────
 
+/// Optional accepted-join evidence capability. Facts only, never authorization.
+pub trait AcceptedWelcomeStorage: Send + Sync {
+    fn put_accepted_welcome_receipt(
+        &self,
+        receipt: &crate::accepted_welcome::AcceptedWelcomeReceipt,
+    ) -> StorageResult<()>;
+    fn accepted_welcome_receipt(
+        &self,
+        id: &MessageId,
+    ) -> StorageResult<Option<crate::accepted_welcome::AcceptedWelcomeReceipt>>;
+}
+
 /// The single storage type parameter carried by the engine.
 ///
 /// Marmot storage concerns live on this trait. OpenMLS storage is exposed
@@ -1029,6 +1043,60 @@ pub trait StorageProvider:
     /// remain valid `StorageProvider`s, while production SQLCipher storage
     /// exposes the durable maintenance capability.
     fn maintenance_storage(&self) -> Option<&dyn MaintenanceStorage> {
+        None
+    }
+
+    /// Unsupported backends explicitly provide no enrollment receipt. Supported
+    /// implementations must propagate failures and participate in the join transaction.
+    fn accepted_welcome_storage(&self) -> Option<&dyn AcceptedWelcomeStorage> {
+        None
+    }
+
+    /// Optional permanent negative private-chat fence. No authorization input.
+    fn private_group_privacy_storage(
+        &self,
+    ) -> Option<&dyn crate::private_group_privacy::PrivateGroupPrivacyStorage> {
+        None
+    }
+
+    /// Optional outgoing private Add staging facts. Defaults unavailable.
+    fn private_device_invite_storage(
+        &self,
+    ) -> Option<&dyn crate::private_device_invite::PrivateDeviceInviteStorage> {
+        None
+    }
+
+    /// Optional trusted-core accepted successor facts. Defaults unavailable.
+    fn accepted_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn crate::accepted_device_group_anchor::AcceptedDeviceGroupAnchorStorage> {
+        None
+    }
+
+    /// Optional private-group creation provenance. Unsupported backends grant nothing.
+    fn device_group_genesis_storage(
+        &self,
+    ) -> Option<&dyn crate::device_group_genesis::DeviceGroupGenesisStorage> {
+        None
+    }
+
+    /// Optional atomic experimental fact capture, never an authorization store.
+    fn private_roster_settlement_storage(
+        &self,
+    ) -> Option<&dyn crate::private_roster_settlement::PrivateRosterSettlementStorage> {
+        None
+    }
+
+    fn roster_ack_capture_storage(
+        &self,
+    ) -> Option<&dyn crate::roster_ack_capture::RosterAckCaptureStorage> {
+        None
+    }
+
+    /// Optional atomic purpose ownership; unavailable backends fail closed.
+    fn device_linking_key_package_storage(
+        &self,
+    ) -> Option<&dyn crate::device_linking_key_package::PurposeKeyPackageStorage> {
         None
     }
 

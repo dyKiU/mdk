@@ -1,0 +1,99 @@
+---
+source: crates/traits/tests/snapshots.rs
+expression: "serde_json::json!({\n    \"scope\": scope, \"origins\":\n    [PrivateInviteOrigin::Genesis(4), PrivateInviteOrigin::Accepted(5),\n    PrivateInviteOrigin::Confirmed(6)], \"phases\":\n    [PrivateInvitePhase::RawStaged, PrivateInvitePhase::Wrapped,\n    PrivateInvitePhase::Dispatching, PrivateInvitePhase::PublicationUnknown,\n    PrivateInvitePhase::Retired, PrivateInvitePhase::Confirmed],\n})"
+---
+{
+  "origins": [
+    {
+      "generation": 4,
+      "kind": "Genesis"
+    },
+    {
+      "generation": 5,
+      "kind": "Accepted"
+    },
+    {
+      "generation": 6,
+      "kind": "Confirmed"
+    }
+  ],
+  "phases": [
+    "RawStaged",
+    "Wrapped",
+    "Dispatching",
+    "PublicationUnknown",
+    "Retired",
+    "Confirmed"
+  ],
+  "scope": {
+    "account": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "local_device": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "staging_generation": 3
+  }
+}

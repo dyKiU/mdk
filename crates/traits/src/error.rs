@@ -168,6 +168,10 @@ pub enum EngineError {
     /// by the user once the group recovers, not by a loop.
     #[error("queued outbound retention is at capacity for this group")]
     QueuedOutboundAtCapacity { group_id: GroupId },
+    /// Bounded ephemeral private metadata intake is full; no disposition or
+    /// seen marker was committed. Drain/retire intake before exact retry.
+    #[error("private enrollment metadata intake is at capacity")]
+    PrivateEnrollmentIntakeAtCapacity,
 
     /// The group is halted `Unrecoverable` and refuses new work until a
     /// verified repair returns it to `Stable`. Its one legal exit is an
@@ -210,6 +214,9 @@ pub enum EngineError {
     #[error("invalid welcome")]
     InvalidWelcome,
 
+    #[error("{0}")]
+    LinkingWelcomeDenied(crate::device_linking_key_package::LinkingWelcomeDenied),
+
     /// This device has no private bundle for any KeyPackage referenced by the
     /// Welcome. Retrying the same invitation cannot recreate that material.
     #[error(
@@ -243,7 +250,7 @@ impl EngineError {
     /// say `"storage"`; the app runtime deliberately unwraps one layer further
     /// and reports the nine [`crate::storage::StorageError`] kinds instead
     /// (`storage_busy`, `storage_not_found`, ...). The trade is intentional:
-    /// [`Self::is_transient`] is true for exactly `StorageError::Busy`, so
+    /// [`Self::is_transient`] distinguishes storage contention and the separately named private metadata capacity retry, so
     /// collapsing storage to one word app-side would hide the retryable failure
     /// among eight durable ones. A consumer joining engine rows to app fields
     /// must therefore treat `"storage"` as the prefix of the nine, not as a
@@ -281,14 +288,18 @@ impl EngineError {
             EngineError::Peeler(_) => "peeler",
             EngineError::Serialize(_) => "serialize",
             EngineError::InvalidWelcome => "invalid_welcome",
+            EngineError::LinkingWelcomeDenied(_) => "linking_welcome_denied",
             EngineError::MissingWelcomeKeyPackage => "missing_welcome_key_package",
             EngineError::WelcomeAlreadyProcessed => "welcome_already_processed",
+            EngineError::PrivateEnrollmentIntakeAtCapacity => {
+                "private_enrollment_intake_at_capacity"
+            }
             EngineError::Backend(_) => "backend",
             EngineError::Other(_) => "other",
         }
     }
 
-    /// Whether this error reflects transient backend contention (a
+    /// Whether this error is retryable private metadata backpressure or backend contention (a
     /// [`crate::storage::StorageError::Busy`] that survived the backend's own
     /// retries) rather than a durable failure. Callers driving the
     /// publish-before-apply lifecycle use this to retry `confirm_published`
@@ -297,7 +308,8 @@ impl EngineError {
     /// only runs after the durable storage transaction commits).
     #[must_use]
     pub fn is_transient(&self) -> bool {
-        matches!(self, EngineError::Storage(e) if e.is_transient())
+        matches!(self, EngineError::PrivateEnrollmentIntakeAtCapacity)
+            || matches!(self, EngineError::Storage(e) if e.is_transient())
     }
 }
 
