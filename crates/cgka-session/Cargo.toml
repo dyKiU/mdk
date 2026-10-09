@@ -7,9 +7,11 @@ publish.workspace = true
 
 [features]
 default = []
+experimental-device-sync = ["cgka-engine/experimental-device-sync", "storage-sqlite/experimental-device-sync"]
 test-policy-overrides = ["cgka-engine/test-policy-overrides"]
 
 [dependencies]
+web-time.workspace = true
 cgka-engine.workspace = true
 cgka-traits.workspace = true
 marmot-forensics.workspace = true

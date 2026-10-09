@@ -472,6 +472,309 @@ impl AccountDeviceSession {
         Ok(key_package)
     }
 
+    /// Create a fresh self-only private group and its birth facts atomically.
+    /// No transport work, verifier consent or enrollment grant is produced.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn create_private_device_group_genesis(
+        &mut self,
+    ) -> Result<
+        cgka_engine::device_group_genesis::PrivateDeviceGroupGenesisEvidence,
+        cgka_engine::device_group_genesis::GenesisFactoryError,
+    > {
+        self.engine.create_private_device_group_genesis()
+    }
+
+    /// Install caller-composed supported components in the authenticated birth.
+    /// Transport policy and route selection stay with the account App owner.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn create_private_device_group_genesis_with_components(
+        &mut self,
+        components: Vec<cgka_traits::app_components::AppComponentData>,
+    ) -> Result<
+        cgka_engine::device_group_genesis::PrivateDeviceGroupGenesisEvidence,
+        cgka_engine::device_group_genesis::GenesisFactoryError,
+    > {
+        self.engine
+            .create_private_device_group_genesis_with_components(components)
+    }
+
+    /// Negative presentation classification, never membership or transport consent.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn exclude_private_group_from_chat(
+        &self,
+        group: &GroupId,
+    ) -> Result<bool, cgka_traits::EngineError> {
+        self.engine.exclude_private_group_from_chat(group)
+    }
+
+    /// Protected current component metadata for a hidden subscription, never consent.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn private_transport_evidence(
+        &self,
+        component: cgka_traits::AppComponentId,
+    ) -> Result<
+        Option<cgka_engine::private_transport::PrivateTransportEvidence>,
+        cgka_traits::EngineError,
+    > {
+        self.engine.private_transport_evidence(component)
+    }
+
+    /// Thin trusted-owner continuation; no platform approval flag or durable restoration.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn select_owned_private_roster_settlement(
+        &self,
+        group: &GroupId,
+        guard: std::sync::Arc<
+            dyn cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard,
+        >,
+    ) -> Result<(), cgka_traits::EngineError> {
+        self.engine
+            .select_owned_private_roster_settlement(group, guard)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn private_roster_settlement_publication_ready(
+        &self,
+        group: &GroupId,
+    ) -> Result<bool, cgka_traits::EngineError> {
+        self.engine
+            .private_roster_settlement_publication_ready(group)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn dispatch_private_roster_settlement(
+        &mut self,
+        group: &GroupId,
+        publisher: &dyn cgka_engine::private_roster_settlement::TrustedPrivateSettlementPublisher,
+    ) -> Result<(), cgka_traits::EngineError> {
+        self.engine
+            .dispatch_private_roster_settlement(group, publisher)
+            .await
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn cancel_private_roster_settlement(
+        &self,
+        group: &GroupId,
+    ) -> Result<(), cgka_traits::EngineError> {
+        self.engine.cancel_private_roster_settlement(group)
+    }
+
+    /// Fresh read-only local settlement observation, without enrollment/history grants.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn validated_settled_device_roster(
+        &self,
+        group: &GroupId,
+    ) -> Result<
+        Option<cgka_engine::private_roster_settlement::ValidatedSettledDeviceRoster>,
+        cgka_traits::EngineError,
+    > {
+        self.engine.validated_settled_device_roster(group)
+    }
+
+    /// Public signed metadata from a fresh protected completed predecessor.
+    /// Exporting does not grant enrollment or history consent.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn export_settled_device_predecessor(
+        &self,
+        group: &GroupId,
+    ) -> Result<Option<Vec<u8>>, cgka_traits::EngineError> {
+        self.engine.export_settled_device_predecessor(group)
+    }
+
+    /// Authenticate portable public metadata in scratch storage only.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn validate_private_device_predecessor(
+        &self,
+        artifact: &[u8],
+        account: &MemberId,
+        group: &GroupId,
+        epoch: cgka_traits::EpochId,
+        leaves: &[cgka_engine::device_group_snapshot::CandidateDeviceLeaf],
+    ) -> Result<
+        cgka_engine::private_enrollment_predecessor::AuthenticatedPrivatePredecessor,
+        cgka_traits::EngineError,
+    > {
+        self.engine
+            .validate_private_device_predecessor(artifact, account, group, epoch, leaves)
+    }
+
+    /// Freshly authenticate persisted birth against this live account-device
+    /// tree. This does not restore a verifier or establish roster settlement.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn validated_private_device_group_genesis(
+        &self,
+        group: &GroupId,
+    ) -> Result<
+        Option<cgka_engine::device_group_genesis::PrivateDeviceGroupGenesisEvidence>,
+        cgka_engine::device_group_genesis::GenesisFactoryError,
+    > {
+        self.engine.validated_private_device_group_genesis(group)
+    }
+
+    /// Permanently retire only the exact locally selected genesis generation.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn retire_private_device_group_genesis(
+        &mut self,
+        scope: &cgka_traits::device_group_genesis::GenesisScope,
+        group: &GroupId,
+    ) -> Result<(), cgka_engine::device_group_genesis::GenesisFactoryError> {
+        self.engine
+            .retire_private_device_group_genesis(scope, group)
+    }
+
+    /// Read bounded local indexed-tree evidence; never a settled roster grant.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn candidate_device_group_snapshot(
+        &self,
+        group: &GroupId,
+    ) -> Result<Option<cgka_engine::device_group_snapshot::CandidateDeviceGroupSnapshot>, EngineError>
+    {
+        self.engine.candidate_device_group_snapshot(group)
+    }
+
+    /// Generate private single-use linking material without transport activation
+    /// or publication. The account owner must manage unused-bundle cleanup and
+    /// exact attempt bindings; this method grants no enrollment permission.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn fresh_linking_key_package(&mut self) -> Result<KeyPackage, EngineError> {
+        self.engine.fresh_linking_key_package().await
+    }
+
+    /// Resolve exact generation-owned private material without publication.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn resolve_linking_key_package(
+        &mut self,
+        scope: &cgka_traits::device_linking_key_package::PurposeAttemptScope,
+    ) -> Result<KeyPackage, EngineError> {
+        self.engine.resolve_linking_key_package(scope).await
+    }
+
+    /// Atomic exact-purpose retirement; the attempt must already be terminal.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn retire_linking_key_package(
+        &mut self,
+        scope: &cgka_traits::device_linking_key_package::PurposeAttemptScope,
+    ) -> Result<(), EngineError> {
+        self.engine.retire_linking_key_package(scope).await
+    }
+
+    /// Exclusive-startup cleanup after durable attempt abandonment; no token
+    /// can be restored from the remaining verifier or accepted-Welcome facts.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn cleanup_unjoined_linking_key_package_on_startup(&mut self) -> Result<bool, EngineError> {
+        self.engine
+            .cleanup_unjoined_linking_key_package_on_startup()
+    }
+
+    /// Trusted runtime seam; never a native boolean or persisted consent grant.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn install_trusted_private_invite_policy(
+        &mut self,
+        policy: std::sync::Arc<dyn cgka_engine::private_device_invite::TrustedPrivateInvitePolicy>,
+    ) {
+        self.engine.install_trusted_private_invite_policy(policy);
+    }
+
+    /// Dedicated private enrollment preparation; no ordinary publish work.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn prepare_private_device_invite(
+        &mut self,
+        group: &GroupId,
+        package: KeyPackage,
+    ) -> Result<
+        cgka_engine::private_device_invite::PreparedPrivateDeviceInvite,
+        cgka_engine::private_device_invite::PrivateInviteError,
+    > {
+        self.engine
+            .prepare_private_device_invite(group, package)
+            .await
+    }
+
+    /// Borrowed private dispatch preserves the caller's original live lease on
+    /// pre-intent storage failure; uncertain publication cannot be redispatched.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn dispatch_prepared_private_device_invite(
+        &mut self,
+        prepared: &mut cgka_engine::private_device_invite::PreparedPrivateDeviceInvite,
+        publisher: &dyn cgka_engine::private_device_invite::TrustedPrivateInvitePublisher,
+    ) -> Result<(), cgka_engine::private_device_invite::PrivateInviteError> {
+        self.engine
+            .dispatch_prepared_private_device_invite(prepared, publisher)
+            .await
+    }
+
+    /// Dedicated confirmed Welcome delivery; the Engine owns all authorization.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn dispatch_confirmed_private_welcomes(
+        &mut self,
+        prepared: &mut cgka_engine::private_device_invite::PreparedPrivateDeviceInvite,
+        publisher: &dyn cgka_engine::private_device_invite::TrustedPrivateWelcomePublisher,
+    ) -> Result<(), cgka_engine::private_device_invite::PrivateInviteError> {
+        self.engine
+            .dispatch_confirmed_private_welcomes(prepared, publisher)
+            .await
+    }
+
+    /// Retryable negative cleanup keeps the caller's opaque original lease owned.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn retire_prepared_private_device_invite(
+        &mut self,
+        prepared: &cgka_engine::private_device_invite::PreparedPrivateDeviceInvite,
+    ) -> Result<(), cgka_engine::private_device_invite::PrivateInviteError> {
+        self.engine.retire_prepared_private_device_invite(prepared)
+    }
+
+    /// Negative-only dispatch cleanup preserves uncertain membership for echo reconciliation.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn finish_interrupted_private_device_invite(
+        &mut self,
+        prepared: &cgka_engine::private_device_invite::PreparedPrivateDeviceInvite,
+    ) -> Result<(), cgka_engine::private_device_invite::PrivateInviteError> {
+        self.engine
+            .finish_interrupted_private_device_invite(prepared)
+    }
+
+    /// Exact raw cleanup when preparation failed before returning a continuation.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn retire_unprepared_private_device_invite(
+        &mut self,
+        scope: &cgka_traits::device_linking_key_package::PurposeAttemptScope,
+    ) -> Result<bool, cgka_engine::private_device_invite::PrivateInviteError> {
+        self.engine.retire_unprepared_private_device_invite(scope)
+    }
+
+    /// Install a trusted account-owned verifier policy, never a host approval bit.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn install_trusted_linking_welcome_policy(
+        &mut self,
+        policy: std::sync::Arc<dyn cgka_engine::linking_welcome_policy::LinkingWelcomePolicy>,
+    ) {
+        self.engine.install_trusted_linking_welcome_policy(policy);
+    }
+
+    /// Read-only authentication through the configured peeler; no join permit.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn observe_private_linking_welcome(
+        &self,
+        message: &TransportMessage,
+    ) -> Result<cgka_traits::peeler::PrivateLinkingWelcomeObservation, EngineError> {
+        self.engine.observe_private_linking_welcome(message).await
+    }
+
+    /// Dedicated private batch acceptance. Only a trusted live recipient lease
+    /// can admit it; transport and durable facts never reconstruct consent.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn join_private_linking_welcome_batch(
+        &mut self,
+        messages: Vec<TransportMessage>,
+        context: &cgka_traits::peeler::PrivateLinkingWelcomeContext,
+    ) -> Result<GroupId, EngineError> {
+        self.engine
+            .join_private_linking_welcome_batch(messages, context)
+            .await
+    }
+
     pub fn durably_owned_key_packages(&self) -> SessionResult<Vec<KeyPackage>> {
         Ok(self.engine.durably_owned_key_packages()?)
     }
@@ -1011,9 +1314,39 @@ impl AccountDeviceSession {
         })
     }
 
+    /// Drain ephemeral authenticated enrollment declarations, never permission.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn drain_authenticated_enrollment_requests(
+        &mut self,
+    ) -> Result<
+        Vec<cgka_engine::private_enrollment_request::AuthenticatedEnrollmentRequest>,
+        EngineError,
+    > {
+        self.engine.drain_authenticated_enrollment_requests()
+    }
+
     pub async fn ingest_delivery(
         &mut self,
         delivery: TransportDelivery,
+    ) -> SessionResult<IngestEffects> {
+        self.ingest_delivery_observed(delivery, None).await
+    }
+
+    /// Acquisition clock only; never SDK consent or enrollment permission.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn ingest_private_enrollment_delivery_until(
+        &mut self,
+        delivery: TransportDelivery,
+        deadline: web_time::Instant,
+    ) -> SessionResult<IngestEffects> {
+        self.ingest_delivery_observed(delivery, Some(deadline))
+            .await
+    }
+
+    async fn ingest_delivery_observed(
+        &mut self,
+        delivery: TransportDelivery,
+        deadline: Option<web_time::Instant>,
     ) -> SessionResult<IngestEffects> {
         tracing::debug!(
             target: TRACE_TARGET,
@@ -1021,10 +1354,27 @@ impl AccountDeviceSession {
             "ingesting transport delivery"
         );
         let transport_context = audit_transport_context(delivery.source);
-        let outcome = self
-            .engine
-            .ingest_with_audit_context(delivery.message, Some(transport_context))
-            .await?;
+        #[cfg(feature = "experimental-device-sync")]
+        let outcome = if let Some(deadline) = deadline {
+            self.engine
+                .ingest_private_enrollment_delivery_with_audit_context_until(
+                    delivery.message,
+                    Some(transport_context),
+                    deadline,
+                )
+                .await?
+        } else {
+            self.engine
+                .ingest_with_audit_context(delivery.message, Some(transport_context))
+                .await?
+        };
+        #[cfg(not(feature = "experimental-device-sync"))]
+        let outcome = {
+            let _ = deadline;
+            self.engine
+                .ingest_with_audit_context(delivery.message, Some(transport_context))
+                .await?
+        };
         let left_object_unpersisted = self.engine.last_ingest_left_object_unpersisted();
         tracing::debug!(
             target: TRACE_TARGET,
@@ -1391,6 +1741,15 @@ impl AccountDeviceSession {
 
     pub fn pending_group_id(&self, pending: PendingStateRef) -> SessionResult<GroupId> {
         Ok(self.engine.pending_group_id(pending)?)
+    }
+
+    /// Experimental accepted-join fact, never roster settlement or enrollment authorization.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn accepted_welcome_receipt(
+        &self,
+        welcome_id: &MessageId,
+    ) -> SessionResult<Option<cgka_traits::accepted_welcome::AcceptedWelcomeReceipt>> {
+        Ok(self.engine.accepted_welcome_receipt(welcome_id)?)
     }
 
     pub fn members(&self, group_id: &GroupId) -> Result<Vec<Member>, EngineError> {

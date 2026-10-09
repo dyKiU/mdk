@@ -47,6 +47,12 @@ pub mod convergence;
 pub mod convergence_clock;
 pub(crate) mod convergence_input;
 mod deadline;
+#[cfg(feature = "experimental-device-sync")]
+pub mod device_group_genesis;
+#[cfg(feature = "experimental-device-sync")]
+mod device_group_lineage;
+#[cfg(feature = "experimental-device-sync")]
+pub mod device_group_snapshot;
 pub mod disband;
 pub mod distributed_convergence;
 pub mod engine;
@@ -67,6 +73,16 @@ pub(crate) mod mls_group_cache;
 pub mod openmls_projection;
 pub mod own_commit_intent;
 pub mod pending_commit_guard;
+#[cfg(feature = "experimental-device-sync")]
+pub mod private_device_invite;
+#[cfg(feature = "experimental-device-sync")]
+pub mod private_enrollment_predecessor;
+#[cfg(feature = "experimental-device-sync")]
+pub mod private_roster_settlement;
+#[cfg(feature = "experimental-device-sync")]
+mod private_successor;
+#[cfg(feature = "experimental-device-sync")]
+pub mod private_transport;
 pub mod provider;
 pub mod publish;
 pub mod self_update;
@@ -93,3 +109,21 @@ pub use wire_format::{
 // ── Compile-time witnesses ──────────────────────────────────────────────────
 
 const _: fn(Box<dyn cgka_traits::CgkaEngine + Send + Sync>) = |_| {};
+
+#[cfg(feature = "experimental-device-sync")]
+pub mod linking_welcome_policy;
+
+#[cfg(feature = "experimental-device-sync")]
+mod roster_ack_capture;
+
+#[cfg(feature = "experimental-device-sync")]
+mod private_linking_join;
+
+#[cfg(feature = "experimental-device-sync")]
+mod private_roster_settlement_receive;
+
+#[cfg(feature = "experimental-device-sync")]
+pub mod private_enrollment_request;
+
+#[cfg(feature = "experimental-device-sync")]
+pub mod private_enrollment_endorsement;

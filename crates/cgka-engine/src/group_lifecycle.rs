@@ -924,6 +924,8 @@ impl<S: StorageProvider> Engine<S> {
             peeled,
             content_id,
             Some((&candidate.group_id, local_state_token)),
+            #[cfg(feature = "experimental-device-sync")]
+            None,
         )
         .await
     }
@@ -1030,17 +1032,27 @@ impl<S: StorageProvider> Engine<S> {
         peeled: cgka_traits::ingest::PeeledMessage,
         content_id: MessageId,
     ) -> Result<GroupId, EngineError> {
-        self.join_peeled_welcome_with_consent(welcome_msg, peeled, content_id, None)
-            .await
+        self.join_peeled_welcome_with_consent(
+            welcome_msg,
+            peeled,
+            content_id,
+            None,
+            #[cfg(feature = "experimental-device-sync")]
+            None,
+        )
+        .await
     }
 
     /// The token is supplied only by the explicit recipient-confirmation API.
-    async fn join_peeled_welcome_with_consent(
+    pub(crate) async fn join_peeled_welcome_with_consent(
         &mut self,
         welcome_msg: TransportMessage,
         peeled: cgka_traits::ingest::PeeledMessage,
         content_id: MessageId,
         consent: Option<(&GroupId, &[u8])>,
+        #[cfg(feature = "experimental-device-sync")] private: Option<
+            crate::private_linking_join::PrivateJoinInput<'_>,
+        >,
     ) -> Result<GroupId, EngineError> {
         let welcome_id = welcome_msg.id.clone();
         let (welcome_bytes, welcome_created_at) = match peeled.content {
@@ -1106,6 +1118,12 @@ impl<S: StorageProvider> Engine<S> {
         // discoverable group record, joined-epoch recovery anchor, capability
         // cache, and both durable Welcome dispositions in one transaction.
         let mut pending_rejoin = None;
+        #[cfg(feature = "experimental-device-sync")]
+        let mut linking_lease: Option<
+            Box<dyn crate::linking_welcome_policy::LinkingWelcomeLease>,
+        > = None;
+        #[cfg(feature = "experimental-device-sync")]
+        let mut accepted_linking_receipt = None;
         let result = self.storage.with_transaction(|storage| {
             let provider = EngineOpenMlsProvider::<S>::new(&self.crypto, storage.mls_storage());
             // Match in the same order OpenMLS uses: the first Welcome
@@ -1116,19 +1134,56 @@ impl<S: StorageProvider> Engine<S> {
             // rather than enumerating, JSON-decoding, and re-hashing
             // every stored bundle on each join.
             let mut consumed_key_package_ref = None;
+            #[cfg(feature = "experimental-device-sync")]
+            let mut selected_single_use = false;
             for secret in welcome.secrets() {
                 let reference = secret.new_member();
                 let bundle: Option<KeyPackageBundle> =
                     OpenMlsStorageProvider::key_package(provider.storage(), &reference).map_err(
                         |error| EngineError::Backend(format!("key_package lookup: {error:?}")),
                     )?;
-                if bundle.is_some() {
+                if let Some(bundle) = bundle {
+                    #[cfg(feature = "experimental-device-sync")]
+                    { selected_single_use = !bundle.key_package().last_resort(); }
+                    #[cfg(not(feature = "experimental-device-sync"))]
+                    let _ = bundle;
                     consumed_key_package_ref = Some(reference.as_slice().to_vec());
                     break;
                 }
             }
             let consumed_key_package_ref =
                 consumed_key_package_ref.ok_or(EngineError::MissingWelcomeKeyPackage)?;
+            #[cfg(feature = "experimental-device-sync")]
+            let linking_purpose = match storage.device_linking_key_package_storage() {
+                Some(purpose) => {
+                    let matching = purpose.purpose_key_package()?.filter(|saved|
+                        saved.reference == consumed_key_package_ref
+                    );
+                    if let Some(saved) = matching.as_ref() {
+                        purpose.check_purpose_join(&saved.scope)?;
+                        let policy = self.linking_welcome_policy.as_ref().ok_or(
+                            EngineError::LinkingWelcomeDenied(
+                                cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
+                            ),
+                        )?;
+                        linking_lease = Some(policy.begin_join(saved)
+                            .map_err(EngineError::LinkingWelcomeDenied)?);
+                    }
+                    matching
+                }
+                None if selected_single_use => return Err(EngineError::LinkingWelcomeDenied(
+                    cgka_traits::device_linking_key_package::LinkingWelcomeDenied::UnsupportedStorage,
+                )),
+                None => None,
+            };
+            #[cfg(feature = "experimental-device-sync")]
+            if let Some(input) = private.as_ref() {
+                let saved = linking_purpose.as_ref().ok_or_else(crate::private_linking_join::denial)?;
+                crate::private_linking_join::check_purpose(saved,input.context)?;
+                if !selected_single_use { return Err(crate::private_linking_join::denial()); }
+                linking_lease.as_mut().ok_or_else(crate::private_linking_join::denial)?
+                    .check_transport_context(input.context).map_err(EngineError::LinkingWelcomeDenied)?;
+            }
             let processed = openmls::group::ProcessedWelcome::new_from_welcome(
                 &provider,
                 &join_config,
@@ -1241,6 +1296,10 @@ impl<S: StorageProvider> Engine<S> {
                 .welcome_sender()
                 .map_err(|_| EngineError::InvalidWelcome)?;
             let welcome_sender_id = crate::identity::validated_member_id_of_leaf(welcome_sender)?;
+            #[cfg(feature = "experimental-device-sync")]
+            let welcome_sender_signature_key = welcome_sender.signature_key().as_slice().to_vec();
+            #[cfg(feature = "experimental-device-sync")]
+            let welcome_sender_index = staged.welcome_sender_index().u32();
             // Bind the timestamp's authenticated author to the MLS inviter;
             // an unrelated sender rewrapping old Welcome bytes cannot make
             // those bytes a fresh invitation across a reset boundary.
@@ -1268,6 +1327,75 @@ impl<S: StorageProvider> Engine<S> {
             }
             crate::app_components::validate_current_profile_group_invariants(&mls_group)
                 .map_err(|_| EngineError::InvalidWelcome)?;
+
+            #[cfg(feature = "experimental-device-sync")]
+            let private_device_profile = crate::device_group_genesis::exact_profile(&mls_group)?;
+            #[cfg(feature = "experimental-device-sync")]
+            if private_device_profile != private.is_some() {
+                return Err(crate::private_linking_join::denial());
+            }
+            // Only the purpose-owned experimental join has this bounded full-tree
+            // policy. Generic group limits and normal Welcome handling are unchanged.
+            // Every credential/account proof above is validated before the lease
+            // receives these facts, still inside the private-consumption SQL unit.
+            #[cfg(feature = "experimental-device-sync")]
+            if let Some(lease) = linking_lease.as_mut() {
+                use crate::linking_welcome_policy::{AuthenticatedLinkingLeaf, AuthenticatedLinkingWelcome};
+                use std::collections::BTreeSet;
+                use sha2::{Digest, Sha256};
+                if protocol_profile != ProtocolProfile::Current
+                    || group_id.as_slice().is_empty() || group_id.as_slice().len() > 255 {
+                    return Err(EngineError::InvalidWelcome);
+                }
+                let mut leaves = Vec::new();
+                let mut indices = BTreeSet::new();
+                let mut signers = BTreeSet::new();
+                for member in mls_group.members() {
+                    if leaves.len() == 128 || member.signature_key.len() != 32
+                        || !indices.insert(member.index.u32())
+                        || !signers.insert(member.signature_key.clone()) {
+                        return Err(EngineError::InvalidWelcome);
+                    }
+                    leaves.push(AuthenticatedLinkingLeaf {
+                        leaf_index: member.index.u32(),
+                        account: crate::identity::validated_member_id(&member.credential)?,
+                        signature_public_key: member.signature_key,
+                    });
+                }
+                leaves.sort_unstable_by_key(|leaf| leaf.leaf_index);
+                let own_index = mls_group.own_leaf_index().u32();
+                let own_leaf = leaves.iter().find(|leaf| leaf.leaf_index == own_index)
+                    .ok_or(EngineError::InvalidWelcome)?;
+                let authenticated = AuthenticatedLinkingWelcome {
+                    group_id: group_id.clone(),
+                    own_account: own_leaf.account.clone(),
+                    own_signature_public_key: own_leaf.signature_public_key.clone(),
+                    own_leaf_index: own_index,
+                    welcomer_account: welcome_sender_id.clone(),
+                    welcomer_signature_public_key: welcome_sender_signature_key.clone(),
+                    welcomer_leaf_index: welcome_sender_index,
+                    joined_epoch: EpochId(mls_group.epoch().as_u64()),
+                    protocol_profile,
+                    private_device_profile,
+                    epoch_authenticator_digest: Sha256::digest(mls_group.epoch_authenticator().as_slice()).into(),
+                    leaves,
+                };
+                lease.check_authenticated(&authenticated).map_err(EngineError::LinkingWelcomeDenied)?;
+                if let Some(input) = private.as_ref() {
+                    let predecessor = lease.approved_predecessor().map_err(EngineError::LinkingWelcomeDenied)?;
+                    let saved = linking_purpose.as_ref().ok_or_else(crate::private_linking_join::denial)?;
+                    let draft = crate::private_linking_join::anchor_draft(saved,input.context,&authenticated,predecessor)?;
+                    storage.private_group_privacy_storage().ok_or(
+                        EngineError::LinkingWelcomeDenied(crate::linking_welcome_policy::LinkingWelcomeDenied::UnsupportedStorage)
+                    )?.mark_private_group_for_chat_exclusion(&saved.scope.account,&saved.scope.local_device,&group_id)?;
+                    storage.accepted_device_group_anchor_storage().ok_or(
+                        EngineError::LinkingWelcomeDenied(crate::linking_welcome_policy::LinkingWelcomeDenied::UnsupportedStorage)
+                    )?.install_accepted_anchor(&draft).map_err(|error| match error {
+                        cgka_traits::accepted_device_group_anchor::AnchorError::Storage(error) => EngineError::Storage(error),
+                        _ => crate::private_linking_join::denial(),
+                    })?;
+                }
+            }
 
             // Validate every known GroupContext component before any joined
             // state leaves this transaction. Commit ingest validates
@@ -1316,6 +1444,11 @@ impl<S: StorageProvider> Engine<S> {
             })?;
 
             if let Some(local_state_token) = confirmation_token {
+                // Private enrollment is not ordinary branch-replacement consent.
+                // Never spill a private batch into the generic persisted offer
+                // path after this crypto transaction rolls back.
+                #[cfg(feature = "experimental-device-sync")]
+                if private.is_some() { return Err(crate::private_linking_join::denial()); }
                 pending_rejoin = Some(PendingWelcome {
                     message_id: welcome_id.clone(),
                     group_id: group_id.clone(),
@@ -1373,6 +1506,8 @@ impl<S: StorageProvider> Engine<S> {
             if reset_cutoff.is_some() {
                 storage.complete_group_local_reset(&group_id)?;
             }
+            #[cfg(feature = "experimental-device-sync")]
+            crate::roster_ack_capture::invalidate_capture_for_tree(storage, &group_id, &mls_group)?;
             storage.put_group(&group_record)?;
             if local_state_is_stale {
                 if consent.is_some() {
@@ -1424,6 +1559,10 @@ impl<S: StorageProvider> Engine<S> {
                 }
             }
 
+            #[cfg(feature = "experimental-device-sync")]
+            if let Some(input) = private.as_ref() {
+                for message in input.messages { storage.put_ingress_dedup_marker(&message.id)?; }
+            }
             // Direct join callers need the same durable dedup disposition as
             // the transport-ingest path.
             let payload = StoredMessagePayload::raw_transport(welcome_msg)
@@ -1447,6 +1586,37 @@ impl<S: StorageProvider> Engine<S> {
                     welcomer: Some(welcome_sender_id.clone()),
                 },
             )?;
+
+            // Experimental accepted-join evidence shares the transaction with
+            // private KeyPackage consumption and every authenticated join check.
+            // Unsupported stores yield no receipt; supported failures must roll
+            // the whole join back. This fact never authorizes roster or history.
+            #[cfg(feature = "experimental-device-sync")]
+            {
+                let own_leaf = mls_group.own_leaf_node().ok_or(EngineError::InvalidWelcome)?;
+                let receipt = cgka_traits::accepted_welcome::AcceptedWelcomeReceipt {
+                    welcome_id: welcome_id.clone(), content_id: content_id.clone(),
+                    group_id: group_id.clone(), consumed_key_package_ref: consumed_key_package_ref.clone(),
+                    own_account: crate::identity::validated_member_id_of_leaf(own_leaf)?,
+                    own_signature_public_key: own_leaf.signature_key().as_slice().to_vec(),
+                    welcomer_account: welcome_sender_id.clone(),
+                    welcomer_signature_public_key: welcome_sender_signature_key,
+                    joined_epoch: EpochId(mls_group.epoch().as_u64()),
+                    joined_epoch_authenticator_digest: Sha256::digest(mls_group.epoch_authenticator().as_slice()).into(),
+                };
+                if let Some(receipts) = storage.accepted_welcome_storage() {
+                    receipts.put_accepted_welcome_receipt(&receipt)?;
+                } else if linking_purpose.is_some() {
+                    return Err(EngineError::LinkingWelcomeDenied(
+                        cgka_traits::device_linking_key_package::LinkingWelcomeDenied::UnsupportedStorage,
+                    ));
+                }
+                if let Some(saved) = linking_purpose.as_ref() {
+                    storage.device_linking_key_package_storage().ok_or(EngineError::InvalidWelcome)?
+                        .consume_purpose_key_package(&saved.scope)?;
+                    accepted_linking_receipt = Some(receipt);
+                }
+            }
 
             let own_leaf_baseline_hash = mls_group
                 .own_leaf_node()
@@ -1483,6 +1653,19 @@ impl<S: StorageProvider> Engine<S> {
             let reopen_refused_rows_at_or_above = discarded
                 .filter(|group| group.removed)
                 .map(|group| group.epoch);
+
+            #[cfg(feature = "experimental-device-sync")]
+            if let Some(lease) = linking_lease.as_mut() {
+                let saved = linking_purpose.as_ref().ok_or(EngineError::InvalidWelcome)?;
+                // Scope is validated through the current SQL transaction, not a
+                // runtime callback that might relock this backend.
+                let purpose = storage.device_linking_key_package_storage().ok_or(EngineError::InvalidWelcome)?;
+                let current = purpose.purpose_key_package()?.ok_or(EngineError::InvalidWelcome)?;
+                if current.scope != saved.scope || current.context != saved.context || !current.consumed {
+                    return Err(EngineError::InvalidWelcome);
+                }
+                lease.check_live_before_commit().map_err(EngineError::LinkingWelcomeDenied)?;
+            }
 
             Ok::<_, EngineError>((
                 group_id,
@@ -1546,6 +1729,16 @@ impl<S: StorageProvider> Engine<S> {
             superseded,
             reopen_refused_rows_at_or_above,
         ) = result?;
+
+        #[cfg(feature = "experimental-device-sync")]
+        if let Some(lease) = linking_lease.take() {
+            let receipt = accepted_linking_receipt
+                .as_ref()
+                .ok_or(EngineError::InvalidWelcome)?;
+            // The database has committed. This is infallible memory-only token
+            // consumption and grants no enrollment, roster or history access.
+            lease.commit_accepted(receipt);
+        }
 
         // #740: index this joined group's transport routing id for O(1) inbound
         // resolution (see `Engine::transport_group_id_index`).

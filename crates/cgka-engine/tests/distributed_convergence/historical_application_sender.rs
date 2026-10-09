@@ -75,6 +75,13 @@ async fn check_historical_sender(
         .unwrap();
     let source_epoch = bob.epoch(&group).unwrap();
     let old_leaf = bob.own_leaf_index(&group).unwrap();
+    let original_signature_key = alice
+        .members(&group)
+        .unwrap()
+        .into_iter()
+        .find(|member| member.id == bob.self_id())
+        .unwrap()
+        .credential;
     let content = b"sent before removal";
     let message = if forge_replacement_author {
         // Bob authenticates the MLS message, but lies about its inner author.
@@ -176,6 +183,7 @@ async fn check_historical_sender(
             sender,
             epoch,
             payload,
+            source_leaf,
             ..
         } = received[0]
         else {
@@ -184,6 +192,19 @@ async fn check_historical_sender(
         assert_eq!(sender, &bob.self_id());
         assert_eq!(epoch, &source_epoch);
         assert_eq!(app_content(payload), content);
+        if !cfg!(feature = "experimental-device-sync") || matches!(delivery, Delivery::Direct) {
+            assert!(
+                source_leaf.is_none(),
+                "a delayed direct message cannot borrow the current leaf"
+            );
+        } else if let Some(proof) = source_leaf {
+            // Replay can reauthenticate the exact historical tree. That is an
+            // old-epoch fact and must never pass a current enrollment ACK gate.
+            assert!(proof.epoch == source_epoch);
+            assert!(proof.epoch != alice.epoch(&group).unwrap());
+            assert!(proof.leaf_index == old_leaf);
+            assert!(proof.signature_public_key == original_signature_key);
+        }
         // Redelivery must not surface a second copy after consuming the ratchet.
         alice.ingest(message).await.unwrap();
         assert!(

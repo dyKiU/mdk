@@ -257,6 +257,36 @@ fn app_payload_for(sender: &AccountDeviceSession, payload: impl AsRef<[u8]>) -> 
     .expect("test app event encodes")
 }
 
+// Preserve the independent, random MLS evidence in exhaustive legacy event
+// fixtures. Exact signer/leaf parity is covered by the real engine regressions;
+// this boundary still requires current-epoch capture when the feature is on.
+fn only_received_source_leaf(
+    events: &[GroupEvent],
+) -> Option<cgka_traits::source_leaf::SourceLeafProof> {
+    let (epoch, source_leaf) = events
+        .iter()
+        .find_map(|event| {
+            if let GroupEvent::MessageReceived {
+                epoch, source_leaf, ..
+            } = event
+            {
+                Some((*epoch, source_leaf.clone()))
+            } else {
+                None
+            }
+        })
+        .expect("one received application event");
+    if cfg!(feature = "experimental-device-sync") {
+        let proof = source_leaf
+            .as_ref()
+            .expect("current source-epoch capture must survive session handoff");
+        assert!(proof.epoch == epoch);
+    } else {
+        assert!(source_leaf.is_none());
+    }
+    source_leaf
+}
+
 fn only_received_message_id(events: &[GroupEvent]) -> MessageId {
     let [GroupEvent::MessageReceived { message_id, .. }] = events else {
         panic!("expected exactly one received-message event");
@@ -409,6 +439,7 @@ async fn current_founding_creation_is_immediately_stable_and_survives_restart() 
     assert_eq!(
         received.effects.events,
         vec![GroupEvent::MessageReceived {
+            source_leaf: only_received_source_leaf(&received.effects.events),
             authority: match &sent.publish[0] {
                 PublishWork::ApplicationMessage { authority, .. } => {
                     assert!(
@@ -502,6 +533,7 @@ async fn session_ingest_surfaces_join_and_app_message_events() {
     assert_eq!(
         received.effects.events,
         vec![GroupEvent::MessageReceived {
+            source_leaf: only_received_source_leaf(&received.effects.events),
             authority: match &sent.publish[0] {
                 PublishWork::ApplicationMessage { authority, .. } => {
                     assert!(
@@ -578,6 +610,7 @@ async fn reopened_creator_can_send_valid_group_messages() {
     assert_eq!(
         received.effects.events,
         vec![GroupEvent::MessageReceived {
+            source_leaf: only_received_source_leaf(&received.effects.events),
             authority: match &sent.publish[0] {
                 PublishWork::ApplicationMessage { authority, .. } => {
                     assert!(
@@ -1108,3 +1141,11 @@ async fn compact_authority_capture_defers_unhydrated_groups_and_uses_session_sto
     assert!(reopened.ensure_group_hydrated(&group).unwrap());
     assert_eq!(reopened.group_authority(&group).unwrap(), before);
 }
+
+#[cfg(feature = "experimental-device-sync")]
+#[path = "session_lifecycle/single_use_key_packages.rs"]
+mod single_use_key_packages;
+
+#[cfg(feature = "experimental-device-sync")]
+#[path = "session_lifecycle/private_device_genesis.rs"]
+mod private_device_genesis;

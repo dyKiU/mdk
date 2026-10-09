@@ -40,10 +40,19 @@ Each module's top-level rustdoc is the source of truth; this is an index.
 | --- | --- |
 | `engine.rs` | `Engine<S>`, `EngineBuilder`, `CgkaEngine` impl, `drain_events` / `drain_auto_publish` / `drain_auto_proposals` queues |
 | `identity.rs` | Local signer + credential bundle; `member_id_of_processed_message` / `member_id_of_sender` chokepoints |
+| `device_group_lineage.rs` | Default-off permanent109/confirmed110 denial from the actual applied indexed tree, scoped owner/group/generation and full successor; no probe revocation or permission |
+| `device_group_genesis.rs` | Default-off atomic private-profile MLS birth factory, fresh protected original-tree evidence, permanent active-denial fencing; no SDK/settlement/chat/history permission |
+| `device_group_snapshot.rs` | Default-off bounded same-account candidate from actual indexed MLS leaves, local epoch/convergence gates and private commitment; no settled roster or grants |
+| `private_linking_join.rs` | Default-off complete private batch route and purpose/full-tree successor validation; live lease transport checks before private consumption;105/106/109 plus crypto/group/dispositions atomic; raw private bypass denied; injected-policy tests separate from genuine SDK consent |
+| `private_device_invite.rs`, `private_device_invite/preparation.rs`, `private_device_invite/confirmation.rs` | Default-off actual single-use KP/single-Add validators and trusted owned-lease preparation; raw/final110-only bytes, no ordinary Sent replay; dedicated exact-confirmed Welcome dispatch checks the original live lease; generic confirm/fail stay denied; sealed exact own-echo reconciles atomically, with exclusive actual-receipt retained verification or stock legacy verification; no error fallback/consent reconstruction |
+| `private_enrollment_predecessor.rs` | Default-off fresh protected Completed read plus actual signed GroupInfo/ratchet-tree export, bounded256KiB; metadata only, no SDK/sibling approval/recipient admission; portable verification uses separate scratch storage |
+| `private_enrollment_endorsement.rs` | Default-off explicit request-bound current-leaf signatures, complete indexed-leaf verification and engine-owned cancellation/expiry fencing; packets remain metadata, no SAS/join/native grants |
+| `private_device_invite_prepare_tests.rs` | Genuine isolated MLS Add, injected encrypted SQL rollback/exact retry, original-lease cancellation and dedicated commit-only dispatch; injected policy is not the App SDK proof |
 | `provider.rs` | Ad-hoc `OpenMlsProvider` adapter composed from crypto + storage |
 | `feature_registry.rs` | Runtime feature → capability-requirement registry |
 | `capabilities.rs` | `cgka_traits::Capability` ↔ OpenMLS `Capabilities` translation |
 | `capability_manager.rs` | `feature_status`, `upgradeable_capabilities`, write-through per-leaf cache population |
+| `linking_welcome_policy.rs` | Default-off trusted runtime lease injection; authenticated staged facts, original deadline/one-shot memory consumption, no enrollment/history grants |
 | `key_package.rs` | `fresh_key_package`, KeyPackage parse-time lifetime / OpenMLS accepted-range checks (refresh scheduling is a higher-layer concern) |
 | `group_lifecycle.rs` | `do_create_group`, `do_join_welcome`, `retry_rejoins_after_trusted_removal` |
 | `message_processor/` | `mod.rs`: entry points (`do_ingest`, `do_send`, convergence/queue drains, `replay_buffered_messages`), shared helpers, re-exports. `ingest.rs`: inbound path, peel/snapshot recovery, `convergence_ingest_outcome`. `send.rs`: `do_send_*` incl. `do_send_invite` / `do_send_leave`, MIP-03 guards. `store.rs`: durable persistence, dedup classification, stored-message transitions, `retire_raw_wrapper`. `application_replay.rs`: bounded background drain of retained canonical applications |
@@ -82,6 +91,11 @@ Each module's top-level rustdoc is the source of truth; this is an index.
 
 Features (`Cargo.toml`): `test-policy-overrides`, `test-crash-hooks`, `test-conformance-snapshot`. All three are
 test-only; production/app consumers must not enable them.
+
+The default-off `experimental-device-sync` feature additionally captures accepted-Welcome
+facts through an optional storage capability and exposes a read-only receipt query. It is
+not enrollment, settled-roster authorization, or adopted wire framing. `tests/accepted_welcome_receipts.rs`
+owns exact signer/KPref bindings, failure rollback/retry, and encrypted reopen.
 
 ## Design deviations
 
@@ -466,3 +480,63 @@ cargo test -p cgka-conformance-simulator --features conformance-slow
 
 Benchmarks and per-file targets are in [`README.md`](README.md#tests-and-measurements) and
 [`tests/AGENTS.md`](tests/AGENTS.md).
+
+Borrowed private dispatch must retain the caller's original opaque lease on a
+pre-intent SQL error; never recreate that lease from110 or restart. Durable
+Dispatching/Unknown state rejects a second invocation. Actual SDK/NIP59/SQLCipher
+regression in App covers exact retry and expiry/cancel/shutdown without network
+effects after terminal consent.
+
+Unexpected actual selected-tree transitions deny accepted109 and confirmed110
+inside the adopting crypto/SQL unit. Candidate materialization must restore the
+original tree without touching these denial facts. Expected dedicated private
+confirmation writes its successor before merge in the same unit; that exact new
+confirmed successor remains live. Denial writes must roll back with failed MLS
+apply and survive return to an older genuine crypto snapshot/reopen. Coverage:
+`tests/accepted_welcome_receipts/private_batch.rs` private_lineage tests. They use
+injected Engine policies/pass-through batch transport, not genuine SDK consent.
+
+Dedicated private Welcome delivery must independently match confirmed110, actual
+selected MLS successor/profile, exact owned scope and the original live lease.
+Check negative lease controls on every publisher poll. No ordinary replay row,
+receipt, snapshot or restart can reconstruct delivery consent or settle a roster.
+
+
+Predecessor GroupInfo export must freshly validate actual protected completed
+settlement and serialize the real MLS public tree in the same read snapshot.
+Its bytes are metadata, never an enrollment token. Standard ExternalPub presence
+does not authorize external joins. Do not install portable PublicGroup scratch
+state in account MLS storage, skip account proof/private-profile validation,
+infer the secret epoch authenticator, or append artifact authority after SDK
+confirmation. The original live SDK context must bind any future artifact digest
+before verification, with explicit all-current-leaf approvals and atomic trusted
+successor handoff independently required.
+
+
+Portable predecessor validation (`validate_private_device_predecessor`) uses a
+fresh scratch `MemoryStorage` and real `PublicGroup::from_external` authentication.
+It requires exact TLS framing, at most 256 KiB, 1..128 canonical occupied leaves,
+Current profile and per-leaf account proof, exact required F574 payload, and exact
+known account/group/epoch/indexed signer expectations. Its opaque result contains
+only authenticated public metadata and the artifact digest; it has no constructor,
+serialization or admission authority. Never install scratch public state in
+account storage or infer completed settlement, sibling consent, secret epoch
+authenticator or an enrollment grant from this result. Tests additionally use
+actual signed ordinary/Legacy/mixed-account/wrong-payload trees, not positive
+approval rows. No Session/native export is provided by this checkpoint.
+
+## Private enrollment-request metadata inlet (experimental)
+
+Kind 38175 / `whitenoise.experimental.enrollment-request.v1` is a separate private, default-off control. It does not reuse capture 38173 or settlement 38174. `ingest_private_enrollment_delivery` accepts newly delivered encrypted input through the same audited MLS ingest pipeline; ordinary ingest, history and reconstructed rows supply no fresh eligibility. Metadata is sealed from actual Member source and Current/F574 tree plus freshly validated Completed predecessor, then queued only after the crypto/disposition/projection transaction commits. It supplies no enrollment consent, SDK admission, artifact validation, protected sibling transition, native API or chat/history grant.
+
+The intake has at most 128 exact live identities and 128 opaque observations. Its initial 600-second monotonic observation deadline is not SDK consent, never renews on retry or drain, and is not serialized. Request correlation nonce is metadata only; enrollment nonce remains the original SDK context nonce. Queue overflow is typed/transient and commits no positive disposition. Unpersisted expired identities remain bounded negative-only until exact terminal classification or owner close; only durable/obsolete entries can be reclaimed without renewing a clock. `drain_authenticated_enrollment_requests` is fallible, and proofs have no Clone/Serde/constructor. Ordinary account routing has not been wired to this dedicated live inlet.
+
+Exact encrypted request content aliases share the earliest original observation deadline under one intake lock. Created/retryable expired rows retain that negative clock until terminal classification; a new transport wrapper cannot renew it. This is metadata freshness only, never SDK approval.
+
+The separately versioned v2 enrollment-request metadata frame carries bounded
+base64 artifact and canonical-context declarations within the unchanged16KiB
+complete payload limit. V1 must omit proposal parts; v2 must include both. Each
+version has its own binding domain. Received parts remain opaque metadata until
+App canonical/context validation and Core portable artifact authentication;
+neither decoding, receipt nor a digest constructs owner consent or Add permission.
+Larger proposals require separately qualified transport/aggregate byte bounds.

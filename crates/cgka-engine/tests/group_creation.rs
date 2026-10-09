@@ -894,6 +894,61 @@ async fn directory_key_package_helpers_validate_against_own_ciphersuite() {
 }
 
 #[tokio::test]
+async fn key_package_device_metadata_distinguishes_same_account_independent_devices() {
+    let mut first = build_current_client(b"shared-device-account");
+    let mut second = build_current_client(b"shared-device-account");
+    let first_package = first.fresh_key_package().await.unwrap();
+    let refreshed_package = first.fresh_key_package().await.unwrap();
+    let second_package = second.fresh_key_package().await.unwrap();
+    let first_metadata = key_package_metadata(&first_package).unwrap();
+    let refreshed_metadata = key_package_metadata(&refreshed_package).unwrap();
+    let second_metadata = key_package_metadata(&second_package).unwrap();
+
+    assert_eq!(
+        first_metadata.credential_identity_hex,
+        second_metadata.credential_identity_hex
+    );
+    assert_eq!(
+        first_metadata.signature_public_key_hex,
+        refreshed_metadata.signature_public_key_hex
+    );
+    assert_ne!(
+        first_metadata.signature_public_key_hex,
+        second_metadata.signature_public_key_hex
+    );
+    assert_ne!(
+        first_metadata.key_package_ref_hex,
+        refreshed_metadata.key_package_ref_hex
+    );
+    assert_eq!(
+        hex::decode(first_metadata.signature_public_key_hex)
+            .unwrap()
+            .len(),
+        32
+    );
+}
+
+#[tokio::test]
+async fn key_package_device_metadata_rejects_invalid_signature_and_account_proof() {
+    let mut device = build_current_client(b"validated-device-metadata");
+    let package = device.fresh_key_package().await.unwrap();
+    let mut corrupted_bytes = package.bytes().to_vec();
+    *corrupted_bytes.last_mut().unwrap() ^= 1;
+    let corrupted = cgka_traits::engine::KeyPackage::new(corrupted_bytes)
+        .with_protocol_profile(ProtocolProfile::Current);
+    assert!(key_package_metadata(&corrupted).is_err());
+
+    let mismatched_proof = key_package_with_mismatched_account_identity_proof(
+        &pad32(b"metadata-credential"),
+        b"different-metadata-proof",
+    );
+    assert!(matches!(
+        key_package_metadata(&mismatched_proof),
+        Err(EngineError::InvalidAccountIdentityProof(_))
+    ));
+}
+
+#[tokio::test]
 async fn invite_path_validates_proof_against_key_package_ciphersuite() {
     let mut alice = build_client(b"alice-own-suite", selfremove_registry());
     let alternate_suite = Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519;

@@ -36,7 +36,7 @@ use crate::engine::Engine;
 use crate::openmls_projection::{
     AppliedGroupChanges, OpenMlsContentKind, OpenMlsProjectionError, OpenMlsReplayObservation,
     ReplayProfilePolicy, StoredCanonicalizationOptions,
-    apply_openmls_canonicalization_result_with_profile_policy,
+    apply_openmls_canonicalization_result_with_profile_policy_and_settlement,
     canonicalize_stored_openmls_messages_with_profile_policy,
     openmls_canonicalization_dispositions, project_mls_message,
     retain_current_group_epoch_snapshot, retire_stale_convergence_deferred_commits,
@@ -1539,63 +1539,123 @@ impl<S: StorageProvider> Engine<S> {
         } else {
             None
         };
-        let (group_changes, application_events, membership_effects) =
-            self.storage.with_transaction(|storage| {
-                let output = apply_openmls_canonicalization_result_with_profile_policy(
-                    storage,
-                    group_id,
-                    &result,
-                    max_retained_anchor_rewind,
-                    replay_profile_policy,
-                )?;
-                // Membership cleanup belongs to canonical apply: a failed queue or
-                // leave-request write must roll back MLS and the completed pass too.
-                let membership_effects = if let Some(before) = previous_membership.as_ref() {
-                    let group = openmls::group::MlsGroup::load(
-                        storage.mls_storage(),
-                        &openmls::group::GroupId::from_slice(group_id.as_slice()),
-                    )
-                    .map_err(|error| OpenMlsProjectionError::Storage(format!("{error:?}")))?
-                    .ok_or_else(|| {
-                        OpenMlsProjectionError::Replay("selected group missing".into())
-                    })?;
-                    // Disband owns its terminal cleanup and must not announce an
-                    // intermediate local restoration from its replayed source tree.
-                    if crate::app_components::lifecycle_of_group(&group)
-                        .map_err(|error| OpenMlsProjectionError::Replay(error.to_string()))?
-                        == Some(cgka_traits::app_components::GroupLifecycleV1::Disbanded)
-                    {
-                        None
-                    } else {
-                        let after = crate::membership_effects::MembershipSnapshot::capture(
-                            &group,
-                            self.identity.self_id(),
-                            storage.get_group(group_id)?.removed,
-                        );
-                        Some(
-                            self.prepare_canonical_membership_effects_on_storage(
-                                storage, group_id, before, &after,
-                            )
-                            .map_err(|error| OpenMlsProjectionError::Storage(error.to_string()))?,
+        #[cfg(feature = "experimental-device-sync")]
+        let settlement_admission =
+            self.settlement_admission_for(group_id)
+                .map_err(|error| match error {
+                    cgka_traits::EngineError::Storage(error) => {
+                        crate::openmls_projection::OpenMlsProjectionError::Storage(
+                            error.to_string(),
                         )
                     }
-                } else {
+                    _ => crate::openmls_projection::OpenMlsProjectionError::Replay(
+                        "private settlement admission unavailable".into(),
+                    ),
+                })?;
+        #[cfg(feature = "experimental-device-sync")]
+        let mut enrollment_reservation = self
+            .enrollment_intake
+            .reserve()
+            .map_err(crate::openmls_projection::capture_effect_error)?;
+        let committed = self.storage.with_transaction(|storage| {
+            let output = apply_openmls_canonicalization_result_with_profile_policy_and_settlement(
+                storage,
+                group_id,
+                &result,
+                max_retained_anchor_rewind,
+                replay_profile_policy,
+                #[cfg(feature = "experimental-device-sync")]
+                settlement_admission.as_ref(),
+                #[cfg(feature = "experimental-device-sync")]
+                Some(&self.enrollment_intake),
+            )?;
+            #[cfg(feature = "experimental-device-sync")]
+            let mut output = output;
+            // Membership cleanup belongs to canonical apply: a failed queue or
+            // leave-request write must roll back MLS and the completed pass too.
+            let membership_effects = if let Some(before) = previous_membership.as_ref() {
+                let group = openmls::group::MlsGroup::load(
+                    storage.mls_storage(),
+                    &openmls::group::GroupId::from_slice(group_id.as_slice()),
+                )
+                .map_err(|error| OpenMlsProjectionError::Storage(format!("{error:?}")))?
+                .ok_or_else(|| OpenMlsProjectionError::Replay("selected group missing".into()))?;
+                // Disband owns its terminal cleanup and must not announce an
+                // intermediate local restoration from its replayed source tree.
+                if crate::app_components::lifecycle_of_group(&group)
+                    .map_err(|error| OpenMlsProjectionError::Replay(error.to_string()))?
+                    == Some(cgka_traits::app_components::GroupLifecycleV1::Disbanded)
+                {
                     None
-                };
-                storage.put_convergence_pass(&completed_pass)?;
-                let application_events =
-                    Self::application_replay_events(group_id, &output.observations)?;
-                for event in &application_events {
-                    storage
-                        .put_pending_application_event(event)
-                        .map_err(storage_projection_error)?;
+                } else {
+                    let after = crate::membership_effects::MembershipSnapshot::capture(
+                        &group,
+                        self.identity.self_id(),
+                        storage.get_group(group_id)?.removed,
+                    );
+                    Some(
+                        self.prepare_canonical_membership_effects_on_storage(
+                            storage, group_id, before, &after,
+                        )
+                        .map_err(|error| OpenMlsProjectionError::Storage(error.to_string()))?,
+                    )
                 }
-                Ok::<_, OpenMlsProjectionError>((
-                    output.group_changes,
-                    application_events,
-                    membership_effects,
-                ))
-            })?;
+            } else {
+                None
+            };
+            storage.put_convergence_pass(&completed_pass)?;
+            let application_events =
+                Self::application_replay_events(group_id, &output.observations)?;
+            for event in &application_events {
+                storage
+                    .put_pending_application_event(event)
+                    .map_err(storage_projection_error)?;
+            }
+            #[cfg(feature = "experimental-device-sync")]
+            crate::private_roster_settlement_receive::ensure_live(
+                settlement_admission.as_ref(),
+                output.settlement_positive,
+            )
+            .map_err(|e| OpenMlsProjectionError::Replay(e.to_string()))?;
+            #[cfg(feature = "experimental-device-sync")]
+            self.enrollment_intake
+                .validate_tail(storage, group_id, &mut output.enrollment_effects)
+                .map_err(|_| {
+                    OpenMlsProjectionError::Replay(
+                        "private enrollment metadata final check failed".into(),
+                    )
+                })?;
+            Ok::<_, OpenMlsProjectionError>((
+                output.group_changes,
+                application_events,
+                membership_effects,
+                output.handled_private_ids,
+                #[cfg(feature = "experimental-device-sync")]
+                output.enrollment_effects,
+            ))
+        })?;
+        #[cfg(feature = "experimental-device-sync")]
+        let (
+            group_changes,
+            application_events,
+            membership_effects,
+            handled_private_ids,
+            enrollment_effects,
+        ) = committed;
+        #[cfg(not(feature = "experimental-device-sync"))]
+        let (group_changes, application_events, membership_effects, handled_private_ids) =
+            committed;
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            self.enrollment_intake
+                .finish(&mut enrollment_reservation, enrollment_effects);
+            for id in &handled_private_ids {
+                self.enrollment_intake
+                    .classify_nonrequest(&MessageId::new(id.clone()))
+                    .map_err(crate::openmls_projection::capture_effect_error)?;
+            }
+            drop(enrollment_reservation);
+        }
         // mdk#1472: completing the pass opens the gate that held queued
         // outbound intents. A drain that ran before the settle consumed the
         // one-shot schedule edge without releasing them, so completion must
@@ -1694,7 +1754,7 @@ impl<S: StorageProvider> Engine<S> {
             .map_err(|error| OpenMlsProjectionError::Storage(error.to_string()))?
         };
         self.events_buf.extend(application_events);
-        self.emit_invalidated_app_events(group_id, &result)?;
+        self.emit_invalidated_app_events(group_id, &result, &handled_private_ids)?;
         self.emit_rejected_proposal_convergence_audits(group_id, &result);
         self.emit_rolled_back_commits(group_id, &result, &pre_apply_commit_states)?;
         self.emit_superseded_processed_commits(group_id, &result)?;
@@ -1823,6 +1883,7 @@ impl<S: StorageProvider> Engine<S> {
                 retention,
                 authority,
                 encrypted_media_secret,
+                source_leaf,
                 ..
             } = observation
             else {
@@ -1845,6 +1906,7 @@ impl<S: StorageProvider> Engine<S> {
                 message_id: message_id_from_hex(message_id)?,
                 epoch: cgka_traits::EpochId(*source_epoch),
                 sender: MemberId::new(sender.clone()),
+                source_leaf: source_leaf.clone(),
                 payload: payload.clone(),
                 retention: Some(*retention),
                 authority: *authority,
@@ -1858,8 +1920,14 @@ impl<S: StorageProvider> Engine<S> {
         &mut self,
         group_id: &GroupId,
         result: &CanonicalizationResult,
+        handled_private_ids: &std::collections::BTreeSet<Vec<u8>>,
     ) -> Result<(), OpenMlsProjectionError> {
         for invalidated in &result.invalidated_app_messages {
+            if handled_private_ids
+                .contains(message_id_from_hex(&invalidated.message_id)?.as_slice())
+            {
+                continue;
+            }
             // A future-epoch decrypt miss is retryable and must not be
             // announced as permanently gone. The same reason at or below the
             // resulting tip is terminal, however, and must reach the app.

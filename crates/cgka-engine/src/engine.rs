@@ -131,6 +131,24 @@ pub struct Engine<S: StorageProvider> {
     pub(crate) max_past_epochs: usize,
     pub(crate) wall_clock: Arc<dyn WallClock>,
     pub(crate) maintenance_random: Arc<dyn MaintenanceRandom>,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) private_invite_policy:
+        Option<Arc<dyn crate::private_device_invite::TrustedPrivateInvitePolicy>>,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) linking_welcome_policy:
+        Option<Arc<dyn crate::linking_welcome_policy::LinkingWelcomePolicy>>,
+
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) settlement_admission:
+        std::sync::Mutex<Option<Arc<crate::private_roster_settlement::LiveSettlementAdmission>>>,
+
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) enrollment_intake: crate::private_enrollment_request::EnrollmentIntake,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) enrollment_endorsements: crate::private_enrollment_endorsement::EndorsementState,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) live_enrollment_ingress:
+        Option<crate::private_enrollment_request::LiveEnrollmentDelivery>,
 
     /// Per-group state-machine owner. Every transition, pending-ref
     /// allocation, and fork-detection marker flows through this struct.
@@ -162,7 +180,8 @@ pub struct Engine<S: StorageProvider> {
     /// markers, and the `MessageRecord` store before checking this cache.
     pub(crate) seen_message_ids: BoundedIdSet<MessageId>,
 
-    /// One-shot marker for a cap-dropped, unpersisted ingest. The outer
+    /// One-shot marker for an unpersisted retryable ingest (capacity refusal
+    /// or an experimental purpose Welcome awaiting a live verifier). The outer
     /// `do_ingest` epilogue must not promote that retryable id into the
     /// terminal `seen_message_ids` cache.
     pub(crate) retryable_unpersisted_ingest_id: Option<MessageId>,
@@ -359,6 +378,11 @@ pub struct EngineBuilder<S: StorageProvider> {
     max_past_epochs: usize,
     wall_clock: Arc<dyn WallClock>,
     maintenance_random: Arc<dyn MaintenanceRandom>,
+    #[cfg(feature = "experimental-device-sync")]
+    private_invite_policy:
+        Option<Arc<dyn crate::private_device_invite::TrustedPrivateInvitePolicy>>,
+    #[cfg(feature = "experimental-device-sync")]
+    linking_welcome_policy: Option<Arc<dyn crate::linking_welcome_policy::LinkingWelcomePolicy>>,
     convergence_clock: Arc<dyn ConvergenceClock>,
     #[cfg(feature = "test-policy-overrides")]
     admit_app_witnesses: bool,
@@ -370,6 +394,16 @@ pub struct EngineBuilder<S: StorageProvider> {
 }
 
 impl<S: StorageProvider> EngineBuilder<S> {
+    /// Inject the trusted experimental account owner; never a host approval bit.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn trusted_linking_welcome_policy(
+        mut self,
+        policy: Arc<dyn crate::linking_welcome_policy::LinkingWelcomePolicy>,
+    ) -> Self {
+        self.linking_welcome_policy = Some(policy);
+        self
+    }
+
     pub fn new(storage: S) -> Self {
         Self {
             storage,
@@ -384,6 +418,10 @@ impl<S: StorageProvider> EngineBuilder<S> {
             max_past_epochs: crate::wire_format::DEFAULT_MAX_PAST_EPOCHS,
             wall_clock: Arc::new(SystemWallClock),
             maintenance_random: Arc::new(OsMaintenanceRandom),
+            #[cfg(feature = "experimental-device-sync")]
+            private_invite_policy: None,
+            #[cfg(feature = "experimental-device-sync")]
+            linking_welcome_policy: None,
             convergence_clock: Arc::new(SystemConvergenceClock::default()),
             #[cfg(feature = "test-policy-overrides")]
             admit_app_witnesses: true,
@@ -515,7 +553,34 @@ impl<S: StorageProvider> EngineBuilder<S> {
         self
     }
 
-    pub fn build(self) -> Result<Engine<S>, EngineError> {
+    #[allow(unused_mut)]
+    pub fn build(mut self) -> Result<Engine<S>, EngineError> {
+        // This allocation belongs to the private compiled profile. Caller
+        // component configuration cannot manufacture unavailable support.
+        self.supported_app_components
+            .ids
+            .remove(&cgka_traits::device_group_genesis::PRIVATE_DEVICE_GROUP_COMPONENT_ID);
+        #[cfg(feature = "experimental-device-sync")]
+        if self.new_protocol_profile == ProtocolProfile::Current
+            && crate::device_group_genesis::has_backend_capabilities(&self.storage)
+        {
+            use cgka_traits::capabilities::{
+                Capability, CapabilityRequirement, Feature, RequirementLevel,
+            };
+            use cgka_traits::device_group_genesis::{
+                PRIVATE_DEVICE_GROUP_COMPONENT_ID, PRIVATE_DEVICE_GROUP_FEATURE,
+            };
+            self.registry.register(
+                Feature(PRIVATE_DEVICE_GROUP_FEATURE),
+                CapabilityRequirement {
+                    requires: Capability::AppComponent(PRIVATE_DEVICE_GROUP_COMPONENT_ID),
+                    level: RequirementLevel::Optional,
+                    description: "private experimental device group (not Marmot interoperability)",
+                },
+            );
+            self.supported_app_components
+                .insert(PRIVATE_DEVICE_GROUP_COMPONENT_ID);
+        }
         if self.new_protocol_profile == ProtocolProfile::Legacy
             && !self.allow_legacy_compatibility_profile
         {
@@ -610,6 +675,19 @@ impl<S: StorageProvider> EngineBuilder<S> {
             max_past_epochs: self.max_past_epochs,
             wall_clock: self.wall_clock,
             maintenance_random: self.maintenance_random,
+            #[cfg(feature = "experimental-device-sync")]
+            private_invite_policy: self.private_invite_policy,
+            #[cfg(feature = "experimental-device-sync")]
+            linking_welcome_policy: self.linking_welcome_policy,
+            #[cfg(feature = "experimental-device-sync")]
+            settlement_admission: std::sync::Mutex::new(None),
+            #[cfg(feature = "experimental-device-sync")]
+            enrollment_intake: crate::private_enrollment_request::EnrollmentIntake::default(),
+            #[cfg(feature = "experimental-device-sync")]
+            enrollment_endorsements:
+                crate::private_enrollment_endorsement::EndorsementState::default(),
+            #[cfg(feature = "experimental-device-sync")]
+            live_enrollment_ingress: None,
             epoch_manager: crate::epoch_manager::EpochManager::new(),
             mls_group_cache: crate::mls_group_cache::MlsGroupCache::default(),
             pending_origin_commits: HashMap::new(),
@@ -674,6 +752,24 @@ impl<S: StorageProvider> EngineBuilder<S> {
 }
 
 impl<S: StorageProvider> Engine<S> {
+    /// Trusted core injection, never a generated host consent interface.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn install_trusted_private_invite_policy(
+        &mut self,
+        policy: Arc<dyn crate::private_device_invite::TrustedPrivateInvitePolicy>,
+    ) {
+        self.private_invite_policy = Some(policy);
+    }
+
+    /// Trusted runtime construction seam, unavailable to generated bindings.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn install_trusted_linking_welcome_policy(
+        &mut self,
+        policy: Arc<dyn crate::linking_welcome_policy::LinkingWelcomePolicy>,
+    ) {
+        self.linking_welcome_policy = Some(policy);
+    }
+
     /// Change the explicit replay-probe ceiling for a running exhaustion
     /// campaign. Production builds do not expose this method.
     #[cfg(feature = "test-policy-overrides")]
@@ -701,6 +797,24 @@ impl<S: StorageProvider> Engine<S> {
         self.deferred_peel_row_limit = rows_per_group;
         self.deferred_peel_group_byte_limit = bytes_per_group;
         self.deferred_peel_account_byte_limit = bytes_per_account;
+    }
+
+    /// Experimental accepted-join evidence only; this grants no enrollment or history permission.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn accepted_welcome_receipt(
+        &self,
+        welcome_id: &MessageId,
+    ) -> Result<Option<cgka_traits::accepted_welcome::AcceptedWelcomeReceipt>, EngineError> {
+        let Some(storage) = self.storage.accepted_welcome_storage() else {
+            return Ok(None);
+        };
+        let receipt = storage.accepted_welcome_receipt(welcome_id)?;
+        if let Some(receipt) = receipt.as_ref() {
+            // Hydration/quarantine plus durable existence. A retained historical
+            // receipt cannot make a deleted local copy appear present again.
+            self.group_record(&receipt.group_id)?;
+        }
+        Ok(receipt)
     }
 
     pub fn epoch_state(&self, group_id: &GroupId) -> Option<cgka_traits::EpochState> {
@@ -1016,6 +1130,23 @@ impl<S: StorageProvider> Engine<S> {
         msg: TransportMessage,
         transport_context: Option<marmot_forensics::AuditTransportContext>,
     ) -> Result<IngestOutcome, EngineError> {
+        self.ingest_with_delivery_origin(
+            msg,
+            transport_context,
+            #[cfg(feature = "experimental-device-sync")]
+            None,
+        )
+        .await
+    }
+
+    pub(crate) async fn ingest_with_delivery_origin(
+        &mut self,
+        msg: TransportMessage,
+        transport_context: Option<marmot_forensics::AuditTransportContext>,
+        #[cfg(feature = "experimental-device-sync")] live_delivery: Option<
+            crate::private_enrollment_request::LiveEnrollmentDelivery,
+        >,
+    ) -> Result<IngestOutcome, EngineError> {
         let operation_id = self.next_audit_operation_id();
         let msg_id_hex = hex::encode(msg.id.as_slice());
         let mut context = AuditEventContext {
@@ -1047,7 +1178,20 @@ impl<S: StorageProvider> Engine<S> {
             Some(context.clone()),
             crate::audit_helpers::ingest_entry_event(&msg),
         );
-        let result = self.do_ingest(msg).await;
+        #[cfg(feature = "experimental-device-sync")]
+        if let Some(origin) = &live_delivery {
+            // Expired redelivery must revoke cached eligibility even when the
+            // ordinary durable outcome lookup returns before group processing.
+            self.enrollment_intake
+                .shorten_existing_deadline(&msg.id, origin.deadline)?;
+        }
+        let result = self
+            .do_ingest(
+                msg,
+                #[cfg(feature = "experimental-device-sync")]
+                live_delivery,
+            )
+            .await;
         match &result {
             Ok(outcome) => {
                 let group_ref = crate::audit_helpers::ingest_outcome_group_ref(outcome);
@@ -1961,6 +2105,21 @@ impl<S: StorageProvider> Engine<S> {
             ))
         } else {
             None
+        };
+        #[cfg(feature = "experimental-device-sync")]
+        let pending_recovery = if pending_recovery.is_none()
+            && self
+                .uncertain_private_pending(group_id, &mls_group)
+                .map_err(|_| GroupHydrationQuarantineReason::PendingCommitRecoveryFailed)?
+        {
+            Some((
+                self.epoch_manager.next_pending_ref(),
+                EpochId(mls_group.epoch().as_u64()),
+                None,
+                cgka_traits::FanoutPendingKind::GroupEvolution,
+            ))
+        } else {
+            pending_recovery
         };
         let restored_pending = pending_recovery.is_some();
 
@@ -3083,9 +3242,21 @@ impl<S: StorageProvider> Engine<S> {
             .filter(|(_, mapped)| *mapped == group_id)
             .map(|(route, _)| route.clone())
             .collect::<HashSet<_>>();
+        // The backend owns atomic erasure, its permanent private fences and
+        // secure-delete checkpoint cleanup. Do not wrap its owned transaction.
         let changed = self
             .storage
             .forget_group_local(group_id, self.wall_clock.now())?;
+        #[cfg(feature = "experimental-device-sync")]
+        if let Ok(slot) = self.settlement_admission.lock()
+            && let Some(admission) = slot
+                .as_ref()
+                .filter(|value| value.anchor.group_id == *group_id)
+        {
+            admission.cancel();
+        }
+        // A poisoned admission slot already refuses all positive work. The
+        // durable deletion fence above remains authoritative in that case.
         self.epoch_manager.forget_group(group_id);
         self.mls_group_cache.forget_group(group_id);
         self.transport_group_id_index

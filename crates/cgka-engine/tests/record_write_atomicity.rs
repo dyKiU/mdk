@@ -335,6 +335,8 @@ impl RetainedAnchorRewindCounter {
 /// `SqliteAccountStorage` wrapper that injects a transient `Busy` on
 /// selected record/cache writes. Every other call delegates unchanged.
 struct FaultStorage {
+    #[cfg(feature = "experimental-device-sync")]
+    private_omit_privacy: bool,
     inner: SqliteAccountStorage,
     fault: PutGroupFault,
     capability_fault: CapabilityWriteFault,
@@ -819,6 +821,58 @@ impl cgka_traits::storage::DeferredPeelGenerationStorage for FaultStorage {
 }
 
 impl StorageProvider for FaultStorage {
+    #[cfg(feature = "experimental-device-sync")]
+    fn accepted_welcome_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::storage::AcceptedWelcomeStorage> {
+        self.inner.accepted_welcome_storage()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn device_linking_key_package_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::device_linking_key_package::PurposeKeyPackageStorage> {
+        self.inner.device_linking_key_package_storage()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn roster_ack_capture_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::roster_ack_capture::RosterAckCaptureStorage> {
+        self.inner.roster_ack_capture_storage()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn device_group_genesis_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::device_group_genesis::DeviceGroupGenesisStorage> {
+        self.inner.device_group_genesis_storage()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn accepted_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::accepted_device_group_anchor::AcceptedDeviceGroupAnchorStorage>
+    {
+        self.inner.accepted_device_group_anchor_storage()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn private_group_privacy_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::private_group_privacy::PrivateGroupPrivacyStorage> {
+        if self.private_omit_privacy {
+            None
+        } else {
+            self.inner.private_group_privacy_storage()
+        }
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn private_device_invite_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::private_device_invite::PrivateDeviceInviteStorage> {
+        if self.private_omit_privacy {
+            self.inner.private_device_invite_storage()
+        } else {
+            None
+        }
+    }
+    // This fixture omits exactly one experimental capability.
     type Mls = <SqliteAccountStorage as StorageProvider>::Mls;
 
     fn mls_storage(&self) -> &Self::Mls {
@@ -851,6 +905,8 @@ fn build_fault_selfremove_client(
     let inner = SqliteAccountStorage::in_memory().unwrap();
     let handle = inner.clone();
     let engine = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner,
         fault,
         capability_fault: CapabilityWriteFault::default(),
@@ -1322,6 +1378,8 @@ fn build_release_fault_client(
     let inner = SqliteAccountStorage::in_memory().unwrap();
     let handle = inner.clone();
     let engine = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner,
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -1351,6 +1409,8 @@ fn build_capability_fault_client(
     let inner = SqliteAccountStorage::in_memory().unwrap();
     let handle = inner.clone();
     let engine = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner,
         fault: PutGroupFault::default(),
         capability_fault,
@@ -1381,6 +1441,8 @@ fn build_leave_write_fault_client(
     let inner = SqliteAccountStorage::in_memory().unwrap();
     let handle = inner.clone();
     let engine = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner,
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -2198,6 +2260,8 @@ async fn slow_preparation_case(
     let delay = PreparationDelay::default();
     let storage = SqliteAccountStorage::in_memory().unwrap();
     let mut bob = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner: storage.clone(),
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -2272,6 +2336,8 @@ async fn past_peel_backlog_case(
     let storage = SqliteAccountStorage::in_memory().unwrap();
     let handle = storage.clone();
     let mut bob = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner: storage,
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -2633,6 +2699,8 @@ async fn setup_own_intent_fault_case(
 ) {
     let storage = SqliteAccountStorage::in_memory().unwrap();
     let mut engine = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner: storage.clone(),
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -2844,6 +2912,8 @@ async fn a_failed_terminal_retirement_leaves_every_row_deferred_for_the_next_pas
     let inner = SqliteAccountStorage::in_memory().unwrap();
     let handle = inner.clone();
     let mut carol = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner,
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -3023,6 +3093,8 @@ async fn eviction_realization_retries_all_cleanup_before_announcing_termination(
         let inner = SqliteAccountStorage::in_memory().unwrap();
         let handle = inner.clone();
         let mut bob = EngineBuilder::new(FaultStorage {
+            #[cfg(feature = "experimental-device-sync")]
+            private_omit_privacy: false,
             inner,
             fault: PutGroupFault::default(),
             capability_fault: CapabilityWriteFault::default(),
@@ -3196,6 +3268,8 @@ async fn assert_convergence_membership_fault(
     let inner = SqliteAccountStorage::in_memory().unwrap();
     let handle = inner.clone();
     let mut bob = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner,
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -3386,6 +3460,8 @@ async fn disband_cleanup_failure_preserves_earlier_canonical_activity_once() {
     let inner = SqliteAccountStorage::in_memory().unwrap();
     let handle = inner.clone();
     let mut bob = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner,
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -3520,5 +3596,126 @@ async fn disband_cleanup_failure_preserves_earlier_canonical_activity_once() {
         !bob.drain_events()
             .iter()
             .any(|event| matches!(event, GroupEvent::GroupStateChanged { .. }))
+    );
+}
+
+#[cfg(feature = "experimental-device-sync")]
+fn backend_missing_private_capability(
+    omit_privacy: bool,
+) -> (cgka_engine::Engine<FaultStorage>, SqliteAccountStorage) {
+    let inner = SqliteAccountStorage::in_memory().unwrap();
+    let handle = inner.clone();
+    let backend = FaultStorage {
+        private_omit_privacy: omit_privacy,
+        inner,
+        fault: PutGroupFault::default(),
+        capability_fault: CapabilityWriteFault::default(),
+        leave_write_fault: LeaveWriteFault::default(),
+        intent_write_fault: LeaveWriteFault::default(),
+        failed_state_fault: FailedStateWriteFault::default(),
+        release_fault: LeaveWriteFault::default(),
+        preparation_delay: PreparationDelay::default(),
+        retained_anchor_rewinds: RetainedAnchorRewindCounter::default(),
+        termination_fault: LeaveWriteFault::default(),
+        post_commit_disband_read_fault: LeaveWriteFault::default(),
+    };
+    assert!(backend.accepted_welcome_storage().is_some());
+    assert!(backend.device_linking_key_package_storage().is_some());
+    assert!(backend.roster_ack_capture_storage().is_some());
+    assert!(backend.device_group_genesis_storage().is_some());
+    assert!(backend.accepted_device_group_anchor_storage().is_some());
+    assert_eq!(
+        backend.private_device_invite_storage().is_some(),
+        omit_privacy
+    );
+    assert_eq!(
+        backend.private_group_privacy_storage().is_none(),
+        omit_privacy
+    );
+    let engine = EngineBuilder::new(backend)
+        .protocol_profile(cgka_traits::group::ProtocolProfile::Current)
+        .identity(pad32(b"backend-without-private-invite"))
+        .account_identity_proof_signer(proof_signer(b"backend-without-private-invite"))
+        .peeler(Box::new(MockPeeler))
+        .build()
+        .unwrap();
+    (engine, handle)
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn private_profile_requires_outgoing_capability_before_signed_advertising() {
+    let (mut engine, _) = backend_missing_private_capability(false);
+    let package = engine.fresh_key_package().await.unwrap();
+    let metadata = cgka_engine::key_package::key_package_metadata(&package).unwrap();
+    assert!(
+        !metadata
+            .app_components
+            .contains(&cgka_traits::device_group_genesis::PRIVATE_DEVICE_GROUP_COMPONENT_ID),
+        "a backend without outgoing persistence must not sign private-profile support"
+    );
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn private_profile_requires_outgoing_capability_before_genesis_creation() {
+    let (mut engine, storage) = backend_missing_private_capability(false);
+    assert!(storage.private_device_invite_storage().is_some());
+    assert!(
+        matches!(
+            engine.create_private_device_group_genesis(),
+            Err(
+                cgka_engine::device_group_genesis::GenesisFactoryError::Genesis(
+                    cgka_traits::device_group_genesis::GenesisError::Unsupported
+                )
+            )
+        ),
+        "the actual wrapper omits outgoing capability despite its inner SQLite supporting it"
+    );
+    assert!(storage.list_groups().unwrap().is_empty());
+    assert!(
+        storage
+            .device_group_genesis_storage()
+            .unwrap()
+            .genesis_selection()
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn private_profile_requires_permanent_privacy_capability_without_changing_ordinary_creation()
+{
+    let (mut engine, storage) = backend_missing_private_capability(true);
+    let package = engine.fresh_key_package().await.unwrap();
+    let metadata = cgka_engine::key_package::key_package_metadata(&package).unwrap();
+    assert!(
+        !metadata
+            .app_components
+            .contains(&cgka_traits::device_group_genesis::PRIVATE_DEVICE_GROUP_COMPONENT_ID)
+    );
+    assert!(matches!(
+        engine.create_private_device_group_genesis(),
+        Err(
+            cgka_engine::device_group_genesis::GenesisFactoryError::Genesis(
+                cgka_traits::device_group_genesis::GenesisError::Unsupported
+            )
+        )
+    ));
+    assert!(storage.list_groups().unwrap().is_empty());
+    let result = engine
+        .create_group(CreateGroupRequest {
+            name: "ordinary unsupported privacy".into(),
+            description: String::new(),
+            members: vec![],
+            required_features: vec![],
+            app_components: vec![],
+            initial_admins: vec![],
+        })
+        .await;
+    assert!(
+        result.is_ok(),
+        "optional private negative capability must not disable ordinary groups"
     );
 }

@@ -320,6 +320,7 @@ pub enum OpenMlsReplayObservation {
         message_id: String,
         source_epoch: u64,
         sender: Vec<u8>,
+        source_leaf: Option<cgka_traits::source_leaf::SourceLeafProof>,
         payload: Vec<u8>,
         retention: AppMessageRetentionDecision,
         authority: Option<cgka_traits::app_event::AppMessageAuthority>,
@@ -358,12 +359,18 @@ pub(crate) struct AppliedGroupChanges {
 }
 
 pub(crate) struct OpenMlsApplyOutput {
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) enrollment_effects: Vec<crate::private_enrollment_request::EnrollmentEffect>,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) settlement_positive: bool,
     pub(crate) observations: Vec<OpenMlsReplayObservation>,
     pub(crate) group_changes: Vec<AppliedGroupChanges>,
+    pub(crate) handled_private_ids: BTreeSet<Vec<u8>>,
 }
 
 #[derive(Debug)]
 pub enum OpenMlsProjectionError {
+    PrivateEnrollmentIntakeAtCapacity,
     Decode(String),
     EmptyCandidatePath(String),
     CandidatePathDidNotCommit(String),
@@ -401,6 +408,9 @@ pub enum OpenMlsProjectionError {
 impl std::fmt::Display for OpenMlsProjectionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            OpenMlsProjectionError::PrivateEnrollmentIntakeAtCapacity => {
+                write!(f, "private enrollment metadata intake is at capacity")
+            }
             OpenMlsProjectionError::Decode(e) => write!(f, "decode failed: {e}"),
             OpenMlsProjectionError::EmptyCandidatePath(path) => {
                 write!(f, "candidate path has no messages: {path}")
@@ -1030,6 +1040,8 @@ fn replay_openmls_messages_probe<S: StorageProvider>(
         own_commits,
         profile_policy,
         None,
+        #[cfg(feature = "experimental-device-sync")]
+        None,
     );
     #[cfg(test)]
     candidate_branch_peel_halt_tests::panic_after_replay_if_requested();
@@ -1353,6 +1365,26 @@ pub(crate) fn canonicalize_stored_openmls_messages_with_profile_policy<S: Storag
     Ok(result)
 }
 
+/// Internal outcome: a handled private control never becomes an app DTO.
+pub(crate) struct CurrentApplicationResult {
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) enrollment_effects: Vec<crate::private_enrollment_request::EnrollmentEffect>,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) settlement_positive: bool,
+    pub(crate) observations: Vec<OpenMlsReplayObservation>,
+    pub(crate) private_handled: bool,
+}
+#[cfg(feature = "experimental-device-sync")]
+pub(crate) fn capture_effect_error(error: EngineError) -> OpenMlsProjectionError {
+    match error {
+        EngineError::PrivateEnrollmentIntakeAtCapacity => {
+            OpenMlsProjectionError::PrivateEnrollmentIntakeAtCapacity
+        }
+        EngineError::Storage(error) => OpenMlsProjectionError::Storage(error.to_string()),
+        _ => OpenMlsProjectionError::Replay("private capture processing failed".into()),
+    }
+}
+
 /// Apply one retained application against the already selected live state.
 /// The caller owns the transaction spanning MLS ratchets, disposition and app outbox.
 pub(crate) fn process_current_openmls_application<S: StorageProvider>(
@@ -1360,22 +1392,75 @@ pub(crate) fn process_current_openmls_application<S: StorageProvider>(
     group_id: &GroupId,
     message: &TransportMessage,
     profile_policy: ReplayProfilePolicy,
-) -> Result<Vec<OpenMlsReplayObservation>, OpenMlsProjectionError> {
+    #[cfg(feature = "experimental-device-sync")] settlement_admission: Option<
+        &std::sync::Arc<crate::private_roster_settlement::LiveSettlementAdmission>,
+    >,
+    #[cfg(feature = "experimental-device-sync")] enrollment_intake: Option<
+        &crate::private_enrollment_request::EnrollmentIntake,
+    >,
+) -> Result<CurrentApplicationResult, OpenMlsProjectionError> {
     let projection = project_mls_message(&message.payload)?;
     if projection.kind != OpenMlsContentKind::Application {
         return Err(OpenMlsProjectionError::UnsupportedMessageKind(
             projection.kind,
         ));
     }
-    Ok(process_openmls_messages_inner(
+    #[cfg(feature = "experimental-device-sync")]
+    let mut capture_effects = Vec::new();
+    #[cfg(feature = "experimental-device-sync")]
+    let mut settlement_effects = Vec::new();
+    #[cfg(feature = "experimental-device-sync")]
+    let mut enrollment_effects = Vec::new();
+    let output = process_openmls_messages_inner(
         storage,
         group_id,
         std::slice::from_ref(message),
         &PrevalidatedOwnCommits::default(),
         profile_policy,
         None,
-    )?
-    .observations)
+        #[cfg(feature = "experimental-device-sync")]
+        Some(&mut PrivateReplayEffects {
+            enrollment: &mut enrollment_effects,
+            enrollment_intake,
+            capture: &mut capture_effects,
+            settlement: &mut settlement_effects,
+            admission: settlement_admission,
+        }),
+    )?;
+    #[cfg(not(feature = "experimental-device-sync"))]
+    let private_handled = false;
+    #[cfg(feature = "experimental-device-sync")]
+    let private_handled = !capture_effects.is_empty()
+        || !settlement_effects.is_empty()
+        || !enrollment_effects.is_empty();
+    #[cfg(feature = "experimental-device-sync")]
+    let mut settlement_positive = false;
+    #[cfg(feature = "experimental-device-sync")]
+    for effect in settlement_effects {
+        settlement_positive |= crate::private_roster_settlement_receive::apply_settlement_effect(
+            storage, group_id, effect,
+        )
+        .map_err(capture_effect_error)?;
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    for effect in capture_effects {
+        crate::roster_ack_capture::apply_capture_effect(storage, group_id, effect)
+            .map_err(capture_effect_error)?;
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    if let Some(intake) = enrollment_intake {
+        intake
+            .validate_tail(storage, group_id, &mut enrollment_effects)
+            .map_err(capture_effect_error)?;
+    }
+    Ok(CurrentApplicationResult {
+        #[cfg(feature = "experimental-device-sync")]
+        enrollment_effects,
+        #[cfg(feature = "experimental-device-sync")]
+        settlement_positive,
+        observations: output.observations,
+        private_handled,
+    })
 }
 
 /// Stored rows classified into the inputs the candidate-path BFS consumes.
@@ -2364,6 +2449,8 @@ fn capture_candidate_tip_context<S: StorageProvider>(
         own_commits,
         profile_policy,
         None,
+        #[cfg(feature = "experimental-device-sync")]
+        None,
     )
     .is_err()
     {
@@ -2695,6 +2782,34 @@ pub(crate) fn apply_openmls_canonicalization_result_with_profile_policy<S: Stora
     max_retained_anchor_rewind: u64,
     profile_policy: ReplayProfilePolicy,
 ) -> Result<OpenMlsApplyOutput, OpenMlsProjectionError> {
+    apply_openmls_canonicalization_result_with_profile_policy_and_settlement(
+        storage,
+        group_id,
+        result,
+        max_retained_anchor_rewind,
+        profile_policy,
+        #[cfg(feature = "experimental-device-sync")]
+        None,
+        #[cfg(feature = "experimental-device-sync")]
+        None,
+    )
+}
+
+pub(crate) fn apply_openmls_canonicalization_result_with_profile_policy_and_settlement<
+    S: StorageProvider,
+>(
+    storage: &S,
+    group_id: &GroupId,
+    result: &CanonicalizationResult,
+    max_retained_anchor_rewind: u64,
+    profile_policy: ReplayProfilePolicy,
+    #[cfg(feature = "experimental-device-sync")] settlement_admission: Option<
+        &std::sync::Arc<crate::private_roster_settlement::LiveSettlementAdmission>,
+    >,
+    #[cfg(feature = "experimental-device-sync")] enrollment_intake: Option<
+        &crate::private_enrollment_request::EnrollmentIntake,
+    >,
+) -> Result<OpenMlsApplyOutput, OpenMlsProjectionError> {
     let current_epoch = storage
         .get_group(group_id)
         .map_err(|e| OpenMlsProjectionError::Storage(format!("{e:?}")))?
@@ -2819,6 +2934,11 @@ pub(crate) fn apply_openmls_canonicalization_result_with_profile_policy<S: Stora
             &replay_messages,
             max_retained_anchor_rewind,
             profile_policy,
+            #[cfg(feature = "experimental-device-sync")]
+            PrivateReplayInputs {
+                settlement_admission,
+                enrollment_intake,
+            },
         )?;
         if apply_start_epoch < current_epoch || restore_own_checkpoint {
             crate::test_crash_hooks::pause_if_requested("historical-apply-before-commit");
@@ -3286,6 +3406,15 @@ fn oldest_retained_epoch(retained_epoch: u64, max_retained_anchor_rewind: u64) -
     retained_epoch.saturating_sub(max_retained_anchor_rewind)
 }
 
+/// Borrowed independent private replay inputs; intake is observation eligibility only. Probes
+/// supply neither source and cannot mint metadata or settlement facts.
+#[cfg(feature = "experimental-device-sync")]
+struct PrivateReplayInputs<'a> {
+    settlement_admission:
+        Option<&'a std::sync::Arc<crate::private_roster_settlement::LiveSettlementAdmission>>,
+    enrollment_intake: Option<&'a crate::private_enrollment_request::EnrollmentIntake>,
+}
+
 /// Atomically merge replay messages, refresh canonical group state and persist dispositions.
 /// Activity is returned only after successful apply, so candidate probes cannot publish it.
 fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
@@ -3295,7 +3424,13 @@ fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
     replay_messages: &[TransportMessage],
     max_retained_anchor_rewind: u64,
     profile_policy: ReplayProfilePolicy,
+    #[cfg(feature = "experimental-device-sync")] private_inputs: PrivateReplayInputs<'_>,
 ) -> Result<OpenMlsApplyOutput, OpenMlsProjectionError> {
+    #[cfg(feature = "experimental-device-sync")]
+    let PrivateReplayInputs {
+        settlement_admission,
+        enrollment_intake,
+    } = private_inputs;
     // #157/#424: the convergence-apply multi-write durable sequence
     // (merge_staged_commit's 7+ provider writes, the Marmot group-record
     // refresh, and the disposition state writes) must commit or roll back as a
@@ -3316,6 +3451,12 @@ fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
         // Leaving own-application stamps out is also load-bearing: those apps
         // reach OpenMLS as `OwnPrivateMessage` and remain `Ignored`, so apply
         // replay never echoes a sender's own message as `MessageReceived`.
+        #[cfg(feature = "experimental-device-sync")]
+        let mut capture_effects = Vec::new();
+        #[cfg(feature = "experimental-device-sync")]
+        let mut settlement_effects = Vec::new();
+        #[cfg(feature = "experimental-device-sync")]
+        let mut enrollment_effects = Vec::new();
         let output = process_openmls_messages_inner(
             storage,
             group_id,
@@ -3323,14 +3464,309 @@ fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
             &PrevalidatedOwnCommits::default(),
             profile_policy,
             Some(max_retained_anchor_rewind),
+            #[cfg(feature = "experimental-device-sync")]
+            Some(&mut PrivateReplayEffects {
+                enrollment: &mut enrollment_effects,
+                enrollment_intake,
+                capture: &mut capture_effects,
+                settlement: &mut settlement_effects,
+                admission: settlement_admission,
+            }),
         )?;
         update_group_record_from_replay(storage, group_id, &output)?;
         persist_openmls_canonicalization_dispositions(storage, result)?;
+        #[cfg(feature = "experimental-device-sync")]
+        let mut settlement_positive = false;
+        #[allow(unused_mut)]
+        let mut handled_private_ids = BTreeSet::new();
+        #[cfg(feature = "experimental-device-sync")]
+        for effect in settlement_effects {
+            let id = effect.message_id.clone();
+            settlement_positive |=
+                crate::private_roster_settlement_receive::apply_settlement_effect(
+                    storage, group_id, effect,
+                )
+                .map_err(capture_effect_error)?;
+            storage.update_message_state(&id, MessageState::Processed)?;
+            handled_private_ids.insert(id.as_slice().to_vec());
+        }
+        #[cfg(feature = "experimental-device-sync")]
+        for effect in capture_effects {
+            let message_id = effect.message_id.clone();
+            crate::roster_ack_capture::apply_capture_effect(storage, group_id, effect)
+                .map_err(capture_effect_error)?;
+            storage.update_message_state(&message_id, MessageState::Processed)?;
+            handled_private_ids.insert(message_id.as_slice().to_vec());
+        }
+        #[cfg(feature = "experimental-device-sync")]
+        for effect in &enrollment_effects {
+            storage.update_message_state(&effect.message_id, MessageState::Processed)?;
+            handled_private_ids.insert(effect.message_id.as_slice().to_vec());
+        }
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            let (handled, positive, extra_enrollment) = apply_selected_private_capture_candidates(
+                storage,
+                group_id,
+                result,
+                settlement_admission,
+                enrollment_intake,
+            )?;
+            enrollment_effects.extend(extra_enrollment);
+            handled_private_ids.extend(handled);
+            settlement_positive |= positive;
+        }
+        #[cfg(feature = "experimental-device-sync")]
+        crate::private_roster_settlement_receive::ensure_live(
+            settlement_admission,
+            settlement_positive,
+        )
+        .map_err(capture_effect_error)?;
+        #[cfg(feature = "experimental-device-sync")]
+        if let Some(intake) = enrollment_intake {
+            intake
+                .validate_tail(storage, group_id, &mut enrollment_effects)
+                .map_err(capture_effect_error)?;
+        }
         Ok(OpenMlsApplyOutput {
+            #[cfg(feature = "experimental-device-sync")]
+            enrollment_effects,
+            #[cfg(feature = "experimental-device-sync")]
+            settlement_positive,
             observations: output.observations,
             group_changes: output.group_changes,
+            handled_private_ids,
         })
     })
+}
+
+#[cfg(feature = "experimental-device-sync")]
+enum PrivateCandidateError {
+    NotPrivate,
+    Projection(OpenMlsProjectionError),
+}
+#[cfg(feature = "experimental-device-sync")]
+impl From<StorageError> for PrivateCandidateError {
+    fn from(error: StorageError) -> Self {
+        Self::Projection(OpenMlsProjectionError::Storage(error.to_string()))
+    }
+}
+
+#[cfg(feature = "experimental-device-sync")]
+type SelectedPrivateEffects = (
+    BTreeSet<Vec<u8>>,
+    bool,
+    Vec<crate::private_enrollment_request::EnrollmentEffect>,
+);
+
+/// Bounded private-only reauthentication. A nonprivate attempt must roll back
+/// its ratchet writes and drop its MLS object before the next candidate.
+#[cfg(feature = "experimental-device-sync")]
+fn apply_selected_private_capture_candidates<S: StorageProvider>(
+    storage: &S,
+    group_id: &GroupId,
+    result: &CanonicalizationResult,
+    settlement_admission: Option<
+        &std::sync::Arc<crate::private_roster_settlement::LiveSettlementAdmission>,
+    >,
+    enrollment_intake: Option<&crate::private_enrollment_request::EnrollmentIntake>,
+) -> Result<SelectedPrivateEffects, OpenMlsProjectionError> {
+    let mut handled = BTreeSet::new();
+    let mut settlement_positive = false;
+    let mut enrollment_effects = Vec::new();
+    let scope = storage
+        .roster_ack_capture_storage()
+        .map(|store| store.capture_state())
+        .transpose()?
+        .flatten()
+        .filter(|scope| scope.group_id == *group_id);
+    let settlement_round = storage
+        .private_roster_settlement_storage()
+        .map(|store| store.read_round())
+        .transpose()?
+        .flatten()
+        .filter(|round| round.anchor.group_id == *group_id);
+    if scope.is_none() && settlement_round.is_none() {
+        return Ok((handled, false, enrollment_effects));
+    }
+    let tip = result.selected_tip.unwrap_or(result.previous_tip);
+    for invalidated in result
+        .invalidated_app_messages
+        .iter()
+        .filter(|input| {
+            input.epoch <= tip
+                && input.reason == InvalidatedAppMessageReason::UndecryptableInCanonicalState
+        })
+        .take(128)
+    {
+        let message_id = message_id_from_hex(&invalidated.message_id)?;
+        let record = storage.get_message(&message_id)?;
+        let Some(message) = openmls_wire_message_from_record(&record)? else {
+            continue;
+        };
+        // Nested StorageProvider transactions join their caller; they are not
+        // savepoints. Restore this explicit canonical-state image on a rejected
+        // scratch attempt, rather than relying on its typed error to undo SQL.
+        let snapshot = format!("openmls-probe-private-capture-{}", invalidated.message_id);
+        storage.create_group_state_snapshot(group_id, &snapshot)?;
+        let attempt = storage.with_transaction(|storage| {
+            let (projection, protocol) = project_protocol_message(&message.payload)
+                .map_err(PrivateCandidateError::Projection)?;
+            if projection.kind != OpenMlsContentKind::Application
+                || projection.source_epoch != Some(invalidated.epoch)
+            {
+                return Err(PrivateCandidateError::NotPrivate);
+            }
+            let Some(protocol) = protocol else {
+                return Err(PrivateCandidateError::NotPrivate);
+            };
+            let crypto = RustCrypto::default();
+            let provider = EngineOpenMlsProvider::<S>::new(&crypto, storage.mls_storage());
+            let mut group = MlsGroup::load(
+                provider.storage(),
+                &openmls::group::GroupId::from_slice(group_id.as_slice()),
+            )
+            .map_err(|_| {
+                PrivateCandidateError::Projection(OpenMlsProjectionError::Storage(
+                    "private receiver storage read failed".into(),
+                ))
+            })?
+            .ok_or(PrivateCandidateError::NotPrivate)?;
+            let processed = match group.process_message(&provider, protocol) {
+                Ok(processed) => processed,
+                Err(ProcessMessageError::StorageError(_)) => {
+                    return Err(PrivateCandidateError::Projection(
+                        OpenMlsProjectionError::Storage(
+                            "private receiver storage write failed".into(),
+                        ),
+                    ));
+                }
+                Err(
+                    ProcessMessageError::ValidationError(_)
+                    | ProcessMessageError::GroupStateError(_)
+                    | ProcessMessageError::IncompatibleWireFormat
+                    | ProcessMessageError::UnauthorizedExternalApplicationMessage,
+                ) => {
+                    return Err(PrivateCandidateError::NotPrivate);
+                }
+                Err(_) => {
+                    return Err(PrivateCandidateError::Projection(
+                        OpenMlsProjectionError::Replay("private receiver processing failed".into()),
+                    ));
+                }
+            };
+            // Earlier epochs and invalidated scopes can only classify a
+            // private denial. They must not derive leaf authority or effects.
+            let can_capture = scope.as_ref().is_some_and(|scope| {
+                !scope.invalidated
+                    && scope.epoch.0 == tip
+                    && processed.epoch().as_u64() == scope.epoch.0
+            });
+            let source = if can_capture {
+                crate::roster_ack_capture::capture_source_of_processed_message(
+                    storage, &processed, &group, group_id,
+                )
+                .map_err(|e| PrivateCandidateError::Projection(capture_effect_error(e)))?
+            } else {
+                None
+            };
+            let can_settle = settlement_round.as_ref().is_some_and(|round| {
+                round.phase
+                    != cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied
+                    && round.anchor.successor.epoch.0 == tip
+                    && processed.epoch().as_u64() == tip
+            });
+            let settlement_source = if can_settle {
+                crate::private_roster_settlement_receive::seal_settlement_source(
+                    storage,
+                    group_id,
+                    &processed,
+                    &group,
+                    settlement_admission,
+                )
+                .map_err(|e| PrivateCandidateError::Projection(capture_effect_error(e)))?
+            } else {
+                None
+            };
+            let enrollment_source = crate::private_enrollment_request::seal(
+                storage,
+                group_id,
+                &processed,
+                &group,
+                enrollment_intake,
+                &message_id,
+            )
+            .map_err(|e| PrivateCandidateError::Projection(capture_effect_error(e)))?;
+            let sender = crate::identity::member_id_of_processed_message(&processed, &group);
+            let ProcessedMessageContent::ApplicationMessage(bytes) = processed.into_content()
+            else {
+                return Err(PrivateCandidateError::NotPrivate);
+            };
+            let payload = bytes.into_bytes();
+            let settlement_control =
+                crate::private_roster_settlement_receive::is_settlement_payload(
+                    &payload,
+                    sender.as_ref(),
+                );
+            let mut positive = false;
+            let mut enrollment = None;
+            if crate::private_enrollment_request::is_request_payload(&payload, sender.as_ref()) {
+                enrollment = Some(crate::private_enrollment_request::stage(
+                    enrollment_source,
+                    &payload,
+                    sender.as_ref(),
+                    &message_id,
+                ));
+            } else if settlement_control {
+                if can_settle {
+                    let effect = crate::private_roster_settlement_receive::stage_settlement_effect(
+                        settlement_source,
+                        settlement_admission,
+                        &payload,
+                        sender.as_ref(),
+                        &message_id,
+                    );
+                    positive = crate::private_roster_settlement_receive::apply_settlement_effect(
+                        storage, group_id, effect,
+                    )
+                    .map_err(|e| PrivateCandidateError::Projection(capture_effect_error(e)))?;
+                }
+            } else if crate::roster_ack_capture::is_capture_payload(&payload, sender.as_ref()) {
+                if can_capture {
+                    let effect = crate::roster_ack_capture::stage_capture_effect(
+                        source,
+                        &payload,
+                        sender.as_ref(),
+                        &message_id,
+                    );
+                    crate::roster_ack_capture::apply_capture_effect(storage, group_id, effect)
+                        .map_err(|e| PrivateCandidateError::Projection(capture_effect_error(e)))?;
+                }
+            } else {
+                return Err(PrivateCandidateError::NotPrivate);
+            }
+            storage.update_message_state(&message_id, MessageState::Processed)?;
+            crate::private_roster_settlement_receive::ensure_live(settlement_admission, positive)
+                .map_err(|e| PrivateCandidateError::Projection(capture_effect_error(e)))?;
+            Ok::<_, PrivateCandidateError>((positive, enrollment))
+        });
+        match attempt {
+            Ok((positive, enrollment)) => {
+                if let Some(effect) = enrollment {
+                    enrollment_effects.push(effect);
+                }
+                settlement_positive |= positive;
+                storage.release_group_snapshot(group_id, &snapshot)?;
+                handled.insert(message_id.as_slice().to_vec());
+            }
+            Err(PrivateCandidateError::NotPrivate) => {
+                storage.rollback_group_state_to_snapshot(group_id, &snapshot)?;
+                storage.release_group_snapshot(group_id, &snapshot)?;
+            }
+            Err(PrivateCandidateError::Projection(error)) => return Err(error),
+        }
+    }
+    Ok((handled, settlement_positive, enrollment_effects))
 }
 
 fn replay_messages_for_canonicalization_result<S: StorageProvider>(
@@ -3426,6 +3862,14 @@ fn update_group_record_from_replay<S: StorageProvider>(
     if let Some(mls_group) = MlsGroup::load(provider.storage(), &mls_gid)
         .map_err(|e| OpenMlsProjectionError::Replay(format!("load post-replay group: {e:?}")))?
     {
+        #[cfg(feature = "experimental-device-sync")]
+        crate::roster_ack_capture::invalidate_capture_for_tree(storage, group_id, &mls_group)
+            .map_err(|error| match error {
+                cgka_traits::error::EngineError::Storage(error) => {
+                    OpenMlsProjectionError::Storage(error.to_string())
+                }
+                other => OpenMlsProjectionError::Replay(other.to_string()),
+            })?;
         group.required_capabilities = required_capabilities_from_group(&mls_group);
         crate::group_lifecycle::mirror_app_components_into_record(&mls_group, &mut group);
         crate::capability_manager::cache_own_capabilities_from_group(storage, group_id, &mls_group)
@@ -3871,6 +4315,18 @@ fn project_pending_canonicalization_messages(
     Ok(pending)
 }
 
+/// Effects collected only by a canonical apply or current-state receive. A
+/// readability probe omits this context and cannot retain confirmation facts.
+#[cfg(feature = "experimental-device-sync")]
+struct PrivateReplayEffects<'a> {
+    enrollment: &'a mut Vec<crate::private_enrollment_request::EnrollmentEffect>,
+    enrollment_intake: Option<&'a crate::private_enrollment_request::EnrollmentIntake>,
+    capture: &'a mut Vec<crate::roster_ack_capture::CaptureEffect>,
+    settlement: &'a mut Vec<crate::private_roster_settlement_receive::SettlementEffect>,
+    admission:
+        Option<&'a std::sync::Arc<crate::private_roster_settlement::LiveSettlementAdmission>>,
+}
+
 /// Authenticate messages against successive source trees for probe or canonical apply.
 /// `retain_replayed_anchors` enables durable apply and per-commit presentation deltas;
 /// probes omit both while still validating the complete candidate branch.
@@ -3881,6 +4337,9 @@ fn process_openmls_messages_inner<S: StorageProvider>(
     own_commits: &PrevalidatedOwnCommits,
     profile_policy: ReplayProfilePolicy,
     retain_replayed_anchors: Option<u64>,
+    #[cfg(feature = "experimental-device-sync")] mut private_effects: Option<
+        &mut PrivateReplayEffects<'_>,
+    >,
 ) -> Result<OpenMlsReplayOutput, OpenMlsProjectionError> {
     let reject_legacy_group_additions = profile_policy.reject_legacy_group_additions
         && storage
@@ -4058,6 +4517,47 @@ fn process_openmls_messages_inner<S: StorageProvider>(
             _ => None,
         };
         let sender_id = crate::identity::member_id_of_processed_message(&processed, &mls_group);
+        let source_leaf =
+            crate::identity::source_leaf_proof_of_processed_message(&processed, &mls_group);
+
+        #[cfg(feature = "experimental-device-sync")]
+        let capture_source = if private_effects.is_some() {
+            crate::roster_ack_capture::capture_source_of_processed_message(
+                storage, &processed, &mls_group, group_id,
+            )
+            .map_err(capture_effect_error)?
+        } else {
+            None
+        };
+
+        #[cfg(feature = "experimental-device-sync")]
+        let settlement_source = if private_effects.is_some() {
+            crate::private_roster_settlement_receive::seal_settlement_source(
+                storage,
+                group_id,
+                &processed,
+                &mls_group,
+                private_effects
+                    .as_ref()
+                    .and_then(|effects| effects.admission),
+            )
+            .map_err(capture_effect_error)?
+        } else {
+            None
+        };
+
+        #[cfg(feature = "experimental-device-sync")]
+        let enrollment_source = crate::private_enrollment_request::seal(
+            storage,
+            group_id,
+            &processed,
+            &mls_group,
+            private_effects
+                .as_ref()
+                .and_then(|effects| effects.enrollment_intake),
+            &message.id,
+        )
+        .map_err(capture_effect_error)?;
 
         match processed.into_content() {
             ProcessedMessageContent::ProposalMessage(queued) => {
@@ -4318,6 +4818,67 @@ fn process_openmls_messages_inner<S: StorageProvider>(
             }
             ProcessedMessageContent::ApplicationMessage(bytes) => {
                 let payload = bytes.into_bytes();
+                #[cfg(feature = "experimental-device-sync")]
+                if crate::private_enrollment_request::is_request_payload(
+                    &payload,
+                    sender_id.as_ref(),
+                ) {
+                    if let Some(effects) = private_effects.as_mut() {
+                        effects
+                            .enrollment
+                            .push(crate::private_enrollment_request::stage(
+                                enrollment_source,
+                                &payload,
+                                sender_id.as_ref(),
+                                &message.id,
+                            ));
+                    }
+                    observations.push(OpenMlsReplayObservation::Ignored {
+                        message_id,
+                        kind: projection.kind,
+                    });
+                    continue;
+                }
+                #[cfg(feature = "experimental-device-sync")]
+                if crate::private_roster_settlement_receive::is_settlement_payload(
+                    &payload,
+                    sender_id.as_ref(),
+                ) {
+                    if let Some(effects) = private_effects.as_mut() {
+                        effects.settlement.push(
+                            crate::private_roster_settlement_receive::stage_settlement_effect(
+                                settlement_source,
+                                effects.admission,
+                                &payload,
+                                sender_id.as_ref(),
+                                &message.id,
+                            ),
+                        );
+                    }
+                    observations.push(OpenMlsReplayObservation::Ignored {
+                        message_id,
+                        kind: projection.kind,
+                    });
+                    continue;
+                }
+                #[cfg(feature = "experimental-device-sync")]
+                if crate::roster_ack_capture::is_capture_payload(&payload, sender_id.as_ref()) {
+                    if let Some(effects) = private_effects.as_mut() {
+                        effects
+                            .capture
+                            .push(crate::roster_ack_capture::stage_capture_effect(
+                                capture_source,
+                                &payload,
+                                sender_id.as_ref(),
+                                &message.id,
+                            ));
+                    }
+                    observations.push(OpenMlsReplayObservation::Ignored {
+                        message_id,
+                        kind: projection.kind,
+                    });
+                    continue;
+                }
                 // Mirror the direct ingest seam (audit item S3): an
                 // application message whose authenticated source-epoch sender
                 // does not resolve to a validated member id is never surfaced,
@@ -4349,6 +4910,7 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                         message_id,
                         source_epoch,
                         sender: sender.as_slice().to_vec(),
+                        source_leaf,
                         payload: payload.clone(),
                         authority: if cgka_traits::reporting::requires_source_authority(
                             app_event.kind,
@@ -5077,3 +5639,16 @@ mod checkpoint_prefix_tests {
 #[cfg(test)]
 #[path = "openmls_projection/tests/candidate_replay.rs"]
 mod candidate_branch_peel_halt_tests;
+
+/// Preserve the one typed private resource retry across existing replay errors.
+pub(crate) fn enrollment_replay_error(
+    error: OpenMlsProjectionError,
+    context: &'static str,
+) -> EngineError {
+    match error {
+        OpenMlsProjectionError::PrivateEnrollmentIntakeAtCapacity => {
+            EngineError::PrivateEnrollmentIntakeAtCapacity
+        }
+        other => EngineError::Backend(format!("{context}: {other}")),
+    }
+}
