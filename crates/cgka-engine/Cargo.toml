@@ -8,7 +8,7 @@ description = "OpenMLS-backed CGKA engine implementation."
 
 [features]
 default = []
-experimental-device-sync = ["storage-sqlite/experimental-device-sync", "openmls/experimental-retained-own-commit"]
+experimental-device-sync = ["storage-sqlite/experimental-device-sync", "openmls/experimental-retained-own-commit", "dep:base64"]
 # Explicit escape hatch for engine/session integration tests that need custom
 # settlement or rewind policies. Production/app consumers must not enable it.
 test-policy-overrides = []
@@ -21,6 +21,7 @@ test-crash-hooks = []
 test-conformance-snapshot = []
 
 [dependencies]
+base64 = { workspace = true, optional = true }
 cgka-traits.workspace = true
 openmls.workspace = true
 openmls_basic_credential.workspace = true

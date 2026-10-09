@@ -540,3 +540,19 @@ version has its own binding domain. Received parts remain opaque metadata until
 App canonical/context validation and Core portable artifact authentication;
 neither decoding, receipt nor a digest constructs owner consent or Add permission.
 Larger proposals require separately qualified transport/aggregate byte bounds.
+
+
+## Original local enrollment proposal owner
+
+`private_enrollment_request/producer.rs` derives metadata from the installed
+trusted private invite lease and fresh Completed actual tree, selected generation,
+purpose package and own signed artifact. Its default-deny lease accessor provides
+only original context/artifact/clock metadata. Retain the exact nonclone lease and
+weak originating Core lifetime; neither shared policy Arc nor reopened protected
+SQL state may transfer the owned proposal. Core teardown permanently ends it.
+Recheck actual tree/generation/origin, policy identity, cancellation and original
+deadline even for cached wrapper retries. Commit the real send ratchet once and
+keep exact cipher/wrapper bytes in the owner. Never stage Add, ordinary Sent work
+or reconstruct consent from this proposal. App must separately supply genuine
+original SDK metadata, explicit all-current-leaf approval and guarded publication.
+The three Core tests inject policy and minimal context; they are not SDK proof.

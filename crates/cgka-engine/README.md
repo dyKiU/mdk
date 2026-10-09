@@ -477,3 +477,20 @@ Kind 38175 / `whitenoise.experimental.enrollment-request.v1` is a separate priva
 The intake has at most 128 exact live identities and 128 opaque observations. Its initial 600-second monotonic observation deadline is not SDK consent, never renews on retry or drain, and is not serialized. Request correlation nonce is metadata only; enrollment nonce remains the original SDK context nonce. Queue overflow is typed/transient and commits no positive disposition. Unpersisted expired identities remain bounded negative-only until exact terminal classification or owner close; only durable/obsolete entries can be reclaimed without renewing a clock. `drain_authenticated_enrollment_requests` is fallible, and proofs have no Clone/Serde/constructor. Ordinary account routing has not been wired to this dedicated live inlet.
 
 Exact encrypted request content aliases share the earliest original observation deadline under one intake lock. Created/retryable expired rows retain that negative clock until terminal classification; a new transport wrapper cannot renew it. This is metadata freshness only, never SDK approval.
+
+
+### Original-owner local enrollment proposal
+
+The experimental Core API `prepare_private_enrollment_proposal` takes an actual
+private group and recipient KeyPackage under an installed trusted owner policy.
+It derives a bounded v2 declaration from the fresh completed predecessor and
+returns an opaque, nonclone local continuation. `wrap_private_enrollment_proposal`
+encrypts once and preserves exact retry bytes while the original Core, policy
+and lease remain live. Reopening with the same policy cannot use the old owner,
+and teardown invalidates it even if the lease remains allocated.
+
+The default lease metadata accessor refuses this operation. The isolated Core
+tests inject policy; App's genuine SDK producer and automatic publication remain
+separate work. A wrapped declaration is metadata, not sibling approval, Add or
+recipient admission. See `docs/device-sync-local-proposal-verification.json` for
+actual regression counts and limits.

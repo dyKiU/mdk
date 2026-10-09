@@ -23,7 +23,7 @@ fn denied() -> EngineError {
     EngineError::Other("private enrollment endorsement denied".into())
 }
 #[derive(Default)]
-struct Lifetime {
+pub(crate) struct Lifetime {
     generation: AtomicU64,
     closed: AtomicBool,
 }
@@ -31,6 +31,20 @@ struct Lifetime {
 pub(crate) struct EndorsementState {
     lifetime: Arc<Lifetime>,
     active: Mutex<Option<[u8; 32]>>,
+}
+impl Lifetime {
+    pub(crate) fn is_open(&self) -> bool {
+        !self.closed.load(Ordering::SeqCst)
+    }
+}
+impl EndorsementState {
+    /// Shared exact Engine identity only; no endorsement or SDK consent.
+    pub(crate) fn owner_lifetime(&self) -> Weak<Lifetime> {
+        Arc::downgrade(&self.lifetime)
+    }
+    pub(crate) fn owns_lifetime(&self, owner: &Weak<Lifetime>) -> bool {
+        Weak::ptr_eq(owner, &self.owner_lifetime())
+    }
 }
 impl Drop for EndorsementState {
     fn drop(&mut self) {

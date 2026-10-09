@@ -2097,3 +2097,239 @@ async fn private_enrollment_endorsement_actual_changed_tree_denies_owned_handoff
             .is_err()
     );
 }
+// Original-owner policy injection tests the Core boundary, never genuine SDK SAS.
+struct LocalProposalPolicy {
+    consent: crate::private_device_invite::PrivateInviteConsent,
+    artifact_digest: [u8; 32],
+    deadline: Instant,
+    live: Arc<std::sync::atomic::AtomicBool>,
+}
+struct LocalProposalLease {
+    consent: crate::private_device_invite::PrivateInviteConsent,
+    artifact_digest: [u8; 32],
+    deadline: Instant,
+    live: Arc<std::sync::atomic::AtomicBool>,
+}
+impl crate::private_device_invite::TrustedPrivateInvitePolicy for LocalProposalPolicy {
+    fn begin_prepare(
+        &self,
+        _: &crate::private_device_invite::AuthenticatedPrivateInvite,
+    ) -> Result<
+        Box<dyn crate::private_device_invite::PrivateInviteLease>,
+        cgka_traits::device_linking_key_package::LinkingWelcomeDenied,
+    > {
+        Ok(Box::new(LocalProposalLease {
+            consent: self.consent.clone(),
+            artifact_digest: self.artifact_digest,
+            deadline: self.deadline,
+            live: self.live.clone(),
+        }))
+    }
+}
+impl crate::private_device_invite::PrivateInviteLease for LocalProposalLease {
+    fn consent(&self) -> &crate::private_device_invite::PrivateInviteConsent {
+        &self.consent
+    }
+    fn enrollment_proposal_metadata(
+        &mut self,
+    ) -> Result<
+        crate::private_device_invite::PrivateEnrollmentProposalMetadata,
+        cgka_traits::device_linking_key_package::LinkingWelcomeDenied,
+    > {
+        self.check_live_before_commit()?;
+        Ok(
+            crate::private_device_invite::PrivateEnrollmentProposalMetadata {
+                context_json: "{}".into(),
+                artifact_digest: self.artifact_digest,
+                original_deadline: self.deadline,
+            },
+        )
+    }
+    fn check_staged(
+        &mut self,
+        _: &crate::private_device_invite::AuthenticatedPrivateAdd,
+    ) -> Result<(), cgka_traits::device_linking_key_package::LinkingWelcomeDenied> {
+        self.check_live_before_commit()
+    }
+    fn check_live_before_commit(
+        &mut self,
+    ) -> Result<(), cgka_traits::device_linking_key_package::LinkingWelcomeDenied> {
+        use cgka_traits::device_linking_key_package::LinkingWelcomeDenied;
+        if !self.live.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(LinkingWelcomeDenied::Cancelled);
+        }
+        if Instant::now() >= self.deadline {
+            return Err(LinkingWelcomeDenied::Expired);
+        }
+        Ok(())
+    }
+    fn preparation_committed(
+        &mut self,
+        _: &cgka_traits::private_device_invite::PrivateInviteScope,
+    ) {
+        panic!("proposal metadata must never consume or stage an Add");
+    }
+}
+
+enum LocalProposalOwnerControl {
+    Retain,
+    Reopen,
+    Drop,
+}
+async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) {
+    use cgka_traits::device_linking_key_package::PurposeAttemptScope;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let (mut a, mut b, group) = complete_pair(SqliteAccountStorage::in_memory().unwrap()).await;
+    let artifact = a
+        .export_settled_device_predecessor(&group)
+        .unwrap()
+        .unwrap();
+    let before = a
+        .validated_settled_device_roster(&group)
+        .unwrap()
+        .unwrap()
+        .candidate()
+        .clone();
+    let origin = a
+        .validated_settled_device_roster(&group)
+        .unwrap()
+        .unwrap()
+        .origin()
+        .clone();
+    let mut c = crate::device_group_genesis::tests::current_test_engine(
+        SqliteAccountStorage::in_memory().unwrap(),
+    );
+    let package = c.fresh_linking_key_package().await.unwrap();
+    let expected = a.validate_private_invite_input(&group, &package).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let live = Arc::new(AtomicBool::new(true));
+    a.install_trusted_private_invite_policy(Arc::new(LocalProposalPolicy {
+        consent: crate::private_device_invite::PrivateInviteConsent {
+            approver_scope: PurposeAttemptScope {
+                account: a.self_id().as_slice().try_into().unwrap(),
+                local_device: a.identity.signer.public().try_into().unwrap(),
+                generation: 2,
+            },
+            recipient_generation: 1,
+            origin,
+            nonce: [11; 32],
+            context_digest: [10; 32],
+        },
+        artifact_digest: Sha256::digest(&artifact).into(),
+        deadline,
+        live: live.clone(),
+    }));
+    let result = a.prepare_private_enrollment_proposal(&group, package);
+    assert!(
+        result.is_ok(),
+        "original trusted lease must seal a local proposal before staging Add"
+    );
+    let mut proposal = result.unwrap();
+    assert_eq!(proposal.original_deadline(), deadline);
+    let binding = proposal.binding_digest().unwrap();
+    assert!(
+        b.wrap_private_enrollment_proposal(&mut proposal)
+            .await
+            .is_err(),
+        "another Core cannot use the local owned continuation"
+    );
+    let first = a
+        .wrap_private_enrollment_proposal(&mut proposal)
+        .await
+        .unwrap();
+    let retry = a
+        .wrap_private_enrollment_proposal(&mut proposal)
+        .await
+        .unwrap();
+    if matches!(control, LocalProposalOwnerControl::Reopen) {
+        let mut reopened =
+            crate::device_group_genesis::tests::current_test_engine(a.storage.clone());
+        reopened.hydrate_all_stored_groups().unwrap();
+        reopened.install_trusted_private_invite_policy(
+            a.private_invite_policy.as_ref().unwrap().clone(),
+        );
+        assert!(
+            reopened
+                .wrap_private_enrollment_proposal(&mut proposal)
+                .await
+                .is_err(),
+            "reopened Core sharing the same policy cannot use the original owned proposal"
+        );
+    }
+    assert_eq!(first.id, retry.id);
+    assert_eq!(
+        first.payload, retry.payload,
+        "retry must preserve the generated ciphertext"
+    );
+    assert!(
+        a.validated_settled_device_roster(&group)
+            .unwrap()
+            .unwrap()
+            .candidate()
+            == &before
+    );
+    assert!(
+        a.storage
+            .private_device_invite_storage()
+            .unwrap()
+            .private_invite()
+            .unwrap()
+            .is_none_or(|row| row.phase
+                == cgka_traits::private_device_invite::PrivateInvitePhase::Confirmed)
+    );
+    b.drain_events();
+    b.ingest_private_enrollment_delivery_until(first, deadline)
+        .await
+        .unwrap();
+    let requests = b.drain_authenticated_enrollment_requests().unwrap();
+    assert_eq!(
+        requests.len(),
+        1,
+        "actual encrypted proposal must reach the private opaque inlet"
+    );
+    assert_eq!(requests[0].binding_digest().unwrap(), binding);
+    assert_eq!(
+        requests[0].key_package_reference(),
+        expected.key_package_reference
+    );
+    assert_eq!(
+        requests[0].recipient(),
+        &expected.recipient_signature_public_key
+    );
+    assert!(requests[0].observed_deadline() <= deadline);
+    assert!(
+        b.drain_events()
+            .iter()
+            .all(|event| !matches!(event, GroupEvent::MessageReceived { .. }))
+    );
+    if matches!(control, LocalProposalOwnerControl::Drop) {
+        drop(a);
+        assert!(
+            proposal.binding_digest().is_err(),
+            "Core teardown cannot leave the original owned proposal live"
+        );
+        return;
+    }
+    live.store(false, Ordering::SeqCst);
+    assert!(
+        a.wrap_private_enrollment_proposal(&mut proposal)
+            .await
+            .is_err(),
+        "cached wire cannot restore a cancelled original owner"
+    );
+    assert!(proposal.binding_digest().is_err());
+}
+
+#[tokio::test]
+async fn private_enrollment_local_proposal_real_encryption_preserves_original_owner_and_retry() {
+    exercise_local_enrollment_proposal(LocalProposalOwnerControl::Retain).await;
+}
+#[tokio::test]
+async fn private_enrollment_local_proposal_reopened_shared_policy_cannot_use_original_owner() {
+    exercise_local_enrollment_proposal(LocalProposalOwnerControl::Reopen).await;
+}
+
+#[tokio::test]
+async fn private_enrollment_local_proposal_core_teardown_cannot_preserve_original_owner() {
+    exercise_local_enrollment_proposal(LocalProposalOwnerControl::Drop).await;
+}

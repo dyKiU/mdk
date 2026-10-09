@@ -76,18 +76,7 @@ pub struct AuthenticatedEnrollmentRequest {
 impl AuthenticatedEnrollmentRequest {
     /// Canonical request correlation only; no approval or SDK authority.
     pub fn binding_digest(&self) -> Result<[u8; 32], EngineError> {
-        use sha2::{Digest, Sha256};
-        let bytes = serde_json::to_vec(&self.frame).map_err(|_| unavailable())?;
-        let mut hash = Sha256::new();
-        let domain: &[u8] = match self.frame.protocol.as_str() {
-            REQUEST_PROTOCOL => b"whitenoise-private-enrollment-request-binding-v1\0",
-            PROPOSAL_PROTOCOL => b"whitenoise-private-enrollment-request-binding-v2\0",
-            _ => return Err(unavailable()),
-        };
-        hash.update(domain);
-        hash.update((bytes.len() as u64).to_be_bytes());
-        hash.update(bytes);
-        Ok(hash.finalize().into())
+        request_binding_digest(&self.frame)
     }
     /// Original bounded observation lifetime, never SDK enrollment consent.
     pub fn observed_deadline(&self) -> Instant {
@@ -673,4 +662,22 @@ impl<S: StorageProvider + 'static> Engine<S> {
             .drain(..)
             .collect())
     }
+}
+
+mod producer;
+pub use producer::OwnedLocalEnrollmentProposal;
+
+fn request_binding_digest(frame: &RequestFrame) -> Result<[u8; 32], EngineError> {
+    use sha2::{Digest, Sha256};
+    let bytes = serde_json::to_vec(frame).map_err(|_| unavailable())?;
+    let mut hash = Sha256::new();
+    let domain: &[u8] = match frame.protocol.as_str() {
+        REQUEST_PROTOCOL => b"whitenoise-private-enrollment-request-binding-v1\0",
+        PROPOSAL_PROTOCOL => b"whitenoise-private-enrollment-request-binding-v2\0",
+        _ => return Err(unavailable()),
+    };
+    hash.update(domain);
+    hash.update((bytes.len() as u64).to_be_bytes());
+    hash.update(bytes);
+    Ok(hash.finalize().into())
 }

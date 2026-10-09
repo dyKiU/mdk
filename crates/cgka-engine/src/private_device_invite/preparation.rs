@@ -24,6 +24,13 @@ pub struct PrivateInviteConsent {
     pub nonce: [u8; 32],
     pub context_digest: [u8; 32],
 }
+/// Retained original-owner metadata, supplied only through its live lease.
+/// App owns canonical context validation; Core authenticates the actual artifact.
+pub struct PrivateEnrollmentProposalMetadata {
+    pub context_json: String,
+    pub artifact_digest: [u8; 32],
+    pub original_deadline: web_time::Instant,
+}
 /// Trusted account runtime supplies the opaque Approver SDK result, not a bool.
 pub trait TrustedPrivateInvitePolicy: Send + Sync {
     fn begin_prepare(
@@ -39,6 +46,14 @@ pub trait TrustedPrivateInvitePolicy: Send + Sync {
 /// actor exclusively mutates this opaque continuation through &mut methods.
 pub trait PrivateInviteLease: Send + Sync {
     fn consent(&self) -> &PrivateInviteConsent;
+    /// Only the original trusted owner can supply its retained context and clock.
+    /// This metadata does not grant sibling approval or Add permission.
+    fn enrollment_proposal_metadata(
+        &mut self,
+    ) -> Result<PrivateEnrollmentProposalMetadata, LinkingWelcomeDenied> {
+        Err(LinkingWelcomeDenied::NoLiveVerifier)
+    }
+
     fn check_staged(
         &mut self,
         actual: &AuthenticatedPrivateAdd,
