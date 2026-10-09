@@ -105,6 +105,22 @@ impl SessionState {
             .await
         {
             Ok((phase, decimals)) => Ok(self.update(phase, decimals)),
+            Err(ClientLinkingError::Runtime(error))
+                if matches!(
+                    error.as_ref(),
+                    crate::AppError::AccountWorkerResponseTimedOut
+                ) =>
+            {
+                // A bounded observation wait grants no authority and does not
+                // revoke the original actor. Retain its last observation while
+                // publication is blocked; later polling rechecks the same owner.
+                // Cancellation may have updated this cache during the await.
+                Ok(self
+                    .snapshot
+                    .lock()
+                    .expect("native observation lock")
+                    .clone())
+            }
             Err(error) => {
                 let phase = match &error {
                     ClientLinkingError::Owner(OwnerError::Verifier(LinkError::Expired)) => {

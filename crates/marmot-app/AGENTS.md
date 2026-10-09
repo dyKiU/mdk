@@ -652,3 +652,12 @@ original live guard and fresh actual protected Completed full tree validate;
 they cannot authorize another mutation. Preserve prior phase ordinals. The
 capability remains unadvertised until native onboarding/artifact acceptance.
 Bounds/reclamation are in `docs/marmot-architecture/runtime-state-bounds.md`.
+
+### Native observational response timeout
+
+A typed `AppError::AccountWorkerResponseTimedOut` from the bounded native Observe
+RPC preserves the latest cached snapshot; it must not close a still-owned
+publication or extend its original deadline. No cached phase grants permission.
+Keep TransportClosed and actual owner/SDK failures terminal, preserve exact
+cancellation against late replies, and test the real production wait with an
+original blocked publication rather than advancing consent clocks.

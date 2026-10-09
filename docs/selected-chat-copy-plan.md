@@ -59,19 +59,21 @@ full history transfer and a delivery journal are a later boundary. Add controls 
 unselected groups, wrong device, nonadmin/Legacy, stale anchors, original expiry,
 exact cancellation and package/join rollback before claiming ordinary delivery.
 
-## Separate native observation lifecycle issue
+## Separate native observation lifecycle fix
 
 The publication wait loop serves a limited frozen group-read snapshot while it
 holds the client; native Setup Observe is deferred. A slow real publication can
 therefore exhaust the bounded account response wait. Native `SessionState::refresh`
-currently treats RuntimeUnavailable as terminal Failed/closed even when the
-original actor intent is still live. This is a material UI/continuation mismatch;
-the existing public positive tests do not prove stalled-network observation safety.
+previously treated RuntimeUnavailable as terminal Failed/closed even when the
+original actor intent was still live. The native stalled-publication regression
+reproduced that mismatch after the real production 120-second observation wait.
 
-Next regression: block a real original native Commit/Welcome publication after
-public verification/continuation, require observational Pending rather than a
-terminal failure, then require exact cancellation to wake promptly and prevent
-late positive publication. A minimal fix should distinguish a typed observational
-response timeout from actual terminal owner/SDK loss, or serve only a frozen
-original-memory negative/lifetime observation. No SQL row may manufacture live
-permission. This issue is intentionally separate from the selected-chat boundary.
+The qualified fix preserves the latest cached observation only for the typed
+AccountWorkerResponseTimedOut error. TransportClosed, owner/SDK loss and all
+other errors retain their terminal behavior; the cache supplies no permission.
+The actual original stalled publication now remains Pending, exact cancellation
+completes within 500 ms, and releasing transport cannot publish its cancelled
+Commit/Welcome. All eleven native feature tests and two default controls passed,
+including actual public ABC settlement, expiry, Drop, shutdown and subscriptions.
+See `device-sync-native-stalled-observation-verification.json` for source/log hashes.
+This lifecycle fix remains separate from selected-chat permission and delivery.

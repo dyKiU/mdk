@@ -365,6 +365,103 @@ mod actual {
     }
 
     #[tokio::test]
+    async fn native_stalled_original_publication_timeout_is_nonterminal_and_cancel_fences_delivery()
+    {
+        use cgka_traits::StorageProvider;
+        use cgka_traits::private_device_invite::PrivateInvitePhase;
+        let keys = nostr::prelude::Keys::generate();
+        let dirs: [tempfile::TempDir; 2] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
+        let relays: [Arc<crate::tests::ScriptedPushRelayClient>; 2] =
+            std::array::from_fn(|_| Arc::new(crate::tests::ScriptedPushRelayClient::default()));
+        let apps = std::array::from_fn::<_, 2, _>(|i| {
+            AccountHome::open(dirs[i].path())
+                .import_account("test", &keys.secret_key().to_secret_hex())
+                .unwrap();
+            MarmotApp::with_relay(dirs[i].path(), "wss://relay.example")
+                .with_test_relay_client(relays[i].clone())
+        });
+        let runtimes = apps.clone().map(MarmotAppRuntime::new);
+        for runtime in &runtimes {
+            runtime.reconcile_accounts().await.unwrap();
+        }
+        let c = runtimes[1]
+            .accounts()
+            .begin_device_linking_session("test")
+            .await
+            .unwrap();
+        let a = runtimes[0]
+            .accounts()
+            .approve_device_linking_session("test", c.setup_packet(), None)
+            .await
+            .unwrap();
+        verify_public_pair(&a, &c).await;
+        c.continue_linking(c.snapshot().await.unwrap().revision)
+            .await
+            .unwrap();
+        relays[0].block_next_publish();
+        a.continue_linking(a.snapshot().await.unwrap().revision)
+            .await
+            .unwrap();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            relays[0].wait_for_blocked_publish(),
+        )
+        .await
+        .expect("the original native A action must stall in actual publication");
+        let storage = apps[0].account_storage("test").unwrap();
+        let invite = storage
+            .private_device_invite_storage()
+            .unwrap()
+            .private_invite()
+            .unwrap()
+            .unwrap();
+        assert_eq!(invite.phase, PrivateInvitePhase::Dispatching);
+        let published_before = relays[0].published_event_ids();
+        // Use the real production 120-second RPC wait. No global time advance,
+        // artificial consent deadline, proof taking or reconstructed row grant.
+        let observation = tokio::time::timeout(std::time::Duration::from_secs(135), a.snapshot())
+            .await
+            .expect("native observation must finish its bounded production RPC wait")
+            .unwrap();
+        assert_eq!(
+            observation.phase,
+            DeviceLinkingPhase::VerificationCompleteEnrollmentPending,
+            "a temporary observation response timeout must not close the still-owned original publication"
+        );
+        assert!(observation.decimals.is_none());
+        tokio::time::timeout(std::time::Duration::from_millis(500), a.cancel())
+            .await
+            .expect("exact native cancellation must bypass stalled publication and observation")
+            .unwrap();
+        assert_eq!(
+            a.snapshot().await.unwrap().phase,
+            DeviceLinkingPhase::Cancelled
+        );
+        relays[0].release_publish();
+        tokio::time::sleep(std::time::Duration::from_millis(1250)).await;
+        assert!(
+            relays[0].published_event_ids() == published_before,
+            "cancelled original Commit/Welcome publication must not complete after the transport releases"
+        );
+        assert!(
+            storage
+                .private_device_invite_storage()
+                .unwrap()
+                .confirmed_private_invite()
+                .unwrap()
+                .is_none()
+        );
+        assert!(matches!(
+            a.continue_linking(observation.revision).await,
+            Err(DeviceLinkingError::Closed)
+        ));
+        c.cancel().await.unwrap();
+        for runtime in runtimes {
+            runtime.shutdown_and_close().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn native_public_continuation_settles_actual_original_pair_over_live_relay() {
         use cgka_traits::StorageProvider;
         use cgka_traits::private_roster_settlement::PrivateSettlementPhase;
