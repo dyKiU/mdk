@@ -13,10 +13,16 @@ use sha2::{Digest, Sha256};
 const PREFIX: &[u8] = b"WNLB\x01";
 const REQUEST: u8 = 1;
 const CHALLENGE: u8 = 2;
-const MAX_SETUP_PACKET_BYTES: usize = 512 * 1024;
-const MAX_REQUEST_PACKET_BYTES: usize = 100_000;
+pub(crate) const MAX_SETUP_PACKET_BYTES: usize = 512 * 1024;
+pub(crate) const MAX_REQUEST_PACKET_BYTES: usize = 100_000;
 const MAX_PACKAGE_BYTES: usize = 16_384;
 const MAX_ARTIFACT_BYTES: usize = 256 * 1024;
+
+/// Packet metadata is not a permission; the actor retains the original request.
+pub(crate) struct SetupPacket {
+    pub(crate) scope: PurposeAttemptScope,
+    pub(crate) packet: Vec<u8>,
+}
 
 // No Clone/Deserialize/Debug: callers retain this process-local request; packets
 // cannot recreate its original purpose or the actor's actual verifier lifetime.
@@ -106,6 +112,56 @@ fn decode_packet<T: DeserializeOwned + Serialize>(
 }
 
 impl AppClient {
+    pub(crate) async fn reserve_owned_linking_setup_request(
+        &mut self,
+    ) -> Result<SetupPacket, ClientLinkingError> {
+        let request = self.reserve_linking_setup_request().await?;
+        let packet = SetupPacket {
+            scope: request.scope.clone(),
+            packet: request.packet.clone(),
+        };
+        self.linking_owner.native_setup_request = Some(request);
+        Ok(packet)
+    }
+
+    pub(crate) async fn approve_owned_linking_setup_request(
+        &mut self,
+        packet: &[u8],
+        target: Option<&GroupId>,
+    ) -> Result<SetupPacket, ClientLinkingError> {
+        let challenge = self.begin_linking_setup_request(packet, target).await?;
+        Ok(SetupPacket {
+            scope: challenge.scope,
+            packet: challenge.packet,
+        })
+    }
+
+    pub(crate) async fn accept_owned_linking_setup_challenge(
+        &mut self,
+        scope: &PurposeAttemptScope,
+        packet: &[u8],
+    ) -> Result<(), ClientLinkingError> {
+        if self
+            .linking_owner
+            .native_setup_request
+            .as_ref()
+            .is_none_or(|request| &request.scope != scope)
+        {
+            return Err(invalid());
+        }
+        let mut request = self
+            .linking_owner
+            .native_setup_request
+            .take()
+            .ok_or_else(invalid)?;
+        let result = self
+            .accept_linking_setup_challenge(&mut request, packet)
+            .await;
+        // Rejected metadata must not discard the original request or its valid retry.
+        self.linking_owner.native_setup_request = Some(request);
+        result
+    }
+
     pub(crate) async fn reserve_linking_setup_request(
         &mut self,
     ) -> Result<NewDeviceSetup, ClientLinkingError> {

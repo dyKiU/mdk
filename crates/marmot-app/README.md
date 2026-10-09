@@ -673,3 +673,13 @@ or encrypted reopen cannot recreate it from packet bytes.
 These factories remain internal. They do not export a native session, authorize
 Add, admit a multi-leaf Welcome or report chat/history synchronization. The scoped
 qualification record is `docs/device-sync-native-setup-verification.json`.
+
+
+The internal account-worker setup bridge retains the original recipient request
+in the serial actor and returns packet metadata only. Bounded RPCs create the
+request/challenge and accept a challenge under the original scope. Invalid input
+preserves a valid retry; exact cancellation clears custody before durable cleanup.
+A lost successful reply cancels its exact reservation. The worker regression
+uses the original stock SDK through both confirmations and peer MACs. Public
+native sessions and cancellation during stalled setup remain separate gates; see
+`docs/device-sync-native-worker-setup-verification.json`.

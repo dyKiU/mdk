@@ -573,3 +573,12 @@ actual SDK lifetime instead of restarting it. Never expose these internal
 handles, `LinkingContext`, artifacts or proof-taking as a host approval API.
 The stock SDK starts SAS from NewDevice, with both local confirmations and peer
 MACs required. Setup success is verification only, not membership or history.
+
+
+`runtime/device_linking/setup.rs` routes bounded setup commands through the serial
+worker. `AccountLinkingOwner::native_setup_request` retains the original request;
+never reconstruct it from returned packet metadata or durable facts. Reject
+wrong scopes before taking custody, preserve it after invalid challenge input,
+and clear it before cancellation's durable cleanup. Lost setup replies must
+cancel only their exact newly owned scope; durable cleanup failure remains typed
+negative state for existing maintenance, with no permission restoration.

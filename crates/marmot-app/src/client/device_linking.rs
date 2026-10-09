@@ -1,5 +1,5 @@
 //! Private account-client ownership, with identities read from the live session.
-mod setup;
+pub(crate) mod setup;
 use super::AppClient;
 use crate::device_linking::invite_gate::RuntimeInviteGate;
 use crate::device_linking::runtime_gate::RuntimeWelcomeGate;
@@ -42,6 +42,7 @@ pub(crate) struct AccountLinkingOwner {
     invite_attempt: Option<OwnedPrivateInvite>,
     pub(super) settlement_attempt: Option<super::private_settlement::OwnedSettlementAttempt>,
     welcome_collection: PrivateWelcomeCollection,
+    native_setup_request: Option<setup::NewDeviceSetup>,
     pub(super) hidden_transport_group: Option<cgka_traits::GroupId>,
     pub(super) private_echo_retry: Option<std::time::Instant>,
     pub(super) private_echo_compared_route: Option<(
@@ -95,6 +96,7 @@ impl AccountLinkingOwner {
             invite_attempt: None,
             settlement_attempt: None,
             welcome_collection: PrivateWelcomeCollection::default(),
+            native_setup_request: None,
             hidden_transport_group: None,
             private_echo_retry: None,
             private_echo_compared_route: None,
@@ -1167,6 +1169,7 @@ impl AppClient {
     }
 
     pub(crate) async fn cancel_device_linking(&mut self) -> Result<(), ClientLinkingError> {
+        self.linking_owner.native_setup_request = None;
         // Revoke admission before terminal fencing or private deletion. The
         // serial owner must not retire a package while its join lease is busy.
         if let Some(attempt) = &self.linking_owner.settlement_attempt {
