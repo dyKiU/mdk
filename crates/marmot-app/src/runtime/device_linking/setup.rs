@@ -6,6 +6,25 @@ use crate::device_linking::{LinkError, OwnerError};
 use cgka_traits::{GroupId, device_linking_key_package::PurposeAttemptScope};
 
 pub(crate) enum SetupCommand {
+    ApprovalBindings {
+        respond: Reply<Vec<([u8; 32], std::time::Instant)>>,
+    },
+    Targets {
+        respond: Reply<Vec<crate::DeviceLinkingTarget>>,
+    },
+    ReceiveEnrollment {
+        scope: PurposeAttemptScope,
+        packet: Vec<u8>,
+        respond: Reply<()>,
+    },
+    FinalizeEnrollment {
+        scope: PurposeAttemptScope,
+        respond: Reply<()>,
+    },
+    ApprovalPhase {
+        binding: [u8; 32],
+        respond: Reply<crate::DeviceLinkingApprovalPhase>,
+    },
     Continue {
         scope: PurposeAttemptScope,
         new_device: bool,
@@ -67,6 +86,38 @@ pub(super) async fn handle(
     publication_control: &crate::runtime::private_commit::PublicationControl,
 ) {
     match command {
+        SetupCommand::ApprovalBindings { respond } => {
+            let _ = respond.send(client.native_authenticated_received_bindings());
+        }
+        SetupCommand::Targets { respond } => {
+            let _ = respond.send(client.native_device_linking_targets());
+        }
+        SetupCommand::ApprovalPhase { binding, respond } => {
+            let _ = respond.send(client.native_received_approval_phase(&binding));
+        }
+        SetupCommand::ReceiveEnrollment {
+            scope,
+            packet,
+            respond,
+        } => {
+            let result = client
+                .native_receive_enrollment_packet(&scope, &packet)
+                .await;
+            if respond.send(result).is_err() {
+                cancel_abandoned_setup(client, &scope).await;
+            }
+        }
+        SetupCommand::FinalizeEnrollment { scope, respond } => {
+            let result = client.native_finalize_enrollment(&scope).await;
+            if result.is_ok()
+                && let Ok((_, gate)) = client.private_commit_control(&scope)
+            {
+                publication_control.install(scope.clone(), gate);
+            }
+            if respond.send(result).is_err() {
+                cancel_abandoned_setup(client, &scope).await;
+            }
+        }
         SetupCommand::Continue {
             scope,
             new_device,
@@ -77,7 +128,9 @@ pub(super) async fn handle(
                 .await;
             if result.is_ok()
                 && !new_device
-                && let Ok((_, gate)) = client.private_commit_control(&scope)
+                && let Ok((_, gate)) = client
+                    .private_commit_control(&scope)
+                    .or_else(|_| client.enrollment_proposal_control(&scope))
             {
                 publication_control.install(scope.clone(), gate);
             }
@@ -119,6 +172,97 @@ pub(super) async fn handle(
 }
 
 impl AccountManager {
+    pub(crate) async fn native_received_proposals(
+        &self,
+        account: &str,
+    ) -> Result<Vec<([u8; 32], std::time::Instant)>, ClientLinkingError> {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::ApprovalBindings { respond })
+        })
+        .await
+    }
+    pub(crate) async fn native_approve_received_proposal(
+        &self,
+        account: &str,
+        binding: &[u8; 32],
+    ) -> Result<(), ClientLinkingError> {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::EndorseReceivedEnrollmentProposal {
+                binding: *binding,
+                respond,
+            }
+        })
+        .await
+    }
+    pub(crate) async fn native_arm_existing_member(
+        &self,
+        account: &str,
+        binding: &[u8; 32],
+        packet: Vec<u8>,
+    ) -> Result<(), ClientLinkingError> {
+        check_size(&packet, 16_384)?;
+        self.verifier_command(account, |respond| {
+            VerifierCommand::ArmExistingMemberEnrollment {
+                binding: *binding,
+                packet,
+                respond,
+            }
+        })
+        .await
+    }
+
+    pub(crate) async fn native_device_linking_targets(
+        &self,
+        account: &str,
+    ) -> Result<Vec<crate::DeviceLinkingTarget>, ClientLinkingError> {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::Targets { respond })
+        })
+        .await
+    }
+    pub(crate) async fn native_received_approval_phase(
+        &self,
+        account: &str,
+        binding: &[u8; 32],
+    ) -> Result<crate::DeviceLinkingApprovalPhase, ClientLinkingError> {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::ApprovalPhase {
+                binding: *binding,
+                respond,
+            })
+        })
+        .await
+    }
+    pub(crate) async fn native_receive_enrollment_packet(
+        &self,
+        account: &str,
+        scope: &PurposeAttemptScope,
+        packet: Vec<u8>,
+    ) -> Result<(), ClientLinkingError> {
+        check_size(&packet, 16_384)?;
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::ReceiveEnrollment {
+                scope: scope.clone(),
+                packet,
+                respond,
+            })
+        })
+        .await
+    }
+    pub(crate) async fn native_finalize_enrollment(
+        &self,
+        account: &str,
+        scope: &PurposeAttemptScope,
+    ) -> Result<(), ClientLinkingError> {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::FinalizeEnrollment {
+                scope: scope.clone(),
+                respond,
+            })
+        })
+        .await
+    }
+
     pub(crate) async fn native_continue_device_linking(
         &self,
         account: &str,

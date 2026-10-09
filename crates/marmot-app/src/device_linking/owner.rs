@@ -398,6 +398,22 @@ impl LinkingOwner {
         Ok(context.clone())
     }
 
+    /// Private scheduling observation of the exact original live attempt.
+    pub(crate) fn native_context_version(
+        &mut self,
+        scope: &cgka_traits::device_linking_key_package::PurposeAttemptScope,
+        now: Instant,
+    ) -> OwnerResult<u32> {
+        self.check_scope(scope)?;
+        self.guard(now)?;
+        Ok(self
+            .linker
+            .live(now)
+            .map_err(OwnerError::Verifier)?
+            .context
+            .version)
+    }
+
     pub(crate) async fn take_verified(&mut self, now: Instant) -> OwnerResult<VerifiedPairing> {
         self.guard(now)?;
         // Deliver and acknowledge the stock done event before sealing the flow;

@@ -24,6 +24,21 @@ Tracking issue: marmot-protocol/mdk#381.
 
 ## Inventory
 
+### Experimental native device enrollment (`marmot-app`)
+
+These are account-owned UI/transport resources, not convergence policy or
+serialized authorization. The original SDK/received-action lifetime remains the
+only positive authority.
+
+| Structure | Bound | Reclamation |
+| --- | --- | --- |
+| `native_approval_handles` weak registry | 128 entries across one account manager; observations come from at most 128 retained authenticated proposals per account. Entries hold only correlation, a weak handle, and the original receipt deadline. | Every listing prunes expired entries globally and disappeared observations for that account. A dropped last handle stays negative while its exact observation remains; it cannot be recreated by polling. Manager destruction releases the registry. |
+| Shared opaque approval handle | One shared process-local state per registry entry, one operation mutex, one snapshot, at most one 16 KiB admitted packet. Caller-held references never create another original action. | Explicit cancel and last-reference drop cancel the exact original binding; actor cancellation/expiry/shutdown revoke the underlying action. Packet retries use the same retained action and exact bytes. |
+| `NativeEnrollmentIntent` | One per account actor, sharing the original scope; one bounded retry timestamp and publication flags. | Exact cancel, lost reply, new reservation, original owner revocation/expiry, and actor drop clear it. A recipient awaiting endorsed metadata retains its actual unconsumed SDK/purpose, not a row-derived guard. |
+| Session enrollment packet caches | At most one exported and one admitted packet, each no larger than 16 KiB, per caller-held original session. | Session drop/cancel closes access and schedules exact original cleanup; cached public packets never permit proof reconstruction or extend the original deadline. |
+| Unapproved cancellation tombstones | Existing 128-entry negative-action bound; each uses its exact retained proposal's acquisition deadline. | Idempotent cancellation does not add another entry; actor maintenance prunes expired entries and actor destruction clears the set. |
+
+
 ### `marmot-app` audit export admission (`src/audit_export_lifecycle.rs`)
 
 | Structure | Bound | Reclamation |

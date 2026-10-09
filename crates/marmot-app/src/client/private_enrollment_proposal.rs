@@ -37,7 +37,118 @@ impl AppClient {
             .received_enrollment_proposals
             .iter()
             .map(|request| request.binding_digest().map_err(ClientLinkingError::Engine))
-            .collect()
+            .collect::<Result<Vec<_>, _>>()
+            .map(|bindings| {
+                bindings
+                    .into_iter()
+                    .filter(|binding| {
+                        !self
+                            .linking_owner
+                            .cancelled_endorsements
+                            .iter()
+                            .any(|(b, _)| b == binding)
+                    })
+                    .collect()
+            })
+    }
+
+    pub(crate) fn native_authenticated_received_bindings(
+        &mut self,
+    ) -> Result<Vec<([u8; 32], std::time::Instant)>, ClientLinkingError> {
+        self.retain_received_enrollment_proposals()?;
+        self.linking_owner
+            .received_enrollment_proposals
+            .iter()
+            .filter(|request| {
+                self.authenticate_received_enrollment_proposal(request)
+                    .is_ok()
+            })
+            .map(|request| {
+                request
+                    .binding_digest()
+                    .map(|binding| (binding, request.observed_deadline()))
+                    .map_err(ClientLinkingError::Engine)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|observations| {
+                observations
+                    .into_iter()
+                    .filter(|(binding, _)| {
+                        !self
+                            .linking_owner
+                            .cancelled_endorsements
+                            .iter()
+                            .any(|(b, _)| b == binding)
+                    })
+                    .collect()
+            })
+    }
+
+    pub(crate) fn native_received_approval_phase(
+        &mut self,
+        binding: &[u8; 32],
+    ) -> Result<crate::DeviceLinkingApprovalPhase, ClientLinkingError> {
+        use crate::DeviceLinkingApprovalPhase as Phase;
+        use cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard;
+        use cgka_traits::StorageProvider;
+        if self
+            .linking_owner
+            .cancelled_endorsements
+            .iter()
+            .any(|(b, _)| b == binding)
+        {
+            return Ok(Phase::Cancelled);
+        }
+        if let Some(action) = self
+            .linking_owner
+            .received_endorsement
+            .as_ref()
+            .filter(|a| a.binding == *binding)
+        {
+            if action.cancelled {
+                return Ok(Phase::Cancelled);
+            }
+            if std::time::Instant::now() >= action.deadline {
+                return Ok(Phase::Expired);
+            }
+            if let Some(attempt) = self
+                .linking_owner
+                .existing_settlement_attempt
+                .as_ref()
+                .filter(|a| a.guard.binding() == binding && a.guard.is_live())
+            {
+                let storage = self
+                    .app
+                    .account_storage(&self.state.label)
+                    .map_err(|e| ClientLinkingError::Runtime(Box::new(e)))?;
+                if let Some(round) = storage
+                    .private_roster_settlement_storage()
+                    .ok_or_else(rejected)?
+                    .read_round()
+                    .map_err(|e| ClientLinkingError::Engine(e.into()))?
+                    && attempt.guard.validate(&round.anchor).is_ok()
+                    && self
+                        .runtime
+                        .session()
+                        .validated_settled_device_roster(attempt.guard.group())
+                        .map_err(ClientLinkingError::Engine)?
+                        .is_some()
+                {
+                    return Ok(Phase::Settled);
+                }
+                return Ok(Phase::AwaitingSettlement);
+            }
+            self.enrollment_endorsement_control(binding)?;
+            return Ok(Phase::ApprovedAwaitingPacket);
+        }
+        if self
+            .received_enrollment_proposal_bindings()?
+            .contains(binding)
+        {
+            Ok(Phase::AwaitingApproval)
+        } else {
+            Err(rejected())
+        }
     }
 
     /// Explicit action on the exact retained, source-authenticated observation.
@@ -149,6 +260,32 @@ impl AppClient {
             .as_ref()
             .is_some_and(|attempt| &attempt.binding == binding)
         {
+            if self
+                .linking_owner
+                .cancelled_endorsements
+                .iter()
+                .any(|(cancelled, deadline)| {
+                    cancelled == binding && std::time::Instant::now() < *deadline
+                })
+            {
+                return Ok(());
+            }
+            // Unapproved cancellation fences the exact retained observation;
+            // its original acquisition deadline bounds this negative tombstone.
+            if let Some(request) = self
+                .linking_owner
+                .received_enrollment_proposals
+                .iter()
+                .find(|r| r.binding_digest().is_ok_and(|b| &b == binding))
+            {
+                if self.linking_owner.cancelled_endorsements.len() >= 128 {
+                    return Err(rejected());
+                }
+                self.linking_owner
+                    .cancelled_endorsements
+                    .push((*binding, request.observed_deadline()));
+                return Ok(());
+            }
             // The bounded dispatcher may already have performed this exact
             // negative cleanup before the queued cancellation reply is served.
             if self

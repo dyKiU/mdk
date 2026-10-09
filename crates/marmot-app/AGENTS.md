@@ -634,3 +634,21 @@ Never reopen a client and rebuild that continuation from private11 or a packet.
 B settlement uses its own original binding/guard, never a fabricated SDK scope.
 
 The original A SDK token retains its settlement continuation before moving into proposal/Add ownership; received observation bounds only shorten its clock. The genuine three-device regression requires A/B/C actual epoch-2 three-leaf Completed rounds, three facts each and validated settled predecessor exports, including B/C SQL rollback retries. Native enrollment/UI/artifact adoption remain separate gates; verification-only native capability does not imply enrollment.
+
+### Opaque native original three-device enrollment
+
+Target selectors and received-approval handles are observations, never grants.
+A/C setup and context role remain actor-owned. Existing-roster A first publishes
+its original SDK-owned proposal; C keeps its original unconsumed verifier and
+purpose until the complete, at-most-16-KiB endorsed packet validates. B approval
+retains the original received action. Export A's packet before transferring its
+lease into Add; admit it on C and the same B handle before explicit A finalize.
+The worker publishes Commit then Welcomes only after actual confirmed echo.
+Repeated B listing must share the same process-local Arc and bounded weak cache;
+last-handle drop/exact cancellation fences that original action. Never recreate a
+handle from a dropped weak entry while its original receipt remains live.
+`EnrollmentComplete`/`Settled` are historical observations cached only after the
+original live guard and fresh actual protected Completed full tree validate;
+they cannot authorize another mutation. Preserve prior phase ordinals. The
+capability remains unadvertised until native onboarding/artifact acceptance.
+Bounds/reclamation are in `docs/marmot-architecture/runtime-state-bounds.md`.

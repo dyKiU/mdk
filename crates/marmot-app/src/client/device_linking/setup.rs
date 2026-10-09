@@ -5,7 +5,7 @@ use crate::device_linking::{LinkError, LinkingContext, OwnerError, PredecessorRo
 use base64::Engine as _;
 use cgka_traits::device_linking_key_package::PurposeAttemptScope;
 use cgka_traits::group::ProtocolProfile;
-use cgka_traits::{GroupId, KeyPackage};
+use cgka_traits::{GroupId, KeyPackage, StorageProvider};
 use rand::RngCore;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
@@ -137,6 +137,26 @@ impl AppClient {
                     LinkError::Cancelled
                 };
                 return Err(ClientLinkingError::Owner(OwnerError::Verifier(error)));
+            }
+            use cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard;
+            let storage = self
+                .app
+                .account_storage(&self.state.label)
+                .map_err(|e| ClientLinkingError::Runtime(Box::new(e)))?;
+            if let Some(round) = storage
+                .private_roster_settlement_storage()
+                .ok_or_else(invalid)?
+                .read_round()
+                .map_err(|e| ClientLinkingError::Engine(e.into()))?
+                && attempt.guard.validate(&round.anchor).is_ok()
+                && self
+                    .runtime
+                    .session()
+                    .validated_settled_device_roster(&attempt.guard.group())
+                    .map_err(ClientLinkingError::Engine)?
+                    .is_some()
+            {
+                return Ok((crate::DeviceLinkingPhase::EnrollmentComplete, None));
             }
             return Ok((
                 crate::DeviceLinkingPhase::VerificationCompleteEnrollmentPending,

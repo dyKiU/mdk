@@ -892,6 +892,7 @@ impl AppClient {
                 "private proposal publication uncertain".into(),
             )));
         }
+        self.native_proposal_published(scope);
         Ok(())
     }
 

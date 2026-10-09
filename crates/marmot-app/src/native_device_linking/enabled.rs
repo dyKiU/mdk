@@ -28,6 +28,9 @@ struct PacketProgress {
     offer_acknowledged: bool,
     started: bool,
     enrollment_started: bool,
+    enrollment_packet: Option<Vec<u8>>,
+    recipient_packet: Option<Vec<u8>>,
+    finalized: bool,
 }
 pub(super) struct SubscriptionState {
     receiver: AsyncMutex<(watch::Receiver<DeviceLinkingSnapshot>, bool)>,
@@ -54,7 +57,10 @@ fn map_error(error: ClientLinkingError) -> DeviceLinkingError {
 }
 impl SessionState {
     fn check_open(&self) -> Result<(), DeviceLinkingError> {
-        if self.closed.load(Ordering::Acquire) {
+        if self.closed.load(Ordering::Acquire)
+            || self.snapshot.lock().expect("native observation lock").phase
+                == DeviceLinkingPhase::EnrollmentComplete
+        {
             Err(DeviceLinkingError::Closed)
         } else {
             Ok(())
@@ -72,6 +78,7 @@ impl SessionState {
             DeviceLinkingPhase::Cancelled
                 | DeviceLinkingPhase::Expired
                 | DeviceLinkingPhase::Failed
+                | DeviceLinkingPhase::EnrollmentComplete
         ) && (snapshot.phase != phase || snapshot.decimals != decimals)
         {
             snapshot.revision = snapshot.revision.saturating_add(1);
@@ -82,7 +89,10 @@ impl SessionState {
         snapshot.clone()
     }
     async fn refresh(&self) -> Result<DeviceLinkingSnapshot, DeviceLinkingError> {
-        if self.closed.load(Ordering::Acquire) {
+        if self.closed.load(Ordering::Acquire)
+            || self.snapshot.lock().expect("native observation lock").phase
+                == DeviceLinkingPhase::EnrollmentComplete
+        {
             return Ok(self
                 .snapshot
                 .lock()
@@ -154,16 +164,22 @@ impl AccountManager {
         request: Vec<u8>,
         target: Option<Vec<u8>>,
     ) -> Result<DeviceLinkingSession, DeviceLinkingError> {
-        // Existing-group native enrollment remains unavailable until ABC admission qualifies.
-        if target.is_some() {
-            return Err(DeviceLinkingError::NotReady);
+        if target
+            .as_ref()
+            .is_some_and(|selector| selector.is_empty() || selector.len() > 256)
+        {
+            return Err(DeviceLinkingError::InvalidPacket);
         }
         let account = self
             .resolve(account_ref)
             .map_err(|_| DeviceLinkingError::RuntimeUnavailable)?
             .label;
         let packet = self
-            .approve_device_linking_setup(account_ref, request, None)
+            .approve_device_linking_setup(
+                account_ref,
+                request,
+                target.map(cgka_traits::GroupId::new),
+            )
             .await
             .map_err(map_error)?;
         Ok(DeviceLinkingSession::new(
@@ -219,7 +235,13 @@ impl DeviceLinkingSession {
                     break;
                 }
                 // Observe the original SDK with bounded purpose checks; never restore SQL permission.
-                let _ = state.refresh().await;
+                if state
+                    .refresh()
+                    .await
+                    .is_ok_and(|s| s.phase == DeviceLinkingPhase::EnrollmentComplete)
+                {
+                    break;
+                }
             }
         });
         Self { inner }
@@ -385,6 +407,108 @@ impl DeviceLinkingSession {
             .await
             .map_err(map_error)
     }
+    pub async fn enrollment_packet(&self, revision: u64) -> Result<Vec<u8>, DeviceLinkingError> {
+        let mut progress = self.inner.operation.lock().await;
+        self.inner.check_open()?;
+        let current = self.inner.refresh().await?;
+        self.inner.check_open()?;
+        if current.revision != revision {
+            return Err(DeviceLinkingError::StaleRevision);
+        }
+        if self.inner.new_device || !progress.enrollment_started || progress.finalized {
+            return Err(DeviceLinkingError::NotReady);
+        }
+        if let Some(packet) = &progress.enrollment_packet {
+            return Ok(packet.clone());
+        }
+        if self
+            .inner
+            .manager
+            .collect_owned_enrollment_endorsements(&self.inner.account, &self.inner.scope)
+            .await
+            .map_err(map_error)?
+            == 0
+        {
+            return Err(DeviceLinkingError::NotReady);
+        }
+        let packet = self
+            .inner
+            .manager
+            .export_owned_enrollment_recipient_packet(&self.inner.account, &self.inner.scope)
+            .await
+            .map_err(map_error)?;
+        self.inner.check_open()?;
+        progress.enrollment_packet = Some(packet.clone());
+        Ok(packet)
+    }
+    pub async fn receive_enrollment_packet(
+        &self,
+        revision: u64,
+        packet: Vec<u8>,
+    ) -> Result<(), DeviceLinkingError> {
+        self.inner.check_open()?;
+        if packet.is_empty() || packet.len() > 16_384 {
+            return Err(DeviceLinkingError::InvalidPacket);
+        }
+        let mut progress = self.inner.operation.lock().await;
+        self.inner.check_open()?;
+        let current = self.inner.refresh().await?;
+        self.inner.check_open()?;
+        if current.revision != revision {
+            return Err(DeviceLinkingError::StaleRevision);
+        }
+        if !self.inner.new_device || !progress.enrollment_started {
+            return Err(DeviceLinkingError::NotReady);
+        }
+        if let Some(prior) = &progress.recipient_packet {
+            return if *prior == packet {
+                Ok(())
+            } else {
+                Err(DeviceLinkingError::InvalidPacket)
+            };
+        }
+        self.inner
+            .manager
+            .native_receive_enrollment_packet(
+                &self.inner.account,
+                &self.inner.scope,
+                packet.clone(),
+            )
+            .await
+            .map_err(map_error)?;
+        self.inner.check_open()?;
+        progress.recipient_packet = Some(packet);
+        self.inner.refresh().await?;
+        Ok(())
+    }
+    pub async fn finalize_linking(&self, revision: u64) -> Result<(), DeviceLinkingError> {
+        let mut progress = self.inner.operation.lock().await;
+        self.inner.check_open()?;
+        let current = self.inner.refresh().await?;
+        self.inner.check_open()?;
+        if current.revision != revision {
+            return Err(DeviceLinkingError::StaleRevision);
+        }
+        if self.inner.new_device
+            || !progress.enrollment_started
+            || progress.enrollment_packet.is_none()
+        {
+            return Err(DeviceLinkingError::NotReady);
+        }
+        if progress.finalized {
+            return Ok(());
+        }
+        self.inner
+            .manager
+            .native_finalize_enrollment(&self.inner.account, &self.inner.scope)
+            .await
+            .map_err(map_error)?;
+        self.inner.check_open()?;
+        progress.finalized = true;
+        self.inner.refresh().await?;
+        Ok(())
+    }
+
     pub async fn continue_linking(&self, revision: u64) -> Result<(), DeviceLinkingError> {
         self.inner.check_open()?;
         let mut operation = self.inner.operation.lock().await;
@@ -458,5 +582,237 @@ impl DeviceLinkingSubscription {
 impl Drop for DeviceLinkingSubscription {
     fn drop(&mut self) {
         self.close();
+    }
+}
+
+pub(crate) struct ApprovalRegistryEntry {
+    handle: std::sync::Weak<ApprovalState>,
+    deadline: std::time::Instant,
+}
+pub(crate) type ApprovalRegistry =
+    std::collections::HashMap<(String, [u8; 32]), ApprovalRegistryEntry>;
+pub(super) struct ApprovalState {
+    manager: AccountManager,
+    account: String,
+    binding: [u8; 32],
+    operation: AsyncMutex<Option<Vec<u8>>>,
+    snapshot: Mutex<DeviceLinkingApprovalSnapshot>,
+    closed: AtomicBool,
+    runtime: tokio::runtime::Handle,
+}
+impl ApprovalState {
+    fn check_open(&self) -> Result<(), DeviceLinkingError> {
+        if self.closed.load(Ordering::Acquire)
+            || self.snapshot.lock().expect("approval observation").phase
+                == DeviceLinkingApprovalPhase::Settled
+        {
+            Err(DeviceLinkingError::Closed)
+        } else {
+            Ok(())
+        }
+    }
+    async fn refresh(&self) -> Result<DeviceLinkingApprovalSnapshot, DeviceLinkingError> {
+        if self.closed.load(Ordering::Acquire)
+            || self.snapshot.lock().expect("approval observation").phase
+                == DeviceLinkingApprovalPhase::Settled
+        {
+            return Ok(self.snapshot.lock().expect("approval observation").clone());
+        }
+        let phase = self
+            .manager
+            .native_received_approval_phase(&self.account, &self.binding)
+            .await
+            .map_err(map_error)?;
+        if matches!(
+            phase,
+            DeviceLinkingApprovalPhase::Cancelled | DeviceLinkingApprovalPhase::Expired
+        ) {
+            self.closed.store(true, Ordering::Release);
+        }
+        let mut snapshot = self.snapshot.lock().expect("approval observation");
+        if snapshot.phase != phase {
+            snapshot.phase = phase;
+            snapshot.revision = snapshot.revision.saturating_add(1);
+        }
+        Ok(snapshot.clone())
+    }
+    fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+        let mut snapshot = self.snapshot.lock().expect("approval observation");
+        if !matches!(
+            snapshot.phase,
+            DeviceLinkingApprovalPhase::Cancelled | DeviceLinkingApprovalPhase::Settled
+        ) {
+            snapshot.phase = DeviceLinkingApprovalPhase::Cancelled;
+            snapshot.revision = snapshot.revision.saturating_add(1);
+        }
+    }
+}
+impl Drop for ApprovalState {
+    fn drop(&mut self) {
+        self.close();
+        let manager = self.manager.clone();
+        let account = self.account.clone();
+        let binding = self.binding;
+        self.runtime.spawn(async move {
+            let _ = manager
+                .cancel_received_enrollment_endorsement(&account, &binding)
+                .await;
+        });
+    }
+}
+impl AccountManager {
+    pub async fn device_linking_targets(
+        &self,
+        account_ref: &str,
+    ) -> Result<Vec<DeviceLinkingTarget>, DeviceLinkingError> {
+        self.native_device_linking_targets(account_ref)
+            .await
+            .map_err(map_error)
+    }
+    pub async fn pending_device_linking_approvals(
+        &self,
+        account_ref: &str,
+    ) -> Result<Vec<DeviceLinkingApproval>, DeviceLinkingError> {
+        let account = self
+            .resolve(account_ref)
+            .map_err(|_| DeviceLinkingError::RuntimeUnavailable)?
+            .label;
+        let bindings = self
+            .native_received_proposals(&account)
+            .await
+            .map_err(map_error)?;
+        let mut registry = self
+            .native_approval_handles
+            .lock()
+            .expect("native approval registry");
+        // Bounded by the actor's 128 retained actual proposals. Expired handles
+        // stay negative while that exact observation remains; polling cannot
+        // reconstruct an action after its last process-local handle dropped.
+        registry.retain(|(owner, binding), entry| {
+            std::time::Instant::now() < entry.deadline
+                && (owner != &account || bindings.iter().any(|(b, _)| b == binding))
+        });
+        let new_count = bindings
+            .iter()
+            .filter(|(binding, _)| !registry.contains_key(&(account.clone(), *binding)))
+            .count();
+        if registry.len().saturating_add(new_count) > 128 {
+            return Err(DeviceLinkingError::NotReady);
+        }
+        let mut result = Vec::new();
+        for (binding, deadline) in bindings {
+            let key = (account.clone(), binding);
+            let state = match registry.entry(key) {
+                std::collections::hash_map::Entry::Occupied(entry) => {
+                    let Some(state) = entry.get().handle.upgrade() else {
+                        continue;
+                    };
+                    state
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let state = Arc::new(ApprovalState {
+                        manager: self.clone(),
+                        account: account.clone(),
+                        binding,
+                        operation: AsyncMutex::new(None),
+                        snapshot: Mutex::new(DeviceLinkingApprovalSnapshot {
+                            revision: 1,
+                            phase: DeviceLinkingApprovalPhase::AwaitingApproval,
+                        }),
+                        closed: AtomicBool::new(false),
+                        runtime: tokio::runtime::Handle::current(),
+                    });
+                    entry.insert(ApprovalRegistryEntry {
+                        handle: Arc::downgrade(&state),
+                        deadline,
+                    });
+                    state
+                }
+            };
+            if !state.closed.load(Ordering::Acquire) {
+                result.push(DeviceLinkingApproval { inner: state });
+            }
+        }
+        Ok(result)
+    }
+}
+impl DeviceLinkingApproval {
+    pub async fn snapshot(&self) -> Result<DeviceLinkingApprovalSnapshot, DeviceLinkingError> {
+        self.inner.refresh().await
+    }
+    pub async fn approve(&self, revision: u64) -> Result<(), DeviceLinkingError> {
+        let _operation = self.inner.operation.lock().await;
+        self.inner.check_open()?;
+        let snapshot = self.inner.refresh().await?;
+        self.inner.check_open()?;
+        if snapshot.revision != revision {
+            return Err(DeviceLinkingError::StaleRevision);
+        }
+        if !matches!(
+            snapshot.phase,
+            DeviceLinkingApprovalPhase::AwaitingApproval
+                | DeviceLinkingApprovalPhase::ApprovedAwaitingPacket
+        ) {
+            return Err(DeviceLinkingError::NotReady);
+        }
+        self.inner
+            .manager
+            .native_approve_received_proposal(&self.inner.account, &self.inner.binding)
+            .await
+            .map_err(map_error)?;
+        self.inner.check_open()?;
+        self.inner
+            .manager
+            .publish_received_enrollment_endorsement(&self.inner.account, &self.inner.binding)
+            .await
+            .map_err(map_error)?;
+        self.inner.check_open()?;
+        self.inner.refresh().await?;
+        Ok(())
+    }
+    pub async fn receive_enrollment_packet(
+        &self,
+        revision: u64,
+        packet: Vec<u8>,
+    ) -> Result<(), DeviceLinkingError> {
+        self.inner.check_open()?;
+        if packet.is_empty() || packet.len() > 16_384 {
+            return Err(DeviceLinkingError::InvalidPacket);
+        }
+        let mut original_packet = self.inner.operation.lock().await;
+        self.inner.check_open()?;
+        let snapshot = self.inner.refresh().await?;
+        self.inner.check_open()?;
+        if snapshot.revision != revision {
+            return Err(DeviceLinkingError::StaleRevision);
+        }
+        if let Some(prior) = &*original_packet {
+            return if *prior == packet {
+                Ok(())
+            } else {
+                Err(DeviceLinkingError::InvalidPacket)
+            };
+        }
+        if snapshot.phase != DeviceLinkingApprovalPhase::ApprovedAwaitingPacket {
+            return Err(DeviceLinkingError::NotReady);
+        }
+        self.inner
+            .manager
+            .native_arm_existing_member(&self.inner.account, &self.inner.binding, packet.clone())
+            .await
+            .map_err(map_error)?;
+        self.inner.check_open()?;
+        *original_packet = Some(packet);
+        self.inner.refresh().await?;
+        Ok(())
+    }
+    pub async fn cancel(&self) -> Result<(), DeviceLinkingError> {
+        self.inner.close();
+        self.inner
+            .manager
+            .cancel_received_enrollment_endorsement(&self.inner.account, &self.inner.binding)
+            .await
+            .map_err(map_error)
     }
 }

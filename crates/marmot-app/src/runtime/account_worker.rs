@@ -2882,6 +2882,7 @@ async fn run_app_runtime_account_worker(
                     match client.pending_native_private_publication() {
                         Ok(Some((scope, kind))) => {
                             let kind = match kind {
+                                crate::client::device_linking::native_enrollment::NativeInvitePublication::Proposal => super::private_commit::PublicationKind::Proposal,
                                 crate::client::device_linking::native_enrollment::NativeInvitePublication::Commit => super::private_commit::PublicationKind::Commit,
                                 crate::client::device_linking::native_enrollment::NativeInvitePublication::Welcomes => super::private_commit::PublicationKind::Welcomes,
                             };

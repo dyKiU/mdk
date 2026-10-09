@@ -1,0 +1,118 @@
+{
+  "scope": "Original public opaque native three-device enrollment on explicitly ready imported development accounts; no public context, purpose, SDK proof, serialized guard, or caller deadline. Native artifact/UI/onboarding/chat/history acceptance remains separate; enrollment capability stays false.",
+  "final": {
+    "head": "fc310cc802568790eeda8268a980bde5984e7359",
+    "behavioral_fixture_sha256": "d1b41ccde5da60519f34ecded138add9372fa572405c677b1f5323baa264a36a",
+    "input_count": 2392,
+    "source_manifest_sha256": "870cd6e0b0c83919047589651121bf7420a867da0085b5921cc311f9fc40aa3f",
+    "gates": [
+      {
+        "gate": "native",
+        "exit_code": 0,
+        "seconds": 66.63,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 10,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "cf97d20c59fa94306ab04822323edb363c605155a4cc671301db4663b3271be4"
+      },
+      {
+        "gate": "default",
+        "exit_code": 0,
+        "seconds": 18.91,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "91481fa386f8022603caa381ff38f288f14354cf3d6cbe46a122683f97effbc4"
+      },
+      {
+        "gate": "clippy",
+        "exit_code": 0,
+        "seconds": 25.13,
+        "counts": [],
+        "log_sha256": "5c53365a0caa2f3729b25b047ce65c352b2cac82bb11b66253cade60056b31ca"
+      },
+      {
+        "gate": "check",
+        "exit_code": 0,
+        "seconds": 17.81,
+        "counts": [],
+        "log_sha256": "bf6b04da262230489fd9e884201dbe4e6d8d473704c14374cccf644bbe428dbc"
+      },
+      {
+        "gate": "fmt",
+        "exit_code": 0,
+        "seconds": 3.69,
+        "counts": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "implementation": [
+    "Fresh full-tree protected target observation and independently revalidated setup selection.",
+    "Original A/C SDK comparison, A proposal, explicit original B approval, complete bounded packet to C/B before original A lease moves into Add.",
+    "Actor ticks publish original Commit and Welcomes only after actual confirmed echo; original settlement maintenance completes all three real rosters.",
+    "Bounded shared opaque approval handles, exact cancellation, original receipt deadlines and negative dropped-weak entries.",
+    "Historical Complete/Settled observations require original live guard plus actual protected Completed tree before caching; positive operations then close."
+  ],
+  "evidence": {
+    "initial_missing_target_red": {
+      "head": "272e515f3aae32c87fe097891e8947e82faeb31f",
+      "tracked_inputs": 2390,
+      "exit_code": 101,
+      "seconds": 44.68,
+      "counts": [
+        {
+          "status": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "b451ea7ab827489147b48ee765e6c6d95bcfeff72442ab042d4698bcd8a087a7",
+      "behavioral_fixture_sha256": "dbc5cf4bb7f713dac0547045c30dc1b36dc3d5c21cfaccae7ee34a12f6a0acef"
+    },
+    "first_public_abc_green": {
+      "head": "fc310cc802568790eeda8268a980bde5984e7359",
+      "tracked_inputs": 2392,
+      "exit_code": 0,
+      "seconds": 53.73,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "b64cc385d7f11a19f085e8e8f8fbef302aa33c9836327451f0bd0520806e8682",
+      "behavioral_fixture_sha256": "30ac768c28de6cf3630122ca9e5f28bfd1c64cf0f2d149115354f6beb4048701"
+    },
+    "retained_failed_runs": [
+      {
+        "run": "green-v1",
+        "scope": "Compile-only missing StorageProvider import; zero tests",
+        "log_sha256": "9b0ae3b380cfaec8649df9d357d6520441ac79b6c34f98aeda2fc1009d7b677f"
+      },
+      {
+        "run": "final-v1",
+        "scope": "9 passes/1 stale singleton Cancelled expectation; cancellation wrapper still duplicated positive because insertion had not matched. Not claimed as cancellation coverage.",
+        "log_sha256": "422caab67cee8eb508efd8ede59e8f1b302ee233847ede10a75f496bfef75364"
+      }
+    ]
+  },
+  "independent_local_verification": {
+    "all_frozen_inputs_match": 2392,
+    "all_terminal_log_hashes_match": 5
+  },
+  "proof_append": "This JSON added after frozen qualification; every existing input matched before append."
+}

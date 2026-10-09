@@ -22,6 +22,7 @@ pub enum DeviceLinkingPhase {
     Cancelled,
     Expired,
     Failed,
+    EnrollmentComplete,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeviceLinkingSnapshot {
@@ -143,6 +144,8 @@ mod tests;
 
 #[cfg(feature = "experimental-device-sync")]
 mod enabled;
+#[cfg(feature = "experimental-device-sync")]
+pub(crate) use enabled::ApprovalRegistry;
 
 /// A selector for an observed protected roster, never enrollment permission.
 #[derive(Clone, PartialEq, Eq)]
@@ -165,8 +168,12 @@ pub struct DeviceLinkingApprovalSnapshot {
     pub phase: DeviceLinkingApprovalPhase,
 }
 pub struct DeviceLinkingApproval {
+    #[cfg(not(feature = "experimental-device-sync"))]
     _private: (),
+    #[cfg(feature = "experimental-device-sync")]
+    inner: std::sync::Arc<enabled::ApprovalState>,
 }
+#[cfg(not(feature = "experimental-device-sync"))]
 fn unavailable_enrollment() -> DeviceLinkingError {
     if cfg!(feature = "experimental-device-sync") {
         DeviceLinkingError::NotReady
@@ -174,6 +181,7 @@ fn unavailable_enrollment() -> DeviceLinkingError {
         DeviceLinkingError::Unsupported
     }
 }
+#[cfg(not(feature = "experimental-device-sync"))]
 impl AccountManager {
     pub async fn device_linking_targets(
         &self,
@@ -188,6 +196,7 @@ impl AccountManager {
         Err(unavailable_enrollment())
     }
 }
+#[cfg(not(feature = "experimental-device-sync"))]
 impl DeviceLinkingSession {
     pub async fn enrollment_packet(&self, _revision: u64) -> Result<Vec<u8>, DeviceLinkingError> {
         Err(unavailable_enrollment())
@@ -203,6 +212,7 @@ impl DeviceLinkingSession {
         Err(unavailable_enrollment())
     }
 }
+#[cfg(not(feature = "experimental-device-sync"))]
 impl DeviceLinkingApproval {
     pub async fn snapshot(&self) -> Result<DeviceLinkingApprovalSnapshot, DeviceLinkingError> {
         Err(unavailable_enrollment())

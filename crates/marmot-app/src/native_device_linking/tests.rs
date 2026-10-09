@@ -163,6 +163,13 @@ mod actual {
 
     #[tokio::test]
     async fn native_public_original_three_device_enrollment_uses_opaque_approval_and_packets() {
+        run_native_public_three_device_enrollment(false).await;
+    }
+    #[tokio::test]
+    async fn native_public_original_approval_cancel_fences_shared_handles_and_packets() {
+        run_native_public_three_device_enrollment(true).await;
+    }
+    async fn run_native_public_three_device_enrollment(cancel_approval: bool) {
         let relay =
             nostr_relay_builder::LocalRelay::new(nostr_relay_builder::RelayBuilder::default());
         relay.run().await.unwrap();
@@ -238,7 +245,49 @@ mod actual {
         })
         .await
         .expect("B must receive A's actual encrypted proposal as an opaque native action");
+        let duplicate_handles = managers[1]
+            .pending_device_linking_approvals("test")
+            .await
+            .unwrap();
+        assert_eq!(duplicate_handles.len(), 1);
+        assert!(Arc::ptr_eq(&approval.inner, &duplicate_handles[0].inner));
+        drop(duplicate_handles);
         let observed = approval.snapshot().await.unwrap();
+        if cancel_approval {
+            let shared = managers[1]
+                .pending_device_linking_approvals("test")
+                .await
+                .unwrap();
+            approval.cancel().await.unwrap();
+            let cancelled = approval.snapshot().await.unwrap();
+            assert_eq!(cancelled.phase, DeviceLinkingApprovalPhase::Cancelled);
+            assert!(matches!(
+                shared[0].approve(cancelled.revision).await,
+                Err(DeviceLinkingError::Closed)
+            ));
+            assert!(matches!(
+                shared[0]
+                    .receive_enrollment_packet(cancelled.revision, vec![0; 16_385])
+                    .await,
+                Err(DeviceLinkingError::Closed)
+            ));
+            assert!(
+                managers[1]
+                    .pending_device_linking_approvals("test")
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+            a.cancel().await.unwrap();
+            c.cancel().await.unwrap();
+            wait_actual_roster(&apps[..2], 2).await;
+            for runtime in runtimes {
+                runtime.shutdown_and_close().await.unwrap();
+            }
+            relay.shutdown();
+            return;
+        }
+
         assert_eq!(observed.phase, DeviceLinkingApprovalPhase::AwaitingApproval);
         assert!(matches!(
             approval.approve(observed.revision + 1).await,
@@ -275,6 +324,12 @@ mod actual {
             .await
             .unwrap();
         wait_actual_roster(&apps, 3).await;
+        for session in [&a, &c] {
+            let snapshot = session.snapshot().await.unwrap();
+            assert_eq!(snapshot.phase, DeviceLinkingPhase::EnrollmentComplete);
+            assert!(snapshot.decimals.is_none());
+        }
+
         for manager in &managers {
             let final_targets = manager.device_linking_targets("test").await.unwrap();
             assert_eq!(final_targets.len(), 1);
@@ -284,6 +339,21 @@ mod actual {
             approval.snapshot().await.unwrap().phase,
             DeviceLinkingApprovalPhase::Settled
         );
+        let complete = a.snapshot().await.unwrap();
+        assert!(matches!(
+            a.continue_linking(complete.revision).await,
+            Err(DeviceLinkingError::Closed)
+        ));
+        let settled = approval.snapshot().await.unwrap();
+        assert!(matches!(
+            approval.approve(settled.revision).await,
+            Err(DeviceLinkingError::Closed)
+        ));
+        a.cancel().await.unwrap();
+        approval.cancel().await.unwrap();
+        assert_eq!(a.snapshot().await.unwrap(), complete);
+        assert_eq!(approval.snapshot().await.unwrap(), settled);
+
         assert!(
             apps.iter()
                 .all(|app| app.load_state("test").unwrap().groups.is_empty())
@@ -391,12 +461,11 @@ mod actual {
         let hidden = apps
             .iter()
             .all(|app| app.load_state("test").unwrap().groups.is_empty());
-        let recipient_revision = c.snapshot().await.unwrap().revision;
+        let completed = c.snapshot().await.unwrap();
+        let recipient_revision = completed.revision;
+        assert_eq!(completed.phase, DeviceLinkingPhase::EnrollmentComplete);
         c.cancel().await.unwrap();
-        assert_eq!(
-            c.snapshot().await.unwrap().phase,
-            DeviceLinkingPhase::Cancelled
-        );
+        assert_eq!(c.snapshot().await.unwrap(), completed);
         assert!(matches!(
             c.continue_linking(recipient_revision).await,
             Err(DeviceLinkingError::Closed)

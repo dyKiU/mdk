@@ -259,6 +259,9 @@ pub struct AccountManager {
     worker_transactions: Arc<Mutex<()>>,
     startup_retries: Arc<StdMutex<worker_startup::WorkerStartupRetries>>,
     generated_setup_local_transaction: Arc<Mutex<()>>,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) native_approval_handles:
+        Arc<StdMutex<crate::native_device_linking::ApprovalRegistry>>,
     onboarding_transactions: Arc<StdMutex<HashMap<String, std::sync::Weak<Mutex<()>>>>>,
     onboarding_state: Arc<StdMutex<HashMap<String, std::sync::Weak<StdMutex<()>>>>>,
     onboarding_updates: Arc<StdMutex<HashMap<String, watch::Sender<OnboardingSnapshot>>>>,
@@ -6199,6 +6202,8 @@ impl AccountManager {
                 worker_startup::WorkerStartupRetries::default(),
             )),
             generated_setup_local_transaction: Arc::new(Mutex::new(())),
+            #[cfg(feature = "experimental-device-sync")]
+            native_approval_handles: Arc::new(StdMutex::new(HashMap::new())),
             onboarding_transactions: Arc::new(StdMutex::new(HashMap::new())),
             onboarding_state: Arc::new(StdMutex::new(HashMap::new())),
             onboarding_updates: Arc::new(StdMutex::new(HashMap::new())),
