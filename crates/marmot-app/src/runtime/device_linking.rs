@@ -1,4 +1,5 @@
 //! Private lifecycle/verifier RPCs; no enrollment or history grants.
+mod setup;
 use super::{AccountManager, AccountWorkerCommand};
 use crate::AppError;
 use crate::client::AppClient;
@@ -11,6 +12,7 @@ use tokio::sync::oneshot;
 
 type Reply<T> = oneshot::Sender<Result<T, ClientLinkingError>>;
 pub(crate) enum VerifierCommand {
+    Setup(setup::SetupCommand),
     PublishReceivedEnrollmentEndorsement {
         binding: [u8; 32],
         respond: Reply<()>,
@@ -159,6 +161,7 @@ pub(super) async fn handle_verifier_command(
     publication_control: &super::private_commit::PublicationControl,
 ) {
     match command {
+        VerifierCommand::Setup(command) => setup::handle(client, command).await,
         VerifierCommand::PublishReceivedEnrollmentEndorsement { binding, respond } => {
             let _ = binding;
             let _ = respond.send(Err(ClientLinkingError::Gate(
