@@ -1,5 +1,6 @@
 //! Private account-client ownership, with identities read from the live session.
 mod enrollment;
+pub(crate) mod native_enrollment;
 pub(crate) mod setup;
 use super::AppClient;
 use crate::device_linking::invite_gate::RuntimeInviteGate;
@@ -48,6 +49,7 @@ pub(crate) struct AccountLinkingOwner {
         Option<cgka_engine::private_enrollment_request::OwnedEnrollmentRecipientEvidence>,
     welcome_collection: PrivateWelcomeCollection,
     native_setup_request: Option<setup::NewDeviceSetup>,
+    native_enrollment: Option<native_enrollment::NativeEnrollmentIntent>,
     pub(super) hidden_transport_group: Option<cgka_traits::GroupId>,
     pub(super) private_echo_retry: Option<std::time::Instant>,
     pub(super) private_echo_compared_route: Option<(
@@ -107,6 +109,7 @@ impl AccountLinkingOwner {
             recipient_enrollment: None,
             welcome_collection: PrivateWelcomeCollection::default(),
             native_setup_request: None,
+            native_enrollment: None,
             hidden_transport_group: None,
             private_echo_retry: None,
             private_echo_compared_route: None,
@@ -146,6 +149,7 @@ impl AppClient {
                 }
                 _ => OwnerError::Verifier(crate::device_linking::LinkError::NotReady),
             })?;
+        self.linking_owner.native_enrollment = None;
         let scope = self.linking_owner.verifier.reserve_scope()?;
         self.clear_private_welcome_collection();
         self.linking_owner.received_enrollment_proposals.clear();
@@ -929,6 +933,7 @@ impl AppClient {
             // Retain the exact continuation on SQL failure. Only durable
             // cleanup success may drop it and release the held lease mutex.
             self.linking_owner.invite_attempt = None;
+            self.linking_owner.native_enrollment = None;
         }
         Ok(())
     }
@@ -971,6 +976,7 @@ impl AppClient {
         scope: &PurposeAttemptScope,
     ) -> Result<(), ClientLinkingError> {
         self.check_private_invite_attempt_scope(scope)?;
+        self.linking_owner.native_enrollment = None;
         self.linking_owner.received_enrollment_proposals.clear();
         self.linking_owner.invite.cancel();
         self.retire_owned_private_invite()
@@ -1127,11 +1133,16 @@ impl AppClient {
             .ok_or(ClientLinkingError::Gate(
                 cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
             ))?;
-        self.runtime
+        let result = self
+            .runtime
             .session_mut()
             .dispatch_confirmed_private_welcomes(prepared, &publisher)
             .await
-            .map_err(ClientLinkingError::PrivateInvite)
+            .map_err(ClientLinkingError::PrivateInvite);
+        if result.is_ok() {
+            self.native_welcomes_published(scope);
+        }
+        result
     }
 
     pub(crate) async fn prepare_device_linking(
@@ -1159,6 +1170,7 @@ impl AppClient {
         &mut self,
         now: std::time::Instant,
     ) -> Result<(), ClientLinkingError> {
+        self.prune_native_enrollment_intent();
         self.maintain_received_enrollment_endorsement(now)?;
         let reservation_live = self
             .linking_owner
@@ -1249,6 +1261,7 @@ impl AppClient {
 
     pub(crate) async fn cancel_device_linking(&mut self) -> Result<(), ClientLinkingError> {
         self.linking_owner.native_setup_request = None;
+        self.linking_owner.native_enrollment = None;
         self.linking_owner.recipient_enrollment = None;
         // Revoke admission before terminal fencing or private deletion. The
         // serial owner must not retire a package while its join lease is busy.

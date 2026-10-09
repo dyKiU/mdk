@@ -4373,7 +4373,7 @@ Submit an explicit human comparison for the revision actually displayed. Stale r
 pub async fn continue_linking(&self, displayed_revision: u64) -> Result<(), MarmotKitError>
 ```
 
-Enrollment continuation is gated and returns typed NotReady in verification-only feature builds. Default builds are Unsupported; no synchronized completion can be inferred from this operation.
+After genuine verification, feature builds accept revision-bound singleton continuation through the original actor-owned actions. Before verification or for gated existing-group enrollment, return typed NotReady. Default builds are Unsupported; no synchronized completion can be inferred from this operation.
 
 [Source](src/commands/device_linking.rs#L101)
 
@@ -4483,7 +4483,7 @@ Reserve the new device's original purpose in its serial worker and retain the re
 pub fn device_linking_capabilities(&self) -> DeviceLinkingCapabilitiesFfi
 ```
 
-Read actual Rust support before presenting device verification. Default builds report verification false; enrollment remains false in this verification-only surface. See [device verification](DEVICE-LINKING.md).
+Read actual Rust support before presenting device verification. Default builds report verification false; enrollment remains false while full public three-device enrollment is gated; experimental singleton continuation does not imply chat/history delivery. See [device verification](DEVICE-LINKING.md).
 
 [Source](src/commands/device_linking.rs#L19)
 

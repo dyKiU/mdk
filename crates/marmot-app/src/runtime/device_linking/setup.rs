@@ -6,6 +6,11 @@ use crate::device_linking::{LinkError, OwnerError};
 use cgka_traits::{GroupId, device_linking_key_package::PurposeAttemptScope};
 
 pub(crate) enum SetupCommand {
+    Continue {
+        scope: PurposeAttemptScope,
+        new_device: bool,
+        respond: Reply<()>,
+    },
     Observe {
         scope: PurposeAttemptScope,
         respond: Reply<(
@@ -56,8 +61,30 @@ async fn send_setup_reply(
     }
 }
 
-pub(super) async fn handle(client: &mut AppClient, command: SetupCommand) {
+pub(super) async fn handle(
+    client: &mut AppClient,
+    command: SetupCommand,
+    publication_control: &crate::runtime::private_commit::PublicationControl,
+) {
     match command {
+        SetupCommand::Continue {
+            scope,
+            new_device,
+            respond,
+        } => {
+            let result = client
+                .continue_owned_native_linking(&scope, new_device)
+                .await;
+            if result.is_ok()
+                && !new_device
+                && let Ok((_, gate)) = client.private_commit_control(&scope)
+            {
+                publication_control.install(scope.clone(), gate);
+            }
+            if respond.send(result).is_err() {
+                cancel_abandoned_setup(client, &scope).await;
+            }
+        }
         SetupCommand::Observe { scope, respond } => {
             let result = client.linking_native_observation(&scope);
             let _ = respond.send(result);
@@ -92,6 +119,21 @@ pub(super) async fn handle(client: &mut AppClient, command: SetupCommand) {
 }
 
 impl AccountManager {
+    pub(crate) async fn native_continue_device_linking(
+        &self,
+        account: &str,
+        scope: &PurposeAttemptScope,
+        new_device: bool,
+    ) -> Result<(), ClientLinkingError> {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::Continue {
+                scope: scope.clone(),
+                new_device,
+                respond,
+            })
+        })
+        .await
+    }
     pub(crate) async fn linking_native_observation(
         &self,
         account: &str,

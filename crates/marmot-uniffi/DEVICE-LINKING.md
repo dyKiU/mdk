@@ -3,8 +3,10 @@
 `device_linking_capabilities()` reports the Rust runtime's actual support. Default
 builds expose the same public shapes and return `DeviceLinkingUnsupported` before
 account lookup or purpose reservation. The experimental feature supports
-verification only: `enrollment_supported` is false and `continue_linking` returns
-`DeviceLinkingNotReady`. `VerificationCompleteEnrollmentPending` describes the
+verification and revision-bound singleton continuation: `enrollment_supported`
+remains false while the full public three-device flow is gated. After genuine
+verification, `continue_linking` schedules the original actor-owned singleton
+actions; before verification it returns `DeviceLinkingNotReady`. `VerificationCompleteEnrollmentPending` describes the
 completed comparison, not membership, delivery or synchronized history.
 
 ## Session and transport

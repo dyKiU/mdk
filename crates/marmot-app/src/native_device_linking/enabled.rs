@@ -27,6 +27,7 @@ pub(super) struct SessionState {
 struct PacketProgress {
     offer_acknowledged: bool,
     started: bool,
+    enrollment_started: bool,
 }
 pub(super) struct SubscriptionState {
     receiver: AsyncMutex<(watch::Receiver<DeviceLinkingSnapshot>, bool)>,
@@ -384,9 +385,37 @@ impl DeviceLinkingSession {
             .await
             .map_err(map_error)
     }
-    pub async fn continue_linking(&self, _revision: u64) -> Result<(), DeviceLinkingError> {
+    pub async fn continue_linking(&self, revision: u64) -> Result<(), DeviceLinkingError> {
         self.inner.check_open()?;
-        Err(DeviceLinkingError::NotReady)
+        let mut operation = self.inner.operation.lock().await;
+        self.inner.check_open()?;
+        let snapshot = self.inner.refresh().await?;
+        self.inner.check_open()?;
+        if snapshot.revision != revision {
+            return Err(DeviceLinkingError::StaleRevision);
+        }
+        if snapshot.phase != DeviceLinkingPhase::VerificationCompleteEnrollmentPending {
+            return Err(DeviceLinkingError::NotReady);
+        }
+        if operation.enrollment_started {
+            return Ok(());
+        }
+        // These factories currently accept only the singleton setup profile.
+        // The actor validates and takes its original SDK proof; native packets
+        // and this operation marker cannot recreate that proof or grant access.
+        self.inner
+            .manager
+            .native_continue_device_linking(
+                &self.inner.account,
+                &self.inner.scope,
+                self.inner.new_device,
+            )
+            .await
+            .map_err(map_error)?;
+        self.inner.check_open()?;
+        operation.enrollment_started = true;
+        self.inner.refresh().await?;
+        Ok(())
     }
 }
 impl Drop for DeviceLinkingSession {

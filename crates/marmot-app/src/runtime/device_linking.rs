@@ -207,7 +207,9 @@ pub(super) async fn handle_verifier_command(
                 let _ = client.cancel_device_linking_scope(&scope).await;
             }
         }
-        VerifierCommand::Setup(command) => setup::handle(client, command).await,
+        VerifierCommand::Setup(command) => {
+            setup::handle(client, command, publication_control).await
+        }
         VerifierCommand::PrepareEndorsedEnrollmentInvite { scope, respond } => {
             let result = client
                 .prepare_owned_endorsed_enrollment_invite(&scope)
