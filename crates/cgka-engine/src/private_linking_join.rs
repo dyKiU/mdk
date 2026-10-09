@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 pub(crate) struct PrivateJoinInput<'a> {
     pub context: &'a PrivateLinkingWelcomeContext,
     pub messages: &'a [TransportMessage],
+    pub evidence: Option<&'a crate::private_enrollment_request::OwnedEnrollmentRecipientEvidence>,
 }
 pub(crate) fn denial() -> EngineError {
     EngineError::LinkingWelcomeDenied(LinkingWelcomeDenied::ContextMismatch)
@@ -57,6 +58,27 @@ impl<S: StorageProvider> Engine<S> {
         messages: Vec<TransportMessage>,
         context: &PrivateLinkingWelcomeContext,
     ) -> Result<GroupId, EngineError> {
+        self.join_private_linking_welcome_batch_with_evidence(messages, context, None)
+            .await
+    }
+
+    /// Requires both original-purpose signed evidence and the independent live SDK lease.
+    pub async fn join_endorsed_private_linking_welcome_batch(
+        &mut self,
+        messages: Vec<TransportMessage>,
+        context: &PrivateLinkingWelcomeContext,
+        evidence: &crate::private_enrollment_request::OwnedEnrollmentRecipientEvidence,
+    ) -> Result<GroupId, EngineError> {
+        self.join_private_linking_welcome_batch_with_evidence(messages, context, Some(evidence))
+            .await
+    }
+
+    async fn join_private_linking_welcome_batch_with_evidence(
+        &mut self,
+        messages: Vec<TransportMessage>,
+        context: &PrivateLinkingWelcomeContext,
+        evidence: Option<&crate::private_enrollment_request::OwnedEnrollmentRecipientEvidence>,
+    ) -> Result<GroupId, EngineError> {
         use cgka_traits::ingest::{PeeledContent, PeeledMessage};
         use cgka_traits::transport::TransportEnvelope;
         use std::collections::BTreeSet;
@@ -93,11 +115,17 @@ impl<S: StorageProvider> Engine<S> {
                 return Err(denial());
             }
         }
+        if let Some(evidence) = evidence {
+            evidence.check_current(self, context)?;
+        }
         let bytes = self
             .peeler
             .peel_private_linking_welcome_batch(&messages, context)
             .await
             .map_err(EngineError::Peeler)?;
+        if let Some(evidence) = evidence {
+            evidence.check_current(self, context)?;
+        }
         if bytes.is_empty()
             || bytes.len() > MAX_PRIVATE_INVITE_WELCOME_BYTES
             || <[u8; 32]>::from(Sha256::digest(&bytes)) != context.welcome_digest
@@ -127,6 +155,7 @@ impl<S: StorageProvider> Engine<S> {
             Some(PrivateJoinInput {
                 context,
                 messages: &messages,
+                evidence,
             }),
         )
         .await

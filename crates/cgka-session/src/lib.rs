@@ -748,6 +748,53 @@ impl AccountDeviceSession {
             .await
     }
 
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn join_endorsed_private_linking_welcome_batch(
+        &mut self,
+        messages: Vec<TransportMessage>,
+        context: &cgka_traits::peeler::PrivateLinkingWelcomeContext,
+        evidence: &cgka_engine::private_enrollment_request::OwnedEnrollmentRecipientEvidence,
+    ) -> Result<GroupId, EngineError> {
+        self.engine
+            .join_endorsed_private_linking_welcome_batch(messages, context, evidence)
+            .await
+    }
+
+    /// Bounded signed metadata; original SDK producer remains in actor custody.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn export_owned_enrollment_recipient_packet(
+        &self,
+        proposal: &mut cgka_engine::private_enrollment_request::OwnedLocalEnrollmentProposal,
+        receipts: &[&cgka_engine::private_enrollment_endorsement::AuthenticatedEnrollmentEndorsement],
+    ) -> Result<Vec<u8>, EngineError> {
+        self.engine
+            .export_owned_enrollment_recipient_packet(proposal, receipts)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn validate_owned_recipient_evidence(
+        &self,
+        evidence: &cgka_engine::private_enrollment_request::OwnedEnrollmentRecipientEvidence,
+        context: &cgka_traits::peeler::PrivateLinkingWelcomeContext,
+        predecessor: &cgka_traits::accepted_device_group_anchor::DeviceGroupAnchorRoster,
+    ) -> Result<(), EngineError> {
+        self.engine
+            .validate_owned_recipient_evidence(evidence, context, predecessor)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn authenticate_original_recipient_enrollment_evidence(
+        &self,
+        scope: &cgka_traits::device_linking_key_package::PurposeAttemptScope,
+        bytes: &[u8],
+    ) -> Result<
+        cgka_engine::private_enrollment_request::OwnedEnrollmentRecipientEvidence,
+        EngineError,
+    > {
+        self.engine
+            .authenticate_original_recipient_enrollment_evidence(scope, bytes)
+    }
+
     /// Transfers only the original SDK producer lease and actual sealed receipts.
     #[cfg(feature = "experimental-device-sync")]
     pub async fn prepare_private_invite_from_owned_enrollment_proposal(

@@ -761,6 +761,9 @@ impl<S: StorageProvider + 'static> Engine<S> {
     }
 }
 
+mod recipient;
+pub use recipient::OwnedEnrollmentRecipientEvidence;
+
 mod producer;
 pub use producer::OwnedLocalEnrollmentProposal;
 pub(crate) use producer::add_handoff::OriginalEnrollmentPreparation;

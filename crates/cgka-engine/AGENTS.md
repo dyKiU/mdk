@@ -595,3 +595,8 @@ Welcome delivery retains original owner/clocks plus actual110 confirmation.
 `preparation_has_started` and the retained minimum deadline are observation-only
 metadata, never positive capabilities. Core expiry fixtures inject a trusted
 policy/attempt; stock SDK proof lives in the separate real App worker tests.
+
+Original recipient evidence never replaces the SDK lease. Check the same Core
+lifetime/exact purpose before and after peeling and inside actual join SQL;
+compare the declared predecessor to the original lease-approved descriptor.
+Preserve the existing atomic crypto/109/purpose transaction.

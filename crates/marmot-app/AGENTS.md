@@ -617,3 +617,9 @@ qualify. Never report partial verification/publication as synchronized. Default
 methods remain typed Unsupported before account or worker effects. Future native
 bindings must expose the same shapes in both feature cohorts without exporting
 internal context, proof-taking or raw purpose selection.
+
+Endorsed recipient arming compares the actor's original NewDevice context and
+actual unused purpose before SDK take. Keep singleton arming strict. Retain
+sealed evidence through exact SQL/Welcome retry; clear on exact cancellation
+and collection retirement. Lost replies cancel their original scope. Native
+enrollment stays unavailable until B transition and real ABC settlement.

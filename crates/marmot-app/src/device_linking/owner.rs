@@ -358,6 +358,46 @@ impl LinkingOwner {
         Ok(())
     }
 
+    /// Read only the current original recipient context. This cannot release SDK evidence.
+    pub(crate) fn validate_endorsed_recipient(
+        &mut self,
+        scope: &cgka_traits::device_linking_key_package::PurposeAttemptScope,
+        now: Instant,
+    ) -> OwnerResult<LinkingContext> {
+        use cgka_traits::StorageProvider;
+        self.check_scope(scope)?;
+        self.guard(now)?;
+        let attempt = self.linker.live(now).map_err(OwnerError::Verifier)?;
+        let context = &attempt.context;
+        if attempt.role != Role::NewDevice
+            || context.version != 2
+            || context.predecessor.epoch == 0
+            || context.predecessor.leaves.len() < 2
+        {
+            return Err(OwnerError::Verifier(LinkError::BindingMismatch));
+        }
+        let digest = context.digest().map_err(OwnerError::Verifier)?;
+        let purpose = self
+            .storage
+            .device_linking_key_package_storage()
+            .ok_or(OwnerError::Storage)?
+            .purpose_key_package()
+            .map_err(|_| OwnerError::Storage)?
+            .ok_or(OwnerError::Verifier(LinkError::NotReady))?;
+        if purpose.consumed
+            || purpose.scope != *scope
+            || purpose.public_bytes != context.exact_key_package
+            || purpose.reference.as_slice() != context.key_package_reference
+            || purpose.signature_public_key.as_slice() != context.recipient
+            || purpose.context.as_ref().is_none_or(|binding| {
+                binding.nonce != context.nonce || binding.context_digest != digest
+            })
+        {
+            return Err(OwnerError::Verifier(LinkError::BindingMismatch));
+        }
+        Ok(context.clone())
+    }
+
     pub(crate) async fn take_verified(&mut self, now: Instant) -> OwnerResult<VerifiedPairing> {
         self.guard(now)?;
         // Deliver and acknowledge the stock done event before sealing the flow;

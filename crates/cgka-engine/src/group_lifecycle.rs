@@ -1180,6 +1180,10 @@ impl<S: StorageProvider> Engine<S> {
             if let Some(input) = private.as_ref() {
                 let saved = linking_purpose.as_ref().ok_or_else(crate::private_linking_join::denial)?;
                 crate::private_linking_join::check_purpose(saved,input.context)?;
+                if let Some(evidence) = input.evidence {
+                    evidence.check(self,saved)?;
+                    evidence.check_transport(input.context)?;
+                }
                 if !selected_single_use { return Err(crate::private_linking_join::denial()); }
                 linking_lease.as_mut().ok_or_else(crate::private_linking_join::denial)?
                     .check_transport_context(input.context).map_err(EngineError::LinkingWelcomeDenied)?;
@@ -1383,6 +1387,7 @@ impl<S: StorageProvider> Engine<S> {
                 lease.check_authenticated(&authenticated).map_err(EngineError::LinkingWelcomeDenied)?;
                 if let Some(input) = private.as_ref() {
                     let predecessor = lease.approved_predecessor().map_err(EngineError::LinkingWelcomeDenied)?;
+                    if let Some(evidence) = input.evidence { evidence.check_predecessor(&predecessor)?; }
                     let saved = linking_purpose.as_ref().ok_or_else(crate::private_linking_join::denial)?;
                     let draft = crate::private_linking_join::anchor_draft(saved,input.context,&authenticated,predecessor)?;
                     storage.private_group_privacy_storage().ok_or(
@@ -1612,6 +1617,10 @@ impl<S: StorageProvider> Engine<S> {
                     ));
                 }
                 if let Some(saved) = linking_purpose.as_ref() {
+                    #[cfg(feature = "experimental-device-sync")]
+                    if let Some(evidence) = private.as_ref().and_then(|input| input.evidence) {
+                        evidence.check(self,saved)?;
+                    }
                     storage.device_linking_key_package_storage().ok_or(EngineError::InvalidWelcome)?
                         .consume_purpose_key_package(&saved.scope)?;
                     accepted_linking_receipt = Some(receipt);

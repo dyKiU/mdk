@@ -17,6 +17,7 @@ use tls_codec::Serialize;
 use web_time::Instant;
 
 pub(super) mod add_handoff;
+mod recipient_export;
 
 /// Original owned policy lease; no public constructor, cloning or serialization.
 /// Its local declaration cannot masquerade as an authenticated received message.

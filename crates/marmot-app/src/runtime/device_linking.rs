@@ -12,6 +12,15 @@ use tokio::sync::oneshot;
 
 type Reply<T> = oneshot::Sender<Result<T, ClientLinkingError>>;
 pub(crate) enum VerifierCommand {
+    ExportOwnedEnrollmentRecipientPacket {
+        scope: PurposeAttemptScope,
+        respond: Reply<Vec<u8>>,
+    },
+    ArmEndorsedEnrollmentRecipient {
+        scope: PurposeAttemptScope,
+        packet: Vec<u8>,
+        respond: Reply<()>,
+    },
     Setup(setup::SetupCommand),
     PrepareEndorsedEnrollmentInvite {
         scope: PurposeAttemptScope,
@@ -165,6 +174,24 @@ pub(super) async fn handle_verifier_command(
     publication_control: &super::private_commit::PublicationControl,
 ) {
     match command {
+        VerifierCommand::ExportOwnedEnrollmentRecipientPacket { scope, respond } => {
+            let result = client.export_owned_enrollment_recipient_packet(&scope);
+            if respond.send(result).is_err() {
+                let _ = client.cancel_device_linking_scope(&scope).await;
+            }
+        }
+        VerifierCommand::ArmEndorsedEnrollmentRecipient {
+            scope,
+            packet,
+            respond,
+        } => {
+            let result = client
+                .arm_endorsed_enrollment_recipient(&scope, &packet)
+                .await;
+            if respond.send(result).is_err() {
+                let _ = client.cancel_device_linking_scope(&scope).await;
+            }
+        }
         VerifierCommand::Setup(command) => setup::handle(client, command).await,
         VerifierCommand::PrepareEndorsedEnrollmentInvite { scope, respond } => {
             let result = client
@@ -721,6 +748,39 @@ impl AccountManager {
         self.verifier_command(account_ref, |respond| {
             VerifierCommand::PublishEnrollmentProposal {
                 scope: scope.clone(),
+                respond,
+            }
+        })
+        .await
+    }
+    pub(crate) async fn export_owned_enrollment_recipient_packet(
+        &self,
+        account_ref: &str,
+        scope: &PurposeAttemptScope,
+    ) -> Result<Vec<u8>, ClientLinkingError> {
+        self.verifier_command(account_ref, |respond| {
+            VerifierCommand::ExportOwnedEnrollmentRecipientPacket {
+                scope: scope.clone(),
+                respond,
+            }
+        })
+        .await
+    }
+    pub(crate) async fn arm_endorsed_enrollment_recipient(
+        &self,
+        account_ref: &str,
+        scope: &PurposeAttemptScope,
+        packet: &[u8],
+    ) -> Result<(), ClientLinkingError> {
+        if packet.is_empty() || packet.len() > 16 * 1024 {
+            return Err(ClientLinkingError::Gate(
+                cgka_traits::device_linking_key_package::LinkingWelcomeDenied::ContextMismatch,
+            ));
+        }
+        self.verifier_command(account_ref, |respond| {
+            VerifierCommand::ArmEndorsedEnrollmentRecipient {
+                scope: scope.clone(),
+                packet: packet.to_vec(),
                 respond,
             }
         })
@@ -3131,6 +3191,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn device_linking_original_sdk_endorsed_recipient_arms_exact_original_purpose() {
+        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalRecipientAdmission).await;
+    }
+
+    #[tokio::test]
+    async fn device_linking_original_sdk_endorsed_recipient_joins_with_atomic_retry() {
+        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalRecipientJoin).await;
+    }
+
+    #[tokio::test]
     async fn device_linking_b_endorsement_abandoned_reply_burns_original_action() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalDroppedReply).await;
     }
@@ -3146,6 +3216,8 @@ mod tests {
         LocalProposalCollection,
         LocalProposalTrustedAdd,
         LocalProposalTrustedAddRetry,
+        LocalProposalRecipientAdmission,
+        LocalProposalRecipientJoin,
         LocalProposalDroppedReply,
         LocalProposalReopen,
         RetainedScope,
@@ -3244,6 +3316,8 @@ mod tests {
                 | ThirdDeviceCheck::LocalProposalCollection
                 | ThirdDeviceCheck::LocalProposalTrustedAdd
                 | ThirdDeviceCheck::LocalProposalTrustedAddRetry
+                | ThirdDeviceCheck::LocalProposalRecipientAdmission
+                | ThirdDeviceCheck::LocalProposalRecipientJoin
                 | ThirdDeviceCheck::LocalProposalDroppedReply
                 | ThirdDeviceCheck::LocalProposalReopen
         ) {
@@ -3344,6 +3418,8 @@ mod tests {
                 | ThirdDeviceCheck::LocalProposalCollection
                 | ThirdDeviceCheck::LocalProposalTrustedAdd
                 | ThirdDeviceCheck::LocalProposalTrustedAddRetry
+                | ThirdDeviceCheck::LocalProposalRecipientAdmission
+                | ThirdDeviceCheck::LocalProposalRecipientJoin
                 | ThirdDeviceCheck::LocalProposalDroppedReply
                 | ThirdDeviceCheck::LocalProposalReopen
         ) {
@@ -3459,6 +3535,8 @@ mod tests {
                     | ThirdDeviceCheck::LocalProposalCollection
                     | ThirdDeviceCheck::LocalProposalTrustedAdd
                     | ThirdDeviceCheck::LocalProposalTrustedAddRetry
+                    | ThirdDeviceCheck::LocalProposalRecipientAdmission
+                    | ThirdDeviceCheck::LocalProposalRecipientJoin
                     | ThirdDeviceCheck::LocalProposalReopen
             ) {
                 let bindings = workers
@@ -3480,6 +3558,8 @@ mod tests {
                 ThirdDeviceCheck::LocalProposalCollection
                     | ThirdDeviceCheck::LocalProposalTrustedAdd
                     | ThirdDeviceCheck::LocalProposalTrustedAddRetry
+                    | ThirdDeviceCheck::LocalProposalRecipientAdmission
+                    | ThirdDeviceCheck::LocalProposalRecipientJoin
             ) {
                 assert_eq!(
                     workers
@@ -3616,6 +3696,247 @@ mod tests {
                         .is_err(),
                     "future scope cannot collect the original A proposal"
                 );
+                if matches!(
+                    check,
+                    ThirdDeviceCheck::LocalProposalRecipientAdmission
+                        | ThirdDeviceCheck::LocalProposalRecipientJoin
+                ) {
+                    let packet = workers.a.verifier_command("test", |respond|
+                        VerifierCommand::ExportOwnedEnrollmentRecipientPacket { scope: a_scope.clone(), respond })
+                        .await.expect("complete original A approval must export bounded signed recipient evidence before lease transfer");
+                    assert!(packet.len() <= 16 * 1024);
+                    let mut wrong = prepared.scope.clone();
+                    wrong.generation += 1;
+                    assert!(
+                        c.verifier_command("test", |respond| {
+                            VerifierCommand::ArmEndorsedEnrollmentRecipient {
+                                scope: wrong,
+                                packet: packet.clone(),
+                                respond,
+                            }
+                        })
+                        .await
+                        .is_err(),
+                        "foreign purpose cannot consume the original C verifier"
+                    );
+                    assert!(
+                        c.verifier_command("test", |respond| {
+                            VerifierCommand::ArmEndorsedEnrollmentRecipient {
+                                scope: prepared.scope.clone(),
+                                packet: vec![b'{'],
+                                respond,
+                            }
+                        })
+                        .await
+                        .is_err(),
+                        "malformed evidence must preserve valid original purpose retry"
+                    );
+                    let decoded: serde_json::Value = serde_json::from_slice(&packet).unwrap();
+                    let original_json = String::from_utf8(packet.clone()).unwrap();
+                    let last = decoded["endorsements"].as_array().unwrap().last().unwrap();
+                    let suffix = format!(",{}]}}", serde_json::to_string(last).unwrap());
+                    assert!(original_json.ends_with(&suffix));
+                    let unsigned = format!("{}]}}", original_json.strip_suffix(&suffix).unwrap());
+                    assert!(
+                        c.arm_endorsed_enrollment_recipient(
+                            "test",
+                            &prepared.scope,
+                            unsigned.as_bytes()
+                        )
+                        .await
+                        .is_err(),
+                        "canonical incomplete indexed-leaf coverage must preserve original C retry"
+                    );
+                    let old_digest = &decoded["request"]["context_digest"];
+                    let mut new_digest = old_digest.clone();
+                    new_digest[0] = serde_json::json!(old_digest[0].as_u64().unwrap() ^ 1);
+                    let substituted = original_json.replacen(
+                        &format!("\"context_digest\":{}", old_digest),
+                        &format!("\"context_digest\":{}", new_digest),
+                        1,
+                    );
+                    assert_ne!(substituted, original_json);
+                    assert!(
+                        c.arm_endorsed_enrollment_recipient(
+                            "test",
+                            &prepared.scope,
+                            substituted.as_bytes()
+                        )
+                        .await
+                        .is_err(),
+                        "canonical substituted context must not consume the original C SDK result"
+                    );
+                    assert!(
+                        c.arm_endorsed_enrollment_recipient(
+                            "test",
+                            &prepared.scope,
+                            &vec![b'x'; 16 * 1024 + 1]
+                        )
+                        .await
+                        .is_err(),
+                        "packet cap must deny before worker admission"
+                    );
+                    c.verifier_command("test", |respond|
+                        VerifierCommand::ArmEndorsedEnrollmentRecipient { scope: prepared.scope.clone(), packet, respond })
+                        .await.expect("actual all-leaf signatures plus original C SDK/purpose must arm dedicated recipient admission");
+                    assert!(
+                        cgka_traits::StorageProvider::device_linking_key_package_storage(
+                            &c_storage
+                        )
+                        .unwrap()
+                        .purpose_key_package()
+                        .unwrap()
+                            == c_purpose,
+                        "arming is not acceptance and cannot consume the purpose"
+                    );
+                    if check == ThirdDeviceCheck::LocalProposalRecipientJoin {
+                        workers
+                            .a
+                            .prepare_endorsed_enrollment_invite("test", &a_scope)
+                            .await
+                            .unwrap();
+                        workers
+                            .a
+                            .publish_private_device_invite_commit("test", &a_scope)
+                            .await
+                            .unwrap();
+                        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                            loop {
+                                if cgka_traits::StorageProvider::private_device_invite_storage(
+                                    &a_storage,
+                                )
+                                .unwrap()
+                                .confirmed_private_invite()
+                                .unwrap()
+                                .is_some_and(|row| {
+                                    !row.denied
+                                        && row.binding.successor.epoch == cgka_traits::EpochId(2)
+                                }) {
+                                    break;
+                                }
+                                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                            }
+                        })
+                        .await
+                        .expect("original endorsed A Add must confirm through actual relay intake");
+                        let path = c.app.account_storage_path("test");
+                        let keys = c.app.account_home().load_signing_keys("test").unwrap();
+                        let key = c
+                            .app
+                            .sqlcipher_key(
+                                "test",
+                                &keys,
+                                &path,
+                                crate::sqlcipher::SqlcipherDatabaseKind::Session,
+                            )
+                            .unwrap();
+                        let injector = rusqlite::Connection::open(&path).unwrap();
+                        storage_sqlite::open_hardened_sqlcipher(
+                            &injector,
+                            &key,
+                            storage_sqlite::SqlCipherHardening::cipher_only(),
+                        )
+                        .unwrap();
+                        injector.execute_batch("CREATE TRIGGER reject_endorsed_recipient_consumption BEFORE UPDATE OF consumed ON device_linking_key_package WHEN NEW.consumed = 1 BEGIN SELECT RAISE(ABORT,'injected endorsed recipient rollback'); END;").unwrap();
+                        let mut events = runtime_c.subscribe_events();
+                        workers
+                            .a
+                            .verifier_command("test", |respond| {
+                                VerifierCommand::PublishPrivateWelcomes {
+                                    scope: a_scope.clone(),
+                                    respond,
+                                }
+                            })
+                            .await
+                            .unwrap();
+                        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                            loop {
+                                match events.recv().await {
+                                    Some(crate::MarmotAppEvent::AccountError(error))
+                                        if error.message.starts_with("runtime receive failed") =>
+                                    {
+                                        break;
+                                    }
+                                    Some(_) => {}
+                                    None => {
+                                        panic!("C event stream closed before actual join SQL fault")
+                                    }
+                                }
+                            }
+                        })
+                        .await
+                        .expect("actual C join must encounter injected final purpose SQL rollback");
+                        assert!(
+                            cgka_traits::StorageProvider::accepted_device_group_anchor_storage(
+                                &c_storage
+                            )
+                            .unwrap()
+                            .accepted_anchor()
+                            .unwrap()
+                            .is_none()
+                        );
+                        assert!(
+                            cgka_traits::StorageProvider::device_linking_key_package_storage(
+                                &c_storage
+                            )
+                            .unwrap()
+                            .purpose_key_package()
+                            .unwrap()
+                                == c_purpose
+                        );
+                        assert!(cgka_traits::GroupStorage::get_group(&c_storage, &group).is_err());
+                        injector
+                            .execute_batch("DROP TRIGGER reject_endorsed_recipient_consumption;")
+                            .unwrap();
+                        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                            loop {
+                                if cgka_traits::StorageProvider::accepted_device_group_anchor_storage(&c_storage)
+                                    .unwrap().accepted_anchor().unwrap().is_some() { break; }
+                                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                            }
+                        }).await.expect("C must autonomously retry the same original SDK/evidence/Welcome batch");
+                        let anchor =
+                            cgka_traits::StorageProvider::accepted_device_group_anchor_storage(
+                                &c_storage,
+                            )
+                            .unwrap()
+                            .accepted_anchor()
+                            .unwrap()
+                            .unwrap();
+                        assert!(!anchor.denied && anchor.draft.purpose == prepared.scope);
+                        assert_eq!(anchor.draft.predecessor.epoch.0, 1);
+                        assert_eq!(anchor.draft.predecessor.leaves.len(), 2);
+                        assert_eq!(anchor.draft.successor.epoch.0, 2);
+                        assert_eq!(anchor.draft.successor.leaves.len(), 3);
+                        let purpose =
+                            cgka_traits::StorageProvider::device_linking_key_package_storage(
+                                &c_storage,
+                            )
+                            .unwrap()
+                            .purpose_key_package()
+                            .unwrap()
+                            .unwrap();
+                        assert!(purpose.consumed && purpose.scope == prepared.scope);
+                        assert_eq!(
+                            cgka_traits::GroupStorage::get_group(&c_storage, &group)
+                                .unwrap()
+                                .epoch
+                                .0,
+                            2
+                        );
+                        assert!(workers.a.app.load_state("test").unwrap().groups.is_empty());
+                        assert!(workers.b.app.load_state("test").unwrap().groups.is_empty());
+                        assert!(c.app.load_state("test").unwrap().groups.is_empty());
+                    }
+                    c.cancel_device_linking("test", &prepared.scope)
+                        .await
+                        .unwrap();
+                    runtime_c.shutdown_and_close().await.unwrap();
+                    workers.runtime_a.shutdown_and_close().await.unwrap();
+                    workers.runtime_b.shutdown_and_close().await.unwrap();
+                    relay.shutdown();
+                    return;
+                }
                 if check == ThirdDeviceCheck::LocalProposalTrustedAdd {
                     assert!(
                         workers
@@ -4008,6 +4329,8 @@ mod tests {
                 ThirdDeviceCheck::LocalProposalCollection
                     | ThirdDeviceCheck::LocalProposalTrustedAdd
                     | ThirdDeviceCheck::LocalProposalTrustedAddRetry
+                    | ThirdDeviceCheck::LocalProposalRecipientAdmission
+                    | ThirdDeviceCheck::LocalProposalRecipientJoin
             ) {
                 assert!(
                     workers

@@ -218,3 +218,7 @@ per-release notes live in [`docs/release/`](docs/release/).
 ## License
 
 [MIT](LICENSE).
+
+Original C admission now matches bounded all-leaf evidence to its original SDK
+context and purpose, then joins the actual three-leaf successor with atomic SQL
+rollback and exact retry. B transition and ABC settlement remain gated.
