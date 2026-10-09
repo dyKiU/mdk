@@ -527,8 +527,8 @@ sibling approval, settled roster or history authority.
 
 `client/private_enrollment_proposal.rs` validates only actual crypto-sealed v2
 requests drained through the configured Session. Its no-input serial verifier
-command retains one bounded Core batch only when the owner is empty; never drain
-into a full App retention queue. Preserve each original observation deadline and
+command incrementally fills only available App slots through bounded Core
+drains; never drain into a full App retention queue. Preserve each original observation deadline and
 opaque request, and revalidate fresh Completed actual tree/received artifact on
 retry. Private context parsing rejects unknown/duplicate fields and noncanonical
 JSON/base64. Compare every source/context/package binding before retaining usable
@@ -560,3 +560,16 @@ each packet before retaining its occupied leaf. Received requests and receipts
 share the App retention allowance of 128; the independent Core shared queue is
 128, for an aggregate bound of 256. Bounded drains preserve excess original
 proofs and clocks in Core. No collection count constructs Add/C/B authority.
+
+
+### Actor-created setup packets
+
+`client/device_linking/setup.rs` creates request/challenge packets internally
+from the actual reserved purpose and fresh protected genesis or Completed
+predecessor. Preserve canonical bounded decoding and actual signed single-use
+KeyPackage checks before approver reservation. The process-local recipient handle
+retains its original scope and challenge digest; exact retry must recheck the
+actual SDK lifetime instead of restarting it. Never expose these internal
+handles, `LinkingContext`, artifacts or proof-taking as a host approval API.
+The stock SDK starts SAS from NewDevice, with both local confirmations and peer
+MACs required. Setup success is verification only, not membership or history.

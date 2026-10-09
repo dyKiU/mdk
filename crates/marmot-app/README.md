@@ -659,3 +659,17 @@ authentication progress; Add, recipient admission, atomic sibling transition,
 ABC settlement and native integration remain separate work. The genuine worker
 regression uses the stock SDK and a real relay; see
 `docs/device-sync-b-publication-collection-verification.json` for its scope.
+
+### Private device setup packets
+
+The default-off account client creates bounded canonical setup packets from its
+actual reserved purpose KeyPackage and live identity. The approver chooses a
+protected singleton genesis or an actual completed predecessor; native callers
+cannot supply a linking context, generation, verifier proof or protected origin.
+The original recipient request binds the challenge and starts the stock SDK
+NewDevice flow. Exact challenge retry observes that same live flow; cancellation
+or encrypted reopen cannot recreate it from packet bytes.
+
+These factories remain internal. They do not export a native session, authorize
+Add, admit a multi-leaf Welcome or report chat/history synchronization. The scoped
+qualification record is `docs/device-sync-native-setup-verification.json`.
