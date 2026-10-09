@@ -1,0 +1,151 @@
+{
+  "source_files": 2336,
+  "runs": [
+    {
+      "name": "metadata",
+      "exit_code": 0,
+      "seconds": 13.27,
+      "counts": [],
+      "sha256": "1769c391204243f200276f3bf6bf879d645c9c719279ec23f2355c18266fcd75",
+      "command": [
+        "cargo",
+        "metadata",
+        "--locked",
+        "--format-version",
+        "1"
+      ]
+    },
+    {
+      "name": "default",
+      "exit_code": 0,
+      "seconds": 27.44,
+      "counts": [],
+      "sha256": "5dd09674836a40984f35d3213de9fe8d25e3c47b14cac228f90c430849fc0a38",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "-p",
+        "cgka-session",
+        "-p",
+        "marmot-app",
+        "--all-targets"
+      ]
+    },
+    {
+      "name": "feature",
+      "exit_code": 0,
+      "seconds": 32.54,
+      "counts": [],
+      "sha256": "49054886e0c219478e4dfd973bf24426ab8ecaedb92c961efe9c92d99f7fd0fd",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "-p",
+        "cgka-session",
+        "-p",
+        "marmot-app",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync,test-policy-overrides"
+      ]
+    },
+    {
+      "name": "expired-own",
+      "exit_code": 0,
+      "seconds": 30.66,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "d8c52f46ce31b6a6479f6261fab8c977a9d485b368a67388641991a034f538be",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "private_commit_delayed_reconciliation_uses_authenticated_staged_kp_after_public_expiry"
+      ]
+    },
+    {
+      "name": "proposal",
+      "exit_code": 0,
+      "seconds": 67.92,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "c4d735931f4cf506e3ad948208482f7f98946f37abf63604081306d71d667281",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "device_linking_enrollment_received_proposal_validates_actual_context_and_artifact"
+      ]
+    },
+    {
+      "name": "fmt",
+      "exit_code": 0,
+      "seconds": 3.33,
+      "counts": [],
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ]
+    }
+  ],
+  "qualified_commit": "5002553433b4fcdfb4a0a9706e134e4e9bd0e978",
+  "host": "macbook.m5",
+  "rust_toolchain": "1.97.1",
+  "feature_test_options": "experimental-device-sync,test-policy-overrides",
+  "target": "existing MdkRecipientCollectionTargetM5; debug0/jobs2/testthreads4/FD4096",
+  "raw_logs": "/Users/pj/project/build/mdk-sync-delivery-*-m5.log",
+  "source_note": "All2336 staged source hashes verified before/after each command; final additions/edits to delivery proof documentation only. All1810 qualified input files verified, only Cargo.toml/lock packaging differs; all523 vendor hashes verified.",
+  "initial_offline_resolution": "exit101: uncached Android registry dependency; online locked resolution succeeds without lock mutation",
+  "warnings": [
+    "default App test fixture published_events_snapshot deadcode",
+    "App test linker compact-unwind warning"
+  ],
+  "not_claimed": [
+    "full workspace fast-ci",
+    "full App tests",
+    "native artifacts or exports",
+    "all-current-leaf later enrollment",
+    "App actor129 retention"
+  ],
+  "commits": [
+    "eb2b7bb90670ab8bab25257c1ba3085f570f115a Integrate upstream canonical membership projection prerequisite",
+    "b1a419946f7574714b5b36232382d66fd1ec1e85 Preserve upstream terminal harness onboarding baseline",
+    "231fa47d993da42f95cb61a154d99d57192df215 Add bounded experimental device-sync storage contracts and private ledger",
+    "8b577fc2333eb76be5c3de998ff4da2867961893 Implement sealed private device-group crypto and Session boundaries",
+    "40f4c4c86df222edd40c64e689c27715a8f1e0c1 Coordinate account-owned device verification and private relay transport",
+    "d3beee0290d8979497f34500f6ad7d872293bb4b Make experimental native artifact feature provenance explicit",
+    "5002553433b4fcdfb4a0a9706e134e4e9bd0e978 Package exact reviewed OpenMLS986 source for portable locked builds"
+  ]
+}

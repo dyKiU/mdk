@@ -33,8 +33,11 @@ settlement and acquisition/reissue controls remain separate historical gates;
 no full-workspace or full App pass is asserted. Default checks retain the known
 unused `published_events_snapshot` fixture warning.
 
-The packaging change requires separate locked dependency resolution/coherence
-qualification. No generated bindings, native artifact, installed application,
+The portable packaging passed locked resolution, default and experimental
+Core/Session/App all-target checks, the expired own-commit reconciliation test
+(1/1), genuine SDK/WebSocket proposal validation (1/1), and workspace format on
+M5 with Rust1.97.1. See `device-sync-delivery-verification.json` for commands,
+counts and terminal log hashes. No generated bindings, native artifact, installed application,
 live database, release bump, push or interoperability claim is included.
 
 Two-device SDK/MLS settlement is qualified. Later all-current-leaf enrollment,
