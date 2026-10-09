@@ -35,6 +35,52 @@
       "ignored": 0,
       "exit_code": 0,
       "log_sha256": "4f3cbfa911dddc052a5bdc88bd9cc6beb33c06a2e05eee87a14ee877de2c4840"
+    },
+    {
+      "name": "clippy-v1",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 31.57,
+      "log_sha256": "a96f753d04ec521a2ac3d1051df39a6e6e9f03225f5fed055ed9d3661e9654ee"
+    },
+    {
+      "name": "default-v1",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 18.72,
+      "log_sha256": "8785ff10684d99aaa8bcf11e5954868451d102acc1de10af3bc16df2c9f80cc2"
+    },
+    {
+      "name": "fmt-v1",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 3.25,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     }
   ],
   "commands": [
@@ -42,13 +88,16 @@
     "cargo test --locked -p marmot-app --features experimental-device-sync,test-policy-overrides --lib native_device_linking::tests -- --nocapture"
   ],
   "controls": "Actual isolated account workers exchange genuine SDK packets and confirm matching SAS before the same proof is taken. After handoff, verification remains pending with no decimals; continuation stays NotReady and enrollment capability false. Exact cancellation works and an old scope cannot cancel a fresh reservation. Existing native lifecycle tests retain their original scope.",
-  "qualification_pending": [
-    "marmot-app production feature all-target Clippy",
-    "default all-target check",
-    "workspace fmt",
-    "retrieval and independent hash verification of raw M5 terminal logs"
-  ],
-  "pending_reason": "M5 stopped responding over SSH during the production-check runner; fresh SSH connect timed out. Terminal test results and full source manifest were received before the outage. No pending check is reported as passed.",
+  "qualification_pending": [],
   "preserved_harness_failure": "red-v1 did not launch Cargo because SSH PATH lacked Cargo. Corrected direct Rust1.97.1 toolchain PATH in red-v2; red-v1 is not a behavioral regression.",
-  "remaining": "Actual A/B/C settlement, native continuation/UI, final matched artifacts and chat/history delivery remain open."
+  "remaining": "Actual A/B/C settlement, native continuation/UI, final matched artifacts and chat/history delivery remain open.",
+  "independent_verification": {
+    "terminal_log_count": 6,
+    "all_log_hashes_match": true,
+    "red_and_green_input_count_each": 2386,
+    "all_source_bytes_match": true,
+    "local_code_commit": "10bf5d92",
+    "post_qualification_change": "Evidence document only; no behavior or fixture changes after GREEN."
+  },
+  "preserved_host_interruption": "M5 SSH timed out before the production checker launched. Stale task SSH transports were closed after verifying no checker ran. Fresh production Clippy/default/fmt completed after connectivity returned; no outage is counted as a compiler or behavioral result."
 }
