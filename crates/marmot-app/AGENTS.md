@@ -597,3 +597,23 @@ cancel that exact original scope. SQL/raw retry and cancellation stay on the
 same continuation. This milestone stages exact C Add only; C original-purpose
 admission, B protected transition, real ABC settlement and native enrollment
 adoption remain independently gated.
+
+### Native verification-only facade
+
+`native_device_linking` exports opaque process-local sessions, bounded packets,
+SAS observations, revision-bound human confirmation and closeable subscriptions.
+Keep setup/SDK secrets and original scopes private in the actor. Route through
+the resolved account address and retain exact scope checks; do not assume a
+public-key hex string identifies a legacy label-directory account. Observations
+must not consume proofs or reconstruct authority from durable rows. Preserve
+negative cancellation before positive-operation lock acquisition, terminal state
+against late replies and exact asynchronous Drop cleanup. Subscription close must
+wake both waiting receiver admission and a pending change read.
+
+The current public surface supports verification only. Keep enrollment capability
+false and both existing-group target selection and continuation unavailable until
+real original-purpose C admission, protected B transition and ABC settlement
+qualify. Never report partial verification/publication as synchronized. Default
+methods remain typed Unsupported before account or worker effects. Future native
+bindings must expose the same shapes in both feature cohorts without exporting
+internal context, proof-taking or raw purpose selection.

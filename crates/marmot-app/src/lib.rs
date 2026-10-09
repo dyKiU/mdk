@@ -96,6 +96,12 @@ mod conversions;
     reason = "Experimental adapter awaits account-worker enrollment integration"
 )]
 mod device_linking;
+mod native_device_linking;
+pub use native_device_linking::{
+    DeviceLinkingCapabilities, DeviceLinkingDecimals, DeviceLinkingError,
+    DeviceLinkingOutgoingPacket, DeviceLinkingPhase, DeviceLinkingSession, DeviceLinkingSnapshot,
+    DeviceLinkingSubscription,
+};
 mod directory;
 mod drafts;
 mod local_submissions;

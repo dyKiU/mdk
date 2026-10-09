@@ -6,6 +6,13 @@ use crate::device_linking::{LinkError, OwnerError};
 use cgka_traits::{GroupId, device_linking_key_package::PurposeAttemptScope};
 
 pub(crate) enum SetupCommand {
+    Observe {
+        scope: PurposeAttemptScope,
+        respond: Reply<(
+            crate::DeviceLinkingPhase,
+            Option<crate::DeviceLinkingDecimals>,
+        )>,
+    },
     ReserveRequest {
         respond: Reply<SetupPacket>,
     },
@@ -51,6 +58,10 @@ async fn send_setup_reply(
 
 pub(super) async fn handle(client: &mut AppClient, command: SetupCommand) {
     match command {
+        SetupCommand::Observe { scope, respond } => {
+            let result = client.linking_native_observation(&scope);
+            let _ = respond.send(result);
+        }
         SetupCommand::ReserveRequest { respond } => {
             let result = client.reserve_owned_linking_setup_request().await;
             send_setup_reply(client, respond, result).await;
@@ -81,6 +92,25 @@ pub(super) async fn handle(client: &mut AppClient, command: SetupCommand) {
 }
 
 impl AccountManager {
+    pub(crate) async fn linking_native_observation(
+        &self,
+        account: &str,
+        scope: &PurposeAttemptScope,
+    ) -> Result<
+        (
+            crate::DeviceLinkingPhase,
+            Option<crate::DeviceLinkingDecimals>,
+        ),
+        ClientLinkingError,
+    > {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::Observe {
+                scope: scope.clone(),
+                respond,
+            })
+        })
+        .await
+    }
     pub(crate) async fn reserve_device_linking_setup(
         &self,
         account: &str,

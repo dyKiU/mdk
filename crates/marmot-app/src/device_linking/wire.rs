@@ -6,7 +6,7 @@ const PREFIX: &[u8; 5] = b"WNLS\x01";
 const OFFER: u8 = 1;
 const FRAME: u8 = 2;
 const MAX_TOKEN_BYTES: usize = 128;
-const MAX_PACKET_BYTES: usize = MAX_FRAME_BYTES + 171;
+pub(crate) const MAX_PACKET_BYTES: usize = MAX_FRAME_BYTES + 171;
 
 fn header(kind: u8, binding: &[u8; 32]) -> Vec<u8> {
     let mut packet = Vec::with_capacity(43);

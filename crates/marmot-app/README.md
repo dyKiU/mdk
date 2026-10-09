@@ -683,3 +683,29 @@ A lost successful reply cancels its exact reservation. The worker regression
 uses the original stock SDK through both confirmations and peer MACs. Public
 native sessions and cancellation during stalled setup remain separate gates; see
 `docs/device-sync-native-worker-setup-verification.json`.
+
+### Opaque native verification sessions
+
+`AccountManager::begin_device_linking_session` and
+`approve_device_linking_session` return process-local session objects. Callers
+exchange bounded setup/SDK packets, observe standard SAS decimals and confirm
+the revision actually displayed. They cannot supply context, purpose generation,
+protected predecessor or proof. The actor retains the original SDK/request;
+packet acknowledgement is transport progress only.
+
+Subscriptions coalesce observations and `close()` wakes pending reads. Exact
+session cancellation revokes native operations before waiting for actor cleanup;
+drop schedules the same cleanup. A one-second probe observes the original SDK and bounded purpose checks for
+expiry/shutdown; it does not rescan MLS or restore permission from SQL. The worker
+address is the resolved account storage label, while the original private scope
+checks actual account/device identity on every command.
+
+Default builds expose the same shapes but return `Unsupported` before account
+resolution or reservation. Feature builds advertise verification only:
+`enrollment_supported` remains false, existing-group targets and
+`continue_linking` return `NotReady`. The terminal verification observation is
+`VerificationCompleteEnrollmentPending`, never synchronized. This slice does not
+qualify enrollment, stalled setup/queue controls, Drop/expiry behavior across all
+native lifecycles, UniFFI/C parity, app artifacts or normal chat/history delivery.
+See `docs/device-sync-native-verification-session-verification.json` for exact
+qualification scope and preserved failures.
