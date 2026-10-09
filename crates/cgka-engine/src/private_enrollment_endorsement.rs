@@ -153,6 +153,14 @@ pub struct AuthenticatedEnrollmentEndorsement {
     pub(crate) source_signer: [u8; 32],
     pub(crate) wire: Vec<u8>,
 }
+impl AuthenticatedEnrollmentEndorsement {
+    pub fn observed_deadline(&self) -> Instant {
+        self.deadline
+    }
+    pub fn source_index(&self) -> u32 {
+        self.source_index
+    }
+}
 pub(crate) fn received_observation(
     content: &str,
     index: u32,
@@ -487,6 +495,37 @@ impl<S: StorageProvider> Engine<S> {
         endorsement.wrapped = Some(wrapped.clone());
         Ok(wrapped)
     }
+    pub(crate) fn authenticate_private_enrollment_packet(
+        &self,
+        artifact: &AuthenticatedPrivatePredecessor,
+        binding: &[u8; 32],
+        wire: &[u8],
+    ) -> Result<(u32, [u8; 32]), EngineError> {
+        if binding == &[0; 32] || wire.is_empty() || wire.len() > MAX_PACKET_BYTES {
+            return Err(denied());
+        }
+        let packet: Packet = serde_json::from_slice(wire).map_err(|_| denied())?;
+        if packet.protocol != PROTOCOL
+            || packet.binding_digest != *binding
+            || packet.signature.len() != 64
+            || !artifact.leaves().iter().any(|leaf| {
+                leaf.leaf_index == packet.source_index
+                    && leaf.signature_public_key.as_slice() == packet.source_signer
+            })
+        {
+            return Err(denied());
+        }
+        self.crypto
+            .verify_signature(
+                SignatureScheme::ED25519,
+                &signing_input(&packet),
+                &packet.source_signer,
+                &packet.signature,
+            )
+            .map_err(|_| denied())?;
+        Ok((packet.source_index, packet.source_signer))
+    }
+
     /// Verify every occupied predecessor leaf once against actual authenticated
     /// public-tree keys. Completeness does not restore a live owner's approval.
     pub fn authenticate_all_private_enrollment_endorsements(
@@ -504,29 +543,11 @@ impl<S: StorageProvider> Engine<S> {
         }
         let mut indices = HashSet::new();
         for wire in endorsements {
-            if wire.is_empty() || wire.len() > MAX_PACKET_BYTES {
+            let (index, _) =
+                self.authenticate_private_enrollment_packet(artifact, binding, wire)?;
+            if !indices.insert(index) {
                 return Err(denied());
             }
-            let packet: Packet = serde_json::from_slice(wire).map_err(|_| denied())?;
-            if packet.protocol != PROTOCOL
-                || packet.binding_digest != *binding
-                || packet.signature.len() != 64
-                || !indices.insert(packet.source_index)
-                || !artifact.leaves().iter().any(|leaf| {
-                    leaf.leaf_index == packet.source_index
-                        && leaf.signature_public_key.as_slice() == packet.source_signer
-                })
-            {
-                return Err(denied());
-            }
-            self.crypto
-                .verify_signature(
-                    SignatureScheme::ED25519,
-                    &signing_input(&packet),
-                    &packet.source_signer,
-                    &packet.signature,
-                )
-                .map_err(|_| denied())?;
         }
         Ok(AuthenticatedAllLeafEndorsements {
             binding_digest: *binding,

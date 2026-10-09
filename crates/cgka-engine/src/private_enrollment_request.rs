@@ -728,6 +728,17 @@ impl<S: StorageProvider + 'static> Engine<S> {
         Vec<crate::private_enrollment_endorsement::AuthenticatedEnrollmentEndorsement>,
         EngineError,
     > {
+        self.drain_authenticated_enrollment_endorsements_up_to(LIMIT)
+    }
+
+    /// Preserve excess receipts in the original shared bounded intake queue.
+    pub fn drain_authenticated_enrollment_endorsements_up_to(
+        &mut self,
+        available: usize,
+    ) -> Result<
+        Vec<crate::private_enrollment_endorsement::AuthenticatedEnrollmentEndorsement>,
+        EngineError,
+    > {
         let mut queue = self
             .enrollment_intake
             .observations
@@ -737,7 +748,11 @@ impl<S: StorageProvider + 'static> Engine<S> {
         let mut endorsements = Vec::new();
         for observation in queue.drain(..) {
             match observation {
-                EnrollmentObservation::Endorsement(endorsement) => endorsements.push(endorsement),
+                EnrollmentObservation::Endorsement(endorsement)
+                    if endorsements.len() < available.min(LIMIT) =>
+                {
+                    endorsements.push(endorsement)
+                }
                 other => retained.push_back(other),
             }
         }

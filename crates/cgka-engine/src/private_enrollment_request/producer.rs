@@ -263,6 +263,69 @@ impl<S: StorageProvider> Engine<S> {
         proposal.own_endorsement = Some(wire.clone());
         Ok(wire)
     }
+    /// Validate one actual receipt under the original local SDK-owned proposal.
+    /// Returned occupied-leaf index is metadata, never admission authority.
+    pub fn authenticate_owned_local_enrollment_endorsement(
+        &self,
+        proposal: &mut OwnedLocalEnrollmentProposal,
+        receipt: &crate::private_enrollment_endorsement::AuthenticatedEnrollmentEndorsement,
+    ) -> Result<Option<u32>, EngineError> {
+        self.check_local_enrollment_proposal(proposal)?;
+        let settled = self
+            .validated_settled_device_roster(&proposal.predecessor.group_id)?
+            .ok_or_else(unavailable)?;
+        if Instant::now() >= receipt.deadline
+            || receipt.origin != *settled.origin()
+            || receipt.settlement_generation != proposal.selection_generation
+            || receipt.predecessor.epoch != proposal.predecessor.epoch
+            || receipt.predecessor.epoch_authenticator_digest
+                != proposal.predecessor.epoch_authenticator_digest
+            || receipt.predecessor.leaves.len() != proposal.predecessor.leaves.len()
+            || !receipt
+                .predecessor
+                .leaves
+                .iter()
+                .zip(&proposal.predecessor.leaves)
+                .all(|(a, b)| {
+                    a.leaf_index == b.leaf_index
+                        && a.signature_public_key.as_slice() == b.signature_public_key
+                })
+            || receipt.source_signer == proposal.frame.approver
+        {
+            return Ok(None);
+        }
+        let encoded = &proposal
+            .frame
+            .proposal
+            .as_ref()
+            .ok_or_else(unavailable)?
+            .artifact_base64;
+        let artifact = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|_| unavailable())?;
+        let authenticated = self.validate_private_device_predecessor(
+            &artifact,
+            &proposal.predecessor.account,
+            &proposal.predecessor.group_id,
+            proposal.predecessor.epoch,
+            &proposal.predecessor.leaves,
+        )?;
+        if authenticated.artifact_digest() != &proposal.frame.artifact_digest {
+            return Err(unavailable());
+        }
+        let binding = proposal.binding_digest()?;
+        let Ok((index, signer)) =
+            self.authenticate_private_enrollment_packet(&authenticated, &binding, &receipt.wire)
+        else {
+            return Ok(None);
+        };
+        if index != receipt.source_index || signer != receipt.source_signer {
+            return Ok(None);
+        }
+        self.check_local_enrollment_proposal(proposal)?;
+        Ok(Some(index))
+    }
+
     /// All-current-leaf authentication under the live original local proposal.
     /// The result is metadata; it cannot construct Add, recipient or B authority.
     pub fn authenticate_owned_local_enrollment_endorsements(

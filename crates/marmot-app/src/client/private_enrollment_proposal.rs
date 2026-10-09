@@ -8,6 +8,8 @@ use cgka_traits::group::ProtocolProfile;
 use cgka_traits::{GroupId, KeyPackage, MemberId};
 use sha2::{Digest, Sha256};
 
+mod publication;
+
 const MAX_PART_BYTES: usize = 16 * 1024;
 struct ValidatedProposalParts {
     artifact: Vec<u8>,
@@ -17,6 +19,7 @@ struct ValidatedProposalParts {
 pub(super) struct OwnedReceivedEndorsement {
     binding: [u8; 32],
     deadline: std::time::Instant,
+    group: GroupId,
     owned: cgka_engine::private_enrollment_endorsement::OwnedEnrollmentEndorsement,
     cancelled: bool,
 }
@@ -99,6 +102,7 @@ impl AppClient {
         self.linking_owner.received_endorsement = Some(OwnedReceivedEndorsement {
             binding: *binding,
             deadline,
+            group: GroupId::new(request.group_id().to_vec()),
             owned,
             cancelled: false,
         });
@@ -115,6 +119,18 @@ impl AppClient {
             .as_ref()
             .is_some_and(|attempt| &attempt.binding == binding)
         {
+            // The bounded dispatcher may already have performed this exact
+            // negative cleanup before the queued cancellation reply is served.
+            if self
+                .linking_owner
+                .cancelled_endorsements
+                .iter()
+                .any(|(cancelled, deadline)| {
+                    cancelled == binding && std::time::Instant::now() < *deadline
+                })
+            {
+                return Ok(());
+            }
             return Err(rejected());
         }
         self.cancel_owned_enrollment_endorsement()
@@ -180,8 +196,9 @@ impl AppClient {
         // only the remaining App slots; leave excess proofs in Core unchanged.
         // App retention and Core's shared request/endorsement queue each cap at
         // 128, giving an explicit aggregate maximum of 256 opaque observations.
-        let available =
-            128usize.saturating_sub(self.linking_owner.received_enrollment_proposals.len());
+        let available = 128usize
+            .saturating_sub(self.linking_owner.received_enrollment_proposals.len())
+            .saturating_sub(self.retained_enrollment_endorsement_count());
         if available > 0 {
             let received = self
                 .runtime

@@ -2381,6 +2381,12 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
                 .iter()
                 .all(|event| !matches!(event, GroupEvent::MessageReceived { .. }))
         );
+        assert_eq!(
+            a.authenticate_owned_local_enrollment_endorsement(&mut proposal, &received[0])
+                .unwrap(),
+            Some(received[0].source_index()),
+            "single-receipt retention validates the actual occupied sender signature"
+        );
         let complete = a
             .authenticate_owned_local_enrollment_endorsements(&mut proposal, &[&received[0]])
             .unwrap();
@@ -2400,6 +2406,12 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
         assert!(
             a.authenticate_owned_local_enrollment_endorsements(&mut proposal, &[&altered[0]])
                 .is_err()
+        );
+        assert_eq!(
+            a.authenticate_owned_local_enrollment_endorsement(&mut proposal, &altered[0])
+                .unwrap(),
+            None,
+            "a wrong-bound packet must not occupy a sibling collection slot"
         );
         altered[0].wire = original_wire;
         let received = altered;
@@ -2429,6 +2441,11 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
             a.authenticate_owned_local_enrollment_endorsements(&mut proposal, &[&received[0]])
                 .is_err(),
             "same genuine tree under a new Completed generation must not restore collection"
+        );
+        assert!(
+            a.authenticate_owned_local_enrollment_endorsement(&mut proposal, &received[0])
+                .is_err(),
+            "single-receipt validation cannot revive the old original SDK lease selection"
         );
         b.cancel_private_enrollment_endorsements().unwrap();
         assert!(

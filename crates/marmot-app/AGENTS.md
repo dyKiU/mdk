@@ -551,3 +551,12 @@ artifact-bound A/C SDK completion over a completed A/B predecessor.
 ### Explicit received endorsement action
 
 `client/private_enrollment_proposal.rs` separates bounded observation retention and hash selectors from selected-request authentication. The worker's internal `EndorseReceivedEnrollmentProposal` action holds a nonserialized Core continuation in `AccountLinkingOwner`; it accepts no context/artifact/package approval DTO. Preserve the original observed deadline, exact protected origin/generation, abandoned-reply cleanup and bounded cancelled-receipt fence. Do not expose the packet as SDK consent or use count validation to authorize a choice. Publication and A-owned collection remain separate.
+
+`PublishReceivedEnrollmentEndorsement` uses the bounded private dispatcher with
+an exact binding identity distinct from SDK scope identities. Cancellation must
+revoke that exact action before blocked queue admission. `CollectOwnedEnrollmentEndorsements`
+uses only the original local proposal lease and actual receipts, authenticating
+each packet before retaining its occupied leaf. Received requests and receipts
+share the App retention allowance of 128; the independent Core shared queue is
+128, for an aggregate bound of 256. Bounded drains preserve excess original
+proofs and clocks in Core. No collection count constructs Add/C/B authority.

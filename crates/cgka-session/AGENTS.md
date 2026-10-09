@@ -57,3 +57,7 @@ never rebuild it from request metadata, storage or an SDK context DTO.
 Endorsement wrapping/receipt draining and original local proposal signature/
 collection remain thin Core forwarders. Never reconstruct the original action
 from a wire packet or treat complete signatures as transition/join permission.
+
+Bounded request/receipt draining and single-receipt original-lease validation are
+thin Engine forwards. `None` denotes invalid receipt metadata; owner/storage
+errors remain errors. App owns deduplication and its shared retention allowance.

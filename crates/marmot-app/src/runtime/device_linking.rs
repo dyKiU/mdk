@@ -11,6 +11,14 @@ use tokio::sync::oneshot;
 
 type Reply<T> = oneshot::Sender<Result<T, ClientLinkingError>>;
 pub(crate) enum VerifierCommand {
+    PublishReceivedEnrollmentEndorsement {
+        binding: [u8; 32],
+        respond: Reply<()>,
+    },
+    CollectOwnedEnrollmentEndorsements {
+        scope: PurposeAttemptScope,
+        respond: Reply<usize>,
+    },
     ReceivedEnrollmentProposalBindings {
         respond: Reply<Vec<[u8; 32]>>,
     },
@@ -151,6 +159,15 @@ pub(super) async fn handle_verifier_command(
     publication_control: &super::private_commit::PublicationControl,
 ) {
     match command {
+        VerifierCommand::PublishReceivedEnrollmentEndorsement { binding, respond } => {
+            let _ = binding;
+            let _ = respond.send(Err(ClientLinkingError::Gate(
+                cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
+            )));
+        }
+        VerifierCommand::CollectOwnedEnrollmentEndorsements { scope, respond } => {
+            let _ = respond.send(client.collect_owned_enrollment_endorsements(&scope));
+        }
         VerifierCommand::ReceivedEnrollmentProposalBindings { respond } => {
             let _ = respond.send(client.received_enrollment_proposal_bindings());
         }
@@ -422,6 +439,51 @@ impl AccountManager {
         self.verifier_command(account_ref, |respond| {
             VerifierCommand::PublishPrivateCommit {
                 scope: scope.clone(),
+                respond,
+            }
+        })
+        .await
+    }
+    pub(crate) async fn publish_received_enrollment_endorsement(
+        &self,
+        account_ref: &str,
+        binding: &[u8; 32],
+    ) -> Result<(), ClientLinkingError> {
+        self.verifier_command(account_ref, |respond| {
+            VerifierCommand::PublishReceivedEnrollmentEndorsement {
+                binding: *binding,
+                respond,
+            }
+        })
+        .await
+    }
+    pub(crate) async fn collect_owned_enrollment_endorsements(
+        &self,
+        account_ref: &str,
+        scope: &PurposeAttemptScope,
+    ) -> Result<usize, ClientLinkingError> {
+        self.verifier_command(account_ref, |respond| {
+            VerifierCommand::CollectOwnedEnrollmentEndorsements {
+                scope: scope.clone(),
+                respond,
+            }
+        })
+        .await
+    }
+    pub(crate) async fn cancel_received_enrollment_endorsement(
+        &self,
+        account_ref: &str,
+        binding: &[u8; 32],
+    ) -> Result<(), ClientLinkingError> {
+        // Negative-only revocation reaches the exact active B action before
+        // blocked queue admission, just like existing original SDK cancellation.
+        let account = self.resolve(account_ref).map_err(runtime_error)?;
+        if let Some(worker) = self.workers.lock().await.get(&account.account_id_hex) {
+            worker.publication_control.revoke_endorsement(binding);
+        }
+        self.verifier_command(account_ref, |respond| {
+            VerifierCommand::CancelReceivedEnrollmentEndorsement {
+                binding: *binding,
                 respond,
             }
         })
@@ -3021,6 +3083,11 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn device_linking_original_sdk_collects_actual_b_encrypted_endorsement() {
+        exercise_third_device_invite(ThirdDeviceCheck::LocalProposalCollection).await;
+    }
+
+    #[tokio::test]
     async fn device_linking_b_endorsement_abandoned_reply_burns_original_action() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalDroppedReply).await;
     }
@@ -3033,6 +3100,7 @@ mod tests {
     enum ThirdDeviceCheck {
         LocalProposal,
         LocalProposalEndorsement,
+        LocalProposalCollection,
         LocalProposalDroppedReply,
         LocalProposalReopen,
         RetainedScope,
@@ -3127,6 +3195,7 @@ mod tests {
                 | ThirdDeviceCheck::ArtifactPreparation
                 | ThirdDeviceCheck::LocalProposal
                 | ThirdDeviceCheck::LocalProposalEndorsement
+                | ThirdDeviceCheck::LocalProposalCollection
                 | ThirdDeviceCheck::LocalProposalDroppedReply
                 | ThirdDeviceCheck::LocalProposalReopen
         ) {
@@ -3224,6 +3293,7 @@ mod tests {
             check,
             ThirdDeviceCheck::LocalProposal
                 | ThirdDeviceCheck::LocalProposalEndorsement
+                | ThirdDeviceCheck::LocalProposalCollection
                 | ThirdDeviceCheck::LocalProposalDroppedReply
                 | ThirdDeviceCheck::LocalProposalReopen
         ) {
@@ -3335,7 +3405,9 @@ mod tests {
             .expect("B must authenticate the actual received A/C SDK proposal");
             if matches!(
                 check,
-                ThirdDeviceCheck::LocalProposalEndorsement | ThirdDeviceCheck::LocalProposalReopen
+                ThirdDeviceCheck::LocalProposalEndorsement
+                    | ThirdDeviceCheck::LocalProposalCollection
+                    | ThirdDeviceCheck::LocalProposalReopen
             ) {
                 let bindings = workers
                     .b
@@ -3349,6 +3421,135 @@ mod tests {
                     VerifierCommand::EndorseReceivedEnrollmentProposal {
                         binding: bindings[0], respond,
                     }).await.expect("B's explicit action on the actual received SDK proposal must retain its owned endorsement");
+            }
+
+            if check == ThirdDeviceCheck::LocalProposalCollection {
+                assert_eq!(
+                    workers
+                        .a
+                        .verifier_command("test", |respond| {
+                            VerifierCommand::CollectOwnedEnrollmentEndorsements {
+                                scope: a_scope.clone(),
+                                respond,
+                            }
+                        })
+                        .await
+                        .expect("the original live A proposal must expose pending collection"),
+                    0
+                );
+                tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    loop {
+                        if workers
+                            .a
+                            .verifier_command("test", |respond| {
+                                VerifierCommand::CurrentEnrollmentEndpointEoseForTest {
+                                    group: group.clone(),
+                                    endpoint: endpoint.clone(),
+                                    respond,
+                                }
+                            })
+                            .await
+                            .unwrap()
+                        {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .expect("A's exact current private route must reach EOSE before B publication");
+                let selected = workers
+                    .b
+                    .verifier_command("test", |respond| {
+                        VerifierCommand::ReceivedEnrollmentProposalBindings { respond }
+                    })
+                    .await
+                    .unwrap()[0];
+                workers
+                    .b
+                    .verifier_command("test", |respond| {
+                        VerifierCommand::PublishReceivedEnrollmentEndorsement {
+                            binding: selected,
+                            respond,
+                        }
+                    })
+                    .await
+                    .expect(
+                        "B's original explicit action must publish its real encrypted endorsement",
+                    );
+                tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    loop {
+                        if workers.a.verifier_command("test", |respond|
+                            VerifierCommand::CollectOwnedEnrollmentEndorsements { scope: a_scope.clone(), respond })
+                            .await.unwrap() == 2 { break; }
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    }
+                }).await.expect("A must collect its original local signature and B's actual encrypted MLS receipt");
+                assert_eq!(
+                    workers
+                        .a
+                        .verifier_command("test", |respond| {
+                            VerifierCommand::CollectOwnedEnrollmentEndorsements {
+                                scope: a_scope.clone(),
+                                respond,
+                            }
+                        })
+                        .await
+                        .unwrap(),
+                    2
+                );
+                assert!(
+                    workers
+                        .a
+                        .verifier_command("test", |respond| {
+                            VerifierCommand::CollectOwnedEnrollmentEndorsements {
+                                scope: future.clone(),
+                                respond,
+                            }
+                        })
+                        .await
+                        .is_err(),
+                    "future scope cannot collect the original A proposal"
+                );
+                let mut wrong = selected;
+                wrong[0] ^= 1;
+                assert!(
+                    workers
+                        .b
+                        .cancel_received_enrollment_endorsement("test", &wrong)
+                        .await
+                        .is_err()
+                );
+                workers
+                    .b
+                    .publish_received_enrollment_endorsement("test", &selected)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    workers
+                        .a
+                        .collect_owned_enrollment_endorsements("test", &a_scope)
+                        .await
+                        .unwrap(),
+                    2
+                );
+                workers
+                    .b
+                    .cancel_received_enrollment_endorsement("test", &selected)
+                    .await
+                    .unwrap();
+                workers
+                    .b
+                    .cancel_received_enrollment_endorsement("test", &selected)
+                    .await
+                    .unwrap();
+                assert!(
+                    workers
+                        .b
+                        .publish_received_enrollment_endorsement("test", &selected)
+                        .await
+                        .is_err()
+                );
             }
 
             // Wrong selectors cannot affect the exact original B action.
@@ -3533,6 +3734,16 @@ mod tests {
                     .await
                     .is_err()
             );
+            if check == ThirdDeviceCheck::LocalProposalCollection {
+                assert!(
+                    workers
+                        .a
+                        .collect_owned_enrollment_endorsements("test", &a_scope)
+                        .await
+                        .is_err(),
+                    "original A cancellation ends collection even with retained signed metadata"
+                );
+            }
             runtime_c.shutdown_and_close().await.unwrap();
             workers.runtime_a.shutdown_and_close().await.unwrap();
             if check != ThirdDeviceCheck::LocalProposalReopen {

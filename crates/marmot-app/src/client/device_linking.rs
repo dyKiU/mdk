@@ -24,6 +24,8 @@ struct OwnedPrivateInvite {
     deadline: std::time::Instant,
     prepared: Option<cgka_engine::private_device_invite::PreparedPrivateDeviceInvite>,
     proposal: Option<cgka_engine::private_enrollment_request::OwnedLocalEnrollmentProposal>,
+    endorsements:
+        Vec<cgka_engine::private_enrollment_endorsement::AuthenticatedEnrollmentEndorsement>,
     for_add: bool,
 }
 
@@ -593,6 +595,7 @@ impl AppClient {
                 deadline,
                 prepared: None,
                 proposal: None,
+                endorsements: Vec::new(),
                 for_add,
             });
         }
@@ -630,6 +633,98 @@ impl AppClient {
             .map_err(ClientLinkingError::Engine)?;
         attempt.proposal = Some(proposal);
         Ok(())
+    }
+
+    pub(super) fn retained_enrollment_endorsement_count(&self) -> usize {
+        self.linking_owner
+            .invite_attempt
+            .as_ref()
+            .map_or(0, |attempt| attempt.endorsements.len())
+    }
+
+    /// Collection stays on the original local SDK-owned proposal. Counts expose
+    /// authentication progress only, never Add or recipient permission.
+    pub(crate) fn collect_owned_enrollment_endorsements(
+        &mut self,
+        scope: &PurposeAttemptScope,
+    ) -> Result<usize, ClientLinkingError> {
+        self.enrollment_proposal_control(scope)?;
+        let held_requests = self.linking_owner.received_enrollment_proposals.len();
+        let attempt = self.linking_owner.invite_attempt.as_mut().unwrap();
+        let proposal = attempt.proposal.as_mut().unwrap();
+        let session = self.runtime.session();
+        session
+            .endorse_owned_local_enrollment_proposal(proposal)
+            .map_err(ClientLinkingError::Engine)?;
+        attempt
+            .endorsements
+            .retain(|receipt| std::time::Instant::now() < receipt.observed_deadline());
+        // Revalidate every held receipt against the original lease and current
+        // protected generation; expiry/invalid packets cannot occupy a leaf.
+        let mut index = 0;
+        while index < attempt.endorsements.len() {
+            if session
+                .authenticate_owned_local_enrollment_endorsement(
+                    proposal,
+                    &attempt.endorsements[index],
+                )
+                .map_err(ClientLinkingError::Engine)?
+                .is_some()
+            {
+                index += 1;
+            } else {
+                attempt.endorsements.remove(index);
+            }
+        }
+        let available = 128usize
+            .saturating_sub(held_requests)
+            .saturating_sub(attempt.endorsements.len());
+        let received = self
+            .runtime
+            .session_mut()
+            .drain_authenticated_enrollment_endorsements_up_to(available)
+            .map_err(ClientLinkingError::Engine)?;
+        for receipt in received {
+            let Some(leaf) = self
+                .runtime
+                .session()
+                .authenticate_owned_local_enrollment_endorsement(proposal, &receipt)
+                .map_err(ClientLinkingError::Engine)?
+            else {
+                continue;
+            };
+            if let Some(existing) = attempt
+                .endorsements
+                .iter()
+                .position(|held| held.source_index() == leaf)
+            {
+                // Never extend an original observation clock on duplicate input.
+                if receipt.observed_deadline() < attempt.endorsements[existing].observed_deadline()
+                {
+                    attempt.endorsements[existing] = receipt;
+                }
+            } else {
+                attempt.endorsements.push(receipt);
+            }
+        }
+        let session = self.runtime.session();
+        let settled = session
+            .validated_settled_device_roster(&attempt.group)
+            .map_err(ClientLinkingError::Engine)?
+            .ok_or(ClientLinkingError::Gate(
+                cgka_traits::device_linking_key_package::LinkingWelcomeDenied::ContextMismatch,
+            ))?;
+        session
+            .endorse_owned_local_enrollment_proposal(proposal)
+            .map_err(ClientLinkingError::Engine)?;
+        if attempt.endorsements.len().checked_add(1) != Some(settled.candidate().leaves.len()) {
+            return Ok(0);
+        }
+        let receipts = attempt.endorsements.iter().collect::<Vec<_>>();
+        session
+            .authenticate_owned_local_enrollment_endorsements(proposal, &receipts)
+            .map(|metadata| metadata.leaf_count())
+            .map_err(ClientLinkingError::Engine)
     }
 
     pub(crate) fn enrollment_proposal_control(

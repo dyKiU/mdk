@@ -1390,6 +1390,26 @@ impl AccountDeviceSession {
         self.engine.drain_authenticated_enrollment_endorsements()
     }
     #[cfg(feature = "experimental-device-sync")]
+    pub fn drain_authenticated_enrollment_endorsements_up_to(
+        &mut self,
+        available: usize,
+    ) -> Result<
+        Vec<cgka_engine::private_enrollment_endorsement::AuthenticatedEnrollmentEndorsement>,
+        EngineError,
+    > {
+        self.engine
+            .drain_authenticated_enrollment_endorsements_up_to(available)
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn authenticate_owned_local_enrollment_endorsement(
+        &self,
+        proposal: &mut cgka_engine::private_enrollment_request::OwnedLocalEnrollmentProposal,
+        received: &cgka_engine::private_enrollment_endorsement::AuthenticatedEnrollmentEndorsement,
+    ) -> Result<Option<u32>, EngineError> {
+        self.engine
+            .authenticate_owned_local_enrollment_endorsement(proposal, received)
+    }
+    #[cfg(feature = "experimental-device-sync")]
     pub fn endorse_owned_local_enrollment_proposal(
         &self,
         proposal: &mut cgka_engine::private_enrollment_request::OwnedLocalEnrollmentProposal,
