@@ -1182,6 +1182,11 @@ impl AppClient {
         self.maintain_selected_chat_pending()
             .await
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
+        self.maintain_original_history().await.map_err(|_| {
+            ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
+                "history original maintenance unavailable".into(),
+            )))
+        })?;
         self.prune_native_enrollment_intent();
         self.maintain_received_enrollment_endorsement(now)?;
         let reservation_live = self

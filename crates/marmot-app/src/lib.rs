@@ -96,8 +96,12 @@ mod conversions;
     reason = "Experimental adapter awaits account-worker enrollment integration"
 )]
 mod device_linking;
+mod history_transfer;
 mod native_device_linking;
 mod selected_chat_copy;
+pub use history_transfer::{
+    HistoryConsent, HistoryTransfer, HistoryTransferError, HistoryTransferSnapshot,
+};
 pub use native_device_linking::{
     DeviceLinkingApproval, DeviceLinkingApprovalPhase, DeviceLinkingApprovalReviewMetadata,
     DeviceLinkingApprovalSnapshot, DeviceLinkingCapabilities, DeviceLinkingDecimals,
@@ -1919,6 +1923,8 @@ impl MarmotApp {
             linking_owner: open.linking_owner,
             #[cfg(feature = "experimental-device-sync")]
             selected_chat_copy_owner: crate::selected_chat_copy::enabled::AccountCopyOwner::default(),
+            #[cfg(feature = "experimental-device-sync")]
+            history_owner: crate::history_transfer::enabled::AccountHistoryOwner::default(),
             #[cfg(feature = "experimental-device-sync")]
             selected_welcome_provenance: open.selected_welcome_provenance,
             runtime: open.runtime,
