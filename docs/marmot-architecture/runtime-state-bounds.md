@@ -389,3 +389,14 @@ boolean and adds no history, grant or scheduling permission; replacement on
 managed-client handoff does not restore channels. Fixed expiry and runtime
 shutdown pass real held-Chunk controls; durable request-ID restart fencing and
 source retention expiry after snapshot remain unqualified.
+
+Private revision15 adds a separate durable negative history request fence: at most
+128 cumulative account-device rows, each holding only32-byte account, local-device,
+transfer and request digest fields. Active and terminal observations share this
+budget; encrypted reopen never recycles it and exhaustion fails closed. There is
+no persisted approval, deadline, key, archive or positive restore API. Actual Core
+addressed request/source authentication precedes the atomic first observation.
+The existing process-local128 owner/terminal-ID budget remains unchanged. This is
+a bounded experimental anti-replay limit, not an unbounded ongoing-sync journal
+or a new convergence scheduling policy. Actual encrypted reopen replay and fresh
+distinct request controls pass alongside immutable-row, rollback and capacity tests.

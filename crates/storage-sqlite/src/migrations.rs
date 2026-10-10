@@ -958,7 +958,15 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
         name: "0014_history_archive_staging",
         apply: private_migration_0014_history_staging::apply,
     },
+    Migration {
+        version: 15,
+        name: "0015_history_request_observations",
+        apply: private_migration_0015_history_requests::apply,
+    },
 ];
+
+#[path = "private_migrations/0015_history_request_observations.rs"]
+mod private_migration_0015_history_requests;
 
 #[path = "private_migration_ledger.rs"]
 mod private_migration_ledger;

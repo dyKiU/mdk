@@ -72,6 +72,33 @@ impl AppClient {
             if request.scope().snapshot.is_none() {
                 return Err(HistoryTransferError::NotReady);
             }
+            let scope = request.scope();
+            let account: [u8; 32] = scope
+                .protected
+                .account
+                .as_slice()
+                .try_into()
+                .map_err(|_| HistoryTransferError::NotReady)?;
+            let device: [u8; 32] = scope
+                .recipient
+                .as_slice()
+                .try_into()
+                .map_err(|_| HistoryTransferError::NotReady)?;
+            let storage = self
+                .app
+                .account_storage(&self.state.label)
+                .map_err(|_| HistoryTransferError::RuntimeUnavailable)?;
+            if !storage
+                .observe_synchronized_history_request(
+                    &account,
+                    &device,
+                    &received.transfer,
+                    &sha2::Sha256::digest(wire).into(),
+                )
+                .map_err(|_| HistoryTransferError::RuntimeUnavailable)?
+            {
+                return Ok(());
+            }
             self.history_owner.seen_transfers.insert(received.transfer);
             let original = State::new(&self.history_owner.lifetime);
             *original
