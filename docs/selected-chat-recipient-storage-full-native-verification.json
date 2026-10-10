@@ -1,0 +1,56 @@
+{
+  "signed_product_commit": "eb0a0dd03cf94fa4a605bdd992f8af16f18880c7",
+  "source_inputs": 2411,
+  "verified_signed_sources": {
+    "eb0a0dd03cf94fa4a605bdd992f8af16f18880c7": 2408,
+    "848bc982": 3
+  },
+  "input_manifest_sha256": "13cbea20123fed43658fb0956c53bc026c0d67d1dec1d3bcea0cc3d01fa7110e",
+  "native_gate": {
+    "gate": "storage_native",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "storage-sqlite",
+      "--features",
+      "experimental-device-sync"
+    ],
+    "exit_code": 0,
+    "seconds": 3387.29,
+    "counts": [
+      {
+        "status": "ok",
+        "passed": 1068,
+        "failed": 0,
+        "ignored": 7
+      },
+      {
+        "status": "ok",
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 6,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    ],
+    "log_sha256": "89313208f439447fada412c2f737cd40c3fcb579916253405e20e8ba654c6d3d"
+  },
+  "actual_counts": {
+    "passed": 1076,
+    "failed": 0,
+    "ignored": 7
+  },
+  "scope": "Full experimental storage regression only; default and production gates remain running; no SDK integration or ordinary admission/delivery claim"
+}
