@@ -199,6 +199,16 @@ impl AppClient {
                 })
             })
             .collect::<Result<Vec<_>, HistoryTransferError>>()?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let original = self
+            .history_owner
+            .next_original_lifetime_for_test
+            .take()
+            .map_or_else(
+                || State::new(&self.history_owner.lifetime),
+                |lifetime| State::new_with_test_lifetime(&self.history_owner.lifetime, lifetime),
+            );
+        #[cfg(not(all(test, feature = "test-policy-overrides")))]
         let original = State::new(&self.history_owner.lifetime);
         let frozen = std::sync::Mutex::new(None);
         let build = |scope: &cgka_engine::history_transfer::HistoryScope| {
@@ -255,6 +265,7 @@ impl AppClient {
     ) -> Result<(), HistoryTransferError> {
         // The entry moves into the original future; cancellation drops its
         // channel keys instead of leaving a queued positive continuation.
+        let mut runtime_shutdown = self.history_owner.runtime_shutdown.clone();
         let mut entry = self
             .history_owner
             .channels
@@ -321,8 +332,26 @@ impl AppClient {
                     std::future::pending::<()>().await;
                 }
             };
+            let stopping = async {
+                if let Some(stopping) = runtime_shutdown.as_mut() {
+                    if *stopping.borrow() {
+                        return;
+                    }
+                    while stopping.changed().await.is_ok() {
+                        if *stopping.borrow() {
+                            return;
+                        }
+                    }
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            };
             let report = tokio::select! {
                 biased;
+                () = stopping => {
+                    original.cancel();
+                    return Err(HistoryTransferError::Closed);
+                },
                 () = &mut revoked => return Err(HistoryTransferError::Closed),
                 () = tokio::time::sleep_until(tokio::time::Instant::from_std(original.deadline)) => {
                     original.cancel();

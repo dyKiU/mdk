@@ -26,6 +26,11 @@ pub(crate) enum Command {
         imported: bool,
         respond: Reply<()>,
     },
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    NextOriginalLifetime {
+        lifetime: std::time::Duration,
+        respond: Reply<()>,
+    },
     Begin {
         group: GroupId,
         recipient: Vec<u8>,
@@ -46,6 +51,18 @@ pub(crate) enum Command {
     },
 }
 impl AccountManager {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) async fn next_original_history_lifetime_for_test(
+        &self,
+        account: &str,
+        lifetime: std::time::Duration,
+    ) -> Result<(), HistoryTransferError> {
+        self.send_history(account, |respond| Command::NextOriginalLifetime {
+            lifetime,
+            respond,
+        })
+        .await
+    }
     async fn send_history<T>(
         &self,
         account: &str,
@@ -194,6 +211,12 @@ pub(crate) async fn handle(client: &mut crate::AppClient, command: Command) {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         Command::CancelAfterStage { imported, respond } => {
             client.history_owner.cancel_after_stage_for_test = Some(imported);
+            let _ = respond.send(Ok(()));
+        }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        Command::NextOriginalLifetime { lifetime, respond } => {
+            assert!(!lifetime.is_zero() && lifetime <= std::time::Duration::from_secs(600));
+            client.history_owner.next_original_lifetime_for_test = Some(lifetime);
             let _ = respond.send(Ok(()));
         }
         Command::Begin {

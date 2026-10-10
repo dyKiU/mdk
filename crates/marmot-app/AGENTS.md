@@ -741,3 +741,10 @@ revocation, unchanged deadline or abandoned continuation reply. Register the
 Notify waiter before the live check; cancellation must win a ready transport
 branch. Keep the public owner alive in lost-reply controls, resume the worker
 before releasing the gate, and verify no late recipient chunk/import.
+
+History publisher runtime shutdown must observe the existing lifecycle watch
+while actual transport waits; forced account-worker abort is not responsive
+original-owner retirement. Reopened clients inherit only that terminal negative
+observation. Test expiry with a source-only lifetime consumed at original
+construction under test-policy-overrides; never modify an existing deadline or
+production600-second lifetime. Preserve real gate-release/no-late-chunk controls.

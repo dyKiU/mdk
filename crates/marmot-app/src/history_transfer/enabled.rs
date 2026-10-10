@@ -28,9 +28,12 @@ pub(crate) struct Progress {
 }
 impl State {
     pub(crate) fn new(owner: &Arc<AtomicBool>) -> Arc<Self> {
+        Self::with_lifetime(owner, ORIGINAL_HISTORY_LIFETIME)
+    }
+    fn with_lifetime(owner: &Arc<AtomicBool>, lifetime: Duration) -> Arc<Self> {
         Arc::new(Self {
             owner: Arc::downgrade(owner),
-            deadline: Instant::now() + ORIGINAL_HISTORY_LIFETIME,
+            deadline: Instant::now() + lifetime,
             scope: Mutex::new(None),
             progress: Mutex::new(Progress {
                 revision: 1,
@@ -40,6 +43,11 @@ impl State {
             revoked: tokio::sync::Notify::new(),
             aliases: AtomicUsize::new(0),
         })
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn new_with_test_lifetime(owner: &Arc<AtomicBool>, lifetime: Duration) -> Arc<Self> {
+        assert!(!lifetime.is_zero() && lifetime <= ORIGINAL_HISTORY_LIFETIME);
+        Self::with_lifetime(owner, lifetime)
     }
     pub(crate) fn live(&self) -> bool {
         !self.cancelled.load(Ordering::Acquire)
@@ -144,6 +152,8 @@ pub(crate) struct ChannelEntry {
 }
 pub(crate) struct AccountHistoryOwner {
     pub(crate) lifetime: Arc<AtomicBool>,
+    // Negative runtime teardown signal; it cannot create or restore an owner.
+    pub(crate) runtime_shutdown: Option<tokio::sync::watch::Receiver<bool>>,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) authenticated_chunk_observations: usize,
     #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -154,6 +164,8 @@ pub(crate) struct AccountHistoryOwner {
     pub(crate) cleanup_attempts_for_test: usize,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) cancel_after_stage_for_test: Option<bool>,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) next_original_lifetime_for_test: Option<Duration>,
     // Active and terminal IDs share one account-lifetime budget. These negative
     // facts never recreate a lease, key or permission after original retirement.
     pub(crate) seen_transfers: std::collections::BTreeSet<[u8; 32]>,
@@ -163,6 +175,7 @@ impl Default for AccountHistoryOwner {
     fn default() -> Self {
         Self {
             lifetime: Arc::new(AtomicBool::new(true)),
+            runtime_shutdown: None,
             #[cfg(all(test, feature = "test-policy-overrides"))]
             authenticated_chunk_observations: 0,
             #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -173,6 +186,8 @@ impl Default for AccountHistoryOwner {
             cleanup_attempts_for_test: 0,
             #[cfg(all(test, feature = "test-policy-overrides"))]
             cancel_after_stage_for_test: None,
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            next_original_lifetime_for_test: None,
             seen_transfers: Default::default(),
             channels: Default::default(),
         }

@@ -231,3 +231,14 @@ remains retained for lost-reply testing; releasing the gate cannot deliver cance
 archive data. Seven history controls and production/default/format gates pass.
 See [publication proof](device-sync-history-blocked-publication-verification.json).
 Expiry and runtime shutdown at this gate still require separate acceptance.
+
+### Original publication expiry and runtime shutdown
+
+Expiry at the actual encrypted Chunk gate already passed the fixed-deadline
+publisher. A once-consumed constructor-only five-second test policy leaves the
+production600-second lifetime unchanged. Runtime shutdown genuinely failed before
+forced worker abort; the publisher now observes the existing terminal lifecycle
+watch and cancels its same original owner before transport can resume. All nine
+history controls plus production/default/format gates pass. See
+[expiry/shutdown proof](device-sync-history-publication-expiry-shutdown-verification.json).
+Durable fresh-outer restart denial and later source retention expiry remain open.
