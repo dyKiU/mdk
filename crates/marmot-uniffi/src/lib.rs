@@ -509,7 +509,7 @@ pub use conversions::{
 };
 
 pub use commands::{HistoryConsent, HistoryTransfer};
-pub use conversions::HistoryTransferSnapshotFfi;
+pub use conversions::{HistoryTransferRecipientFfi, HistoryTransferSnapshotFfi};
 
 pub use conversions::{ArchivedHistoryPageFfi, ArchivedHistoryRecordFfi};
 

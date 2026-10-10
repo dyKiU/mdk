@@ -503,6 +503,13 @@ recipient inputs must have exactly 32 readable bytes in an experimental build.
 Default factories return `MARMOT_STATUS_HISTORY_TRANSFER_UNSUPPORTED` before
 reading account/group/recipient inputs.
 
+`marmot_history_transfer_recipients` returns an owned
+`MarmotHistoryTransferRecipientList` of current eligible choices. Its embedded
+entries carry a leaf index and public device bytes; they create no transfer or
+consent. Release the list with `marmot_history_transfer_recipient_list_free`,
+which frees the entry array and every device buffer. Entries have no separate
+free. Starting a transfer revalidates the selected identity.
+
 Each `MarmotHistoryConsentList` owns its `MarmotHistoryConsentEntry.handle` aliases.
 Clone a selected handle before freeing the list and free that retained clone
 separately. The matching deep free releases the entry array and every owned

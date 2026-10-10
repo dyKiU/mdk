@@ -9,3 +9,8 @@ c_mirror! { MarmotHistoryTransferSnapshot from HistoryTransferSnapshotFfi, free 
     copy snapshot_timestamp_ceiling: u64, copy record_count: u32,
     copy encoded_bytes: u32, copy fragment_count: u32,
 } }
+
+c_mirror! { MarmotHistoryTransferRecipient from HistoryTransferRecipientFfi,
+    list(MarmotHistoryTransferRecipientList, marmot_history_transfer_recipient_list_free) {
+    copy leaf_index: u32, bytes device/device_len,
+} }

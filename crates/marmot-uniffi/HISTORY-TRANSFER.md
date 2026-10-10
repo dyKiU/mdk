@@ -5,6 +5,14 @@ history actions. Enrollment and ordinary chat membership do not approve an
 archive. This is a bounded logical snapshot, not an MLS state backup or a
 continuous synchronization journal.
 
+`history_transfer_recipients(account_ref, group_id_hex)` observes the current
+eligible linked devices for an ordinary chat. Each record carries its actual
+protected-group leaf index and public device identity; the local device is
+excluded. The bounded list creates no channel, original action or consent.
+Display choices as observations, then pass the chosen device identity to
+`begin_history_transfer`. Starting the transfer independently revalidates current
+eligibility; an earlier choice is not permission and may become stale.
+
 `begin_history_transfer(account_ref, group_id_hex, recipient_device)` selects
 one ordinary chat and one exact linked recipient. The recipient polls
 `pending_history_requests(account_ref)` and retains the returned `HistoryConsent`

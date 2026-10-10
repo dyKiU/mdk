@@ -4606,6 +4606,20 @@ typedef struct MarmotDeviceLinkingApprovalReviewMetadata {
   uint32_t existing_device_count;
 } MarmotDeviceLinkingApprovalReviewMetadata;
 
+typedef struct MarmotHistoryTransferRecipient {
+  uint32_t leaf_index;
+  uint8_t *device;
+  uintptr_t device_len;
+} MarmotHistoryTransferRecipient;
+
+/**
+ *Owned list; free the root with its `_free` function only.
+ */
+typedef struct MarmotHistoryTransferRecipientList {
+  struct MarmotHistoryTransferRecipient *items;
+  uintptr_t len;
+} MarmotHistoryTransferRecipientList;
+
 /**
  * List-owned alias. Clone its handle before releasing the parent list.
  */
@@ -9744,6 +9758,16 @@ void marmot_device_linking_approval_free(struct MarmotDeviceLinkingApproval *han
 void marmot_device_linking_approval_list_free(struct MarmotDeviceLinkingApprovalList *list);
 
 /**
+ * Observe current linked-recipient choices; creates no transfer or consent.
+ * # Safety
+ * Live client, borrowed NUL-terminated strings and writable out; no concurrent free.
+ */
+MarmotStatus marmot_history_transfer_recipients(const struct MarmotClient *client,
+                                                const char *account,
+                                                const char *group,
+                                                struct MarmotHistoryTransferRecipientList **out);
+
+/**
  * Begin a bounded history action. Recipient is an exact 32-byte device identity.
  * # Safety
  * Live client, borrowed NUL-terminated strings, recipient readable for len and writable out; no concurrent free.
@@ -12564,6 +12588,15 @@ void marmot_device_linking_approval_review_metadata_free(struct MarmotDeviceLink
  * this library.
  */
 void marmot_history_transfer_snapshot_free(struct MarmotHistoryTransferSnapshot *ptr);
+
+/**
+ * Free a list returned by this library. NULL is a no-op.
+ *
+ * # Safety
+ * `list` must be NULL or an unfreed pointer returned by this
+ * library.
+ */
+void marmot_history_transfer_recipient_list_free(struct MarmotHistoryTransferRecipientList *list);
 
 /**
  * Free a value of this type returned by this library. NULL

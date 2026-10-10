@@ -35,6 +35,19 @@ int main(int argc, char **argv) {
     assert(pending == NULL);
     assert(status == (experimental ? MARMOT_STATUS_HISTORY_TRANSFER_RUNTIME_UNAVAILABLE
                                  : MARMOT_STATUS_HISTORY_TRANSFER_UNSUPPORTED));
+    MarmotHistoryTransferRecipientList *choices = (MarmotHistoryTransferRecipientList *)(uintptr_t)1;
+    assert(marmot_history_transfer_recipients(NULL, NULL, NULL, NULL) == MARMOT_STATUS_NULL_POINTER);
+    status = marmot_history_transfer_recipients(NULL, NULL, NULL, &choices);
+    assert(choices == NULL);
+    assert(status == (experimental ? MARMOT_STATUS_NULL_POINTER : MARMOT_STATUS_HISTORY_TRANSFER_UNSUPPORTED));
+    choices = (MarmotHistoryTransferRecipientList *)(uintptr_t)1;
+    status = marmot_history_transfer_recipients(client, "missing", "01020304050607080910111213141516", &choices);
+    assert(choices == NULL);
+    assert(status == (experimental ? MARMOT_STATUS_HISTORY_TRANSFER_RUNTIME_UNAVAILABLE
+                                 : MARMOT_STATUS_HISTORY_TRANSFER_UNSUPPORTED));
+    marmot_history_transfer_recipient_list_free(NULL);
+    MarmotHistoryTransferRecipient choice = {.leaf_index = UINT32_MAX, .device = recipient, .device_len = 32};
+    assert(choice.leaf_index == UINT32_MAX && choice.device == recipient && choice.device_len == 32);
     MarmotAccountSummaryList *accounts = NULL;
     assert(marmot_list_accounts(client, &accounts) == MARMOT_STATUS_OK);
     assert(accounts != NULL && accounts->len == 0);
@@ -55,6 +68,6 @@ int main(int argc, char **argv) {
            && view.encoded_bytes == 196608 && view.fragment_count == 128);
     assert(marmot_client_shutdown_and_close(client) == MARMOT_STATUS_OK);
     marmot_client_free(client);
-    printf("history C ABI: statuses=5 preflight=1 factory-gates=3 no-account-effects=1 experimental=%d\n", experimental);
+    printf("history C ABI: statuses=5 preflight=2 factory-gates=3 query-gates=2 no-account-effects=1 experimental=%d\n", experimental);
     return 0;
 }

@@ -9,6 +9,11 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- Read-only linked history-recipient choices with an owned list of actual leaf
+  indices and public device byte buffers. The list deep-free owns every embedded
+  entry; listing creates no consent or channel. Required outputs are preflighted
+  and default builds refuse before input reads. Use matching headers and libraries.
+
 - Bounded committed-history query and owned source-attested pages, logical tags,
   ordered media verdicts and message-ID cursor. Page deep-free releases embedded
   records and buffers. Query statuses append117–120; default builds refuse
