@@ -199,6 +199,16 @@ impl AppClient {
                 })
             })
             .collect::<Result<Vec<_>, HistoryTransferError>>()?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let original = self
+            .history_owner
+            .next_original_lifetime_for_test
+            .take()
+            .map_or_else(
+                || State::new(&self.history_owner.lifetime),
+                |lifetime| State::new_with_test_lifetime(&self.history_owner.lifetime, lifetime),
+            );
+        #[cfg(not(all(test, feature = "test-policy-overrides")))]
         let original = State::new(&self.history_owner.lifetime);
         let frozen = std::sync::Mutex::new(None);
         let build = |scope: &cgka_engine::history_transfer::HistoryScope| {
@@ -255,6 +265,7 @@ impl AppClient {
     ) -> Result<(), HistoryTransferError> {
         // The entry moves into the original future; cancellation drops its
         // channel keys instead of leaving a queued positive continuation.
+        let mut runtime_shutdown = self.history_owner.runtime_shutdown.clone();
         let mut entry = self
             .history_owner
             .channels
@@ -293,9 +304,7 @@ impl AppClient {
             }
             let route = cgka_traits::app_components::decode_nostr_routing_v1(evidence.component())
                 .map_err(|_| HistoryTransferError::NotReady)?;
-            let report = self
-                .adapter
-                .publish_selected_chat(cgka_traits::TransportPublishRequest {
+            let request = cgka_traits::TransportPublishRequest {
                     account_id: self.runtime.session().self_id(),
                     message,
                     target: cgka_traits::TransportPublishTarget::Group {
@@ -308,9 +317,54 @@ impl AppClient {
                             .collect(),
                     },
                     required_acks: 1,
-                })
-                .await
-                .map_err(|_| HistoryTransferError::RuntimeUnavailable)?;
+                };
+            let revoked = original.revoked.notified();
+            tokio::pin!(revoked);
+            // Register before the live check so notify_waiters cannot race it.
+            revoked.as_mut().enable();
+            if !original.live() {
+                return Err(HistoryTransferError::Closed);
+            }
+            let abandoned_reply = async {
+                if let Some(reply) = entry.continue_reply.as_mut() {
+                    reply.closed().await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            };
+            let stopping = async {
+                if let Some(stopping) = runtime_shutdown.as_mut() {
+                    if *stopping.borrow() {
+                        return;
+                    }
+                    while stopping.changed().await.is_ok() {
+                        if *stopping.borrow() {
+                            return;
+                        }
+                    }
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            };
+            let report = tokio::select! {
+                biased;
+                () = stopping => {
+                    original.cancel();
+                    return Err(HistoryTransferError::Closed);
+                },
+                () = &mut revoked => return Err(HistoryTransferError::Closed),
+                () = tokio::time::sleep_until(tokio::time::Instant::from_std(original.deadline)) => {
+                    original.cancel();
+                    return Err(HistoryTransferError::Closed);
+                },
+                () = abandoned_reply => {
+                    original.cancel();
+                    return Err(HistoryTransferError::Closed);
+                },
+                report = self.adapter.publish_selected_chat(request) => {
+                    report.map_err(|_| HistoryTransferError::RuntimeUnavailable)?
+                },
+            };
             if !report.met_required_acks() {
                 return Err(HistoryTransferError::RuntimeUnavailable);
             }
@@ -474,11 +528,25 @@ impl AppClient {
                 if !entry.complete
                     && let Some(staging) = &entry.staging
                 {
-                    self.app
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    {
+                        self.history_owner.cleanup_attempts_for_test += 1;
+                    }
+                    let cleanup = self
+                        .app
                         .account_storage(&self.state.label)
-                        .map_err(|_| HistoryTransferError::RuntimeUnavailable)?
-                        .cancel_synchronized_history_archive(staging)
-                        .map_err(|_| HistoryTransferError::RuntimeUnavailable)?;
+                        .map_err(|_| HistoryTransferError::RuntimeUnavailable)
+                        .and_then(|storage| {
+                            storage
+                                .cancel_synchronized_history_archive(staging)
+                                .map_err(|_| HistoryTransferError::RuntimeUnavailable)
+                        });
+                    if let Err(error) = cleanup {
+                        // Retain only the exact negative cleanup identity. Its
+                        // original is cancelled and its channel keys retired.
+                        self.history_owner.channels.insert(transfer, entry);
+                        return Err(error);
+                    }
                 }
                 if let Some(reply) = entry.continue_reply.take() {
                     let _ = reply.send(Err(HistoryTransferError::Closed));
@@ -613,6 +681,30 @@ impl AppClient {
                         )
                         .map_err(|_| HistoryTransferError::RuntimeUnavailable)?;
                     entry.staging = Some(staging.clone());
+                    if !entry.complete
+                        && receipt.disposition
+                            == storage_sqlite::HistoryArchiveFragmentDisposition::Imported
+                    {
+                        let mut progress = original
+                            .progress
+                            .lock()
+                            .expect("history committed import receipt");
+                        progress.imported_records = receipt.imported_records;
+                        progress.complete = true;
+                        progress.revision += 1;
+                        entry.complete = true;
+                    }
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    if self.history_owner.cancel_after_stage_for_test
+                        == Some(
+                            receipt.disposition
+                                == storage_sqlite::HistoryArchiveFragmentDisposition::Imported,
+                        )
+                    {
+                        self.history_owner.cancel_after_stage_for_test = None;
+                        original.cancel();
+                    }
+
                     let body =
                         serde_json::to_vec(&receipt).map_err(|_| HistoryTransferError::NotReady)?;
                     self.runtime
@@ -626,18 +718,6 @@ impl AppClient {
                         )
                         .map_err(|_| HistoryTransferError::NotReady)?;
                     entry.receipt_to_publish = Some(ordinal);
-                    if receipt.disposition
-                        == storage_sqlite::HistoryArchiveFragmentDisposition::Imported
-                    {
-                        let mut progress = original
-                            .progress
-                            .lock()
-                            .expect("history committed import receipt");
-                        progress.imported_records = receipt.imported_records;
-                        progress.complete = true;
-                        progress.revision += 1;
-                        entry.complete = true;
-                    }
                 }
                 HistoryControl::Receipt(ordinal) if !entry.archive.is_empty() => {
                     let opened = self

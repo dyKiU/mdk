@@ -738,3 +738,23 @@ must contribute only a zero-payload tombstone, not plaintext that a recipient
 later hides. Keep the actual frozen-archive witness and decrypted ordinary MLS
 fixture; no recipient-page absence or fake record is sufficient privacy proof.
 Expiry while publication is delayed remains a separate original-owner control.
+
+History staging maintenance must retain the exact cancelled negative entry when
+SQL cleanup fails; retire channel keys before retry and never reconstruct positive
+consent from staging rows. A committed Imported receipt updates read-only progress
+once before fallible wire sealing. Exact cancellation still prevents publication,
+and completed staging must not be denied as unfinished work. Keep both actual
+SQL-boundary cancellation controls and normal multi-fragment import regression.
+
+History publication must interrupt the actual adapter future on original
+revocation, unchanged deadline or abandoned continuation reply. Register the
+Notify waiter before the live check; cancellation must win a ready transport
+branch. Keep the public owner alive in lost-reply controls, resume the worker
+before releasing the gate, and verify no late recipient chunk/import.
+
+History publisher runtime shutdown must observe the existing lifecycle watch
+while actual transport waits; forced account-worker abort is not responsive
+original-owner retirement. Reopened clients inherit only that terminal negative
+observation. Test expiry with a source-only lifetime consumed at original
+construction under test-policy-overrides; never modify an existing deadline or
+production600-second lifetime. Preserve real gate-release/no-late-chunk controls.

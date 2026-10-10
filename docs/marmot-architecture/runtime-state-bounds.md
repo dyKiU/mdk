@@ -359,7 +359,7 @@ there is no newly introduced global process credit. Keys remain original-owned
 and are retired, not restored from staged/imported rows. Completed receipts are
 observations; pending SQL rows never schedule new approval or transport.
 
-Current checkpoint limits: active entries are bounded but terminal transfer IDs
+Initial checkpoint limits: active entries are bounded but terminal transfer IDs
 are not yet retained, so fresh-outer replay can recreate a canceled owner. SQL
 failure during negative cleanup can lose its removed entry, and postcommit
 receipt-seal failures require completion-observation repair. These are immediate
@@ -379,3 +379,13 @@ expired-unpruned logical rows consume the same bounded record slot as a
 zero-payload tombstone. Recipient retention is not relied on to undo source
 plaintext disclosure. This does not qualify later expiry during stalled
 publication or the remaining negative staging cleanup/bookkeeping controls.
+
+The subsequent staging and publication repairs retain failed exact negative SQL
+cleanup within the same128-owner budget, with original keys retired, and record
+committed import observations before fallible sealing. Publication waits observe
+original revocation, unchanged deadline, abandoned continuation and one cloned
+negative runtime lifecycle watch per account. The watch has only the terminal
+boolean and adds no history, grant or scheduling permission; replacement on
+managed-client handoff does not restore channels. Fixed expiry and runtime
+shutdown pass real held-Chunk controls; durable request-ID restart fencing and
+source retention expiry after snapshot remain unqualified.

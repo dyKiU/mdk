@@ -943,6 +943,32 @@ mod actual {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryExpiredUnpruned).await;
     }
 
+    #[tokio::test]
+    async fn history_transfer_cancelled_prefix_cleanup_retries_original_sql_failure() {
+        selected_chat_delivery(RecipientAdmissionScenario::HistoryCleanupRetry).await;
+    }
+    #[tokio::test]
+    async fn history_transfer_committed_import_remains_observable_after_original_cancel_before_seal()
+     {
+        selected_chat_delivery(RecipientAdmissionScenario::HistoryCancelAfterImport).await;
+    }
+
+    #[tokio::test]
+    async fn history_transfer_original_cancel_interrupts_actual_blocked_chunk_publication() {
+        selected_chat_delivery(RecipientAdmissionScenario::HistoryPublicationCancel).await;
+    }
+    #[tokio::test]
+    async fn history_transfer_lost_continue_reply_interrupts_actual_blocked_chunk_publication() {
+        selected_chat_delivery(RecipientAdmissionScenario::HistoryPublicationLostReply).await;
+    }
+    #[tokio::test]
+    async fn history_transfer_original_fixed_expiry_interrupts_actual_blocked_chunk_publication() {
+        selected_chat_delivery(RecipientAdmissionScenario::HistoryPublicationExpire).await;
+    }
+    #[tokio::test]
+    async fn history_transfer_runtime_shutdown_interrupts_actual_blocked_chunk_publication() {
+        selected_chat_delivery(RecipientAdmissionScenario::HistoryPublicationShutdown).await;
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
         None,
@@ -953,6 +979,12 @@ mod actual {
         HistoryTransfer,
         HistoryRequestReplay,
         HistoryExpiredUnpruned,
+        HistoryCleanupRetry,
+        HistoryCancelAfterImport,
+        HistoryPublicationCancel,
+        HistoryPublicationLostReply,
+        HistoryPublicationExpire,
+        HistoryPublicationShutdown,
         CommitCancel,
         CommitLostReply,
         WelcomeCancel,
@@ -1347,6 +1379,12 @@ mod actual {
             RecipientAdmissionScenario::HistoryTransfer
                 | RecipientAdmissionScenario::HistoryRequestReplay
                 | RecipientAdmissionScenario::HistoryExpiredUnpruned
+                | RecipientAdmissionScenario::HistoryCleanupRetry
+                | RecipientAdmissionScenario::HistoryCancelAfterImport
+                | RecipientAdmissionScenario::HistoryPublicationCancel
+                | RecipientAdmissionScenario::HistoryPublicationLostReply
+                | RecipientAdmissionScenario::HistoryPublicationExpire
+                | RecipientAdmissionScenario::HistoryPublicationShutdown
         ) {
             let ordinary_epochs = [
                 all_runtimes[0]
@@ -1438,6 +1476,15 @@ mod actual {
                         .retention_expires_at
                         .is_some_and(|t| t <= crate::unix_now_seconds())
                 );
+            }
+            if scenario == RecipientAdmissionScenario::HistoryPublicationExpire {
+                managers[0]
+                    .next_original_history_lifetime_for_test(
+                        "test",
+                        std::time::Duration::from_secs(5),
+                    )
+                    .await
+                    .unwrap();
             }
             let transfer = managers[0].begin_history_transfer("test", &fixture.chat, recipient_selector).await
                 .expect("a fresh opt-in history request must retain its original actor owner after actual four-leaf admission");
@@ -1534,7 +1581,236 @@ mod actual {
             } else {
                 assert!(review.fragment_count > 1 && review.encoded_bytes > 8192);
             }
+            if matches!(
+                scenario,
+                RecipientAdmissionScenario::HistoryCleanupRetry
+                    | RecipientAdmissionScenario::HistoryCancelAfterImport
+            ) {
+                let imported = scenario == RecipientAdmissionScenario::HistoryCancelAfterImport;
+                let app = &fixture.apps[1];
+                let path = app.account_storage_path("test");
+                let keys = app.account_home().load_signing_keys("test").unwrap();
+                let key = app
+                    .sqlcipher_key(
+                        "test",
+                        &keys,
+                        &path,
+                        crate::sqlcipher::SqlcipherDatabaseKind::Session,
+                    )
+                    .unwrap();
+                let connection = rusqlite::Connection::open(path).unwrap();
+                storage_sqlite::open_hardened_sqlcipher(
+                    &connection,
+                    &key,
+                    storage_sqlite::SqlCipherHardening::cipher_only(),
+                )
+                .unwrap();
+                if !imported {
+                    connection.execute_batch("CREATE TRIGGER reject_history_negative_cleanup BEFORE UPDATE OF state ON history_archive_staging WHEN NEW.state=2 BEGIN SELECT RAISE(ABORT,'isolated history cancellation storage fault'); END;").unwrap();
+                }
+                managers[1]
+                    .cancel_after_original_history_stage_for_test("test", imported)
+                    .await
+                    .unwrap();
+                consent.approve(review.revision).await.unwrap();
+                let continuation =
+                    transfer.continue_transfer(transfer.snapshot().await.unwrap().revision);
+                tokio::pin!(continuation);
+                let witness = async {
+                    loop {
+                        if imported {
+                            if recipient_storage
+                                .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
+                                .unwrap()
+                                .iter()
+                                .any(|r| hex::encode(r.record.message_id) == fixture.before_id)
+                            {
+                                break;
+                            }
+                        } else if managers[1]
+                            .observed_history_chunks_for_test("test")
+                            .await
+                            .unwrap()
+                            .4
+                            > 0
+                        {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                };
+                tokio::time::timeout(std::time::Duration::from_secs(25),async{
+                    tokio::select! { result=&mut continuation=>panic!("source escaped actual stage cancellation boundary: {result:?}"), ()=witness=>() }
+                }).await.expect("actual encrypted history must reach the original SQL/cancellation boundary");
+                if imported {
+                    let observation=consent.snapshot().await.expect("committed import must remain observable after original cancellation before receipt sealing");
+                    assert!(observation.complete && observation.imported_records > 0);
+                    tokio::time::timeout(std::time::Duration::from_secs(5),async{
+                        loop { if managers[1].observed_history_chunks_for_test("test").await.unwrap().3==0 {break;} tokio::time::sleep(std::time::Duration::from_millis(20)).await; }
+                    }).await.expect("completed cancelled entry must retire without trying to deny imported SQL facts");
+                    assert_eq!(
+                        managers[1]
+                            .observed_history_chunks_for_test("test")
+                            .await
+                            .unwrap()
+                            .4,
+                        0
+                    );
+                    assert_eq!(
+                        connection
+                            .query_row("SELECT state FROM history_archive_staging", [], |r| r
+                                .get::<_, i64>(0))
+                            .unwrap(),
+                        1
+                    );
+                } else {
+                    assert!(matches!(
+                        consent.snapshot().await,
+                        Err(crate::HistoryTransferError::Closed)
+                    ));
+                    assert_eq!(
+                        connection
+                            .query_row("SELECT state FROM history_archive_staging", [], |r| r
+                                .get::<_, i64>(0))
+                            .unwrap(),
+                        0
+                    );
+                    assert!(connection.query_row("SELECT count(*) FROM history_archive_fragments WHERE body IS NOT NULL",[],|r|r.get::<_,i64>(0)).unwrap()>0);
+                    connection
+                        .execute_batch("DROP TRIGGER reject_history_negative_cleanup;")
+                        .unwrap();
+                    tokio::time::timeout(std::time::Duration::from_secs(5),async{
+                        loop {
+                            if connection.query_row("SELECT state FROM history_archive_staging",[],|r|r.get::<_,i64>(0)).unwrap()==2 {break;}
+                            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                        }
+                    }).await.expect("original negative cleanup identity must survive typed SQL failure and retry after fault removal");
+                    assert_eq!(connection.query_row("SELECT count(*) FROM history_archive_fragments WHERE body IS NOT NULL",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+                    assert!(
+                        recipient_storage
+                            .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
+                            .unwrap()
+                            .is_empty()
+                    );
+                }
+                assert!(
+                    !transfer.snapshot().await.unwrap().complete,
+                    "recipient SQL commit without authenticated ACK cannot mark source complete"
+                );
+                transfer.cancel();
+                tokio::time::timeout(std::time::Duration::from_secs(5), &mut continuation)
+                    .await
+                    .unwrap()
+                    .expect_err("source original cancellation retires its unfinished reply");
+                directory_reader.shutdown().await;
+                for runtime in all_runtimes {
+                    runtime.shutdown_and_close().await.unwrap();
+                }
+                return;
+            }
             consent.approve(review.revision).await.unwrap();
+            if matches!(
+                scenario,
+                RecipientAdmissionScenario::HistoryPublicationCancel
+                    | RecipientAdmissionScenario::HistoryPublicationLostReply
+                    | RecipientAdmissionScenario::HistoryPublicationExpire
+                    | RecipientAdmissionScenario::HistoryPublicationShutdown
+            ) {
+                let account = fixture.apps[0].account_home().account("test").unwrap();
+                let (held, release) = fixture.apps[0].relay_plane.hold_next_selected_commit(
+                    cgka_traits::MemberId::new(hex::decode(account.account_id_hex).unwrap()),
+                );
+                let _release_on_drop = ReleaseSelectedWelcome(release.clone());
+                let transfer = std::sync::Arc::new(transfer);
+                let revision = transfer.snapshot().await.unwrap().revision;
+                let operation = transfer.clone();
+                let mut continuation =
+                    tokio::spawn(async move { operation.continue_transfer(revision).await });
+                let _abort_on_drop = AbortSelectedContinuation(continuation.abort_handle());
+                let message=tokio::time::timeout(std::time::Duration::from_secs(20),async{
+                    tokio::select! {message=held=>message.unwrap(),result=&mut continuation=>panic!("original history escaped actual chunk gate: {result:?}")}
+                }).await.expect("actual signed/encrypted history chunk must reach original transport gate");
+                assert!(matches!(
+                    message.envelope,
+                    cgka_traits::TransportEnvelope::GroupMessage { .. }
+                ));
+                if scenario == RecipientAdmissionScenario::HistoryPublicationShutdown {
+                    let runtime = all_runtimes[0].clone();
+                    let shutdown = tokio::spawn(async move { runtime.shutdown_and_close().await });
+                    let _abort_shutdown = AbortSelectedContinuation(shutdown.abort_handle());
+                    tokio::time::timeout(std::time::Duration::from_millis(500),async {
+                        loop {if matches!(transfer.snapshot().await,Err(crate::HistoryTransferError::Closed)){break;} tokio::time::sleep(std::time::Duration::from_millis(10)).await;}
+                    }).await.expect("runtime shutdown must revoke original history before blocked transport release or forced worker abort");
+                    tokio::time::timeout(std::time::Duration::from_secs(2), shutdown)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                    assert!(
+                        tokio::time::timeout(std::time::Duration::from_secs(2), continuation)
+                            .await
+                            .unwrap()
+                            .unwrap()
+                            .is_err()
+                    );
+                } else if scenario == RecipientAdmissionScenario::HistoryPublicationExpire {
+                    assert!(
+                        transfer.snapshot().await.is_ok(),
+                        "original must still be live when its actual chunk reaches the gate"
+                    );
+                    assert!(matches!(
+                        tokio::time::timeout(std::time::Duration::from_secs(6), continuation)
+                            .await
+                            .expect("fixed original expiry must interrupt the held publication")
+                            .unwrap(),
+                        Err(crate::HistoryTransferError::Closed)
+                    ));
+                    assert!(matches!(
+                        transfer.snapshot().await,
+                        Err(crate::HistoryTransferError::Closed)
+                    ));
+                } else if scenario == RecipientAdmissionScenario::HistoryPublicationLostReply {
+                    continuation.abort();
+                    assert!(continuation.await.unwrap_err().is_cancelled());
+                    tokio::time::timeout(std::time::Duration::from_secs(2),async{
+                        loop {if matches!(transfer.snapshot().await,Err(crate::HistoryTransferError::Closed)){break;} tokio::time::sleep(std::time::Duration::from_millis(20)).await;}
+                    }).await.expect("lost original continuation reply must retire custody before blocked publication releases");
+                } else {
+                    transfer.cancel();
+                    assert!(matches!(tokio::time::timeout(std::time::Duration::from_secs(2),continuation).await.expect("original cancellation must interrupt actual blocked history publication").unwrap(),Err(crate::HistoryTransferError::Closed)));
+                }
+                if scenario != RecipientAdmissionScenario::HistoryPublicationShutdown {
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(2),
+                        managers[0].observed_history_chunks_for_test("test"),
+                    )
+                    .await
+                    .expect("source worker must resume before transport gate release")
+                    .unwrap();
+                }
+                release.notify_waiters();
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                assert!(
+                    recipient_storage
+                        .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
+                        .unwrap()
+                        .is_empty()
+                );
+                assert_eq!(
+                    managers[1]
+                        .observed_history_chunks_for_test("test")
+                        .await
+                        .unwrap()
+                        .0,
+                    0,
+                    "releasing canceled transport must not deliver the held archive chunk"
+                );
+                directory_reader.shutdown().await;
+                for runtime in all_runtimes {
+                    runtime.shutdown_and_close().await.unwrap();
+                }
+                return;
+            }
             transfer
                 .continue_transfer(transfer.snapshot().await.unwrap().revision)
                 .await

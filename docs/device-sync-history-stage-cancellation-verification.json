@@ -1,0 +1,76 @@
+{
+  "scope": "Exact original cancellation after real committed Staged/Imported SQL boundary; no blocked network, shutdown or native adoption qualification",
+  "base": "bf8cf7ac66e4b451e863cfa914ca6585d0b5fc68",
+  "original_red_stash": "30c4298ee7aa88b9220ec06b7b0cc75b797d1d8e",
+  "remote_red_stash": "2bd0018f92410a49d7974ddb004bc07afc391c89",
+  "final_candidate_stash": "72ded75b72296a65a58fc5c496da7925fc8a0cf3",
+  "input_count": 2472,
+  "source_manifest_sha256": "da204330a1ebdff49fe1a8e8f14973b6ef6b63a0c0d76f45b3aa347a151e1c5b",
+  "red_green_fixture_unchanged": true,
+  "genuine_reds": [
+    {
+      "gate": "cleanup",
+      "exit": 101,
+      "seconds": 75.5310127735138,
+      "log": "/Users/pj/project/build/history-stage-cancellation-red-v1-cleanup.log",
+      "log_sha256": "9da379efb2fb777e87bf245c10d297e5df70bc51756ed8fcd409e16c3ded0ceb"
+    },
+    {
+      "gate": "committed",
+      "exit": 101,
+      "seconds": 22.948346853256226,
+      "log": "/Users/pj/project/build/history-stage-cancellation-red-v1-committed.log",
+      "log_sha256": "87f07c9592cf82745774f523dbcc5a8cb716e5c8b197a1a4a9a52ebada1f75b6"
+    }
+  ],
+  "final_gates": [
+    {
+      "gate": "history",
+      "exit": 0,
+      "seconds": 117.42056393623352,
+      "log": "/Users/pj/project/build/history-stage-cancellation-green-v1-history.log",
+      "log_sha256": "27fcc0dc5531dd04664f48307d7069d54723fe3db0ce1e229e59bd224c757ad4"
+    },
+    {
+      "gate": "clippy",
+      "exit": 0,
+      "seconds": 31.014132976531982,
+      "log": "/Users/pj/project/build/history-stage-cancellation-green-v1-clippy.log",
+      "log_sha256": "d320ed761a4ae591b4a606cfe478af972801c47efb8f02fc2f4a95f559987961"
+    },
+    {
+      "gate": "default-check",
+      "exit": 0,
+      "seconds": 21.135003805160522,
+      "log": "/Users/pj/project/build/history-stage-cancellation-green-v1-default-check.log",
+      "log_sha256": "126746bc66715c4d92cd62cd4c70567cecd7053c1a053957726eceeade4be952"
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.5220229625701904,
+      "log": "/Users/pj/project/build/history-stage-cancellation-green-v1-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "focused_counts": {
+    "passed": 5,
+    "failed": 0,
+    "ignored": 0
+  },
+  "controls": [
+    "Real original approved B is cancelled immediately after first atomic Staged receipt; SQL cancellation trigger fails; removing fault must permanently deny exact transfer and clear prefix payloads",
+    "Real final Imported SQL receipt precedes original cancellation before sealing; read-only committed completion remains observable, no source completion or positive publication permission",
+    "Normal multi-fragment 8192B prejoin record import, fresh-outer same-request refusal, expired source zero-payload tombstone"
+  ],
+  "implementation": [
+    "Retain cancelled original negative staging identity on cleanup error with channel keys retired; retry only exact cleanup under existing bounded account owner",
+    "Record committed import progress before fallible receipt serialization/sealing, once; completed staging is never reclassified as unfinished cancellation"
+  ],
+  "remaining": [
+    "Blocked publication cancellation/lost reply/expiry/shutdown",
+    "Source expiry after snapshot during delayed publication",
+    "Durable restart and native read-only history/alias acceptance"
+  ],
+  "post_freeze_changes": "Proof, plan and App AGENTS only"
+}

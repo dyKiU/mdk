@@ -210,3 +210,35 @@ fixture. Normal multi-fragment import and replay controls remain green. Evidence
 [source expiry](device-sync-history-source-expiry-verification.json). Later expiry
 during delayed publication, faulted cleanup and committed-receipt bookkeeping
 still require separate acceptance before native adoption.
+
+### Committed staging cancellation repair
+
+Two real multi-fragment actor regressions reproduced lost SQL cleanup and hidden
+committed import completion. The actor now retains exact negative staging cleanup
+after SQL failure with keys retired, and records Imported completion before
+fallible receipt sealing. Original cancellation cannot grant receipt publication
+or source completion. Five history controls and production/default/format gates
+pass. See [staging cancellation proof](device-sync-history-stage-cancellation-verification.json).
+Blocked publication, delayed source expiry, durable restart and native acceptance
+remain separate.
+
+### Original blocked publication cancellation
+
+Actual first encrypted history Chunk gates reproduced stuck cancellation and lost
+RPC custody. Both pass unchanged after publication waits select on the original
+revocation, fixed deadline and continuation reply closure. The same source handle
+remains retained for lost-reply testing; releasing the gate cannot deliver canceled
+archive data. Seven history controls and production/default/format gates pass.
+See [publication proof](device-sync-history-blocked-publication-verification.json).
+Expiry and runtime shutdown at this gate still require separate acceptance.
+
+### Original publication expiry and runtime shutdown
+
+Expiry at the actual encrypted Chunk gate already passed the fixed-deadline
+publisher. A once-consumed constructor-only five-second test policy leaves the
+production600-second lifetime unchanged. Runtime shutdown genuinely failed before
+forced worker abort; the publisher now observes the existing terminal lifecycle
+watch and cancels its same original owner before transport can resume. All nine
+history controls plus production/default/format gates pass. See
+[expiry/shutdown proof](device-sync-history-publication-expiry-shutdown-verification.json).
+Durable fresh-outer restart denial and later source retention expiry remain open.

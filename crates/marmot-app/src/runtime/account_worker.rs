@@ -1080,6 +1080,10 @@ async fn run_app_runtime_account_worker(
             return;
         }
     };
+    #[cfg(feature = "experimental-device-sync")]
+    {
+        client.history_owner.runtime_shutdown = Some(lifecycle_shutdown.clone());
+    }
     install_storage_telemetry(&client, &shared.app_performance_telemetry());
     client.runtime_telemetry = Some(shared.app_performance_telemetry());
     client.recovery_credits = shared.recovery_credit_pool();
@@ -1856,6 +1860,12 @@ async fn run_app_runtime_account_worker(
         TokioInstant,
     )> = None;
     'worker: loop {
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            // Reopened clients inherit only terminal runtime observation, never
+            // any original history consent or channel.
+            client.history_owner.runtime_shutdown = Some(lifecycle_shutdown.clone());
+        }
         #[cfg(feature = "experimental-device-sync")]
         let private_echo_busy = private_echo_recovery.is_some();
         #[cfg(not(feature = "experimental-device-sync"))]
