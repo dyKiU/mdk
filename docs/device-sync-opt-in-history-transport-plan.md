@@ -132,3 +132,11 @@ consent/body success after each refusal. The original public ABC/four-leaf App
 history test still reaches the explicit NotReady boundary. No transfer, import
 receipt, third-member outer-MLS privacy or history UI is claimed by this slice.
 See [the scoped evidence](device-sync-history-channel-verification.json).
+
+The dedicated Core MLS-control wrapper now passes genuine missing-wrapper RED
+and six final pair controls (actual request/consent/archive/reply plus source
+proofs), production lint/default compilation/formatting. It retains two exact
+original-owned control ciphertexts and creates no generic replay permission.
+This adds no actor import or committed receipt, and does not yet qualify the
+third-member outer-MLS privacy control or ordered chunks. See
+[the transport evidence](device-sync-history-control-transport-verification.json).

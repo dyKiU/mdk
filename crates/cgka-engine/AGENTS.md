@@ -639,3 +639,10 @@ explicit channel retirement drops the retained key. Never serialize or clone an
 owned channel or restore its original lease from history rows. This checkpoint is
 one-body inner encryption only; real MLS transport, third-member privacy, ordered
 manifest/chunks, committed import ACK and native adoption remain separate gates.
+
+History control MLS wrapping freezes its actual ratchet in the crypto SQL unit
+with the original lease tail, invalidates loaded group caches on both outcomes,
+and retains exact ciphertext across wrapping retries. At most two own controls
+per original channel; every cached/awaited return rechecks the same actual scope.
+Never create ordinary Sent, generic fanout or restart-reconstructed publication
+permission. Pair controls qualify MLS framing only, not committed history import.

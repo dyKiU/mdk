@@ -15,6 +15,8 @@ use std::sync::{Arc, Weak};
 use web_time::Instant;
 use zeroize::Zeroizing;
 
+mod transport;
+
 pub const HISTORY_CONTROL_KIND: u64 = 38177;
 pub const MAX_HISTORY_CONTROL_BYTES: usize = 16384;
 const PROTOCOL: &str = "whitenoise.experimental.opt-in-history.v1";
@@ -24,6 +26,15 @@ fn refused() -> EngineError {
 }
 fn config() -> openmls_traits::types::HpkeConfig {
     Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519.hpke_config()
+}
+
+/// Selects only a frame already owned by this original channel.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum HistoryControl {
+    Request,
+    Consent,
+    Archive,
+    Acknowledgement,
 }
 
 /// Read-only captured scope; cannot construct a channel or recipient consent.
@@ -112,6 +123,7 @@ pub struct OwnedHistoryChannel {
     peer_key: Option<Vec<u8>>,
     recipient_role: bool,
     sealed: Option<([u8; 32], Vec<u8>)>,
+    outbound: Vec<transport::FrozenHistoryControl>,
 }
 impl OwnedHistoryChannel {
     pub fn scope(&self) -> &HistoryScope {
@@ -133,6 +145,7 @@ impl OwnedHistoryChannel {
         self.keys = None;
         self.peer_key = None;
         self.sealed = None;
+        self.outbound.clear();
     }
     fn live(&self) -> Result<(), EngineError> {
         if self.keys.is_none()
@@ -312,6 +325,7 @@ impl<S: StorageProvider> Engine<S> {
                 peer_key: None,
                 recipient_role: false,
                 sealed: None,
+                outbound: Vec::new(),
             };
             self.history_channel_fresh(&channel)?;
             Ok(channel)
@@ -443,6 +457,7 @@ impl<S: StorageProvider> Engine<S> {
                 peer_key: Some(request.frame.public_key.clone()),
                 recipient_role: true,
                 sealed: None,
+                outbound: Vec::new(),
             };
             self.history_channel_fresh(&channel)?;
             Ok(channel)

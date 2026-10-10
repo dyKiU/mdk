@@ -259,3 +259,91 @@ async fn history_channel_fresh_ordinary_epoch_and_local_completed_generation_are
     a.select_private_roster_settlement(&p).unwrap();
     assert!(a.seal_history_body(&mut source, b"archive", false).is_err());
 }
+
+fn received_history(engine: &mut TestEngine, protected: &GroupId) -> Vec<u8> {
+    use cgka_traits::app_event::MarmotAppEvent;
+    use cgka_traits::engine::GroupEvent;
+    let payload = engine
+        .drain_events()
+        .into_iter()
+        .find_map(|e| match e {
+            GroupEvent::MessageReceived {
+                group_id,
+                source_leaf: Some(_),
+                payload,
+                ..
+            } if &group_id == protected => Some(payload),
+            _ => None,
+        })
+        .expect("actual protected member application source");
+    let event = MarmotAppEvent::decode(&payload).unwrap();
+    assert_eq!(event.kind, HISTORY_CONTROL_KIND);
+    event.content.into_bytes()
+}
+async fn wrap_retry(
+    engine: &mut TestEngine,
+    channel: &mut OwnedHistoryChannel,
+    kind: HistoryControl,
+) -> cgka_traits::TransportMessage {
+    let wire = engine
+        .wrap_history_control(channel, kind)
+        .await
+        .expect("same original history request must wrap real protected MLS control");
+    let retry = engine.wrap_history_control(channel, kind).await.unwrap();
+    assert_eq!(wire.id, retry.id);
+    assert_eq!(wire.payload, retry.payload);
+    wire
+}
+#[tokio::test]
+async fn history_channel_original_control_reaches_actual_mls_member_source() {
+    let (mut a, mut b, p, o) = fixture().await;
+    let al = Lease::new();
+    let bl = Lease::new();
+    let mut source = a
+        .begin_history_channel(&o, &p, b.identity.signer.public(), al.clone())
+        .unwrap();
+    a.drain_events();
+    b.drain_events();
+    let wire = wrap_retry(&mut a, &mut source, HistoryControl::Request).await;
+    b.ingest(wire).await.unwrap();
+    let request_wire = received_history(&mut b, &p);
+    let request = b.authenticate_history_request(&request_wire).unwrap();
+    assert!(request.scope().protected == source.scope().protected);
+    assert_eq!(request.scope().transfer, source.scope().transfer);
+    let mut recipient = b.approve_history_channel(&request, bl).unwrap();
+    assert!(
+        b.wrap_history_control(&mut recipient, HistoryControl::Request)
+            .await
+            .is_err()
+    );
+    let consent = wrap_retry(&mut b, &mut recipient, HistoryControl::Consent).await;
+    a.ingest(consent).await.unwrap();
+    let consent_wire = received_history(&mut a, &p);
+    a.bind_history_consent(&mut source, &consent_wire).unwrap();
+    a.seal_history_body(&mut source, b"prejoin record bytes", false)
+        .unwrap();
+    let archive = wrap_retry(&mut a, &mut source, HistoryControl::Archive).await;
+    b.ingest(archive).await.unwrap();
+    let archive_wire = received_history(&mut b, &p);
+    assert_eq!(
+        b.open_history_body(&recipient, &archive_wire).unwrap(),
+        b"prejoin record bytes"
+    );
+    b.seal_history_body(&mut recipient, b"receipt bytes", true)
+        .unwrap();
+    let ack = wrap_retry(&mut b, &mut recipient, HistoryControl::Acknowledgement).await;
+    a.ingest(ack).await.unwrap();
+    let ack_wire = received_history(&mut a, &p);
+    assert_eq!(
+        a.open_history_body(&source, &ack_wire).unwrap(),
+        b"receipt bytes"
+    );
+    assert_eq!(source.outbound.len(), 2);
+    assert_eq!(recipient.outbound.len(), 2);
+    al.live.store(false, Ordering::SeqCst);
+    assert!(
+        a.wrap_history_control(&mut source, HistoryControl::Archive)
+            .await
+            .is_err()
+    );
+}

@@ -531,3 +531,9 @@ The five actual MLS/SQL pair controls qualify this inner-crypto boundary only.
 App history transfer/import and third-member outer-MLS privacy are not delivered.
 See `../../docs/device-sync-history-channel-verification.json` for evidence and
 `../../docs/device-sync-opt-in-history-transport-plan.md` for the remaining flow.
+
+The next Core checkpoint also wraps original request, consent, archive and reply
+through actual protected MLS under those same leases. It retains exact ratchet
+ciphertext and wrapper bytes without an ordinary replay intent. Six pair controls
+pass; App transfer/import and third-member privacy remain unqualified. See
+`../../docs/device-sync-history-control-transport-verification.json`.
