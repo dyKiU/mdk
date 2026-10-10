@@ -714,3 +714,10 @@ fallible receipt publication; source expiry must be filtered before serializatio
 Test fresh-outer same-request replay, not only duplicate ciphertext, before
 claiming cancellation/restart acceptance. Current actor checkpoint explicitly
 leaves these lifecycle/privacy repairs and native presentation unqualified.
+
+History account owners retain a bounded128-entry negative transfer-ID set across
+active and retired actions. Never recycle this process-lifetime budget when an
+entry expires/cancels; a fresh authentic MLS envelope containing the same signed
+Request must not recreate consent or restart a clock. Keep the actual new-ratchet
+replay regression and unchanged normal import positive. Reopen cannot derive
+positive consent from these facts; durable restart denial remains separate.

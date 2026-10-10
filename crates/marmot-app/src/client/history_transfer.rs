@@ -46,10 +46,18 @@ impl AppClient {
             self.history_owner.authenticated_chunk_observations += 1;
         }
         if received.control == HistoryControl::Request {
-            if self.history_owner.channels.contains_key(&received.transfer) {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            {
+                self.history_owner.authenticated_request_observations += 1;
+            }
+            if self
+                .history_owner
+                .seen_transfers
+                .contains(&received.transfer)
+            {
                 return Ok(());
             }
-            if self.history_owner.channels.len() >= MAX_HISTORY_OWNERS {
+            if self.history_owner.seen_transfers.len() >= MAX_HISTORY_OWNERS {
                 return Err(HistoryTransferError::NotReady);
             }
             let Ok(request) = self.runtime.session().authenticate_history_request(wire) else {
@@ -64,6 +72,7 @@ impl AppClient {
             if request.scope().snapshot.is_none() {
                 return Err(HistoryTransferError::NotReady);
             }
+            self.history_owner.seen_transfers.insert(received.transfer);
             let original = State::new(&self.history_owner.lifetime);
             *original
                 .scope
@@ -116,7 +125,7 @@ impl AppClient {
         ordinary: &cgka_traits::GroupId,
         recipient: &[u8],
     ) -> Result<Arc<State>, HistoryTransferError> {
-        if self.history_owner.channels.len() >= MAX_HISTORY_OWNERS {
+        if self.history_owner.seen_transfers.len() >= MAX_HISTORY_OWNERS {
             return Err(HistoryTransferError::NotReady);
         }
         let protected = self
@@ -210,6 +219,7 @@ impl AppClient {
             )
             .map_err(|_| HistoryTransferError::NotReady)?;
         let transfer = channel.scope().transfer;
+        self.history_owner.seen_transfers.insert(transfer);
         self.history_owner.channels.insert(
             transfer,
             ChannelEntry {
@@ -691,5 +701,40 @@ impl AppClient {
             entry.incoming.pop_front();
         }
         Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "test-policy-overrides"))]
+impl AppClient {
+    pub(crate) async fn republish_original_history_request_for_test(
+        &mut self,
+        original: &Arc<State>,
+    ) -> Result<(), HistoryTransferError> {
+        let scope = original
+            .scope
+            .lock()
+            .expect("same original history request")
+            .clone()
+            .ok_or(HistoryTransferError::Closed)?;
+        let entry = self
+            .history_owner
+            .channels
+            .get_mut(&scope.transfer)
+            .ok_or(HistoryTransferError::Closed)?;
+        if !entry
+            .original
+            .upgrade()
+            .is_some_and(|owned| Arc::ptr_eq(&owned, original))
+        {
+            return Err(HistoryTransferError::Closed);
+        }
+        self.runtime
+            .session()
+            .discard_original_history_request_ciphertext_for_test(
+                entry.channel.as_mut().ok_or(HistoryTransferError::Closed)?,
+            )
+            .map_err(|_| HistoryTransferError::Closed)?;
+        self.publish_original_history_control(scope.transfer, HistoryControl::Request)
+            .await
     }
 }

@@ -933,6 +933,11 @@ mod actual {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryTransfer).await;
     }
 
+    #[tokio::test]
+    async fn history_transfer_cancelled_original_cannot_restart_from_fresh_outer_request() {
+        selected_chat_delivery(RecipientAdmissionScenario::HistoryRequestReplay).await;
+    }
+
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
         None,
@@ -941,6 +946,7 @@ mod actual {
         Expire,
         ForeignPackageEvent,
         HistoryTransfer,
+        HistoryRequestReplay,
         CommitCancel,
         CommitLostReply,
         WelcomeCancel,
@@ -1330,7 +1336,11 @@ mod actual {
                     .is_none()
             );
         }
-        if scenario == RecipientAdmissionScenario::HistoryTransfer {
+        if matches!(
+            scenario,
+            RecipientAdmissionScenario::HistoryTransfer
+                | RecipientAdmissionScenario::HistoryRequestReplay
+        ) {
             let ordinary_epochs = [
                 all_runtimes[0]
                     .group_mls_state("test", &fixture.chat)
@@ -1406,6 +1416,60 @@ mod actual {
             })
             .await
             .expect("actual encrypted request must reach its addressed original recipient");
+            if scenario == RecipientAdmissionScenario::HistoryRequestReplay {
+                let before = managers[1]
+                    .observed_history_chunks_for_test("test")
+                    .await
+                    .unwrap()
+                    .2;
+                consent.cancel();
+                tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                    loop {
+                        if managers[1]
+                            .observed_history_chunks_for_test("test")
+                            .await
+                            .unwrap()
+                            .3
+                            == 0
+                        {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .expect("cancel must retire the actual original receiver entry before replay");
+                transfer
+                    .republish_original_request_for_test()
+                    .await
+                    .unwrap();
+                tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                    loop {
+                        if managers[1].observed_history_chunks_for_test("test").await.unwrap().2 > before { break; }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }).await.expect("B must authenticate the same signed request in a genuine fresh MLS outer frame");
+                assert!(
+                    managers[1]
+                        .pending_history_requests("test")
+                        .await
+                        .unwrap()
+                        .is_empty(),
+                    "a cancelled original request must not create a new receiver owner or renew its deadline"
+                );
+                assert!(
+                    recipient_storage
+                        .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
+                        .unwrap()
+                        .is_empty()
+                );
+                transfer.cancel();
+                directory_reader.shutdown().await;
+                for runtime in all_runtimes {
+                    runtime.shutdown_and_close().await.unwrap();
+                }
+                return;
+            }
             let review = consent.snapshot().await.unwrap();
             assert_eq!(review.group, fixture.chat);
             assert_eq!(review.record_count, 2);

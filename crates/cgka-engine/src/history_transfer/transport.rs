@@ -32,6 +32,22 @@ impl OwnedHistoryChannel {
     }
 }
 impl<S: StorageProvider> Engine<S> {
+    /// Test-only fresh outer delivery of the unchanged original signed request.
+    /// Scope, keys, consent and deadline are retained; no authority is created.
+    #[cfg(feature = "test-policy-overrides")]
+    pub fn discard_original_history_request_ciphertext_for_test(
+        &self,
+        channel: &mut OwnedHistoryChannel,
+    ) -> Result<(), EngineError> {
+        self.history_channel_fresh(channel)?;
+        if channel.recipient_role {
+            return Err(refused());
+        }
+        channel
+            .outbound
+            .retain(|entry| entry.kind != HistoryControl::Request);
+        Ok(())
+    }
     /// Freeze the actual send ratchet once under the same original lease. Every
     /// retry revalidates actual trees/generations and retains exact ciphertext.
     pub async fn wrap_history_control(
