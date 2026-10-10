@@ -144,3 +144,12 @@ check and workspace formatting pass. See
 `device-sync-selected-welcome-storage-retry-verification.json`. Combined full
 regressions, cancellation during this retained retry, blocked publication, native
 app adoption and history are still separate qualifications.
+
+The retained-retry cancellation control now passes on the signed f0 runtime.
+After actual SQL rollback, cancelling the original B owner within500ms retires
+its exact private package. Removing the fault and observing beyond two retry
+intervals never admits B; A/C/D adopt the confirmed Add and receive a fresh
+message while B has neither that message nor prejoin history. Focused1, full
+selected8 and formatting pass; this is a test-only qualification. See
+`device-sync-selected-welcome-retry-cancellation-verification.json`. Expiry during
+the retained slot and blocked-publication/lost-response controls remain separate.
