@@ -761,3 +761,8 @@ closed; this experimental fence is not an unbounded sync journal.
 One-group device revocation begins as an opaque original administrator review in `device_revocation`, with serial child RPC/client modules. Target device bytes are a selector only. Keep exact originating account/client identity, fixed original600-second deadline, fresh Core full-tree/epoch/generation checks, cancel/Drop/abandoned-reply retirement and one active original. Snapshot success is not removal, publication, protected-roster revocation or a per-group completion result.
 
 The original one-group revocation review now supports approve(displayed revision), real direct relay ACK, ordinary confirmation and actual sender projection. Account owner retains one exact negative pending identity across cancellation/drop; rows never recreate the action. Qualified actual A/B/C/D regression removes C only and verifies A/B/D messages plus C realized-eviction refusal. Blocked-publication/lost-reply/expiry/reopen controls and full protected/multigroup revocation remain pending; see docs/device-sync-exact-device-leaf-removal-verification.json.
+
+
+### Exact-device captured-scope removal checkpoint
+
+DeviceRevocation retains one original fixed deadline across captured groups, with exact current pending negative cleanup. Completed-group snapshots observe local confirmed commits. Actual protected ABC and two ordinary ABCD removals, peer convergence and survivor messages are qualified; wider lifecycle and native acceptance remain separate.

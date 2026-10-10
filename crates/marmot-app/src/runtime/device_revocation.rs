@@ -8,6 +8,14 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 type Reply<T> = oneshot::Sender<Result<T, GroupDeviceRevocationError>>;
 pub(crate) enum Command {
+    BeginDevice {
+        target: Vec<u8>,
+        respond: Reply<Arc<State>>,
+    },
+    ObserveDevice {
+        original: Arc<State>,
+        respond: Reply<crate::DeviceRevocationSnapshot>,
+    },
     Approve {
         original: Arc<State>,
         revision: u64,
@@ -24,6 +32,41 @@ pub(crate) enum Command {
     },
 }
 impl AccountManager {
+    pub(crate) async fn begin_original_device_revocation(
+        &self,
+        account: &str,
+        target: Vec<u8>,
+    ) -> Result<Arc<State>, GroupDeviceRevocationError> {
+        if target.len() != 32 {
+            return Err(GroupDeviceRevocationError::InvalidSelection);
+        }
+        self.device_revocation_command(account, |respond| Command::BeginDevice { target, respond })
+            .await
+    }
+    pub(crate) async fn observe_original_device_revocation(
+        &self,
+        account: &str,
+        original: Arc<State>,
+    ) -> Result<crate::DeviceRevocationSnapshot, GroupDeviceRevocationError> {
+        original.check()?;
+        self.device_revocation_command(account, |respond| Command::ObserveDevice {
+            original,
+            respond,
+        })
+        .await
+    }
+    pub(crate) async fn approve_original_device_revocation(
+        &self,
+        account: &str,
+        original: Arc<State>,
+        revision: u64,
+    ) -> Result<(), GroupDeviceRevocationError> {
+        if !original.whole_device {
+            return Err(GroupDeviceRevocationError::InvalidSelection);
+        }
+        self.approve_original_group_device_revocation(account, original, revision)
+            .await
+    }
     async fn device_revocation_command<T>(
         &self,
         account: &str,
@@ -87,6 +130,18 @@ impl AccountManager {
 }
 pub(crate) async fn handle(client: &mut crate::AppClient, command: Command) {
     match command {
+        Command::BeginDevice { target, respond } => {
+            if respond.is_closed() {
+                return;
+            }
+            let result = client.begin_original_device_revocation(&target);
+            if let Err(Ok(original)) = respond.send(result) {
+                original.cancel();
+            }
+        }
+        Command::ObserveDevice { original, respond } => {
+            let _ = respond.send(client.observe_original_device_revocation(&original));
+        }
         Command::Approve {
             original,
             revision,

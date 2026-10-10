@@ -28,10 +28,14 @@ pub struct DeviceLeafRevocationSelection {
     authenticator: [u8; 32],
     leaves: Vec<crate::selected_chat_consent::IndexedOrdinaryLeaf>,
     review: DeviceLeafRevocationReview,
+    protected_remove: bool,
 }
 impl DeviceLeafRevocationSelection {
     pub fn review(&self) -> &DeviceLeafRevocationReview {
         &self.review
+    }
+    pub fn is_protected_group(&self) -> bool {
+        self.protected_remove
     }
 }
 
@@ -40,6 +44,58 @@ impl<S: StorageProvider> Engine<S> {
         &self,
         group: &GroupId,
         target_device: &[u8],
+    ) -> Result<DeviceLeafRevocationSelection, EngineError> {
+        self.capture_device_leaf_revocation_selection_for_role(group, target_device, false)
+    }
+
+    /// Capture the complete locally authenticated scope, with protected removal
+    /// last. No caller supplies a group list or reconstructs a selection.
+    pub fn capture_device_revocation_selections(
+        &self,
+        target_device: &[u8],
+    ) -> Result<Vec<DeviceLeafRevocationSelection>, EngineError> {
+        self.storage.with_read_snapshot(|storage| {
+            let round = storage
+                .private_roster_settlement_storage()
+                .ok_or_else(unavailable)?
+                .read_round()?
+                .ok_or_else(unavailable)?;
+            let protected = self.capture_device_leaf_revocation_selection_for_role(
+                &round.anchor.group_id,
+                target_device,
+                true,
+            )?;
+            let groups = storage.list_groups()?;
+            if groups.len() > 128 {
+                return Err(unavailable());
+            }
+            let mut selections = Vec::new();
+            for group in groups {
+                if group == protected.review.group {
+                    continue;
+                }
+                let record = self.group_record(&group)?;
+                if record.removed || record.disbanded.is_some() {
+                    continue;
+                }
+                let leaves = self.selected_indexed_ordinary_leaves(&group)?;
+                if leaves.iter().any(|leaf| leaf.signer == target_device) {
+                    selections.push(
+                        self.capture_device_leaf_revocation_selection(&group, target_device)?,
+                    );
+                }
+            }
+            selections.sort_by(|a, b| a.review.group.as_slice().cmp(b.review.group.as_slice()));
+            selections.push(protected);
+            Ok(selections)
+        })
+    }
+
+    fn capture_device_leaf_revocation_selection_for_role(
+        &self,
+        group: &GroupId,
+        target_device: &[u8],
+        protected_remove: bool,
     ) -> Result<DeviceLeafRevocationSelection, EngineError> {
         self.ensure_group_live(group)?;
         if group.as_slice().is_empty() || group.as_slice().len() > 256 || target_device.len() != 32
@@ -69,7 +125,7 @@ impl<S: StorageProvider> Engine<S> {
                     .iter()
                     .any(|leaf| leaf.signature_public_key == target_device)
                 || signer == target_device
-                || group == &protected.group_id
+                || (group == &protected.group_id) != protected_remove
             {
                 return Err(unavailable());
             }
@@ -121,6 +177,7 @@ impl<S: StorageProvider> Engine<S> {
                     || crate::account_identity_proof::protocol_profile_of_group(actual)?
                         != ProtocolProfile::Current
                     || crate::device_group_genesis::has_private_component(actual)?
+                        != protected_remove
                 {
                     return Err(unavailable());
                 }
@@ -140,6 +197,7 @@ impl<S: StorageProvider> Engine<S> {
                     surviving_same_account_leaves,
                 },
                 leaves,
+                protected_remove,
             })
         })
     }
@@ -156,9 +214,10 @@ impl<S: StorageProvider> Engine<S> {
         {
             return Err(unavailable());
         }
-        let fresh = self.capture_device_leaf_revocation_selection(
+        let fresh = self.capture_device_leaf_revocation_selection_for_role(
             &original.review.group,
             &original.review.target_device,
+            original.protected_remove,
         )?;
         if fresh.protected != original.protected
             || fresh.protected_generation != original.protected_generation
@@ -195,13 +254,31 @@ impl<S: StorageProvider> Engine<S> {
         {
             return Err(unavailable());
         }
-        let settled = self
-            .validated_settled_device_roster(&original.protected.group_id)?
-            .ok_or_else(unavailable)?;
-        if settled.candidate() != &original.protected
-            || settled.settlement_generation() != original.protected_generation
-        {
-            return Err(unavailable());
+        if original.protected_remove {
+            // A pending protected Remove still has the exact predecessor tree.
+            // Only this original memory-owned action may use its completed
+            // predecessor facts; public settled/capture APIs remain unchanged.
+            self.with_mls_group(&original.review.group, |actual| {
+                let round = crate::private_roster_settlement::completed_round_for_predecessor_tree(
+                    &self.storage,
+                    &original.review.group,
+                    actual,
+                )?
+                .ok_or_else(unavailable)?;
+                if round.generation != original.protected_generation {
+                    return Err(unavailable());
+                }
+                Ok(())
+            })?;
+        } else {
+            let settled = self
+                .validated_settled_device_roster(&original.protected.group_id)?
+                .ok_or_else(unavailable)?;
+            if settled.candidate() != &original.protected
+                || settled.settlement_generation() != original.protected_generation
+            {
+                return Err(unavailable());
+            }
         }
         let group = &original.review.group;
         let record = self.group_record(group)?;
@@ -229,6 +306,7 @@ impl<S: StorageProvider> Engine<S> {
                 || crate::account_identity_proof::protocol_profile_of_group(actual)?
                     != ProtocolProfile::Current
                 || crate::device_group_genesis::has_private_component(actual)?
+                    != original.protected_remove
             {
                 return Err(unavailable());
             }
@@ -369,14 +447,69 @@ impl<S: StorageProvider> Engine<S> {
         {
             return Err(unavailable());
         }
-        let settled = self
-            .validated_settled_device_roster(&original.protected.group_id)?
+        if !original.protected_remove {
+            let settled = self
+                .validated_settled_device_roster(&original.protected.group_id)?
+                .ok_or_else(unavailable)?;
+            if settled.candidate() != &original.protected
+                || settled.settlement_generation() != original.protected_generation
+            {
+                return Err(unavailable());
+            }
+        } else {
+            self.check_retired_device_revocation_roster(original)?;
+        }
+        self.check_confirmed_device_leaf_tree(original)
+    }
+
+    fn check_retired_device_revocation_roster(
+        &self,
+        original: &DeviceLeafRevocationSelection,
+    ) -> Result<(), EngineError> {
+        let round = self
+            .storage
+            .private_roster_settlement_storage()
+            .ok_or_else(unavailable)?
+            .read_round()?
             .ok_or_else(unavailable)?;
-        if settled.candidate() != &original.protected
-            || settled.settlement_generation() != original.protected_generation
+        if !original.protected_remove
+            || round.generation != original.protected_generation
+            || round.anchor.group_id != original.protected.group_id
+            || round.phase != cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied
         {
             return Err(unavailable());
         }
+        Ok(())
+    }
+
+    /// Completion is an observation of exact committed successor trees and
+    /// retired old protected authority. It cannot authorize later enrollment.
+    pub fn confirmed_device_revocation_scope(
+        &self,
+        originals: &[&DeviceLeafRevocationSelection],
+    ) -> Result<(), EngineError> {
+        let protected = originals.last().ok_or_else(unavailable)?;
+        self.check_retired_device_revocation_roster(protected)?;
+        for original in originals {
+            if !self.enrollment_endorsements.owns_lifetime(&original.owner)
+                || !original
+                    .owner
+                    .upgrade()
+                    .is_some_and(|owner| owner.is_open())
+                || original.protected != protected.protected
+                || original.protected_generation != protected.protected_generation
+            {
+                return Err(unavailable());
+            }
+            self.check_confirmed_device_leaf_tree(original)?;
+        }
+        Ok(())
+    }
+
+    fn check_confirmed_device_leaf_tree(
+        &self,
+        original: &DeviceLeafRevocationSelection,
+    ) -> Result<(), EngineError> {
         let epoch = self.with_mls_group(&original.review.group, |group| {
             crate::app_components::require_admin(
                 group,
@@ -388,6 +521,7 @@ impl<S: StorageProvider> Engine<S> {
                 || crate::account_identity_proof::protocol_profile_of_group(group)?
                     != ProtocolProfile::Current
                 || crate::device_group_genesis::has_private_component(group)?
+                    != original.protected_remove
             {
                 return Err(unavailable());
             }

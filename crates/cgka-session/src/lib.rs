@@ -2246,6 +2246,19 @@ fn delivery_plane_label(plane: TransportDeliveryPlane) -> &'static str {
 
 #[cfg(feature = "experimental-device-sync")]
 impl AccountDeviceSession {
+    pub fn capture_device_revocation_selections(
+        &self,
+        target: &[u8],
+    ) -> Result<Vec<cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection>, EngineError>
+    {
+        self.engine.capture_device_revocation_selections(target)
+    }
+    pub fn confirmed_device_revocation_scope(
+        &self,
+        originals: &[&cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection],
+    ) -> Result<(), EngineError> {
+        self.engine.confirmed_device_revocation_scope(originals)
+    }
     pub fn capture_device_leaf_revocation_selection(
         &self,
         group: &GroupId,

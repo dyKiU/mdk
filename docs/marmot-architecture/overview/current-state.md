@@ -436,3 +436,8 @@ The default-off one-group device revocation boundary now supports an opaque orig
 One-group original exact-leaf removal is now qualified independently of full device revocation: real four-leaf Current A/B/C/D, explicit fresh A administrator review, C alone removed, actual A/B/D three-leaf state and future messages, C realized-eviction outbound refusal. Protected roster and other chats remain unchanged. Actual reopen, blocked transport/lost-reply/expiry controls, native API adoption and multigroup/protected revocation remain open. Proof: docs/device-sync-exact-device-leaf-removal-verification.json.
 
 One-group exact-leaf removal now also has actual held-publication cancellation/lost-reply controls and genuine removed-C encrypted-reopen acceptance, without a production change. Cancelled held Removes stay absent from the real relay and all four predecessor leaves remain active; after committed removal/reopen, future messages reach A/B/D and remain absent C. Fixed expiry, responsive shutdown and storage-confirmation fault controls remain pending. Proof: docs/device-sync-exact-device-removal-lifecycle-verification.json.
+
+
+### Exact-device captured-scope removal checkpoint
+
+Device-wide original removal now qualifies actual protected three-to-two and two ordinary four-to-three leaf transitions, surviving new messages and removed-device refusal. Old protected round and matching origins remain denied. Fresh positive protected successor settlement, whole-scope lifecycle/repair/reopen and native exposure remain open.

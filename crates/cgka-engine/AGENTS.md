@@ -662,3 +662,8 @@ separate actual-wrapper gate; Passthrough tests do not qualify relay envelopes.
 Exact device-leaf review capture derives the Current/Stable ordinary full indexed tree, actual admin/own leaf, epoch authenticator and same-account non-self target under a fresh protected Completed roster/generation read. The opaque selection is tied to the originating Engine; every review read revalidates all captured state. Public review metadata grants no Remove and cannot reconstruct the original. Reuse the canonical selected-chat indexed leaf validator rather than inventing a host tree inlet.
 
 Exact ordinary sibling removal now stages one real Remove under a fresh Core selection and trusted original runtime lease. Pending and confirmed validators require exact indexed successor, unchanged survivor identities/leaf commitments (sender path may refresh), original protected Completed generation and originating Engine. The generic account removal path remains separate; no selected Invite or protected-group removal grant is created.
+
+
+### Exact-device captured-scope removal checkpoint
+
+Device-wide exact-leaf removal captures fresh protected Completed generation and actual indexed trees. Ordinary groups precede the protected group; ordinary-only selection still refuses protected groups. Pending protected predecessor validation requires the same original memory lease and exact staged single Remove. It never fabricates Existing/Add provenance. Fresh successor settlement is a separate required step.

@@ -13,6 +13,8 @@ const REVOCATION_ORIGINAL_LIFETIME: Duration = Duration::from_secs(600);
 
 pub(crate) struct State {
     pub(crate) selection: DeviceLeafRevocationSelection,
+    pub(crate) remaining: Vec<DeviceLeafRevocationSelection>,
+    pub(crate) whole_device: bool,
     owner: Weak<AtomicBool>,
     deadline: Instant,
     cancelled: AtomicBool,
@@ -20,6 +22,43 @@ pub(crate) struct State {
     pub(crate) progress: Mutex<Progress>,
 }
 impl State {
+    pub(crate) fn selections(&self) -> impl Iterator<Item = &DeviceLeafRevocationSelection> {
+        std::iter::once(&self.selection).chain(&self.remaining)
+    }
+    pub(crate) fn current_selection(&self) -> &DeviceLeafRevocationSelection {
+        self.selections()
+            .nth(self.progress.lock().expect("revocation progress").index)
+            .expect("bounded captured revocation scope")
+    }
+    pub(crate) fn device_snapshot(
+        &self,
+    ) -> Result<super::DeviceRevocationSnapshot, GroupDeviceRevocationError> {
+        self.check()?;
+        let protected = self
+            .selections()
+            .last()
+            .ok_or(GroupDeviceRevocationError::InvalidSelection)?;
+        if !self.whole_device || !protected.is_protected_group() {
+            return Err(GroupDeviceRevocationError::InvalidSelection);
+        }
+        let progress = self.progress.lock().expect("revocation progress");
+        Ok(super::DeviceRevocationSnapshot {
+            revision: if progress.complete { 2 } else { 1 },
+            complete: progress.complete,
+            protected_group: protected.review().group.clone(),
+            ordinary_groups: self
+                .selections()
+                .filter(|s| !s.is_protected_group())
+                .map(|s| s.review().group.clone())
+                .collect(),
+            completed_groups: self
+                .selections()
+                .take(progress.index)
+                .map(|s| s.review().group.clone())
+                .collect(),
+            target_device: protected.review().target_device.clone(),
+        })
+    }
     pub(crate) fn check(&self) -> Result<(), GroupDeviceRevocationError> {
         if self.cancelled.load(Ordering::Acquire)
             || Instant::now() >= self.deadline
@@ -103,6 +142,16 @@ impl AccountRevocationOwner {
         &mut self,
         selection: DeviceLeafRevocationSelection,
     ) -> Result<Arc<State>, GroupDeviceRevocationError> {
+        self.reserve_selections(vec![selection], false)
+    }
+    pub(crate) fn reserve_selections(
+        &mut self,
+        mut selections: Vec<DeviceLeafRevocationSelection>,
+        whole_device: bool,
+    ) -> Result<Arc<State>, GroupDeviceRevocationError> {
+        if selections.is_empty() || selections.len() > 128 {
+            return Err(GroupDeviceRevocationError::InvalidSelection);
+        }
         if self.cleanup.is_some()
             || self.created >= MAX_REVOCATION_ORIGINALS
             || self
@@ -114,7 +163,9 @@ impl AccountRevocationOwner {
             return Err(GroupDeviceRevocationError::Busy);
         }
         let original = Arc::new(State {
-            selection,
+            selection: selections.remove(0),
+            remaining: selections,
+            whole_device,
             owner: Arc::downgrade(&self.lifetime),
             deadline: Instant::now() + REVOCATION_ORIGINAL_LIFETIME,
             cancelled: AtomicBool::new(false),
@@ -173,6 +224,7 @@ impl Drop for AccountRevocationOwner {
 
 #[derive(Default)]
 pub(crate) struct Progress {
+    pub(crate) index: usize,
     pub(crate) prepared: Option<Prepared>,
     pub(crate) complete: bool,
 }

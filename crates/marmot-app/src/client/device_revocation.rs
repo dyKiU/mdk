@@ -7,6 +7,73 @@ use cgka_traits::GroupId;
 use std::sync::Arc;
 
 impl AppClient {
+    pub(crate) fn begin_original_device_revocation(
+        &mut self,
+        target: &[u8],
+    ) -> Result<Arc<State>, GroupDeviceRevocationError> {
+        use cgka_traits::GroupStorage;
+        let storage = self
+            .app
+            .account_storage(&self.state.label)
+            .map_err(|_| GroupDeviceRevocationError::RuntimeUnavailable)?;
+        let groups = storage
+            .list_groups()
+            .map_err(|_| GroupDeviceRevocationError::RuntimeUnavailable)?;
+        if groups.len() > 128 {
+            return Err(GroupDeviceRevocationError::InvalidSelection);
+        }
+        for group in groups {
+            let record = storage
+                .get_group(&group)
+                .map_err(|_| GroupDeviceRevocationError::RuntimeUnavailable)?;
+            if !record.removed && record.disbanded.is_none() {
+                self.runtime
+                    .session_mut()
+                    .ensure_group_hydrated(&group)
+                    .map_err(|_| GroupDeviceRevocationError::InvalidSelection)?;
+            }
+        }
+        let selections = self
+            .runtime
+            .session()
+            .capture_device_revocation_selections(target)
+            .map_err(|_| GroupDeviceRevocationError::InvalidSelection)?;
+        self.device_revocation_owner
+            .reserve_selections(selections, true)
+    }
+    pub(crate) fn observe_original_device_revocation(
+        &self,
+        original: &Arc<State>,
+    ) -> Result<crate::DeviceRevocationSnapshot, GroupDeviceRevocationError> {
+        original.check()?;
+        if !original.whole_device || !self.device_revocation_owner.owns(original) {
+            return Err(GroupDeviceRevocationError::Closed);
+        }
+        let (complete, index) = {
+            let p = original.progress.lock().expect("revocation progress");
+            (p.complete, p.index)
+        };
+        if complete {
+            self.runtime
+                .session()
+                .confirmed_device_revocation_scope(&original.selections().collect::<Vec<_>>())
+                .map_err(|_| GroupDeviceRevocationError::InvalidSelection)?;
+        } else {
+            for (i, selection) in original.selections().enumerate() {
+                let checked = if i < index {
+                    self.runtime
+                        .session()
+                        .confirmed_device_leaf_revocation(selection)
+                } else {
+                    self.runtime
+                        .session()
+                        .validate_device_leaf_revocation_selection(selection)
+                };
+                checked.map_err(|_| GroupDeviceRevocationError::InvalidSelection)?;
+            }
+        }
+        original.device_snapshot()
+    }
     pub(crate) fn begin_original_group_device_revocation(
         &mut self,
         group: &GroupId,
@@ -62,7 +129,7 @@ impl cgka_engine::device_leaf_revocation::DeviceLeafRevocationLease for Original
         &mut self,
         selection: &cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection,
     ) -> Result<(), cgka_traits::EngineError> {
-        if !std::ptr::eq(selection, &self.original.selection) {
+        if !std::ptr::eq(selection, self.original.current_selection()) {
             return Err(cgka_traits::EngineError::Other(
                 "device revocation original unavailable".into(),
             ));
@@ -90,6 +157,23 @@ impl AppClient {
         original: &Arc<State>,
         revision: u64,
     ) -> Result<(), GroupDeviceRevocationError> {
+        original.check_revision(revision)?;
+        while !original
+            .progress
+            .lock()
+            .expect("revocation progress")
+            .complete
+        {
+            self.approve_current_device_leaf_revocation(original, revision)
+                .await?;
+        }
+        original.check()
+    }
+    async fn approve_current_device_leaf_revocation(
+        &mut self,
+        original: &Arc<State>,
+        revision: u64,
+    ) -> Result<(), GroupDeviceRevocationError> {
         use cgka_engine::device_leaf_revocation::DeviceLeafRevocationLease;
         use cgka_traits::{SendResult, TransportPublishRequest, TransportPublishTarget};
         let unavailable = |_| GroupDeviceRevocationError::RuntimeUnavailable;
@@ -105,7 +189,8 @@ impl AppClient {
         {
             return Ok(());
         }
-        let group = original.selection.review().group.clone();
+        let selection = original.current_selection();
+        let group = selection.review().group.clone();
         let component = self
             .runtime
             .session()
@@ -125,11 +210,15 @@ impl AppClient {
             .prepared
             .is_none()
         {
-            self.observe_original_group_device_revocation(original)?;
+            if original.whole_device {
+                self.observe_original_device_revocation(original)?;
+            } else {
+                self.observe_original_group_device_revocation(original)?;
+            }
             let result = self
                 .runtime
                 .session_mut()
-                .prepare_device_leaf_revocation(&original.selection, &mut lease)
+                .prepare_device_leaf_revocation(selection, &mut lease)
                 .await
                 .map_err(unavailable)?;
             let SendResult::GroupEvolution {
@@ -178,11 +267,9 @@ impl AppClient {
         if !confirmed {
             self.runtime
                 .session()
-                .validate_prepared_device_leaf_revocation(&original.selection, pending, &origin)
+                .validate_prepared_device_leaf_revocation(selection, pending, &origin)
                 .map_err(unavailable)?;
-            lease
-                .check_original(&original.selection)
-                .map_err(unavailable)?;
+            lease.check_original(selection).map_err(unavailable)?;
             if !acknowledged {
                 let report = self
                     .adapter
@@ -202,9 +289,7 @@ impl AppClient {
                     })
                     .await
                     .map_err(|_| GroupDeviceRevocationError::RuntimeUnavailable)?;
-                lease
-                    .check_original(&original.selection)
-                    .map_err(unavailable)?;
+                lease.check_original(selection).map_err(unavailable)?;
                 if !report.met_required_acks() {
                     return Err(GroupDeviceRevocationError::RuntimeUnavailable);
                 }
@@ -219,11 +304,9 @@ impl AppClient {
             }
             self.runtime
                 .session()
-                .validate_prepared_device_leaf_revocation(&original.selection, pending, &origin)
+                .validate_prepared_device_leaf_revocation(selection, pending, &origin)
                 .map_err(unavailable)?;
-            lease
-                .check_original(&original.selection)
-                .map_err(unavailable)?;
+            lease.check_original(selection).map_err(unavailable)?;
             let effects = self
                 .runtime
                 .session_mut()
@@ -242,7 +325,7 @@ impl AppClient {
         original.check()?;
         self.runtime
             .session()
-            .confirmed_device_leaf_revocation(&original.selection)
+            .confirmed_device_leaf_revocation(selection)
             .map_err(unavailable)?;
         let effects = {
             let p = original.progress.lock().expect("revocation effects");
@@ -278,11 +361,10 @@ impl AppClient {
                 .effects = None;
         }
         original.check()?;
-        original
-            .progress
-            .lock()
-            .expect("revocation complete")
-            .complete = true;
+        let mut progress = original.progress.lock().expect("revocation complete");
+        progress.index += 1;
+        progress.prepared = None;
+        progress.complete = progress.index == original.selections().count();
         Ok(())
     }
 }

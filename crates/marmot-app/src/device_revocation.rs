@@ -36,6 +36,91 @@ pub struct GroupDeviceRevocationSnapshot {
     pub surviving_same_account_leaves: u32,
 }
 
+/// Observations of the fixed groups reviewed by one original device action.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeviceRevocationSnapshot {
+    pub revision: u64,
+    pub complete: bool,
+    pub protected_group: GroupId,
+    pub ordinary_groups: Vec<GroupId>,
+    pub completed_groups: Vec<GroupId>,
+    pub target_device: Vec<u8>,
+}
+
+/// Opaque original review of one device across its protected and ordinary groups.
+pub struct DeviceRevocation {
+    #[cfg(feature = "experimental-device-sync")]
+    original: std::sync::Arc<enabled::State>,
+    #[cfg(feature = "experimental-device-sync")]
+    manager: AccountManager,
+    #[cfg(feature = "experimental-device-sync")]
+    account: String,
+    #[cfg(not(feature = "experimental-device-sync"))]
+    _private: (),
+}
+
+impl AccountManager {
+    pub async fn begin_device_revocation(
+        &self,
+        account: &str,
+        target_device: Vec<u8>,
+    ) -> Result<DeviceRevocation, GroupDeviceRevocationError> {
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            let original = self
+                .begin_original_device_revocation(account, target_device)
+                .await?;
+            Ok(DeviceRevocation {
+                original,
+                manager: self.clone(),
+                account: account.to_owned(),
+            })
+        }
+        #[cfg(not(feature = "experimental-device-sync"))]
+        {
+            let _ = (account, target_device);
+            Err(GroupDeviceRevocationError::Unsupported)
+        }
+    }
+}
+
+impl DeviceRevocation {
+    pub async fn snapshot(&self) -> Result<DeviceRevocationSnapshot, GroupDeviceRevocationError> {
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            self.manager
+                .observe_original_device_revocation(&self.account, self.original.clone())
+                .await
+        }
+        #[cfg(not(feature = "experimental-device-sync"))]
+        {
+            Err(GroupDeviceRevocationError::Unsupported)
+        }
+    }
+    pub async fn approve(&self, revision: u64) -> Result<(), GroupDeviceRevocationError> {
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            self.manager
+                .approve_original_device_revocation(&self.account, self.original.clone(), revision)
+                .await
+        }
+        #[cfg(not(feature = "experimental-device-sync"))]
+        {
+            let _ = revision;
+            Err(GroupDeviceRevocationError::Unsupported)
+        }
+    }
+    pub fn cancel(&self) {
+        #[cfg(feature = "experimental-device-sync")]
+        self.original.cancel();
+    }
+}
+impl Drop for DeviceRevocation {
+    fn drop(&mut self) {
+        self.cancel();
+    }
+}
+
 /// Opaque original administrator action for exactly one ordinary group.
 ///
 /// Linked-device observations cannot construct this owner or authorize removal.
@@ -149,6 +234,23 @@ mod tests {
             Err(GroupDeviceRevocationError::Unsupported)
         ));
         original.cancel();
+        assert!(accounts.managed_accounts().unwrap().is_empty());
+        assert!(matches!(
+            accounts
+                .begin_device_revocation("missing", vec![0; 600_000])
+                .await,
+            Err(GroupDeviceRevocationError::Unsupported)
+        ));
+        let device = DeviceRevocation { _private: () };
+        assert!(matches!(
+            device.snapshot().await,
+            Err(GroupDeviceRevocationError::Unsupported)
+        ));
+        assert!(matches!(
+            device.approve(u64::MAX).await,
+            Err(GroupDeviceRevocationError::Unsupported)
+        ));
+        device.cancel();
         assert!(accounts.managed_accounts().unwrap().is_empty());
         runtime.shutdown_and_close().await.unwrap();
     }
