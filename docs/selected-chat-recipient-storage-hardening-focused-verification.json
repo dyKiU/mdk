@@ -1,0 +1,179 @@
+{
+  "cohorts": [
+    {
+      "base_commit": "848bc982d423a4958e072ac4afa8b340444bd09a",
+      "input_count": 2410,
+      "source_manifest_sha256": "0fd62782ec6ca5a71250d7674ee7318ea126bf1e4b09729a38d6319f64c96e13",
+      "v12_fixture_sha256": "c827ed4821b4beefab94e6227a0311232d924b33b2a800ae7f489c39e8bef3d3",
+      "gates": [
+        {
+          "gate": "native",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "storage-sqlite",
+            "--features",
+            "experimental-device-sync",
+            "--test",
+            "selected_chat_key_package"
+          ],
+          "exit_code": 101,
+          "seconds": 21.65,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 4,
+              "failed": 2,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "ece38641db09fdb5ba85e567df662bad4228c94ea80d9d1917a6024e8624474c"
+        }
+      ],
+      "root_verified_source_inputs": 2410
+    },
+    {
+      "base_commit": "848bc982d423a4958e072ac4afa8b340444bd09a",
+      "input_count": 2411,
+      "source_manifest_sha256": "13cbea20123fed43658fb0956c53bc026c0d67d1dec1d3bcea0cc3d01fa7110e",
+      "v12_fixture_sha256": "c827ed4821b4beefab94e6227a0311232d924b33b2a800ae7f489c39e8bef3d3",
+      "populated_default_fixture_sha256": "010b7305fa05780c46582f02b235760a950e5c19ee97843d04df1e3b46d798f0",
+      "gates": [
+        {
+          "gate": "native",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "storage-sqlite",
+            "--features",
+            "experimental-device-sync",
+            "--test",
+            "selected_chat_key_package"
+          ],
+          "exit_code": 0,
+          "seconds": 18.24,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 6,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "14869779ab57a04779030257b4e59d6771e13472863147c7cb478bdede284e34"
+        },
+        {
+          "gate": "default",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "storage-sqlite",
+            "--test",
+            "selected_chat_key_package"
+          ],
+          "exit_code": 0,
+          "seconds": 5.41,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 1
+            }
+          ],
+          "log_sha256": "3627fa20d5b29a1837dcb1fc6ca4b2cc8c053329d2bd5cff0551f8f878b73053"
+        },
+        {
+          "gate": "populated_default",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "storage-sqlite",
+            "--test",
+            "selected_chat_key_package",
+            "selected_chat_populated_cohort_is_unavailable_by_default",
+            "--",
+            "--ignored",
+            "--exact"
+          ],
+          "exit_code": 0,
+          "seconds": 0.71,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "f48b68aaf08a3e41cd23bd517cabbcdfe37dddca0b7dfb0ab6f29dd2d3d299aa"
+        },
+        {
+          "gate": "traits",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "cgka-traits"
+          ],
+          "exit_code": 0,
+          "seconds": 4.81,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 124,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 4,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 6,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 32,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "2ad70ba26fde9258da4d3ae4941f84b4edde9b37a83f3091effd6d4f71d90745"
+        }
+      ],
+      "root_verified_source_inputs": 2411
+    }
+  ],
+  "limits": "Full native/default storage and production gates live/pending; no MLS private keys, admission or message delivery.",
+  "closed_synthetic_fixture_sha256": {
+    "original_revision12": "c827ed4821b4beefab94e6227a0311232d924b33b2a800ae7f489c39e8bef3d3",
+    "upgraded_revision13": "010b7305fa05780c46582f02b235760a950e5c19ee97843d04df1e3b46d798f0"
+  }
+}

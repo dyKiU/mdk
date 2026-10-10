@@ -881,6 +881,9 @@ mod private_migration_0011_existing_anchor;
 #[path = "private_migrations/0012_selected_chat_key_packages.rs"]
 mod private_migration_0012_selected_packages;
 
+#[path = "private_migrations/0013_selected_chat_reference_guards.rs"]
+mod private_migration_0013_selected_reference_guards;
+
 const PRIVATE_MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -941,6 +944,11 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
         version: 12,
         name: "0012_selected_chat_key_packages",
         apply: private_migration_0012_selected_packages::apply,
+    },
+    Migration {
+        version: 13,
+        name: "0013_selected_chat_reference_guards",
+        apply: private_migration_0013_selected_reference_guards::apply,
     },
 ];
 

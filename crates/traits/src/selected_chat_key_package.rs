@@ -55,6 +55,8 @@ pub struct SelectedChatPurposeKeyPackage {
 /// tentative consumption must share one real transaction. Mutations match the
 /// complete scope and exact reference, and check the backend account/device
 /// identity rather than accepting caller-supplied ownership as authority.
+/// Negative-only deny operations may clean up the exact retained old owner after
+/// configured identity changes; they still reject every foreign scope/reference.
 /// Keep terminal reference tombstones and fail closed at the bounded capacity.
 /// No row grants permission, persists a deadline, or restores a process owner.
 /// New rows are Pending only; at most one Pending row is retained. Exact Pending

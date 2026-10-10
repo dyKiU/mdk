@@ -51,14 +51,17 @@ fn validate(package: &SelectedChatPurposeKeyPackage) -> StorageResult<()> {
     }
     let mut indices = HashSet::new();
     let mut keys = HashSet::new();
+    let mut previous_index = None;
     for leaf in &context.protected_anchor.leaves {
         if leaf.account != package.scope.account
             || leaf.signature_public_key == [0; 32]
             || !indices.insert(leaf.leaf_index)
             || !keys.insert(leaf.signature_public_key)
+            || previous_index.is_some_and(|previous| previous >= leaf.leaf_index)
         {
             return Err(invalid());
         }
+        previous_index = Some(leaf.leaf_index);
     }
     if !keys.contains(&package.scope.local_device)
         || crate::serialize(context)?.len() > MAX_SELECTED_CHAT_PURPOSE_CONTEXT_BYTES
@@ -94,7 +97,8 @@ fn rows(connection: &Connection) -> StorageResult<Vec<SelectedChatPurposeKeyPack
         if packages.len() == MAX_SELECTED_CHAT_PURPOSE_ROWS || bytes.len() > MAX_RECORD_BYTES {
             return Err(invalid());
         }
-        let mut package: SelectedChatPurposeKeyPackage = crate::deserialize(&bytes)?;
+        let mut package: SelectedChatPurposeKeyPackage =
+            serde_json::from_slice(&bytes).map_err(|_| invalid())?;
         validate(&package)?;
         if package.state != SelectedChatPurposeState::Pending
             || package.reference.as_slice() != reference
@@ -152,7 +156,8 @@ fn check_owner(
             |row| row.get(0),
         )
         .storage()?;
-    let signer: AccountDeviceSignerBinding = crate::deserialize(&bytes)?;
+    let signer: AccountDeviceSignerBinding =
+        serde_json::from_slice(&bytes).map_err(|_| invalid())?;
     if signer.marmot_identity.as_slice() != scope.account
         || signer.mls_signature_public_key != scope.local_device
     {

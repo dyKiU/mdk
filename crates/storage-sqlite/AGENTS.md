@@ -136,3 +136,19 @@ in private revision12. Terminal rows count toward the128-row capacity and retain
 the original owner across configured identity changes. Metadata never grants
 joining or reconstructs consent. Core owns exact private-bundle cleanup within
 the same SQL transaction. Do not alias pairing-purpose storage or group snapshots.
+
+Private revision13 adds terminal-reference SQL guards without changing the
+frozen revision12 schema or receipts. Delete, replace, immutable context changes
+and terminal reactivation are rejected; reservations remain bounded and
+account/device-specific. Protected rosters require canonical indexed ordering.
+An exact retained original owner may deny its Pending reservation after configured
+identity changes, but cannot reactivate it or mint new consent. These facts never
+grant Welcome permission or restore a live action.
+
+The focused hardening regression is actual RED4/6 → GREEN6/6. Default denial1
+and the explicitly executed populated encrypted-cohort refusal1 pass; traits167
+pass. The latter test is normally ignored and is only qualified with its actual
+feature-writer fixture. Original closed revision12 fixture bytes remain unchanged
+while an upgrade copy exercises revision13. Full backend/production checks remain
+pending: see `docs/selected-chat-recipient-storage-hardening-focused-verification.json`
+from the repository root.
