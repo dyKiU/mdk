@@ -3203,7 +3203,19 @@ mod actual {
                 .to_vec();
             let fresh = tokio::time::timeout(std::time::Duration::from_secs(25), async {
                 loop {
-                    match managers[0].begin_history_transfer("test", &fixture.chat, recipient.clone()).await {
+                    let choices = match managers[0].history_transfer_recipients("test", &fixture.chat).await {
+                        Ok(choices) => choices,
+                        Err(crate::HistoryTransferError::NotReady) => {
+                            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                            continue;
+                        }
+                        Err(error) => panic!("fresh successor recipient query failed: {error:?}"),
+                    };
+                    assert_eq!(choices.len(), 1, "only the surviving linked B device is eligible");
+                    assert!(choices.iter().all(|choice| choice.device != target_device), "removed C cannot remain a public history recipient choice");
+                    let chosen = choices.into_iter().find(|choice| choice.device == recipient)
+                        .expect("public query must return the actual surviving B leaf");
+                    match managers[0].begin_history_transfer("test", &fixture.chat, chosen.device).await {
                         Ok(original) => break original,
                         Err(crate::HistoryTransferError::NotReady) => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
                         Err(error) => panic!("fresh successor history authority failed before settlement: {error:?}"),
