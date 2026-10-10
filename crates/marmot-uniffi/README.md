@@ -15,6 +15,8 @@ Read the documentation at the tag matching your binaries; `master` can describe 
   [exclusive root ownership](#exclusive-root-ownership), [service endpoint defaults](#service-endpoint-defaults)
 - [Device verification](#device-verification): opaque sessions, SAS comparison and cancellation
 - [Selected-chat copies](SELECTED-CHAT-COPY.md): explicit original selection, sibling consent and bounded private offers
+- [Original history transfers](HISTORY-TRANSFER.md): authenticated review, explicit original consent and committed-import observations
+- [Committed synchronized history](SYNCHRONIZED-HISTORY.md): bounded local source-attested records, retention and keyset paging
 - Accounts and identity: [interactive account onboarding](#interactive-account-onboarding),
   [identity references and profiles](#identity-references-and-profiles),
   [KeyPackage inventory](#keypackage-inventory), [KeyPackage client preference](#keypackage-client-preference),

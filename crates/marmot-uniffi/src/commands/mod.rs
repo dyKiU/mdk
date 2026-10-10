@@ -60,3 +60,8 @@ pub use device_linking::{DeviceLinkingApproval, DeviceLinkingSession, DeviceLink
 
 mod selected_chat_copy;
 pub use selected_chat_copy::{SelectedChatConsent, SelectedChatCopy};
+
+mod history_transfer;
+pub use history_transfer::{HistoryConsent, HistoryTransfer};
+
+mod synchronized_history;

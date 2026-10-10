@@ -359,6 +359,24 @@ pub enum MarmotKitError {
     SelectedChatCopyStaleRevision,
     #[error("Selected chat copy: Closed")]
     SelectedChatCopyClosed,
+    #[error("History transfer is unsupported by this build")]
+    HistoryTransferUnsupported,
+    #[error("History transfer is not ready")]
+    HistoryTransferNotReady,
+    #[error("History original action is closed")]
+    HistoryTransferClosed,
+    #[error("History displayed revision changed")]
+    HistoryTransferStaleRevision,
+    #[error("History runtime is unavailable")]
+    HistoryTransferRuntimeUnavailable,
+    #[error("Synchronized history is unsupported by this build")]
+    SynchronizedHistoryUnsupported,
+    #[error("Invalid synchronized history query")]
+    SynchronizedHistoryInvalidQuery,
+    #[error("Synchronized history storage is unavailable")]
+    SynchronizedHistoryUnavailable,
+    #[error("Invalid synchronized history logical record")]
+    SynchronizedHistoryInvalidRecord,
 }
 
 impl From<AppError> for MarmotKitError {
@@ -1240,6 +1258,39 @@ impl From<marmot_app::SelectedChatCopyError> for MarmotKitError {
             marmot_app::SelectedChatCopyError::InvalidPacket => Self::SelectedChatCopyInvalidPacket,
             marmot_app::SelectedChatCopyError::StaleRevision => Self::SelectedChatCopyStaleRevision,
             marmot_app::SelectedChatCopyError::Closed => Self::SelectedChatCopyClosed,
+        }
+    }
+}
+
+impl From<marmot_app::HistoryTransferError> for MarmotKitError {
+    fn from(value: marmot_app::HistoryTransferError) -> Self {
+        match value {
+            marmot_app::HistoryTransferError::Unsupported => Self::HistoryTransferUnsupported,
+            marmot_app::HistoryTransferError::NotReady => Self::HistoryTransferNotReady,
+            marmot_app::HistoryTransferError::Closed => Self::HistoryTransferClosed,
+            marmot_app::HistoryTransferError::StaleRevision => Self::HistoryTransferStaleRevision,
+            marmot_app::HistoryTransferError::RuntimeUnavailable => {
+                Self::HistoryTransferRuntimeUnavailable
+            }
+        }
+    }
+}
+
+impl From<marmot_app::SynchronizedHistoryReadError> for MarmotKitError {
+    fn from(value: marmot_app::SynchronizedHistoryReadError) -> Self {
+        match value {
+            marmot_app::SynchronizedHistoryReadError::Unsupported => {
+                Self::SynchronizedHistoryUnsupported
+            }
+            marmot_app::SynchronizedHistoryReadError::InvalidQuery => {
+                Self::SynchronizedHistoryInvalidQuery
+            }
+            marmot_app::SynchronizedHistoryReadError::Unavailable => {
+                Self::SynchronizedHistoryUnavailable
+            }
+            marmot_app::SynchronizedHistoryReadError::InvalidRecord => {
+                Self::SynchronizedHistoryInvalidRecord
+            }
         }
     }
 }

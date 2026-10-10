@@ -394,6 +394,16 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
 
 ## Verification
 
+`src/synchronized_history.rs` owns the experimental read-only logical archive
+page and its source-attested presentation DTOs. Keep default denial before account
+or storage effects, validate bounded opaque MLS group IDs without a Nostr-ID width
+assumption, and resolve the account through AccountHome. Preserve completed-only
+storage selection, live-event precedence, retention fences and payload-free
+tombstones. Use the shared ordered media parser with no fabricated source epoch;
+reads never grant media acquisition, moderation, message authentication or consent.
+Keep record Debug output free of identities and content. Query tests may seed
+isolated archive storage; this does not qualify original transport or native UI.
+
 ```sh
 cargo test -p marmot-app
 # Accelerated recovery/retry scenarios (also enabled by workspace CI):

@@ -105,7 +105,8 @@ mod history_transfer;
 mod native_device_linking;
 mod selected_chat_copy;
 pub use history_transfer::{
-    HistoryConsent, HistoryTransfer, HistoryTransferError, HistoryTransferSnapshot,
+    HistoryConsent, HistoryTransfer, HistoryTransferError, HistoryTransferRecipient,
+    HistoryTransferSnapshot,
 };
 pub use native_device_linking::{
     DeviceLinkingApproval, DeviceLinkingApprovalPhase, DeviceLinkingApprovalReviewMetadata,
@@ -126,6 +127,10 @@ mod external_signer;
 mod groups;
 mod history_notices;
 pub use history_notices::{HistoryNotice, HistoryNoticeCause};
+mod synchronized_history;
+pub use synchronized_history::{
+    ArchivedHistoryPage, ArchivedHistoryRecord, SynchronizedHistoryReadError,
+};
 mod ids;
 mod key_package_records;
 #[cfg(test)]

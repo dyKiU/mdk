@@ -9,6 +9,24 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- Read-only linked history-recipient choices with an owned list of actual leaf
+  indices and public device byte buffers. The list deep-free owns every embedded
+  entry; listing creates no consent or channel. Required outputs are preflighted
+  and default builds refuse before input reads. Use matching headers and libraries.
+
+- Bounded committed-history query and owned source-attested pages, logical tags,
+  ordered media verdicts and message-ID cursor. Page deep-free releases embedded
+  records and buffers. Query statuses append117–120; default builds refuse
+  before input reads and all calls preflight outputs. Use matching headers and
+  libraries; this does not establish native conversation acceptance.
+
+- Original history transfer and recipient consent handles, list-owned consent
+  entries, shared clones, authenticated review snapshots and displayed-revision
+  continuation/approval. History statuses append112–116 without renumbering older
+  values. Default factories refuse before input dereference; all owned outputs
+  require matching deep frees. Use the matching generated header/library. Control
+  completion does not establish installed conversation presentation.
+
 - Revision-bound authenticated approval review metadata with owned binary source
   and joining device signature keys, predecessor count and matching deep free.
   This additive display record grants no enrollment permission; use matching

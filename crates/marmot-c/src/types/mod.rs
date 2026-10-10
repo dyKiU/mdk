@@ -42,4 +42,7 @@ pub mod avatar;
 pub mod moderation;
 
 pub mod device_linking;
+pub mod history_transfer;
 pub mod selected_chat_copy;
+
+pub mod synchronized_history;

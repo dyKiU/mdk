@@ -727,3 +727,76 @@ async fn history_channel_snapshot_descriptor_is_original_signed_context_and_frag
         .is_err()
     );
 }
+
+#[tokio::test]
+async fn history_recipients_observe_exact_remote_leaf_without_creating_consent() {
+    let (a, b, protected, ordinary) = fixture().await;
+    let choices = a
+        .history_recipients(&ordinary, &protected)
+        .expect("eligible linked recipients must be observable");
+    assert_eq!(choices.len(), 1);
+    assert!(choices[0].device == b.identity.signer.public());
+    assert!(choices[0].device != a.identity.signer.public());
+    let actual = a
+        .validated_settled_device_roster(&protected)
+        .unwrap()
+        .unwrap();
+    assert!(
+        actual
+            .candidate()
+            .leaves
+            .iter()
+            .any(|leaf| leaf.leaf_index == choices[0].leaf_index
+                && leaf.signature_public_key == choices[0].device)
+    );
+    struct NoConsent;
+    impl TrustedHistoryLease for NoConsent {}
+    assert!(
+        a.begin_history_channel(
+            &ordinary,
+            &protected,
+            &choices[0].device,
+            Arc::new(NoConsent)
+        )
+        .is_err()
+    );
+}
+
+#[tokio::test]
+async fn history_recipients_refuse_invalid_groups_and_unsettled_selection() {
+    let (a, _, protected, ordinary) = fixture().await;
+    assert!(a.history_recipients(&protected, &protected).is_err());
+    assert!(a.history_recipients(&ordinary, &ordinary).is_err());
+    let absent = GroupId::new(vec![9; 16]);
+    assert!(a.history_recipients(&absent, &protected).is_err());
+    assert!(a.history_recipients(&ordinary, &absent).is_err());
+    assert_eq!(
+        a.history_recipients(&ordinary, &protected).unwrap().len(),
+        1
+    );
+    a.select_private_roster_settlement(&protected).unwrap();
+    assert!(a.history_recipients(&ordinary, &protected).is_err());
+}
+
+#[tokio::test]
+async fn history_recipients_do_not_keep_a_stale_ordinary_selection_alive() {
+    let (mut a, b, protected, ordinary) = fixture().await;
+    let choices = a.history_recipients(&ordinary, &protected).unwrap();
+    let source = a
+        .begin_history_channel(&ordinary, &protected, &choices[0].device, Lease::new())
+        .unwrap();
+    let SendResult::GroupEvolution { pending, .. } =
+        a.do_send_self_update(ordinary.clone()).await.unwrap()
+    else {
+        panic!("actual ordinary update");
+    };
+    assert!(a.history_recipients(&ordinary, &protected).is_err());
+    a.confirm_published(pending).await.unwrap();
+    assert!(a.validate_history_channel(&source).is_err());
+    let fresh = a.history_recipients(&ordinary, &protected).unwrap();
+    assert!(fresh[0].device == b.identity.signer.public());
+    assert!(
+        a.begin_history_channel(&ordinary, &protected, &fresh[0].device, Lease::new())
+            .is_ok()
+    );
+}

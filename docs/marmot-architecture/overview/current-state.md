@@ -19,6 +19,33 @@ status: overview
 
 # Current State — Implementations & Spec
 
+The default-off App history recipient query exposes bounded current Core-derived
+linked-device observations for an ordinary chat. It shares fresh eligibility
+checks with transfer creation and creates no original action or consent. The
+public SDK regression selects an actual returned device and completes the
+separately approved logical import; native exports and picker adoption remain
+separate work. See the [query contract](../../../crates/marmot-app/README.md#history-transfer-recipient-selection).
+
+The default-off history action surface also has thin UniFFI/C original-owner
+handles, authenticated review snapshots and typed default refusal. Focused
+source checks and the generated C header are qualified; valid original alias
+lifecycle and matched native application history display remain open. The
+separate synchronous UniFFI/C committed-history reader forwards the App retention
+and provenance policy; empty-archive/native guards and seven App controls pass,
+with native populated-history and UI acceptance still required. See the
+[reader contract](../../../crates/marmot-uniffi/SYNCHRONIZED-HISTORY.md) and
+[reader source qualification](../../history-native-query-focused-verification.json). See
+[native binding qualification](../../history-original-native-bindings-focused-verification.json).
+
+The default-off device-sync experiment now has a public read-only App query for
+completed logical archive records. It returns source-attested content and
+provenance in bounded message-ID pages, preserving live-event precedence,
+retention fences, payload-free tombstones and shared ordered media verdicts.
+Storage-seeded query tests qualify this presentation boundary; original transport,
+native bindings and conversation/UI adoption require their separate evidence.
+See [query qualification](../../history-readonly-query-focused-verification.json)
+and the [App query contract](../../../crates/marmot-app/README.md#read-only-synchronized-logical-history).
+
 The private, default-off multi-device experiment qualifies original-action A/B/C
 protected settlement and opaque public native three-device enrollment on ready
 isolated accounts. UniFFI/C original-action relay tests and matched host Swift/C

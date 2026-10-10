@@ -1,12 +1,22 @@
 //! Original Core history continuations; no serialized grant or key exports.
 use super::AccountDeviceSession;
 use cgka_engine::history_transfer::{
-    AuthenticatedHistoryRequest, HistoryControl, HistoryScope, HistorySnapshotDescriptor,
-    OpenedHistoryChunk, OwnedHistoryChannel, ReceivedHistoryControl, TrustedHistoryLease,
+    AuthenticatedHistoryRequest, HistoryControl, HistoryRecipient, HistoryScope,
+    HistorySnapshotDescriptor, OpenedHistoryChunk, OwnedHistoryChannel, ReceivedHistoryControl,
+    TrustedHistoryLease,
 };
 use cgka_traits::{EngineError, GroupId, TransportMessage};
 use std::sync::Arc;
 impl AccountDeviceSession {
+    /// Current Core-derived recipient observations; no transfer or consent is created.
+    pub fn history_recipients(
+        &self,
+        ordinary: &GroupId,
+        protected: &GroupId,
+    ) -> Result<Vec<HistoryRecipient>, EngineError> {
+        self.engine.history_recipients(ordinary, protected)
+    }
+
     #[cfg(feature = "test-policy-overrides")]
     pub fn discard_original_history_request_ciphertext_for_test(
         &self,

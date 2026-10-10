@@ -15,6 +15,8 @@ the generic account, session, and engine crates. Read this if you are building a
 - [Conversations](#conversations)
 - [Encrypted media endpoints](#encrypted-media-endpoints)
 - [Application-owned group state](#application-owned-group-state)
+- [History transfer recipient selection](#history-transfer-recipient-selection)
+- [Read-only synchronized logical history](#read-only-synchronized-logical-history)
 - [Explicit full-history repair](#explicit-full-history-repair)
 - [History may be incomplete notices](#history-may-be-incomplete-notices)
 - [User blocking](#user-blocking)
@@ -297,6 +299,53 @@ Refresh on runtime group events (including `EpochChanged` and convergence) and a
 through the account worker and may wait behind an in-flight mutation. Updates use existing publication and convergence
 semantics; hosts must handle publication uncertainty and `GroupChangeSuperseded` rather than assuming a successful local
 change wins every later concurrent commit. This API does not add automatic retries of an application's desired value.
+
+## History transfer recipient selection
+
+With `experimental-device-sync`,
+`AccountManager::history_transfer_recipients(account_ref, group_id)` lists
+current linked-device choices for one ordinary chat. Core freshly checks the
+selected protected completed roster and the ordinary Current-profile state in
+one storage read snapshot. Results contain exact occupied leaf indices and
+public device identities, ordered by index, excluding the local device and
+bounded by the private roster's 128-leaf limit. Debug output omits identities.
+The account worker serializes the query; it creates no transfer, pending request,
+consent, lease, archive or network publication.
+
+Pass a selected device identity to `begin_history_transfer`; Core independently
+revalidates the current selection. A successful list is an observation, not a
+promise that a transfer can start or that the recipient has approved it. The
+recipient must review and explicitly approve its original received request at
+the displayed revision. Refresh choices when the linked roster or chat changes.
+Default builds return `Unsupported` before account or worker effects; invalid
+MLS group lengths return `NotReady`, and an unavailable account worker returns
+`RuntimeUnavailable`. UniFFI/C export and matched host adoption require separate
+qualification.
+
+## Read-only synchronized logical history
+
+With `experimental-device-sync`, `MarmotApp::synchronized_history_page` reads
+completed logical archive records from one account's encrypted storage. Select
+an opaque MLS group ID and a page limit from 1 to 200. Results use message-ID
+keyset order; pass `next_message_id` for the following page. A full last page
+may require an additional empty read. Default builds return typed `Unsupported`
+before account or storage effects.
+
+Each `ArchivedHistoryRecord` carries logical content and tags, captured expiry,
+source device, transfer ID and manifest digest. This is source-attested history.
+It does not independently authenticate the original author's MLS message or
+supply permission for another transfer. Live authenticated events shadow archive
+copies. Completed-import retention fences and captured expiry govern visibility;
+tombstones contain no content or attachments. Invalid logical payloads fail the
+page with a typed error. Media outcomes preserve the shared parser's ordered
+accepted/rejected verdicts without initiating downloads.
+
+The query performs no relay I/O, read acknowledgment, moderation or media
+acquisition. It remains separate from the existing live conversation projection.
+Hosts must keep provenance visible when presenting archive records; native ABI,
+conversation integration and installed-app history acceptance require separate
+qualification. Storage-seeded query tests alone do not prove original history
+transport or consent.
 
 ## Explicit full-history repair
 

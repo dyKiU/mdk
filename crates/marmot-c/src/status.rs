@@ -152,6 +152,15 @@ pub enum MarmotStatus {
     SelectedChatCopyInvalidPacket = 109,
     SelectedChatCopyStaleRevision = 110,
     SelectedChatCopyClosed = 111,
+    HistoryTransferUnsupported = 112,
+    HistoryTransferNotReady = 113,
+    HistoryTransferClosed = 114,
+    HistoryTransferStaleRevision = 115,
+    HistoryTransferRuntimeUnavailable = 116,
+    SynchronizedHistoryUnsupported = 117,
+    SynchronizedHistoryInvalidQuery = 118,
+    SynchronizedHistoryUnavailable = 119,
+    SynchronizedHistoryInvalidRecord = 120,
 }
 
 thread_local! {
@@ -255,6 +264,25 @@ pub(crate) fn status_from_error(err: &MarmotKitError) -> MarmotStatus {
             MarmotStatus::SelectedChatCopyStaleRevision
         }
         MarmotKitError::SelectedChatCopyClosed => MarmotStatus::SelectedChatCopyClosed,
+        MarmotKitError::SynchronizedHistoryUnsupported => {
+            MarmotStatus::SynchronizedHistoryUnsupported
+        }
+        MarmotKitError::SynchronizedHistoryInvalidQuery => {
+            MarmotStatus::SynchronizedHistoryInvalidQuery
+        }
+        MarmotKitError::SynchronizedHistoryUnavailable => {
+            MarmotStatus::SynchronizedHistoryUnavailable
+        }
+        MarmotKitError::SynchronizedHistoryInvalidRecord => {
+            MarmotStatus::SynchronizedHistoryInvalidRecord
+        }
+        MarmotKitError::HistoryTransferUnsupported => MarmotStatus::HistoryTransferUnsupported,
+        MarmotKitError::HistoryTransferNotReady => MarmotStatus::HistoryTransferNotReady,
+        MarmotKitError::HistoryTransferClosed => MarmotStatus::HistoryTransferClosed,
+        MarmotKitError::HistoryTransferStaleRevision => MarmotStatus::HistoryTransferStaleRevision,
+        MarmotKitError::HistoryTransferRuntimeUnavailable => {
+            MarmotStatus::HistoryTransferRuntimeUnavailable
+        }
         MarmotKitError::DeviceLinkingUnsupported => MarmotStatus::DeviceLinkingUnsupported,
         MarmotKitError::DeviceLinkingClosed => MarmotStatus::DeviceLinkingClosed,
         MarmotKitError::DeviceLinkingInvalidPacket => MarmotStatus::DeviceLinkingInvalidPacket,
