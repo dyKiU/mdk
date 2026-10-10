@@ -117,3 +117,8 @@ metadata never mints live admission; Engine must independently validate protecte
 origin/current tree and a fixed monotonic live round. No deadline or SDK permission
 is serialized. The account owner must explicitly abandon unfinished rounds on
 authoritative exclusive startup; storage does not run that lifecycle hook itself.
+
+The experimental `revoked_device_group_anchor` contract retains bounded authenticated
+single-Remove successor metadata and permanent denial references. Its optional
+storage accessor defaults unavailable. Retained rows and serialized drafts never
+restore original consent, a deadline, or settlement admission.

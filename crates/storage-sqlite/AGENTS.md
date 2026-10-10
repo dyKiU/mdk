@@ -176,3 +176,15 @@ exhausted after encrypted reopen. Do not prune or reset it silently. Exact dupli
 observation is negative; a distinct request requires fresh original authentication.
 Keep revision14 prefix, default populated-cohort refusal, SQL rollback/fault, owner
 identity and encrypted capacity controls. Preserve core102/private1–14 bodies.
+
+Private revision16 adds bounded immutable `revoked_device_group_anchor` references
+including denied generations. Install only before retiring the exact active
+predecessor/Completed local round, within original authenticated Remove SQL.
+Atomic successor selection retains and denies the old generation; failed insertion
+restores it. Owner/signer projection mismatches reject, exact retry cannot reopen
+a denied fact, and delete/replace/mutation/reactivation are blocked by SQL guards.
+Keep all128 lifetime references outside group snapshot rollback. Group deletion
+denies them; bounded historical reads are negative privacy observation only.
+Core/Session/App integration, full workspace and native qualification remain
+separate from the synthetic storage proof in
+`docs/revoked-device-anchor-storage-verification.json`. Preserve core102/private1–15.

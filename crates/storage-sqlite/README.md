@@ -542,3 +542,18 @@ feature-writer fixture. Original closed revision12 fixture bytes remain unchange
 while an upgrade copy exercises revision13. Full backend/production checks remain
 pending: see `docs/selected-chat-recipient-storage-hardening-focused-verification.json`
 from the repository root.
+
+### Experimental Remove-successor metadata
+
+Private revision16 retains up to128 immutable Remove-successor references, including
+denied rows. Installation checks the exact active predecessor and Completed local
+settlement, canonical single-Remove successor, and any present account/signer
+projections. The authenticated Core caller must still own the original action and
+actual MLS transition. Successive installation denies the preceding generation in
+the same SQL transaction; insert failure rolls back that denial. Group deletion
+denies retained records. Snapshot rollback cannot restore positive metadata.
+
+The separate `PrivateInviteOrigin::Revoked` generation supports a fresh settlement
+and subsequent Add while preserving old denial fences. No persisted consent, lease,
+or original guard is supplied. Core integration and full workspace qualification
+are required separately from the synthetic storage contracts.

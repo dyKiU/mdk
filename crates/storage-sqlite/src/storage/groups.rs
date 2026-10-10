@@ -168,6 +168,12 @@ pub(crate) fn delete_group_tx(
         [id.as_slice()],
     )
     .storage()?;
+    #[cfg(feature = "experimental-device-sync")]
+    tx.execute(
+        "UPDATE revoked_device_group_anchor SET denied=1 WHERE group_id=?1",
+        [id.as_slice()],
+    )
+    .storage()?;
     let mls_group_key = mls_group_key(id)?;
     crate::account_recovery::delete_inventory_tx(
         tx,

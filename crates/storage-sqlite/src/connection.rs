@@ -1369,6 +1369,13 @@ impl StorageProvider for SqliteAccountStorage {
     }
 
     #[cfg(feature = "experimental-device-sync")]
+    fn revoked_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::revoked_device_group_anchor::RevokedDeviceGroupStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
     fn private_group_privacy_storage(
         &self,
     ) -> Option<&dyn cgka_traits::private_group_privacy::PrivateGroupPrivacyStorage> {

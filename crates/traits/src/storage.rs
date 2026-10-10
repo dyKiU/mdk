@@ -1080,6 +1080,13 @@ pub trait StorageProvider:
         None
     }
 
+    /// Optional original single-Remove successor metadata. Defaults unavailable.
+    fn revoked_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn crate::revoked_device_group_anchor::RevokedDeviceGroupStorage> {
+        None
+    }
+
     /// Optional private-group creation provenance. Unsupported backends grant nothing.
     fn device_group_genesis_storage(
         &self,

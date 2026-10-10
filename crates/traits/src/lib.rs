@@ -152,5 +152,6 @@ pub mod accepted_device_group_anchor;
 pub mod existing_device_group_anchor;
 pub mod private_device_invite;
 pub mod private_group_privacy;
+pub mod revoked_device_group_anchor;
 
 pub mod private_roster_settlement;

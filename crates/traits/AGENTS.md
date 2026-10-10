@@ -88,3 +88,9 @@ Private settlement deferred ACKs are bounded authenticated receipt metadata, nev
 `selected_chat_key_package.rs` defines optional bounded per-chat recipient facts
 with no Debug or grant DTO. The accessor defaults unavailable. Pending retry,
 terminal retention and negative cleanup cannot restore original action ownership.
+
+`revoked_device_group_anchor.rs` retains authenticated single-Remove successor
+metadata under a distinct local Revoked generation. No Debug, stored deadline,
+consent or live guard is supplied. Bounded all-facts observation is solely for
+negative historical privacy checks; positive Core admission still requires the
+original authenticated transition and actual indexed successor tree.

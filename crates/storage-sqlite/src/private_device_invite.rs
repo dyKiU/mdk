@@ -51,7 +51,8 @@ fn validate_binding(binding: &PrivateInviteBinding) -> Result<()> {
         PrivateInviteOrigin::Genesis(v)
         | PrivateInviteOrigin::Accepted(v)
         | PrivateInviteOrigin::Confirmed(v)
-        | PrivateInviteOrigin::Existing(v) => v,
+        | PrivateInviteOrigin::Existing(v)
+        | PrivateInviteOrigin::Revoked(v) => v,
     })?;
     bounded(binding.group_id.as_slice(), 255)?;
     if binding.format_version != 1
@@ -300,6 +301,16 @@ pub(crate) fn check_selection_allocation(
             return Err(Error::Busy);
         }
     }
+    if let Some(fact) =
+        crate::revoked_device_group_anchor::read(connection).map_err(Error::Storage)?
+    {
+        if fact.draft.account != *account || fact.draft.local_device != *device {
+            return Err(Error::ScopeMismatch);
+        }
+        if !fact.denied {
+            return Err(Error::Busy);
+        }
+    }
     let pending = read_pending(connection)?;
     let confirmed = read_confirmed(connection)?;
     for scope in pending
@@ -336,7 +347,11 @@ fn check_origin(storage: &SqliteAccountStorage, binding: &PrivateInviteBinding) 
             return Err(Error::ScopeMismatch);
         }
         if fact.binding.group_id == binding.group_id
-            && (!fact.denied || !matches!(binding.origin, PrivateInviteOrigin::Existing(_)))
+            && (!fact.denied
+                || !matches!(
+                    binding.origin,
+                    PrivateInviteOrigin::Existing(_) | PrivateInviteOrigin::Revoked(_)
+                ))
         {
             if fact.denied
                 || binding.origin != PrivateInviteOrigin::Confirmed(fact.scope.staging_generation)
@@ -405,6 +420,23 @@ fn check_origin(storage: &SqliteAccountStorage, binding: &PrivateInviteBinding) 
                 .existing_anchor()
                 .map_err(Error::Storage)?
                 .ok_or(Error::ScopeMismatch)?;
+            if fact.denied
+                || fact.generation != counter
+                || fact.draft.account != binding.approver_scope.account
+                || fact.draft.local_device != binding.approver_scope.local_device
+                || fact.draft.group_id != binding.group_id
+                || fact.draft.successor != binding.predecessor
+            {
+                return Err(Error::ScopeMismatch);
+            }
+        }
+        PrivateInviteOrigin::Revoked(counter) => {
+            let fact = {
+                let conn = storage.lock().map_err(Error::Storage)?;
+                crate::revoked_device_group_anchor::read(&conn)
+                    .map_err(Error::Storage)?
+                    .ok_or(Error::ScopeMismatch)?
+            };
             if fact.denied
                 || fact.generation != counter
                 || fact.draft.account != binding.approver_scope.account

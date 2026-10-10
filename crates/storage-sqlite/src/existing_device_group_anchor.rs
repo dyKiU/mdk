@@ -40,7 +40,8 @@ fn validate(draft: &ExistingDeviceGroupDraft) -> StorageResult<()> {
         PrivateInviteOrigin::Genesis(v)
         | PrivateInviteOrigin::Accepted(v)
         | PrivateInviteOrigin::Confirmed(v)
-        | PrivateInviteOrigin::Existing(v) => v,
+        | PrivateInviteOrigin::Existing(v)
+        | PrivateInviteOrigin::Revoked(v) => v,
     };
     generation(origin_generation)?;
     generation(draft.predecessor_settlement_generation)?;
@@ -118,13 +119,18 @@ pub(crate) fn read(conn: &Connection) -> StorageResult<Option<ExistingDeviceGrou
     })
     .transpose()
 }
-fn check_predecessor(
+pub(crate) fn check_selected_predecessor(
     storage: &SqliteAccountStorage,
-    draft: &ExistingDeviceGroupDraft,
+    origin: &PrivateInviteOrigin,
+    account: &[u8; 32],
+    local_device: &[u8; 32],
+    group: &GroupId,
+    predecessor: &DeviceGroupAnchorRoster,
+    settlement_generation: u64,
 ) -> StorageResult<()> {
     // These are negative exact-selection fences. The original live action and
     // authenticated actual MLS tree remain required by the caller's apply unit.
-    let roster = match draft.predecessor_origin {
+    let roster = match *origin {
         PrivateInviteOrigin::Accepted(n) => {
             let fact = storage
                 .accepted_device_group_anchor_storage()
@@ -137,9 +143,9 @@ fn check_predecessor(
                 .ok_or_else(invalid)?;
             if fact.denied
                 || fact.scope.selection_generation != n
-                || fact.scope.account != draft.account
-                || fact.scope.local_device != draft.local_device
-                || fact.draft.group_id != draft.group_id
+                || fact.scope.account != *account
+                || fact.scope.local_device != *local_device
+                || fact.draft.group_id != *group
             {
                 return Err(invalid());
             }
@@ -159,9 +165,9 @@ fn check_predecessor(
                 .ok_or_else(invalid)?;
             if fact.denied
                 || fact.scope.staging_generation != n
-                || fact.scope.account != draft.account
-                || fact.scope.local_device != draft.local_device
-                || fact.binding.group_id != draft.group_id
+                || fact.scope.account != *account
+                || fact.scope.local_device != *local_device
+                || fact.binding.group_id != *group
             {
                 return Err(invalid());
             }
@@ -171,9 +177,24 @@ fn check_predecessor(
             let fact = storage.existing_anchor()?.ok_or_else(invalid)?;
             if fact.denied
                 || fact.generation != n
-                || fact.draft.account != draft.account
-                || fact.draft.local_device != draft.local_device
-                || fact.draft.group_id != draft.group_id
+                || fact.draft.account != *account
+                || fact.draft.local_device != *local_device
+                || fact.draft.group_id != *group
+            {
+                return Err(invalid());
+            }
+            fact.draft.successor
+        }
+        PrivateInviteOrigin::Revoked(n) => {
+            let fact = {
+                let conn = storage.lock()?;
+                crate::revoked_device_group_anchor::read(&conn)?.ok_or_else(invalid)?
+            };
+            if fact.denied
+                || fact.generation != n
+                || fact.draft.account != *account
+                || fact.draft.local_device != *local_device
+                || fact.draft.group_id != *group
             {
                 return Err(invalid());
             }
@@ -187,14 +208,14 @@ fn check_predecessor(
         .ok_or_else(invalid)?
         .read_round()?
         .ok_or_else(invalid)?;
-    if roster != draft.predecessor
+    if roster != *predecessor
         || state.phase != PrivateSettlementPhase::Completed
-        || state.generation != draft.predecessor_settlement_generation
-        || state.anchor.origin != draft.predecessor_origin
-        || state.anchor.account != draft.account
-        || state.anchor.local_device != draft.local_device
-        || state.anchor.group_id != draft.group_id
-        || state.anchor.successor != draft.predecessor
+        || state.generation != settlement_generation
+        || state.anchor.origin != *origin
+        || state.anchor.account != *account
+        || state.anchor.local_device != *local_device
+        || state.anchor.group_id != *group
+        || state.anchor.successor != *predecessor
     {
         return Err(invalid());
     }
@@ -225,7 +246,7 @@ impl ExistingDeviceGroupStorage for SqliteAccountStorage {
                     return Err(invalid());
                 }
             }
-            check_predecessor(storage, draft)?;
+            check_selected_predecessor(storage, &draft.predecessor_origin, &draft.account, &draft.local_device, &draft.group_id, &draft.predecessor, draft.predecessor_settlement_generation)?;
             let conn = storage.lock()?;
             let wrong: bool = conn.query_row(
                 "SELECT EXISTS(SELECT 1 FROM account_state WHERE local_account_id_hex IS NULL OR local_account_id_hex<>?1)",

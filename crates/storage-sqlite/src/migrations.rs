@@ -887,6 +887,9 @@ mod private_migration_0013_selected_reference_guards;
 #[path = "private_migrations/0014_history_archive_staging.rs"]
 mod private_migration_0014_history_staging;
 
+#[path = "private_migrations/0016_revoked_device_group_anchor.rs"]
+mod private_migration_0016_revoked_anchor;
+
 const PRIVATE_MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -962,6 +965,11 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
         version: 15,
         name: "0015_history_request_observations",
         apply: private_migration_0015_history_requests::apply,
+    },
+    Migration {
+        version: 16,
+        name: "0016_revoked_device_group_anchor",
+        apply: private_migration_0016_revoked_anchor::apply,
     },
 ];
 
