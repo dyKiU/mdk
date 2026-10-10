@@ -1,0 +1,112 @@
+{
+  "scope": "Host generated Swift and C ABI shape/refusal qualification; not Apple packaging or valid original history acceptance",
+  "base": "c1811044",
+  "source_count": 2483,
+  "source_manifest_sha256": "c1545d6c6b270870aaa392f738cda6ce8760515b61ab67b6e6b4f48d2c2b326a",
+  "source_manifest": "/Users/pj/project/build/history-native-abi-v2-inputs.json",
+  "exact_local_remote_source_match": true,
+  "v1_source_stash": "f942d47eacf62a964a31fcd60a349e743da26980",
+  "final_source_stash": "a50dba78b0221af93fba1e38ca147fd4335544e7",
+  "toolchain": "Rust 1.97.1, debug0, jobs2, existing Mdk986ConformanceTargetM5",
+  "feature_selection": "Same marmotkit_features.py selector used to build matching library and generate bindings; experimental 0 then 1; no test-policy-overrides",
+  "gates": [
+    {
+      "gate": "swift-default",
+      "exit": 0,
+      "seconds": 47.2415701248683,
+      "log": "/Users/pj/project/build/history-native-abi-v2-swift-default.log",
+      "log_sha256": "33934050409951a113bfc34d024e87d24c4219844ad4698acce9e71bc36820b8",
+      "source_unchanged": true,
+      "summaries": [
+        "history Swift ABI: snapshots=2 errors=5 factory-gates=3 no-account-effects=1 experimental=false"
+      ]
+    },
+    {
+      "gate": "c-default",
+      "exit": 0,
+      "seconds": 45.002249042037874,
+      "log": "/Users/pj/project/build/history-native-abi-v2-c-default.log",
+      "log_sha256": "11306fecf4963f694ef5073e0418e4093a1ceea8a8a079205b6679170c51a645",
+      "source_unchanged": true,
+      "summaries": [
+        "history C ABI: statuses=5 preflight=1 factory-gates=3 no-account-effects=1 experimental=0",
+        "history C ABI: statuses=5 preflight=1 factory-gates=3 no-account-effects=1 experimental=0"
+      ]
+    },
+    {
+      "gate": "swift-feature",
+      "exit": 0,
+      "seconds": 84.95915862498805,
+      "log": "/Users/pj/project/build/history-native-abi-v2-swift-feature.log",
+      "log_sha256": "040857c11fb70c395217f631549a5adcaf40a104a0188c64de2d145706a140c3",
+      "source_unchanged": true,
+      "summaries": [
+        "history Swift ABI: snapshots=2 errors=5 factory-gates=3 no-account-effects=1 experimental=true"
+      ]
+    },
+    {
+      "gate": "c-feature",
+      "exit": 0,
+      "seconds": 48.976055917097256,
+      "log": "/Users/pj/project/build/history-native-abi-v2-c-feature.log",
+      "log_sha256": "17365169f68f59f9935fc786b8e8b61c4fa730eac264c5b6c4ab40b7d02d40a6",
+      "source_unchanged": true,
+      "summaries": [
+        "history C ABI: statuses=5 preflight=1 factory-gates=3 no-account-effects=1 experimental=1",
+        "history C ABI: statuses=5 preflight=1 factory-gates=3 no-account-effects=1 experimental=1"
+      ]
+    }
+  ],
+  "actual_executions": {
+    "generated_swift": 2,
+    "c_shared": 2,
+    "c_static": 2
+  },
+  "checks": [
+    "Ten logical snapshot fields with two generated Swift roundtrips per cohort",
+    "All five history error variants generated Swift roundtrip per cohort",
+    "C status values112\u2013116 and ten logical record fields compile through checked-in header",
+    "Default factory Unsupported before malformed inputs/null client effects; C required output preflight still precedes default denial",
+    "Experimental malformed input NotReady; valid missing-account factory and pending requests RuntimeUnavailable",
+    "Empty public account list after factory refusal; Swift secret-write/load/remove callbacks fail if invoked",
+    "C output cleared on refusal and NULL frees safe; no original handle synthesized"
+  ],
+  "prior_failure": {
+    "prefix": "history-native-abi-v1",
+    "kind": "Default Swift passed; C script failed before compilation on macOS Bash3 empty-array set-u handling",
+    "results": [
+      {
+        "gate": "swift-default",
+        "exit": 0,
+        "seconds": 76.187241417123,
+        "log": "/Users/pj/project/build/history-native-abi-v1-swift-default.log",
+        "log_sha256": "4322b74a6b1e28f50a5f25eb1a09ab2fba1a7efd2ef0f3793a417db74020bd4b",
+        "source_unchanged": true,
+        "summaries": [
+          "history Swift ABI: snapshots=2 errors=5 factory-gates=3 no-account-effects=1 experimental=false"
+        ]
+      },
+      {
+        "gate": "c-default",
+        "exit": 1,
+        "seconds": 0.019808042095974088,
+        "log": "/Users/pj/project/build/history-native-abi-v1-c-default.log",
+        "log_sha256": "dc7aca0bc3e0bd65c069b22c90823ffae95b9fe5b59837485b966dabc13b2e32",
+        "source_unchanged": true,
+        "summaries": []
+      }
+    ],
+    "correction": "Explicit cargo feature branch in C smoke script; no product source change"
+  },
+  "warnings": [
+    "Static-link deployment-version and unwind-size warnings retained in raw logs; no Apple deployment compatibility qualification",
+    "Rust linker_messages warning retained without suppression"
+  ],
+  "limits": [
+    "No valid original alias/cancellation or successful native history grant/import demonstrated by these fixtures",
+    "Existing actor lifecycle/staging cleanup/final receipt/publication repairs remain separate",
+    "No SDK regeneration, Apple packaging, installed app/native UI acceptance or full-suite claim",
+    "Generated Swift/header/modulemap only temporary smoke outputs, not tracked artifacts"
+  ],
+  "post_freeze_changes": "Only this compact verification document"
+}
