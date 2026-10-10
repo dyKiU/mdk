@@ -884,6 +884,9 @@ mod private_migration_0012_selected_packages;
 #[path = "private_migrations/0013_selected_chat_reference_guards.rs"]
 mod private_migration_0013_selected_reference_guards;
 
+#[path = "private_migrations/0014_history_archive_staging.rs"]
+mod private_migration_0014_history_staging;
+
 const PRIVATE_MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -949,6 +952,11 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
         version: 13,
         name: "0013_selected_chat_reference_guards",
         apply: private_migration_0013_selected_reference_guards::apply,
+    },
+    Migration {
+        version: 14,
+        name: "0014_history_archive_staging",
+        apply: private_migration_0014_history_staging::apply,
     },
 ];
 

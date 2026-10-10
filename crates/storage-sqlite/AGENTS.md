@@ -152,3 +152,17 @@ feature-writer fixture. Original closed revision12 fixture bytes remain unchange
 while an upgrade copy exercises revision13. Full backend/production checks remain
 pending: see `docs/selected-chat-recipient-storage-hardening-focused-verification.json`
 from the repository root.
+
+Private revision14 adds `synchronized_history/archive.rs` and immutable bounded
+archive scope/fragment receipts. Keep base64 transport encoding separate from
+frozen logical chunk integrity. Exact original request/account/source/recipient/
+group binding and recipient policy are required; persisted scope cannot restore
+consent or deadlines. Only final Imported receipt and all logical/retention writes
+commit together; Staged receipts never imply imported history. Retain128 lifetime
+references including terminal rows; permanently deny cancellation and erase opaque
+payloads after cancellation/completion. Activation triggers cover both new tables.
+Preserve core102, original103–110 audit and private1–13 migration bodies.
+
+The logical importer and archive staging share transfer-ID fences: public logical
+admission cannot claim an archive reservation or cancelled ID. Only the private
+final-archive path crosses its exact Pending scope inside the same SQL transaction.

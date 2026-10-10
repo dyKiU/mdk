@@ -56,12 +56,14 @@ mod storage;
 mod synchronized_history;
 #[cfg(feature = "experimental-device-sync")]
 pub use synchronized_history::{
+    HistoryArchiveFragmentDisposition, HistoryArchiveFragmentReceipt,
+    HistoryArchiveStagingManifest, MAX_HISTORY_ARCHIVE_BYTES, MAX_HISTORY_ARCHIVE_FRAGMENT_BYTES,
     MAX_SYNCHRONIZED_HISTORY_BYTES, MAX_SYNCHRONIZED_HISTORY_CHUNK_BYTES,
     MAX_SYNCHRONIZED_HISTORY_CHUNKS, MAX_SYNCHRONIZED_HISTORY_PAGE,
     MAX_SYNCHRONIZED_HISTORY_RECORDS_PER_CHUNK, MAX_SYNCHRONIZED_HISTORY_TRANSFERS,
-    ProvenancedSynchronizedHistoryRecord, SynchronizedHistoryBinding, SynchronizedHistoryError,
-    SynchronizedHistoryImportProgress, SynchronizedHistoryManifest, SynchronizedHistoryRecord,
-    synchronized_history_chunk_digest,
+    ProvenancedSynchronizedHistoryRecord, SynchronizedHistoryArchive, SynchronizedHistoryBinding,
+    SynchronizedHistoryError, SynchronizedHistoryImportProgress, SynchronizedHistoryManifest,
+    SynchronizedHistoryRecord, synchronized_history_chunk_digest,
 };
 mod timeline;
 mod user_blocks;

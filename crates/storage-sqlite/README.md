@@ -148,6 +148,21 @@ publishes records, tombstones and retention-fence intents. Callback cancellation
 explicit cancellation permanently fences an incomplete transfer and removes its staged payloads. Both receipts and
 cancellation fences survive encrypted close/reopen.
 
+Private revision14 adds a compact version1 transport archive and ordered fragment
+staging. The logical record/chunk integrity encoding stays unchanged; transport
+payloads use canonical base64. A captured request digest, exact archive digest,
+source/recipient/account/group binding and recipient retention policy are immutable.
+Each fragment is at most1,536 bytes; the entire archive is at most196,608 bytes
+and128 fragments. Oversized archives must be rejected before recipient consent,
+without truncating records. Intermediate receipts report durable `Staged` only.
+The final `Imported` receipt, complete logical import, retention effects and
+fragment payload retirement share one SQL transaction. Exact retries retain the
+original receipt; the older logical importer also refuses archive-reserved or
+cancelled transfer IDs. Changed scope/body, out-of-order fragments and noncanonical or
+corrupt archives are refused. Permanent cancellation clears unfinished payloads;
+completed imports remain. The128 lifetime staging references include terminal
+rows, and encrypted reopen never restores original consent or its deadline.
+
 Receiving retention can shorten source expiry or require expiry when an exporter omits it. Overlapping immutable
 records converge to the earliest local expiry, and retention fences prevent replay resurrection. Conflicting logical
 bodies fail without exposing contents. Reads use bounded keyset pages.
