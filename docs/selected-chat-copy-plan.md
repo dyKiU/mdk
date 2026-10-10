@@ -123,3 +123,8 @@ Clippy/default checks and final App Clippy/format pass. Root verifies all2,421
 inputs and complete logs per RED/initial/final cohort. See
 `device-sync-selected-chat-offer-collection-verification.json`. Next is original
 request batch preparation/publication and independently guarded recipient joining.
+
+
+### First actual four-leaf new-message delivery
+
+Signed Core/Session87f7c62c and Appb5eb25da now drive the original request through actual guarded batch Add, ordinary publish-before-apply confirmation and separately lease-guarded fresh sibling joins. The real public ABC+A/D regression verifies four indexed independent MLS leaves, distinct sibling package consumption, sender projection, exact new A/B/C/D messages on every device and absence of prejoin history on B/C. The private transport source is a genuinely signed30443 event carried alongside the intact signed offer and never sent to the public directory; exact retries preserve its bytes. Final selected6/default1 plus focused delivery1 and four-package production Clippy/default all-target/fmt pass. See device-sync-selected-chat-four-leaf-delivery-verification.json for exact hashes/counts and unqualified followups. Native selected-copy bindings/UI, current-source broader Core conformance, transient SQL/blocked-publication controls and history transfer are next; InviteConfirmed does not assert recipient joins.

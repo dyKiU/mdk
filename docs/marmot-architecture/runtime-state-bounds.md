@@ -330,3 +330,8 @@ failed storage cleanup remains queued. SQL facts never restore the weak owner.
 Exclusive account reopen atomically abandons pending packages after checking each
 actual private bundle's account, signer, bytes and reference. Durable capacity
 counts terminal tombstones and fails closed at 128 rather than forgetting refs.
+
+
+### Original selected-chat publication and private transport carrier
+
+One original process-local request retains at most 127 authenticated sibling offer slots (bounded further by the actual protected roster), each with a canonical wire packet of at most16KiB and its verified event ID. Each original consent retains at most one exact signed envelope of at most16KiB; cancellation/expiry/last-handle Drop/account teardown revoke ownership without resetting deadlines. One request retains one prepared ordinary Invite, its exact pending/origin/group, frozen Commit/Welcomes under existing MLS/Invite limits, one actual ACK report and one unobserved confirmation-effects batch. ACKed slots advance rather than accumulating retry history. Negative pending cleanup is capped at128 exact identities with Weak original owners; retries retire only the exact pending or already processed local origin, never a later canonical epoch/another pending slot. These are account-local owner resources, not convergence policies or serialized grants. Durable selected-purpose tombstone bounds remain unchanged.
