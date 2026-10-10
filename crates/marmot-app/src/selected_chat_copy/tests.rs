@@ -21,6 +21,10 @@ async fn default_selected_chat_copy_is_unsupported_before_account_or_worker_effe
         Err(SelectedChatCopyError::Unsupported)
     ));
     assert!(matches!(
+        request.continue_copy(0).await,
+        Err(SelectedChatCopyError::Unsupported)
+    ));
+    assert!(matches!(
         request.cancel().await,
         Err(SelectedChatCopyError::Unsupported)
     ));
@@ -159,8 +163,24 @@ mod actual {
         .expect("all original native devices must settle their actual complete indexed roster");
     }
 
-    #[tokio::test]
-    async fn selected_chat_copy_requires_explicit_request_after_public_three_device_linking() {
+    struct SelectedChatFixture {
+        _relay: nostr_relay_builder::LocalRelay,
+        dirs: [tempfile::TempDir; 3],
+        _d_dir: tempfile::TempDir,
+        url: String,
+        apps: [MarmotApp; 3],
+        runtimes: [MarmotAppRuntime; 3],
+        d_app: MarmotApp,
+        d_runtime: MarmotAppRuntime,
+        chat: cgka_traits::GroupId,
+        chat_hex: String,
+        before_id: String,
+        _a: DeviceLinkingSession,
+        _c: DeviceLinkingSession,
+        _approval: DeviceLinkingApproval,
+    }
+
+    async fn actual_selected_chat_fixture() -> SelectedChatFixture {
         let relay =
             nostr_relay_builder::LocalRelay::new(nostr_relay_builder::RelayBuilder::default());
         relay.run().await.unwrap();
@@ -342,6 +362,43 @@ mod actual {
                     .is_none()
             );
         }
+        SelectedChatFixture {
+            _relay: relay,
+            dirs,
+            _d_dir: d_dir,
+            url,
+            apps,
+            runtimes,
+            d_app,
+            d_runtime,
+            chat,
+            chat_hex,
+            before_id,
+            _a: a,
+            _c: c,
+            _approval: approval,
+        }
+    }
+
+    #[tokio::test]
+    async fn selected_chat_copy_requires_explicit_request_after_public_three_device_linking() {
+        let SelectedChatFixture {
+            _relay: relay,
+            dirs,
+            _d_dir,
+            url,
+            apps,
+            runtimes,
+            d_app: _,
+            d_runtime,
+            chat,
+            chat_hex,
+            before_id,
+            _a,
+            _c,
+            _approval,
+        } = actual_selected_chat_fixture().await;
+        let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
         // D is a genuinely joined nonadmin of this actual Current A/D chat.
         // Refuse its ordinary role before any protected-roster target lookup.
         let role = d_runtime.group_roster("test", &chat).await.unwrap();
@@ -560,11 +617,33 @@ mod actual {
             // Flip a decimal value, retaining valid canonical JSON and byte range.
             forged[end - 1] ^= 1;
             let _: serde_json::Value = serde_json::from_slice(&forged).unwrap();
+            let mut invalid_carriers = Vec::new();
+            // Mutations retain canonical framing, so they reach authenticated
+            // transport identity/content/reference validation rather than a
+            // malformed JSON rejection.
+            for marker in [b"\"sig\":\"".as_slice(), b"\"content\":\"", b"[\"i\",\""] {
+                let position = offer
+                    .windows(marker.len())
+                    .position(|bytes| bytes == marker)
+                    .unwrap()
+                    + marker.len();
+                let mut changed = offer.clone();
+                changed[position] = if changed[position] == b'0' {
+                    b'1'
+                } else {
+                    b'0'
+                };
+                let _: serde_json::Value = serde_json::from_slice(&changed).unwrap();
+                invalid_carriers.push(changed);
+            }
             for invalid in [
                 offer[..offer.len() - 1].to_vec(),
                 vec![0; cgka_engine::selected_chat_consent::MAX_SELECTED_CHAT_PACKET_BYTES + 1],
                 forged,
-            ] {
+            ]
+            .into_iter()
+            .chain(invalid_carriers)
+            {
                 assert!(matches!(
                     request.receive_offer_packet(revision, invalid).await,
                     Err(crate::SelectedChatCopyError::InvalidPacket)
@@ -793,5 +872,221 @@ mod actual {
         drop(reopened);
         d_runtime.shutdown_and_close().await.unwrap();
         relay.shutdown();
+    }
+    #[tokio::test]
+    async fn selected_chat_copy_admits_original_siblings_and_delivers_new_messages() {
+        let fixture = actual_selected_chat_fixture().await;
+        let directory_reader = nostr_sdk::prelude::Client::builder().build();
+        directory_reader
+            .add_relay(fixture.url.clone())
+            .capabilities(nostr_sdk::prelude::RelayCapabilities::READ)
+            .await
+            .unwrap();
+        directory_reader.connect().await;
+        let public_packages_before =
+            directory_reader
+                .fetch_events(nostr_sdk::prelude::ReqTarget::single(
+                    fixture.url.as_str(),
+                    [nostr_sdk::prelude::Filter::new()
+                        .kind(nostr_sdk::prelude::Kind::Custom(30_443))],
+                ))
+                .timeout(std::time::Duration::from_secs(5))
+                .await
+                .unwrap();
+        assert!(
+            !public_packages_before.is_empty(),
+            "D's ordinary public package is the directory baseline"
+        );
+        let managers = fixture
+            .runtimes
+            .each_ref()
+            .map(|runtime| runtime.accounts());
+        let target = managers[0]
+            .device_linking_targets("test")
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        let request = managers[0]
+            .begin_selected_chat_copy("test", &fixture.chat, target.selector)
+            .await
+            .unwrap();
+        let packet = request
+            .request_packet(request.snapshot().await.unwrap().revision)
+            .await
+            .unwrap();
+        let mut original_consents = Vec::new();
+        for manager in &managers[1..] {
+            let consent = manager
+                .receive_selected_chat_copy_request("test", packet.clone())
+                .await
+                .unwrap();
+            consent
+                .approve(consent.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+            let response = consent
+                .response_packet(consent.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+            request
+                .receive_consent_packet(request.snapshot().await.unwrap().revision, response)
+                .await
+                .unwrap();
+            let offer = consent
+                .offer_packet(consent.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+            request
+                .receive_offer_packet(request.snapshot().await.unwrap().revision, offer)
+                .await
+                .unwrap();
+            original_consents.push(consent);
+        }
+        assert_eq!(request.snapshot().await.unwrap().offered_sibling_count, 2);
+        request.continue_copy(request.snapshot().await.unwrap().revision).await
+            .expect("the original selected request and explicit sibling consents must admit both fresh device leaves");
+        let public_packages_after =
+            directory_reader
+                .fetch_events(nostr_sdk::prelude::ReqTarget::single(
+                    fixture.url.as_str(),
+                    [nostr_sdk::prelude::Filter::new()
+                        .kind(nostr_sdk::prelude::Kind::Custom(30_443))],
+                ))
+                .timeout(std::time::Duration::from_secs(5))
+                .await
+                .unwrap();
+        assert_eq!(
+            public_packages_after.len(),
+            public_packages_before.len(),
+            "selected private package metadata must not publish additional public directory events"
+        );
+        let actual_epoch = managers[0]
+            .group_mls_state("test", &fixture.chat)
+            .await
+            .unwrap()
+            .epoch;
+        let displayed = fixture.apps[0]
+            .group("test", &fixture.chat_hex)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            displayed.nostr_routing_last_epoch, actual_epoch,
+            "the original sender's ordinary chat projection must reflect its confirmed Add before reporting success"
+        );
+        let all_apps = [
+            &fixture.apps[0],
+            &fixture.apps[1],
+            &fixture.apps[2],
+            &fixture.d_app,
+        ];
+        let all_runtimes = [
+            &fixture.runtimes[0],
+            &fixture.runtimes[1],
+            &fixture.runtimes[2],
+            &fixture.d_runtime,
+        ];
+        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                let mut complete = true;
+                for runtime in all_runtimes {
+                    complete &= runtime
+                        .group_mls_state("test", &fixture.chat)
+                        .await
+                        .is_ok_and(|state| {
+                            state.member_count == 4
+                                && state.protocol_profile == crate::AppProtocolProfile::Current
+                        });
+                }
+                if complete {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("all four independent MLS copies must adopt the actual selected Add");
+        let mut own_indices = std::collections::BTreeSet::new();
+        let mut own_signers = std::collections::BTreeSet::new();
+        for app in all_apps {
+            let storage = app.account_storage("test").unwrap();
+            let group = openmls::group::MlsGroup::load(
+                storage.mls_storage(),
+                &openmls::group::GroupId::from_slice(fixture.chat.as_slice()),
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(group.members().count(), 4);
+            assert!(own_indices.insert(group.own_leaf_index().u32()));
+            assert!(
+                own_signers.insert(
+                    group
+                        .own_leaf_node()
+                        .unwrap()
+                        .signature_key()
+                        .as_slice()
+                        .to_vec()
+                )
+            );
+        }
+        let mut consumed_refs = std::collections::BTreeSet::new();
+        for app in &fixture.apps[1..] {
+            let storage = app.account_storage("test").unwrap();
+            let rows = storage
+                .selected_chat_key_package_storage()
+                .unwrap()
+                .selected_chat_key_packages()
+                .unwrap();
+            assert_eq!(rows.len(), 1);
+            assert!(
+                rows[0].state
+                    == cgka_traits::selected_chat_key_package::SelectedChatPurposeState::Consumed
+            );
+            assert!(consumed_refs.insert(rows[0].reference));
+            assert!(
+                app.timeline_message("test", &fixture.chat_hex, &fixture.before_id)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        for (sender, runtime) in all_runtimes.into_iter().enumerate() {
+            let payload = format!("fresh selected chat message from independent leaf {sender}");
+            let published = runtime
+                .send_message("test", &fixture.chat, payload.as_bytes().to_vec())
+                .await
+                .unwrap();
+            assert_eq!(published.message_ids.len(), 1);
+            let id = &published.message_ids[0];
+            tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                loop {
+                    if all_apps.iter().all(|app| {
+                        app.timeline_message("test", &fixture.chat_hex, id)
+                            .unwrap()
+                            .is_some_and(|message| {
+                                message.message_id_hex == *id && message.plaintext == payload
+                            })
+                    }) {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .expect(
+                "each authenticated event ID and payload must project on every intended device",
+            );
+        }
+        for app in &fixture.apps[1..] {
+            assert!(
+                app.timeline_message("test", &fixture.chat_hex, &fixture.before_id)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        directory_reader.shutdown().await;
+        for runtime in all_runtimes {
+            runtime.shutdown_and_close().await.unwrap();
+        }
+        drop(original_consents);
     }
 }

@@ -3336,6 +3336,16 @@ fn push_eose_repair_report(transport: &RelayPlaneTransport, report: EoseRepairRe
 }
 
 impl MarmotRelayPlaneAccountAdapter {
+    /// Direct selected-chat publication under its original owner. Relay ACKs do
+    /// not manufacture an inbound echo, recipient join or generic queued retry.
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) async fn publish_selected_chat(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        self.publish_with_local_mirror(request, false).await
+    }
+
     /// Private COMMIT relay acknowledgments must not manufacture an inbound echo.
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) async fn publish_private_commit(

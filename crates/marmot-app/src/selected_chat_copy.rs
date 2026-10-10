@@ -31,6 +31,8 @@ pub enum SelectedChatCopyPhase {
     Cancelled,
     Expired,
     Closed,
+    /// The original ordinary Add is confirmed; recipient joins are independent.
+    InviteConfirmed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -157,6 +159,20 @@ impl SelectedChatConsent {
 }
 
 impl SelectedChatCopy {
+    /// Continue only this original explicit selected-chat request.
+    pub async fn continue_copy(&self, revision: u64) -> Result<(), SelectedChatCopyError> {
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            self.manager
+                .selected_request_continue(&self.account, self.inner.clone(), revision)
+                .await
+        }
+        #[cfg(not(feature = "experimental-device-sync"))]
+        {
+            let _ = revision;
+            Err(SelectedChatCopyError::Unsupported)
+        }
+    }
     /// Collect a signed private package offer without granting membership.
     pub async fn receive_offer_packet(
         &self,

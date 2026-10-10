@@ -4,8 +4,16 @@ use crate::selected_chat_copy::{SelectedChatCopyError, enabled::OrdinaryChatAnch
 use cgka_session::AccountDeviceSession;
 use cgka_traits::{GroupId, GroupLifecycleState, group::ProtocolProfile};
 use sha2::{Digest, Sha256};
+mod carrier;
 mod collection;
+mod publication;
+mod recipient;
 
+impl From<cgka_traits::EngineError> for SelectedChatCopyError {
+    fn from(_: cgka_traits::EngineError) -> Self {
+        Self::RuntimeUnavailable
+    }
+}
 impl From<cgka_traits::StorageError> for SelectedChatCopyError {
     fn from(_: cgka_traits::StorageError) -> Self {
         Self::RuntimeUnavailable
@@ -70,12 +78,22 @@ fn ordinary_anchor(
 }
 
 impl AppClient {
-    pub(crate) fn selected_consent_offer(
+    pub(crate) async fn selected_consent_offer(
         &mut self,
         original: &std::sync::Arc<crate::selected_chat_copy::enabled::ConsentState>,
         revision: u64,
     ) -> Result<Vec<u8>, SelectedChatCopyError> {
         let response = self.selected_consent_response(original, revision)?;
+        let cached = original
+            .progress
+            .lock()
+            .expect("selected carrier retry")
+            .offer
+            .clone();
+        if let Some(wire) = cached {
+            self.fresh_selected_consent(original, revision)?;
+            return Ok(wire);
+        }
         let mut lease = OriginalPackageLease {
             original: original.clone(),
             revision,
@@ -109,7 +127,25 @@ impl AppClient {
                 .clear_package_cleanup(&reference);
             return Err(error);
         }
-        Ok(wire)
+        let carrier = self
+            .sign_selected_offer_carrier(original, &response, &wire)
+            .await?;
+        if let Err(error) = self.fresh_selected_consent(original, revision) {
+            original.cancel();
+            self.runtime
+                .session()
+                .retire_selected_chat_package(&scope, &reference)?;
+            self.selected_chat_copy_owner
+                .clear_package_cleanup(&reference);
+            return Err(error);
+        }
+        original
+            .progress
+            .lock()
+            .expect("selected carrier retention")
+            .offer = Some(carrier.clone());
+        self.install_selected_recipient(original, revision, scope, reference);
+        Ok(carrier)
     }
     pub(crate) fn maintain_selected_chat_packages(
         &mut self,

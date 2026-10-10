@@ -19,6 +19,8 @@ impl AppClient {
         {
             return Err(SelectedChatCopyError::InvalidPacket);
         }
+        let carrier = super::carrier::decode(packet)?;
+        let inner = carrier.offer.get().as_bytes();
         let progress = original.progress.lock().expect("selected offer collection");
         let request = progress
             .packet
@@ -40,7 +42,7 @@ impl AppClient {
             match self
                 .runtime
                 .session()
-                .authenticate_selected_chat_offer(&request, &response, packet)
+                .authenticate_selected_chat_offer(&request, &response, inner)
             {
                 Ok(offer) if offer.source_index() == index => {
                     authenticated = Some(offer);
@@ -53,6 +55,7 @@ impl AppClient {
             }
         }
         let offer = authenticated.ok_or(SelectedChatCopyError::InvalidPacket)?;
+        let package_event_id = super::carrier::verify(&carrier.event, &offer)?;
         self.fresh_selected_request(original, revision)?;
         let mut progress = original.progress.lock().expect("selected offer collection");
         if let Some(prior) = progress.offers.get(&offer.source_index()) {
@@ -70,6 +73,7 @@ impl AppClient {
             CollectedOffer {
                 wire: packet.to_vec(),
                 observation: Arc::new(offer),
+                package_event_id,
             },
         );
         Ok(())

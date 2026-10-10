@@ -64,6 +64,7 @@ impl OwnerLease {
 pub(crate) struct RequestState {
     lease: OwnerLease,
     sibling_count: u32,
+    cancelled: tokio::sync::Notify,
     // Read-only captured selections, never SDK consent or recipient permission.
     pub(crate) _ordinary: OrdinaryChatAnchor,
     pub(crate) _protected: cgka_engine::device_group_snapshot::CandidateDeviceGroupSnapshot,
@@ -76,10 +77,23 @@ pub(crate) struct RequestProgress {
     pub(crate) packet: Option<Vec<u8>>,
     pub(crate) receipts: std::collections::HashMap<u32, ([u8; 32], Vec<u8>)>,
     pub(crate) offers: std::collections::HashMap<u32, CollectedOffer>,
+    pub(crate) invite: Option<PreparedSelectedInvite>,
+}
+// Retained only by this original process-local request; never durable permission.
+pub(crate) struct PreparedSelectedInvite {
+    pub(crate) pending: cgka_traits::PendingStateRef,
+    pub(crate) origin: cgka_traits::MessageId,
+    pub(crate) message: cgka_traits::TransportMessage,
+    pub(crate) welcomes: Vec<cgka_traits::TransportMessage>,
+    pub(crate) commit_report: Option<cgka_traits::TransportPublishReport>,
+    pub(crate) confirmed_effects: Option<cgka_session::SessionEffects>,
+    pub(crate) confirmed: bool,
+    pub(crate) next_welcome: usize,
 }
 pub(crate) struct CollectedOffer {
     pub(crate) wire: Vec<u8>,
     pub(crate) observation: Arc<cgka_engine::selected_chat_consent::AuthenticatedSelectedChatOffer>,
+    pub(crate) package_event_id: cgka_traits::MessageId,
 }
 impl RequestState {
     pub(crate) fn check_revision(&self, revision: u64) -> Result<(), SelectedChatCopyError> {
@@ -93,15 +107,36 @@ impl RequestState {
         Ok(())
     }
 
+    pub(crate) fn check_live_revision(&self, revision: u64) -> Result<(), SelectedChatCopyError> {
+        if self.lease.phase() != SelectedChatCopyPhase::AwaitingSiblingConsent {
+            return Err(SelectedChatCopyError::Closed);
+        }
+        if self.snapshot().revision != revision {
+            return Err(SelectedChatCopyError::StaleRevision);
+        }
+        Ok(())
+    }
+    pub(crate) fn is_live(&self) -> bool {
+        self.lease.phase() == SelectedChatCopyPhase::AwaitingSiblingConsent
+    }
     pub(crate) fn snapshot(&self) -> SelectedChatCopySnapshot {
         let progress = self.progress.lock().expect("selected request observation");
-        let phase = self.lease.phase();
+        let lease_phase = self.lease.phase();
+        let confirmed = progress
+            .invite
+            .as_ref()
+            .is_some_and(|invite| invite.confirmed);
+        let phase = if lease_phase == SelectedChatCopyPhase::AwaitingSiblingConsent && confirmed {
+            SelectedChatCopyPhase::InviteConfirmed
+        } else {
+            lease_phase
+        };
         SelectedChatCopySnapshot {
-            revision: if phase == SelectedChatCopyPhase::AwaitingSiblingConsent {
-                1 + progress.receipts.len() as u64 + progress.offers.len() as u64
-            } else {
-                2 + progress.receipts.len() as u64 + progress.offers.len() as u64
-            },
+            revision: 1
+                + progress.receipts.len() as u64
+                + progress.offers.len() as u64
+                + u64::from(confirmed)
+                + u64::from(lease_phase != SelectedChatCopyPhase::AwaitingSiblingConsent),
             phase,
             sibling_count: self.sibling_count,
             consenting_sibling_count: progress.receipts.len() as u32,
@@ -110,14 +145,35 @@ impl RequestState {
     }
     pub(crate) fn cancel(&self) {
         self.lease.cancel();
+        self.cancelled.notify_waiters();
+    }
+    pub(crate) async fn revoked(&self) {
+        let notified = self.cancelled.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if !self.is_live() {
+            return;
+        }
+        tokio::select! {
+            _ = &mut notified => {},
+            _ = tokio::time::sleep_until(self.lease.original_deadline.into()) => {},
+        }
     }
 }
 
+pub(crate) struct SelectedPendingCleanup {
+    pub(crate) pending: cgka_traits::PendingStateRef,
+    pub(crate) origin: cgka_traits::MessageId,
+    pub(crate) group: GroupId,
+    owner: Weak<RequestState>,
+}
 pub(crate) struct AccountCopyOwner {
     lifetime: Arc<AtomicU64>,
     current: Option<Weak<RequestState>>,
     consent_lifetime: Arc<AtomicU64>,
     consent_history: std::collections::HashMap<[u8; 32], (Instant, Weak<ConsentState>)>,
+    pending_cleanup:
+        std::collections::HashMap<cgka_traits::PendingStateRef, SelectedPendingCleanup>,
     package_cleanup: std::collections::HashMap<
         [u8; 32],
         (
@@ -134,10 +190,61 @@ impl Default for AccountCopyOwner {
             consent_lifetime: Arc::new(AtomicU64::new(0)),
             consent_history: std::collections::HashMap::new(),
             package_cleanup: std::collections::HashMap::new(),
+            pending_cleanup: std::collections::HashMap::new(),
         }
     }
 }
 impl AccountCopyOwner {
+    pub(crate) fn check_pending_capacity(&self) -> Result<(), SelectedChatCopyError> {
+        if self.pending_cleanup.len() >= MAX_SELECTED_CHAT_RECEIPT_IDENTITIES {
+            return Err(SelectedChatCopyError::Busy);
+        }
+        Ok(())
+    }
+    pub(crate) fn register_pending_cleanup(
+        &mut self,
+        original: &Arc<RequestState>,
+        pending: cgka_traits::PendingStateRef,
+        origin: cgka_traits::MessageId,
+        group: GroupId,
+    ) -> Result<(), SelectedChatCopyError> {
+        if !self.pending_cleanup.contains_key(&pending)
+            && self.pending_cleanup.len() >= MAX_SELECTED_CHAT_RECEIPT_IDENTITIES
+        {
+            return Err(SelectedChatCopyError::Busy);
+        }
+        self.pending_cleanup.insert(
+            pending,
+            SelectedPendingCleanup {
+                pending,
+                origin,
+                group,
+                owner: Arc::downgrade(original),
+            },
+        );
+        Ok(())
+    }
+    pub(crate) fn pending_to_retire(
+        &self,
+    ) -> Vec<(
+        cgka_traits::PendingStateRef,
+        cgka_traits::MessageId,
+        GroupId,
+    )> {
+        self.pending_cleanup
+            .values()
+            .filter(|entry| {
+                !entry
+                    .owner
+                    .upgrade()
+                    .is_some_and(|original| original.is_live())
+            })
+            .map(|entry| (entry.pending, entry.origin.clone(), entry.group.clone()))
+            .collect()
+    }
+    pub(crate) fn clear_pending_cleanup(&mut self, pending: cgka_traits::PendingStateRef) {
+        self.pending_cleanup.remove(&pending);
+    }
     pub(crate) fn register_package_cleanup(
         &mut self,
         original: &Arc<ConsentState>,
@@ -223,6 +330,7 @@ impl AccountCopyOwner {
                 original_deadline: deadline,
                 terminal: AtomicU8::new(0),
             },
+            cancelled: tokio::sync::Notify::new(),
             observation,
             packet,
             protected_generation,
@@ -243,9 +351,7 @@ impl AccountCopyOwner {
             .current
             .as_ref()
             .and_then(Weak::upgrade)
-            .is_some_and(|request| {
-                request.snapshot().phase == SelectedChatCopyPhase::AwaitingSiblingConsent
-            })
+            .is_some_and(|request| request.is_live())
         {
             return Err(SelectedChatCopyError::Busy);
         }
@@ -275,6 +381,7 @@ impl AccountCopyOwner {
                 terminal: AtomicU8::new(0),
             },
             sibling_count,
+            cancelled: tokio::sync::Notify::new(),
             _ordinary: ordinary,
             _protected: protected.candidate().clone(),
             _protected_generation: protected.settlement_generation(),
@@ -297,11 +404,13 @@ impl Drop for ConsentHandle {
 }
 #[derive(Default)]
 pub(crate) struct ConsentProgress {
+    pub(crate) offer: Option<Vec<u8>>,
     pub(crate) nonce: Option<[u8; 32]>,
     pub(crate) response: Option<Vec<u8>>,
 }
 pub(crate) struct ConsentState {
     lease: OwnerLease,
+    cancelled: tokio::sync::Notify,
     pub(crate) observation: cgka_engine::selected_chat_consent::AuthenticatedSelectedChatRequest,
     pub(crate) packet: Vec<u8>,
     pub(crate) protected_generation: u64,
@@ -328,6 +437,19 @@ impl ConsentState {
     }
     pub(crate) fn cancel(&self) {
         self.lease.cancel();
+        self.cancelled.notify_waiters();
+    }
+    pub(crate) async fn revoked(&self) {
+        let notified = self.cancelled.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if !self.is_live() {
+            return;
+        }
+        tokio::select! {
+            _ = &mut notified => {},
+            _ = tokio::time::sleep_until(self.lease.original_deadline.into()) => {},
+        }
     }
     pub(crate) fn snapshot(&self) -> super::SelectedChatConsentSnapshot {
         let approved = self
@@ -345,7 +467,9 @@ impl ConsentState {
             }
             SelectedChatCopyPhase::Cancelled => super::SelectedChatConsentPhase::Cancelled,
             SelectedChatCopyPhase::Expired => super::SelectedChatConsentPhase::Expired,
-            SelectedChatCopyPhase::Closed => super::SelectedChatConsentPhase::Closed,
+            SelectedChatCopyPhase::Closed | SelectedChatCopyPhase::InviteConfirmed => {
+                super::SelectedChatConsentPhase::Closed
+            }
         };
         super::SelectedChatConsentSnapshot {
             revision: if self.is_live() {

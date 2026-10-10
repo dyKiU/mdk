@@ -4680,7 +4680,7 @@ fn account_worker_command_future<'a>(
     match command {
         #[cfg(feature = "experimental-device-sync")]
         AccountWorkerCommand::SelectedChatConsent(command) => Box::pin(async move {
-            super::selected_chat_copy::handle_consent(client, *command);
+            super::selected_chat_copy::handle_consent(client, *command).await;
             false
         }),
         #[cfg(feature = "experimental-device-sync")]

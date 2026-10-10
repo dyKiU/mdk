@@ -3,6 +3,7 @@ use super::{AccountManager, AccountWorkerCommand};
 use crate::selected_chat_copy::{SelectedChatCopy, SelectedChatCopyError};
 use cgka_traits::GroupId;
 use tokio::sync::oneshot;
+mod publication;
 
 impl AccountManager {
     pub(crate) async fn begin_owned_selected_chat_copy(
@@ -52,6 +53,11 @@ use crate::selected_chat_copy::{
 use std::sync::Arc;
 type Reply<T> = oneshot::Sender<Result<T, SelectedChatCopyError>>;
 pub(crate) enum ConsentCommand {
+    Continue {
+        original: Arc<RequestState>,
+        revision: u64,
+        respond: Reply<()>,
+    },
     RequestPacket {
         original: Arc<RequestState>,
         revision: u64,
@@ -89,8 +95,15 @@ pub(crate) enum ConsentCommand {
         respond: Reply<Vec<u8>>,
     },
 }
-pub(crate) fn handle_consent(client: &mut crate::AppClient, command: ConsentCommand) {
+pub(crate) async fn handle_consent(client: &mut crate::AppClient, command: ConsentCommand) {
     match command {
+        ConsentCommand::Continue {
+            original,
+            revision,
+            respond,
+        } => {
+            publication::handle(client, original, revision, respond).await;
+        }
         ConsentCommand::CollectOffer {
             original,
             revision,
@@ -180,16 +193,19 @@ pub(crate) fn handle_consent(client: &mut crate::AppClient, command: ConsentComm
         ConsentCommand::Offer {
             original,
             revision,
-            respond,
+            mut respond,
         } => {
             if respond.is_closed() {
                 original.cancel();
                 return;
             }
-            if respond
-                .send(client.selected_consent_offer(&original, revision))
-                .is_err()
-            {
+            let result = tokio::select! {
+                biased;
+                _ = respond.closed() => { original.cancel(); return; }
+                _ = original.revoked() => { original.cancel(); return; }
+                result = client.selected_consent_offer(&original, revision) => result,
+            };
+            if respond.send(result).is_err() {
                 original.cancel();
             }
         }
