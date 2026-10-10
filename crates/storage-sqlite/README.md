@@ -494,3 +494,20 @@ metadata never mints live admission; Engine must independently validate protecte
 origin/current tree and a fixed monotonic live round. No deadline or SDK permission
 is serialized. The account owner must explicitly abandon unfinished rounds on
 authoritative exclusive startup; storage does not run that lifecycle hook itself.
+
+## Selected-chat recipient storage foundation
+
+The private experimental profile adds independent per-chat recipient facts in
+private revision12. They retain exact account/device/request ownership, bounded
+public package metadata and terminal references separately from pairing packages
+and group snapshots. Exact Pending retries and transaction rollback are supported;
+configured identity replacement cannot reuse a retained original owner. Default
+`StorageProvider` access is unavailable. Rows do not grant admission or recreate
+consent. Core must separately qualify fresh MLS package creation, exact private
+key cleanup and original-action guarded Welcome joining.
+
+This foundation passes four feature tests, one default-denial test and all167
+traits tests. Full backend qualification is still running. Additional SQL mutation
+guards and canonical roster validation are a separate pending hardening slice.
+See [focused verification](../../docs/selected-chat-recipient-storage-focused-verification.json)
+for the original RED, frozen inputs, commands, counts and remaining checks.

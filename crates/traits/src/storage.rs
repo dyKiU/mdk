@@ -1107,6 +1107,13 @@ pub trait StorageProvider:
         None
     }
 
+    /// Optional independent selected-chat purpose facts. Defaults unavailable.
+    fn selected_chat_key_package_storage(
+        &self,
+    ) -> Option<&dyn crate::selected_chat_key_package::SelectedChatKeyPackageStorage> {
+        None
+    }
+
     /// Run a storage operation inside one backend transaction when the backend
     /// supports it. Backends without transactional support use the closure
     /// directly; SQLite overrides this so multi-write OpenMLS transitions are

@@ -130,3 +130,9 @@ marker; no metadata row reconstructs consent. Core102 and original103–110 stay
 unchanged. Synthetic persistence tests are separate from genuine SDK B proof.
 
 Settlement JSON retains at most one deferred ACK per actual remote non-coordinator leaf. Exact generation, indexed signer, message bounds and nonzero claimed nonce are checked. Deferral never binds nonce or adds counted facts; denial/startup abandonment/reselection clears it. Only trusted Core under original live admission promotes nonce-matching receipts after the genuine coordinator Challenge in the same crypto SQL transaction. Legacy JSON without the field remains readable.
+
+`src/selected_chat_key_package.rs` holds independent selected-chat recipient facts
+in private revision12. Terminal rows count toward the128-row capacity and retain
+the original owner across configured identity changes. Metadata never grants
+joining or reconstructs consent. Core owns exact private-bundle cleanup within
+the same SQL transaction. Do not alias pairing-purpose storage or group snapshots.

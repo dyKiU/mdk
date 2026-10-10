@@ -142,6 +142,7 @@ const _: fn(Box<dyn TransportAdapter + Send + Sync>) = |_| {};
 pub mod reporting;
 
 pub mod device_linking_key_package;
+pub mod selected_chat_key_package;
 
 pub mod roster_ack_capture;
 

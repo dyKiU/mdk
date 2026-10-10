@@ -878,6 +878,9 @@ mod private_migration_0010_settlement;
 #[path = "private_migrations/0011_existing_device_group_anchor.rs"]
 mod private_migration_0011_existing_anchor;
 
+#[path = "private_migrations/0012_selected_chat_key_packages.rs"]
+mod private_migration_0012_selected_packages;
+
 const PRIVATE_MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -933,6 +936,11 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
         version: 11,
         name: "0011_existing_device_group_anchor",
         apply: private_migration_0011_existing_anchor::apply,
+    },
+    Migration {
+        version: 12,
+        name: "0012_selected_chat_key_packages",
+        apply: private_migration_0012_selected_packages::apply,
     },
 ];
 
