@@ -263,21 +263,32 @@ async fn history_channel_fresh_ordinary_epoch_and_local_completed_generation_are
 fn received_history(engine: &mut TestEngine, protected: &GroupId) -> Vec<u8> {
     use cgka_traits::app_event::MarmotAppEvent;
     use cgka_traits::engine::GroupEvent;
-    let payload = engine
+    let (payload, proof) = engine
         .drain_events()
         .into_iter()
         .find_map(|e| match e {
             GroupEvent::MessageReceived {
                 group_id,
-                source_leaf: Some(_),
+                source_leaf: Some(proof),
                 payload,
                 ..
-            } if &group_id == protected => Some(payload),
+            } if &group_id == protected => Some((payload, proof)),
             _ => None,
         })
         .expect("actual protected member application source");
     let event = MarmotAppEvent::decode(&payload).unwrap();
     assert_eq!(event.kind, HISTORY_CONTROL_KIND);
+    let metadata = engine
+        .authenticate_received_history_control(protected, &proof, event.content.as_bytes())
+        .unwrap();
+    assert_eq!(metadata.signer, proof.signature_public_key);
+    let mut foreign = proof.clone();
+    foreign.epoch.0 += 1;
+    assert!(
+        engine
+            .authenticate_received_history_control(protected, &foreign, event.content.as_bytes())
+            .is_err()
+    );
     event.content.into_bytes()
 }
 async fn wrap_retry(
@@ -633,7 +644,10 @@ async fn history_channel_chunk_substitution_cannot_bind_an_unopened_original() {
             4 => frame.source_generation += 1,
             _ => unreachable!(),
         }
+        frame.signature.clear();
         let altered = a.history_sign(frame).unwrap();
+        b.history_verify(decode(&altered).unwrap())
+            .expect("substitution must have a genuine current-leaf signature");
         assert!(
             b.open_history_chunk(&mut recipient, &altered).is_err(),
             "same unbound original case {case}"
@@ -645,4 +659,71 @@ async fn history_channel_chunk_substitution_cannot_bind_an_unopened_original() {
             b"exact original archive"
         );
     }
+}
+
+#[tokio::test]
+async fn history_channel_snapshot_descriptor_is_original_signed_context_and_fragment_bound() {
+    let (a, b, p, o) = fixture().await;
+    let body = vec![7; 1536];
+    let descriptor = HistorySnapshotDescriptor {
+        archive_digest: Sha256::digest(&body).into(),
+        timestamp_ceiling: 123,
+        encoded_bytes: body.len() as u32,
+        fragment_count: 1,
+        record_count: 1,
+    };
+    let mut source = a
+        .begin_history_snapshot_channel(&o, &p, b.identity.signer.public(), Lease::new(), &|_| {
+            Ok(descriptor.clone())
+        })
+        .unwrap();
+    let request = b
+        .authenticate_history_request(&source.request_packet().unwrap())
+        .unwrap();
+    assert!(request.scope().snapshot.as_ref() == Some(&descriptor));
+    let mut recipient = b.approve_history_channel(&request, Lease::new()).unwrap();
+    let consent = recipient.consent_packet().unwrap();
+    let mut changed = decode(&consent).unwrap();
+    changed.snapshot.as_mut().unwrap().record_count += 1;
+    changed.signature.clear();
+    let changed = b.history_sign(changed).unwrap();
+    a.history_verify(decode(&changed).unwrap())
+        .expect("descriptor substitution must remain genuinely signed");
+    assert!(a.bind_history_consent(&mut source, &changed).is_err());
+    assert!(source.consent.is_none());
+    a.bind_history_consent(&mut source, &consent).unwrap();
+    assert!(
+        a.seal_history_chunk(&mut source, [8; 32], 0, &body, false)
+            .is_err()
+    );
+    assert!(
+        a.seal_history_chunk(
+            &mut source,
+            descriptor.archive_digest,
+            0,
+            &body[..1535],
+            false
+        )
+        .is_err()
+    );
+    assert!(source.sealed_chunks.is_empty());
+    let wire = a
+        .seal_history_chunk(&mut source, descriptor.archive_digest, 0, &body, false)
+        .unwrap();
+    assert_eq!(
+        b.open_history_chunk(&mut recipient, &wire).unwrap().body,
+        body
+    );
+    let mut invalid = descriptor;
+    invalid.fragment_count = 2;
+    assert!(
+        a.begin_history_snapshot_channel(
+            &o,
+            &p,
+            b.identity.signer.public(),
+            Lease::new(),
+            &|_| Ok(invalid.clone())
+        )
+        .is_err()
+    );
 }

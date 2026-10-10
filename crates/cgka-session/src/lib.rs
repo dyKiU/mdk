@@ -39,6 +39,9 @@ use storage_sqlite::{
     MessageFormatPromotionProgress, SqlCipherKey, SqliteAccountStorage, SqliteStorageOptions,
 };
 
+#[cfg(feature = "experimental-device-sync")]
+mod history_transfer;
+
 const TRACE_TARGET: &str = "cgka_session::session";
 
 pub type SessionResult<T> = Result<T, SessionError>;
