@@ -977,6 +977,10 @@ mod actual {
     async fn group_device_revocation_requires_fresh_original_for_exact_same_account_leaf() {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceLeafRevocation).await;
     }
+    #[tokio::test]
+    async fn group_device_revocation_approved_original_removes_only_one_occupied_leaf() {
+        selected_chat_delivery(RecipientAdmissionScenario::DeviceLeafRemoval).await;
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
         None,
@@ -985,6 +989,7 @@ mod actual {
         Expire,
         ForeignPackageEvent,
         DeviceLeafRevocation,
+        DeviceLeafRemoval,
         HistoryTransfer,
         HistoryRequestReplay,
         HistoryRequestReopen,
@@ -1384,7 +1389,11 @@ mod actual {
                     .is_none()
             );
         }
-        if scenario == RecipientAdmissionScenario::DeviceLeafRevocation {
+        if matches!(
+            scenario,
+            RecipientAdmissionScenario::DeviceLeafRevocation
+                | RecipientAdmissionScenario::DeviceLeafRemoval
+        ) {
             let recipient_storage = fixture.apps[2].account_storage("test").unwrap();
             let recipient_group = openmls::group::MlsGroup::load(
                 recipient_storage.mls_storage(),
@@ -1501,6 +1510,90 @@ mod actual {
                 .await
                 .unwrap();
             assert_eq!(fresh.snapshot().await.unwrap().epoch, review.epoch + 1);
+            if scenario == RecipientAdmissionScenario::DeviceLeafRemoval {
+                let displayed = fresh.snapshot().await.unwrap();
+                let approved = fresh.approve(displayed.revision).await;
+                assert!(
+                    approved.is_ok(),
+                    "explicit approval of the exact original review must publish one exact-leaf Remove"
+                );
+                tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    loop {
+                        if [0usize, 1, 3].iter().all(|&index| {
+                            let storage = all_apps[index].account_storage("test").unwrap();
+                            let group = openmls::group::MlsGroup::load(
+                                storage.mls_storage(),
+                                &openmls::group::GroupId::from_slice(fixture.chat.as_slice()),
+                            )
+                            .unwrap()
+                            .unwrap();
+                            group.members().count() == 3
+                                && group.members().all(|member| {
+                                    member.signature_key.as_slice()
+                                        != displayed.target_device.as_slice()
+                                })
+                        }) {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .expect("A, B and D must retain their independent leaves after C alone is removed");
+                tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    loop {
+                        let storage = all_apps[2].account_storage("test").unwrap();
+                        if cgka_traits::GroupStorage::get_group(&storage, &fixture.chat).unwrap().removed { break; }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }).await.expect("C must authenticate and realize its own exact-leaf eviction before outbound refusal");
+                assert!(
+                    all_runtimes[2]
+                        .send_message("test", &fixture.chat, b"removed C cannot send".to_vec())
+                        .await
+                        .is_err()
+                );
+                for sender in [0usize, 1, 3] {
+                    let payload =
+                        format!("surviving independent leaf {sender} after exact C removal");
+                    let published = all_runtimes[sender]
+                        .send_message("test", &fixture.chat, payload.as_bytes().to_vec())
+                        .await
+                        .unwrap();
+                    assert_eq!(published.message_ids.len(), 1);
+                    let id = &published.message_ids[0];
+                    tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                        loop {
+                            if [0usize, 1, 3].iter().all(|&index| {
+                                all_apps[index]
+                                    .timeline_message("test", &fixture.chat_hex, id)
+                                    .unwrap()
+                                    .is_some_and(|message| {
+                                        message.message_id_hex == *id
+                                            && message.plaintext == payload
+                                    })
+                            }) {
+                                break;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                        }
+                    })
+                    .await
+                    .expect("new messages must reach all three surviving independent MLS leaves");
+                    assert!(
+                        all_apps[2]
+                            .timeline_message("test", &fixture.chat_hex, id)
+                            .unwrap()
+                            .is_none()
+                    );
+                }
+                directory_reader.shutdown().await;
+                for runtime in all_runtimes {
+                    runtime.shutdown_and_close().await.unwrap();
+                }
+                drop(original_consents);
+                return;
+            }
             fresh.cancel();
         }
         if matches!(

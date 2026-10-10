@@ -8,6 +8,11 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 type Reply<T> = oneshot::Sender<Result<T, GroupDeviceRevocationError>>;
 pub(crate) enum Command {
+    Approve {
+        original: Arc<State>,
+        revision: u64,
+        respond: Reply<()>,
+    },
     Begin {
         group: GroupId,
         target: Vec<u8>,
@@ -40,6 +45,20 @@ impl AccountManager {
             _ => Err(GroupDeviceRevocationError::RuntimeUnavailable),
         }
     }
+    pub(crate) async fn approve_original_group_device_revocation(
+        &self,
+        account: &str,
+        original: Arc<State>,
+        revision: u64,
+    ) -> Result<(), GroupDeviceRevocationError> {
+        original.check_revision(revision)?;
+        self.device_revocation_command(account, |respond| Command::Approve {
+            original,
+            revision,
+            respond,
+        })
+        .await
+    }
     pub(crate) async fn begin_original_group_device_revocation(
         &self,
         account: &str,
@@ -66,8 +85,27 @@ impl AccountManager {
             .await
     }
 }
-pub(crate) fn handle(client: &mut crate::AppClient, command: Command) {
+pub(crate) async fn handle(client: &mut crate::AppClient, command: Command) {
     match command {
+        Command::Approve {
+            original,
+            revision,
+            mut respond,
+        } => {
+            if respond.is_closed() {
+                original.cancel();
+                return;
+            }
+            let result = tokio::select! {biased;
+                _ = respond.closed() => {original.cancel(); return;}
+                _ = original.revoked() => {original.cancel(); Err(GroupDeviceRevocationError::Closed)}
+                result = client.approve_original_group_device_revocation(&original, revision) => result,
+            };
+            if respond.send(result).is_err() {
+                original.cancel();
+            }
+        }
+
         Command::Begin {
             group,
             target,

@@ -4726,7 +4726,7 @@ fn account_worker_command_future<'a>(
     match command {
         #[cfg(feature = "experimental-device-sync")]
         AccountWorkerCommand::DeviceRevocation(command) => Box::pin(async move {
-            super::device_revocation::handle(client, *command);
+            super::device_revocation::handle(client, *command).await;
             false
         }),
         #[cfg(feature = "experimental-device-sync")]

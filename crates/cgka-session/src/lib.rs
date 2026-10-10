@@ -2262,6 +2262,40 @@ impl AccountDeviceSession {
         self.engine
             .validate_device_leaf_revocation_selection(original)
     }
+    pub async fn prepare_device_leaf_revocation(
+        &mut self,
+        original: &cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection,
+        lease: &mut dyn cgka_engine::device_leaf_revocation::DeviceLeafRevocationLease,
+    ) -> Result<cgka_traits::SendResult, EngineError> {
+        self.engine
+            .prepare_device_leaf_revocation(original, lease)
+            .await
+    }
+    pub fn validate_prepared_device_leaf_revocation(
+        &self,
+        original: &cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection,
+        pending: cgka_traits::PendingStateRef,
+        origin: &cgka_traits::MessageId,
+    ) -> Result<(), EngineError> {
+        self.engine
+            .validate_prepared_device_leaf_revocation(original, pending, origin)
+    }
+    pub async fn retire_device_leaf_revocation_pending(
+        &mut self,
+        pending: cgka_traits::PendingStateRef,
+        origin: &cgka_traits::MessageId,
+        group: &GroupId,
+    ) -> Result<(), EngineError> {
+        self.engine
+            .retire_device_leaf_revocation_pending(pending, origin, group)
+            .await
+    }
+    pub fn confirmed_device_leaf_revocation(
+        &self,
+        original: &cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection,
+    ) -> Result<(), EngineError> {
+        self.engine.confirmed_device_leaf_revocation(original)
+    }
     pub fn install_trusted_selected_chat_welcome_policy(
         &mut self,
         policy: std::sync::Arc<dyn cgka_engine::selected_chat_consent::SelectedChatWelcomePolicy>,

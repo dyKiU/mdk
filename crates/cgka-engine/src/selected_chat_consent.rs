@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 pub const MAX_SELECTED_CHAT_PACKET_BYTES: usize = 16_384;
 const REQUEST: &str = "whitenoise.selected-chat-request-observation.v1";
 const CONSENT: &str = "whitenoise.selected-chat-consent-observation.v1";
-mod invite;
+pub(crate) mod invite;
 mod offer;
 mod package;
 mod welcome;

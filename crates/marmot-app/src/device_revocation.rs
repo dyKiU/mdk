@@ -18,6 +18,8 @@ pub enum GroupDeviceRevocationError {
     InvalidSelection,
     #[error("Device revocation original action is already active")]
     Busy,
+    #[error("Device revocation displayed review is stale")]
+    StaleRevision,
     #[error("Device revocation runtime is unavailable")]
     RuntimeUnavailable,
 }
@@ -26,6 +28,7 @@ pub enum GroupDeviceRevocationError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GroupDeviceRevocationSnapshot {
     pub revision: u64,
+    pub complete: bool,
     pub group: GroupId,
     pub epoch: u64,
     pub target_leaf_index: u32,
@@ -88,6 +91,25 @@ impl GroupDeviceRevocation {
             Err(GroupDeviceRevocationError::Unsupported)
         }
     }
+    /// Approve the exact original review displayed by the caller.
+    pub async fn approve(&self, revision: u64) -> Result<(), GroupDeviceRevocationError> {
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            self.original.check_revision(revision)?;
+            self.manager
+                .approve_original_group_device_revocation(
+                    &self.account,
+                    self.original.clone(),
+                    revision,
+                )
+                .await
+        }
+        #[cfg(not(feature = "experimental-device-sync"))]
+        {
+            let _ = revision;
+            Err(GroupDeviceRevocationError::Unsupported)
+        }
+    }
     pub fn cancel(&self) {
         #[cfg(feature = "experimental-device-sync")]
         self.original.cancel();
@@ -120,6 +142,10 @@ mod tests {
         let original = GroupDeviceRevocation { _private: () };
         assert!(matches!(
             original.snapshot().await,
+            Err(GroupDeviceRevocationError::Unsupported)
+        ));
+        assert!(matches!(
+            original.approve(u64::MAX).await,
             Err(GroupDeviceRevocationError::Unsupported)
         ));
         original.cancel();

@@ -1182,6 +1182,9 @@ impl AppClient {
         self.maintain_selected_chat_pending()
             .await
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
+        self.maintain_device_leaf_revocation_pending()
+            .await
+            .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
         self.maintain_original_history().await.map_err(|_| {
             ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
                 "history original maintenance unavailable".into(),

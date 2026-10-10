@@ -484,6 +484,20 @@ impl<S: StorageProvider> Engine<S> {
         group_id: GroupId,
         members: Vec<MemberId>,
     ) -> Result<SendResult, EngineError> {
+        self.do_send_remove_members_with_guard(group_id, members, None, None)
+            .await
+    }
+
+    pub(crate) async fn do_send_remove_members_with_guard(
+        &mut self,
+        group_id: GroupId,
+        members: Vec<MemberId>,
+        exact_leaf: Option<u32>,
+        mut original_check: Option<SelectedInviteCheck<'_, Self>>,
+    ) -> Result<SendResult, EngineError> {
+        if let Some(check) = original_check.as_mut() {
+            check(self)?;
+        }
         let mut target_set = HashSet::new();
         let mut unique_targets = Vec::new();
         for member in members {
@@ -496,9 +510,10 @@ impl<S: StorageProvider> Engine<S> {
                 "remove requires at least one member".into(),
             ));
         }
-        if unique_targets
-            .iter()
-            .any(|member| member == self.identity.self_id())
+        if exact_leaf.is_none()
+            && unique_targets
+                .iter()
+                .any(|member| member == self.identity.self_id())
         {
             return Err(EngineError::Other(
                 "use SendIntent::Leave to remove the local member".into(),
@@ -536,7 +551,9 @@ impl<S: StorageProvider> Engine<S> {
             let basic = BasicCredential::try_from(member.credential)
                 .map_err(|e| EngineError::Backend(format!("credential: {e:?}")))?;
             let member_id = MemberId::new(basic.identity().to_vec());
-            if target_set.contains(&member_id) {
+            if target_set.contains(&member_id)
+                && exact_leaf.is_none_or(|index| member.index.u32() == index)
+            {
                 leaf_indices.push(member.index);
                 found.insert(member_id);
             }
@@ -554,9 +571,10 @@ impl<S: StorageProvider> Engine<S> {
             .iter()
             .map(crate::app_components::admin_pubkey_from_member_id)
             .collect::<Result<Vec<_>, _>>()?;
-        if admins
-            .iter()
-            .all(|admin| target_admins.iter().any(|target| target == admin))
+        if exact_leaf.is_none()
+            && admins
+                .iter()
+                .all(|admin| target_admins.iter().any(|target| target == admin))
         {
             return Err(EngineError::AdminDepletion {
                 group_id: group_id.clone(),
@@ -659,6 +677,9 @@ impl<S: StorageProvider> Engine<S> {
             .await
             .map_err(EngineError::Peeler)?;
         let commit_msg = route_wrapped_group_message(commit_msg, &pre_commit_ctx);
+        if let Some(check) = original_check.as_mut() {
+            check(self)?;
+        }
         self.record_sent_openmls_message(
             &commit_msg,
             commit_bytes.as_slice(),
@@ -667,9 +688,20 @@ impl<S: StorageProvider> Engine<S> {
         )?;
 
         let mut group_record = existing;
-        group_record
-            .members
-            .retain(|member| !target_set.contains(&member.id));
+        if exact_leaf.is_none() {
+            group_record
+                .members
+                .retain(|member| !target_set.contains(&member.id));
+        } else if unique_targets.iter().any(|member| {
+            crate::app_components::admin_pubkey_from_member_id(member)
+                .map_or(true, |account| !surviving_accounts.contains(&account))
+        }) {
+            // This private path only removes a sibling whose account still has
+            // another real leaf. Account-level metadata must remain intact.
+            return Err(EngineError::Other(
+                "exact sibling removal unavailable".into(),
+            ));
+        }
         self.storage.put_group(&group_record)?;
 
         let prior_epoch = EpochId(mls_group.epoch().as_u64());

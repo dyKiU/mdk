@@ -432,3 +432,5 @@ resolved chat and conversation subscriptions, with matching UniFFI/C surfaces. C
 network owner. Client cache migration and flagship-device evidence remain C9 follow-through; this is not a release.
 
 The default-off one-group device revocation boundary now supports an opaque original administrator review of one actual same-account sibling leaf, with full authenticated ordinary/protected freshness and exact cancellation. The real four-device regression covers review creation, self/foreign refusal and genuine epoch invalidation. It does not yet stage or publish a Remove, revoke the protected roster, or report multi-group outcomes.
+
+One-group original exact-leaf removal is now qualified independently of full device revocation: real four-leaf Current A/B/C/D, explicit fresh A administrator review, C alone removed, actual A/B/D three-leaf state and future messages, C realized-eviction outbound refusal. Protected roster and other chats remain unchanged. Actual reopen, blocked transport/lost-reply/expiry controls, native API adoption and multigroup/protected revocation remain open. Proof: docs/device-sync-exact-device-leaf-removal-verification.json.

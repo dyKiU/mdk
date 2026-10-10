@@ -171,3 +171,232 @@ impl<S: StorageProvider> Engine<S> {
         Ok(())
     }
 }
+
+/// Trusted process owner checks the original review, fixed deadline and explicit
+/// displayed revision. Neither a target signer nor a stored review supplies it.
+pub trait DeviceLeafRevocationLease: Send {
+    fn check_original(
+        &mut self,
+        original: &DeviceLeafRevocationSelection,
+    ) -> Result<(), EngineError>;
+}
+
+impl<S: StorageProvider> Engine<S> {
+    fn check_device_leaf_revocation_context(
+        &self,
+        original: &DeviceLeafRevocationSelection,
+    ) -> Result<(), EngineError> {
+        self.ensure_group_live(&original.review.group)?;
+        if !self.enrollment_endorsements.owns_lifetime(&original.owner)
+            || !original
+                .owner
+                .upgrade()
+                .is_some_and(|owner| owner.is_open())
+        {
+            return Err(unavailable());
+        }
+        let settled = self
+            .validated_settled_device_roster(&original.protected.group_id)?
+            .ok_or_else(unavailable)?;
+        if settled.candidate() != &original.protected
+            || settled.settlement_generation() != original.protected_generation
+        {
+            return Err(unavailable());
+        }
+        let group = &original.review.group;
+        let record = self.group_record(group)?;
+        if record.removed
+            || record.unrecoverable
+            || record.disbanded.is_some()
+            || record.protocol_profile != ProtocolProfile::Current
+            || self.pending_convergence_groups.contains(group)
+            || self
+                .storage
+                .convergence_pass(group)?
+                .is_some_and(|pass| pass.is_active())
+            || !self.storage.list_queued_outbound_intents(group)?.is_empty()
+            || self.selected_indexed_ordinary_leaves(group)? != original.leaves
+        {
+            return Err(unavailable());
+        }
+        self.with_mls_group(group, |actual| {
+            crate::app_components::require_admin(actual, group, self.identity.self_id())?;
+            let authenticator: [u8; 32] =
+                Sha256::digest(actual.epoch_authenticator().as_slice()).into();
+            if !actual.is_active()
+                || actual.epoch().as_u64() != original.review.epoch
+                || authenticator != original.authenticator
+                || crate::account_identity_proof::protocol_profile_of_group(actual)?
+                    != ProtocolProfile::Current
+                || crate::device_group_genesis::has_private_component(actual)?
+            {
+                return Err(unavailable());
+            }
+            Ok(())
+        })
+    }
+
+    fn check_device_leaf_revocation_successor(
+        &self,
+        original: &DeviceLeafRevocationSelection,
+        actual: &[crate::selected_chat_consent::IndexedOrdinaryLeaf],
+        epoch: u64,
+    ) -> Result<(), EngineError> {
+        if original.review.epoch.checked_add(1) != Some(epoch)
+            || actual.len().checked_add(1) != Some(original.leaves.len())
+            || actual.iter().any(|leaf| {
+                leaf.index == original.review.target_leaf_index
+                    || leaf.signer == original.review.target_device
+            })
+        {
+            return Err(unavailable());
+        }
+        let source = self.identity.signer.public();
+        for old in &original.leaves {
+            if old.index == original.review.target_leaf_index {
+                continue;
+            }
+            let new = actual
+                .iter()
+                .find(|leaf| leaf.index == old.index)
+                .ok_or_else(unavailable)?;
+            if new.account != old.account
+                || new.signer != old.signer
+                || (old.signer != source && new.hash != old.hash)
+            {
+                return Err(unavailable());
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn prepare_device_leaf_revocation(
+        &mut self,
+        original: &DeviceLeafRevocationSelection,
+        lease: &mut dyn DeviceLeafRevocationLease,
+    ) -> Result<cgka_traits::SendResult, EngineError> {
+        self.validate_device_leaf_revocation_selection(original)?;
+        lease.check_original(original)?;
+        let mut check = |engine: &Self| {
+            engine.check_device_leaf_revocation_context(original)?;
+            lease.check_original(original)
+        };
+        let result = self
+            .do_send_remove_members_with_guard(
+                original.review.group.clone(),
+                vec![self.identity.self_id().clone()],
+                Some(original.review.target_leaf_index),
+                Some(&mut check),
+            )
+            .await?;
+        let cgka_traits::SendResult::GroupEvolution {
+            pending,
+            msg,
+            welcomes,
+        } = &result
+        else {
+            return Err(unavailable());
+        };
+        let verified = if welcomes.is_empty() {
+            self.validate_prepared_device_leaf_revocation(original, *pending, &msg.id)
+                .and_then(|()| lease.check_original(original))
+        } else {
+            Err(unavailable())
+        };
+        if let Err(error) = verified {
+            self.do_publish_failed(*pending).await?;
+            return Err(error);
+        }
+        Ok(result)
+    }
+
+    pub fn validate_prepared_device_leaf_revocation(
+        &self,
+        original: &DeviceLeafRevocationSelection,
+        pending: cgka_traits::PendingStateRef,
+        origin: &cgka_traits::MessageId,
+    ) -> Result<(), EngineError> {
+        self.check_device_leaf_revocation_context(original)?;
+        if self.pending_origin_message_id(pending)? != *origin {
+            return Err(unavailable());
+        }
+        let group = openmls::group::MlsGroup::load(
+            self.storage.mls_storage(),
+            &openmls::group::GroupId::from_slice(original.review.group.as_slice()),
+        )
+        .map_err(|_| unavailable())?
+        .ok_or_else(unavailable)?;
+        let staged = group.pending_commit().ok_or_else(unavailable)?;
+        let proposals = staged.queued_proposals().collect::<Vec<_>>();
+        if proposals.len() != 1
+            || !matches!(proposals[0].proposal(),
+            openmls::prelude::Proposal::Remove(remove) if remove.removed().u32() == original.review.target_leaf_index)
+        {
+            return Err(unavailable());
+        }
+        let tree = staged
+            .export_ratchet_tree(&self.crypto, group.export_ratchet_tree())
+            .map_err(|_| unavailable())?
+            .ok_or_else(unavailable)?;
+        self.check_device_leaf_revocation_successor(
+            original,
+            &crate::selected_chat_consent::invite::indexed_tree(tree)?,
+            staged.epoch().as_u64(),
+        )
+    }
+
+    /// Negative pending retirement shares only the purpose-neutral exact own
+    /// origin classifier. It cannot authorize a selected Invite or any Remove.
+    pub async fn retire_device_leaf_revocation_pending(
+        &mut self,
+        pending: cgka_traits::PendingStateRef,
+        origin: &cgka_traits::MessageId,
+        group: &GroupId,
+    ) -> Result<(), EngineError> {
+        self.retire_selected_chat_pending(pending, origin, group)
+            .await
+    }
+    pub fn confirmed_device_leaf_revocation(
+        &self,
+        original: &DeviceLeafRevocationSelection,
+    ) -> Result<(), EngineError> {
+        self.ensure_group_live(&original.review.group)?;
+        if !self.enrollment_endorsements.owns_lifetime(&original.owner)
+            || !original
+                .owner
+                .upgrade()
+                .is_some_and(|owner| owner.is_open())
+        {
+            return Err(unavailable());
+        }
+        let settled = self
+            .validated_settled_device_roster(&original.protected.group_id)?
+            .ok_or_else(unavailable)?;
+        if settled.candidate() != &original.protected
+            || settled.settlement_generation() != original.protected_generation
+        {
+            return Err(unavailable());
+        }
+        let epoch = self.with_mls_group(&original.review.group, |group| {
+            crate::app_components::require_admin(
+                group,
+                &original.review.group,
+                self.identity.self_id(),
+            )?;
+            if !group.is_active()
+                || group.pending_commit().is_some()
+                || crate::account_identity_proof::protocol_profile_of_group(group)?
+                    != ProtocolProfile::Current
+                || crate::device_group_genesis::has_private_component(group)?
+            {
+                return Err(unavailable());
+            }
+            Ok(group.epoch().as_u64())
+        })?;
+        self.check_device_leaf_revocation_successor(
+            original,
+            &self.selected_indexed_ordinary_leaves(&original.review.group)?,
+            epoch,
+        )
+    }
+}
