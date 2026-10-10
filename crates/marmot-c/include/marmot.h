@@ -194,6 +194,11 @@ enum MarmotStatus
   MARMOT_STATUS_SELECTED_CHAT_COPY_INVALID_PACKET = 109,
   MARMOT_STATUS_SELECTED_CHAT_COPY_STALE_REVISION = 110,
   MARMOT_STATUS_SELECTED_CHAT_COPY_CLOSED = 111,
+  MARMOT_STATUS_HISTORY_TRANSFER_UNSUPPORTED = 112,
+  MARMOT_STATUS_HISTORY_TRANSFER_NOT_READY = 113,
+  MARMOT_STATUS_HISTORY_TRANSFER_CLOSED = 114,
+  MARMOT_STATUS_HISTORY_TRANSFER_STALE_REVISION = 115,
+  MARMOT_STATUS_HISTORY_TRANSFER_RUNTIME_UNAVAILABLE = 116,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -1266,6 +1271,10 @@ typedef struct MarmotEventsSubscription MarmotEventsSubscription;
  * then the full record after each member/profile/roster change.
  */
 typedef struct MarmotGroupStateSubscription MarmotGroupStateSubscription;
+
+typedef struct MarmotHistoryConsent MarmotHistoryConsent;
+
+typedef struct MarmotHistoryTransfer MarmotHistoryTransfer;
 
 /**
  * Opaque token owned by its SelectedMessageDraft; borrow only while that draft remains live.
@@ -4592,6 +4601,36 @@ typedef struct MarmotDeviceLinkingApprovalReviewMetadata {
   uintptr_t joining_device_public_key_len;
   uint32_t existing_device_count;
 } MarmotDeviceLinkingApprovalReviewMetadata;
+
+/**
+ * List-owned alias. Clone its handle before releasing the parent list.
+ */
+typedef struct MarmotHistoryConsentEntry {
+  struct MarmotHistoryConsent *handle;
+} MarmotHistoryConsentEntry;
+
+/**
+ * Owned list of original consent aliases. Its deep free releases every alias.
+ */
+typedef struct MarmotHistoryConsentList {
+  struct MarmotHistoryConsentEntry *items;
+  uintptr_t items_len;
+} MarmotHistoryConsentList;
+
+typedef struct MarmotHistoryTransferSnapshot {
+  uint64_t revision;
+  uint32_t imported_records;
+  bool complete;
+  char *group_id_hex;
+  uint8_t *source_device;
+  uintptr_t source_device_len;
+  uint8_t *recipient_device;
+  uintptr_t recipient_device_len;
+  uint64_t snapshot_timestamp_ceiling;
+  uint32_t record_count;
+  uint32_t encoded_bytes;
+  uint32_t fragment_count;
+} MarmotHistoryTransferSnapshot;
 
 /**
  * Stable stream and start-message identifiers.
@@ -9672,6 +9711,110 @@ void marmot_device_linking_approval_free(struct MarmotDeviceLinkingApproval *han
 void marmot_device_linking_approval_list_free(struct MarmotDeviceLinkingApprovalList *list);
 
 /**
+ * Begin a bounded history action. Recipient is an exact 32-byte device identity.
+ * # Safety
+ * Live client, borrowed NUL-terminated strings, recipient readable for len and writable out; no concurrent free.
+ */
+MarmotStatus marmot_begin_history_transfer(const struct MarmotClient *client,
+                                           const char *account,
+                                           const char *group,
+                                           const uint8_t *recipient,
+                                           uintptr_t recipient_len,
+                                           struct MarmotHistoryTransfer **out);
+
+/**
+ * Poll authenticated original requests. It never approves any returned action.
+ * # Safety
+ * Live client, borrowed NUL-terminated account and writable out; no concurrent free.
+ */
+MarmotStatus marmot_pending_history_requests(const struct MarmotClient *client,
+                                             const char *account,
+                                             struct MarmotHistoryConsentList **out);
+
+/**
+ * Deep-free the list and all original aliases. NULL is a no-op.
+ * # Safety
+ * NULL or a library-owned result released exactly once with no concurrent calls.
+ */
+void marmot_history_consent_list_free(struct MarmotHistoryConsentList *list);
+
+/**
+ * Retain the same original action; releasing one alias does not cancel other aliases.
+ * # Safety
+ * Live handle and writable out; no concurrent free.
+ */
+MarmotStatus marmot_history_transfer_clone(const struct MarmotHistoryTransfer *handle,
+                                           struct MarmotHistoryTransfer **out);
+
+/**
+ * Release an alias. Last original-owner release cancels unfinished work.
+ * # Safety
+ * NULL or a library-owned handle released exactly once with no concurrent calls.
+ */
+void marmot_history_transfer_free(struct MarmotHistoryTransfer *handle);
+
+/**
+ * Read the original authenticated review and committed completion observation.
+ * # Safety
+ * Live handle and writable out; no concurrent free.
+ */
+MarmotStatus marmot_history_transfer_snapshot(const struct MarmotHistoryTransfer *handle,
+                                              struct MarmotHistoryTransferSnapshot **out);
+
+/**
+ * Forward the displayed revision to the original action; no new authority is created.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_history_transfer_continue_transfer(const struct MarmotHistoryTransfer *handle,
+                                                       uint64_t revision);
+
+/**
+ * Cancel the original action. Completed imported history is retained.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_history_transfer_cancel(const struct MarmotHistoryTransfer *handle);
+
+/**
+ * Retain the same original action; releasing one alias does not cancel other aliases.
+ * # Safety
+ * Live handle and writable out; no concurrent free.
+ */
+MarmotStatus marmot_history_consent_clone(const struct MarmotHistoryConsent *handle,
+                                          struct MarmotHistoryConsent **out);
+
+/**
+ * Release an alias. Last original-owner release cancels unfinished work.
+ * # Safety
+ * NULL or a library-owned handle released exactly once with no concurrent calls.
+ */
+void marmot_history_consent_free(struct MarmotHistoryConsent *handle);
+
+/**
+ * Read the original authenticated review and committed completion observation.
+ * # Safety
+ * Live handle and writable out; no concurrent free.
+ */
+MarmotStatus marmot_history_consent_snapshot(const struct MarmotHistoryConsent *handle,
+                                             struct MarmotHistoryTransferSnapshot **out);
+
+/**
+ * Forward the displayed revision to the original action; no new authority is created.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_history_consent_approve(const struct MarmotHistoryConsent *handle,
+                                            uint64_t revision);
+
+/**
+ * Cancel the original action. Completed imported history is retained.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_history_consent_cancel(const struct MarmotHistoryConsent *handle);
+
+/**
  * Create an offline session from a bunker URI, client pairing config, or durable
  * export. The creating client must outlive the session. Client communication keys
  * remain session-local; persist them through the host's encrypted vault export.
@@ -12363,6 +12506,16 @@ void marmot_device_linking_target_list_free(struct MarmotDeviceLinkingTargetList
  * this library.
  */
 void marmot_device_linking_approval_review_metadata_free(struct MarmotDeviceLinkingApprovalReviewMetadata *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_history_transfer_snapshot_free(struct MarmotHistoryTransferSnapshot *ptr);
 
 /**
  * Free a value of this type returned by this library. NULL

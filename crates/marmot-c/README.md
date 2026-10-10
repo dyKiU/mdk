@@ -17,6 +17,7 @@ per feature.
 - [NIP-46 accounts](#nip-46-accounts)
 - [Device verification](#device-verification)
 - [Selected-chat copies](#selected-chat-copies)
+- [Original history transfers](#original-history-transfers)
 - Feature notes: [runtime construction](#runtime-construction), [local sends](#local-sends),
   [public event verification](#public-event-verification), [host performance stages](#host-performance-stages),
   [Markdown rendering](#markdown-rendering), [identity references and pseudonyms](#identity-references-and-pseudonyms),
@@ -489,3 +490,27 @@ are borrowed only for the call and copied after the 16 KiB bound check. Required
 outputs are checked and cleared before effects. Calls block through the
 callback-safe runtime bridge. `InviteConfirmed` has ordinal 4 and describes
 source Add confirmation, not recipient joining or synchronized history.
+
+## Original history transfers
+
+The [shared original-history contract](../marmot-uniffi/HISTORY-TRANSFER.md)
+explains scope, consent, lifetime, retention and completion. C exposes blocking
+`marmot_begin_history_transfer` and `marmot_pending_history_requests` factories,
+original transfer/consent aliases and owned review snapshots. Offload blocking
+calls from UI threads. Required output pointers are cleared before effects;
+recipient inputs must have exactly 32 readable bytes in an experimental build.
+Default factories return `MARMOT_STATUS_HISTORY_TRANSFER_UNSUPPORTED` before
+reading account/group/recipient inputs.
+
+Each `MarmotHistoryConsentList` owns its `MarmotHistoryConsentEntry.handle` aliases.
+Clone a selected handle before freeing the list and free that retained clone
+separately. The matching deep free releases the entry array and every owned
+alias. Free snapshots with `marmot_history_transfer_snapshot_free`, and handles
+with their corresponding `marmot_history_transfer_free` or
+`marmot_history_consent_free`. Frees accept NULL; never free a handle concurrently
+with a call. Explicit cancellation affects the shared original action.
+
+History status values append 112–116. Review records carry source/recipient device
+bytes, opaque MLS chat ID, snapshot bounds and committed-completion observations;
+they contain no private key or resumable consent. They do not replace the
+read-only provenance query or establish installed chat-history presentation.

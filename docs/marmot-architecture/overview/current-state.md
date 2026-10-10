@@ -19,6 +19,13 @@ status: overview
 
 # Current State — Implementations & Spec
 
+The default-off history action surface also has thin UniFFI/C original-owner
+handles, authenticated review snapshots and typed default refusal. Focused
+source checks and the generated C header are qualified; valid original alias
+lifecycle, generated-language ABI, read-only query bindings and matched native
+application history display remain open. See
+[native binding qualification](../../history-original-native-bindings-focused-verification.json).
+
 The default-off device-sync experiment now has a public read-only App query for
 completed logical archive records. It returns source-attested content and
 provenance in bounded message-ID pages, preserving live-event precedence,

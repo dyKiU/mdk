@@ -832,3 +832,6 @@ pub use device_linking::*;
 
 mod selected_chat_copy;
 pub use selected_chat_copy::*;
+
+mod history_transfer;
+pub use history_transfer::*;

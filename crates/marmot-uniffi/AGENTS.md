@@ -186,3 +186,10 @@ selection/consent separate from verification/enrollment, preserve displayed
 revisions and bounded private packets, and do not infer recipient joining or
 history from InviteConfirmed. See SELECTED-CHAT-COPY.md. Source qualification
 does not establish generated-language ABI or matched native app adoption.
+
+Original history handles forward the same App owner. Never reconstruct consent
+from review records or stored manifests. Preserve default Unsupported-before-
+inputs/effects, displayed revisions and explicit cancellation; completion is a
+committed-import observation. Keep provenance reads separate from live moderation
+projection. C consent lists use list-owned entries with exactly one CFree per
+alias; qualify output preflight, deep frees and appended statuses112–116.

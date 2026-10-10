@@ -508,6 +508,9 @@ pub use conversions::{
     SelectedChatCopySnapshotFfi,
 };
 
+pub use commands::{HistoryConsent, HistoryTransfer};
+pub use conversions::HistoryTransferSnapshotFfi;
+
 #[cfg(test)]
 mod tests {
     use super::*;

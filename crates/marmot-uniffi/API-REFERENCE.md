@@ -4724,3 +4724,88 @@ pub async fn pending_device_linking_approvals( &self, account_ref: String, ) -> 
 [Source](src/commands/device_linking.rs#L42)
 
 </details>
+
+<details>
+<summary>commands/history_transfer.rs</summary>
+
+### `HistoryConsent::approve`
+
+```rust
+pub async fn approve(&self, revision: u64) -> Result<(), MarmotKitError>
+```
+
+Approve the authenticated request using the revision returned by this original consent object’s snapshot. Present its source device, chat and snapshot bounds first. A stale revision is rejected; cloning or observing the object never supplies approval.
+
+[Source](src/commands/history_transfer.rs#L91)
+
+### `HistoryConsent::cancel`
+
+```rust
+pub fn cancel(&self)
+```
+
+Cancel this original consent and its unfinished work. All aliases share cancellation. Cancellation does not erase completed retained history or remove an admitted device.
+
+[Source](src/commands/history_transfer.rs#L98)
+
+### `HistoryConsent::snapshot`
+
+```rust
+pub async fn snapshot(&self) -> Result<HistoryTransferSnapshotFfi, MarmotKitError>
+```
+
+Review the authenticated source, selected chat, snapshot bounds and current revision without approving the request. The returned record is read-only and cannot reconstruct a consent object.
+
+[Source](src/commands/history_transfer.rs#L87)
+
+### `HistoryTransfer::cancel`
+
+```rust
+pub fn cancel(&self)
+```
+
+Cancel this original source action and its unfinished work. All aliases share cancellation; completed retained history and existing device membership remain governed by their separate policies.
+
+[Source](src/commands/history_transfer.rs#L79)
+
+### `HistoryTransfer::continue_transfer`
+
+```rust
+pub async fn continue_transfer(&self, revision: u64) -> Result<(), MarmotKitError>
+```
+
+Continue the exact original source action using its current snapshot revision. App owns transport and retries. Successful continuation observes the authenticated final committed-import receipt; local publication or intermediate staging acknowledgments do not establish completion.
+
+[Source](src/commands/history_transfer.rs#L72)
+
+### `HistoryTransfer::snapshot`
+
+```rust
+pub async fn snapshot(&self) -> Result<HistoryTransferSnapshotFfi, MarmotKitError>
+```
+
+Observe this original action’s selected chat, devices, snapshot bounds, revision and committed completion. The record carries no authority to create another action. Keep the original object with its originating account runtime.
+
+[Source](src/commands/history_transfer.rs#L68)
+
+### `Marmot::begin_history_transfer`
+
+```rust
+pub async fn begin_history_transfer( &self, account_ref: String, group_id_hex: String, recipient_device: Vec<u8>, ) -> Result<Arc<HistoryTransfer>, MarmotKitError>
+```
+
+Begin a bounded logical-history transfer for one selected chat and one exact linked recipient. Retain the returned original source object. The recipient must separately approve its authenticated request; enrollment and ordinary membership do not approve history. Default builds return HistoryTransferUnsupported before parsing input or starting account workers.
+
+[Source](src/commands/history_transfer.rs#L17)
+
+### `Marmot::pending_history_requests`
+
+```rust
+pub async fn pending_history_requests( &self, account_ref: String, ) -> Result<Vec<Arc<HistoryConsent>>, MarmotKitError>
+```
+
+Poll authenticated requests for this account without approving them. Retain an original returned consent object while displaying its snapshot, then explicitly approve its current revision. Reopening an account does not restore consent from stored receipts. Default builds return HistoryTransferUnsupported before account effects.
+
+[Source](src/commands/history_transfer.rs#L42)
+
+</details>

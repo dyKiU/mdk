@@ -9,6 +9,13 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- Original history transfer and recipient consent handles, list-owned consent
+  entries, shared clones, authenticated review snapshots and displayed-revision
+  continuation/approval. History statuses append112–116 without renumbering older
+  values. Default factories refuse before input dereference; all owned outputs
+  require matching deep frees. Use the matching generated header/library. Control
+  completion does not establish installed conversation presentation.
+
 - Revision-bound authenticated approval review metadata with owned binary source
   and joining device signature keys, predecessor count and matching deep free.
   This additive display record grants no enrollment permission; use matching

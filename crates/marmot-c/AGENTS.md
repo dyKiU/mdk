@@ -113,3 +113,10 @@ Selected-chat opaque aliases retain the same original UniFFI action. Use explici
 clones and free_plain for handles, matching deep frees for binary/snapshot results,
 bound packet copies before dereference, and preserve status values 102–111.
 Keep default Unsupported and required-output preflight before effects.
+
+Original history handles forward the same App owner. Never reconstruct consent
+from review records or stored manifests. Preserve default Unsupported-before-
+inputs/effects, displayed revisions and explicit cancellation; completion is a
+committed-import observation. Keep provenance reads separate from live moderation
+projection. C consent lists use list-owned entries with exactly one CFree per
+alias; qualify output preflight, deep frees and appended statuses112–116.

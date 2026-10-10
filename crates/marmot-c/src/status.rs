@@ -152,6 +152,11 @@ pub enum MarmotStatus {
     SelectedChatCopyInvalidPacket = 109,
     SelectedChatCopyStaleRevision = 110,
     SelectedChatCopyClosed = 111,
+    HistoryTransferUnsupported = 112,
+    HistoryTransferNotReady = 113,
+    HistoryTransferClosed = 114,
+    HistoryTransferStaleRevision = 115,
+    HistoryTransferRuntimeUnavailable = 116,
 }
 
 thread_local! {
@@ -255,6 +260,13 @@ pub(crate) fn status_from_error(err: &MarmotKitError) -> MarmotStatus {
             MarmotStatus::SelectedChatCopyStaleRevision
         }
         MarmotKitError::SelectedChatCopyClosed => MarmotStatus::SelectedChatCopyClosed,
+        MarmotKitError::HistoryTransferUnsupported => MarmotStatus::HistoryTransferUnsupported,
+        MarmotKitError::HistoryTransferNotReady => MarmotStatus::HistoryTransferNotReady,
+        MarmotKitError::HistoryTransferClosed => MarmotStatus::HistoryTransferClosed,
+        MarmotKitError::HistoryTransferStaleRevision => MarmotStatus::HistoryTransferStaleRevision,
+        MarmotKitError::HistoryTransferRuntimeUnavailable => {
+            MarmotStatus::HistoryTransferRuntimeUnavailable
+        }
         MarmotKitError::DeviceLinkingUnsupported => MarmotStatus::DeviceLinkingUnsupported,
         MarmotKitError::DeviceLinkingClosed => MarmotStatus::DeviceLinkingClosed,
         MarmotKitError::DeviceLinkingInvalidPacket => MarmotStatus::DeviceLinkingInvalidPacket,
