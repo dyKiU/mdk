@@ -106,7 +106,7 @@ async fn native_binding_continues_original_actions_and_close_wakes_waiter() {
         c.snapshot().await.unwrap().phase,
         DeviceLinkingPhaseFfi::VerificationCompleteEnrollmentPending
     );
-    assert!(!kits[0].device_linking_capabilities().enrollment_supported);
+    assert!(kits[0].device_linking_capabilities().enrollment_supported);
     c.continue_linking(c.snapshot().await.unwrap().revision)
         .await
         .unwrap();

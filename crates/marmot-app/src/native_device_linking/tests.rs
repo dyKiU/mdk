@@ -324,6 +324,12 @@ mod actual {
             .await
             .unwrap();
         wait_actual_roster(&apps, 3).await;
+        assert!(
+            managers
+                .iter()
+                .all(|manager| manager.device_linking_capabilities().enrollment_supported),
+            "the experimental build must advertise its qualified ready-account enrollment flow"
+        );
         for session in [&a, &c] {
             let snapshot = session.snapshot().await.unwrap();
             assert_eq!(snapshot.phase, DeviceLinkingPhase::EnrollmentComplete);
@@ -622,7 +628,7 @@ mod actual {
             retained.decimals.is_none(),
             "consumed comparison data must not be reconstructed"
         );
-        assert!(!manager.device_linking_capabilities().enrollment_supported);
+        assert!(manager.device_linking_capabilities().enrollment_supported);
         c.cancel().await.unwrap();
         assert_eq!(
             c.snapshot().await.unwrap().phase,
@@ -695,7 +701,7 @@ mod actual {
             DeviceLinkingPhase::VerificationCompleteEnrollmentPending
         );
         assert!(
-            !runtimes[0]
+            runtimes[0]
                 .accounts()
                 .device_linking_capabilities()
                 .enrollment_supported

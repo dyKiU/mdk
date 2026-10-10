@@ -68,7 +68,7 @@ impl AccountManager {
     pub fn device_linking_capabilities(&self) -> DeviceLinkingCapabilities {
         DeviceLinkingCapabilities {
             verification_supported: cfg!(feature = "experimental-device-sync"),
-            enrollment_supported: false,
+            enrollment_supported: cfg!(feature = "experimental-device-sync"),
         }
     }
 }

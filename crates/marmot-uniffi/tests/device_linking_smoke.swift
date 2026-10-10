@@ -60,7 +60,7 @@ struct DeviceLinkingSmoke {
             relayUrls: ["ws://127.0.0.1:1"], options: MarmotOptions(
                 relayPolicy: .allowLoopbackRelaysAndBlobs, secretStore: DeviceSmokeStore()))
         let caps = kit.deviceLinkingCapabilities()
-        precondition(!caps.enrollmentSupported)
+        precondition(caps.enrollmentSupported == caps.verificationSupported)
         if caps.verificationSupported {
             do {
                 _ = try await kit.approveDeviceLinkingSession(accountRef: "missing", request: Data(), target: Data([1]))

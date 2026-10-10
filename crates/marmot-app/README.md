@@ -701,16 +701,23 @@ address is the resolved account storage label, while the original private scope
 checks actual account/device identity on every command.
 
 Default builds expose the same shapes but return `Unsupported` before account
-resolution or reservation. Feature builds keep `enrollment_supported` false and
-existing-group targets return `NotReady`. After genuine verification,
-revision-bound `continue_linking` supports singleton enrollment through the
-original recipient and approver actions. The actor publishes Add, waits for its
-authenticated echo, publishes Welcomes and drives protected settlement. The
-public observation remains `VerificationCompleteEnrollmentPending`; it alone
-proves neither membership nor synchronized chat/history. Full public three-device
-enrollment, matched app artifacts and normal chat/history delivery remain open.
-See `docs/device-sync-native-singleton-continuation-verification.json` for the
-actual public-API relay test and its qualification scope.
+resolution or reservation. Experimental builds advertise enrollment support for
+ready imported development accounts. This reports an available API; it grants no
+membership or approval. Existing account readiness and original-owner checks
+still govern every operation. Identity-only unfinished onboarding remains a
+separate boundary.
+
+Revision-bound public actions support singleton enrollment and explicit
+existing-sibling approval for a third device. Singleton Add preparation refuses
+a multi-device predecessor before consuming the original SDK result; the same
+original action can use the all-leaf proposal path. `EnrollmentComplete` observes
+actual protected settlement. Packet transfer and pending verification alone
+prove neither membership nor synchronized chat/history. Selected ordinary-chat
+copy consent and history transfer remain separate from this capability.
+See `docs/device-sync-native-enrollment-capability-verification.json` and
+`docs/device-sync-singleton-pre-take-refusal-verification.json` for focused
+qualification. Full integrated regression and matched artifacts have separate
+gates.
 
 Original B enrollment actions can now arm an exact bounded all-leaf packet,
 bridge the actual single C Add inside MLS/SQL, and select a new private settlement
