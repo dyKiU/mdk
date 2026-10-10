@@ -523,6 +523,14 @@ pub struct MarmotApp {
     inventory_snapshot_between_reads: Arc<Mutex<Option<LegacyProjectionOpenHook>>>,
     #[cfg(test)]
     test_relay_client: Option<Arc<dyn NostrRelayClient>>,
+    #[cfg(all(
+        test,
+        feature = "test-policy-overrides",
+        feature = "experimental-device-sync"
+    ))]
+    // Set on the isolated fixture before runtime construction; never changes
+    // an existing original consent or its negative receipt-history deadline.
+    selected_chat_consent_test_lifetime: Option<std::time::Duration>,
     #[cfg(test)]
     audit_v5_peel_slot: Option<(String, Arc<Mutex<client::audit_v5_probe::PeelSlot>>)>,
     shared_storage: Arc<Mutex<Option<SqliteSharedStorage>>>,
@@ -1547,6 +1555,12 @@ impl MarmotApp {
             inventory_snapshot_between_reads: Arc::new(Mutex::new(None)),
             #[cfg(test)]
             test_relay_client: None,
+            #[cfg(all(
+                test,
+                feature = "test-policy-overrides",
+                feature = "experimental-device-sync"
+            ))]
+            selected_chat_consent_test_lifetime: None,
             #[cfg(test)]
             audit_v5_peel_slot: None,
             shared_storage: Arc::new(Mutex::new(None)),
@@ -1636,6 +1650,12 @@ impl MarmotApp {
             inventory_snapshot_between_reads: Arc::new(Mutex::new(None)),
             #[cfg(test)]
             test_relay_client: None,
+            #[cfg(all(
+                test,
+                feature = "test-policy-overrides",
+                feature = "experimental-device-sync"
+            ))]
+            selected_chat_consent_test_lifetime: None,
             #[cfg(test)]
             audit_v5_peel_slot: None,
             shared_storage: Arc::new(Mutex::new(None)),

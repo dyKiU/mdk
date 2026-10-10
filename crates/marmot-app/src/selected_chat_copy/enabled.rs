@@ -312,6 +312,7 @@ impl AccountCopyOwner {
         observation: cgka_engine::selected_chat_consent::AuthenticatedSelectedChatRequest,
         packet: Vec<u8>,
         protected_generation: u64,
+        #[cfg(all(test, feature = "test-policy-overrides"))] test_lifetime: Option<Duration>,
     ) -> Result<Arc<ConsentState>, SelectedChatCopyError> {
         let binding = observation.binding();
         if let Some((deadline, prior)) = self.consent_history.get(&binding) {
@@ -339,8 +340,11 @@ impl AccountCopyOwner {
             .load(Ordering::Acquire)
             .checked_add(1)
             .ok_or(SelectedChatCopyError::RuntimeUnavailable)?;
+        let lifetime = SELECTED_CHAT_REQUEST_LIFETIME;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let lifetime = test_lifetime.unwrap_or(lifetime);
         let deadline = Instant::now()
-            .checked_add(SELECTED_CHAT_REQUEST_LIFETIME)
+            .checked_add(lifetime)
             .ok_or(SelectedChatCopyError::RuntimeUnavailable)?;
         let state = Arc::new(ConsentState {
             lease: OwnerLease {

@@ -181,6 +181,12 @@ mod actual {
     }
 
     async fn actual_selected_chat_fixture() -> SelectedChatFixture {
+        actual_selected_chat_fixture_with_consent_lifetime(None).await
+    }
+
+    async fn actual_selected_chat_fixture_with_consent_lifetime(
+        lifetime: Option<std::time::Duration>,
+    ) -> SelectedChatFixture {
         let relay =
             nostr_relay_builder::LocalRelay::new(nostr_relay_builder::RelayBuilder::default());
         relay.run().await.unwrap();
@@ -191,7 +197,11 @@ mod actual {
             AccountHome::open(dirs[i].path())
                 .import_account("test", &keys.secret_key().to_secret_hex())
                 .unwrap();
-            MarmotApp::with_relay(dirs[i].path(), &url)
+            let mut app = MarmotApp::with_relay(dirs[i].path(), &url);
+            if i == 1 {
+                app.selected_chat_consent_test_lifetime = lifetime;
+            }
+            app
         });
         let runtimes = apps.clone().map(MarmotAppRuntime::new);
         for r in &runtimes {
@@ -889,6 +899,11 @@ mod actual {
     }
 
     #[tokio::test]
+    async fn selected_chat_welcome_original_expiry_during_storage_retry_cannot_admit_or_deliver() {
+        selected_chat_delivery(RecipientAdmissionScenario::Expire).await;
+    }
+
+    #[tokio::test]
     async fn selected_chat_welcome_foreign_package_event_refuses_without_consuming_original() {
         selected_chat_delivery(RecipientAdmissionScenario::ForeignPackageEvent).await;
     }
@@ -898,11 +913,16 @@ mod actual {
         None,
         Retry,
         Cancel,
+        Expire,
         ForeignPackageEvent,
     }
 
     async fn selected_chat_delivery(scenario: RecipientAdmissionScenario) {
-        let fixture = actual_selected_chat_fixture().await;
+        let fixture = actual_selected_chat_fixture_with_consent_lifetime(
+            (scenario == RecipientAdmissionScenario::Expire)
+                .then_some(std::time::Duration::from_secs(10)),
+        )
+        .await;
         let recipient_bundles_before = fixture.apps[1]
             .account_storage("test")
             .unwrap()
@@ -978,7 +998,9 @@ mod actual {
         let mut recipient_errors = fixture.runtimes[1].subscribe();
         let injector = if matches!(
             scenario,
-            RecipientAdmissionScenario::Retry | RecipientAdmissionScenario::Cancel
+            RecipientAdmissionScenario::Retry
+                | RecipientAdmissionScenario::Cancel
+                | RecipientAdmissionScenario::Expire
         ) {
             let app = &fixture.apps[1];
             let path = app.account_storage_path("test");
@@ -1082,15 +1104,42 @@ mod actual {
             .await
             .expect("the same account worker must remain available during admission retry")
             .expect("original approved offer must remain usable after incoming storage rollback");
-            if scenario == RecipientAdmissionScenario::Cancel {
-                tokio::time::timeout(std::time::Duration::from_millis(500), original.cancel())
-                    .await
-                    .expect("original cancellation must remain responsive during storage retry")
-                    .unwrap();
-                assert_eq!(
-                    original.snapshot().await.unwrap().phase,
+            if matches!(
+                scenario,
+                RecipientAdmissionScenario::Cancel | RecipientAdmissionScenario::Expire
+            ) {
+                let terminal = if scenario == RecipientAdmissionScenario::Cancel {
+                    tokio::time::timeout(std::time::Duration::from_millis(500), original.cancel())
+                        .await
+                        .expect("original cancellation must remain responsive during storage retry")
+                        .unwrap();
                     crate::SelectedChatConsentPhase::Cancelled
-                );
+                } else {
+                    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+                        loop {
+                            if original.snapshot().await.unwrap().phase == crate::SelectedChatConsentPhase::Expired {
+                                break;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                        }
+                    }).await.expect("unchanged original construction deadline must expire during retained SQL retry");
+                    crate::SelectedChatConsentPhase::Expired
+                };
+                assert_eq!(original.snapshot().await.unwrap().phase, terminal);
+                if scenario == RecipientAdmissionScenario::Expire {
+                    let expired = original.snapshot().await.unwrap();
+                    assert!(matches!(
+                        original.offer_packet(expired.revision).await,
+                        Err(crate::SelectedChatCopyError::Closed)
+                    ));
+                    assert!(matches!(
+                        managers[1]
+                            .receive_selected_chat_copy_request("test", packet.clone())
+                            .await,
+                        Err(crate::SelectedChatCopyError::Closed)
+                    ));
+                    assert_eq!(original.snapshot().await.unwrap(), expired);
+                }
                 tokio::time::timeout(std::time::Duration::from_secs(5), async {
                     loop {
                         let rows = storage.selected_chat_key_package_storage().unwrap().selected_chat_key_packages().unwrap();
@@ -1100,14 +1149,17 @@ mod actual {
                         }
                         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                     }
-                }).await.expect("exact cancelled purpose and private bundle must retire");
+                }).await.expect("exact terminal purpose and private bundle must retire");
             }
             connection
                 .execute_batch("DROP TRIGGER reject_selected_join;")
                 .unwrap();
         }
-        if scenario == RecipientAdmissionScenario::Cancel {
-            assert_cancelled_recipient_stays_out(&fixture, &request).await;
+        if matches!(
+            scenario,
+            RecipientAdmissionScenario::Cancel | RecipientAdmissionScenario::Expire
+        ) {
+            assert_terminal_recipient_stays_out(&fixture, &request).await;
             directory_reader.shutdown().await;
             for runtime in [
                 &fixture.runtimes[0],
@@ -1382,7 +1434,7 @@ mod actual {
         assert!(!storage.has_ingress_dedup_marker(&content_id).unwrap());
     }
 
-    async fn assert_cancelled_recipient_stays_out(
+    async fn assert_terminal_recipient_stays_out(
         fixture: &SelectedChatFixture,
         request: &crate::SelectedChatCopy,
     ) {
@@ -1414,7 +1466,7 @@ mod actual {
         .await
         .expect("other original recipients must adopt the actual selected Add");
         // Observe beyond two retry intervals after removing the fault. These
-        // actual worker queries must not turn cancellation into a renewed join.
+        // actual worker queries must not turn a terminal original into a renewed join.
         let until = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
         while tokio::time::Instant::now() < until {
             assert!(
@@ -1432,7 +1484,7 @@ mod actual {
             );
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-        let payload = b"fresh message after original recipient cancelled";
+        let payload = b"fresh message after original recipient became terminal";
         let sent = fixture.runtimes[0]
             .send_message("test", &fixture.chat, payload.to_vec())
             .await
@@ -1458,7 +1510,7 @@ mod actual {
             }
         })
         .await
-        .expect("uncancelled copies must still receive actual new messages");
+        .expect("other live copies must still receive actual new messages");
         assert!(
             fixture.apps[1]
                 .timeline_message("test", &fixture.chat_hex, id)

@@ -365,6 +365,8 @@ impl AppClient {
             observation,
             packet,
             selected.settlement_generation(),
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.app.selected_chat_consent_test_lifetime,
         )
     }
     fn fresh_selected_consent(

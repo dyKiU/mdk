@@ -686,3 +686,10 @@ Offer counts and snapshots do not grant Add, Welcome publication or joining.
 
 
 Selected-chat private offers carry the intact Core leaf-signed offer plus a genuine unpublished signed30443 event in a bounded canonical private envelope. Verify event signature/account/content/reference/expected tags against the authenticated offer; retain exact wire in the original consent and verified source ID only in its original request offer slot. Register negative package cleanup before signing awaits, recheck the fixed original lease afterward, and interrupt signing on exact cancellation, expiry or abandoned reply. No directory publication or fabricated source ID. Original selected publication retains frozen Commit/Welcomes and the actual ACK report, confirms the exact pending identity before each fresh successor check, and observes ordinary send effects/projection/routes before releasing Welcomes. Do not use the native-only observer for ordinary EpochChanged. Never place selected permission/fanout into generic replay. InviteConfirmed observes source confirmation, not recipient joining/history. See the real public ABC+A/D four-leaf exact-new-message regression and its scoped qualification proof.
+
+Selected recipient expiry acceptance uses a per-fixture lifetime captured only at
+the original consent constructor under test + test-policy-overrides. Keep the
+production 600-second lifetime unchanged; never renew imported/retained owners or
+advance a global clock. The real SQL-rollback control requires original expiry,
+exact Pending-purpose/private-bundle retirement, no same-request restart, and no
+late admission after releasing the fault while other actual copies keep delivering.
