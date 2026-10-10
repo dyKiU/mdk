@@ -42,3 +42,4 @@ pub mod avatar;
 pub mod moderation;
 
 pub mod device_linking;
+pub mod selected_chat_copy;

@@ -180,3 +180,9 @@ macOS release-artifact checks (after `xcframework-macos.sh`, which needs `OTLP_E
 ```
 
 For Android NDK prerequisites and initialization see README.md#kotlin--android.
+
+Selected-chat request/consent bindings forward opaque original App owners. Keep
+selection/consent separate from verification/enrollment, preserve displayed
+revisions and bounded private packets, and do not infer recipient joining or
+history from InviteConfirmed. See SELECTED-CHAT-COPY.md. Source qualification
+does not establish generated-language ABI or matched native app adoption.

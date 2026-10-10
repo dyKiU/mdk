@@ -339,6 +339,26 @@ pub enum MarmotKitError {
 
     #[error("Device verification runtime is unavailable")]
     DeviceLinkingRuntimeUnavailable,
+    #[error("Selected chat copy: Unsupported")]
+    SelectedChatCopyUnsupported,
+    #[error("Selected chat copy: NotReady")]
+    SelectedChatCopyNotReady,
+    #[error("Selected chat copy: InvalidSelection")]
+    SelectedChatCopyInvalidSelection,
+    #[error("Selected chat copy: UnsupportedGroup")]
+    SelectedChatCopyUnsupportedGroup,
+    #[error("Selected chat copy: NotAdmin")]
+    SelectedChatCopyNotAdmin,
+    #[error("Selected chat copy: Busy")]
+    SelectedChatCopyBusy,
+    #[error("Selected chat copy: RuntimeUnavailable")]
+    SelectedChatCopyRuntimeUnavailable,
+    #[error("Selected chat copy: InvalidPacket")]
+    SelectedChatCopyInvalidPacket,
+    #[error("Selected chat copy: StaleRevision")]
+    SelectedChatCopyStaleRevision,
+    #[error("Selected chat copy: Closed")]
+    SelectedChatCopyClosed,
 }
 
 impl From<AppError> for MarmotKitError {
@@ -1197,6 +1217,29 @@ impl From<marmot_app::DeviceLinkingError> for MarmotKitError {
             marmot_app::DeviceLinkingError::RuntimeUnavailable => {
                 Self::DeviceLinkingRuntimeUnavailable
             }
+        }
+    }
+}
+
+impl From<marmot_app::SelectedChatCopyError> for MarmotKitError {
+    fn from(value: marmot_app::SelectedChatCopyError) -> Self {
+        match value {
+            marmot_app::SelectedChatCopyError::Unsupported => Self::SelectedChatCopyUnsupported,
+            marmot_app::SelectedChatCopyError::NotReady => Self::SelectedChatCopyNotReady,
+            marmot_app::SelectedChatCopyError::InvalidSelection => {
+                Self::SelectedChatCopyInvalidSelection
+            }
+            marmot_app::SelectedChatCopyError::UnsupportedGroup => {
+                Self::SelectedChatCopyUnsupportedGroup
+            }
+            marmot_app::SelectedChatCopyError::NotAdmin => Self::SelectedChatCopyNotAdmin,
+            marmot_app::SelectedChatCopyError::Busy => Self::SelectedChatCopyBusy,
+            marmot_app::SelectedChatCopyError::RuntimeUnavailable => {
+                Self::SelectedChatCopyRuntimeUnavailable
+            }
+            marmot_app::SelectedChatCopyError::InvalidPacket => Self::SelectedChatCopyInvalidPacket,
+            marmot_app::SelectedChatCopyError::StaleRevision => Self::SelectedChatCopyStaleRevision,
+            marmot_app::SelectedChatCopyError::Closed => Self::SelectedChatCopyClosed,
         }
     }
 }

@@ -184,6 +184,16 @@ enum MarmotStatus
   MARMOT_STATUS_DEVICE_LINKING_NOT_READY = 99,
   MARMOT_STATUS_DEVICE_LINKING_STALE_REVISION = 100,
   MARMOT_STATUS_DEVICE_LINKING_RUNTIME_UNAVAILABLE = 101,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_UNSUPPORTED = 102,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_NOT_READY = 103,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_INVALID_SELECTION = 104,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_UNSUPPORTED_GROUP = 105,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_NOT_ADMIN = 106,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_BUSY = 107,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_RUNTIME_UNAVAILABLE = 108,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_INVALID_PACKET = 109,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_STALE_REVISION = 110,
+  MARMOT_STATUS_SELECTED_CHAT_COPY_CLOSED = 111,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -828,6 +838,22 @@ typedef enum MarmotDeviceLinkingApprovalPhase {
   MARMOT_DEVICE_LINKING_APPROVAL_PHASE_EXPIRED,
 } MarmotDeviceLinkingApprovalPhase;
 
+typedef enum MarmotSelectedChatCopyPhase {
+  MARMOT_SELECTED_CHAT_COPY_PHASE_AWAITING_SIBLING_CONSENT,
+  MARMOT_SELECTED_CHAT_COPY_PHASE_CANCELLED,
+  MARMOT_SELECTED_CHAT_COPY_PHASE_EXPIRED,
+  MARMOT_SELECTED_CHAT_COPY_PHASE_CLOSED,
+  MARMOT_SELECTED_CHAT_COPY_PHASE_INVITE_CONFIRMED,
+} MarmotSelectedChatCopyPhase;
+
+typedef enum MarmotSelectedChatConsentPhase {
+  MARMOT_SELECTED_CHAT_CONSENT_PHASE_AWAITING_APPROVAL,
+  MARMOT_SELECTED_CHAT_CONSENT_PHASE_APPROVED,
+  MARMOT_SELECTED_CHAT_CONSENT_PHASE_CANCELLED,
+  MARMOT_SELECTED_CHAT_CONSENT_PHASE_EXPIRED,
+  MARMOT_SELECTED_CHAT_CONSENT_PHASE_CLOSED,
+} MarmotSelectedChatConsentPhase;
+
 /**
  * Why a timeline delta fired.
  */
@@ -1274,6 +1300,16 @@ typedef struct MarmotOnboardingSubscription MarmotOnboardingSubscription;
  * This fallible stream uses blocking next so storage errors retain their typed status.
  */
 typedef struct MarmotPresentedChatListSubscription MarmotPresentedChatListSubscription;
+
+/**
+ * Clones share one original consent action; release all handles before their client.
+ */
+typedef struct MarmotSelectedChatConsent MarmotSelectedChatConsent;
+
+/**
+ * Concurrent methods are supported; free only when no call uses this handle.
+ */
+typedef struct MarmotSelectedChatCopy MarmotSelectedChatCopy;
 
 /**
  * Opaque handle to one conversation's materialized timeline window.
@@ -4579,6 +4615,29 @@ typedef struct MarmotPublisherOptions {
   uintptr_t server_cert_der_len;
   uint32_t trust;
 } MarmotPublisherOptions;
+
+typedef struct MarmotSelectedChatCopySnapshot {
+  uint64_t revision;
+  enum MarmotSelectedChatCopyPhase phase;
+  uint32_t sibling_count;
+  uint32_t consenting_sibling_count;
+  uint32_t offered_sibling_count;
+} MarmotSelectedChatCopySnapshot;
+
+/**
+ * Owned bounded observation/offer packet. Release with its matching free.
+ */
+typedef struct MarmotSelectedChatBytes {
+  uint8_t *bytes;
+  uintptr_t bytes_len;
+} MarmotSelectedChatBytes;
+
+typedef struct MarmotSelectedChatConsentSnapshot {
+  uint64_t revision;
+  enum MarmotSelectedChatConsentPhase phase;
+  uint8_t *chat_selector;
+  uintptr_t chat_selector_len;
+} MarmotSelectedChatConsentSnapshot;
 
 /**
  * One live-received message.
@@ -9770,6 +9829,152 @@ MarmotStatus marmot_agent_publisher_cancel(const struct MarmotAgentPublisher *pu
 void marmot_agent_publisher_free(struct MarmotAgentPublisher *publisher);
 
 /**
+ * Request one ordinary chat under a fresh protected-roster selector; no sibling consent is implied.
+ * # Safety
+ * client/account/group must be live; selector readable for len; out writable.
+ */
+MarmotStatus marmot_begin_selected_chat_copy(const struct MarmotClient *client,
+                                             const char *account,
+                                             const char *group_id_hex,
+                                             const uint8_t *selector,
+                                             uintptr_t selector_len,
+                                             struct MarmotSelectedChatCopy **out);
+
+/**
+ * Import bounded metadata into an opaque original consent action; importing is not approval.
+ * # Safety
+ * client/account live; packet readable for len; out writable.
+ */
+MarmotStatus marmot_receive_selected_chat_copy_request(const struct MarmotClient *client,
+                                                       const char *account,
+                                                       const uint8_t *bytes,
+                                                       uintptr_t len,
+                                                       struct MarmotSelectedChatConsent **out);
+
+/**
+ * Retain an alias of the same original action. Releasing one alias does not cancel others.
+ * # Safety
+ * handle must be live and out writable; never free concurrently with a call.
+ */
+MarmotStatus marmot_selected_chat_copy_clone(const struct MarmotSelectedChatCopy *handle,
+                                             struct MarmotSelectedChatCopy **out);
+
+/**
+ * Release an opaque alias. The last alias drops the original action; NULL is a no-op.
+ * # Safety
+ * handle must be NULL or a live library-owned handle released exactly once; no concurrent calls.
+ */
+void marmot_selected_chat_copy_free(struct MarmotSelectedChatCopy *handle);
+
+/**
+ * Perform snapshot on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_copy_snapshot(const struct MarmotSelectedChatCopy *handle,
+                                                struct MarmotSelectedChatCopySnapshot **out);
+
+/**
+ * Perform request packet on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_copy_request_packet(const struct MarmotSelectedChatCopy *handle,
+                                                      uint64_t revision,
+                                                      struct MarmotSelectedChatBytes **out);
+
+/**
+ * Perform receive consent packet on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_copy_receive_consent_packet(const struct MarmotSelectedChatCopy *handle,
+                                                              uint64_t revision,
+                                                              const uint8_t *bytes,
+                                                              uintptr_t len);
+
+/**
+ * Perform receive offer packet on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_copy_receive_offer_packet(const struct MarmotSelectedChatCopy *handle,
+                                                            uint64_t revision,
+                                                            const uint8_t *bytes,
+                                                            uintptr_t len);
+
+/**
+ * Perform continue on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_copy_continue(const struct MarmotSelectedChatCopy *handle,
+                                                uint64_t revision);
+
+/**
+ * Perform cancel on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_copy_cancel(const struct MarmotSelectedChatCopy *handle);
+
+/**
+ * Retain an alias of the same original action. Releasing one alias does not cancel others.
+ * # Safety
+ * handle must be live and out writable; never free concurrently with a call.
+ */
+MarmotStatus marmot_selected_chat_consent_clone(const struct MarmotSelectedChatConsent *handle,
+                                                struct MarmotSelectedChatConsent **out);
+
+/**
+ * Release an opaque alias. The last alias drops the original action; NULL is a no-op.
+ * # Safety
+ * handle must be NULL or a live library-owned handle released exactly once; no concurrent calls.
+ */
+void marmot_selected_chat_consent_free(struct MarmotSelectedChatConsent *handle);
+
+/**
+ * Perform snapshot on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_consent_snapshot(const struct MarmotSelectedChatConsent *handle,
+                                                   struct MarmotSelectedChatConsentSnapshot **out);
+
+/**
+ * Perform approve on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_consent_approve(const struct MarmotSelectedChatConsent *handle,
+                                                  uint64_t revision);
+
+/**
+ * Perform response packet on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_consent_response_packet(const struct MarmotSelectedChatConsent *handle,
+                                                          uint64_t revision,
+                                                          struct MarmotSelectedChatBytes **out);
+
+/**
+ * Perform offer packet on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_consent_offer_packet(const struct MarmotSelectedChatConsent *handle,
+                                                       uint64_t revision,
+                                                       struct MarmotSelectedChatBytes **out);
+
+/**
+ * Perform cancel on this exact original action; App revalidates displayed revisions.
+ * # Safety
+ * handle must be live; byte inputs readable for len and any output writable; no concurrent free.
+ */
+MarmotStatus marmot_selected_chat_consent_cancel(const struct MarmotSelectedChatConsent *handle);
+
+/**
  *Block until the next item, the timeout, or stream close. `timeout_ms == 0` waits indefinitely. Returns `MARMOT_STATUS_OK` (out set; free with `marmot_event_free`), `MARMOT_STATUS_TIMEOUT`, or `MARMOT_STATUS_CLOSED` (out NULL for both).
  *
  * # Safety
@@ -12130,6 +12335,33 @@ void marmot_device_linking_approval_snapshot_free(struct MarmotDeviceLinkingAppr
  * library.
  */
 void marmot_device_linking_target_list_free(struct MarmotDeviceLinkingTargetList *list);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_selected_chat_copy_snapshot_free(struct MarmotSelectedChatCopySnapshot *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_selected_chat_consent_snapshot_free(struct MarmotSelectedChatConsentSnapshot *ptr);
+
+/**
+ * Release an owned selected-chat packet. NULL is a no-op.
+ * # Safety
+ * ptr must be NULL or a library-owned result released exactly once.
+ */
+void marmot_selected_chat_bytes_free(struct MarmotSelectedChatBytes *ptr);
 
 /**
  * Free a value of this type returned by this library. NULL

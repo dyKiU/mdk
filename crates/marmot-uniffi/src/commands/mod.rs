@@ -57,3 +57,6 @@ pub use attachment_controls::AttachmentTransferSubscription;
 
 mod device_linking;
 pub use device_linking::{DeviceLinkingApproval, DeviceLinkingSession, DeviceLinkingSubscription};
+
+mod selected_chat_copy;
+pub use selected_chat_copy::{SelectedChatConsent, SelectedChatCopy};

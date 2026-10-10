@@ -142,6 +142,16 @@ pub enum MarmotStatus {
     DeviceLinkingNotReady = 99,
     DeviceLinkingStaleRevision = 100,
     DeviceLinkingRuntimeUnavailable = 101,
+    SelectedChatCopyUnsupported = 102,
+    SelectedChatCopyNotReady = 103,
+    SelectedChatCopyInvalidSelection = 104,
+    SelectedChatCopyUnsupportedGroup = 105,
+    SelectedChatCopyNotAdmin = 106,
+    SelectedChatCopyBusy = 107,
+    SelectedChatCopyRuntimeUnavailable = 108,
+    SelectedChatCopyInvalidPacket = 109,
+    SelectedChatCopyStaleRevision = 110,
+    SelectedChatCopyClosed = 111,
 }
 
 thread_local! {
@@ -225,6 +235,26 @@ pub(crate) fn status_from_error(err: &MarmotKitError) -> MarmotStatus {
         MarmotKitError::EncryptionFailed { .. } => MarmotStatus::EncryptionFailed,
         MarmotKitError::Io { .. } => MarmotStatus::Io,
         MarmotKitError::Runtime { .. } => MarmotStatus::Runtime,
+        MarmotKitError::SelectedChatCopyUnsupported => MarmotStatus::SelectedChatCopyUnsupported,
+        MarmotKitError::SelectedChatCopyNotReady => MarmotStatus::SelectedChatCopyNotReady,
+        MarmotKitError::SelectedChatCopyInvalidSelection => {
+            MarmotStatus::SelectedChatCopyInvalidSelection
+        }
+        MarmotKitError::SelectedChatCopyUnsupportedGroup => {
+            MarmotStatus::SelectedChatCopyUnsupportedGroup
+        }
+        MarmotKitError::SelectedChatCopyNotAdmin => MarmotStatus::SelectedChatCopyNotAdmin,
+        MarmotKitError::SelectedChatCopyBusy => MarmotStatus::SelectedChatCopyBusy,
+        MarmotKitError::SelectedChatCopyRuntimeUnavailable => {
+            MarmotStatus::SelectedChatCopyRuntimeUnavailable
+        }
+        MarmotKitError::SelectedChatCopyInvalidPacket => {
+            MarmotStatus::SelectedChatCopyInvalidPacket
+        }
+        MarmotKitError::SelectedChatCopyStaleRevision => {
+            MarmotStatus::SelectedChatCopyStaleRevision
+        }
+        MarmotKitError::SelectedChatCopyClosed => MarmotStatus::SelectedChatCopyClosed,
         MarmotKitError::DeviceLinkingUnsupported => MarmotStatus::DeviceLinkingUnsupported,
         MarmotKitError::DeviceLinkingClosed => MarmotStatus::DeviceLinkingClosed,
         MarmotKitError::DeviceLinkingInvalidPacket => MarmotStatus::DeviceLinkingInvalidPacket,

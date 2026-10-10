@@ -501,6 +501,12 @@ pub use conversions::{
     DeviceLinkingSnapshotFfi, DeviceLinkingTargetFfi,
 };
 
+pub use commands::{SelectedChatConsent, SelectedChatCopy};
+pub use conversions::{
+    SelectedChatConsentPhaseFfi, SelectedChatConsentSnapshotFfi, SelectedChatCopyPhaseFfi,
+    SelectedChatCopySnapshotFfi,
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;

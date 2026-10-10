@@ -31,6 +31,7 @@ pub mod memory;
 pub mod nip46;
 pub mod publisher;
 pub mod secret_store;
+pub mod selected_chat_copy;
 pub mod status;
 pub mod subscriptions;
 pub mod types;

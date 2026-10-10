@@ -108,3 +108,8 @@ just c-smoke   # compiles and runs examples/smoke.c (valgrind when available)
 just c-parity-gate
 just binding-docs-gate
 ```
+
+Selected-chat opaque aliases retain the same original UniFFI action. Use explicit
+clones and free_plain for handles, matching deep frees for binary/snapshot results,
+bound packet copies before dereference, and preserve status values 102–111.
+Keep default Unsupported and required-output preflight before effects.

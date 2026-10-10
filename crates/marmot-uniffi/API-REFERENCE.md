@@ -4583,3 +4583,138 @@ pub async fn pending_device_linking_approvals( &self, account_ref: String, ) -> 
 [Source](src/commands/device_linking.rs#L42)
 
 </details>
+
+<details>
+<summary>New exports — complete and organize before merging</summary>
+
+### `Marmot::begin_selected_chat_copy`
+
+```rust
+pub async fn begin_selected_chat_copy( &self, account_ref: String, group_id_hex: String, linked_roster_selector: Vec<u8>, ) -> Result<Arc<SelectedChatCopy>, MarmotKitError>
+```
+
+Create the original selected Current/admin chat request for an actually completed linked roster selector. Default builds refuse before account effects. Retain the opaque handle; selection metadata cannot authorize a recreated owner. See [selected-chat copies](SELECTED-CHAT-COPY.md).
+
+[Source](src/commands/selected_chat_copy.rs#L17)
+
+### `Marmot::receive_selected_chat_copy_request`
+
+```rust
+pub async fn receive_selected_chat_copy_request( &self, account_ref: String, packet: Vec<u8>, ) -> Result<Arc<SelectedChatConsent>, MarmotKitError>
+```
+
+Import a bounded private request into the original sibling consent action. Import does not approve or join; display the selected chat and explicitly approve the current revision. See [selected-chat copies](SELECTED-CHAT-COPY.md).
+
+[Source](src/commands/selected_chat_copy.rs#L41)
+
+### `SelectedChatConsent::approve`
+
+```rust
+pub async fn approve(&self, revision: u64) -> Result<(), MarmotKitError>
+```
+
+Approve the revision actually displayed for this original sibling consent. Stale revisions and closed owners are rejected; do not infer consent from imported metadata. See [selected-chat copies](SELECTED-CHAT-COPY.md).
+
+[Source](src/commands/selected_chat_copy.rs#L106)
+
+### `SelectedChatConsent::cancel`
+
+```rust
+pub async fn cancel(&self) -> Result<(), MarmotKitError>
+```
+
+Negatively retire this exact original consent and its private package ownership. Prefer explicit cancellation before releasing the final shared handle. See [selected-chat copies](SELECTED-CHAT-COPY.md).
+
+[Source](src/commands/selected_chat_copy.rs#L118)
+
+### `SelectedChatConsent::offer_packet`
+
+```rust
+pub async fn offer_packet(&self, revision: u64) -> Result<Vec<u8>, MarmotKitError>
+```
+
+Export the bounded private package offer after explicit approval. Retries preserve exact bytes; collect on the original source request and never publish its package event to a directory. See [selected-chat copies](SELECTED-CHAT-COPY.md).
+
+[Source](src/commands/selected_chat_copy.rs#L114)
+
+### `SelectedChatConsent::response_packet`
+
+```rust
+pub async fn response_packet(&self, revision: u64) -> Result<Vec<u8>, MarmotKitError>
+```
+
+Export the original approved leaf-signed response for private transfer to the source. Use the current consent revision; before approval this returns NotReady. See [selected-chat copies](SELECTED-CHAT-COPY.md).
+
+[Source](src/commands/selected_chat_copy.rs#L110)
+
+### `SelectedChatConsent::snapshot`
+
+```rust
+pub async fn snapshot(&self) -> Result<SelectedChatConsentSnapshotFfi, MarmotKitError>
+```
+
+Read display-only revision, consent phase and binary selected-chat selector. These observations do not grant membership or recreate an original lease. See [selected-chat copies](SELECTED-CHAT-COPY.md).
+
+[Source](src/commands/selected_chat_copy.rs#L102)
+
+### `SelectedChatCopy::cancel`
+
+```rust
+pub async fn cancel(&self) -> Result<(), MarmotKitError>
+```
+
+Negatively retire the exact original selection and pending publication ownership. Other handles for this same action observe cancellation; this does not roll back confirmed canonical group state. See [selected-chat copies](SELECTED-CHAT-COPY.md).
+
+[Source](src/commands/selected_chat_copy.rs#L94)
+
+### `SelectedChatCopy::continue_copy`
+
+```rust
+pub async fn continue_copy(&self, revision: u64) -> Result<(), MarmotKitError>
+```
+
+Continue the original action at its current displayed revision after all selected siblings consent and provide offers. InviteConfirmed describes source Add confirmation, not recipient joining or history transfer. See [selected-chat copies](SELECTED-CHAT-COPY.md).
+
+[Source](src/commands/selected_chat_copy.rs#L90)
+
+### `SelectedChatCopy::receive_consent_packet`
+
+```rust
+pub async fn receive_consent_packet( &self, revision: u64, packet: Vec<u8>, ) -> Result<(), MarmotKitError>
+```
+
+Authenticate a bounded approved response under this original source request and revision. Retain current snapshots after collection; invalid input cannot grant consent. See [selected-chat copies](SELECTED-CHAT-COPY.md).
+
+[Source](src/commands/selected_chat_copy.rs#L74)
+
+### `SelectedChatCopy::receive_offer_packet`
+
+```rust
+pub async fn receive_offer_packet( &self, revision: u64, packet: Vec<u8>, ) -> Result<(), MarmotKitError>
+```
+
+Authenticate and collect a bounded private offer from a sibling whose approved response is retained. Exact duplicate bytes are idempotent; invalid input does not advance collected counts. See [selected-chat copies](SELECTED-CHAT-COPY.md).
+
+[Source](src/commands/selected_chat_copy.rs#L82)
+
+### `SelectedChatCopy::request_packet`
+
+```rust
+pub async fn request_packet(&self, revision: u64) -> Result<Vec<u8>, MarmotKitError>
+```
+
+Export the bounded original selected-chat request at the exact displayed revision for private sibling transport. The packet cannot recreate permission after original expiry, cancellation or restart. See [selected-chat copies](SELECTED-CHAT-COPY.md).
+
+[Source](src/commands/selected_chat_copy.rs#L70)
+
+### `SelectedChatCopy::snapshot`
+
+```rust
+pub async fn snapshot(&self) -> Result<SelectedChatCopySnapshotFfi, MarmotKitError>
+```
+
+Read display-only source progress, revision and sibling/consent/offer counts. InviteConfirmed is source confirmation; use ordinary message projections to establish actual recipient delivery. See [selected-chat copies](SELECTED-CHAT-COPY.md).
+
+[Source](src/commands/selected_chat_copy.rs#L66)
+
+</details>

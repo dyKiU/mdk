@@ -283,6 +283,7 @@ async fn opaque_binding_three_device_enrollment_reports_actual_completion() {
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].device_count, 3);
     }
+    selected_chat_binding_request_after_actual_abc(&kits, &url).await;
     a.cancel().await.unwrap();
     c.cancel().await.unwrap();
     approval.cancel().await.unwrap();
@@ -333,4 +334,198 @@ async fn wait_binding_complete(session: &DeviceLinkingSession) {
     })
     .await
     .expect("native completion must follow actual protected settlement");
+}
+
+#[cfg(feature = "experimental-device-sync")]
+async fn selected_chat_binding_request_after_actual_abc(kits: &[Marmot], url: &str) {
+    use std::time::Duration;
+    let dir = tempfile::tempdir().unwrap();
+    let keys = nostr::prelude::Keys::generate();
+    let account = marmot_account::AccountHome::open(dir.path())
+        .import_account("test", &keys.secret_key().to_secret_hex())
+        .unwrap();
+    let app = MarmotApp::with_relay_and_config(
+        dir.path(),
+        url,
+        MarmotAppConfig::default().with_allow_loopback_relay_endpoints(true),
+    );
+    let d = Marmot {
+        runtime: app.runtime(),
+        app,
+    };
+    d.runtime.reconcile_accounts().await.unwrap();
+    // Ordinary D setup uses the production relay-list publisher, not injected membership.
+    d.app
+        .set_account_inbox_relays(
+            "test",
+            vec![cgka_traits::TransportEndpoint(url.into())],
+            vec![cgka_traits::TransportEndpoint(url.into())],
+        )
+        .await
+        .unwrap();
+    d.publish_new_key_package("test".into()).await.unwrap();
+    let chat = kits[0]
+        .create_group(
+            "test".into(),
+            "Native selected chat".into(),
+            vec![account.account_id_hex],
+            None,
+        )
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            if d.group_mls_state("test".into(), chat.clone()).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("D must genuinely join the ordinary A/D chat");
+    assert_eq!(
+        d.group_mls_state("test".into(), chat.clone())
+            .await
+            .unwrap()
+            .member_count,
+        2
+    );
+    let targets = kits[0].device_linking_targets("test".into()).await.unwrap();
+    assert_eq!(targets[0].device_count, 3);
+    let request = kits[0]
+        .begin_selected_chat_copy("test".into(), chat.clone(), targets[0].selector.clone())
+        .await
+        .unwrap();
+    let alias = request.clone();
+    drop(request);
+    let request = alias; // One foreign alias disappearing must not cancel the original.
+    let observed = request.snapshot().await.unwrap();
+    assert_eq!(observed.sibling_count, 2);
+    assert_eq!(observed.consenting_sibling_count, 0);
+    assert_eq!(observed.offered_sibling_count, 0);
+    assert!(matches!(
+        request.request_packet(observed.revision + 1).await,
+        Err(MarmotKitError::SelectedChatCopyStaleRevision)
+    ));
+    let packet = request.request_packet(observed.revision).await.unwrap();
+    assert!(packet.len() <= 16384);
+    assert!(matches!(
+        request
+            .receive_consent_packet(observed.revision, vec![0; 16385])
+            .await,
+        Err(MarmotKitError::SelectedChatCopyInvalidPacket)
+    ));
+    assert_eq!(request.snapshot().await.unwrap(), observed);
+    let mut consents = Vec::new();
+    for kit in &kits[1..] {
+        let consent = kit
+            .receive_selected_chat_copy_request("test".into(), packet.clone())
+            .await
+            .unwrap();
+        let observed = consent.snapshot().await.unwrap();
+        assert_eq!(
+            observed.phase,
+            crate::SelectedChatConsentPhaseFfi::AwaitingApproval
+        );
+        assert_eq!(observed.chat_selector, hex::decode(&chat).unwrap());
+        assert!(matches!(
+            consent.response_packet(observed.revision).await,
+            Err(MarmotKitError::SelectedChatCopyNotReady)
+        ));
+        assert!(matches!(
+            consent.approve(observed.revision + 1).await,
+            Err(MarmotKitError::SelectedChatCopyStaleRevision)
+        ));
+        consent.approve(observed.revision).await.unwrap();
+        let observed = consent.snapshot().await.unwrap();
+        assert_eq!(observed.phase, crate::SelectedChatConsentPhaseFfi::Approved);
+        let response = consent.response_packet(observed.revision).await.unwrap();
+        request
+            .receive_consent_packet(request.snapshot().await.unwrap().revision, response)
+            .await
+            .unwrap();
+        let offer = consent.offer_packet(observed.revision).await.unwrap();
+        assert!(offer.len() <= 16384);
+        assert_eq!(
+            consent.offer_packet(observed.revision).await.unwrap(),
+            offer
+        );
+        let revision = request.snapshot().await.unwrap().revision;
+        request
+            .receive_offer_packet(revision, offer.clone())
+            .await
+            .unwrap();
+        let captured = request.snapshot().await.unwrap();
+        request
+            .receive_offer_packet(captured.revision, offer)
+            .await
+            .unwrap();
+        assert_eq!(request.snapshot().await.unwrap(), captured);
+        consents.push(consent);
+    }
+    let observed = request.snapshot().await.unwrap();
+    assert_eq!(observed.consenting_sibling_count, 2);
+    assert_eq!(observed.offered_sibling_count, 2);
+    assert!(matches!(
+        request.continue_copy(observed.revision + 1).await,
+        Err(MarmotKitError::SelectedChatCopyStaleRevision)
+    ));
+    request.continue_copy(observed.revision).await.unwrap();
+    assert_eq!(
+        request.snapshot().await.unwrap().phase,
+        crate::SelectedChatCopyPhaseFfi::InviteConfirmed
+    );
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let mut complete = true;
+            for kit in kits.iter().chain(std::iter::once(&d)) {
+                complete &= kit
+                    .group_mls_state("test".into(), chat.clone())
+                    .await
+                    .is_ok_and(|state| state.member_count == 4);
+            }
+            if complete {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("opaque consent must genuinely admit both siblings");
+    let sent = kits[1]
+        .send_text(
+            "test".into(),
+            chat.clone(),
+            "native opaque selected delivery".into(),
+        )
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let complete = kits.iter().chain(std::iter::once(&d)).all(|kit| {
+                kit.messages("test".into(), Some(chat.clone()), None, None)
+                    .unwrap()
+                    .iter()
+                    .any(|message| message.message_id_hex == sent.message_ids[0])
+            });
+            if complete {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("new sibling message must reach all four independent native runtimes");
+    for consent in &consents {
+        consent.cancel().await.unwrap();
+    }
+    request.cancel().await.unwrap();
+    assert!(matches!(
+        request
+            .continue_copy(request.snapshot().await.unwrap().revision)
+            .await,
+        Err(MarmotKitError::SelectedChatCopyClosed)
+    ));
+    drop((request, consents));
+    d.runtime.shutdown_and_close().await.unwrap();
 }

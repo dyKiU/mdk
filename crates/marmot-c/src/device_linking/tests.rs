@@ -661,6 +661,7 @@ fn actual_c_three_device_enrollment_retains_approval_after_list_free() {
             assert_eq!((*(*targets).items).device_count, 3);
             marmot_device_linking_target_list_free(targets);
         }
+        c_selected_chat_after_actual_abc(&clients, &accounts, &url);
         assert_eq!(marmot_device_linking_session_cancel(a), MarmotStatus::Ok);
         assert_eq!(marmot_device_linking_session_cancel(c), MarmotStatus::Ok);
         assert_eq!(
@@ -802,4 +803,460 @@ unsafe fn c_wait_complete(handle: *const MarmotDeviceLinkingSession) {
             std::thread::sleep(Duration::from_millis(20));
         }
     }
+}
+
+#[cfg(feature = "experimental-device-sync")]
+unsafe fn c_selected_chat_after_actual_abc(
+    clients: &[MarmotClient],
+    accounts: &[CString],
+    url: &str,
+) {
+    use crate::selected_chat_copy::*;
+    use nostr::prelude::ToBech32;
+    use std::time::{Duration, Instant};
+    let dir = tempfile::tempdir().unwrap();
+    let keys = nostr::prelude::Keys::generate();
+    let d = client(dir.path(), url.into());
+    let account = d
+        .block_on(d.marmot.login(
+            keys.secret_key().to_bech32().unwrap(),
+            vec![url.into()],
+            Vec::new(),
+            Vec::new(),
+        ))
+        .unwrap();
+    d.block_on(
+        d.marmot
+            .publish_new_key_package(account.account_id_hex.clone()),
+    )
+    .unwrap();
+    let chat = clients[0]
+        .block_on(clients[0].marmot.create_group(
+            accounts[0].to_str().unwrap().into(),
+            "C selected chat".into(),
+            vec![account.account_id_hex.clone()],
+            None,
+        ))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        if d.block_on(
+            d.marmot
+                .group_mls_state(account.account_id_hex.clone(), chat.clone()),
+        )
+        .is_ok()
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "D must genuinely join C fixture ordinary chat"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let chat = CString::new(chat).unwrap();
+    unsafe {
+        let mut targets = std::ptr::null_mut();
+        assert_eq!(
+            marmot_device_linking_targets(&clients[0], accounts[0].as_ptr(), &mut targets),
+            MarmotStatus::Ok
+        );
+        assert_eq!((*(*targets).items).device_count, 3);
+        let target = &*(*targets).items;
+        let mut request = std::ptr::dangling_mut();
+        let status = marmot_begin_selected_chat_copy(
+            &clients[0],
+            accounts[0].as_ptr(),
+            chat.as_ptr(),
+            target.selector,
+            target.selector_len,
+            &mut request,
+        );
+        marmot_device_linking_target_list_free(targets);
+        assert_eq!(
+            status,
+            MarmotStatus::Ok,
+            "C must retain original selected-chat request"
+        );
+        use crate::types::selected_chat_copy::*;
+        let mut retained = std::ptr::null_mut();
+        assert_eq!(
+            marmot_selected_chat_copy_clone(request, &mut retained),
+            MarmotStatus::Ok
+        );
+        marmot_selected_chat_copy_free(request);
+        request = retained;
+        let reentrant = request as usize;
+        let status = clients[0].block_on(async move {
+            tokio::spawn(async move {
+                let mut observed = std::ptr::null_mut();
+                let status = marmot_selected_chat_copy_snapshot(
+                    reentrant as *const MarmotSelectedChatCopy,
+                    &mut observed,
+                );
+                if !observed.is_null() {
+                    marmot_selected_chat_copy_snapshot_free(observed);
+                }
+                status
+            })
+            .await
+            .unwrap()
+        });
+        assert_eq!(
+            status,
+            MarmotStatus::Ok,
+            "selected snapshot must block safely from a runtime worker"
+        );
+        let mut observed = std::ptr::null_mut();
+        assert_eq!(
+            marmot_selected_chat_copy_snapshot(request, &mut observed),
+            MarmotStatus::Ok
+        );
+        assert_eq!((*observed).sibling_count, 2);
+        assert_eq!(
+            marmot_selected_chat_copy_request_packet(
+                request,
+                (*observed).revision + 1,
+                std::ptr::null_mut()
+            ),
+            MarmotStatus::NullPointer
+        );
+        let mut bytes = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_selected_chat_copy_request_packet(request, (*observed).revision + 1, &mut bytes),
+            MarmotStatus::SelectedChatCopyStaleRevision
+        );
+        assert!(bytes.is_null());
+        assert_eq!(
+            marmot_selected_chat_copy_request_packet(request, (*observed).revision, &mut bytes),
+            MarmotStatus::Ok
+        );
+        assert_eq!(
+            marmot_selected_chat_copy_receive_consent_packet(
+                request,
+                (*observed).revision,
+                std::ptr::dangling(),
+                usize::MAX
+            ),
+            MarmotStatus::SelectedChatCopyInvalidPacket
+        );
+        marmot_selected_chat_copy_snapshot_free(observed);
+        let packet = std::slice::from_raw_parts((*bytes).bytes, (*bytes).bytes_len).to_vec();
+        marmot_selected_chat_bytes_free(bytes);
+        let mut consents = Vec::new();
+        for (client, account) in clients[1..].iter().zip(&accounts[1..]) {
+            let mut consent = std::ptr::null_mut();
+            assert_eq!(
+                marmot_receive_selected_chat_copy_request(
+                    client,
+                    account.as_ptr(),
+                    packet.as_ptr(),
+                    packet.len(),
+                    &mut consent
+                ),
+                MarmotStatus::Ok
+            );
+            let mut retained = std::ptr::null_mut();
+            assert_eq!(
+                marmot_selected_chat_consent_clone(consent, &mut retained),
+                MarmotStatus::Ok
+            );
+            marmot_selected_chat_consent_free(consent);
+            consent = retained;
+            let mut observed = std::ptr::null_mut();
+            assert_eq!(
+                marmot_selected_chat_consent_snapshot(consent, &mut observed),
+                MarmotStatus::Ok
+            );
+            assert_eq!(
+                (*observed).phase,
+                MarmotSelectedChatConsentPhase::AwaitingApproval
+            );
+            assert_eq!(
+                marmot_selected_chat_consent_approve(consent, (*observed).revision + 1),
+                MarmotStatus::SelectedChatCopyStaleRevision
+            );
+            assert_eq!(
+                marmot_selected_chat_consent_approve(consent, (*observed).revision),
+                MarmotStatus::Ok
+            );
+            marmot_selected_chat_consent_snapshot_free(observed);
+            assert_eq!(
+                marmot_selected_chat_consent_snapshot(consent, &mut observed),
+                MarmotStatus::Ok
+            );
+            let mut response = std::ptr::null_mut();
+            assert_eq!(
+                marmot_selected_chat_consent_response_packet(
+                    consent,
+                    (*observed).revision,
+                    &mut response
+                ),
+                MarmotStatus::Ok
+            );
+            let consent_revision = (*observed).revision;
+            marmot_selected_chat_consent_snapshot_free(observed);
+            let mut source = std::ptr::null_mut();
+            assert_eq!(
+                marmot_selected_chat_copy_snapshot(request, &mut source),
+                MarmotStatus::Ok
+            );
+            assert_eq!(
+                marmot_selected_chat_copy_receive_consent_packet(
+                    request,
+                    (*source).revision,
+                    (*response).bytes,
+                    (*response).bytes_len
+                ),
+                MarmotStatus::Ok
+            );
+            marmot_selected_chat_copy_snapshot_free(source);
+            marmot_selected_chat_bytes_free(response);
+            let mut offer = std::ptr::null_mut();
+            assert_eq!(
+                marmot_selected_chat_consent_offer_packet(consent, consent_revision, &mut offer),
+                MarmotStatus::Ok
+            );
+            assert!((*offer).bytes_len <= 16384);
+            let mut retry = std::ptr::null_mut();
+            assert_eq!(
+                marmot_selected_chat_consent_offer_packet(consent, consent_revision, &mut retry),
+                MarmotStatus::Ok
+            );
+            assert_eq!(
+                std::slice::from_raw_parts((*offer).bytes, (*offer).bytes_len),
+                std::slice::from_raw_parts((*retry).bytes, (*retry).bytes_len)
+            );
+            marmot_selected_chat_bytes_free(retry);
+            assert_eq!(
+                marmot_selected_chat_copy_snapshot(request, &mut source),
+                MarmotStatus::Ok
+            );
+            assert_eq!(
+                marmot_selected_chat_copy_receive_offer_packet(
+                    request,
+                    (*source).revision,
+                    (*offer).bytes,
+                    (*offer).bytes_len
+                ),
+                MarmotStatus::Ok
+            );
+            marmot_selected_chat_copy_snapshot_free(source);
+            assert_eq!(
+                marmot_selected_chat_copy_snapshot(request, &mut source),
+                MarmotStatus::Ok
+            );
+            let revision = (*source).revision;
+            assert_eq!(
+                marmot_selected_chat_copy_receive_offer_packet(
+                    request,
+                    revision,
+                    (*offer).bytes,
+                    (*offer).bytes_len
+                ),
+                MarmotStatus::Ok
+            );
+            marmot_selected_chat_copy_snapshot_free(source);
+            marmot_selected_chat_bytes_free(offer);
+            consents.push(consent);
+        }
+        let mut observed = std::ptr::null_mut();
+        assert_eq!(
+            marmot_selected_chat_copy_snapshot(request, &mut observed),
+            MarmotStatus::Ok
+        );
+        assert_eq!((*observed).consenting_sibling_count, 2);
+        assert_eq!((*observed).offered_sibling_count, 2);
+        assert_eq!(
+            marmot_selected_chat_copy_continue(request, (*observed).revision + 1),
+            MarmotStatus::SelectedChatCopyStaleRevision
+        );
+        assert_eq!(
+            marmot_selected_chat_copy_continue(request, (*observed).revision),
+            MarmotStatus::Ok
+        );
+        marmot_selected_chat_copy_snapshot_free(observed);
+        assert_eq!(
+            marmot_selected_chat_copy_snapshot(request, &mut observed),
+            MarmotStatus::Ok
+        );
+        assert_eq!(
+            (*observed).phase,
+            MarmotSelectedChatCopyPhase::InviteConfirmed
+        );
+        marmot_selected_chat_copy_snapshot_free(observed);
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let all = clients.iter().zip(accounts).all(|(client, account)| {
+                client
+                    .block_on(client.marmot.group_mls_state(
+                        account.to_str().unwrap().into(),
+                        chat.to_str().unwrap().into(),
+                    ))
+                    .is_ok_and(|state| state.member_count == 4)
+            });
+            let peer = d
+                .block_on(d.marmot.group_mls_state(
+                    account.account_id_hex.clone(),
+                    chat.to_str().unwrap().into(),
+                ))
+                .is_ok_and(|state| state.member_count == 4);
+            if all && peer {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "C wrappers must genuinely admit both original siblings"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(marmot_selected_chat_copy_cancel(request), MarmotStatus::Ok);
+        assert_eq!(
+            marmot_selected_chat_copy_snapshot(request, &mut observed),
+            MarmotStatus::Ok
+        );
+        assert_eq!(
+            marmot_selected_chat_copy_continue(request, (*observed).revision),
+            MarmotStatus::SelectedChatCopyClosed
+        );
+        marmot_selected_chat_copy_snapshot_free(observed);
+        for consent in consents {
+            assert_eq!(
+                marmot_selected_chat_consent_cancel(consent),
+                MarmotStatus::Ok
+            );
+            marmot_selected_chat_consent_free(consent);
+        }
+        marmot_selected_chat_copy_free(request);
+    }
+    d.block_on(d.marmot.shutdown_and_close()).unwrap();
+}
+
+#[test]
+fn selected_chat_c_outputs_precede_input_access_and_bounds_precede_copy() {
+    use crate::selected_chat_copy::*;
+    let dir = tempfile::tempdir().unwrap();
+    let client = client(dir.path(), "wss://relay.example".into());
+    let account = CString::new("missing").unwrap();
+    let group = CString::new("00").unwrap();
+    unsafe {
+        assert_eq!(
+            marmot_begin_selected_chat_copy(
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::dangling(),
+                usize::MAX,
+                std::ptr::null_mut()
+            ),
+            MarmotStatus::NullPointer
+        );
+        let mut request = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_begin_selected_chat_copy(
+                &client,
+                account.as_ptr(),
+                group.as_ptr(),
+                std::ptr::dangling(),
+                usize::MAX,
+                &mut request
+            ),
+            MarmotStatus::SelectedChatCopyInvalidPacket
+        );
+        assert!(request.is_null());
+        let mut consent = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_receive_selected_chat_copy_request(
+                &client,
+                account.as_ptr(),
+                std::ptr::dangling(),
+                usize::MAX,
+                &mut consent
+            ),
+            MarmotStatus::SelectedChatCopyInvalidPacket
+        );
+        assert!(consent.is_null());
+        assert_eq!(
+            marmot_selected_chat_copy_snapshot(std::ptr::null(), std::ptr::null_mut()),
+            MarmotStatus::NullPointer
+        );
+        let mut alias = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_selected_chat_consent_clone(std::ptr::null(), &mut alias),
+            MarmotStatus::NullPointer
+        );
+        assert!(alias.is_null());
+    }
+    client.block_on(client.marmot.shutdown_and_close()).unwrap();
+}
+#[cfg(not(feature = "experimental-device-sync"))]
+#[test]
+fn default_selected_chat_c_is_typed_unsupported_and_clears_outputs() {
+    use crate::selected_chat_copy::*;
+    let dir = tempfile::tempdir().unwrap();
+    let client = client(dir.path(), "wss://relay.example".into());
+    let account = CString::new("missing").unwrap();
+    let group = CString::new("invalid").unwrap();
+    unsafe {
+        let mut request = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_begin_selected_chat_copy(
+                &client,
+                account.as_ptr(),
+                group.as_ptr(),
+                std::ptr::null(),
+                0,
+                &mut request
+            ),
+            MarmotStatus::SelectedChatCopyUnsupported
+        );
+        assert!(request.is_null());
+        let mut consent = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_receive_selected_chat_copy_request(
+                &client,
+                account.as_ptr(),
+                std::ptr::null(),
+                0,
+                &mut consent
+            ),
+            MarmotStatus::SelectedChatCopyUnsupported
+        );
+        assert!(consent.is_null());
+    }
+    client.block_on(client.marmot.shutdown_and_close()).unwrap();
+}
+#[test]
+fn selected_chat_c_deep_frees_preserve_exact_binary_and_phase_layouts() {
+    use crate::types::selected_chat_copy::*;
+    let _guard = audit::test_lock();
+    #[cfg(feature = "alloc-audit")]
+    let before = audit::live_allocations();
+    let snapshot =
+        MarmotSelectedChatConsentSnapshot::from(marmot_uniffi::SelectedChatConsentSnapshotFfi {
+            revision: u64::MAX,
+            phase: marmot_uniffi::SelectedChatConsentPhaseFfi::Approved,
+            chat_selector: vec![0, 255, 0],
+        });
+    unsafe {
+        assert_eq!(
+            std::slice::from_raw_parts(snapshot.chat_selector, snapshot.chat_selector_len),
+            &[0, 255, 0]
+        );
+        marmot_selected_chat_consent_snapshot_free(boxed(snapshot));
+        marmot_selected_chat_copy_snapshot_free(boxed(MarmotSelectedChatCopySnapshot::from(
+            marmot_uniffi::SelectedChatCopySnapshotFfi {
+                revision: 7,
+                phase: marmot_uniffi::SelectedChatCopyPhaseFfi::InviteConfirmed,
+                sibling_count: 2,
+                consenting_sibling_count: 2,
+                offered_sibling_count: 2,
+            },
+        )));
+        marmot_selected_chat_bytes_free(boxed(MarmotSelectedChatBytes::from(vec![0, 255, 0])));
+        marmot_selected_chat_bytes_free(std::ptr::null_mut());
+    }
+    assert_eq!(MarmotSelectedChatCopyPhase::InviteConfirmed as u32, 4);
+    #[cfg(feature = "alloc-audit")]
+    assert_eq!(before, audit::live_allocations());
 }

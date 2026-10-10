@@ -16,6 +16,7 @@ per feature.
 - [Lifecycle and teardown](#lifecycle-and-teardown)
 - [NIP-46 accounts](#nip-46-accounts)
 - [Device verification](#device-verification)
+- [Selected-chat copies](#selected-chat-copies)
 - Feature notes: [runtime construction](#runtime-construction), [local sends](#local-sends),
   [public event verification](#public-event-verification), [host performance stages](#host-performance-stages),
   [Markdown rendering](#markdown-rendering), [identity references and pseudonyms](#identity-references-and-pseudonyms),
@@ -466,3 +467,25 @@ list entry. Approval snapshot records have their own deep-free function.
 device approvals have a separate phase enum and report `Settled`. The shared
 contract explains revision-bound packet handling and finalization. Positive
 actions close after settlement; historical completion is not chat/history sync.
+
+## Selected-chat copies
+
+The [shared selected-chat contract](../marmot-uniffi/SELECTED-CHAT-COPY.md)
+describes original selection, explicit sibling consent, private packets and
+source confirmation. C forwards the UniFFI opaque actions without constructing
+authority. Default factories return `MARMOT_STATUS_SELECTED_CHAT_COPY_UNSUPPORTED`;
+selected-chat statuses append values 102–111. Existing values are unchanged.
+
+`MarmotSelectedChatCopy` and `MarmotSelectedChatConsent` are independent opaque
+handles. Use their explicit clone functions when another host scope must retain
+an alias, and free every returned handle once. Freeing one alias leaves other
+aliases alive; freeing the final alias schedules original negative cleanup.
+Prefer awaited blocking `*_cancel` before releasing the final UI/account scope.
+Never free a handle concurrently with another call using it.
+
+Snapshots and `MarmotSelectedChatBytes` are owned results: free them with their
+matching snapshot or bytes free, including binary chat selectors. Input bytes
+are borrowed only for the call and copied after the 16 KiB bound check. Required
+outputs are checked and cleared before effects. Calls block through the
+callback-safe runtime bridge. `InviteConfirmed` has ordinal 4 and describes
+source Add confirmation, not recipient joining or synchronized history.

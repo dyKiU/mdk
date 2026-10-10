@@ -829,3 +829,6 @@ pub use attachment_controls::*;
 
 mod device_linking;
 pub use device_linking::*;
+
+mod selected_chat_copy;
+pub use selected_chat_copy::*;

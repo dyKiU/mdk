@@ -9,6 +9,13 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- Opaque selected-chat request and consent handles, explicit shared clones,
+  revision-bound private packet methods and source continuation. Selected-chat
+  statuses append 102–111; request phase `InviteConfirmed` is value 4. New display
+  snapshots and binary results require matching generated headers/libraries and
+  matching deep frees. Default factories remain Unsupported. Source confirmation
+  does not establish recipient joining or history synchronization.
+
 - Opaque protected target selection, existing-device approval handles, bounded
   enrollment packets and explicit original-session finalization. Pending approval
   entries are list-owned; clone a handle before freeing its parent list and free
