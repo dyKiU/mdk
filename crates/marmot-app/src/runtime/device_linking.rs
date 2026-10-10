@@ -3163,12 +3163,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn device_linking_third_device_retained_invite_rejects_scope_substitution() {
+    async fn device_linking_singleton_preparation_refusal_preserves_exact_original_scope() {
         exercise_third_device_invite(ThirdDeviceCheck::RetainedScope).await;
     }
 
     #[tokio::test]
-    async fn device_linking_third_device_settles_from_completed_predecessor_without_chat() {
+    async fn device_linking_singleton_recipient_rejects_completed_multi_device_predecessor() {
         exercise_third_device_invite(ThirdDeviceCheck::Settlement).await;
     }
 
@@ -3178,7 +3178,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn device_linking_artifact_bound_predecessor_prepares_exact_invite_without_publication() {
+    async fn device_linking_artifact_bound_predecessor_prepares_exact_proposal_without_add() {
         exercise_third_device_invite(ThirdDeviceCheck::ArtifactPreparation).await;
     }
 
@@ -3256,7 +3256,6 @@ mod tests {
     }
 
     async fn exercise_third_device_invite(check: ThirdDeviceCheck) {
-        let complete_enrollment = check == ThirdDeviceCheck::Settlement;
         use cgka_traits::private_roster_settlement::PrivateSettlementPhase;
         let (workers, relay, group) = joined_live_workers().await;
         let a_storage = workers.a.app.account_storage("test").unwrap();
@@ -3304,6 +3303,7 @@ mod tests {
         runtime_c.reconcile_accounts().await.unwrap();
         let c = runtime_c.accounts();
         let prepared = c.prepare_device_linking("test").await.unwrap();
+        let c_storage = app_c.account_storage("test").unwrap();
         let a_scope = workers
             .a
             .reserve_device_linking_for_approver("test")
@@ -3441,6 +3441,176 @@ mod tests {
         for _ in 0..8 {
             drain(&c, &prepared.scope, &workers.a, &a_scope).await;
             drain(&workers.a, &a_scope, &c, &prepared.scope).await;
+        }
+        if check == ThirdDeviceCheck::Settlement {
+            let before =
+                cgka_traits::StorageProvider::device_linking_key_package_storage(&c_storage)
+                    .unwrap()
+                    .purpose_key_package()
+                    .unwrap();
+            assert!(
+                c.arm_singleton_device_welcome("test", &prepared.scope)
+                    .await
+                    .is_err(),
+                "a completed multi-device predecessor cannot use singleton recipient admission"
+            );
+            assert!(
+                cgka_traits::StorageProvider::device_linking_key_package_storage(&c_storage)
+                    .unwrap()
+                    .purpose_key_package()
+                    .unwrap()
+                    == before
+            );
+            // A refused singleton arm must not consume the original SDK continuation.
+            c.take_device_linking_verified("test", &prepared.scope)
+                .await
+                .unwrap();
+            assert!(
+                cgka_traits::StorageProvider::accepted_device_group_anchor_storage(&c_storage)
+                    .unwrap()
+                    .accepted_anchor()
+                    .unwrap()
+                    .is_none()
+            );
+            runtime_c.shutdown_and_close().await.unwrap();
+            workers.runtime_a.shutdown_and_close().await.unwrap();
+            workers.runtime_b.shutdown_and_close().await.unwrap();
+            relay.shutdown();
+            return;
+        }
+        if check == ThirdDeviceCheck::UnapprovedPublication {
+            let before = cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
+                .unwrap()
+                .private_invite()
+                .unwrap();
+            assert!(
+                workers
+                    .a
+                    .prepare_private_device_invite("test", &a_scope)
+                    .await
+                    .is_err(),
+                "direct singleton preparation must refuse a multi-device predecessor before SDK take"
+            );
+            assert!(
+                workers
+                    .a
+                    .publish_private_device_invite_commit("test", &a_scope)
+                    .await
+                    .is_err()
+            );
+            assert!(
+                cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
+                    .unwrap()
+                    .private_invite()
+                    .unwrap()
+                    == before
+            );
+            assert_eq!(
+                workers
+                    .a
+                    .candidate_device_group_snapshot("test", &group)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .epoch
+                    .0,
+                1
+            );
+            // The same genuine verifier remains available for the required all-leaf proposal path.
+            workers
+                .a
+                .prepare_enrollment_proposal("test", &a_scope)
+                .await
+                .unwrap();
+            assert_eq!(
+                workers
+                    .a
+                    .collect_owned_enrollment_endorsements("test", &a_scope)
+                    .await
+                    .unwrap(),
+                0
+            );
+            workers
+                .a
+                .cancel_device_linking("test", &a_scope)
+                .await
+                .unwrap();
+            runtime_c.shutdown_and_close().await.unwrap();
+            workers.runtime_a.shutdown_and_close().await.unwrap();
+            workers.runtime_b.shutdown_and_close().await.unwrap();
+            relay.shutdown();
+            return;
+        }
+        if check == ThirdDeviceCheck::RetainedScope {
+            let mut foreign = a_scope.clone();
+            foreign.account[0] ^= 1;
+            assert!(
+                workers
+                    .a
+                    .prepare_private_device_invite("test", &foreign)
+                    .await
+                    .is_err()
+            );
+            assert!(
+                workers
+                    .a
+                    .cancel_device_linking("test", &foreign)
+                    .await
+                    .is_err()
+            );
+            assert!(
+                workers
+                    .a
+                    .prepare_private_device_invite("test", &a_scope)
+                    .await
+                    .is_err()
+            );
+            workers
+                .a
+                .take_device_linking_verified("test", &a_scope)
+                .await
+                .unwrap();
+            runtime_c.shutdown_and_close().await.unwrap();
+            workers.runtime_a.shutdown_and_close().await.unwrap();
+            workers.runtime_b.shutdown_and_close().await.unwrap();
+            relay.shutdown();
+            return;
+        }
+        if check == ThirdDeviceCheck::ArtifactPreparation {
+            let before = cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
+                .unwrap()
+                .private_invite()
+                .unwrap();
+            workers
+                .a
+                .prepare_enrollment_proposal("test", &a_scope)
+                .await
+                .unwrap();
+            assert_eq!(
+                workers
+                    .a
+                    .collect_owned_enrollment_endorsements("test", &a_scope)
+                    .await
+                    .unwrap(),
+                0
+            );
+            assert!(
+                cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
+                    .unwrap()
+                    .private_invite()
+                    .unwrap()
+                    == before
+            );
+            workers
+                .a
+                .cancel_device_linking("test", &a_scope)
+                .await
+                .unwrap();
+            runtime_c.shutdown_and_close().await.unwrap();
+            workers.runtime_a.shutdown_and_close().await.unwrap();
+            workers.runtime_b.shutdown_and_close().await.unwrap();
+            relay.shutdown();
+            return;
         }
         if matches!(
             check,
@@ -4414,6 +4584,50 @@ mod tests {
                 );
             }
 
+            if check == ThirdDeviceCheck::LocalProposalCollection {
+                assert!(
+                    workers
+                        .b
+                        .verifier_command("test", |respond| {
+                            VerifierCommand::ReceivedEnrollmentProposalBindings { respond }
+                        })
+                        .await
+                        .unwrap()
+                        .is_empty(),
+                    "cancelled original B action cannot remain selectable"
+                );
+                assert!(
+                    cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
+                        .unwrap()
+                        .private_invite()
+                        .unwrap()
+                        == before
+                );
+                assert!(
+                    cgka_traits::StorageProvider::private_roster_settlement_storage(&b_storage)
+                        .unwrap()
+                        .read_round()
+                        .unwrap()
+                        == b_before
+                );
+                workers
+                    .a
+                    .cancel_device_linking("test", &a_scope)
+                    .await
+                    .unwrap();
+                assert!(
+                    workers
+                        .a
+                        .collect_owned_enrollment_endorsements("test", &a_scope)
+                        .await
+                        .is_err()
+                );
+                runtime_c.shutdown_and_close().await.unwrap();
+                workers.runtime_a.shutdown_and_close().await.unwrap();
+                workers.runtime_b.shutdown_and_close().await.unwrap();
+                relay.shutdown();
+                return;
+            }
             // Wrong selectors cannot affect the exact original B action.
             let bindings = workers
                 .b
@@ -4623,194 +4837,7 @@ mod tests {
             relay.shutdown();
             return;
         }
-        workers
-            .a
-            .prepare_private_device_invite("test", &a_scope)
-            .await
-            .unwrap();
-        let accepted =
-            cgka_traits::StorageProvider::accepted_device_group_anchor_storage(&a_storage)
-                .unwrap()
-                .accepted_anchor()
-                .unwrap()
-                .unwrap();
-        let invite = cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
-            .unwrap()
-            .private_invite()
-            .unwrap()
-            .unwrap();
-        assert!(
-            invite.raw.binding.origin
-                == cgka_traits::private_device_invite::PrivateInviteOrigin::Accepted(
-                    accepted.scope.selection_generation
-                )
-        );
-        assert!(invite.raw.binding.approver_scope == a_scope);
-        assert!(invite.raw.binding.predecessor == accepted.draft.successor);
-        assert!(invite.raw.binding.recipient == prepared.scope.local_device);
-        assert_eq!(invite.raw.binding.successor.leaves.len(), 3);
-        assert_eq!(invite.raw.binding.successor.epoch, cgka_traits::EpochId(2));
-        let retry = workers
-            .a
-            .prepare_private_device_invite("test", &a_scope)
-            .await;
-        assert!(
-            retry.is_ok(),
-            "the exact original retained SDK invite scope must remain retryable after verifier consumption"
-        );
-        assert!(retry.unwrap() == invite.scope);
-        let purpose_store =
-            cgka_traits::StorageProvider::device_linking_key_package_storage(&a_storage).unwrap();
-        let purpose = purpose_store.purpose_key_package().unwrap().unwrap();
-        assert!(purpose.consumed && purpose.scope != a_scope);
-        let mut foreign = a_scope.clone();
-        foreign.local_device[0] ^= 1;
-        let mut future = a_scope.clone();
-        future.generation += 1;
-        for rejected in [purpose.scope.clone(), foreign, future] {
-            assert!(
-                workers
-                    .a
-                    .prepare_private_device_invite("test", &rejected)
-                    .await
-                    .is_err()
-            );
-            assert!(
-                workers
-                    .a
-                    .cancel_device_linking("test", &rejected)
-                    .await
-                    .is_err()
-            );
-            assert!(purpose_store.purpose_key_package().unwrap().unwrap() == purpose);
-            assert!(
-                cgka_traits::StorageProvider::accepted_device_group_anchor_storage(&a_storage)
-                    .unwrap()
-                    .accepted_anchor()
-                    .unwrap()
-                    .unwrap()
-                    == accepted
-            );
-            assert!(
-                cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
-                    .unwrap()
-                    .private_invite()
-                    .unwrap()
-                    .unwrap()
-                    == invite
-            );
-            assert!(
-                workers
-                    .a
-                    .prepare_private_device_invite("test", &a_scope)
-                    .await
-                    .unwrap()
-                    == invite.scope
-            );
-        }
-        if check == ThirdDeviceCheck::UnapprovedPublication {
-            // B has a genuine completed predecessor but receives no proposal,
-            // approves no new recipient, and starts no new SAS flow. A/C SDK
-            // completion and signed public metadata cannot stand in for B.
-            let publication = workers
-                .a
-                .publish_private_device_invite_commit("test", &a_scope)
-                .await;
-            let after = cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
-                .unwrap()
-                .private_invite()
-                .unwrap();
-            runtime_c.shutdown_and_close().await.unwrap();
-            workers.runtime_a.shutdown_and_close().await.unwrap();
-            workers.runtime_b.shutdown_and_close().await.unwrap();
-            relay.shutdown();
-            assert!(
-                publication.is_err(),
-                "A/C pairing cannot publish a second Add without B's exact live approval"
-            );
-            assert!(
-                after == Some(invite),
-                "denial must preserve the frozen invite"
-            );
-            return;
-        }
-        if !complete_enrollment {
-            assert!(workers.a.app.load_state("test").unwrap().groups.is_empty());
-            assert!(workers.b.app.load_state("test").unwrap().groups.is_empty());
-            assert!(app_c.load_state("test").unwrap().groups.is_empty());
-            runtime_c.shutdown_and_close().await.unwrap();
-            workers.runtime_a.shutdown_and_close().await.unwrap();
-            workers.runtime_b.shutdown_and_close().await.unwrap();
-            relay.shutdown();
-            return;
-        }
-        c.arm_singleton_device_welcome("test", &prepared.scope)
-            .await
-            .unwrap();
-        workers
-            .a
-            .publish_private_device_invite_commit("test", &a_scope)
-            .await
-            .unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(20), async {
-            loop {
-                if cgka_traits::StorageProvider::private_device_invite_storage(&a_storage)
-                    .unwrap()
-                    .confirmed_private_invite()
-                    .unwrap()
-                    .is_some_and(|row| {
-                        !row.denied && row.binding.successor.epoch == cgka_traits::EpochId(2)
-                    })
-                {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("the genuine second Add must be authenticated by normal relay intake");
-        workers
-            .a
-            .verifier_command("test", |respond| VerifierCommand::PublishPrivateWelcomes {
-                scope: a_scope.clone(),
-                respond,
-            })
-            .await
-            .unwrap();
-        let c_storage = app_c.account_storage("test").unwrap();
-        let result = tokio::time::timeout(std::time::Duration::from_secs(20), async {
-            loop {
-                let complete = [&a_storage, &b_storage, &c_storage].iter().all(|storage| {
-                    let store =
-                        cgka_traits::StorageProvider::private_roster_settlement_storage(*storage)
-                            .unwrap();
-                    store.read_round().unwrap().is_some_and(|round| {
-                        round.phase == PrivateSettlementPhase::Completed
-                            && round.anchor.group_id == group
-                            && round.anchor.successor.epoch == cgka_traits::EpochId(2)
-                            && round.anchor.successor.leaves.len() == 3
-                            && store.read_facts().unwrap().len() == 3
-                    })
-                });
-                if complete {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        })
-        .await;
-        let hidden = [&workers.a.app, &workers.b.app, &app_c]
-            .iter()
-            .all(|app| app.load_state("test").unwrap().groups.is_empty());
-        runtime_c.shutdown_and_close().await.unwrap();
-        workers.runtime_a.shutdown_and_close().await.unwrap();
-        workers.runtime_b.shutdown_and_close().await.unwrap();
-        relay.shutdown();
-        assert!(
-            hidden,
-            "third-device enrollment must keep the private group out of chat"
-        );
-        result.expect("all three actual successor leaves must exchange encrypted confirmations before completion");
+        unreachable!("every explicit third-device test mode has its own admission boundary");
     }
 
     #[tokio::test]

@@ -315,6 +315,30 @@ impl LinkingOwner {
         let result = self.linker.confirm(now).await;
         self.after(result)
     }
+    /// Refuse the singleton Add path before consuming the original SDK result.
+    /// This is a negative context check, not enrollment authority: genuine
+    /// genesis/tree validation and both human confirmations still happen later.
+    pub(crate) fn validate_singleton_invite_preparation(
+        &mut self,
+        scope: &cgka_traits::device_linking_key_package::PurposeAttemptScope,
+        now: Instant,
+    ) -> OwnerResult<()> {
+        self.check_scope(scope)?;
+        self.guard(now)?;
+        let attempt = self.linker.live(now).map_err(OwnerError::Verifier)?;
+        let context = &attempt.context;
+        if attempt.role != Role::Approver
+            || context.predecessor.epoch != 0
+            || context.predecessor.leaves.len() != 1
+            || context.predecessor.leaves[0].leaf_index != 0
+            || context.predecessor.leaves[0].signature_public_key != context.approver
+            || context.approver != scope.local_device
+        {
+            return Err(OwnerError::Verifier(LinkError::BindingMismatch));
+        }
+        Ok(())
+    }
+
     /// Negative bootstrap checks against the current owned context and actual
     /// purpose. Metadata cannot authorize a multi-leaf predecessor or release
     /// the one-shot SDK result; take_verified still enforces both confirmations.

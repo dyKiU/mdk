@@ -1,0 +1,345 @@
+{
+  "red-v2": {
+    "exact_candidate_stash": "7d2428775952e1f5c8191d0df06a0292d987ca70",
+    "verified_input_count": 2439,
+    "results": {
+      "head": "1f122ba63533ece247a5e00034ed31cd002d395e",
+      "input_count": 2439,
+      "source_manifest_sha256": "c81ec009e876ffc20527068f36cf198a48b88d26a5acb29443bbbb78018b7627",
+      "gates": [
+        {
+          "gate": "original-singleton-refusal",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "device_linking_third_device_cannot_publish_without_existing_sibling_approval",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 101,
+          "seconds": 73.71,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "075fc005780ac53b1504636ede53afd0ab5fc97cd86a5ef40984a2290904da51"
+        }
+      ]
+    }
+  },
+  "green-v1": {
+    "exact_candidate_stash": "2edba456e6bbd1f8fa1ccfeb56a4d26a825715e9",
+    "verified_input_count": 2439,
+    "results": {
+      "head": "1f122ba63533ece247a5e00034ed31cd002d395e",
+      "input_count": 2439,
+      "source_manifest_sha256": "7598aa9e32e40710299fe04fcc5a26c680b414ac82546773b994577b9e7f32a5",
+      "gates": [
+        {
+          "gate": "singleton-negative",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "device_linking_singleton_",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 105.58,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 2,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "1ba379026575b1ee46183e2c4a778a789a1ede57c794f8fe495b95a82cdd8b5d"
+        },
+        {
+          "gate": "unapproved-pre-take",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "device_linking_third_device_cannot_publish_without_existing_sibling_approval",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 101,
+          "seconds": 5.17,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "d3cc42ed721fd3967528260f44692a6cb433244711076f13050dcb191c0f79ee"
+        }
+      ]
+    }
+  },
+  "green-v2": {
+    "exact_candidate_stash": "4ab50c541bea24ec9b393e595b6c70716d8ad253",
+    "verified_input_count": 2439,
+    "results": {
+      "head": "1f122ba63533ece247a5e00034ed31cd002d395e",
+      "input_count": 2439,
+      "source_manifest_sha256": "2114425e1333dd1496c9890ee8f1f6762c2a4e6e0c0d64e318a36d1bca08ef73",
+      "gates": [
+        {
+          "gate": "singleton-negative",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "device_linking_singleton_",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 100.24,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 2,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "356e2f48bf48c0e617f56616f8148268099fda5b5980882dedb4694d441808a2"
+        },
+        {
+          "gate": "unapproved-pre-take",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "device_linking_third_device_cannot_publish_without_existing_sibling_approval",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 4.97,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "ebb982048fff3671d8fac174d9aa70a34c2401bf6f8f7471ef9f8e7cdfb8f1a0"
+        },
+        {
+          "gate": "original-sdk-family",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "device_linking_original_sdk_",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 45.81,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 7,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "d47bf3a88d0ba7e5b8fb0d3c79168a7fa0a772c0f8e2c9457e68a9a647b76d37"
+        },
+        {
+          "gate": "original-abc",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "device_linking_original_abc_actions_settle_actual_three_device_roster",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 7.97,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "7aa96240017a13b03cddebbba1f3f00613eced6a417bb9b1216b53f44588dfc1"
+        },
+        {
+          "gate": "native-singleton-positive",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "native_public_continuation_settles_actual_original_pair_over_live_relay",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 5.64,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "089a669810d9ed8243eb986e7f1a2bc6c4abafe6e241693b80c5840b598bda72"
+        },
+        {
+          "gate": "artifact-original-proposal",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "device_linking_artifact_bound_predecessor_prepares_exact_proposal_without_add",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 4.97,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "4685004738c9797086e3e04eef6c8f034836f45bd885c4b7b7eb5356dbca388f"
+        },
+        {
+          "gate": "default-refusal",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "native_device_linking::tests"
+          ],
+          "exit_code": 0,
+          "seconds": 75.46,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 2,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "69c7afcb03b78364f57bd566dd714ca18a1b63017ff9aa861b49755d5ddba569"
+        },
+        {
+          "gate": "production-clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 0,
+          "seconds": 28.55,
+          "counts": [],
+          "log_sha256": "1f5ec3daee1a4911647417a62f560c4211714e09b13ee925dc192423c7d7348b"
+        },
+        {
+          "gate": "default-check",
+          "command": [
+            "cargo",
+            "check",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--all-targets"
+          ],
+          "exit_code": 0,
+          "seconds": 21.24,
+          "counts": [],
+          "log_sha256": "20acb2502095cef077afb03d7ae58b75e67736ad8f67873fa8807b81c748d6c7"
+        },
+        {
+          "gate": "fmt",
+          "command": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--",
+            "--check"
+          ],
+          "exit_code": 0,
+          "seconds": 3.41,
+          "counts": [],
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  },
+  "scope": "Negative singleton Approver-context check before original SDK take. Multi-leaf attempts preserve the original verifier for the required all-leaf proposal path. No Core authority or capability change.",
+  "compile_only_red_v1": "Missing fixture c_storage declaration; zero tests, retained raw log28add04d07dcf5892a08bf67c0d2503ad30a9cdaec7dd3094571942842f3cb4d. Genuine REDv2 then reached intended refusal assertion.",
+  "green_v1_failure": "Runtime refusal and same original proposal preparation succeeded; new fixture incorrectly counted local self-signature as received endorsement. Corrected two assertions to0 matching the established remote collection API. Runtime unchanged for GREENv2.",
+  "fixture_contract_updates": "Retired direct-singleton multi-leaf positive assumptions; preserved actual SDK-backed all-leaf Add/ABC positives. Exact canceled B selector is empty and must not be indexed.",
+  "post_freeze_delta": "This qualification document only. Full integrated App rerun remains pending."
+}

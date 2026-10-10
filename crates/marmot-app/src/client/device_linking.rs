@@ -644,6 +644,12 @@ impl AppClient {
     ) -> Result<(), ClientLinkingError> {
         self.check_private_invite_attempt_scope(scope)?;
         if self.linking_owner.invite_attempt.is_none() {
+            if for_add {
+                self.linking_owner
+                    .verifier
+                    .validate_singleton_invite_preparation(scope, std::time::Instant::now())
+                    .map_err(ClientLinkingError::Owner)?;
+            }
             let token = self.take_device_linking_verified(scope).await?;
             let context = token.context();
             if context.account != scope.account
