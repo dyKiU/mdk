@@ -1,0 +1,41 @@
+{
+  "qualified_source": "848bc982d423a4958e072ac4afa8b340444bd09a",
+  "scope": "Required default and conformance-slow regression qualification after selected-chat consent and the static native cleanup tracing fix. No selected package, ordinary recipient admission or new-message delivery implementation is qualified here.",
+  "source_input_count": 2406,
+  "source_manifest_sha256": "4f0bf9ec4b50e5090d41418c6e9004814288d18765fc12bbfd96dc5f5bd9fb88",
+  "source_verification": "All input bytes and paths remained unchanged; independently matched signed Git objects, dereferencing the tracked OpenMLS README symlink.",
+  "runner": "run-mdk-selected-chat-consent-conformance-v2-independent-target.py",
+  "target": "Existing Mdk986ConformanceTargetM5; CARGO_INCREMENTAL=0, jobs=2. Separate from concurrently running storage gates.",
+  "gates": [
+    {
+      "command": "cargo test --locked -p cgka-conformance-simulator",
+      "exit_code": 0,
+      "seconds": 878.31,
+      "counts": {
+        "passed": 543,
+        "failed": 0,
+        "ignored": 33
+      },
+      "log_sha256": "8f577f0f9f7eeae5ba7c5856ffedbe04e1ec3c841b372195aa6eb888250a0de8",
+      "raw_log": "mdk-selected-chat-consent-conformance-v2-simulator-m5.log"
+    },
+    {
+      "command": "cargo test --locked -p cgka-conformance-simulator --features conformance-slow",
+      "exit_code": 0,
+      "seconds": 1051.61,
+      "counts": {
+        "passed": 543,
+        "failed": 0,
+        "ignored": 33
+      },
+      "log_sha256": "b82cbc16bf833a87ca3d47f1c7bce40a90b67ee50eeb5c7c0427a8daccf35156",
+      "raw_log": "mdk-selected-chat-consent-conformance-v2-slow-m5.log"
+    }
+  ],
+  "prior_failure": "The prior cf428 default run had 539 passes, 1 failure and 33 ignored at the missing static native cleanup tracing method. Signed848 fixes that one tracing field; the original failed run is retained.",
+  "limits": [
+    "Thirty-three existing ignored tests remain ignored in each command.",
+    "Slow uses unmodified prescribed case counts, including 1000-case send/leave and 500-case varied-delivery properties.",
+    "This documentation was added after source freeze; no runtime/test inputs changed."
+  ]
+}
