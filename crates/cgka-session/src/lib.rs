@@ -2303,6 +2303,9 @@ impl AccountDeviceSession {
             .retire_device_leaf_revocation_pending(pending, origin, group)
             .await
     }
+    pub fn device_revocation_storage_retry_groups(&self) -> Result<Vec<GroupId>, EngineError> {
+        self.engine.device_revocation_storage_retry_groups()
+    }
     pub fn device_revocation_settlement_control(
         &self,
     ) -> Result<

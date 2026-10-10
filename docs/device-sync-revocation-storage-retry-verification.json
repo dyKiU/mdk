@@ -1,0 +1,137 @@
+{
+  "scope": "Same original live received protected Remove survives typed storage rollback and completes fresh survivor settlement and explicitly approved history import",
+  "base": "37d673ef8cc7cd8f5ece8bde7a74fe6b8a53f135",
+  "original_red_git_stash": "480f3a85d8300853d4b1c06c1ad5a5b8255dbde6",
+  "actual_m5_red_git_stash": "ead84178d47771609f9fd4867994f05e82ef0c34",
+  "final_candidate_git_stash": "6c9588526ee09e9c065455553c55784d06dae87b",
+  "unchanged_red_green_fixture_sha256": "bc83ccdf8c35ffa34ac9e5712c633a5cc09807ccf6841d7d28af149f0496b599",
+  "runtime_sha256": {
+    "crates/cgka-engine/src/device_leaf_revocation/transition.rs": "535fa8949652feff8a587cc1343600561700b156689f625e2c03750a4a09b692",
+    "crates/cgka-session/src/lib.rs": "35918da6d7f5ef789de43e52e81fc7d8f445e827e475e3421860bdf249cb6945",
+    "crates/marmot-app/src/client/private_settlement.rs": "3cc9e98bf6a56b0ddd54f35206360ae0e9e66127244ce91e83a3e3fc7c46cf81",
+    "crates/marmot-app/src/runtime/account_worker.rs": "ef4d9ca91268b57091bb8db59caa998426c347c7256811e3e278d71166d2526e",
+    "crates/marmot-app/src/selected_chat_copy/tests.rs": "bc83ccdf8c35ffa34ac9e5712c633a5cc09807ccf6841d7d28af149f0496b599"
+  },
+  "cohorts": [
+    {
+      "prefix": "device-revocation-successor-storage-retry-red-v1",
+      "exact_candidate_git_stash": "480f3a85d8300853d4b1c06c1ad5a5b8255dbde6",
+      "input_count": 2494,
+      "source_manifest_sha256": "c6b2d9365d66662d537ea18ddec2778c8cc3dd53d1b33a98332f7956ba7feba7",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 101,
+          "seconds": 92.47439098358154,
+          "log": "/Users/pj/project/build/device-revocation-successor-storage-retry-red-v1-feature.log",
+          "log_sha256": "10aee1fe9e564ca1e276e31884fb28518e9a9f00c2f3b04d9662fbd1f7046ffe",
+          "source_manifest_sha256": "c6b2d9365d66662d537ea18ddec2778c8cc3dd53d1b33a98332f7956ba7feba7",
+          "source_input_count": 2494,
+          "behavioral_fixture_sha256": "bc83ccdf8c35ffa34ac9e5712c633a5cc09807ccf6841d7d28af149f0496b599",
+          "base": "37d673ef8cc7cd8f5ece8bde7a74fe6b8a53f135",
+          "actual_tests": {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "device-revocation-successor-storage-retry-green-v1",
+      "exact_candidate_git_stash": "6c9588526ee09e9c065455553c55784d06dae87b",
+      "input_count": 2494,
+      "source_manifest_sha256": "2268db01be7983ad9d2468c0943ee36e5653e887db0c230faeb2cd04e7668e94",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 0,
+          "seconds": 64.78221917152405,
+          "log": "/Users/pj/project/build/device-revocation-successor-storage-retry-green-v1-feature.log",
+          "log_sha256": "10dbcfa8022d450f47eb0def501e6d7677ba2b48c17dbea099be0d750f995153",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "device-revocation-successor-storage-retry-final-v1",
+      "exact_candidate_git_stash": "6c9588526ee09e9c065455553c55784d06dae87b",
+      "input_count": 2494,
+      "source_manifest_sha256": "2268db01be7983ad9d2468c0943ee36e5653e887db0c230faeb2cd04e7668e94",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "production-clippy",
+          "exit": 0,
+          "seconds": 51.60782504081726,
+          "log": "/Users/pj/project/build/device-revocation-successor-storage-retry-final-v1-production-clippy.log",
+          "log_sha256": "ec13b4fc9bc77b120a89d3ebae9c5870d8da9e7c7369d29c3dc3beacb3a9482b",
+          "actual_tests": null
+        },
+        {
+          "gate": "default-check",
+          "exit": 0,
+          "seconds": 30.83200192451477,
+          "log": "/Users/pj/project/build/device-revocation-successor-storage-retry-final-v1-default-check.log",
+          "log_sha256": "5e2c3ac95904de2638246a8bc61fed0d426294ef4d3b284acc60f0bbf25dc701",
+          "actual_tests": null
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "seconds": 3.631362199783325,
+          "log": "/Users/pj/project/build/device-revocation-successor-storage-retry-final-v1-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "actual_tests": null
+        },
+        {
+          "gate": "feature-family",
+          "exit": 0,
+          "seconds": 133.20126700401306,
+          "log": "/Users/pj/project/build/device-revocation-successor-storage-retry-final-v1-feature-family.log",
+          "log_sha256": "fb43e5c183dc16eb25b0a4fcc02905d565c55c38691ff6dff93c413d72f5a375",
+          "actual_tests": {
+            "passed": 9,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "gate": "default-refusal",
+          "exit": 0,
+          "seconds": 58.81272912025452,
+          "log": "/Users/pj/project/build/device-revocation-successor-storage-retry-final-v1-default-refusal.log",
+          "log_sha256": "35c422f2c61526a47fe536bbe0cca898ff30dd3ba173e5e2b9845954030c0b35",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    }
+  ],
+  "behavioral_red": "Actual injected Revoked insert rollback leaves predecessor epoch/facts intact; after fault removal membership converges but recipient settlement generation does not advance. No compile or setup failure.",
+  "repair": "Typed Engine Storage alone does not retain authority. Core observes only an already captured received intent with matching original live receipt, unchanged deadline/Engine, unresolved durable convergence input, and exact actual persisted Completed predecessor full tree/origin/generation. Worker retains that same client and schedules actual groups. No intent, deadline, consent or admission is created by this observer.",
+  "qualified_controls": [
+    "unchanged original faulted receipt retries to fresh Completed survivor roster and actual explicit A-to-B history import",
+    "retained pre-restart Remove cannot restore positive successor guard after actual encrypted reopen",
+    "protected and two ordinary exact C-leaf removal; A/B/D survive",
+    "original cancel and lost reply during actual blocked ordinary Remove publication",
+    "removed C stays evicted after encrypted reopen",
+    "default Unsupported before effects"
+  ],
+  "limits": [
+    "post-revocation new-device enrollment remains unqualified",
+    "blocked successor settlement publication, original receipt expiry/shutdown during storage retry, wider survivor rosters and native exports remain separate",
+    "full workspace/conformance and matched SDK/native adoption remain pending on combined source"
+  ],
+  "post_freeze_documentation": "Only this proof, plan status and two AGENTS guidance edits were appended after all gates; runtime/test bytes exactly match the final frozen candidate.",
+  "artifacts": "Historical standalone93eaf App binary guarded unchanged on every gate; prior83/84113 SDK and installed native outputs untouched."
+}

@@ -390,6 +390,25 @@ impl DeviceRevocationTransitionState {
         receipts.push((group.clone(), digest, deadline));
         Ok(())
     }
+    fn live_received_intents(
+        &self,
+    ) -> Result<Vec<Arc<DeviceRevocationTransitionIntent>>, EngineError> {
+        let intents = self.intents.lock().map_err(|_| unavailable())?;
+        let receipts = self.receipts.lock().map_err(|_| unavailable())?;
+        Ok(intents
+            .iter()
+            .filter(|intent| {
+                intent.source.is_none()
+                    && intent.check_live().is_ok()
+                    && receipts.iter().any(|(group, digest, deadline)| {
+                        *group == intent.group
+                            && *digest == intent.commit_digest
+                            && *deadline == intent.deadline
+                    })
+            })
+            .cloned()
+            .collect())
+    }
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn capture<S: cgka_traits::storage::StorageProvider>(
         &self,
@@ -496,6 +515,45 @@ impl DeviceRevocationSettlementControl {
     }
 }
 impl<S: cgka_traits::storage::StorageProvider> crate::Engine<S> {
+    /// Negative retry observation of an already-captured original receipt.
+    /// This does not construct an intent, renew a deadline or grant settlement.
+    pub fn device_revocation_storage_retry_groups(
+        &self,
+    ) -> Result<Vec<cgka_traits::GroupId>, EngineError> {
+        let mut groups = Vec::new();
+        for intent in self.revocation_transition.live_received_intents()? {
+            if !self.has_pending_convergence_inputs(&intent.group)? {
+                continue;
+            }
+            let Some(actual) = openmls::group::MlsGroup::load(
+                self.storage.mls_storage(),
+                &openmls::group::GroupId::from_slice(intent.group.as_slice()),
+            )
+            .map_err(|_| unavailable())?
+            else {
+                continue;
+            };
+            let Some(round) =
+                crate::private_roster_settlement::completed_round_for_predecessor_tree(
+                    &self.storage,
+                    &intent.group,
+                    &actual,
+                )?
+            else {
+                continue;
+            };
+            if round.generation == intent.predecessor_generation
+                && round.anchor.origin == intent.predecessor_origin
+                && round.anchor.account == intent.account
+                && round.anchor.local_device == intent.local_device
+                && round.anchor.successor == intent.predecessor
+            {
+                intent.check_live()?;
+                groups.push(intent.group.clone());
+            }
+        }
+        Ok(groups)
+    }
     pub fn device_revocation_settlement_control(
         &self,
     ) -> Result<Option<Arc<DeviceRevocationSettlementControl>>, EngineError> {

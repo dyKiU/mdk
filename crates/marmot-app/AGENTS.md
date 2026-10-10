@@ -770,3 +770,5 @@ DeviceRevocation retains one original fixed deadline across captured groups, wit
 ### Protected Remove successor publication
 
 The actor dispatches only its original in-memory Revoked settlement control through the private publisher, under the same fixed source/receipt deadline; retained SQL facts never construct a control. Actual protected ABC→AB and fresh A→B approved history import pass, while removed C and pre-restart retained Remove permission are refused. Generic received storage failures can still reopen this owner; qualifying same-client transient retry is a separate required follow-up. Existing SDK/native outputs are unchanged by this focused checkpoint.
+
+Typed received Remove storage rollback now retains the same client only when Core observes its exact live receipt and captured intent plus actual unresolved input and Completed predecessor. Schedule retained canonical convergence; never reopen and rebuild positive consent from SQL. The unchanged retry reaches fresh explicit survivor history import; retained encrypted-reopen replay stays negative. Other successor lifecycle/native boundaries remain separate.

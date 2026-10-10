@@ -2626,6 +2626,14 @@ async fn run_app_runtime_account_worker(
                             scheduled_convergence.schedule_retry_groups(groups);
                             continue 'worker;
                         }
+                        #[cfg(feature = "experimental-device-sync")]
+                        if let Some(mut groups) = client.device_revocation_storage_retry_groups(&err) {
+                            // Only the already-live original receipt survives rollback.
+                            // Stored inputs cannot reconstruct that owner after reopen.
+                            groups.extend(client.take_pending_convergence_groups());
+                            scheduled_convergence.schedule_retry_groups(groups);
+                            continue 'worker;
+                        }
                         if client.arm_failed_receive_projection_retry() {
                             // Reopening cannot reconstruct consumed activity events
                             // or the output of a batch awaiting its state checkpoint.

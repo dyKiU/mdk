@@ -1009,6 +1009,10 @@ mod actual {
      {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterSuccessorReopen).await;
     }
+    #[tokio::test]
+    async fn device_revocation_original_receipt_survives_incoming_storage_rollback_retry() {
+        selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry).await;
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
         None,
@@ -1024,6 +1028,7 @@ mod actual {
         DeviceRosterRemoval,
         DeviceRosterSuccessor,
         DeviceRosterSuccessorReopen,
+        DeviceRosterSuccessorStorageRetry,
         HistoryTransfer,
         HistoryRequestReplay,
         HistoryRequestReopen,
@@ -1428,14 +1433,20 @@ mod actual {
             RecipientAdmissionScenario::DeviceRosterRemoval
                 | RecipientAdmissionScenario::DeviceRosterSuccessor
                 | RecipientAdmissionScenario::DeviceRosterSuccessorReopen
+                | RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
         ) {
             request.cancel().await.unwrap();
             drop(original_consents);
             assert_device_roster_removal(
                 &fixture,
                 &managers,
-                scenario == RecipientAdmissionScenario::DeviceRosterSuccessor,
+                matches!(
+                    scenario,
+                    RecipientAdmissionScenario::DeviceRosterSuccessor
+                        | RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
+                ),
                 scenario == RecipientAdmissionScenario::DeviceRosterSuccessorReopen,
+                scenario == RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry,
             )
             .await;
             directory_reader.shutdown().await;
@@ -2680,6 +2691,7 @@ mod actual {
         managers: &[crate::runtime::AccountManager; 3],
         require_fresh_successor: bool,
         retained_remove_reopen: bool,
+        retained_remove_storage_retry: bool,
     ) {
         use cgka_traits::{GroupStorage, StorageProvider};
         let d = fixture.d_app.account_home().account("test").unwrap();
@@ -2871,7 +2883,7 @@ mod actual {
                 .collect()
         );
         let mut b_errors = fixture.runtimes[1].subscribe();
-        let fault = if retained_remove_reopen {
+        let fault = if retained_remove_reopen || retained_remove_storage_retry {
             let app = &fixture.apps[1];
             let path = app.account_storage_path("test");
             let keys = app.account_home().load_signing_keys("test").unwrap();
@@ -2929,43 +2941,47 @@ mod actual {
                 before.epoch().as_u64(),
                 before_epochs[&hex::encode(protected.as_slice())]
             );
-            fixture.runtimes[1].shutdown_and_close().await.unwrap();
+            if retained_remove_reopen {
+                fixture.runtimes[1].shutdown_and_close().await.unwrap();
+            }
             connection
                 .execute_batch("DROP TRIGGER reject_revoked_successor;")
                 .unwrap();
             drop(connection);
-            let reopened_app = MarmotApp::with_relay(fixture.dirs[1].path(), &fixture.url);
-            let reopened = MarmotAppRuntime::new(reopened_app.clone());
-            reopened.reconcile_accounts().await.unwrap();
-            let reopened_storage = reopened_app.account_storage("test").unwrap();
-            tokio::time::timeout(std::time::Duration::from_secs(20), async {
-                loop {
-                    let actual = openmls::group::MlsGroup::load(reopened_storage.mls_storage(), &openmls::group::GroupId::from_slice(protected.as_slice())).unwrap().unwrap();
-                    if actual.epoch().as_u64() == before_epochs[&hex::encode(protected.as_slice())] + 1 { break; }
-                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-                }
-            }).await.expect("retained authenticated Remove may complete negative membership replay after actual encrypted reopen");
-            assert!(
-                reopened_storage
-                    .revoked_device_group_anchor_storage()
+            if retained_remove_reopen {
+                let reopened_app = MarmotApp::with_relay(fixture.dirs[1].path(), &fixture.url);
+                let reopened = MarmotAppRuntime::new(reopened_app.clone());
+                reopened.reconcile_accounts().await.unwrap();
+                let reopened_storage = reopened_app.account_storage("test").unwrap();
+                tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    loop {
+                        let actual = openmls::group::MlsGroup::load(reopened_storage.mls_storage(), &openmls::group::GroupId::from_slice(protected.as_slice())).unwrap().unwrap();
+                        if actual.epoch().as_u64() == before_epochs[&hex::encode(protected.as_slice())] + 1 { break; }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }).await.expect("retained authenticated Remove may complete negative membership replay after actual encrypted reopen");
+                assert!(
+                    reopened_storage
+                        .revoked_device_group_anchor_storage()
+                        .unwrap()
+                        .revoked_anchor()
+                        .unwrap()
+                        .is_none_or(|fact| fact.denied),
+                    "retained pre-restart Remove bytes must not reconstruct a fresh original positive successor guard"
+                );
+                let round = reopened_storage
+                    .private_roster_settlement_storage()
                     .unwrap()
-                    .revoked_anchor()
+                    .read_round()
                     .unwrap()
-                    .is_none_or(|fact| fact.denied),
-                "retained pre-restart Remove bytes must not reconstruct a fresh original positive successor guard"
-            );
-            let round = reopened_storage
-                .private_roster_settlement_storage()
-                .unwrap()
-                .read_round()
-                .unwrap()
-                .unwrap();
-            assert!(
-                round.phase
-                    == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied
-            );
-            reopened.shutdown_and_close().await.unwrap();
-            return;
+                    .unwrap();
+                assert!(
+                    round.phase
+                        == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied
+                );
+                reopened.shutdown_and_close().await.unwrap();
+                return;
+            }
         }
         tokio::time::timeout(std::time::Duration::from_secs(20), async {
             loop {

@@ -56,6 +56,24 @@ impl AppClient {
             .map(|attempt| attempt.guard.group().clone())
     }
 
+    pub(crate) fn device_revocation_storage_retry_groups(
+        &self,
+        error: &crate::AppError,
+    ) -> Option<Vec<cgka_traits::GroupId>> {
+        if !matches!(
+            error.as_engine_error(),
+            Some(cgka_traits::EngineError::Storage(_))
+        ) {
+            return None;
+        }
+        let groups = self
+            .runtime
+            .session()
+            .device_revocation_storage_retry_groups()
+            .ok()?;
+        (!groups.is_empty()).then_some(groups)
+    }
+
     pub(crate) fn pending_existing_private_settlement(
         &mut self,
     ) -> Result<Option<[u8; 32]>, ClientLinkingError> {
