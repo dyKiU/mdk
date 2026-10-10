@@ -149,6 +149,9 @@ The focused hardening regression is actual RED4/6 → GREEN6/6. Default denial1
 and the explicitly executed populated encrypted-cohort refusal1 pass; traits167
 pass. The latter test is normally ignored and is only qualified with its actual
 feature-writer fixture. Original closed revision12 fixture bytes remain unchanged
-while an upgrade copy exercises revision13. Full backend/production checks remain
-pending: see `docs/selected-chat-recipient-storage-hardening-focused-verification.json`
-from the repository root.
+while an upgrade copy exercises revision13. Full backend checks pass: experimental1076/default978 with zero failures;
+traits167 and production Clippy/default check pass. The initial formatting failure
+was only module declaration order; the exact nonsemantic move passed repeated
+production checks and formatting. See
+`docs/selected-chat-recipient-storage-full-verification.json` from the repository
+root. This storage checkpoint does not qualify ordinary joining or message delivery.

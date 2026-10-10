@@ -1,0 +1,372 @@
+{
+  "signed_product_commit": "eb0a0dd03cf94fa4a605bdd992f8af16f18880c7",
+  "source_inputs": 2411,
+  "verified_signed_sources": {
+    "eb0a0dd03cf94fa4a605bdd992f8af16f18880c7": 2408,
+    "848bc982": 3
+  },
+  "input_manifest_sha256": "13cbea20123fed43658fb0956c53bc026c0d67d1dec1d3bcea0cc3d01fa7110e",
+  "original_gates": [
+    {
+      "gate": "native",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "experimental-device-sync",
+        "--test",
+        "selected_chat_key_package"
+      ],
+      "exit_code": 0,
+      "seconds": 18.24,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "14869779ab57a04779030257b4e59d6771e13472863147c7cb478bdede284e34"
+    },
+    {
+      "gate": "default",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--test",
+        "selected_chat_key_package"
+      ],
+      "exit_code": 0,
+      "seconds": 5.41,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 1
+        }
+      ],
+      "log_sha256": "3627fa20d5b29a1837dcb1fc6ca4b2cc8c053329d2bd5cff0551f8f878b73053"
+    },
+    {
+      "gate": "populated_default",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--test",
+        "selected_chat_key_package",
+        "selected_chat_populated_cohort_is_unavailable_by_default",
+        "--",
+        "--ignored",
+        "--exact"
+      ],
+      "exit_code": 0,
+      "seconds": 0.71,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "f48b68aaf08a3e41cd23bd517cabbcdfe37dddca0b7dfb0ab6f29dd2d3d299aa"
+    },
+    {
+      "gate": "traits",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-traits"
+      ],
+      "exit_code": 0,
+      "seconds": 4.81,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 124,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 32,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "2ad70ba26fde9258da4d3ae4941f84b4edde9b37a83f3091effd6d4f71d90745"
+    },
+    {
+      "gate": "storage_native",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "experimental-device-sync"
+      ],
+      "exit_code": 0,
+      "seconds": 3387.29,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1068,
+          "failed": 0,
+          "ignored": 7
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "89313208f439447fada412c2f737cd40c3fcb579916253405e20e8ba654c6d3d"
+    },
+    {
+      "gate": "storage_default",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite"
+      ],
+      "exit_code": 0,
+      "seconds": 3079.31,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 975,
+          "failed": 0,
+          "ignored": 7
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 1
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "9f88eab227d531bb2627377a548e8a6f5f7b645476ce03d9b7ce99b04336a60d"
+    },
+    {
+      "gate": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cgka-traits",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "storage-sqlite/experimental-device-sync",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 11.52,
+      "counts": [],
+      "log_sha256": "a8d45ba68b4840021aef95914dab792c5e6c37915d4d79c7de8d5c85d1c74340"
+    },
+    {
+      "gate": "check",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "cgka-traits",
+        "-p",
+        "storage-sqlite"
+      ],
+      "exit_code": 0,
+      "seconds": 4.63,
+      "counts": [],
+      "log_sha256": "d44ad4af1887b62161b8b845a46ed427cd1e7443923e762580243a1bfb21021d"
+    },
+    {
+      "gate": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 1,
+      "seconds": 3.41,
+      "counts": [],
+      "log_sha256": "543b9cd0d33473a390cb39d798f215660bee5aa00f24906b368e08fb1fe59a33"
+    }
+  ],
+  "actual_counts": {
+    "native": {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    "default": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 1
+    },
+    "populated_default": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    "traits": {
+      "passed": 167,
+      "failed": 0,
+      "ignored": 0
+    },
+    "storage_native": {
+      "passed": 1076,
+      "failed": 0,
+      "ignored": 7
+    },
+    "storage_default": {
+      "passed": 978,
+      "failed": 0,
+      "ignored": 8
+    },
+    "clippy": {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    "check": {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    "fmt": {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "format_only_delta": [
+    "crates/storage-sqlite/src/lib.rs"
+  ],
+  "final_source_manifest_sha256": "c9060e8de8e9244470ab9ae164da28a7de512948c1cc0c32f12272f85f50b8d4",
+  "final_production_gates": [
+    {
+      "gate": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cgka-traits",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "storage-sqlite/experimental-device-sync",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 7.27,
+      "log_sha256": "7cc463296e74373ed757395a8aa4b1322236bacdd9eeb640445d80d5ba42f70c"
+    },
+    {
+      "gate": "check",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "cgka-traits",
+        "-p",
+        "storage-sqlite"
+      ],
+      "exit_code": 0,
+      "seconds": 3.14,
+      "log_sha256": "2a3f051dc2e20f49d344108d75a5b092c1cac15023c3945797634c7ecaec8c25"
+    },
+    {
+      "gate": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 3.3,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "scope": "Full experimental and default storage regression, traits and production gates; initial declaration-order formatting failure preserved and corrected with exact nonsemantic module move. No SDK integration or ordinary admission/delivery claim."
+}
