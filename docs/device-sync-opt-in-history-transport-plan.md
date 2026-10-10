@@ -47,9 +47,16 @@ Use the actual protected group application channel through configured Session,
 peeler and transport adapter, with device-leaf authenticated source provenance.
 Bind canonical private frames to the transfer ID, exact source/recipient device,
 account, ordinary group, original protected generation/anchor, immutable snapshot
-ceiling, recipient retention policy and manifest digest. Other protected siblings
-can observe ciphertext after decrypting the shared protected channel but cannot
-import a transfer addressed to another device or acknowledge it. Do not project
+ceiling, recipient retention policy and manifest digest. The protected group authenticates the request/consent transcript, but does not
+provide recipient-only confidentiality by itself. The original A/B actors create
+fresh process-local HPKE keys, bind their public keys to that exact authenticated
+transcript and explicit recipient consent, and additionally encrypt manifest,
+logical chunk and ACK bodies to the addressed peer. Other protected siblings may
+authenticate and decrypt the outer MLS frame but must be unable to decrypt B
+archive plaintext or forge a committed ACK. Keep private keys inside the original
+Core owner, zeroize on retirement and never expose a host key/grant DTO. Exact
+transfer/transcript/ordinal identity is inner authenticated data. Include a genuine
+C-member wrong-key decryption refusal, not merely address filtering. Do not project
 control frames into chat.
 
 The minimum sequence is request, explicit recipient consent, source manifest,
