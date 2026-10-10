@@ -167,6 +167,15 @@ pub struct DeviceLinkingApprovalSnapshot {
     pub revision: u64,
     pub phase: DeviceLinkingApprovalPhase,
 }
+/// Authenticated display metadata from one original pending approval.
+/// Copying this record never recreates its owner or grants enrollment.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeviceLinkingApprovalReviewMetadata {
+    pub revision: u64,
+    pub source_device_public_key: Vec<u8>,
+    pub joining_device_public_key: Vec<u8>,
+    pub existing_device_count: u32,
+}
 pub struct DeviceLinkingApproval {
     #[cfg(not(feature = "experimental-device-sync"))]
     _private: (),
@@ -214,6 +223,12 @@ impl DeviceLinkingSession {
 }
 #[cfg(not(feature = "experimental-device-sync"))]
 impl DeviceLinkingApproval {
+    pub async fn review_metadata(
+        &self,
+        _revision: u64,
+    ) -> Result<DeviceLinkingApprovalReviewMetadata, DeviceLinkingError> {
+        Err(unavailable_enrollment())
+    }
     pub async fn snapshot(&self) -> Result<DeviceLinkingApprovalSnapshot, DeviceLinkingError> {
         Err(unavailable_enrollment())
     }

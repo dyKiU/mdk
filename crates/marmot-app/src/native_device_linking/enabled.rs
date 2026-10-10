@@ -754,6 +754,42 @@ impl AccountManager {
     }
 }
 impl DeviceLinkingApproval {
+    pub async fn review_metadata(
+        &self,
+        revision: u64,
+    ) -> Result<DeviceLinkingApprovalReviewMetadata, DeviceLinkingError> {
+        let _operation = self.inner.operation.lock().await;
+        self.inner.check_open()?;
+        let snapshot = self.inner.refresh().await?;
+        self.inner.check_open()?;
+        if snapshot.revision != revision {
+            return Err(DeviceLinkingError::StaleRevision);
+        }
+        if snapshot.phase != DeviceLinkingApprovalPhase::AwaitingApproval {
+            return Err(DeviceLinkingError::NotReady);
+        }
+        let (source, joining, count) = self
+            .inner
+            .manager
+            .native_received_approval_review(&self.inner.account, &self.inner.binding)
+            .await
+            .map_err(map_error)?;
+        self.inner.check_open()?;
+        let snapshot = self.inner.refresh().await?;
+        self.inner.check_open()?;
+        if snapshot.revision != revision {
+            return Err(DeviceLinkingError::StaleRevision);
+        }
+        if snapshot.phase != DeviceLinkingApprovalPhase::AwaitingApproval {
+            return Err(DeviceLinkingError::NotReady);
+        }
+        Ok(DeviceLinkingApprovalReviewMetadata {
+            revision,
+            source_device_public_key: source.to_vec(),
+            joining_device_public_key: joining.to_vec(),
+            existing_device_count: count,
+        })
+    }
     pub async fn snapshot(&self) -> Result<DeviceLinkingApprovalSnapshot, DeviceLinkingError> {
         self.inner.refresh().await
     }
