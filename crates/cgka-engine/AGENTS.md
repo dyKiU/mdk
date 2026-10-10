@@ -39,6 +39,7 @@ Each module's top-level rustdoc is the source of truth; this is an index.
 | Module | Owns |
 | --- | --- |
 | `engine.rs` | `Engine<S>`, `EngineBuilder`, `CgkaEngine` impl, `drain_events` / `drain_auto_publish` / `drain_auto_proposals` queues |
+| `history_transfer.rs` | Default-off original fixed-lease recipient-only HPKE channel; exact signed request/consent/context and Engine ownership; one immutable archive/ACK body, no MLS transport or history import permission |
 | `identity.rs` | Local signer + credential bundle; `member_id_of_processed_message` / `member_id_of_sender` chokepoints |
 | `device_group_lineage.rs` | Default-off permanent109/confirmed110 denial from the actual applied indexed tree, scoped owner/group/generation and full successor; no probe revocation or permission |
 | `device_group_genesis.rs` | Default-off atomic private-profile MLS birth factory, fresh protected original-tree evidence, permanent active-denial fencing; no SDK/settlement/chat/history permission |
@@ -624,3 +625,17 @@ Selected-chat private packages use a trusted original process lease, with bundle
 
 
 Selected ordinary-chat staging and joining require a separately retained original request/consent lease, fresh exact protected full tree plus device-local Completed generation, actual Current/admin ordinary state, exact consecutive two-Add successor and unchanged indexed predecessor identities. The source's signed protected generation is local to that source; receivers independently capture/recheck their own local generation. Private KeyPackage transport identity is a default-denying trusted lease accessor, never a constructor/grant from imported metadata. Scan all Welcome references for independent terminal/pending purposes before generic bundle fallback; keep actual private bundle consumption, purpose transition, full decrypted Current/admin/tree validation and original lease tail in one SQL transaction. Selected guarded staging creates no generic durable Welcome fanout. Preserve ordinary unguarded Invite behavior. Actual four-leaf delivery is qualified through the App regression; broader current-source conformance and fault retry remain independent gates.
+
+## Opt-in history channel foundation
+
+HistoryScope and authenticated requests are observations, never consent grants.
+Retain each original trusted lease, deadline and originating Engine identity; check
+fresh actual protected Completed generation/full tree and ordinary Current epoch
+and authenticator before and after crypto. Every frame binds the complete original
+context plus the exact signed request/consent transcript. Device-local generations
+remain independent. Same-body encryption retries return frozen bytes; a different
+body is refused. HpkePrivateKey contains pinned SecretVLBytes with ZeroizeOnDrop;
+explicit channel retirement drops the retained key. Never serialize or clone an
+owned channel or restore its original lease from history rows. This checkpoint is
+one-body inner encryption only; real MLS transport, third-member privacy, ordered
+manifest/chunks, committed import ACK and native adoption remain separate gates.

@@ -5,7 +5,7 @@ use cgka_traits::engine::{CgkaEngine, GroupEvent};
 use sha2::{Digest, Sha256};
 use storage_sqlite::{SqlCipherKey, SqliteAccountStorage};
 
-async fn complete_pair(
+pub(crate) async fn complete_pair(
     storage: SqliteAccountStorage,
 ) -> (
     Engine<SqliteAccountStorage>,

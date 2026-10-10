@@ -519,3 +519,15 @@ produces an opaque authenticated receipt without a chat event. A can sign its ow
 approval and verify all occupied leaves only through its original local proposal
 lease, under the same protected selection. The result remains metadata; these
 Core methods do not perform App publication, Add admission or ABC settlement.
+
+### Experimental recipient-only history foundation
+
+With `experimental-device-sync`, `history_transfer` retains Core-private HPKE
+keys under an original fixed trusted lease and Engine lifetime. Requests/consents
+are signed by actual protected device leaves, and every frame binds the captured
+Completed roster, ordinary Current epoch/authenticator and original transcript.
+One immutable archive body and ACK can be encrypted; exact retries reuse bytes.
+The five actual MLS/SQL pair controls qualify this inner-crypto boundary only.
+App history transfer/import and third-member outer-MLS privacy are not delivered.
+See `../../docs/device-sync-history-channel-verification.json` for evidence and
+`../../docs/device-sync-opt-in-history-transport-plan.md` for the remaining flow.

@@ -121,3 +121,14 @@ incremental disabled and full frozen input manifests. Preserve the qualified sta
 App baseline before recompilation. Never mutate the final83f SDK worktree/output,
 replace native artifacts, publish MDK or infer native multi-host acceptance from
 these Rust actor tests.
+
+## Qualified Core foundation checkpoint
+
+The first Core slice provides original fixed-lease, Engine-owned recipient-only
+HPKE request/consent and one immutable archive/ACK body. Five real MLS/SQL pair
+controls plus production lint, default compilation and formatting pass. The
+corrected context matrix uses the same unbound original source and proves genuine
+consent/body success after each refusal. The original public ABC/four-leaf App
+history test still reaches the explicit NotReady boundary. No transfer, import
+receipt, third-member outer-MLS privacy or history UI is claimed by this slice.
+See [the scoped evidence](device-sync-history-channel-verification.json).

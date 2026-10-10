@@ -680,7 +680,7 @@ impl<S: StorageProvider + 'static> Engine<S> {
 
 #[cfg(test)]
 #[path = "private_roster_settlement_tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 /// Shared fresh crypto-tree plus completed-facts validation. Never admission.
 pub(crate) fn completed_round_for_tree<S: StorageProvider>(
