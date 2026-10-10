@@ -96,7 +96,21 @@ impl<S: StorageProvider> Engine<S> {
                     return Ok(true);
                 }
             }
-            self.with_mls_group(group_id, crate::device_group_genesis::exact_profile)
+            match self.with_mls_group(group_id, crate::device_group_genesis::exact_profile) {
+                Err(error @ EngineError::UnknownGroup(_)) => match storage.get_group(group_id) {
+                    // Disband deletes MLS but retains its authenticated canonical
+                    // capabilities. Historical privacy fences above still win,
+                    // including a private marker removed before termination.
+                    Ok(record) if record.disbanded.is_some() => {
+                        Ok(record.required_capabilities.app_components.contains(
+                            cgka_traits::device_group_genesis::PRIVATE_DEVICE_GROUP_COMPONENT_ID,
+                        ))
+                    }
+                    Ok(_) | Err(cgka_traits::storage::StorageError::NotFound) => Err(error),
+                    Err(error) => Err(EngineError::Storage(error)),
+                },
+                result => result,
+            }
         })
     }
 

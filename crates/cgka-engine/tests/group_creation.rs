@@ -1539,6 +1539,11 @@ async fn solo_disband_is_durable_convergent_terminal_and_restart_safe() {
         created,
         SendResult::FoundingGroupCreated { ref welcomes } if welcomes.is_empty()
     ));
+    #[cfg(feature = "experimental-device-sync")]
+    assert!(
+        !alice.exclude_private_group_from_chat(&group_id).unwrap(),
+        "a live genuine ordinary group is not private"
+    );
     alice.drain_events();
 
     let requested = alice
@@ -1616,6 +1621,11 @@ async fn solo_disband_is_durable_convergent_terminal_and_restart_safe() {
     );
     let terminal = alice.group_record(&group_id).unwrap();
     assert!(terminal.disbanded.is_some());
+    #[cfg(feature = "experimental-device-sync")]
+    assert!(
+        !alice.exclude_private_group_from_chat(&group_id).unwrap(),
+        "authenticated ordinary disband metadata remains classifiable after MLS deletion"
+    );
     assert_eq!(
         terminal.members.len(),
         1,
@@ -1677,6 +1687,11 @@ async fn solo_disband_is_durable_convergent_terminal_and_restart_safe() {
             .is_some()
     );
     assert!(reopened.quarantined_groups().is_empty());
+    #[cfg(feature = "experimental-device-sync")]
+    assert!(
+        !reopened.exclude_private_group_from_chat(&group_id).unwrap(),
+        "reopen must preserve the retained ordinary terminal classification"
+    );
 
     drop(reopened);
     assert!(
@@ -1701,6 +1716,13 @@ async fn solo_disband_is_durable_convergent_terminal_and_restart_safe() {
     assert!(
         tombstone_only.group_record(&group_id).is_err(),
         "full group metadata is optional after the user deletes local history"
+    );
+    #[cfg(feature = "experimental-device-sync")]
+    assert!(
+        tombstone_only
+            .exclude_private_group_from_chat(&group_id)
+            .is_err(),
+        "a tombstone alone cannot classify absent group metadata as ordinary"
     );
 }
 

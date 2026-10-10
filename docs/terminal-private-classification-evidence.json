@@ -1,0 +1,333 @@
+{
+  "base": "fc8a3542b966c8b6029d0d5432e3041fd105ca2b",
+  "scope": "Retained authenticated terminal group classification, not whole sync qualification",
+  "runs": {
+    "red-v1": {
+      "candidate_stash": "b45015038d22e5038b5eb0cdc41c53e17c5548cf",
+      "independently_verified_inputs": 2439,
+      "results": {
+        "head": "fc8a3542b966c8b6029d0d5432e3041fd105ca2b",
+        "input_count": 2439,
+        "source_manifest_sha256": "ccf215cd51afaafc2d24f9fe5836f2db026c40d3bab1dee60073d2eda79d82ce",
+        "gates": [
+          {
+            "gate": "core-semantic-red",
+            "command": [
+              "cargo",
+              "test",
+              "--locked",
+              "-p",
+              "cgka-engine",
+              "--features",
+              "experimental-device-sync,test-policy-overrides",
+              "--test",
+              "group_creation",
+              "solo_disband_is_durable_convergent_terminal_and_restart_safe",
+              "--",
+              "--exact",
+              "--nocapture"
+            ],
+            "exit_code": 101,
+            "seconds": 36.1,
+            "counts": [
+              {
+                "status": "FAILED",
+                "passed": 0,
+                "failed": 1,
+                "ignored": 0
+              }
+            ],
+            "log_sha256": "07c2a4f24beee10abff1ba64995436395582759c95956675cbc1e1dafa16a347"
+          },
+          {
+            "gate": "default-control",
+            "command": [
+              "cargo",
+              "test",
+              "--locked",
+              "-p",
+              "cgka-engine",
+              "--features",
+              "test-policy-overrides",
+              "--test",
+              "group_creation",
+              "solo_disband_is_durable_convergent_terminal_and_restart_safe",
+              "--",
+              "--exact",
+              "--nocapture"
+            ],
+            "exit_code": 0,
+            "seconds": 13.9,
+            "counts": [
+              {
+                "status": "ok",
+                "passed": 1,
+                "failed": 0,
+                "ignored": 0
+              }
+            ],
+            "log_sha256": "7bbd5d09f676eb5b92c1d1bdbd3ab79dc62e48c75bd99cfaf121edea796aaf6e"
+          }
+        ]
+      }
+    },
+    "green-v1": {
+      "candidate_stash": "857e17d1d34d4c91e441ba1e498b60838f9e4aff",
+      "independently_verified_inputs": 2439,
+      "results": {
+        "head": "fc8a3542b966c8b6029d0d5432e3041fd105ca2b",
+        "input_count": 2439,
+        "source_manifest_sha256": "11d8f96fc14680385d7a50ec3b539a46943080e8fa6c3dc79c173d4c681c1393",
+        "gates": [
+          {
+            "gate": "core-focused",
+            "command": [
+              "cargo",
+              "test",
+              "--locked",
+              "-p",
+              "cgka-engine",
+              "--features",
+              "experimental-device-sync,test-policy-overrides",
+              "--test",
+              "group_creation",
+              "solo_disband_is_durable_convergent_terminal_and_restart_safe",
+              "--",
+              "--exact",
+              "--nocapture"
+            ],
+            "exit_code": 0,
+            "seconds": 10.18,
+            "counts": [
+              {
+                "status": "ok",
+                "passed": 1,
+                "failed": 0,
+                "ignored": 0
+              }
+            ],
+            "log_sha256": "7800a337edce69926e476e458e4819ae6858ea80d7cbcb21cd4e89f4f9100c8c"
+          },
+          {
+            "gate": "app-drained-disband",
+            "command": [
+              "cargo",
+              "test",
+              "--locked",
+              "-p",
+              "marmot-app",
+              "--features",
+              "experimental-device-sync,test-policy-overrides",
+              "--lib",
+              "tests::a_drained_disband_performs_the_terminal_push_sweep",
+              "--",
+              "--exact",
+              "--nocapture"
+            ],
+            "exit_code": 0,
+            "seconds": 94.35,
+            "counts": [
+              {
+                "status": "ok",
+                "passed": 1,
+                "failed": 0,
+                "ignored": 0
+              }
+            ],
+            "log_sha256": "0050dd3159523363bbb7bc330ce587d321a2b3e00c274014a503cd32bcff3185"
+          },
+          {
+            "gate": "app-real-departure",
+            "command": [
+              "cargo",
+              "test",
+              "--locked",
+              "-p",
+              "marmot-app",
+              "--features",
+              "experimental-device-sync,test-policy-overrides",
+              "--lib",
+              "tests::canonical_membership::real_departure_then_disband_projects_after_mls_deletion",
+              "--",
+              "--exact",
+              "--nocapture"
+            ],
+            "exit_code": 0,
+            "seconds": 9.12,
+            "counts": [
+              {
+                "status": "ok",
+                "passed": 1,
+                "failed": 0,
+                "ignored": 0
+              }
+            ],
+            "log_sha256": "b34d189dd229631a63ec203a9f0d64b7f659a1f4e6b56900f96af07bc199afb5"
+          },
+          {
+            "gate": "private-history-fence",
+            "command": [
+              "cargo",
+              "test",
+              "--locked",
+              "-p",
+              "cgka-engine",
+              "--features",
+              "experimental-device-sync,test-policy-overrides",
+              "--test",
+              "accepted_welcome_receipts",
+              "private_batch::private_historical_marker_removal_and_selection_replacement_remains_hidden_after_reopen",
+              "--",
+              "--exact",
+              "--nocapture"
+            ],
+            "exit_code": 0,
+            "seconds": 7.16,
+            "counts": [
+              {
+                "status": "ok",
+                "passed": 1,
+                "failed": 0,
+                "ignored": 0
+              }
+            ],
+            "log_sha256": "6116796f18c3b2864cef39eeb701142a3c409fc2738c16f0f3e451425e99a018"
+          },
+          {
+            "gate": "private-storage-fault",
+            "command": [
+              "cargo",
+              "test",
+              "--locked",
+              "-p",
+              "cgka-engine",
+              "--features",
+              "experimental-device-sync,test-policy-overrides",
+              "--test",
+              "accepted_welcome_receipts",
+              "private_batch::private_batch_privacy_write_fault_rolls_back_crypto_anchor_and_exact_retry",
+              "--",
+              "--exact",
+              "--nocapture"
+            ],
+            "exit_code": 0,
+            "seconds": 2.06,
+            "counts": [
+              {
+                "status": "ok",
+                "passed": 1,
+                "failed": 0,
+                "ignored": 0
+              }
+            ],
+            "log_sha256": "65e79bbcb9f3b4be766b6bca98e71166528aa6fd55d1d194725c4afb325a9cd5"
+          },
+          {
+            "gate": "core-group-feature",
+            "command": [
+              "cargo",
+              "test",
+              "--locked",
+              "-p",
+              "cgka-engine",
+              "--features",
+              "experimental-device-sync,test-policy-overrides",
+              "--test",
+              "group_creation"
+            ],
+            "exit_code": 0,
+            "seconds": 106.46,
+            "counts": [
+              {
+                "status": "ok",
+                "passed": 65,
+                "failed": 0,
+                "ignored": 0
+              }
+            ],
+            "log_sha256": "d87f5a496206355d0a172ac3702b30aa4f26b57b57678872691979e464aba26a"
+          },
+          {
+            "gate": "core-group-default",
+            "command": [
+              "cargo",
+              "test",
+              "--locked",
+              "-p",
+              "cgka-engine",
+              "--features",
+              "test-policy-overrides",
+              "--test",
+              "group_creation"
+            ],
+            "exit_code": 0,
+            "seconds": 113.0,
+            "counts": [
+              {
+                "status": "ok",
+                "passed": 65,
+                "failed": 0,
+                "ignored": 0
+              }
+            ],
+            "log_sha256": "243ff49a19e25138eca9a7d4c674c50b03d14235ad89cb7b1bd5a9a14e3b5f54"
+          },
+          {
+            "gate": "production-clippy",
+            "command": [
+              "cargo",
+              "clippy",
+              "--locked",
+              "-p",
+              "cgka-engine",
+              "-p",
+              "marmot-app",
+              "--features",
+              "experimental-device-sync",
+              "--all-targets",
+              "--",
+              "-D",
+              "warnings"
+            ],
+            "exit_code": 0,
+            "seconds": 48.91,
+            "counts": [],
+            "log_sha256": "1f8c6017f6c612b043fb08c47779d7b881b2e879371ad9be19c7f96a0ae5a821"
+          },
+          {
+            "gate": "default-check",
+            "command": [
+              "cargo",
+              "check",
+              "--locked",
+              "-p",
+              "cgka-engine",
+              "-p",
+              "marmot-app",
+              "--all-targets"
+            ],
+            "exit_code": 0,
+            "seconds": 32.56,
+            "counts": [],
+            "log_sha256": "fd7753e92fc8b35935e0838fa39d3e6938cad3d4e98000e8f2eb7944653e8d1e"
+          },
+          {
+            "gate": "fmt",
+            "command": [
+              "cargo",
+              "fmt",
+              "--all",
+              "--",
+              "--check"
+            ],
+            "exit_code": 0,
+            "seconds": 3.54,
+            "counts": [],
+            "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ]
+      }
+    }
+  },
+  "unchanged_red_to_green_fixture_sha256": "2c30e276c0fd0ab73d3d5cb5fe1ef85fb97a6dbc09880761db3216b9c439547f"
+}
