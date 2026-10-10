@@ -1,0 +1,232 @@
+{
+  "source_sha": "98707713a2cc02828c2d66ed858588991896b9b0",
+  "source_inputs": 2519,
+  "source_manifest_sha256": "ad5a49f9066f0c7c8a5bce0a2ddc2806a13a140fb5e9bd2096ed6f8975e610db",
+  "gates": [
+    {
+      "gate": "shared-generation",
+      "command": [
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/xcframework.sh",
+        "generate"
+      ],
+      "exit": 0,
+      "seconds": 565.2129752635956,
+      "log": "/Users/pj/project/build/native-revocation-recipient-sdk-v1-shared-generation.log",
+      "log_sha256": "9f1fb3f993c3071247361039a525ec48ad65f78bf0225c2a862cf434c0dc274b"
+    },
+    {
+      "gate": "mac-native",
+      "command": [
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/xcframework-macos.sh",
+        "native"
+      ],
+      "exit": 0,
+      "seconds": 293.45683193206787,
+      "log": "/Users/pj/project/build/native-revocation-recipient-sdk-v1-mac-native.log",
+      "log_sha256": "eb0ffa0ec4c9fcd2c61f8d289d76ab823005d05ce142df207c7f3883416b1945"
+    },
+    {
+      "gate": "mac-assemble",
+      "command": [
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/xcframework-macos.sh",
+        "assemble"
+      ],
+      "exit": 0,
+      "seconds": 2.5140178203582764,
+      "log": "/Users/pj/project/build/native-revocation-recipient-sdk-v1-mac-assemble.log",
+      "log_sha256": "5072fdcdaa603d727e5cfbd473473a6e866eccd4030d718bed4e3e6fdf11d612"
+    },
+    {
+      "gate": "ios-device-native",
+      "command": [
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/xcframework.sh",
+        "native",
+        "aarch64-apple-ios"
+      ],
+      "exit": 0,
+      "seconds": 326.217276096344,
+      "log": "/Users/pj/project/build/native-revocation-recipient-sdk-v1-ios-device-native.log",
+      "log_sha256": "677bd4b9679a0f7d3073b012f697c7371e93ebc03d13011303c2875fe26d2dec"
+    },
+    {
+      "gate": "ios-simulator-native",
+      "command": [
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/xcframework.sh",
+        "native",
+        "aarch64-apple-ios-sim"
+      ],
+      "exit": 0,
+      "seconds": 307.1754491329193,
+      "log": "/Users/pj/project/build/native-revocation-recipient-sdk-v1-ios-simulator-native.log",
+      "log_sha256": "e3d32487c0387e25b2fcacc2881b97e6cf57bcc687234269a2ae09b7ab37c578"
+    },
+    {
+      "gate": "ios-assemble",
+      "command": [
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/xcframework.sh",
+        "assemble"
+      ],
+      "exit": 0,
+      "seconds": 4.430448293685913,
+      "log": "/Users/pj/project/build/native-revocation-recipient-sdk-v1-ios-assemble.log",
+      "log_sha256": "6faf5b0bfdc9afa85e99c468699e2f4f9d6a10d23e11bb14ded40ebbf4b2df0d"
+    },
+    {
+      "gate": "mac-artifact",
+      "command": [
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/validate-macos-artifact.sh",
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/output/macos/MarmotKit.xcframework",
+        "15.0"
+      ],
+      "exit": 0,
+      "seconds": 1.3799211978912354,
+      "log": "/Users/pj/project/build/native-revocation-recipient-sdk-v1-mac-artifact.log",
+      "log_sha256": "6fa9b620bb79029c539bc8549c01df46bbf93076e532d6c6fb07d57198dcaacc"
+    },
+    {
+      "gate": "ios-artifact",
+      "command": [
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/validate-ios-artifact.sh",
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/output/MarmotKit.xcframework",
+        "18.0"
+      ],
+      "exit": 0,
+      "seconds": 1.876371145248413,
+      "log": "/Users/pj/project/build/native-revocation-recipient-sdk-v1-ios-artifact.log",
+      "log_sha256": "0440810ac88aab32bffea6bb45377bb5864b4f53eadb01e73960a2cef6ce7ca0"
+    },
+    {
+      "gate": "mac-consumer",
+      "command": [
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/validate-swift-package-macos.sh",
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/output/macos/MarmotKit.xcframework",
+        "-",
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/output/macos/MarmotKit.swift"
+      ],
+      "exit": 0,
+      "seconds": 29.432952880859375,
+      "log": "/Users/pj/project/build/native-revocation-recipient-sdk-v1-mac-consumer.log",
+      "log_sha256": "9a6f577c81461648a70d82744ea97f8cb6db8d8ae6544979ed7df8458e306a95"
+    },
+    {
+      "gate": "ios-consumer",
+      "command": [
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/validate-swift-package.sh",
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/output/MarmotKit.xcframework",
+        "-",
+        "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/output/MarmotKit.swift"
+      ],
+      "exit": 0,
+      "seconds": 53.441121101379395,
+      "log": "/Users/pj/project/build/native-revocation-recipient-sdk-v1-ios-consumer.log",
+      "log_sha256": "65587276ee196ca82898e1c87208094217355e2cdc10139f00eadbce8571e1ca"
+    }
+  ],
+  "raw_logs_verified": 10,
+  "artifacts": 15,
+  "artifact_manifest_sha256": "0214ad9fef493660bc05b480e36589cdc9143e8ecb861e4b0a33a18160f48019",
+  "generated_bindings": {
+    "marmot_uniffi.swift": {
+      "ios_sha256": "2ae2f93f87e13c0155f950668b2b56970300f3da0e4460ff2e8a3afec225ffe6",
+      "macos_sha256": "2ae2f93f87e13c0155f950668b2b56970300f3da0e4460ff2e8a3afec225ffe6"
+    },
+    "marmot_uniffiFFI.h": {
+      "ios_sha256": "db774949553560b2b8070ca60f6b92a31e07ef800b11eb0242edfde30c114264",
+      "macos_sha256": "db774949553560b2b8070ca60f6b92a31e07ef800b11eb0242edfde30c114264"
+    },
+    "marmot_uniffiFFI.modulemap": {
+      "ios_sha256": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685",
+      "macos_sha256": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685"
+    }
+  },
+  "candidate_only": true,
+  "scope": "Matched candidate Mac arm64 and iOS device/simulator SDK build only; no app adoption, installation, publication or generated files committed. Runtime qualification remains scoped to the signed source proof.",
+  "features": [
+    "otlp-export",
+    "product-analytics-export",
+    "experimental-device-sync"
+  ],
+  "toolchain": {
+    "rust": "1.97.1 (8bab26f4f 2026-07-14)",
+    "xcode": "27.0 (27A266a)",
+    "macos_minimum": "15.0",
+    "ios_minimum": "18.0",
+    "jobs": 2,
+    "incremental": false,
+    "test_policy_overrides": false
+  },
+  "source_checkout": "/Users/pj/project/mdk-sync-sdk-98707713",
+  "output": "/Users/pj/project/mdk-sync-sdk-98707713/crates/marmot-uniffi/output",
+  "existing_target": "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+  "artifact_files": {
+    "output/MarmotKit.swift": "2ae2f93f87e13c0155f950668b2b56970300f3da0e4460ff2e8a3afec225ffe6",
+    "output/PrivacyInfo.xcprivacy": "3759ff2493741386342599b39673989a461f491ad1fb207a7133a2b0035140f7",
+    "output/macos/MarmotKit.swift": "2ae2f93f87e13c0155f950668b2b56970300f3da0e4460ff2e8a3afec225ffe6",
+    "output/macos/PrivacyInfo.xcprivacy": "3759ff2493741386342599b39673989a461f491ad1fb207a7133a2b0035140f7",
+    "output/MarmotKit.xcframework/Info.plist": "13b3e9d0136bfc10184edbbe0f4d21c53917ebabfc12885d2d247a4e7b34b0a5",
+    "output/MarmotKit.xcframework/ios-arm64-simulator/libmarmot_uniffi.a": "9e8ae53635e4c13eb3e81dbf98304305d0180d3e7b23bf30023bd7bd8398074e",
+    "output/MarmotKit.xcframework/ios-arm64/libmarmot_uniffi.a": "3b9473d0d4954bc6c7473ca1382d552f13e631000d310c023af8264601dc37c4",
+    "output/MarmotKit.xcframework/ios-arm64/Headers/marmot_uniffiFFI.h": "db774949553560b2b8070ca60f6b92a31e07ef800b11eb0242edfde30c114264",
+    "output/MarmotKit.xcframework/ios-arm64/Headers/module.modulemap": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685",
+    "output/MarmotKit.xcframework/ios-arm64-simulator/Headers/marmot_uniffiFFI.h": "db774949553560b2b8070ca60f6b92a31e07ef800b11eb0242edfde30c114264",
+    "output/MarmotKit.xcframework/ios-arm64-simulator/Headers/module.modulemap": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685",
+    "output/macos/MarmotKit.xcframework/Info.plist": "d9a67b4014865ad6fa6a89b40fad98e7151603cd8f029c2111dbf425d6279a08",
+    "output/macos/MarmotKit.xcframework/macos-arm64/libmarmot_uniffi.a": "b2c80f790cc1566e79abab07678c56693e7d53ff8df6960c992d89f5dc8de152",
+    "output/macos/MarmotKit.xcframework/macos-arm64/Headers/marmot_uniffiFFI.h": "db774949553560b2b8070ca60f6b92a31e07ef800b11eb0242edfde30c114264",
+    "output/macos/MarmotKit.xcframework/macos-arm64/Headers/module.modulemap": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685"
+  },
+  "builder_sha256": {
+    "crates/marmot-uniffi/xcframework.sh": "70b1e7b10affa22e64dea5c3fe63493e23b08f6614e3aafa9accfbd1166bd99e",
+    "crates/marmot-uniffi/xcframework-macos.sh": "e7401b16ff650796d77b3dfe9b7efefa1f9dd09cbc7580e275d3b3ca7da8c32e",
+    "crates/marmot-uniffi/marmotkit_features.py": "4c8ee71c0f0f9b0df7d322e9c6db3865d347f6d0da26b4e833908736d6536b04",
+    "crates/marmot-uniffi/marmotkit-release-profile.env": "cd5f477d0f1f7119e3e2cf4df82f9b704ad6a715314d879793b27e1aba07eeb0",
+    "crates/marmot-uniffi/build-provenance.py": "d30c34c54237b7dfd785f9a7b6f12a0c163c854d446cd42292a5c14842031d72",
+    "crates/marmot-uniffi/validate-ios-artifact.sh": "b3fec7f6ce9925b66d6d4e353ea3507642e6290bdfcc19c0bde816ddb79465a1",
+    "crates/marmot-uniffi/validate-macos-artifact.sh": "56fd157a6ccca274d18fce7614981cb964231aab9476d99482d846c57c58f5ad",
+    "crates/marmot-uniffi/validate-swift-package.sh": "371fb7c5927e8ed5f7da19f49e7b2f7841432cfe25211155eb730291f0e1c411",
+    "crates/marmot-uniffi/validate-swift-package-macos.sh": "19761b4b38c6dd32b61f4ea294b9ac9dbb3e5698b69dae79281810e02c941e6e"
+  },
+  "preserved_outputs": {
+    "84113": {
+      "output/MarmotKit.swift": "856adddbf45e2667723db9ee8c5df4b0c0370361cea1c8969b90f6afce404353",
+      "output/PrivacyInfo.xcprivacy": "3759ff2493741386342599b39673989a461f491ad1fb207a7133a2b0035140f7",
+      "output/macos/MarmotKit.swift": "856adddbf45e2667723db9ee8c5df4b0c0370361cea1c8969b90f6afce404353",
+      "output/macos/PrivacyInfo.xcprivacy": "3759ff2493741386342599b39673989a461f491ad1fb207a7133a2b0035140f7",
+      "output/MarmotKit.xcframework/Info.plist": "8a316e6086ece9e04dd0288a87be575bc1dd487506170c452fb48505d9901c87",
+      "output/MarmotKit.xcframework/ios-arm64-simulator/libmarmot_uniffi.a": "29bc6246a79d7f23e23eae6ca26bcaccda568f7be111a99b753dc088e86f69b2",
+      "output/MarmotKit.xcframework/ios-arm64/libmarmot_uniffi.a": "28ac70b65c4ad937062628cb96543c6b22760907eb893c39a3504b18f913510c",
+      "output/MarmotKit.xcframework/ios-arm64/Headers/marmot_uniffiFFI.h": "6a1b71b49f89840e9317d9262a61861dc4a580ba5f6a7ebce5411b19c6c61d1d",
+      "output/MarmotKit.xcframework/ios-arm64/Headers/module.modulemap": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685",
+      "output/MarmotKit.xcframework/ios-arm64-simulator/Headers/marmot_uniffiFFI.h": "6a1b71b49f89840e9317d9262a61861dc4a580ba5f6a7ebce5411b19c6c61d1d",
+      "output/MarmotKit.xcframework/ios-arm64-simulator/Headers/module.modulemap": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685",
+      "output/macos/MarmotKit.xcframework/Info.plist": "d9a67b4014865ad6fa6a89b40fad98e7151603cd8f029c2111dbf425d6279a08",
+      "output/macos/MarmotKit.xcframework/macos-arm64/libmarmot_uniffi.a": "d37c4fad6e42754ef4b3132b8ff09c21b41833196e161b23eefbf64d54f25cec",
+      "output/macos/MarmotKit.xcframework/macos-arm64/Headers/marmot_uniffiFFI.h": "6a1b71b49f89840e9317d9262a61861dc4a580ba5f6a7ebce5411b19c6c61d1d",
+      "output/macos/MarmotKit.xcframework/macos-arm64/Headers/module.modulemap": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685"
+    },
+    "83f5": {
+      "output/MarmotKit.swift": "091f9c8194b3c863e9ab1d74db5416ebec2575e739e7cb9701221bba65d355cd",
+      "output/PrivacyInfo.xcprivacy": "3759ff2493741386342599b39673989a461f491ad1fb207a7133a2b0035140f7",
+      "output/macos/MarmotKit.swift": "091f9c8194b3c863e9ab1d74db5416ebec2575e739e7cb9701221bba65d355cd",
+      "output/macos/PrivacyInfo.xcprivacy": "3759ff2493741386342599b39673989a461f491ad1fb207a7133a2b0035140f7",
+      "output/MarmotKit.xcframework/Info.plist": "13b3e9d0136bfc10184edbbe0f4d21c53917ebabfc12885d2d247a4e7b34b0a5",
+      "output/MarmotKit.xcframework/ios-arm64-simulator/libmarmot_uniffi.a": "61def8622c9e1f9b446ff9de70a2aa72829683de2e8fd21933aee583c2f0d98d",
+      "output/MarmotKit.xcframework/ios-arm64/libmarmot_uniffi.a": "4b77d1c5636f5fd056ac5172e89ae09663cc9e9d248d3179449a35dc36a33773",
+      "output/MarmotKit.xcframework/ios-arm64/Headers/marmot_uniffiFFI.h": "bb042f2197e1393ada69dde7cc831c0f49efb675c2ffcfa24d7a68812b1fa9c4",
+      "output/MarmotKit.xcframework/ios-arm64/Headers/module.modulemap": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685",
+      "output/MarmotKit.xcframework/ios-arm64-simulator/Headers/marmot_uniffiFFI.h": "bb042f2197e1393ada69dde7cc831c0f49efb675c2ffcfa24d7a68812b1fa9c4",
+      "output/MarmotKit.xcframework/ios-arm64-simulator/Headers/module.modulemap": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685",
+      "output/macos/MarmotKit.xcframework/Info.plist": "d9a67b4014865ad6fa6a89b40fad98e7151603cd8f029c2111dbf425d6279a08",
+      "output/macos/MarmotKit.xcframework/macos-arm64/libmarmot_uniffi.a": "c043b5209d662b86eee231adf0f31c7c9554e2aae74d22ea3708b836df430af9",
+      "output/macos/MarmotKit.xcframework/macos-arm64/Headers/marmot_uniffiFFI.h": "bb042f2197e1393ada69dde7cc831c0f49efb675c2ffcfa24d7a68812b1fa9c4",
+      "output/macos/MarmotKit.xcframework/macos-arm64/Headers/module.modulemap": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685"
+    },
+    "historical_static_app": {
+      "path": "/Users/pj/project/build/historical-final-default-app-93eaf71300bfdb25",
+      "sha256": "93eaf71300bfdb25df091d11a626db7986cf36ad553f3387829efadf79d4e28d"
+    }
+  },
+  "runner_sha256": "8d1eeb54376037dc069debfe9745d501922f6873589d4d6e3aeb98b51c8ba99b",
+  "evidence": "/Users/pjaeckel/project/whitenoisechat-openclaw/backups/mdk-sync-delivery-20261009/native-revocation-recipient-sdk",
+  "postfreeze_delta": "This verification document only; source98707713 and generated outputs unchanged."
+}
