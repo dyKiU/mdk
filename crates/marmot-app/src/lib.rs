@@ -1344,6 +1344,8 @@ struct OpenAppAccount {
     #[cfg(feature = "experimental-device-sync")]
     linking_owner: client::device_linking::AccountLinkingOwner,
     runtime: AppRuntime,
+    #[cfg(feature = "experimental-device-sync")]
+    selected_welcome_provenance: Arc<Mutex<client::welcome_peeler::SelectedWelcomeProvenance>>,
     audit_v5_peel_slot: Arc<Mutex<client::audit_v5_probe::PeelSlot>>,
     session_guard: AppAccountSessionGuard,
     adapter: MarmotRelayPlaneAccountAdapter,
@@ -1897,6 +1899,8 @@ impl MarmotApp {
             linking_owner: open.linking_owner,
             #[cfg(feature = "experimental-device-sync")]
             selected_chat_copy_owner: crate::selected_chat_copy::enabled::AccountCopyOwner::default(),
+            #[cfg(feature = "experimental-device-sync")]
+            selected_welcome_provenance: open.selected_welcome_provenance,
             runtime: open.runtime,
             _session_guard: open.session_guard,
             adapter: open.adapter,
@@ -4244,6 +4248,18 @@ impl MarmotApp {
             .unwrap_or_else(|| Arc::new(Mutex::new(client::audit_v5_probe::PeelSlot::default())));
         #[cfg(not(test))]
         let audit_v5_peel_slot = Arc::new(Mutex::new(client::audit_v5_probe::PeelSlot::default()));
+        #[cfg(feature = "experimental-device-sync")]
+        let selected_welcome_provenance = Arc::new(Mutex::new(
+            client::welcome_peeler::SelectedWelcomeProvenance::default(),
+        ));
+        #[cfg(feature = "experimental-device-sync")]
+        let peeler: Box<dyn client::welcome_peeler::WelcomePeeler> =
+            Box::new(client::welcome_peeler::SelectedWelcomePeeler {
+                inner: peeler,
+                slot: selected_welcome_provenance.clone(),
+            });
+        #[cfg(not(feature = "experimental-device-sync"))]
+        let peeler: Box<dyn client::welcome_peeler::WelcomePeeler> = Box::new(peeler);
         let peeler: Box<dyn cgka_traits::peeler::TransportPeeler> =
             Box::new(client::audit_v5_probe::ProbePeeler {
                 inner: peeler,
@@ -4416,6 +4432,8 @@ impl MarmotApp {
             linking_owner,
             runtime,
             audit_v5_peel_slot,
+            #[cfg(feature = "experimental-device-sync")]
+            selected_welcome_provenance,
             session_guard,
             adapter,
             routing,

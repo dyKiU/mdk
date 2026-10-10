@@ -109,6 +109,36 @@ struct MarmotRelayPlaneInner {
     transport: Arc<RelayPlaneTransport>,
     directory: DirectoryRelayPlane,
     directory_subscription_sync: Mutex<()>,
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    selected_welcome_gate: std::sync::Mutex<Option<SelectedWelcomePublicationGate>>,
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    observed_welcome_ingest: std::sync::Mutex<
+        Option<(
+            MessageId,
+            tokio::sync::oneshot::Sender<Option<cgka_traits::IngestOutcome>>,
+        )>,
+    >,
+}
+
+/// Hold one actual selected Welcome before its unchanged real relay publication.
+/// This fixture observation never supplies recipient consent or replaces transport.
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+struct SelectedWelcomePublicationGate {
+    account: MemberId,
+    observed: tokio::sync::oneshot::Sender<cgka_traits::TransportMessage>,
+    release: Arc<Notify>,
 }
 
 struct RelayPlaneTransport {
@@ -1218,6 +1248,72 @@ pub struct RelayPlaneHealth {
 }
 
 impl MarmotRelayPlane {
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn observe_exact_welcome_ingest(
+        &self,
+        message: MessageId,
+    ) -> tokio::sync::oneshot::Receiver<Option<cgka_traits::IngestOutcome>> {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let mut observation = self.inner.observed_welcome_ingest.lock().unwrap();
+        assert!(observation.is_none());
+        *observation = Some((message, sender));
+        receiver
+    }
+
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn note_exact_welcome_ingest(
+        &self,
+        message: &MessageId,
+        outcome: Option<cgka_traits::IngestOutcome>,
+    ) {
+        let sender = {
+            let mut observation = self.inner.observed_welcome_ingest.lock().unwrap();
+            if observation
+                .as_ref()
+                .is_some_and(|(expected, _)| expected == message)
+            {
+                observation.take().map(|(_, sender)| sender)
+            } else {
+                None
+            }
+        };
+        if let Some(sender) = sender {
+            let _ = sender.send(outcome);
+        }
+    }
+
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn hold_next_selected_welcome(
+        &self,
+        account: MemberId,
+    ) -> (
+        tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
+        Arc<Notify>,
+    ) {
+        let (observed, receiver) = tokio::sync::oneshot::channel();
+        let release = Arc::new(Notify::new());
+        let mut held = self.inner.selected_welcome_gate.lock().unwrap();
+        assert!(held.is_none(), "only one fixture publication may be held");
+        *held = Some(SelectedWelcomePublicationGate {
+            account,
+            observed,
+            release: release.clone(),
+        });
+        (receiver, release)
+    }
+
     pub fn runtime_default(subscription_rebuild_lookback: Duration) -> Self {
         Self::from_sdk(Some(subscription_rebuild_lookback), false)
     }
@@ -1336,6 +1432,18 @@ impl MarmotRelayPlane {
                 transport,
                 directory: DirectoryRelayPlane::new(directory_fetcher),
                 directory_subscription_sync: Mutex::new(()),
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                selected_welcome_gate: std::sync::Mutex::new(None),
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                observed_welcome_ingest: std::sync::Mutex::new(None),
             }),
         };
         this.spawn_router();
@@ -3343,6 +3451,27 @@ impl MarmotRelayPlaneAccountAdapter {
         &self,
         request: TransportPublishRequest,
     ) -> Result<TransportPublishReport, TransportAdapterError> {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if matches!(
+            request.message.envelope,
+            cgka_traits::TransportEnvelope::Welcome { .. }
+        ) {
+            let gate = {
+                let mut held = self.relay_plane.inner.selected_welcome_gate.lock().unwrap();
+                if held
+                    .as_ref()
+                    .is_some_and(|gate| gate.account == request.account_id)
+                {
+                    held.take()
+                } else {
+                    None
+                }
+            };
+            if let Some(gate) = gate {
+                let _ = gate.observed.send(request.message.clone());
+                gate.release.notified().await;
+            }
+        }
         self.publish_with_local_mirror(request, false).await
     }
 

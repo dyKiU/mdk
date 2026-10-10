@@ -3457,6 +3457,11 @@ impl AppClient {
             ));
         }
         let source_message_id = delivery.message.id.clone();
+        #[cfg(feature = "experimental-device-sync")]
+        let _selected_welcome_episode = super::welcome_peeler::SelectedWelcomeProvenance::begin(
+            &client.selected_welcome_provenance,
+            &source_message_id,
+        );
         let source_message_id_hex = hex::encode(source_message_id.as_slice());
         let outer_transport_at = delivery.message.timestamp.0;
         let source_received_at = delivery.received_at.0;
@@ -3610,6 +3615,17 @@ impl AppClient {
                 .ingest_delivery_with_observer(delivery, observer)
                 .await
         };
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        if welcome {
+            client.app.relay_plane.note_exact_welcome_ingest(
+                &source_message_id,
+                ingest.as_ref().ok().map(|effects| effects.outcome.clone()),
+            );
+        }
         if let (Some(probe), Some(slot)) = (&mut client.audit_v5_probe, &client.audit_v5_peel_slot)
             && let Some(completion) = slot.lock().unwrap().take()
         {
