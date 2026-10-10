@@ -24,6 +24,37 @@ async fn default_selected_chat_copy_is_unsupported_before_account_or_worker_effe
         request.cancel().await,
         Err(SelectedChatCopyError::Unsupported)
     ));
+    assert!(matches!(
+        request.request_packet(0).await,
+        Err(SelectedChatCopyError::Unsupported)
+    ));
+    assert!(matches!(
+        request.receive_consent_packet(0, vec![0; 600_000]).await,
+        Err(SelectedChatCopyError::Unsupported)
+    ));
+    assert!(matches!(
+        accounts
+            .receive_selected_chat_copy_request("missing", vec![0; 600_000])
+            .await,
+        Err(SelectedChatCopyError::Unsupported)
+    ));
+    let consent = SelectedChatConsent { _private: () };
+    assert!(matches!(
+        consent.snapshot().await,
+        Err(SelectedChatCopyError::Unsupported)
+    ));
+    assert!(matches!(
+        consent.approve(0).await,
+        Err(SelectedChatCopyError::Unsupported)
+    ));
+    assert!(matches!(
+        consent.response_packet(0).await,
+        Err(SelectedChatCopyError::Unsupported)
+    ));
+    assert!(matches!(
+        consent.cancel().await,
+        Err(SelectedChatCopyError::Unsupported)
+    ));
     assert!(accounts.managed_accounts().unwrap().is_empty());
     runtime.shutdown_and_close().await.unwrap();
 }
@@ -363,6 +394,100 @@ mod actual {
         );
         assert_eq!(snapshot.sibling_count, 2);
         assert!(snapshot.revision > 0);
+        let request_packet = request
+            .request_packet(snapshot.revision)
+            .await
+            .expect("original selected-chat request must export an authenticated consent request");
+        assert_eq!(snapshot.consenting_sibling_count, 0);
+        assert!(
+            managers[0]
+                .receive_selected_chat_copy_request("test", request_packet.clone())
+                .await
+                .is_err()
+        );
+        assert!(
+            d_runtime
+                .accounts()
+                .receive_selected_chat_copy_request("test", request_packet.clone())
+                .await
+                .is_err()
+        );
+        let mut malformed = request_packet.clone();
+        malformed[0] ^= 1;
+        assert!(
+            managers[1]
+                .receive_selected_chat_copy_request("test", malformed)
+                .await
+                .is_err()
+        );
+        let mut siblings = Vec::new();
+        let mut original_responses = Vec::new();
+        for manager in &managers[1..] {
+            let consent = manager
+                .receive_selected_chat_copy_request("test", request_packet.clone())
+                .await
+                .unwrap();
+            let alias = manager
+                .receive_selected_chat_copy_request("test", request_packet.clone())
+                .await
+                .unwrap();
+            drop(alias);
+            let received = consent.snapshot().await.unwrap();
+            assert_eq!(
+                received.phase,
+                crate::SelectedChatConsentPhase::AwaitingApproval
+            );
+            assert_eq!(received.chat_selector, chat.as_slice());
+            assert!(consent.response_packet(received.revision).await.is_err());
+            consent.approve(received.revision).await.unwrap();
+            let approved = consent.snapshot().await.unwrap();
+            assert_eq!(approved.phase, crate::SelectedChatConsentPhase::Approved);
+            assert!(matches!(
+                consent.approve(received.revision).await,
+                Err(crate::SelectedChatCopyError::StaleRevision)
+            ));
+            assert!(matches!(
+                consent.response_packet(received.revision).await,
+                Err(crate::SelectedChatCopyError::StaleRevision)
+            ));
+            let response = consent.response_packet(approved.revision).await.unwrap();
+            assert!(response == consent.response_packet(approved.revision).await.unwrap());
+            let mut malformed = response.clone();
+            malformed[0] ^= 1;
+            assert!(
+                request
+                    .receive_consent_packet(request.snapshot().await.unwrap().revision, malformed)
+                    .await
+                    .is_err()
+            );
+            assert!(matches!(
+                request.receive_consent_packet(0, response.clone()).await,
+                Err(crate::SelectedChatCopyError::StaleRevision)
+            ));
+            original_responses.push(response.clone());
+            request
+                .receive_consent_packet(request.snapshot().await.unwrap().revision, response)
+                .await
+                .unwrap();
+            let collected = request.snapshot().await.unwrap();
+            assert_eq!(
+                collected.consenting_sibling_count,
+                siblings.len() as u32 + 1
+            );
+            request
+                .receive_consent_packet(
+                    collected.revision,
+                    original_responses.last().unwrap().clone(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                request.snapshot().await.unwrap().revision,
+                collected.revision
+            );
+            assert!(request.request_packet(collected.revision).await.unwrap() == request_packet);
+            siblings.push(consent);
+        }
         for (i, app) in apps.iter().enumerate() {
             let storage = app.account_storage("test").unwrap();
             // Compare private material without formatting it on a failed assertion.
@@ -387,6 +512,23 @@ mod actual {
                 2
             );
         }
+        assert_eq!(
+            request.snapshot().await.unwrap().consenting_sibling_count,
+            2
+        );
+        siblings[0].cancel().await.unwrap();
+        assert!(
+            siblings[0]
+                .response_packet(siblings[0].snapshot().await.unwrap().revision)
+                .await
+                .is_err()
+        );
+        assert!(
+            managers[1]
+                .receive_selected_chat_copy_request("test", request_packet.clone())
+                .await
+                .is_err()
+        );
         request.cancel().await.unwrap();
         assert_eq!(
             request.snapshot().await.unwrap().phase,
@@ -396,6 +538,43 @@ mod actual {
             .begin_selected_chat_copy("test", &chat, target.selector.clone())
             .await
             .unwrap();
+        let fresh_packet = replacement
+            .request_packet(replacement.snapshot().await.unwrap().revision)
+            .await
+            .unwrap();
+        assert!(
+            replacement
+                .receive_consent_packet(
+                    replacement.snapshot().await.unwrap().revision,
+                    original_responses[0].clone()
+                )
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            replacement
+                .snapshot()
+                .await
+                .unwrap()
+                .consenting_sibling_count,
+            0
+        );
+        let fresh_consent = managers[1]
+            .receive_selected_chat_copy_request("test", fresh_packet.clone())
+            .await
+            .unwrap();
+        siblings[0].cancel().await.unwrap();
+        assert_eq!(
+            fresh_consent.snapshot().await.unwrap().phase,
+            crate::SelectedChatConsentPhase::AwaitingApproval
+        );
+        drop(fresh_consent);
+        assert!(
+            managers[1]
+                .receive_selected_chat_copy_request("test", fresh_packet)
+                .await
+                .is_err()
+        );
         // Cancelling an old request must not retire a newer original owner.
         request.cancel().await.unwrap();
         assert_eq!(
@@ -413,6 +592,10 @@ mod actual {
         assert_eq!(
             after_drop.snapshot().await.unwrap().phase,
             crate::SelectedChatCopyPhase::Closed
+        );
+        assert_eq!(
+            siblings[1].snapshot().await.unwrap().phase,
+            crate::SelectedChatConsentPhase::Closed
         );
         d_runtime.shutdown_and_close().await.unwrap();
         relay.shutdown();

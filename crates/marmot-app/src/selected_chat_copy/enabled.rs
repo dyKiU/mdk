@@ -3,14 +3,16 @@ use super::{SelectedChatCopyError, SelectedChatCopyPhase, SelectedChatCopySnapsh
 use cgka_traits::{EpochId, GroupId};
 use rand::RngCore;
 use std::sync::{
-    Arc, Weak,
+    Arc, Mutex, Weak,
     atomic::{AtomicU8, AtomicU64, Ordering},
 };
 use std::time::{Duration, Instant};
 
 // Native consent-owner lifetime/resource bound, not a convergence or SDK clock.
+const MAX_SELECTED_CHAT_RECEIPT_IDENTITIES: usize = 128;
 const SELECTED_CHAT_REQUEST_LIFETIME: Duration = Duration::from_secs(600);
 
+#[derive(PartialEq, Eq)]
 pub(crate) struct OrdinaryChatAnchor {
     pub(crate) _group: GroupId,
     pub(crate) _epoch: EpochId,
@@ -63,22 +65,41 @@ pub(crate) struct RequestState {
     lease: OwnerLease,
     sibling_count: u32,
     // Read-only captured selections, never SDK consent or recipient permission.
-    _ordinary: OrdinaryChatAnchor,
-    _protected: cgka_engine::device_group_snapshot::CandidateDeviceGroupSnapshot,
-    _protected_generation: u64,
-    _request_nonce: [u8; 32],
+    pub(crate) _ordinary: OrdinaryChatAnchor,
+    pub(crate) _protected: cgka_engine::device_group_snapshot::CandidateDeviceGroupSnapshot,
+    pub(crate) _protected_generation: u64,
+    pub(crate) _request_nonce: [u8; 32],
+    pub(crate) progress: Mutex<RequestProgress>,
+}
+#[derive(Default)]
+pub(crate) struct RequestProgress {
+    pub(crate) packet: Option<Vec<u8>>,
+    pub(crate) receipts: std::collections::HashMap<u32, ([u8; 32], Vec<u8>)>,
 }
 impl RequestState {
+    pub(crate) fn check_revision(&self, revision: u64) -> Result<(), SelectedChatCopyError> {
+        let snapshot = self.snapshot();
+        if snapshot.phase != SelectedChatCopyPhase::AwaitingSiblingConsent {
+            return Err(SelectedChatCopyError::Closed);
+        }
+        if snapshot.revision != revision {
+            return Err(SelectedChatCopyError::StaleRevision);
+        }
+        Ok(())
+    }
+
     pub(crate) fn snapshot(&self) -> SelectedChatCopySnapshot {
+        let progress = self.progress.lock().expect("selected request observation");
         let phase = self.lease.phase();
         SelectedChatCopySnapshot {
             revision: if phase == SelectedChatCopyPhase::AwaitingSiblingConsent {
-                1
+                1 + progress.receipts.len() as u64
             } else {
-                2
+                2 + progress.receipts.len() as u64
             },
             phase,
             sibling_count: self.sibling_count,
+            consenting_sibling_count: progress.receipts.len() as u32,
         }
     }
     pub(crate) fn cancel(&self) {
@@ -89,16 +110,83 @@ impl RequestState {
 pub(crate) struct AccountCopyOwner {
     lifetime: Arc<AtomicU64>,
     current: Option<Weak<RequestState>>,
+    consent_lifetime: Arc<AtomicU64>,
+    consent_history: std::collections::HashMap<[u8; 32], (Instant, Weak<ConsentState>)>,
 }
 impl Default for AccountCopyOwner {
     fn default() -> Self {
         Self {
             lifetime: Arc::new(AtomicU64::new(0)),
             current: None,
+            consent_lifetime: Arc::new(AtomicU64::new(0)),
+            consent_history: std::collections::HashMap::new(),
         }
     }
 }
 impl AccountCopyOwner {
+    pub(crate) fn owns_consent(&self, state: &Arc<ConsentState>) -> bool {
+        self.consent_history
+            .get(&state.observation.binding())
+            .and_then(|(_, weak)| weak.upgrade())
+            .is_some_and(|current| Arc::ptr_eq(&current, state))
+    }
+    pub(crate) fn owns(&self, request: &Arc<RequestState>) -> bool {
+        self.current
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .is_some_and(|current| Arc::ptr_eq(&current, request))
+    }
+    pub(crate) fn receive_consent(
+        &mut self,
+        observation: cgka_engine::selected_chat_consent::AuthenticatedSelectedChatRequest,
+        packet: Vec<u8>,
+    ) -> Result<Arc<ConsentState>, SelectedChatCopyError> {
+        let binding = observation.binding();
+        if let Some((deadline, prior)) = self.consent_history.get(&binding) {
+            if Instant::now() >= *deadline {
+                return Err(SelectedChatCopyError::Closed);
+            }
+            return prior
+                .upgrade()
+                .filter(|state| state.is_live())
+                .ok_or(SelectedChatCopyError::Closed);
+        }
+        if self
+            .consent_history
+            .values()
+            .any(|(_, weak)| weak.upgrade().is_some_and(|state| state.is_live()))
+        {
+            return Err(SelectedChatCopyError::Busy);
+        }
+        // Negative identities never renew a receipt clock in this account lifetime.
+        if self.consent_history.len() >= MAX_SELECTED_CHAT_RECEIPT_IDENTITIES {
+            return Err(SelectedChatCopyError::Busy);
+        }
+        let generation = self
+            .consent_lifetime
+            .load(Ordering::Acquire)
+            .checked_add(1)
+            .ok_or(SelectedChatCopyError::RuntimeUnavailable)?;
+        let deadline = Instant::now()
+            .checked_add(SELECTED_CHAT_REQUEST_LIFETIME)
+            .ok_or(SelectedChatCopyError::RuntimeUnavailable)?;
+        let state = Arc::new(ConsentState {
+            lease: OwnerLease {
+                lifetime: Arc::downgrade(&self.consent_lifetime),
+                generation,
+                original_deadline: deadline,
+                terminal: AtomicU8::new(0),
+            },
+            observation,
+            packet,
+            progress: Mutex::new(ConsentProgress::default()),
+            public_handle: Mutex::new(Weak::new()),
+        });
+        self.consent_lifetime.store(generation, Ordering::Release);
+        self.consent_history
+            .insert(binding, (deadline, Arc::downgrade(&state)));
+        Ok(state)
+    }
     pub(crate) fn reserve(
         &mut self,
         ordinary: OrdinaryChatAnchor,
@@ -144,10 +232,91 @@ impl AccountCopyOwner {
             _protected: protected.candidate().clone(),
             _protected_generation: protected.settlement_generation(),
             _request_nonce: nonce,
+            progress: Mutex::new(RequestProgress::default()),
         });
         self.lifetime.store(generation, Ordering::Release);
         self.current = Some(Arc::downgrade(&state));
         Ok(state)
+    }
+}
+
+pub(crate) struct ConsentHandle {
+    pub(crate) original: Arc<ConsentState>,
+}
+impl Drop for ConsentHandle {
+    fn drop(&mut self) {
+        self.original.cancel();
+    }
+}
+#[derive(Default)]
+pub(crate) struct ConsentProgress {
+    pub(crate) nonce: Option<[u8; 32]>,
+    pub(crate) response: Option<Vec<u8>>,
+}
+pub(crate) struct ConsentState {
+    lease: OwnerLease,
+    pub(crate) observation: cgka_engine::selected_chat_consent::AuthenticatedSelectedChatRequest,
+    pub(crate) packet: Vec<u8>,
+    pub(crate) progress: Mutex<ConsentProgress>,
+    public_handle: Mutex<Weak<ConsentHandle>>,
+}
+impl ConsentState {
+    pub(crate) fn public_handle(self: &Arc<Self>) -> Arc<ConsentHandle> {
+        let mut slot = self.public_handle.lock().expect("selected consent handle");
+        if let Some(handle) = slot.upgrade() {
+            return handle;
+        }
+        let handle = Arc::new(ConsentHandle {
+            original: self.clone(),
+        });
+        *slot = Arc::downgrade(&handle);
+        handle
+    }
+    fn is_live(&self) -> bool {
+        self.lease.phase() == SelectedChatCopyPhase::AwaitingSiblingConsent
+    }
+    pub(crate) fn generation(&self) -> u64 {
+        self.lease.generation
+    }
+    pub(crate) fn cancel(&self) {
+        self.lease.cancel();
+    }
+    pub(crate) fn snapshot(&self) -> super::SelectedChatConsentSnapshot {
+        let approved = self
+            .progress
+            .lock()
+            .expect("selected consent observation")
+            .nonce
+            .is_some();
+        let phase = match self.lease.phase() {
+            SelectedChatCopyPhase::AwaitingSiblingConsent if approved => {
+                super::SelectedChatConsentPhase::Approved
+            }
+            SelectedChatCopyPhase::AwaitingSiblingConsent => {
+                super::SelectedChatConsentPhase::AwaitingApproval
+            }
+            SelectedChatCopyPhase::Cancelled => super::SelectedChatConsentPhase::Cancelled,
+            SelectedChatCopyPhase::Expired => super::SelectedChatConsentPhase::Expired,
+            SelectedChatCopyPhase::Closed => super::SelectedChatConsentPhase::Closed,
+        };
+        super::SelectedChatConsentSnapshot {
+            revision: if self.is_live() {
+                1 + u64::from(approved)
+            } else {
+                2 + u64::from(approved)
+            },
+            phase,
+            chat_selector: self.observation.ordinary_group().as_slice().to_vec(),
+        }
+    }
+    pub(crate) fn check_revision(&self, revision: u64) -> Result<(), SelectedChatCopyError> {
+        if !self.is_live() {
+            return Err(SelectedChatCopyError::Closed);
+        }
+        if self.snapshot().revision != revision {
+            return Err(SelectedChatCopyError::StaleRevision);
+        }
+        Ok(())
     }
 }
 

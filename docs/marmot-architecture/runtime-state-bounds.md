@@ -46,6 +46,20 @@ only positive authority.
 | Account request slot | One weak request per live account worker; independent checked generation and immutable 600-second monotonic deadline. Retains one ordinary group/epoch/local-leaf anchor and canonical roster digest, one validated protected roster (existing 128-leaf bound), and a random request nonce. Selectors are bounded to 256 bytes. This is a native consent-owner bound, not a convergence policy. | Exact handle cancel/Drop retires only that original request. Expiry, generation change and account-client destruction close access; terminal observations are sticky. A replacement can occupy the slot only after the prior request is negative or dropped. An abandoned worker reply cancels its exact original state. No timer, registry, SQL permission, KeyPackage or transport work is retained. |
 
 
+Selected-chat receipt identities additionally retain at most 128 negative bindings
+per account-client lifetime, each with its immutable original 600-second receipt
+clock and a weak original-consent reference. Exact reimports share that original
+state/public handle, never renew clocks, and cannot revive a dropped/cancelled
+owner. Only one live sibling consent owner is admitted per account. Full admission
+returns Busy before allocation. Account teardown reclaims identities and ends all
+original owners; reopening metadata requires new explicit approval and supplies
+no old recipient-purpose grant. Shared public-handle Drop cancels the original
+state only when the last public handle disappears, independently of RPC custody.
+Request and consent packets are canonical metadata bounded to 16 KiB, signed by
+actual indexed protected MLS device keys; no exporter secret or database copy is
+retained. Exact-source receipt observations are bounded by the selected sibling
+count (at most 127) and never grant Add or recipient admission.
+
 ### `marmot-app` audit export admission (`src/audit_export_lifecycle.rs`)
 
 | Structure | Bound | Reclamation |

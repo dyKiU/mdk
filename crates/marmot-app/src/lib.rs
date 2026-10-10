@@ -105,7 +105,8 @@ pub use native_device_linking::{
     DeviceLinkingSubscription, DeviceLinkingTarget,
 };
 pub use selected_chat_copy::{
-    SelectedChatCopy, SelectedChatCopyError, SelectedChatCopyPhase, SelectedChatCopySnapshot,
+    SelectedChatConsent, SelectedChatConsentPhase, SelectedChatConsentSnapshot, SelectedChatCopy,
+    SelectedChatCopyError, SelectedChatCopyPhase, SelectedChatCopySnapshot,
 };
 mod directory;
 mod drafts;

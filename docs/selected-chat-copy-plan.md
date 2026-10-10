@@ -97,3 +97,7 @@ actual completed public ABC plus independent A/D fixture now targets positive
 request ownership, real nonadmin refusal, Busy, cancellation/replacement and
 teardown while asserting unchanged private material and transport inventories.
 Five focused feature tests, the default Unsupported control, production App all-target Clippy/default checks and workspace formatting passed. See `device-sync-selected-chat-request-verification.json` for exact RED/final fixture and terminal/source hashes. Explicit sibling consent and recipient admission are still the next boundary.
+
+## Explicit sibling consent checkpoint
+
+Actual public ABC plus Current A/D now exports A’s original request and imports review-only metadata on B/C. Explicit revision-checked sibling approval produces canonical bounded per-device signed responses; A collects each actual sibling once. Alias Drop, stale revision, malformed/foreign/self packets, exact retry, old-response substitution, cancellation, last-handle Drop and account shutdown are covered. Private bundles, outbound fanouts, absent B/C ordinary copies and two-leaf A/D state remain unchanged. Feature five tests, default refusal one, three-package production Clippy/default checks and formatting passed; broader Core conformance checks are pending postcommit. See `device-sync-selected-chat-consent-verification.json`. Recipient-purpose, single-use private package creation, guarded ordinary Invite/join, new-message delivery and history remain open.

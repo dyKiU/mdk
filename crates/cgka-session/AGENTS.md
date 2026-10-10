@@ -61,3 +61,7 @@ from a wire packet or treat complete signatures as transition/join permission.
 Bounded request/receipt draining and single-receipt original-lease validation are
 thin Engine forwards. `None` denotes invalid receipt metadata; owner/storage
 errors remain errors. App owns deduplication and its shared retention allowance.
+
+### Selected-chat consent observation forwarding
+
+The four experimental selected-chat observation methods delegate to Core. Authenticated packet objects are metadata only; Session cannot mint live App consent or recipient join authority from them. No transport or package creation is implicit.

@@ -344,6 +344,8 @@ pub(crate) struct AccountWorkerRuntime {
 
 pub(crate) enum AccountWorkerCommand {
     #[cfg(feature = "experimental-device-sync")]
+    SelectedChatConsent(Box<super::selected_chat_copy::ConsentCommand>),
+    #[cfg(feature = "experimental-device-sync")]
     BeginSelectedChatCopy {
         group: GroupId,
         selector: Vec<u8>,
@@ -4676,6 +4678,11 @@ fn account_worker_command_future<'a>(
     } = context;
     let storage_permit = shared.product_analytics.permit();
     match command {
+        #[cfg(feature = "experimental-device-sync")]
+        AccountWorkerCommand::SelectedChatConsent(command) => Box::pin(async move {
+            super::selected_chat_copy::handle_consent(client, *command);
+            false
+        }),
         #[cfg(feature = "experimental-device-sync")]
         AccountWorkerCommand::BeginSelectedChatCopy {
             group,

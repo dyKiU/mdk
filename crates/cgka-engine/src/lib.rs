@@ -127,3 +127,6 @@ pub mod private_enrollment_request;
 
 #[cfg(feature = "experimental-device-sync")]
 pub mod private_enrollment_endorsement;
+
+#[cfg(feature = "experimental-device-sync")]
+pub mod selected_chat_consent;

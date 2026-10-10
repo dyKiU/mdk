@@ -2240,3 +2240,41 @@ fn delivery_plane_label(plane: TransportDeliveryPlane) -> &'static str {
         TransportDeliveryPlane::Ephemeral => "ephemeral",
     }
 }
+
+#[cfg(feature = "experimental-device-sync")]
+impl AccountDeviceSession {
+    pub fn selected_chat_request_observation(
+        &self,
+        ordinary: &GroupId,
+        protected: &GroupId,
+        nonce: [u8; 32],
+    ) -> Result<Vec<u8>, EngineError> {
+        self.engine
+            .selected_chat_request_observation(ordinary, protected, nonce)
+    }
+    pub fn authenticate_selected_chat_request(
+        &self,
+        packet: &[u8],
+    ) -> Result<cgka_engine::selected_chat_consent::AuthenticatedSelectedChatRequest, EngineError>
+    {
+        self.engine.authenticate_selected_chat_request(packet)
+    }
+    pub fn selected_chat_consent_observation(
+        &self,
+        request: &cgka_engine::selected_chat_consent::AuthenticatedSelectedChatRequest,
+        generation: u64,
+        nonce: [u8; 32],
+    ) -> Result<Vec<u8>, EngineError> {
+        self.engine
+            .selected_chat_consent_observation(request, generation, nonce)
+    }
+    pub fn authenticate_selected_chat_consent(
+        &self,
+        request: &[u8],
+        response: &[u8],
+    ) -> Result<cgka_engine::selected_chat_consent::AuthenticatedSelectedChatConsent, EngineError>
+    {
+        self.engine
+            .authenticate_selected_chat_consent(request, response)
+    }
+}

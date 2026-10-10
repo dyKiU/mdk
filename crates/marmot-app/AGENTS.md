@@ -670,3 +670,7 @@ Preserve original monotonic expiry, exact cancellation, generation and account
 teardown fences; create no private package, fanout or transport before explicit
 sibling consent. Keep the real public ABC+A/D ownership regression and default
 Unsupported-before-effects control when extending this path.
+
+### Independent selected-chat sibling consent
+
+Selected-chat packet import creates review metadata plus a new bounded process-local consent owner; approval requires the same original owner, current revision, fixed 600-second monotonic deadline and fresh exact protected roster. Export/collection revalidate original owners and anchors before and after crypto. Reimport shares the exact public handle owner; dropping an alias must not cancel another retained alias. The last public handle, exact cancellation, expiry, account-client Drop and abandoned RPC result retire original intent. Keep the account-lifetime 128-entry receipt/tombstone bound; negative or expired imports cannot restart clocks. Collected device signatures are observations, never package/Add/Welcome/join authority.

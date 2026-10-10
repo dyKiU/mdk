@@ -615,3 +615,7 @@ fences in the same crypto/SQL transaction. Preserve Storage error classification
 through replay so App can retain that same live action after rollback.
 
 Original existing-member Add apply stages its settlement admission inside the crypto SQL transaction and installs memory authority only after commit. Maintenance reuses a round only with the identical original live guard, deadline, anchor and protected generation. ACKs may arrive before the coordinator Challenge: retain bounded sealed receipt metadata without binding nonce or counting a fact; promote matching receipts only under the same live admission and genuine coordinator Challenge in crypto SQL. Cancellation and rollback cannot reconstruct authority.
+
+### Selected-chat consent observations
+
+`selected_chat_consent` exposes only bounded canonical request/response metadata signed by the actual protected indexed device leaf. Fresh completed protected full-tree checks and exact source signatures authenticate observations, not membership. Request export also derives the actual Current/admin ordinary anchor. No arbitrary signing API, account-shared signer, MLS mutation or SQL permission is added. Future recipient joining must check its original live purpose and the actual decrypted Current/admin/full tree through the transaction tail; signed remote ordinary claims alone cannot grant admission.
