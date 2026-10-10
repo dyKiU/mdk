@@ -250,7 +250,7 @@ mod synchronized_history_schema_tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(revision, 10);
+        assert_eq!(revision, super::latest_private_migration_version());
         #[cfg(not(feature = "experimental-device-sync"))]
         assert!(
             cgka_traits::storage::StorageProvider::private_roster_settlement_storage(&storage)
@@ -946,6 +946,11 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
 
 #[path = "private_migration_ledger.rs"]
 mod private_migration_ledger;
+
+#[cfg(test)]
+pub(crate) fn latest_private_migration_version() -> i64 {
+    PRIVATE_MIGRATIONS.last().unwrap().version
+}
 
 pub(crate) fn run_all(connection: &mut Connection) -> StorageResult<usize> {
     private_migration_ledger::run_all(connection)
@@ -4343,7 +4348,7 @@ mod device_group_genesis_tests {
     #[test]
     fn private_device_group_genesis_schema_is_separate_fact_storage() {
         let mut connection = Connection::open_in_memory().unwrap();
-        run(&mut connection, MIGRATIONS).unwrap();
+        run_all(&mut connection).unwrap();
         let count: i64 = connection
             .query_row(
                 "SELECT count(*) FROM device_group_genesis_selection",
@@ -4353,7 +4358,7 @@ mod device_group_genesis_tests {
             .unwrap();
         assert_eq!(count, 0);
         // Birth provenance is separate from MLS messages or application evidence.
-        run(&mut connection, MIGRATIONS).unwrap();
+        run_all(&mut connection).unwrap();
     }
 }
 
@@ -4364,7 +4369,7 @@ mod accepted_device_group_anchor_tests {
     #[test]
     fn accepted_device_group_anchor_schema_is_separate_and_bounded() {
         let mut connection = Connection::open_in_memory().unwrap();
-        run(&mut connection, MIGRATIONS).unwrap();
+        run_all(&mut connection).unwrap();
         let count: i64 = connection
             .query_row(
                 "SELECT count(*) FROM accepted_device_group_anchor",
@@ -4373,7 +4378,7 @@ mod accepted_device_group_anchor_tests {
             )
             .unwrap();
         assert_eq!(count, 0);
-        run(&mut connection, MIGRATIONS).unwrap();
+        run_all(&mut connection).unwrap();
         let storage = crate::SqliteAccountStorage::in_memory().unwrap();
         assert_eq!(
             storage.accepted_device_group_anchor_storage().is_some(),
@@ -4389,7 +4394,7 @@ mod private_device_invite_tests {
     #[test]
     fn private_device_invite_schema_preserves_confirmed_anchor_separately() {
         let mut connection = Connection::open_in_memory().unwrap();
-        run(&mut connection, MIGRATIONS).unwrap();
+        run_all(&mut connection).unwrap();
         for table in [
             "private_device_invite_counter",
             "private_device_invite_staging",
@@ -4402,7 +4407,7 @@ mod private_device_invite_tests {
                 .unwrap();
             assert_eq!(count, 0);
         }
-        run(&mut connection, MIGRATIONS).unwrap();
+        run_all(&mut connection).unwrap();
         assert!(
             connection
                 .execute(
@@ -4438,7 +4443,7 @@ mod private_device_invite_tests {
     #[test]
     fn private_device_invite_schema_retirement_and_deletion_preserve_denied_provenance() {
         let mut connection = Connection::open_in_memory().unwrap();
-        run(&mut connection, MIGRATIONS).unwrap();
+        run_all(&mut connection).unwrap();
         connection.execute_batch("INSERT INTO cgka_groups(id,epoch,record) VALUES(X'03',0,X'7b7d');
             INSERT INTO private_device_invite_staging(singleton,generation,account,local_device,group_id,binding,raw_commit,raw_welcome,phase)
             VALUES(1,1,zeroblob(32),zeroblob(32),X'03',X'01',X'02',X'03',0);

@@ -301,6 +301,6 @@ fn existing_anchor_encrypted_reopen_preserves_denial_and_original_bytes() {
                 |r| r.get::<_, i64>(0)
             )
             .unwrap(),
-        11
+        crate::migrations::latest_private_migration_version()
     );
 }
