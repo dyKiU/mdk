@@ -1,0 +1,74 @@
+{
+  "scope": "Source expiry visibility at frozen snapshot serialization, not stalled-publication later-expiry or complete retention acceptance",
+  "base": "f6ef640f3a91d5ff91b0002c3d5bb754c749f241",
+  "original_red_stash": "efd1e2271dadd723ccd8c041c685cb08babc34e1",
+  "remote_red_stash": "00926d5345d39951bee0fb6924d3a64b4d99d84f",
+  "final_candidate_stash": "b4006bf9b92ce40db2b3205d1d97abd41ce919e8",
+  "source_manifest_sha256": "4f00781c2b00199ae2844fecbce23e1f81229eac7b39d4cdc8a2122c45229d2d",
+  "input_count": 2471,
+  "all_final_frozen_inputs_match_pre_docs_runtime": true,
+  "test_file_sha256": "af1b4367e8b3af0795ddabbbb7e3b3121b543712baedc11e28d4c0c1911081e2",
+  "red_green_fixture_unchanged": true,
+  "genuine_red": {
+    "passed": 0,
+    "failed": 1,
+    "runtime_seconds": 13.5,
+    "log_sha256": "dadf5318d950722b1794a79291e1c9026aeda107ecba751fdf43cb1fc4607640",
+    "reason": "Actual original frozen archive retained expired source record deleted=false with8199B encoded plaintext payload, expected zero-payload tombstone"
+  },
+  "final_gates": [
+    {
+      "gate": "histories",
+      "exit": 0,
+      "seconds": 94.82150197029114,
+      "log": "/Users/pj/project/build/history-source-expiry-green-v1-histories.log",
+      "log_sha256": "36f86b6ece480fe126efd41a2b1455a291592938944ad3cd5592562e147a3788"
+    },
+    {
+      "gate": "production-clippy",
+      "exit": 0,
+      "seconds": 30.89702606201172,
+      "log": "/Users/pj/project/build/history-source-expiry-green-v1-production-clippy.log",
+      "log_sha256": "1665b0cffb74cdac7650a3929484cc5758610942bdd8c4089a21f25da6476197"
+    },
+    {
+      "gate": "default-check",
+      "exit": 0,
+      "seconds": 22.56383204460144,
+      "log": "/Users/pj/project/build/history-source-expiry-green-v1-default-check.log",
+      "log_sha256": "f05116b86d9d3fc7b76ef7e831a5097c01d64b2e0a54db4b15ad28c347f111fc"
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.568336248397827,
+      "log": "/Users/pj/project/build/history-source-expiry-green-v1-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "focused_counts": {
+    "passed": 3,
+    "failed": 0,
+    "ignored": 0
+  },
+  "coverage": [
+    "Actual public ABC/four-leaf ordinary MLS delivery of8192B source plaintext; source retained decrypted row verified",
+    "Fixture modifies only actual SQLCipher persisted source retention deadline to model expired-but-unpruned data, not cryptographic authority or global clocks",
+    "Read-only original archive witness checks actual prepared canonical record deleted/length before recipient consent; recipient page hiding is not used as privacy proof",
+    "Source snapshot timestamp captured before logical plaintext serialization; expiry<=that timestamp creates zero-payload tombstone",
+    "Unchanged normal multi-fragment committed import and fresh-outer cancellation replay controls still pass"
+  ],
+  "prior_compile_only_failure": {
+    "prefix": "history-source-expiry-red-v1",
+    "log_sha256": "e51289a39b6e04762317dc5f33e9c1578fb1fed6734b1a6a6fde7d02966768aa",
+    "runtime_tests": 0,
+    "reason": "Fixture u64 SQL parameter; corrected checked i64 conversion",
+    "source_freeze_limit": "Named stash preservation ran after compiler error but before authoritative result retrieval; no uninterrupted v1 freeze claim"
+  },
+  "remaining": [
+    "Expiry after snapshot during delayed/blocked publication requires original live cancellation/visibility controls",
+    "Transient SQL negative cleanup retention and Imported-before-seal bookkeeping repairs remain immediate work",
+    "Native history visibility/SDK adoption and full lifecycle/backend suites remain unqualified"
+  ],
+  "post_freeze_changes": "Only proof and human plan/AGENTS/resource bounds"
+}

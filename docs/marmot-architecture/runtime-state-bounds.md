@@ -364,3 +364,18 @@ are not yet retained, so fresh-outer replay can recreate a canceled owner. SQL
 failure during negative cleanup can lose its removed entry, and postcommit
 receipt-seal failures require completion-observation repair. These are immediate
 regression/fix work, not qualified lifecycle behavior. No native adoption claim.
+
+The subsequent fresh-outer replay repair retains at most128 transfer IDs across
+active and terminal entries for the whole account-owner lifetime. Retirement no
+longer frees the ID budget or permits a received identical signed Request to
+create a new deadline. These IDs are negative process-local facts, never keys,
+consent or restart authority. The real relay/MLS regression sends a newly
+ratchet-encrypted outer frame from the unchanged original source after actual
+recipient retirement; duplicate ciphertext is not used as evidence. SQL cleanup
+and source retention privacy repairs described above remain open.
+
+Source snapshot visibility is now captured before record serialization;
+expired-unpruned logical rows consume the same bounded record slot as a
+zero-payload tombstone. Recipient retention is not relied on to undo source
+plaintext disclosure. This does not qualify later expiry during stalled
+publication or the remaining negative staging cleanup/bookkeeping controls.

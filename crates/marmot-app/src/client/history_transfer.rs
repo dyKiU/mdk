@@ -46,10 +46,18 @@ impl AppClient {
             self.history_owner.authenticated_chunk_observations += 1;
         }
         if received.control == HistoryControl::Request {
-            if self.history_owner.channels.contains_key(&received.transfer) {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            {
+                self.history_owner.authenticated_request_observations += 1;
+            }
+            if self
+                .history_owner
+                .seen_transfers
+                .contains(&received.transfer)
+            {
                 return Ok(());
             }
-            if self.history_owner.channels.len() >= MAX_HISTORY_OWNERS {
+            if self.history_owner.seen_transfers.len() >= MAX_HISTORY_OWNERS {
                 return Err(HistoryTransferError::NotReady);
             }
             let Ok(request) = self.runtime.session().authenticate_history_request(wire) else {
@@ -64,6 +72,7 @@ impl AppClient {
             if request.scope().snapshot.is_none() {
                 return Err(HistoryTransferError::NotReady);
             }
+            self.history_owner.seen_transfers.insert(received.transfer);
             let original = State::new(&self.history_owner.lifetime);
             *original
                 .scope
@@ -116,7 +125,7 @@ impl AppClient {
         ordinary: &cgka_traits::GroupId,
         recipient: &[u8],
     ) -> Result<Arc<State>, HistoryTransferError> {
-        if self.history_owner.channels.len() >= MAX_HISTORY_OWNERS {
+        if self.history_owner.seen_transfers.len() >= MAX_HISTORY_OWNERS {
             return Err(HistoryTransferError::NotReady);
         }
         let protected = self
@@ -143,16 +152,15 @@ impl AppClient {
         if rows.len() > 200 {
             return Err(HistoryTransferError::NotReady);
         }
+        // Capture source visibility before serializing any logical plaintext.
+        // Recipient retention cannot undo disclosure of already-expired data.
+        let ceiling = crate::unix_now_seconds();
         let records = rows
             .into_iter()
             .map(|row| {
                 let visible = storage
                     .timeline_message(&row.group_id_hex, &row.message_id_hex)
                     .map_err(|_| HistoryTransferError::RuntimeUnavailable)?;
-                let deleted = row.invalidated
-                    || visible.as_ref().is_none_or(|message| {
-                        message.deleted || message.invalidation_status.is_some()
-                    });
                 let created_at = visible
                     .as_ref()
                     .map_or(row.recorded_at, |message| message.timeline_at);
@@ -160,6 +168,11 @@ impl AppClient {
                     .as_ref()
                     .and_then(|message| message.retention_expires_at)
                     .or(row.retention.and_then(|decision| decision.expires_at));
+                let deleted = row.invalidated
+                    || expires_at.is_some_and(|expiry| expiry <= ceiling)
+                    || visible.as_ref().is_none_or(|message| {
+                        message.deleted || message.invalidation_status.is_some()
+                    });
                 let payload = if deleted {
                     Vec::new()
                 } else {
@@ -186,7 +199,6 @@ impl AppClient {
                 })
             })
             .collect::<Result<Vec<_>, HistoryTransferError>>()?;
-        let ceiling = crate::unix_now_seconds();
         let original = State::new(&self.history_owner.lifetime);
         let frozen = std::sync::Mutex::new(None);
         let build = |scope: &cgka_engine::history_transfer::HistoryScope| {
@@ -210,6 +222,7 @@ impl AppClient {
             )
             .map_err(|_| HistoryTransferError::NotReady)?;
         let transfer = channel.scope().transfer;
+        self.history_owner.seen_transfers.insert(transfer);
         self.history_owner.channels.insert(
             transfer,
             ChannelEntry {
@@ -691,5 +704,77 @@ impl AppClient {
             entry.incoming.pop_front();
         }
         Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "test-policy-overrides"))]
+impl AppClient {
+    pub(crate) async fn republish_original_history_request_for_test(
+        &mut self,
+        original: &Arc<State>,
+    ) -> Result<(), HistoryTransferError> {
+        let scope = original
+            .scope
+            .lock()
+            .expect("same original history request")
+            .clone()
+            .ok_or(HistoryTransferError::Closed)?;
+        let entry = self
+            .history_owner
+            .channels
+            .get_mut(&scope.transfer)
+            .ok_or(HistoryTransferError::Closed)?;
+        if !entry
+            .original
+            .upgrade()
+            .is_some_and(|owned| Arc::ptr_eq(&owned, original))
+        {
+            return Err(HistoryTransferError::Closed);
+        }
+        self.runtime
+            .session()
+            .discard_original_history_request_ciphertext_for_test(
+                entry.channel.as_mut().ok_or(HistoryTransferError::Closed)?,
+            )
+            .map_err(|_| HistoryTransferError::Closed)?;
+        self.publish_original_history_control(scope.transfer, HistoryControl::Request)
+            .await
+    }
+}
+
+#[cfg(all(test, feature = "test-policy-overrides"))]
+impl AppClient {
+    pub(crate) fn inspect_original_history_record_for_test(
+        &self,
+        original: &Arc<State>,
+        message_id: [u8; 32],
+    ) -> Result<(bool, usize), HistoryTransferError> {
+        let scope = original
+            .scope
+            .lock()
+            .expect("original frozen archive witness")
+            .clone()
+            .ok_or(HistoryTransferError::Closed)?;
+        let entry = self
+            .history_owner
+            .channels
+            .get(&scope.transfer)
+            .ok_or(HistoryTransferError::Closed)?;
+        if !entry
+            .original
+            .upgrade()
+            .is_some_and(|state| Arc::ptr_eq(&state, original))
+        {
+            return Err(HistoryTransferError::Closed);
+        }
+        let archive: storage_sqlite::SynchronizedHistoryArchive =
+            serde_json::from_slice(&entry.archive).map_err(|_| HistoryTransferError::NotReady)?;
+        let record = archive
+            .chunks
+            .iter()
+            .flatten()
+            .find(|record| record.message_id == message_id)
+            .ok_or(HistoryTransferError::NotReady)?;
+        Ok((record.deleted, record.payload.len()))
     }
 }

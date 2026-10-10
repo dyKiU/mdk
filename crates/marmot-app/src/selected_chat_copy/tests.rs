@@ -933,6 +933,16 @@ mod actual {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryTransfer).await;
     }
 
+    #[tokio::test]
+    async fn history_transfer_cancelled_original_cannot_restart_from_fresh_outer_request() {
+        selected_chat_delivery(RecipientAdmissionScenario::HistoryRequestReplay).await;
+    }
+
+    #[tokio::test]
+    async fn history_transfer_expired_unpruned_source_never_serializes_plaintext() {
+        selected_chat_delivery(RecipientAdmissionScenario::HistoryExpiredUnpruned).await;
+    }
+
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
         None,
@@ -941,6 +951,8 @@ mod actual {
         Expire,
         ForeignPackageEvent,
         HistoryTransfer,
+        HistoryRequestReplay,
+        HistoryExpiredUnpruned,
         CommitCancel,
         CommitLostReply,
         WelcomeCancel,
@@ -1330,7 +1342,12 @@ mod actual {
                     .is_none()
             );
         }
-        if scenario == RecipientAdmissionScenario::HistoryTransfer {
+        if matches!(
+            scenario,
+            RecipientAdmissionScenario::HistoryTransfer
+                | RecipientAdmissionScenario::HistoryRequestReplay
+                | RecipientAdmissionScenario::HistoryExpiredUnpruned
+        ) {
             let ordinary_epochs = [
                 all_runtimes[0]
                     .group_mls_state("test", &fixture.chat)
@@ -1382,6 +1399,46 @@ mod actual {
             })
             .await
             .expect("actual larger logical record must reach ordinary MLS recipients");
+            if scenario == RecipientAdmissionScenario::HistoryExpiredUnpruned {
+                // Genuine decrypted ordinary data is still stored: exercise delayed
+                // pruning by marking only its actual persisted retention deadline.
+                let app = &fixture.apps[0];
+                let path = app.account_storage_path("test");
+                let keys = app.account_home().load_signing_keys("test").unwrap();
+                let key = app
+                    .sqlcipher_key(
+                        "test",
+                        &keys,
+                        &path,
+                        crate::sqlcipher::SqlcipherDatabaseKind::Session,
+                    )
+                    .unwrap();
+                let connection = rusqlite::Connection::open(path).unwrap();
+                storage_sqlite::open_hardened_sqlcipher(
+                    &connection,
+                    &key,
+                    storage_sqlite::SqlCipherHardening::cipher_only(),
+                )
+                .unwrap();
+                let expiry: i64 = crate::unix_now_seconds().try_into().unwrap();
+                assert_eq!(connection.execute("UPDATE app_events SET retention_seconds=1,retention_expires_at=?1 WHERE group_id_hex=?2 AND message_id_hex=?3",rusqlite::params![expiry,fixture.chat_hex,larger_id]).unwrap(),1);
+                let stored = app
+                    .account_storage("test")
+                    .unwrap()
+                    .timeline_message(&fixture.chat_hex, larger_id)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    stored.plaintext.len(),
+                    8192,
+                    "fixture must retain actual unpruned plaintext"
+                );
+                assert!(
+                    stored
+                        .retention_expires_at
+                        .is_some_and(|t| t <= crate::unix_now_seconds())
+                );
+            }
             let transfer = managers[0].begin_history_transfer("test", &fixture.chat, recipient_selector).await
                 .expect("a fresh opt-in history request must retain its original actor owner after actual four-leaf admission");
             assert!(
@@ -1391,6 +1448,15 @@ mod actual {
                     .is_empty(),
                 "request is not recipient consent"
             );
+            if scenario == RecipientAdmissionScenario::HistoryExpiredUnpruned {
+                let id: [u8; 32] = hex::decode(larger_id).unwrap().try_into().unwrap();
+                assert_eq!(
+                    transfer.original_record_for_test(id).await.unwrap(),
+                    (true, 0),
+                    "expired-unpruned plaintext must be absent from the actual frozen signed transport archive, not merely hidden by recipient retention"
+                );
+            }
+
             let consent = tokio::time::timeout(std::time::Duration::from_secs(10), async {
                 loop {
                     if let Some(consent) = managers[1]
@@ -1406,10 +1472,68 @@ mod actual {
             })
             .await
             .expect("actual encrypted request must reach its addressed original recipient");
+            if scenario == RecipientAdmissionScenario::HistoryRequestReplay {
+                let before = managers[1]
+                    .observed_history_chunks_for_test("test")
+                    .await
+                    .unwrap()
+                    .2;
+                consent.cancel();
+                tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                    loop {
+                        if managers[1]
+                            .observed_history_chunks_for_test("test")
+                            .await
+                            .unwrap()
+                            .3
+                            == 0
+                        {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .expect("cancel must retire the actual original receiver entry before replay");
+                transfer
+                    .republish_original_request_for_test()
+                    .await
+                    .unwrap();
+                tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                    loop {
+                        if managers[1].observed_history_chunks_for_test("test").await.unwrap().2 > before { break; }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }).await.expect("B must authenticate the same signed request in a genuine fresh MLS outer frame");
+                assert!(
+                    managers[1]
+                        .pending_history_requests("test")
+                        .await
+                        .unwrap()
+                        .is_empty(),
+                    "a cancelled original request must not create a new receiver owner or renew its deadline"
+                );
+                assert!(
+                    recipient_storage
+                        .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
+                        .unwrap()
+                        .is_empty()
+                );
+                transfer.cancel();
+                directory_reader.shutdown().await;
+                for runtime in all_runtimes {
+                    runtime.shutdown_and_close().await.unwrap();
+                }
+                return;
+            }
             let review = consent.snapshot().await.unwrap();
             assert_eq!(review.group, fixture.chat);
             assert_eq!(review.record_count, 2);
-            assert!(review.fragment_count > 1 && review.encoded_bytes > 8192);
+            if scenario == RecipientAdmissionScenario::HistoryExpiredUnpruned {
+                assert!(review.encoded_bytes < 8192);
+            } else {
+                assert!(review.fragment_count > 1 && review.encoded_bytes > 8192);
+            }
             consent.approve(review.revision).await.unwrap();
             transfer
                 .continue_transfer(transfer.snapshot().await.unwrap().revision)

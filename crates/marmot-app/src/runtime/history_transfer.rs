@@ -8,7 +8,18 @@ type Reply<T> = oneshot::Sender<Result<T, HistoryTransferError>>;
 pub(crate) enum Command {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     ObservedChunks {
-        respond: Reply<(usize, usize)>,
+        respond: Reply<(usize, usize, usize, usize)>,
+    },
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    RepublishOriginalRequest {
+        original: Arc<State>,
+        respond: Reply<()>,
+    },
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    InspectOriginalRecord {
+        original: Arc<State>,
+        message_id: [u8; 32],
+        respond: Reply<(bool, usize)>,
     },
     Begin {
         group: GroupId,
@@ -55,9 +66,35 @@ impl AccountManager {
     pub(crate) async fn observed_history_chunks_for_test(
         &self,
         account: &str,
-    ) -> Result<(usize, usize), HistoryTransferError> {
+    ) -> Result<(usize, usize, usize, usize), HistoryTransferError> {
         self.send_history(account, |respond| Command::ObservedChunks { respond })
             .await
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) async fn republish_original_history_request_for_test(
+        &self,
+        account: &str,
+        original: Arc<State>,
+    ) -> Result<(), HistoryTransferError> {
+        self.send_history(account, |respond| Command::RepublishOriginalRequest {
+            original,
+            respond,
+        })
+        .await
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) async fn inspect_original_history_record_for_test(
+        &self,
+        account: &str,
+        original: Arc<State>,
+        message_id: [u8; 32],
+    ) -> Result<(bool, usize), HistoryTransferError> {
+        self.send_history(account, |respond| Command::InspectOriginalRecord {
+            original,
+            message_id,
+            respond,
+        })
+        .await
     }
     pub(crate) async fn begin_original_history(
         &self,
@@ -116,7 +153,25 @@ pub(crate) async fn handle(client: &mut crate::AppClient, command: Command) {
             let _ = respond.send(Ok((
                 client.history_owner.authenticated_chunk_observations,
                 client.history_owner.refused_original_requests,
+                client.history_owner.authenticated_request_observations,
+                client.history_owner.channels.len(),
             )));
+        }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        Command::RepublishOriginalRequest { original, respond } => {
+            let result = client
+                .republish_original_history_request_for_test(&original)
+                .await;
+            let _ = respond.send(result);
+        }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        Command::InspectOriginalRecord {
+            original,
+            message_id,
+            respond,
+        } => {
+            let _ = respond
+                .send(client.inspect_original_history_record_for_test(&original, message_id));
         }
         Command::Begin {
             group,

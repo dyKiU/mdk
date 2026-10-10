@@ -1,0 +1,68 @@
+{
+  "scope": "Account-lifetime same-original Request fresh-MLS-envelope replay fence; not durable restart or full cancellation qualification",
+  "base": "a6ddc2ecf64b933a019300410dc354262f898b1b",
+  "original_red_stash": "bfcc1f5f4a769140dddfaded7543fbe742b3485c",
+  "remote_red_stash": "6954916aa5ecba7f7c2b892852933e1420a99e32",
+  "final_candidate_stash": "d1e738f3e7b8c59993447b2e65760aa7b1de477d",
+  "source_manifest_sha256": "5403d55556755ac79b30ba46581e858b347a5e7eec71f1933236da9e8c726c88",
+  "input_count": 2470,
+  "all_frozen_inputs_match_pre_docs_runtime": true,
+  "test_file_sha256": "74fb9d82530844d261eb908c53d3558071e3e622f799b9af53d22cd599d77f8a",
+  "red_green_fixture_unchanged": true,
+  "genuine_red": {
+    "passed": 0,
+    "failed": 1,
+    "runtime_seconds": 14.51,
+    "log_sha256": "d439dbd0f12be38ec40eddbdfe3ddf35e8f6318aa6daa5261e91850ad0052f5e",
+    "reason": "Actual old B entry retired, then same A original leaf-signed Request freshly ratchet-encrypted/published/authenticated by B creates new pending owner"
+  },
+  "final_gates": [
+    {
+      "gate": "histories",
+      "exit": 0,
+      "seconds": 78.60767698287964,
+      "log": "/Users/pj/project/build/history-original-fresh-outer-replay-green-v1-histories.log",
+      "log_sha256": "d67023afd5eea4617c15df470620a4741dbd5df44d29e54bef090904dca31c4b"
+    },
+    {
+      "gate": "production-clippy",
+      "exit": 0,
+      "seconds": 29.98464584350586,
+      "log": "/Users/pj/project/build/history-original-fresh-outer-replay-green-v1-production-clippy.log",
+      "log_sha256": "62238f1513e56425f431d16d29a26f66ad8a1d8060ec8ece12ac8167d125e8a4"
+    },
+    {
+      "gate": "default-check",
+      "exit": 0,
+      "seconds": 20.938605070114136,
+      "log": "/Users/pj/project/build/history-original-fresh-outer-replay-green-v1-default-check.log",
+      "log_sha256": "d2b7e9fb91e2c9677db4f67cff983c0d6e3e650e2475f8ac9bf6262802d02ef1"
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.4871418476104736,
+      "log": "/Users/pj/project/build/history-original-fresh-outer-replay-green-v1-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "focused_counts": {
+    "passed": 2,
+    "failed": 0,
+    "ignored": 0
+  },
+  "coverage": [
+    "Unchanged original source frame/scope/key/deadline, only cached outer Request discarded by test-policy seam",
+    "Actual receiver entry count0 before replay, real authenticated B-request count increases; no duplicate-ciphertext false positive",
+    "Same retired Request cannot create fresh B owner or renew consent clock",
+    "Unchanged genuine recipient-consented multi-fragment committed import remains successful",
+    "128 transfer IDs across active plus terminal entries per account lifetime; no SQL grant, key or deadline restoration"
+  ],
+  "remaining": [
+    "Fence is account-process lifetime, not a persisted fresh-outer restart denial proof",
+    "Source expired-unpruned export, negative SQL cleanup retention, Imported-before-seal bookkeeping repairs remain immediate work",
+    "Blocked publication cancellation/expiry/shutdown and native alias lifecycle remain pending",
+    "No native SDK regeneration/adoption or user-visible history acceptance"
+  ],
+  "post_freeze_changes": "Only proof, resource bounds, plan and human AGENTS guidance"
+}

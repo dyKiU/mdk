@@ -7,6 +7,15 @@ use cgka_engine::history_transfer::{
 use cgka_traits::{EngineError, GroupId, TransportMessage};
 use std::sync::Arc;
 impl AccountDeviceSession {
+    #[cfg(feature = "test-policy-overrides")]
+    pub fn discard_original_history_request_ciphertext_for_test(
+        &self,
+        channel: &mut OwnedHistoryChannel,
+    ) -> Result<(), EngineError> {
+        self.engine
+            .discard_original_history_request_ciphertext_for_test(channel)
+    }
+
     pub fn begin_history_snapshot_channel(
         &self,
         ordinary: &GroupId,
