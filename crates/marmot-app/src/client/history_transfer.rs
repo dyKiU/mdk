@@ -293,9 +293,7 @@ impl AppClient {
             }
             let route = cgka_traits::app_components::decode_nostr_routing_v1(evidence.component())
                 .map_err(|_| HistoryTransferError::NotReady)?;
-            let report = self
-                .adapter
-                .publish_selected_chat(cgka_traits::TransportPublishRequest {
+            let request = cgka_traits::TransportPublishRequest {
                     account_id: self.runtime.session().self_id(),
                     message,
                     target: cgka_traits::TransportPublishTarget::Group {
@@ -308,9 +306,36 @@ impl AppClient {
                             .collect(),
                     },
                     required_acks: 1,
-                })
-                .await
-                .map_err(|_| HistoryTransferError::RuntimeUnavailable)?;
+                };
+            let revoked = original.revoked.notified();
+            tokio::pin!(revoked);
+            // Register before the live check so notify_waiters cannot race it.
+            revoked.as_mut().enable();
+            if !original.live() {
+                return Err(HistoryTransferError::Closed);
+            }
+            let abandoned_reply = async {
+                if let Some(reply) = entry.continue_reply.as_mut() {
+                    reply.closed().await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            };
+            let report = tokio::select! {
+                biased;
+                () = &mut revoked => return Err(HistoryTransferError::Closed),
+                () = tokio::time::sleep_until(tokio::time::Instant::from_std(original.deadline)) => {
+                    original.cancel();
+                    return Err(HistoryTransferError::Closed);
+                },
+                () = abandoned_reply => {
+                    original.cancel();
+                    return Err(HistoryTransferError::Closed);
+                },
+                report = self.adapter.publish_selected_chat(request) => {
+                    report.map_err(|_| HistoryTransferError::RuntimeUnavailable)?
+                },
+            };
             if !report.met_required_acks() {
                 return Err(HistoryTransferError::RuntimeUnavailable);
             }

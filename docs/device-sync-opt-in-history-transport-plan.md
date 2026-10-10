@@ -221,3 +221,13 @@ or source completion. Five history controls and production/default/format gates
 pass. See [staging cancellation proof](device-sync-history-stage-cancellation-verification.json).
 Blocked publication, delayed source expiry, durable restart and native acceptance
 remain separate.
+
+### Original blocked publication cancellation
+
+Actual first encrypted history Chunk gates reproduced stuck cancellation and lost
+RPC custody. Both pass unchanged after publication waits select on the original
+revocation, fixed deadline and continuation reply closure. The same source handle
+remains retained for lost-reply testing; releasing the gate cannot deliver canceled
+archive data. Seven history controls and production/default/format gates pass.
+See [publication proof](device-sync-history-blocked-publication-verification.json).
+Expiry and runtime shutdown at this gate still require separate acceptance.

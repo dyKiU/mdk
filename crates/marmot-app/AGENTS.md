@@ -735,3 +735,9 @@ consent from staging rows. A committed Imported receipt updates read-only progre
 once before fallible wire sealing. Exact cancellation still prevents publication,
 and completed staging must not be denied as unfinished work. Keep both actual
 SQL-boundary cancellation controls and normal multi-fragment import regression.
+
+History publication must interrupt the actual adapter future on original
+revocation, unchanged deadline or abandoned continuation reply. Register the
+Notify waiter before the live check; cancellation must win a ready transport
+branch. Keep the public owner alive in lost-reply controls, resume the worker
+before releasing the gate, and verify no late recipient chunk/import.

@@ -953,6 +953,14 @@ mod actual {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryCancelAfterImport).await;
     }
 
+    #[tokio::test]
+    async fn history_transfer_original_cancel_interrupts_actual_blocked_chunk_publication() {
+        selected_chat_delivery(RecipientAdmissionScenario::HistoryPublicationCancel).await;
+    }
+    #[tokio::test]
+    async fn history_transfer_lost_continue_reply_interrupts_actual_blocked_chunk_publication() {
+        selected_chat_delivery(RecipientAdmissionScenario::HistoryPublicationLostReply).await;
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
         None,
@@ -965,6 +973,8 @@ mod actual {
         HistoryExpiredUnpruned,
         HistoryCleanupRetry,
         HistoryCancelAfterImport,
+        HistoryPublicationCancel,
+        HistoryPublicationLostReply,
         CommitCancel,
         CommitLostReply,
         WelcomeCancel,
@@ -1361,6 +1371,8 @@ mod actual {
                 | RecipientAdmissionScenario::HistoryExpiredUnpruned
                 | RecipientAdmissionScenario::HistoryCleanupRetry
                 | RecipientAdmissionScenario::HistoryCancelAfterImport
+                | RecipientAdmissionScenario::HistoryPublicationCancel
+                | RecipientAdmissionScenario::HistoryPublicationLostReply
         ) {
             let ordinary_epochs = [
                 all_runtimes[0]
@@ -1676,6 +1688,69 @@ mod actual {
                 return;
             }
             consent.approve(review.revision).await.unwrap();
+            if matches!(
+                scenario,
+                RecipientAdmissionScenario::HistoryPublicationCancel
+                    | RecipientAdmissionScenario::HistoryPublicationLostReply
+            ) {
+                let account = fixture.apps[0].account_home().account("test").unwrap();
+                let (held, release) = fixture.apps[0].relay_plane.hold_next_selected_commit(
+                    cgka_traits::MemberId::new(hex::decode(account.account_id_hex).unwrap()),
+                );
+                let _release_on_drop = ReleaseSelectedWelcome(release.clone());
+                let transfer = std::sync::Arc::new(transfer);
+                let revision = transfer.snapshot().await.unwrap().revision;
+                let operation = transfer.clone();
+                let mut continuation =
+                    tokio::spawn(async move { operation.continue_transfer(revision).await });
+                let _abort_on_drop = AbortSelectedContinuation(continuation.abort_handle());
+                let message=tokio::time::timeout(std::time::Duration::from_secs(20),async{
+                    tokio::select! {message=held=>message.unwrap(),result=&mut continuation=>panic!("original history escaped actual chunk gate: {result:?}")}
+                }).await.expect("actual signed/encrypted history chunk must reach original transport gate");
+                assert!(matches!(
+                    message.envelope,
+                    cgka_traits::TransportEnvelope::GroupMessage { .. }
+                ));
+                if scenario == RecipientAdmissionScenario::HistoryPublicationLostReply {
+                    continuation.abort();
+                    assert!(continuation.await.unwrap_err().is_cancelled());
+                    tokio::time::timeout(std::time::Duration::from_secs(2),async{
+                        loop {if matches!(transfer.snapshot().await,Err(crate::HistoryTransferError::Closed)){break;} tokio::time::sleep(std::time::Duration::from_millis(20)).await;}
+                    }).await.expect("lost original continuation reply must retire custody before blocked publication releases");
+                } else {
+                    transfer.cancel();
+                    assert!(matches!(tokio::time::timeout(std::time::Duration::from_secs(2),continuation).await.expect("original cancellation must interrupt actual blocked history publication").unwrap(),Err(crate::HistoryTransferError::Closed)));
+                }
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    managers[0].observed_history_chunks_for_test("test"),
+                )
+                .await
+                .expect("source worker must resume before transport gate release")
+                .unwrap();
+                release.notify_waiters();
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                assert!(
+                    recipient_storage
+                        .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
+                        .unwrap()
+                        .is_empty()
+                );
+                assert_eq!(
+                    managers[1]
+                        .observed_history_chunks_for_test("test")
+                        .await
+                        .unwrap()
+                        .0,
+                    0,
+                    "releasing canceled transport must not deliver the held archive chunk"
+                );
+                directory_reader.shutdown().await;
+                for runtime in all_runtimes {
+                    runtime.shutdown_and_close().await.unwrap();
+                }
+                return;
+            }
             transfer
                 .continue_transfer(transfer.snapshot().await.unwrap().revision)
                 .await
