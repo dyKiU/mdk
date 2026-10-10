@@ -201,7 +201,7 @@ impl AppClient {
         attempt.published = true;
         Ok(())
     }
-    async fn dispatch_private_settlement_group(
+    pub(crate) async fn dispatch_private_settlement_group(
         &mut self,
         group: &cgka_traits::GroupId,
     ) -> Result<(), ClientLinkingError> {

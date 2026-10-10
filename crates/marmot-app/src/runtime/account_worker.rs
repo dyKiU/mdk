@@ -2951,6 +2951,13 @@ async fn run_app_runtime_account_worker(
                         Ok(None) => {},
                         Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_native_enrollment_tick", "native enrollment publication deferred"),
                     }
+                    match client.pending_revoked_settlement() {
+                        Ok(Some(binding)) => super::private_commit::publish_revoked_settlement(
+                            &mut client, binding, None, &mut commands, &mut pending, &publication_control, &shared, &app, &account_label,
+                        ).await,
+                        Ok(None) => {},
+                        Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_revoked_settlement_tick", "private confirmation selection deferred"),
+                    }
                     match client.pending_existing_private_settlement() {
                         Ok(Some(binding)) => super::private_commit::publish_existing_settlement(
                             &mut client, binding, None, &mut commands, &mut pending, &publication_control, &shared, &app, &account_label,

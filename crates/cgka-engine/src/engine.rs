@@ -150,6 +150,9 @@ pub struct Engine<S: StorageProvider> {
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) enrollment_endorsements: crate::private_enrollment_endorsement::EndorsementState,
     #[cfg(feature = "experimental-device-sync")]
+    pub(crate) revocation_transition:
+        crate::device_leaf_revocation::transition::DeviceRevocationTransitionState,
+    #[cfg(feature = "experimental-device-sync")]
     pub(crate) live_enrollment_ingress:
         Option<crate::private_enrollment_request::LiveEnrollmentDelivery>,
 
@@ -628,6 +631,9 @@ impl<S: StorageProvider> EngineBuilder<S> {
         )
         .map_err(EngineError::Other)?;
 
+        #[cfg(feature = "experimental-device-sync")]
+        let enrollment_endorsements =
+            crate::private_enrollment_endorsement::EndorsementState::default();
         let pending_application_events = self.storage.list_pending_application_events()?;
         // Upgrade pending outputs from older databases onto the minimal
         // authority-retry rail before the app acknowledges their plaintext.
@@ -689,8 +695,12 @@ impl<S: StorageProvider> EngineBuilder<S> {
             #[cfg(feature = "experimental-device-sync")]
             enrollment_intake: crate::private_enrollment_request::EnrollmentIntake::default(),
             #[cfg(feature = "experimental-device-sync")]
-            enrollment_endorsements:
-                crate::private_enrollment_endorsement::EndorsementState::default(),
+            revocation_transition:
+                crate::device_leaf_revocation::transition::DeviceRevocationTransitionState::new(
+                    enrollment_endorsements.owner_lifetime(),
+                ),
+            #[cfg(feature = "experimental-device-sync")]
+            enrollment_endorsements,
             #[cfg(feature = "experimental-device-sync")]
             live_enrollment_ingress: None,
             epoch_manager: crate::epoch_manager::EpochManager::new(),

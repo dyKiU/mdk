@@ -2303,6 +2303,17 @@ impl AccountDeviceSession {
             .retire_device_leaf_revocation_pending(pending, origin, group)
             .await
     }
+    pub fn device_revocation_settlement_control(
+        &self,
+    ) -> Result<
+        Option<
+            std::sync::Arc<cgka_engine::device_leaf_revocation::DeviceRevocationSettlementControl>,
+        >,
+        cgka_traits::EngineError,
+    > {
+        self.engine.device_revocation_settlement_control()
+    }
+    #[cfg(feature = "experimental-device-sync")]
     pub fn confirmed_device_leaf_revocation(
         &self,
         original: &cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection,

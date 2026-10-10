@@ -1000,6 +1000,15 @@ mod actual {
     {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterRemoval).await;
     }
+    #[tokio::test]
+    async fn device_revocation_survivors_regain_fresh_original_history_authority() {
+        selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterSuccessor).await;
+    }
+    #[tokio::test]
+    async fn device_revocation_retained_remove_cannot_restore_positive_guard_after_encrypted_reopen()
+     {
+        selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterSuccessorReopen).await;
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
         None,
@@ -1013,6 +1022,8 @@ mod actual {
         DeviceLeafRemovalLostReply,
         DeviceLeafRemovalReopen,
         DeviceRosterRemoval,
+        DeviceRosterSuccessor,
+        DeviceRosterSuccessorReopen,
         HistoryTransfer,
         HistoryRequestReplay,
         HistoryRequestReopen,
@@ -1412,10 +1423,21 @@ mod actual {
                     .is_none()
             );
         }
-        if scenario == RecipientAdmissionScenario::DeviceRosterRemoval {
+        if matches!(
+            scenario,
+            RecipientAdmissionScenario::DeviceRosterRemoval
+                | RecipientAdmissionScenario::DeviceRosterSuccessor
+                | RecipientAdmissionScenario::DeviceRosterSuccessorReopen
+        ) {
             request.cancel().await.unwrap();
             drop(original_consents);
-            assert_device_roster_removal(&fixture, &managers).await;
+            assert_device_roster_removal(
+                &fixture,
+                &managers,
+                scenario == RecipientAdmissionScenario::DeviceRosterSuccessor,
+                scenario == RecipientAdmissionScenario::DeviceRosterSuccessorReopen,
+            )
+            .await;
             directory_reader.shutdown().await;
             for runtime in all_runtimes {
                 runtime.shutdown_and_close().await.unwrap();
@@ -2656,6 +2678,8 @@ mod actual {
     async fn assert_device_roster_removal(
         fixture: &SelectedChatFixture,
         managers: &[crate::runtime::AccountManager; 3],
+        require_fresh_successor: bool,
+        retained_remove_reopen: bool,
     ) {
         use cgka_traits::{GroupStorage, StorageProvider};
         let d = fixture.d_app.account_home().account("test").unwrap();
@@ -2752,6 +2776,19 @@ mod actual {
             .unwrap()
             .unwrap();
         let protected = old_round.anchor.group_id.clone();
+        let predecessor_generations: Vec<_> = fixture.apps[..2]
+            .iter()
+            .map(|app| {
+                app.account_storage("test")
+                    .unwrap()
+                    .private_roster_settlement_storage()
+                    .unwrap()
+                    .read_round()
+                    .unwrap()
+                    .unwrap()
+                    .generation
+            })
+            .collect();
         let c_storage = fixture.apps[2].account_storage("test").unwrap();
         let c_group = openmls::group::MlsGroup::load(
             c_storage.mls_storage(),
@@ -2833,7 +2870,103 @@ mod actual {
                 .into_iter()
                 .collect()
         );
+        let mut b_errors = fixture.runtimes[1].subscribe();
+        let fault = if retained_remove_reopen {
+            let app = &fixture.apps[1];
+            let path = app.account_storage_path("test");
+            let keys = app.account_home().load_signing_keys("test").unwrap();
+            let key = app
+                .sqlcipher_key(
+                    "test",
+                    &keys,
+                    &path,
+                    crate::sqlcipher::SqlcipherDatabaseKind::Session,
+                )
+                .unwrap();
+            let connection = rusqlite::Connection::open(path).unwrap();
+            storage_sqlite::open_hardened_sqlcipher(
+                &connection,
+                &key,
+                storage_sqlite::SqlCipherHardening::cipher_only(),
+            )
+            .unwrap();
+            connection.execute_batch("CREATE TRIGGER reject_revoked_successor BEFORE INSERT ON revoked_device_group_anchor BEGIN SELECT RAISE(ABORT,'isolated Remove successor rollback'); END;").unwrap();
+            Some(connection)
+        } else {
+            None
+        };
         original.approve(review.revision).await.unwrap();
+        if let Some(connection) = fault {
+            tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                loop {
+                    if let crate::MarmotAppEvent::AccountError(error) =
+                        b_errors.recv().await.unwrap()
+                        && error.message.starts_with("runtime receive failed")
+                    {
+                        assert_eq!(error.message, "runtime receive failed: storage_backend");
+                        break;
+                    }
+                }
+            })
+            .await
+            .expect("actual protected Remove must reach the atomic successor storage fault");
+            let b_storage = fixture.apps[1].account_storage("test").unwrap();
+            assert!(
+                b_storage
+                    .revoked_device_group_anchor_storage()
+                    .unwrap()
+                    .revoked_anchor()
+                    .unwrap()
+                    .is_none()
+            );
+            let before = openmls::group::MlsGroup::load(
+                b_storage.mls_storage(),
+                &openmls::group::GroupId::from_slice(protected.as_slice()),
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                before.epoch().as_u64(),
+                before_epochs[&hex::encode(protected.as_slice())]
+            );
+            fixture.runtimes[1].shutdown_and_close().await.unwrap();
+            connection
+                .execute_batch("DROP TRIGGER reject_revoked_successor;")
+                .unwrap();
+            drop(connection);
+            let reopened_app = MarmotApp::with_relay(fixture.dirs[1].path(), &fixture.url);
+            let reopened = MarmotAppRuntime::new(reopened_app.clone());
+            reopened.reconcile_accounts().await.unwrap();
+            let reopened_storage = reopened_app.account_storage("test").unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                loop {
+                    let actual = openmls::group::MlsGroup::load(reopened_storage.mls_storage(), &openmls::group::GroupId::from_slice(protected.as_slice())).unwrap().unwrap();
+                    if actual.epoch().as_u64() == before_epochs[&hex::encode(protected.as_slice())] + 1 { break; }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            }).await.expect("retained authenticated Remove may complete negative membership replay after actual encrypted reopen");
+            assert!(
+                reopened_storage
+                    .revoked_device_group_anchor_storage()
+                    .unwrap()
+                    .revoked_anchor()
+                    .unwrap()
+                    .is_none_or(|fact| fact.denied),
+                "retained pre-restart Remove bytes must not reconstruct a fresh original positive successor guard"
+            );
+            let round = reopened_storage
+                .private_roster_settlement_storage()
+                .unwrap()
+                .read_round()
+                .unwrap()
+                .unwrap();
+            assert!(
+                round.phase
+                    == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied
+            );
+            reopened.shutdown_and_close().await.unwrap();
+            return;
+        }
         tokio::time::timeout(std::time::Duration::from_secs(20), async {
             loop {
                 let mut complete = true;
@@ -2862,18 +2995,8 @@ mod actual {
         ));
         original.approve(completed.revision).await.unwrap();
         // Old positive lineage cannot survive an authenticated protected-tree change.
-        let retired = storage
-            .private_roster_settlement_storage()
-            .unwrap()
-            .read_round()
-            .unwrap()
-            .unwrap();
-        assert!(
-            retired.phase
-                != cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed
-        );
         let mut retained_origins = 0;
-        for app in &fixture.apps {
+        for (index, app) in fixture.apps.iter().enumerate() {
             let local = app.account_storage("test").unwrap();
             let round = local
                 .private_roster_settlement_storage()
@@ -2881,10 +3004,19 @@ mod actual {
                 .read_round()
                 .unwrap()
                 .unwrap();
-            assert!(
-                round.phase
-                    == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied
-            );
+            if index == 2 {
+                assert!(
+                    round.phase
+                        == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied
+                );
+            }
+            if index < 2 {
+                assert!(round.generation > predecessor_generations[index]);
+                assert!(matches!(
+                    round.anchor.origin,
+                    cgka_traits::private_device_invite::PrivateInviteOrigin::Revoked(_)
+                ));
+            }
             if let Some(fact) = local
                 .accepted_device_group_anchor_storage()
                 .unwrap()
@@ -2958,6 +3090,100 @@ mod actual {
                     .unwrap()
                     .is_none()
             );
+        }
+        if require_fresh_successor {
+            let surviving = fixture.apps[1].account_storage("test").unwrap();
+            let actual = openmls::group::MlsGroup::load(
+                surviving.mls_storage(),
+                &openmls::group::GroupId::from_slice(protected.as_slice()),
+            )
+            .unwrap()
+            .unwrap();
+            let recipient = actual
+                .own_leaf_node()
+                .unwrap()
+                .signature_key()
+                .as_slice()
+                .to_vec();
+            let fresh = tokio::time::timeout(std::time::Duration::from_secs(25), async {
+                loop {
+                    match managers[0].begin_history_transfer("test", &fixture.chat, recipient.clone()).await {
+                        Ok(original) => break original,
+                        Err(crate::HistoryTransferError::NotReady) => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
+                        Err(error) => panic!("fresh successor history authority failed before settlement: {error:?}"),
+                    }
+                }
+            }).await.expect("surviving A/B must regain fresh original history authority from an actually settled protected Remove successor, while every old origin remains denied");
+            assert!(
+                matches!(
+                    managers[0]
+                        .begin_history_transfer("test", &fixture.chat, target_device.clone())
+                        .await,
+                    Err(crate::HistoryTransferError::NotReady)
+                ),
+                "removed C cannot become a fresh original history recipient"
+            );
+            let consent = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+                loop {
+                    if let Some(consent) = managers[1]
+                        .pending_history_requests("test")
+                        .await
+                        .unwrap()
+                        .into_iter()
+                        .next()
+                    {
+                        break consent;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .expect("surviving B must receive the actual fresh successor history request");
+            let review = consent.snapshot().await.unwrap();
+            assert_eq!(review.group, fixture.chat);
+            assert_eq!(review.recipient_device, recipient);
+            assert!(review.record_count > 0);
+            consent.approve(review.revision).await.unwrap();
+            fresh
+                .continue_transfer(fresh.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+            let progress = fresh.snapshot().await.unwrap();
+            assert!(
+                progress.complete && progress.imported_records > 0,
+                "fresh successor authority must reach a committed recipient import receipt"
+            );
+            let archived = surviving
+                .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
+                .unwrap();
+            assert!(
+                archived
+                    .iter()
+                    .any(|record| hex::encode(record.record.message_id) == fixture.before_id),
+                "surviving B must receive the genuine prejoin record after protected revocation settlement"
+            );
+            assert!(
+                fixture.apps[2]
+                    .account_storage("test")
+                    .unwrap()
+                    .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
+                    .unwrap()
+                    .is_empty(),
+                "removed C must not receive the survivor's archive"
+            );
+            for (index, app) in fixture.apps[..2].iter().enumerate() {
+                let round = app
+                    .account_storage("test")
+                    .unwrap()
+                    .private_roster_settlement_storage()
+                    .unwrap()
+                    .read_round()
+                    .unwrap()
+                    .unwrap();
+                assert!(round.phase == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed);
+                assert_eq!(round.anchor.group_id, protected);
+                assert!(round.generation > predecessor_generations[index]);
+            }
         }
         drop(consents);
     }

@@ -13,6 +13,10 @@ pub(crate) struct AppliedPrivateTree {
     roster: DeviceGroupAnchorRoster,
 }
 impl AppliedPrivateTree {
+    pub(crate) fn roster(&self) -> &DeviceGroupAnchorRoster {
+        &self.roster
+    }
+
     pub(crate) fn read(group_id: &GroupId, group: &MlsGroup) -> Result<Option<Self>, EngineError> {
         if !group.is_active()
             || group.group_id().as_slice() != group_id.as_slice()
@@ -95,7 +99,13 @@ pub(crate) fn deny_changed_lineage_for_tree<S: StorageProvider>(
         .transpose()?
         .flatten()
         .filter(|fact| !fact.denied && fact.draft.group_id == *group_id);
-    if accepted.is_none() && confirmed.is_none() && existing.is_none() {
+    let revoked_store = storage.revoked_device_group_anchor_storage();
+    let revoked = revoked_store
+        .map(|store| store.revoked_anchor())
+        .transpose()?
+        .flatten()
+        .filter(|fact| !fact.denied && fact.draft.group_id == *group_id);
+    if accepted.is_none() && confirmed.is_none() && existing.is_none() && revoked.is_none() {
         return Ok(());
     }
     let actual = AppliedPrivateTree::read(group_id, group)?;
@@ -145,6 +155,21 @@ pub(crate) fn deny_changed_lineage_for_tree<S: StorageProvider>(
                 EngineError::Other("private existing lineage storage unavailable".into())
             })?
             .deny_existing_anchor(fact.generation, group_id)?;
+    }
+    if let Some(fact) = revoked
+        && !actual.as_ref().is_some_and(|tree| {
+            tree.matches(
+                &fact.draft.account,
+                &fact.draft.local_device,
+                &fact.draft.successor,
+            )
+        })
+    {
+        revoked_store
+            .ok_or_else(|| {
+                EngineError::Other("private revoked lineage storage unavailable".into())
+            })?
+            .deny_revoked_anchor(fact.generation, group_id)?;
     }
     Ok(())
 }

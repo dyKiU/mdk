@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
 enum PublicationGate {
+    Revoked(Arc<cgka_engine::device_leaf_revocation::DeviceRevocationSettlementControl>),
     Invite(Arc<RuntimeInviteGate>),
     Settlement(Arc<crate::device_linking::settlement::SettlementGuard>),
     Endorsement(cgka_engine::private_enrollment_endorsement::EnrollmentEndorsementCancellation),
@@ -13,6 +14,7 @@ enum PublicationGate {
 impl PublicationGate {
     fn cancel(&self) {
         match self {
+            Self::Revoked(control) => control.cancel(),
             Self::Invite(gate) => gate.cancel(),
             Self::Settlement(guard) => guard.revoke(),
             Self::Endorsement(control) => control.cancel(),
@@ -24,6 +26,7 @@ impl PublicationGate {
 enum PublicationIdentity {
     Scoped(PurposeAttemptScope),
     Endorsement([u8; 32]),
+    Revoked([u8; 32]),
 }
 
 struct ActiveControl {
@@ -95,7 +98,7 @@ impl PublicationControl {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .as_ref()
-                .is_some_and(|active| active.revoked)
+                .is_some_and(|active| active.revoked || matches!(&active.gate, PublicationGate::Revoked(control) if !control.is_live()))
     }
     fn clear(&self) {
         *self.active.lock().unwrap_or_else(|e| e.into_inner()) = None;
@@ -152,10 +155,12 @@ enum Publication {
     },
     Endorsement([u8; 32]),
     ExistingSettlement([u8; 32]),
+    RevokedSettlement([u8; 32]),
 }
 impl Publication {
     fn identity(&self) -> PublicationIdentity {
         match self {
+            Self::RevokedSettlement(binding) => PublicationIdentity::Revoked(*binding),
             Self::Scoped { scope, .. } => PublicationIdentity::Scoped(scope.clone()),
             Self::Endorsement(binding) | Self::ExistingSettlement(binding) => {
                 PublicationIdentity::Endorsement(*binding)
@@ -188,6 +193,9 @@ impl Publication {
             } => client
                 .private_commit_control(scope)
                 .map(|(deadline, gate)| (deadline, PublicationGate::Invite(gate))),
+            Self::RevokedSettlement(binding) => client
+                .revoked_settlement_control(binding)
+                .map(|guard| (guard.deadline(), PublicationGate::Revoked(guard))),
             Self::ExistingSettlement(binding) => {
                 client.existing_settlement_control(binding).map(|guard| {
                     (
@@ -206,6 +214,7 @@ impl Publication {
         client: &mut crate::client::AppClient,
     ) -> Result<(), crate::client::device_linking::ClientLinkingError> {
         match self {
+            Self::RevokedSettlement(binding) => client.dispatch_revoked_settlement(binding).await,
             Self::Scoped {
                 scope,
                 kind: PublicationKind::Proposal,
@@ -237,6 +246,12 @@ impl Publication {
         client: &mut crate::client::AppClient,
     ) -> Result<(), crate::client::device_linking::ClientLinkingError> {
         match self {
+            Self::RevokedSettlement(binding) => {
+                if let Ok(control) = client.revoked_settlement_control(binding) {
+                    control.cancel();
+                }
+                Ok(())
+            }
             Self::Scoped {
                 scope,
                 kind: PublicationKind::Proposal,
@@ -359,6 +374,34 @@ pub(super) async fn publish_existing_settlement(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub(super) async fn publish_revoked_settlement(
+    client: &mut crate::client::AppClient,
+    binding: [u8; 32],
+    respond: Option<
+        tokio::sync::oneshot::Sender<Result<(), crate::client::device_linking::ClientLinkingError>>,
+    >,
+    commands: &mut tokio::sync::mpsc::Receiver<super::AccountWorkerCommand>,
+    pending: &mut std::collections::VecDeque<super::AccountWorkerCommand>,
+    control: &PublicationControl,
+    shared: &super::RuntimeSharedServices,
+    app: &crate::MarmotApp,
+    account_label: &str,
+) {
+    publish_operation(
+        client,
+        Publication::RevokedSettlement(binding),
+        respond,
+        commands,
+        pending,
+        control,
+        shared,
+        app,
+        account_label,
+    )
+    .await;
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn publish_operation(
     client: &mut crate::client::AppClient,
     operation: Publication,
@@ -430,6 +473,7 @@ async fn publish_operation(
                 control.revoke_identity(&identity);
                 break (Err(ClientLinkingError::Gate(LinkingWelcomeDenied::Expired)), true);
             }
+            _ = tokio::time::sleep(std::time::Duration::from_millis(25)), if matches!(operation, Publication::RevokedSettlement(_)) => continue,
             _ = &mut notified => continue,
             result = &mut work => break (result, false),
             command = commands.recv(), if pending.is_empty() && deferred.len() < DEFERRED_LIMIT => {

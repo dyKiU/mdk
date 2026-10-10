@@ -411,3 +411,7 @@ The exact ordinary-leaf revocation owner additionally retains one pending/origin
 ### Exact-device captured-scope removal checkpoint
 
 Device revocation retains one weak current original, a cumulative 128-original budget, at most 128 captured selections per original, one current pending Commit/report/effects and its exact negative cleanup identity. The original 600-second deadline never renews. Admission currently refuses more than 128 total stored group IDs before filtering; this explicit account-wide liveness limit is separate from convergence policy.
+
+### Original protected Remove settlement custody
+
+Each originating Engine retains at most128 distinct group/canonical-Commit-digest identities across live receipts and captured Remove intents, including terminal entries. Receipt slots are acquired only from actual live delivery after durable content dedup and a matching Completed predecessor. Retries only shorten/preserve the first acquisition deadline. Source intents retain the original approved action's fixed600-second deadline; receiver intents retain the original transport acquisition deadline. Intent fields are bounded actual roster/identity/digest metadata and optional original source lease, never serialized approval. Engine Drop retires all custody; stored rows cannot renew it. The private publisher observes the same opaque admission lifetime, including source cancellation, with a25ms negative liveness check during blocked transport. Positive same-client storage retry and blocked successor-settlement controls remain unqualified.

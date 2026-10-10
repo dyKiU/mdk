@@ -59,6 +59,9 @@ impl State {
             target_device: protected.review().target_device.clone(),
         })
     }
+    pub(crate) fn original_deadline(&self) -> Instant {
+        self.deadline
+    }
     pub(crate) fn check(&self) -> Result<(), GroupDeviceRevocationError> {
         if self.cancelled.load(Ordering::Acquire)
             || Instant::now() >= self.deadline

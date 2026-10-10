@@ -81,6 +81,32 @@ impl LiveSettlementAdmission {
             guard: Some(guard),
         }))
     }
+    pub(crate) fn select_applied_revoked<S: StorageProvider>(
+        storage: &S,
+        group_id: &GroupId,
+        group: &openmls::group::MlsGroup,
+        guard: Arc<crate::device_leaf_revocation::transition::OwnedDeviceRevocationTransition>,
+    ) -> Result<Arc<Self>, EngineError> {
+        let anchor = guard.applied_settlement_anchor(storage, group_id, group)?;
+        let deadline = guard.validate(&anchor)?;
+        let state = storage
+            .private_roster_settlement_storage()
+            .ok_or_else(unavailable)?
+            .select_round(&anchor)?;
+        if guard.validate(&anchor)? != deadline || Instant::now() >= deadline {
+            return Err(unavailable());
+        }
+        Ok(Arc::new(Self {
+            anchor,
+            generation: state.generation,
+            deadline,
+            cancelled: AtomicBool::new(false),
+            guard: Some(guard),
+        }))
+    }
+    pub(crate) fn deadline(&self) -> Instant {
+        self.deadline
+    }
     pub(crate) fn cancel(&self) {
         self.cancelled.store(true, Ordering::SeqCst);
     }

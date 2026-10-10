@@ -766,3 +766,7 @@ The original one-group revocation review now supports approve(displayed revision
 ### Exact-device captured-scope removal checkpoint
 
 DeviceRevocation retains one original fixed deadline across captured groups, with exact current pending negative cleanup. Completed-group snapshots observe local confirmed commits. Actual protected ABC and two ordinary ABCD removals, peer convergence and survivor messages are qualified; wider lifecycle and native acceptance remain separate.
+
+### Protected Remove successor publication
+
+The actor dispatches only its original in-memory Revoked settlement control through the private publisher, under the same fixed source/receipt deadline; retained SQL facts never construct a control. Actual protected ABC→AB and fresh A→B approved history import pass, while removed C and pre-restart retained Remove permission are refused. Generic received storage failures can still reopen this owner; qualifying same-client transient retry is a separate required follow-up. Existing SDK/native outputs are unchanged by this focused checkpoint.

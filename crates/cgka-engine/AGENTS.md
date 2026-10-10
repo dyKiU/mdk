@@ -667,3 +667,7 @@ Exact ordinary sibling removal now stages one real Remove under a fresh Core sel
 ### Exact-device captured-scope removal checkpoint
 
 Device-wide exact-leaf removal captures fresh protected Completed generation and actual indexed trees. Ordinary groups precede the protected group; ordinary-only selection still refuses protected groups. Pending protected predecessor validation requires the same original memory lease and exact staged single Remove. It never fabricates Existing/Add provenance. Fresh successor settlement is a separate required step.
+
+### Original protected Remove successor settlement
+
+`device_leaf_revocation/transition.rs` stages Revoked metadata and the actual live settlement admission atomically with the authenticated sole Remove. Source admission retains the explicitly approved original admin action; recipient admission requires its exact live transport receipt and canonical MLS digest after durable content dedup. Stored canonical replay after Engine/encrypted reopen can apply negative membership but cannot allocate a new positive deadline/guard. Every old origin remains permanently denied. The actual public survivor history import and restart refusal pass; same-client transient storage retry and post-revocation new-device enrollment remain separate. See `docs/device-sync-revocation-successor-settlement-verification.json`.

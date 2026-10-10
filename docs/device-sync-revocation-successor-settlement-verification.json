@@ -1,0 +1,333 @@
+{
+  "scope": "Original applied protected Remove successor settlement with live receipt custody, fresh explicit survivor history import, and encrypted-reopen negative replay fence",
+  "base": "301f13eef17ff7259b4ff4366de0bda3ef49dbb8",
+  "final_candidate_git_stash": "b44fb0e7004532beaf21b8609880f995b64e7756",
+  "runtime_sha256": {
+    "crates/cgka-engine/src/device_group_lineage.rs": "f1aaaae2a4fc67d80e42fce9d739e75d7109eba2a80ccd1d4892bf05d5f6c6c4",
+    "crates/cgka-engine/src/device_leaf_revocation.rs": "ef03e5ba81ff92cf12c9311a5ec6d116a8b8c46d46a564be4b0867f83809e017",
+    "crates/cgka-engine/src/device_leaf_revocation/transition.rs": "f5d22bdc6b69b9301648a4c703f26ea6665006b6790f87d197b334d678952821",
+    "crates/cgka-engine/src/distributed_convergence.rs": "cd20b1e9e32f9f996aa8ea6e79aba0633896dac09a570bffa998f67310c36058",
+    "crates/cgka-engine/src/engine.rs": "53d69cd0b936294308e41021b508e3a313cd338cd39804fccdd8488ed349ff46",
+    "crates/cgka-engine/src/message_processor/ingest.rs": "cec221870f20291fe83b9301371caeea370b475efc7df8fd4a31c8018ba32382",
+    "crates/cgka-engine/src/openmls_projection.rs": "1161f420c3babfbc05f771167aef5663df0677b8bd26733395c7ce20031f4d79",
+    "crates/cgka-engine/src/private_roster_settlement.rs": "414468a9b16cd758765a0a9d002c944e7e13f6c1cc2f1b7a88a69df20b39c69b",
+    "crates/cgka-engine/src/private_successor.rs": "3b62f412c85035639c55f30ed9938a311395ed34abd3fe16e04891e757ac94a4",
+    "crates/cgka-engine/src/private_transport.rs": "06da3611966e3b63111e504f0ba8fc35988b8981351dc9b500fd5afe98248091",
+    "crates/cgka-engine/src/publish.rs": "887c99c3a8549d2c1eb6c0686092e359dca6745e15a56653dc8316c8d4599cab",
+    "crates/cgka-session/src/lib.rs": "27d802c4e4a858faa7e50724b085237a0626072a075157a6c8644e9727db1c53",
+    "crates/marmot-app/src/client/device_revocation.rs": "6c2f9347aafcf3859f386d2316806c9b69cd6240b69ff004fd97c0421b9360f9",
+    "crates/marmot-app/src/client/private_settlement.rs": "9219aaf21b3a42db5734d55332d099334a982151a7531a00386a34954e6a73c2",
+    "crates/marmot-app/src/device_revocation/enabled.rs": "8506b9ff08982d10dbac8ba8dd29c135855e09bc47e004f2499c5c47213d9223",
+    "crates/marmot-app/src/runtime/account_worker.rs": "fef9ceb9d4dc3cc2c6264b7091a77f164212281e3cbbdba640fdca9acd8d25d2",
+    "crates/marmot-app/src/runtime/private_commit.rs": "0045daf15901dd6eab2e00f8d138d52758e94365d1cacc27d7d1ad7300690817",
+    "crates/marmot-app/src/selected_chat_copy/tests.rs": "ae488a8d5b27216ebf8dd0d191ae2ae7c807f2c41d04898807ac3049c3e56fa5"
+  },
+  "source_manifest_format": "SHA256 of dereferenced bytes for each cached or untracked nonignored file; source_manifest_sha256 is the digest of the exact JSON manifest file",
+  "cohorts": [
+    {
+      "prefix": "device-revocation-successor-red-v1",
+      "exact_candidate_git_stash": "7dce8e1053fccfa3d0a4043f03811707e9e5c3de",
+      "input_count": 2487,
+      "source_manifest_sha256": "a210a4bcc671289ad1c14eef84228519a362f17f89571a887b83a1be74976552",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 101,
+          "seconds": 72.54644417762756,
+          "log": "/Users/pj/project/build/device-revocation-successor-red-v1-feature.log",
+          "log_sha256": "0f25a8d05bd1f285623bbb3d3346508e63c8ec1aa14f9ed8d57acd0153f007f7",
+          "actual_tests": {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "device-revocation-successor-red-v2",
+      "exact_candidate_git_stash": "408d26444a69d88d699463a664baf740c3e7fac6",
+      "input_count": 2492,
+      "source_manifest_sha256": "96268c5eaab1c61e3a5b87b5fc62ad17f43379d86176e1cfca0f62e50da3c5d4",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 101,
+          "seconds": 93.68511390686035,
+          "log": "/Users/pj/project/build/device-revocation-successor-red-v2-feature.log",
+          "log_sha256": "553942087d70c553288ad5f59a9919e1355b3f1107dadb580bda228a64a4bc2c",
+          "actual_tests": {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "device-revocation-successor-green-v1",
+      "exact_candidate_git_stash": "c56207a94b30c8e9170e98aadce299d5483785bf",
+      "input_count": 2493,
+      "source_manifest_sha256": "bb7ae0e016f6c870a47a17cbb716074972f508a4f8f15ffebab2338b4dc3ea87",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 0,
+          "seconds": 73.5336000919342,
+          "log": "/Users/pj/project/build/device-revocation-successor-green-v1-feature.log",
+          "log_sha256": "9b754f4d2c1ef55c73f15350064c3bb4be981a4a1cc1b97189392f1d0b1cf1a9",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "device-revocation-successor-reopen-red-v1",
+      "exact_candidate_git_stash": "882e48573663318dc33cfd6412cf20ec40ffc398",
+      "input_count": 2493,
+      "source_manifest_sha256": "721775d0cf2fa442fb04cde08cf348ac487b543c6303c1eb6fa7dbbf59e52262",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 101,
+          "seconds": 33.35946488380432,
+          "log": "/Users/pj/project/build/device-revocation-successor-reopen-red-v1-feature.log",
+          "log_sha256": "f89592baeaf57039cbc971e07de2a186fa8f326d7996685b98c9653fa82a65dd",
+          "actual_tests": null
+        }
+      ]
+    },
+    {
+      "prefix": "device-revocation-successor-reopen-red-v2",
+      "exact_candidate_git_stash": "5470bd39ada6a4c1503f1da6876db35f71c452d5",
+      "input_count": 2493,
+      "source_manifest_sha256": "5d2eb9ff10e4b65dd732c61a8bac3209ba58fe88230f55522577b2a25960eb53",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 101,
+          "seconds": 73.71758103370667,
+          "log": "/Users/pj/project/build/device-revocation-successor-reopen-red-v2-feature.log",
+          "log_sha256": "b6e5baf12f21d2d561adf4acd9f5f12696045940a7b349ea2de1fcebef776f71",
+          "actual_tests": {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "device-revocation-successor-reopen-red-v3",
+      "exact_candidate_git_stash": "9d70e680ad68837d5c44bfa66915684dd74e26f7",
+      "input_count": 2493,
+      "source_manifest_sha256": "a4188ea672f69bcb20481daf20154ef49955cdde224ada7c660ed78a0bc4f42f",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 101,
+          "seconds": 55.59927296638489,
+          "log": "/Users/pj/project/build/device-revocation-successor-reopen-red-v3-feature.log",
+          "log_sha256": "a0f19dbae0dbb1fafd0a4480f70b02a3851caffb1b4e7db70c696b8a9435277f",
+          "actual_tests": {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "device-revocation-successor-reopen-green-v1",
+      "exact_candidate_git_stash": "896b26e2fd1d0b4568a8f353c89ea273bd5319d1",
+      "input_count": 2493,
+      "source_manifest_sha256": "637de6276e3dd069e2cc5b6acffab9fa8aa4d4357e42658056b1dfa01d628334",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "reopen",
+          "exit": 0,
+          "seconds": 94.24253392219543,
+          "log": "/Users/pj/project/build/device-revocation-successor-reopen-green-v1-reopen.log",
+          "log_sha256": "beedaf552857a2381a52ee456cd387f5bb1cbe79885635a7e25bddd369e0432f",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "gate": "fresh-positive",
+          "exit": 0,
+          "seconds": 18.99743413925171,
+          "log": "/Users/pj/project/build/device-revocation-successor-reopen-green-v1-fresh-positive.log",
+          "log_sha256": "527aa3e01920554344c54cd916ca90c0a41f176036145b12d0f8282f026bb903",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "device-revocation-successor-import-green-v1",
+      "exact_candidate_git_stash": "1e53df78775cffc15f8f14aa04f37dac78279ad8",
+      "input_count": 2493,
+      "source_manifest_sha256": "62ca4abedd049c635466418f5f238b91f81486e146d1ea68592c773dcab78434",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 0,
+          "seconds": 64.0745689868927,
+          "log": "/Users/pj/project/build/device-revocation-successor-import-green-v1-feature.log",
+          "log_sha256": "17a0b751ea5f0bd373a2d76ec11bb32f19aba281c08a9f221eef45dd170a4738",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "device-revocation-successor-final-v1",
+      "exact_candidate_git_stash": "1e53df78775cffc15f8f14aa04f37dac78279ad8",
+      "input_count": 2493,
+      "source_manifest_sha256": "62ca4abedd049c635466418f5f238b91f81486e146d1ea68592c773dcab78434",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature-family",
+          "exit": 0,
+          "seconds": 113.32570385932922,
+          "log": "/Users/pj/project/build/device-revocation-successor-final-v1-feature-family.log",
+          "log_sha256": "c7c14890b2d0aad88a999bacd5a1f3d50b34ea874ead2695b9f10dae82927c81",
+          "actual_tests": {
+            "passed": 8,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "gate": "default-refusal",
+          "exit": 0,
+          "seconds": 46.04938769340515,
+          "log": "/Users/pj/project/build/device-revocation-successor-final-v1-default-refusal.log",
+          "log_sha256": "a7811ce09d1c00d298a599c681b4d1563b3cd1c6b906f7f5e758930e638d6bdf",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "gate": "production-clippy",
+          "exit": 101,
+          "seconds": 5.796653985977173,
+          "log": "/Users/pj/project/build/device-revocation-successor-final-v1-production-clippy.log",
+          "log_sha256": "4bd9b264ea62c6ab0a2740668bbea94978950d68b1d933cd5f018d112be374fa",
+          "actual_tests": null
+        }
+      ]
+    },
+    {
+      "prefix": "device-revocation-successor-final-v2",
+      "exact_candidate_git_stash": "b44fb0e7004532beaf21b8609880f995b64e7756",
+      "input_count": 2493,
+      "source_manifest_sha256": "fd400e04d770850d0c1c046fde3984055434a71f9837d0ea589087aaa7a4f3c2",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "production-clippy",
+          "exit": 0,
+          "seconds": 35.11998987197876,
+          "log": "/Users/pj/project/build/device-revocation-successor-final-v2-production-clippy.log",
+          "log_sha256": "bdcd17502788df3370c32a65ca10b2dce0cd34ccd2700e67e049e4e82b0ed510",
+          "actual_tests": null
+        },
+        {
+          "gate": "default-check",
+          "exit": 0,
+          "seconds": 32.460005044937134,
+          "log": "/Users/pj/project/build/device-revocation-successor-final-v2-default-check.log",
+          "log_sha256": "9ad9fb27ca7d4fb732a7ec1f614d8322808dc92f054265b57a979320483c606d",
+          "actual_tests": null
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "seconds": 3.5956549644470215,
+          "log": "/Users/pj/project/build/device-revocation-successor-final-v2-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "actual_tests": null
+        },
+        {
+          "gate": "feature-family",
+          "exit": 0,
+          "seconds": 171.0392620563507,
+          "log": "/Users/pj/project/build/device-revocation-successor-final-v2-feature-family.log",
+          "log_sha256": "174a73dfccd85dfccae06e15c8ecd9c2133243ddb42a9ef63f2ffbf38bcc8ef3",
+          "actual_tests": {
+            "passed": 8,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "gate": "default-refusal",
+          "exit": 0,
+          "seconds": 42.540969133377075,
+          "log": "/Users/pj/project/build/device-revocation-successor-final-v2-default-refusal.log",
+          "log_sha256": "bea9df21e5d49bc9a736f0c05ba89d708ef7b21dd4246e8c34f2541d9827a6a9",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    }
+  ],
+  "unchanged_authority_red_green_fixture_sha256": "d4066803238de0cba58fc1fed7daf2e2aa21d71ce70972ceab231c37d5c1b406",
+  "unchanged_reopen_red_green_fixture_sha256": "b5efe2e43e8624887a6d80406299d11d36c0dabb4855e999bd46820d673953e7",
+  "qualification": [
+    "Actual public ABC linking; protected ABC to AB and two ordinary ABCD to ABD removals; surviving fresh two-leaf all-leaf settlement with each local generation advanced",
+    "Fresh public A history request; actual B authenticated review and explicit approval; committed recipient receipt and imported genuine prejoin record; removed C refused with empty archive",
+    "Actual incoming Remove SQL rollback, retained canonical input, encrypted recipient reopen, membership replay permitted but no restored positive guard/Revoked anchor",
+    "Final exact-source eight revocation controls, one default Unsupported-before-effects control; production-only Engine/Session/App all-target Clippy -D warnings, default all-target check, workspace fmt"
+  ],
+  "production_features": [
+    "experimental-device-sync"
+  ],
+  "test_only_features": [
+    "experimental-device-sync",
+    "test-policy-overrides"
+  ],
+  "limits": [
+    "Generic incoming typed storage failure can still reopen the recipient client; positive same-client transient Remove SQL retry retention is a separate unqualified follow-up",
+    "Post-revocation new-device enrollment, other survivor counts, blocked successor-settlement publication/expiry and native exports/SDK adoption are not qualified here",
+    "Full current-source workspace/conformance suites are not run by this focused slice"
+  ],
+  "historical_baseline": {
+    "path": "/Users/pj/project/build/historical-final-default-app-93eaf71300bfdb25",
+    "sha256": "93eaf71300bfdb25df091d11a626db7986cf36ad553f3387829efadf79d4e28d",
+    "unchanged_before_and_after_every_gate": true
+  },
+  "post_gate_documentation_delta": [
+    "This proof",
+    "Core/App AGENTS appended guidance",
+    "Runtime state bounds appended guidance"
+  ],
+  "source_and_products_publication": "Local signed source only; existing SDK83/84113 outputs and native apps unchanged"
+}

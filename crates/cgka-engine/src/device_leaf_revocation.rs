@@ -6,6 +6,9 @@ use cgka_traits::{
 use sha2::{Digest, Sha256};
 use std::sync::Weak;
 
+pub(crate) mod transition;
+pub use transition::{DeviceRevocationSettlementControl, TrustedDeviceRevocationTransitionLease};
+
 fn unavailable() -> EngineError {
     EngineError::Other("original device leaf selection unavailable".into())
 }
@@ -234,6 +237,11 @@ impl<S: StorageProvider> Engine<S> {
 /// Trusted process owner checks the original review, fixed deadline and explicit
 /// displayed revision. Neither a target signer nor a stored review supplies it.
 pub trait DeviceLeafRevocationLease: Send {
+    fn transition_lease(
+        &self,
+    ) -> Option<std::sync::Arc<dyn TrustedDeviceRevocationTransitionLease>> {
+        None
+    }
     fn check_original(
         &mut self,
         original: &DeviceLeafRevocationSelection,
@@ -385,6 +393,36 @@ impl<S: StorageProvider> Engine<S> {
             self.do_publish_failed(*pending).await?;
             return Err(error);
         }
+        let transition_capture = (|| -> Result<(), EngineError> {
+            if original.protected_remove {
+                let transition = lease.transition_lease().ok_or_else(unavailable)?;
+                transition.check_original(original)?;
+                let group = openmls::group::MlsGroup::load(
+                    self.storage.mls_storage(),
+                    &openmls::group::GroupId::from_slice(original.review.group.as_slice()),
+                )
+                .map_err(|_| unavailable())?
+                .ok_or_else(unavailable)?;
+                let digest =
+                    crate::openmls_projection::own_commit_message_digest(&self.storage, &msg.id)?;
+                self.revocation_transition
+                    .capture(
+                        &self.storage,
+                        &original.review.group,
+                        &group,
+                        group.pending_commit().ok_or_else(unavailable)?,
+                        group.own_leaf_index(),
+                        digest,
+                        Some(transition),
+                    )?
+                    .ok_or_else(unavailable)?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = transition_capture {
+            self.do_publish_failed(*pending).await?;
+            return Err(error);
+        }
         Ok(result)
     }
 
@@ -472,6 +510,35 @@ impl<S: StorageProvider> Engine<S> {
             .ok_or_else(unavailable)?
             .read_round()?
             .ok_or_else(unavailable)?;
+        if original.protected_remove
+            && round.generation > original.protected_generation
+            && round.anchor.group_id == original.protected.group_id
+            && round.phase != cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied
+        {
+            let fact = self
+                .storage
+                .revoked_device_group_anchor_storage()
+                .ok_or_else(unavailable)?
+                .revoked_anchor()?
+                .ok_or_else(unavailable)?;
+            if !fact.denied
+                && round.anchor.origin
+                    == cgka_traits::private_device_invite::PrivateInviteOrigin::Revoked(
+                        fact.generation,
+                    )
+                && fact.draft.predecessor_settlement_generation == original.protected_generation
+                && fact.draft.group_id == original.review.group
+                && fact.draft.removed_leaf_index == original.review.target_leaf_index
+                && fact.draft.removed_device.as_slice() == original.review.target_device
+                && fact.draft.predecessor.epoch == original.protected.epoch
+                && fact.draft.predecessor.epoch_authenticator_digest
+                    == original.protected.epoch_authenticator_digest
+                && round.anchor.successor == fact.draft.successor
+            {
+                self.check_confirmed_device_leaf_tree(original)?;
+                return Ok(());
+            }
+        }
         if !original.protected_remove
             || round.generation != original.protected_generation
             || round.anchor.group_id != original.protected.group_id

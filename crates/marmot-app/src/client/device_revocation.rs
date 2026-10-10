@@ -120,11 +120,39 @@ impl AppClient {
     }
 }
 
+#[derive(Clone)]
 struct OriginalRemovalLease {
     original: Arc<State>,
     revision: u64,
 }
+impl cgka_engine::device_leaf_revocation::TrustedDeviceRevocationTransitionLease
+    for OriginalRemovalLease
+{
+    fn check_original(
+        &self,
+        selection: &cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection,
+    ) -> Result<std::time::Instant, cgka_traits::EngineError> {
+        let mut original = self.clone();
+        cgka_engine::device_leaf_revocation::DeviceLeafRevocationLease::check_original(
+            &mut original,
+            selection,
+        )?;
+        self.check_live()
+    }
+    fn check_live(&self) -> Result<std::time::Instant, cgka_traits::EngineError> {
+        self.original.check().map_err(|_| {
+            cgka_traits::EngineError::Other("device revocation original unavailable".into())
+        })?;
+        Ok(self.original.original_deadline())
+    }
+}
 impl cgka_engine::device_leaf_revocation::DeviceLeafRevocationLease for OriginalRemovalLease {
+    fn transition_lease(
+        &self,
+    ) -> Option<Arc<dyn cgka_engine::device_leaf_revocation::TrustedDeviceRevocationTransitionLease>>
+    {
+        Some(Arc::new(self.clone()))
+    }
     fn check_original(
         &mut self,
         selection: &cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection,
@@ -365,6 +393,61 @@ impl AppClient {
         progress.index += 1;
         progress.prepared = None;
         progress.complete = progress.index == original.selections().count();
+        Ok(())
+    }
+}
+
+impl AppClient {
+    pub(crate) fn revoked_settlement_control(
+        &self,
+        binding: &[u8; 32],
+    ) -> Result<
+        Arc<cgka_engine::device_leaf_revocation::DeviceRevocationSettlementControl>,
+        crate::client::device_linking::ClientLinkingError,
+    > {
+        self.runtime
+            .session()
+            .device_revocation_settlement_control()
+            .map_err(crate::client::device_linking::ClientLinkingError::Engine)?
+            .filter(|control| control.binding() == *binding && control.is_live())
+            .ok_or_else(|| {
+                crate::client::device_linking::ClientLinkingError::Engine(
+                    cgka_traits::EngineError::Other(
+                        "original revoked settlement unavailable".into(),
+                    ),
+                )
+            })
+    }
+    pub(crate) fn pending_revoked_settlement(
+        &self,
+    ) -> Result<Option<[u8; 32]>, crate::client::device_linking::ClientLinkingError> {
+        let Some(control) = self
+            .runtime
+            .session()
+            .device_revocation_settlement_control()
+            .map_err(crate::client::device_linking::ClientLinkingError::Engine)?
+        else {
+            return Ok(None);
+        };
+        Ok(self
+            .runtime
+            .session()
+            .private_roster_settlement_publication_ready(control.group())
+            .map_err(crate::client::device_linking::ClientLinkingError::Engine)?
+            .then(|| control.binding()))
+    }
+    pub(crate) async fn dispatch_revoked_settlement(
+        &mut self,
+        binding: &[u8; 32],
+    ) -> Result<(), crate::client::device_linking::ClientLinkingError> {
+        let control = self.revoked_settlement_control(binding)?;
+        self.dispatch_private_settlement_group(control.group())
+            .await?;
+        if !control.is_live() {
+            return Err(crate::client::device_linking::ClientLinkingError::Engine(
+                cgka_traits::EngineError::Other("original revoked settlement unavailable".into()),
+            ));
+        }
         Ok(())
     }
 }
