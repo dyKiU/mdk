@@ -100,7 +100,8 @@ mod history_transfer;
 mod native_device_linking;
 mod selected_chat_copy;
 pub use history_transfer::{
-    HistoryConsent, HistoryTransfer, HistoryTransferError, HistoryTransferSnapshot,
+    HistoryConsent, HistoryTransfer, HistoryTransferError, HistoryTransferRecipient,
+    HistoryTransferSnapshot,
 };
 pub use native_device_linking::{
     DeviceLinkingApproval, DeviceLinkingApprovalPhase, DeviceLinkingApprovalReviewMetadata,

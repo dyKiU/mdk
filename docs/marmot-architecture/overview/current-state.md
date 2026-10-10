@@ -19,6 +19,13 @@ status: overview
 
 # Current State — Implementations & Spec
 
+The default-off App history recipient query exposes bounded current Core-derived
+linked-device observations for an ordinary chat. It shares fresh eligibility
+checks with transfer creation and creates no original action or consent. The
+public SDK regression selects an actual returned device and completes the
+separately approved logical import; native exports and picker adoption remain
+separate work. See the [query contract](../../../crates/marmot-app/README.md#history-transfer-recipient-selection).
+
 The default-off history action surface also has thin UniFFI/C original-owner
 handles, authenticated review snapshots and typed default refusal. Focused
 source checks and the generated C header are qualified; valid original alias

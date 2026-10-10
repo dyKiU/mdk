@@ -15,6 +15,8 @@ the generic account, session, and engine crates. Read this if you are building a
 - [Conversations](#conversations)
 - [Encrypted media endpoints](#encrypted-media-endpoints)
 - [Application-owned group state](#application-owned-group-state)
+- [History transfer recipient selection](#history-transfer-recipient-selection)
+- [Read-only synchronized logical history](#read-only-synchronized-logical-history)
 - [Explicit full-history repair](#explicit-full-history-repair)
 - [History may be incomplete notices](#history-may-be-incomplete-notices)
 - [User blocking](#user-blocking)
@@ -297,6 +299,28 @@ Refresh on runtime group events (including `EpochChanged` and convergence) and a
 through the account worker and may wait behind an in-flight mutation. Updates use existing publication and convergence
 semantics; hosts must handle publication uncertainty and `GroupChangeSuperseded` rather than assuming a successful local
 change wins every later concurrent commit. This API does not add automatic retries of an application's desired value.
+
+## History transfer recipient selection
+
+With `experimental-device-sync`,
+`AccountManager::history_transfer_recipients(account_ref, group_id)` lists
+current linked-device choices for one ordinary chat. Core freshly checks the
+selected protected completed roster and the ordinary Current-profile state in
+one storage read snapshot. Results contain exact occupied leaf indices and
+public device identities, ordered by index, excluding the local device and
+bounded by the private roster's 128-leaf limit. Debug output omits identities.
+The account worker serializes the query; it creates no transfer, pending request,
+consent, lease, archive or network publication.
+
+Pass a selected device identity to `begin_history_transfer`; Core independently
+revalidates the current selection. A successful list is an observation, not a
+promise that a transfer can start or that the recipient has approved it. The
+recipient must review and explicitly approve its original received request at
+the displayed revision. Refresh choices when the linked roster or chat changes.
+Default builds return `Unsupported` before account or worker effects; invalid
+MLS group lengths return `NotReady`, and an unavailable account worker returns
+`RuntimeUnavailable`. UniFFI/C export and matched host adoption require separate
+qualification.
 
 ## Read-only synchronized logical history
 

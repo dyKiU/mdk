@@ -929,6 +929,11 @@ mod actual {
     }
 
     #[tokio::test]
+    async fn history_recipient_query_observes_actual_linked_leaves_without_creating_originals() {
+        selected_chat_delivery(RecipientAdmissionScenario::HistoryRecipientQuery).await;
+    }
+
+    #[tokio::test]
     async fn history_transfer_requires_original_recipient_consent_and_committed_prejoin_record() {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryTransfer).await;
     }
@@ -981,6 +986,7 @@ mod actual {
         Expire,
         ForeignPackageEvent,
         HistoryTransfer,
+        HistoryRecipientQuery,
         HistoryRequestReplay,
         HistoryRequestReopen,
         HistoryExpiredUnpruned,
@@ -1382,6 +1388,7 @@ mod actual {
         if matches!(
             scenario,
             RecipientAdmissionScenario::HistoryTransfer
+                | RecipientAdmissionScenario::HistoryRecipientQuery
                 | RecipientAdmissionScenario::HistoryRequestReplay
                 | RecipientAdmissionScenario::HistoryRequestReopen
                 | RecipientAdmissionScenario::HistoryExpiredUnpruned
@@ -1492,6 +1499,79 @@ mod actual {
                     .await
                     .unwrap();
             }
+            let recipient_selector =
+                if scenario == RecipientAdmissionScenario::HistoryRecipientQuery {
+                    let source_storage = fixture.apps[0].account_storage("test").unwrap();
+                    let round = source_storage
+                        .private_roster_settlement_storage()
+                        .unwrap()
+                        .read_round()
+                        .unwrap()
+                        .unwrap();
+                    let actual = openmls::group::MlsGroup::load(
+                        source_storage.mls_storage(),
+                        &openmls::group::GroupId::from_slice(round.anchor.group_id.as_slice()),
+                    )
+                    .unwrap()
+                    .unwrap();
+                    let mut expected: Vec<_> = actual
+                        .members()
+                        .filter(|leaf| leaf.index != actual.own_leaf_index())
+                        .map(|leaf| (leaf.index.u32(), leaf.signature_key))
+                        .collect();
+                    expected.sort_unstable_by_key(|leaf| leaf.0);
+                    let before = managers[0]
+                        .observed_history_chunks_for_test("test")
+                        .await
+                        .unwrap();
+                    let choices = managers[0]
+                        .history_transfer_recipients("test", &fixture.chat)
+                        .await
+                        .expect("public SDK must list genuine settled linked recipients");
+                    assert_eq!(choices.len(), 2);
+                    assert!(
+                        choices
+                            .iter()
+                            .map(|v| (v.leaf_index, v.device.clone()))
+                            .collect::<Vec<_>>()
+                            == expected
+                    );
+                    assert!(
+                        managers[0]
+                            .pending_history_requests("test")
+                            .await
+                            .unwrap()
+                            .is_empty()
+                    );
+                    assert!(
+                        managers[1]
+                            .pending_history_requests("test")
+                            .await
+                            .unwrap()
+                            .is_empty()
+                    );
+                    assert_eq!(
+                        managers[0]
+                            .observed_history_chunks_for_test("test")
+                            .await
+                            .unwrap(),
+                        before
+                    );
+                    assert!(
+                        recipient_storage
+                            .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
+                            .unwrap()
+                            .is_empty()
+                    );
+                    // Actually start through a returned choice, retaining explicit recipient approval below.
+                    choices
+                        .into_iter()
+                        .find(|choice| choice.device == recipient_selector)
+                        .unwrap()
+                        .device
+                } else {
+                    recipient_selector
+                };
             let transfer = managers[0].begin_history_transfer("test", &fixture.chat, recipient_selector.clone()).await
                 .expect("a fresh opt-in history request must retain its original actor owner after actual four-leaf admission");
             assert!(

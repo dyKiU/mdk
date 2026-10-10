@@ -2,7 +2,7 @@
 use super::AppClient;
 mod archive;
 use crate::history_transfer::{
-    HistoryTransferError,
+    HistoryTransferError, HistoryTransferRecipient,
     enabled::{ChannelEntry, MAX_HISTORY_OWNERS, State},
 };
 use cgka_engine::history_transfer::{
@@ -13,6 +13,31 @@ use sha2::Digest;
 use std::sync::Arc;
 
 impl AppClient {
+    pub(crate) fn history_recipients(
+        &self,
+        ordinary: &cgka_traits::GroupId,
+    ) -> Result<Vec<HistoryTransferRecipient>, HistoryTransferError> {
+        let protected = self
+            .runtime
+            .session()
+            .private_transport_evidence(crate::NOSTR_ROUTING_COMPONENT_ID)
+            .map_err(|_| HistoryTransferError::RuntimeUnavailable)?
+            .ok_or(HistoryTransferError::NotReady)?
+            .group_id()
+            .clone();
+        Ok(self
+            .runtime
+            .session()
+            .history_recipients(ordinary, &protected)
+            .map_err(|_| HistoryTransferError::NotReady)?
+            .into_iter()
+            .map(|recipient| HistoryTransferRecipient {
+                leaf_index: recipient.leaf_index,
+                device: recipient.device,
+            })
+            .collect())
+    }
+
     pub(crate) fn observe_history_control(
         &mut self,
         event: &GroupEvent,
