@@ -875,16 +875,33 @@ mod actual {
     }
     #[tokio::test]
     async fn selected_chat_copy_admits_original_siblings_and_delivers_new_messages() {
-        selected_chat_delivery(false).await;
+        selected_chat_delivery(RecipientStorageFailure::None).await;
     }
 
     #[tokio::test]
     async fn selected_chat_welcome_storage_failure_retains_original_consent_for_retry() {
-        selected_chat_delivery(true).await;
+        selected_chat_delivery(RecipientStorageFailure::Retry).await;
     }
 
-    async fn selected_chat_delivery(fail_recipient_storage: bool) {
+    #[tokio::test]
+    async fn selected_chat_welcome_cancel_during_storage_retry_cannot_admit_or_deliver() {
+        selected_chat_delivery(RecipientStorageFailure::Cancel).await;
+    }
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum RecipientStorageFailure {
+        None,
+        Retry,
+        Cancel,
+    }
+
+    async fn selected_chat_delivery(storage_failure: RecipientStorageFailure) {
         let fixture = actual_selected_chat_fixture().await;
+        let recipient_bundles_before = fixture.apps[1]
+            .account_storage("test")
+            .unwrap()
+            .stored_key_package_bundles()
+            .unwrap();
         let directory_reader = nostr_sdk::prelude::Client::builder().build();
         directory_reader
             .add_relay(fixture.url.clone())
@@ -953,7 +970,7 @@ mod actual {
             original_consents.push(consent);
         }
         let mut recipient_errors = fixture.runtimes[1].subscribe();
-        let injector = if fail_recipient_storage {
+        let injector = if storage_failure != RecipientStorageFailure::None {
             let app = &fixture.apps[1];
             let path = app.account_storage_path("test");
             let keys = app.account_home().load_signing_keys("test").unwrap();
@@ -1030,9 +1047,42 @@ mod actual {
             .await
             .expect("the same account worker must remain available during admission retry")
             .expect("original approved offer must remain usable after incoming storage rollback");
+            if storage_failure == RecipientStorageFailure::Cancel {
+                tokio::time::timeout(std::time::Duration::from_millis(500), original.cancel())
+                    .await
+                    .expect("original cancellation must remain responsive during storage retry")
+                    .unwrap();
+                assert_eq!(
+                    original.snapshot().await.unwrap().phase,
+                    crate::SelectedChatConsentPhase::Cancelled
+                );
+                tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                    loop {
+                        let rows = storage.selected_chat_key_package_storage().unwrap().selected_chat_key_packages().unwrap();
+                        if rows.len() == 1 && rows[0].state == cgka_traits::selected_chat_key_package::SelectedChatPurposeState::Denied {
+                            assert!(storage.stored_key_package_bundles().unwrap() == recipient_bundles_before);
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }).await.expect("exact cancelled purpose and private bundle must retire");
+            }
             connection
                 .execute_batch("DROP TRIGGER reject_selected_join;")
                 .unwrap();
+        }
+        if storage_failure == RecipientStorageFailure::Cancel {
+            assert_cancelled_recipient_stays_out(&fixture, &request).await;
+            directory_reader.shutdown().await;
+            for runtime in [
+                &fixture.runtimes[0],
+                &fixture.runtimes[1],
+                &fixture.runtimes[2],
+                &fixture.d_runtime,
+            ] {
+                runtime.shutdown_and_close().await.unwrap();
+            }
+            return;
         }
         let public_packages_after =
             directory_reader
@@ -1176,5 +1226,95 @@ mod actual {
             runtime.shutdown_and_close().await.unwrap();
         }
         drop(original_consents);
+    }
+    async fn assert_cancelled_recipient_stays_out(
+        fixture: &SelectedChatFixture,
+        request: &crate::SelectedChatCopy,
+    ) {
+        assert_eq!(
+            request.snapshot().await.unwrap().phase,
+            crate::SelectedChatCopyPhase::InviteConfirmed
+        );
+        let admitted = [
+            &fixture.runtimes[0],
+            &fixture.runtimes[2],
+            &fixture.d_runtime,
+        ];
+        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                let mut complete = true;
+                for runtime in admitted {
+                    complete &= runtime
+                        .accounts()
+                        .group_mls_state("test", &fixture.chat)
+                        .await
+                        .is_ok_and(|state| state.member_count == 4);
+                }
+                if complete {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("other original recipients must adopt the actual selected Add");
+        // Observe beyond two retry intervals after removing the fault. These
+        // actual worker queries must not turn cancellation into a renewed join.
+        let until = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+        while tokio::time::Instant::now() < until {
+            assert!(
+                fixture.runtimes[1]
+                    .accounts()
+                    .group_mls_state("test", &fixture.chat)
+                    .await
+                    .is_err()
+            );
+            assert!(
+                fixture.apps[1]
+                    .group("test", &fixture.chat_hex)
+                    .unwrap()
+                    .is_none()
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let payload = b"fresh message after original recipient cancelled";
+        let sent = fixture.runtimes[0]
+            .send_message("test", &fixture.chat, payload.to_vec())
+            .await
+            .unwrap();
+        assert_eq!(sent.message_ids.len(), 1);
+        let id = &sent.message_ids[0];
+        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                if [&fixture.apps[0], &fixture.apps[2], &fixture.d_app]
+                    .iter()
+                    .all(|app| {
+                        app.timeline_message("test", &fixture.chat_hex, id)
+                            .unwrap()
+                            .is_some_and(|message| {
+                                message.message_id_hex == *id
+                                    && message.plaintext.as_bytes() == payload
+                            })
+                    })
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("uncancelled copies must still receive actual new messages");
+        assert!(
+            fixture.apps[1]
+                .timeline_message("test", &fixture.chat_hex, id)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            fixture.apps[1]
+                .timeline_message("test", &fixture.chat_hex, &fixture.before_id)
+                .unwrap()
+                .is_none()
+        );
     }
 }
