@@ -138,6 +138,8 @@ struct MarmotRelayPlaneInner {
 struct SelectedWelcomePublicationGate {
     account: MemberId,
     welcome: bool,
+    skip_matches: usize,
+    fail: bool,
     observed: tokio::sync::oneshot::Sender<cgka_traits::TransportMessage>,
     release: Arc<Notify>,
 }
@@ -1341,10 +1343,37 @@ impl MarmotRelayPlane {
         *held = Some(SelectedWelcomePublicationGate {
             account,
             welcome,
+            skip_matches: 0,
+            fail: false,
             observed,
             release: release.clone(),
         });
         (receiver, release)
+    }
+
+    /// Refuse only the second actual selected Welcome, after the first uses
+    /// the unchanged production publisher. No recipient or consent is fabricated.
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn fail_second_selected_welcome(
+        &self,
+        account: MemberId,
+    ) -> tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage> {
+        let (observed, receiver) = tokio::sync::oneshot::channel();
+        let mut held = self.inner.selected_welcome_gate.lock().unwrap();
+        assert!(held.is_none(), "only one fixture publication may be held");
+        *held = Some(SelectedWelcomePublicationGate {
+            account,
+            welcome: true,
+            skip_matches: 1,
+            fail: true,
+            observed,
+            release: Arc::new(Notify::new()),
+        });
+        receiver
     }
 
     pub fn runtime_default(subscription_rebuild_lookback: Duration) -> Self {
@@ -3495,13 +3524,23 @@ impl MarmotRelayPlaneAccountAdapter {
                 if held.as_ref().is_some_and(|gate| {
                     gate.account == request.account_id && gate.welcome == welcome
                 }) {
-                    held.take()
+                    if held.as_ref().unwrap().skip_matches == 0 {
+                        held.take()
+                    } else {
+                        held.as_mut().unwrap().skip_matches -= 1;
+                        None
+                    }
                 } else {
                     None
                 }
             };
             if let Some(gate) = gate {
                 let _ = gate.observed.send(request.message.clone());
+                if gate.fail {
+                    return Err(TransportAdapterError::Publish(
+                        "isolated selected Welcome failure".into(),
+                    ));
+                }
                 gate.release.notified().await;
             }
         }

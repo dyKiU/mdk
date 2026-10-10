@@ -1738,4 +1738,239 @@ mod actual {
                 .is_none()
         );
     }
+    #[derive(Clone, Copy)]
+    enum PartialAdmissionOutcome {
+        Retry,
+        Cancel,
+        Reopen,
+    }
+
+    #[tokio::test]
+    async fn selected_chat_partial_admission_retries_only_exact_remaining_welcome() {
+        exercise_partial_admission(PartialAdmissionOutcome::Retry).await;
+    }
+
+    #[tokio::test]
+    async fn selected_chat_partial_admission_cancel_preserves_joined_sibling() {
+        exercise_partial_admission(PartialAdmissionOutcome::Cancel).await;
+    }
+
+    #[tokio::test]
+    async fn selected_chat_partial_admission_reopen_cannot_restore_publication() {
+        exercise_partial_admission(PartialAdmissionOutcome::Reopen).await;
+    }
+
+    fn actual_chat_copy(
+        app: &MarmotApp,
+        chat: &cgka_traits::GroupId,
+    ) -> Option<openmls::group::MlsGroup> {
+        let storage = app.account_storage("test").unwrap();
+        openmls::group::MlsGroup::load(
+            storage.mls_storage(),
+            &openmls::group::GroupId::from_slice(chat.as_slice()),
+        )
+        .unwrap()
+    }
+
+    async fn exercise_partial_admission(outcome: PartialAdmissionOutcome) {
+        let fixture = actual_selected_chat_fixture().await;
+        let managers = fixture
+            .runtimes
+            .each_ref()
+            .map(|runtime| runtime.accounts());
+        let before = managers[0]
+            .group_mls_state("test", &fixture.chat)
+            .await
+            .unwrap();
+        let target = managers[0]
+            .device_linking_targets("test")
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        let request = managers[0]
+            .begin_selected_chat_copy("test", &fixture.chat, target.selector)
+            .await
+            .unwrap();
+        let packet = request
+            .request_packet(request.snapshot().await.unwrap().revision)
+            .await
+            .unwrap();
+        let mut consents = Vec::new();
+        for manager in &managers[1..] {
+            let consent = manager
+                .receive_selected_chat_copy_request("test", packet.clone())
+                .await
+                .unwrap();
+            consent
+                .approve(consent.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+            let response = consent
+                .response_packet(consent.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+            request
+                .receive_consent_packet(request.snapshot().await.unwrap().revision, response)
+                .await
+                .unwrap();
+            let offer = consent
+                .offer_packet(consent.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+            request
+                .receive_offer_packet(request.snapshot().await.unwrap().revision, offer)
+                .await
+                .unwrap();
+            consents.push(consent);
+        }
+        let account = fixture.apps[0].account_home().account("test").unwrap();
+        let account = cgka_traits::MemberId::new(hex::decode(account.account_id_hex).unwrap());
+        let refused = fixture.apps[0]
+            .relay_plane
+            .fail_second_selected_welcome(account.clone());
+        assert!(matches!(
+            request
+                .continue_copy(request.snapshot().await.unwrap().revision)
+                .await,
+            Err(crate::SelectedChatCopyError::RuntimeUnavailable)
+        ));
+        let frozen = refused
+            .await
+            .expect("second actual Welcome must reach publication failure");
+        let joined = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                let joined: Vec<_> = (1..3)
+                    .filter(|index| {
+                        actual_chat_copy(&fixture.apps[*index], &fixture.chat).is_some()
+                    })
+                    .collect();
+                if joined.len() == 1 {
+                    break joined[0];
+                }
+                assert!(
+                    joined.len() < 2,
+                    "failed second publication cannot admit both siblings"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("first unchanged actual Welcome must admit exactly one sibling");
+        let unjoined = 3 - joined;
+        assert_eq!(
+            request.snapshot().await.unwrap().phase,
+            crate::SelectedChatCopyPhase::InviteConfirmed
+        );
+        let confirmed = managers[0]
+            .group_mls_state("test", &fixture.chat)
+            .await
+            .unwrap();
+        assert_eq!(confirmed.epoch, before.epoch + 1);
+        assert_eq!(confirmed.member_count, 4);
+        let own_signer = actual_chat_copy(&fixture.apps[joined], &fixture.chat)
+            .unwrap()
+            .own_leaf_node()
+            .unwrap()
+            .signature_key()
+            .as_slice()
+            .to_vec();
+        match outcome {
+            PartialAdmissionOutcome::Retry => {
+                let (observed, release) = fixture.apps[0]
+                    .relay_plane
+                    .hold_next_selected_welcome(account);
+                let release_on_drop = ReleaseSelectedWelcome(release.clone());
+                let continuation =
+                    request.continue_copy(request.snapshot().await.unwrap().revision);
+                tokio::pin!(continuation);
+                let retry = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    tokio::select! {
+                        message = observed => message.unwrap(),
+                        result = &mut continuation => panic!("remaining original Welcome did not reach publisher: {result:?}"),
+                    }
+                }).await.expect("exact original retry must reach publisher");
+                assert!(
+                    retry == frozen,
+                    "retry must reuse the complete frozen transport object"
+                );
+                release.notify_one();
+                continuation.await.unwrap();
+                drop(release_on_drop);
+                tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    while actual_chat_copy(&fixture.apps[unjoined], &fixture.chat).is_none() {
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .expect("exact remaining Welcome must admit the second original consent");
+            }
+            PartialAdmissionOutcome::Cancel => {
+                request.cancel().await.unwrap();
+                assert!(matches!(
+                    request
+                        .continue_copy(request.snapshot().await.unwrap().revision)
+                        .await,
+                    Err(crate::SelectedChatCopyError::Closed)
+                ));
+            }
+            PartialAdmissionOutcome::Reopen => {
+                fixture.runtimes[0].shutdown_and_close().await.unwrap();
+                assert!(matches!(
+                    request
+                        .continue_copy(request.snapshot().await.unwrap().revision)
+                        .await,
+                    Err(crate::SelectedChatCopyError::Closed)
+                ));
+                let reopened_app = MarmotApp::with_relay(fixture.dirs[0].path(), &fixture.url);
+                let reopened = reopened_app.client("test").await.unwrap();
+                let actual = actual_chat_copy(&reopened_app, &fixture.chat).unwrap();
+                assert_eq!(actual.epoch().as_u64(), confirmed.epoch);
+                assert_eq!(actual.members().count(), 4);
+                assert!(matches!(
+                    request
+                        .continue_copy(request.snapshot().await.unwrap().revision)
+                        .await,
+                    Err(crate::SelectedChatCopyError::Closed)
+                ));
+                drop(reopened);
+            }
+        }
+        if !matches!(outcome, PartialAdmissionOutcome::Reopen) {
+            let after = managers[0]
+                .group_mls_state("test", &fixture.chat)
+                .await
+                .unwrap();
+            assert_eq!(
+                after.epoch, confirmed.epoch,
+                "repair/negative cleanup cannot create another Add"
+            );
+            assert_eq!(after.member_count, 4);
+        }
+        let surviving = actual_chat_copy(&fixture.apps[joined], &fixture.chat).unwrap();
+        assert_eq!(surviving.members().count(), 4);
+        assert!(
+            surviving
+                .own_leaf_node()
+                .unwrap()
+                .signature_key()
+                .as_slice()
+                == own_signer
+        );
+        if !matches!(outcome, PartialAdmissionOutcome::Retry) {
+            assert!(actual_chat_copy(&fixture.apps[unjoined], &fixture.chat).is_none());
+        }
+        // Cancellation/close is publication denial, never cryptographic removal.
+        for runtime in [
+            &fixture.runtimes[1],
+            &fixture.runtimes[2],
+            &fixture.d_runtime,
+        ] {
+            runtime.shutdown_and_close().await.unwrap();
+        }
+        if !matches!(outcome, PartialAdmissionOutcome::Reopen) {
+            fixture.runtimes[0].shutdown_and_close().await.unwrap();
+        }
+        drop(consents);
+    }
 }

@@ -1,0 +1,109 @@
+{
+  "base": "a98cf6f0eee59123d2c303aa6a7f5608dcb6492e",
+  "branch": "codex/selected-chat-partial-admission",
+  "qualification": "first-pass behavior qualification; no demonstrated defect or production fix",
+  "source_manifest": "build/results/selected-chat-partial-admission-v1-inputs.json",
+  "source_manifest_sha256": "ff6641223a4c6766ee15bacd2a7aa6e6e0582af10538a9dd2720804467f3cbba",
+  "source_count": 2463,
+  "all_local_source_hashes_match_remote_frozen_inputs": true,
+  "source_checked_unchanged_after_each_gate": true,
+  "target": "Mdk986ConformanceTargetM5",
+  "toolchain": "Rust1.97.1; Xcode; jobs2; debug0; testthreads2; FD4096",
+  "modified_source": [
+    {
+      "path": "crates/marmot-app/src/relay_plane/mod.rs",
+      "sha256": "2b8884ff675207b010db91a9634e8e0ea433458dce52210ea29ef28a586f5628"
+    },
+    {
+      "path": "crates/marmot-app/src/selected_chat_copy/tests.rs",
+      "sha256": "88048d6fa6101773511e9b0675eecfa9650b60b571498b5ae4085027f155560e"
+    }
+  ],
+  "gates": [
+    {
+      "gate": "focused",
+      "exit": 0,
+      "seconds": 87.80296397209167,
+      "log": "/Users/pj/project/build/selected-chat-partial-admission-v1-focused.log",
+      "log_sha256": "5d7cc18d2c5cde84ba3760e674dd2d03f825d5a2fbd439292ff6b83da0e3ca42",
+      "counts": [
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "filtered": 2086
+        }
+      ]
+    },
+    {
+      "gate": "migration-feature",
+      "exit": 0,
+      "seconds": 32.57102990150452,
+      "log": "/Users/pj/project/build/selected-chat-partial-admission-v1-migration-feature.log",
+      "log_sha256": "c3950bf1b4d60cc53b9adf118fd298ded277d3cb85d788a3593a911cb317b2b1",
+      "counts": [
+        {
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0,
+          "filtered": 1066
+        }
+      ]
+    },
+    {
+      "gate": "migration-default",
+      "exit": 0,
+      "seconds": 14.286386013031006,
+      "log": "/Users/pj/project/build/selected-chat-partial-admission-v1-migration-default.log",
+      "log_sha256": "6038f244989616d5443142e06ca6efacec7ce88425515845bc990a005fc0a208",
+      "counts": [
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "filtered": 978
+        }
+      ]
+    },
+    {
+      "gate": "production-clippy",
+      "exit": 0,
+      "seconds": 39.0419499874115,
+      "log": "/Users/pj/project/build/selected-chat-partial-admission-v1-production-clippy.log",
+      "log_sha256": "e05813b6515d0427c271c87541d7081b907ee4f7799978d85cee0526c592bdd1",
+      "counts": []
+    },
+    {
+      "gate": "default-check",
+      "exit": 0,
+      "seconds": 25.647138118743896,
+      "log": "/Users/pj/project/build/selected-chat-partial-admission-v1-default-check.log",
+      "log_sha256": "558e231cf77d74cf33b8c13529a6edadda405301ca4556ad6f06789b32caa82b",
+      "counts": []
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.4494540691375732,
+      "log": "/Users/pj/project/build/selected-chat-partial-admission-v1-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "counts": []
+    }
+  ],
+  "claims": [
+    "actual SDK ABC protected settlement plus ordinary A/D chat; confirmed actual Add before second Welcome failure",
+    "one sibling actually joins; other has no MLS copy",
+    "same original live request retries complete exact frozen transport object; no additional Add epoch",
+    "cancel and encrypted source reopen deny old request publication; joined sibling retains own leaf and four-member tree"
+  ],
+  "limits": [
+    "test-only publisher refusal, first actual Welcome uses unchanged real SDK relay publisher",
+    "no permission restoration or cancelled/reopened partial repair",
+    "no exact-device cryptographic revocation or removal successor permission",
+    "no full backend1082 suite or native artifact/application acceptance",
+    "only scoped ledger migration/default families qualified"
+  ],
+  "diagnostics": [
+    "focused linker __eh_frame size warning preserved; exit0"
+  ]
+}
