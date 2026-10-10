@@ -35,6 +35,7 @@ pub mod secret_store;
 pub mod selected_chat_copy;
 pub mod status;
 pub mod subscriptions;
+pub mod synchronized_history;
 pub mod types;
 
 pub use status::MarmotStatus;

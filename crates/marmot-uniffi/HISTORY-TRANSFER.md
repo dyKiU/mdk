@@ -32,8 +32,9 @@ oversized snapshot before recipient consent; it never silently truncates history
 Record payloads contain logical content/tags, with source-attested provenance;
 they are not independently MLS-verified messages on the receiving device.
 Imports remain separate from live app-event and moderation projections. These
-control objects do not supply a conversation rendering query. Native acceptance
-must also qualify the read-only provenance query and actual chat presentation.
+control objects do not supply a conversation rendering query. The separate
+[committed-history reader](SYNCHRONIZED-HISTORY.md) exposes retained logical
+records and provenance; native acceptance must qualify actual chat presentation.
 
 Errors are typed `HistoryTransferUnsupported`, `HistoryTransferNotReady`,
 `HistoryTransferClosed`, `HistoryTransferStaleRevision`, or

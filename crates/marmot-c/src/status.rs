@@ -157,6 +157,10 @@ pub enum MarmotStatus {
     HistoryTransferClosed = 114,
     HistoryTransferStaleRevision = 115,
     HistoryTransferRuntimeUnavailable = 116,
+    SynchronizedHistoryUnsupported = 117,
+    SynchronizedHistoryInvalidQuery = 118,
+    SynchronizedHistoryUnavailable = 119,
+    SynchronizedHistoryInvalidRecord = 120,
 }
 
 thread_local! {
@@ -260,6 +264,18 @@ pub(crate) fn status_from_error(err: &MarmotKitError) -> MarmotStatus {
             MarmotStatus::SelectedChatCopyStaleRevision
         }
         MarmotKitError::SelectedChatCopyClosed => MarmotStatus::SelectedChatCopyClosed,
+        MarmotKitError::SynchronizedHistoryUnsupported => {
+            MarmotStatus::SynchronizedHistoryUnsupported
+        }
+        MarmotKitError::SynchronizedHistoryInvalidQuery => {
+            MarmotStatus::SynchronizedHistoryInvalidQuery
+        }
+        MarmotKitError::SynchronizedHistoryUnavailable => {
+            MarmotStatus::SynchronizedHistoryUnavailable
+        }
+        MarmotKitError::SynchronizedHistoryInvalidRecord => {
+            MarmotStatus::SynchronizedHistoryInvalidRecord
+        }
         MarmotKitError::HistoryTransferUnsupported => MarmotStatus::HistoryTransferUnsupported,
         MarmotKitError::HistoryTransferNotReady => MarmotStatus::HistoryTransferNotReady,
         MarmotKitError::HistoryTransferClosed => MarmotStatus::HistoryTransferClosed,

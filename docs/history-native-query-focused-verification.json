@@ -1,0 +1,252 @@
+{
+  "scope": "Synchronous UniFFI/C committed history query forwarding; empty native archive, input guards and allocation controls only",
+  "base": "b99305df23c37230e3dae83ad78ccf4d0b08e870",
+  "original_red_stash": "9bd26b2be85cf63b9a920b685db2b52d70ccd7ec",
+  "m5_original_red_stash": "fed6edb42276f25a19767422d2d6066f9e2fed3f",
+  "final_candidate_stash": "c20856fcb40b2db03fabd91c31cddb9ba452e0e1",
+  "m5_tested_stash": "6ff49dd31b18ea611eeeef3ea22880264d79c8b8",
+  "input_count": 2485,
+  "source_manifest_sha256": "85418c516f8b5baa3627c440d50cde0cc22e7ff0ae9a9919c2df1c285b7bec80",
+  "red_green_test_module_sha256": "e3dd3e62e910bacc5a483d84e574938f744fd87be765105e4247e5f64c821fd9",
+  "actual_final_red": {
+    "gate": "feature-empty-archive",
+    "exit": 101,
+    "seconds": 41.503535747528076,
+    "log": "/Users/pj/project/build/history-native-query-red-v4-feature-empty-archive.log",
+    "log_sha256": "b6cc29971736254e177751bc2e9c7aa7fcf72ac6042ef6818e759ed447724d00",
+    "counts": [
+      {
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0,
+        "filtered": 202
+      }
+    ]
+  },
+  "final_gates": [
+    {
+      "gate": "feature-native",
+      "exit": 0,
+      "seconds": 39.94566082954407,
+      "log": "/Users/pj/project/build/history-native-query-green-v3-feature-native.log",
+      "log_sha256": "6feada0548213bec16acb8722b0a398ebde71017e30339d3edb18d10669346cd",
+      "counts": [
+        {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "filtered": 201
+        }
+      ]
+    },
+    {
+      "gate": "default-native",
+      "exit": 0,
+      "seconds": 39.90302896499634,
+      "log": "/Users/pj/project/build/history-native-query-green-v3-default-native.log",
+      "log_sha256": "5e78212efaa7b223d61ba04212af279c243640b755fcf1a2785188ef584097d8",
+      "counts": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "filtered": 202
+        }
+      ]
+    },
+    {
+      "gate": "c-default",
+      "exit": 0,
+      "seconds": 36.80699801445007,
+      "log": "/Users/pj/project/build/history-native-query-green-v3-c-default.log",
+      "log_sha256": "cd5e0b4e597be0bd4b3d4b2284c952279223d4145c173cac70081893e258994b",
+      "counts": [
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "filtered": 90
+        }
+      ]
+    },
+    {
+      "gate": "c-feature",
+      "exit": 0,
+      "seconds": 40.588709115982056,
+      "log": "/Users/pj/project/build/history-native-query-green-v3-c-feature.log",
+      "log_sha256": "0dd56a74baba9aaf24beefa18fc36c0392f58e09300e7b19d6ed6732eaacd6e5",
+      "counts": [
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "filtered": 89
+        }
+      ]
+    },
+    {
+      "gate": "app-query",
+      "exit": 0,
+      "seconds": 81.01774287223816,
+      "log": "/Users/pj/project/build/history-native-query-green-v3-app-query.log",
+      "log_sha256": "ce1655485f06e6c16abcc6e1f6915eb06601d4e060e665024013671845ba4991",
+      "counts": [
+        {
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "filtered": 1953
+        }
+      ]
+    },
+    {
+      "gate": "production-clippy",
+      "exit": 0,
+      "seconds": 38.77533197402954,
+      "log": "/Users/pj/project/build/history-native-query-green-v3-production-clippy.log",
+      "log_sha256": "ef7ede80ce2e5cdf46ee8076f32f24bd4d471783912625cb673675ba7c4ef373",
+      "counts": []
+    },
+    {
+      "gate": "default-check",
+      "exit": 0,
+      "seconds": 24.201585054397583,
+      "log": "/Users/pj/project/build/history-native-query-green-v3-default-check.log",
+      "log_sha256": "d38c4ffd91919f4c05a80c510f2a1d1a5e84bb1df5a6308cae1b14a4e8873e66",
+      "counts": []
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.4840619564056396,
+      "log": "/Users/pj/project/build/history-native-query-green-v3-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "counts": []
+    }
+  ],
+  "earlier_attempts": [
+    {
+      "attempt": "red-v1",
+      "results": [
+        {
+          "gate": "feature-empty-archive",
+          "exit": 101,
+          "seconds": 43.463918924331665,
+          "log": "/Users/pj/project/build/history-native-query-red-v1-feature-empty-archive.log",
+          "log_sha256": "ff518491f4226bdba3933f4c1a6f2c005a7d2caba3cb4e06e5d640eabf7cc718",
+          "counts": []
+        }
+      ]
+    },
+    {
+      "attempt": "red-v2",
+      "results": [
+        {
+          "gate": "feature-empty-archive",
+          "exit": 101,
+          "seconds": 39.047093868255615,
+          "log": "/Users/pj/project/build/history-native-query-red-v2-feature-empty-archive.log",
+          "log_sha256": "9e0b0bdfeacf61ce9e294fddf2cc0892003074dae5a128431a295329be212855",
+          "counts": [
+            {
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0,
+              "filtered": 201
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "attempt": "red-v3",
+      "results": [
+        {
+          "gate": "feature-empty-archive",
+          "exit": 101,
+          "seconds": 41.289186000823975,
+          "log": "/Users/pj/project/build/history-native-query-red-v3-feature-empty-archive.log",
+          "log_sha256": "7859d0862cd75effcbea5e6cee3be8029c236b1eec9da02e9dda93fca4672bd0",
+          "counts": [
+            {
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0,
+              "filtered": 202
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "attempt": "green-v1",
+      "results": [
+        {
+          "gate": "feature-native",
+          "exit": 101,
+          "seconds": 40.61892104148865,
+          "log": "/Users/pj/project/build/history-native-query-green-v1-feature-native.log",
+          "log_sha256": "75d1f049aa293a74696f43d1578c05bbc582dfecb0304580aa953317fbeb4606",
+          "counts": [
+            {
+              "passed": 1,
+              "failed": 1,
+              "ignored": 0,
+              "filtered": 201
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "attempt": "green-v2",
+      "results": [
+        {
+          "gate": "feature-native",
+          "exit": 101,
+          "seconds": 39.790688037872314,
+          "log": "/Users/pj/project/build/history-native-query-green-v2-feature-native.log",
+          "log_sha256": "7d929ae22f7e51bbfc24f6a21424c2a1b74bcb2dc8c824e8b73901f9b4913093",
+          "counts": [
+            {
+              "passed": 1,
+              "failed": 1,
+              "ignored": 0,
+              "filtered": 201
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "earlier_failure_explanation": "REDv1 compile-only private helper; REDv2/v3 genuine Unsupported/Unavailable behavior. GREENv1/v2 successfully read an empty archive but failed invalid fixture expectations: managed_accounts lists retained accounts including signed-out accounts, not only running workers. Final REDv4 corrects fixture and re-demonstrates missing native query before unchanged final GREENv3.",
+  "post_freeze_changed_inputs": [
+    "crates/marmot-c/AGENTS.md",
+    "crates/marmot-c/API-REFERENCE.md",
+    "crates/marmot-c/CHANGELOG.md",
+    "crates/marmot-c/README.md",
+    "crates/marmot-c/include/marmot.h",
+    "crates/marmot-uniffi/AGENTS.md",
+    "crates/marmot-uniffi/API-REFERENCE.md",
+    "crates/marmot-uniffi/HISTORY-TRANSFER.md",
+    "crates/marmot-uniffi/README.md",
+    "docs/marmot-architecture/overview/current-state.md"
+  ],
+  "generated_header_exit": 0,
+  "generated_header_log_sha256": "1c309bec66ce8b620c2244856fa775a5ade1bc3e59bb667634d6b63c48105397",
+  "strict_c11_status_header_exit": 0,
+  "static_binding_docs": {
+    "uniffi": 386,
+    "c": 575,
+    "regressions_passed": 17,
+    "parity_exports": 373
+  },
+  "independent_source_review": "/root/message_sync_m5: no concrete blocker; ordered media/provenance, App projection, C ownership, bounds and default guards preserved",
+  "remaining": [
+    "Combine later actor cancellation/shutdown commits and requalify before native adoption",
+    "Actual populated native history, original alias lifecycle and UI presentation",
+    "Matched generated Apple SDK/app builds and physical signed-ready cohort",
+    "Durable restart denial, post-snapshot retention, exact revocation and fresh partial admission repair"
+  ],
+  "coverage_limit": "Allocation fixture directly covers record strings, tags, provenance and cursor; media vector is empty. Existing shared media deep-free is reused; populated native media acceptance remains open."
+}

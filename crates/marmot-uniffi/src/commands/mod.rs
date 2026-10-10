@@ -63,3 +63,5 @@ pub use selected_chat_copy::{SelectedChatConsent, SelectedChatCopy};
 
 mod history_transfer;
 pub use history_transfer::{HistoryConsent, HistoryTransfer};
+
+mod synchronized_history;

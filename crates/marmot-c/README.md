@@ -18,6 +18,7 @@ per feature.
 - [Device verification](#device-verification)
 - [Selected-chat copies](#selected-chat-copies)
 - [Original history transfers](#original-history-transfers)
+- [Committed synchronized history](#committed-synchronized-history)
 - Feature notes: [runtime construction](#runtime-construction), [local sends](#local-sends),
   [public event verification](#public-event-verification), [host performance stages](#host-performance-stages),
   [Markdown rendering](#markdown-rendering), [identity references and pseudonyms](#identity-references-and-pseudonyms),
@@ -514,3 +515,14 @@ History status values append 112–116. Review records carry source/recipient de
 bytes, opaque MLS chat ID, snapshot bounds and committed-completion observations;
 they contain no private key or resumable consent. They do not replace the
 read-only provenance query or establish installed chat-history presentation.
+
+## Committed synchronized history
+
+The [shared reader contract](../marmot-uniffi/SYNCHRONIZED-HISTORY.md) defines
+local source-attested pages, retention, media verdicts and message-ID cursors.
+`marmot_synchronized_history_page` is synchronous local storage work; offload it
+from the UI thread. The caller owns the returned `MarmotArchivedHistoryPage` and
+releases it with `marmot_archived_history_page_free`; embedded records are owned
+by that page. Required outputs are cleared before input reads or effects. NULL
+cursor starts the first page. Query statuses append117–120; page/cursor records
+never authorize a history transfer or media acquisition.

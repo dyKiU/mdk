@@ -22,8 +22,12 @@ status: overview
 The default-off history action surface also has thin UniFFI/C original-owner
 handles, authenticated review snapshots and typed default refusal. Focused
 source checks and the generated C header are qualified; valid original alias
-lifecycle, generated-language ABI, read-only query bindings and matched native
-application history display remain open. See
+lifecycle and matched native application history display remain open. The
+separate synchronous UniFFI/C committed-history reader forwards the App retention
+and provenance policy; empty-archive/native guards and seven App controls pass,
+with native populated-history and UI acceptance still required. See the
+[reader contract](../../../crates/marmot-uniffi/SYNCHRONIZED-HISTORY.md) and
+[reader source qualification](../../history-native-query-focused-verification.json). See
 [native binding qualification](../../history-original-native-bindings-focused-verification.json).
 
 The default-off device-sync experiment now has a public read-only App query for

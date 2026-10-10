@@ -9,6 +9,12 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- Bounded committed-history query and owned source-attested pages, logical tags,
+  ordered media verdicts and message-ID cursor. Page deep-free releases embedded
+  records and buffers. Query statuses append117–120; default builds refuse
+  before input reads and all calls preflight outputs. Use matching headers and
+  libraries; this does not establish native conversation acceptance.
+
 - Original history transfer and recipient consent handles, list-owned consent
   entries, shared clones, authenticated review snapshots and displayed-revision
   continuation/approval. History statuses append112–116 without renumbering older

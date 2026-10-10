@@ -4809,3 +4809,15 @@ Poll authenticated requests for this account without approving them. Retain an o
 [Source](src/commands/history_transfer.rs#L42)
 
 </details>
+
+## Committed synchronized history
+
+### `Marmot::synchronized_history_page`
+
+```rust
+pub fn synchronized_history_page( &self, account_ref: String, group_id_hex: String, after_message_id_hex: Option<String>, limit: u32, ) -> Result<ArchivedHistoryPageFfi, MarmotKitError>
+```
+
+Read a bounded committed logical archive separately from live conversation rows. This synchronous App-policy query uses a nonempty opaque MLS group ID, a 1–200 page limit and optional exact 32-byte message-ID hex cursor. Offload storage work from the UI thread. Results retain source-attested provenance and ordered media verdicts, confer no transfer/download permission, and may require a final empty page. Default builds refuse before parsing or account work; normal experimental account/storage initialization can occur. See [reader contract](SYNCHRONIZED-HISTORY.md).
+
+[Source](src/commands/synchronized_history.rs#L8)

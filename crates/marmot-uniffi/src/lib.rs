@@ -511,6 +511,8 @@ pub use conversions::{
 pub use commands::{HistoryConsent, HistoryTransfer};
 pub use conversions::HistoryTransferSnapshotFfi;
 
+pub use conversions::{ArchivedHistoryPageFfi, ArchivedHistoryRecordFfi};
+
 #[cfg(test)]
 mod tests {
     use super::*;

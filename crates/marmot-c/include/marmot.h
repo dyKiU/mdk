@@ -199,6 +199,10 @@ enum MarmotStatus
   MARMOT_STATUS_HISTORY_TRANSFER_CLOSED = 114,
   MARMOT_STATUS_HISTORY_TRANSFER_STALE_REVISION = 115,
   MARMOT_STATUS_HISTORY_TRANSFER_RUNTIME_UNAVAILABLE = 116,
+  MARMOT_STATUS_SYNCHRONIZED_HISTORY_UNSUPPORTED = 117,
+  MARMOT_STATUS_SYNCHRONIZED_HISTORY_INVALID_QUERY = 118,
+  MARMOT_STATUS_SYNCHRONIZED_HISTORY_UNAVAILABLE = 119,
+  MARMOT_STATUS_SYNCHRONIZED_HISTORY_INVALID_RECORD = 120,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -5618,6 +5622,35 @@ typedef struct MarmotConversationWindowSnapshot {
   bool has_more_before;
   bool has_more_after;
 } MarmotConversationWindowSnapshot;
+
+typedef struct MarmotArchivedHistoryRecord {
+  char *message_id_hex;
+  char *author_pubkey;
+  uint64_t created_at;
+  bool has_expires_at;
+  /**
+   *Only meaningful when the matching `has_` flag is set.
+   */
+  uint64_t expires_at;
+  bool deleted;
+  char *content;
+  struct MarmotMessageTag *tags;
+  uintptr_t tags_len;
+  struct MarmotMediaAttachmentOutcome *media_attachments;
+  uintptr_t media_attachments_len;
+  uint8_t *transfer_id;
+  uintptr_t transfer_id_len;
+  uint8_t *source_device;
+  uintptr_t source_device_len;
+  uint8_t *manifest_digest;
+  uintptr_t manifest_digest_len;
+} MarmotArchivedHistoryRecord;
+
+typedef struct MarmotArchivedHistoryPage {
+  struct MarmotArchivedHistoryRecord *records;
+  uintptr_t records_len;
+  char *next_message_id_hex;
+} MarmotArchivedHistoryPage;
 
 typedef struct MarmotAttachmentDownloadPolicy {
   bool automatic;
@@ -11338,6 +11371,21 @@ MarmotStatus marmot_send_message_draft_with_client_token(const struct MarmotClie
                                                          struct MarmotLocalSendAcceptance **out);
 
 /**
+ * Read a bounded committed archive page in message-ID keyset order.
+ * Default builds refuse before reading inputs. Results attest the source,
+ * not independent original-author MLS authentication. No media is acquired.
+ * # Safety
+ * Live client, borrowed NUL-terminated account/group and optional cursor;
+ * writable output. Do not free the client concurrently with this call.
+ */
+MarmotStatus marmot_synchronized_history_page(const struct MarmotClient *client,
+                                              const char *account,
+                                              const char *group,
+                                              const char *after_message_id,
+                                              uint32_t limit,
+                                              struct MarmotArchivedHistoryPage **out);
+
+/**
  * Free a value of this type returned by this library. NULL
  * is a no-op.
  *
@@ -12543,6 +12591,16 @@ void marmot_selected_chat_consent_snapshot_free(struct MarmotSelectedChatConsent
  * ptr must be NULL or a library-owned result released exactly once.
  */
 void marmot_selected_chat_bytes_free(struct MarmotSelectedChatBytes *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_archived_history_page_free(struct MarmotArchivedHistoryPage *ptr);
 
 /**
  * Free a value of this type returned by this library. NULL
