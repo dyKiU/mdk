@@ -12,6 +12,13 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+mod archive;
+pub use archive::{
+    HistoryArchiveFragmentDisposition, HistoryArchiveFragmentReceipt,
+    HistoryArchiveStagingManifest, MAX_HISTORY_ARCHIVE_BYTES, MAX_HISTORY_ARCHIVE_FRAGMENT_BYTES,
+    SynchronizedHistoryArchive,
+};
+
 pub const MAX_SYNCHRONIZED_HISTORY_CHUNKS: usize = 128;
 pub const MAX_SYNCHRONIZED_HISTORY_RECORDS_PER_CHUNK: usize = 200;
 pub const MAX_SYNCHRONIZED_HISTORY_CHUNK_BYTES: usize = 1_048_576;
@@ -220,6 +227,16 @@ impl SqliteAccountStorage {
     /// Persist an authenticated transfer manifest. Re-admission is idempotent
     /// only for an identical manifest; no existing transfer can be overwritten.
     pub fn admit_synchronized_history(&self, manifest: &SynchronizedHistoryManifest) -> Result<()> {
+        self.admit_synchronized_history_with_archive(manifest, None)
+    }
+
+    // Only the final archive transaction can cross its own reservation fence.
+    // The exact captured scope is integrity metadata, never original authority.
+    fn admit_synchronized_history_with_archive(
+        &self,
+        manifest: &SynchronizedHistoryManifest,
+        archive_scope: Option<&[u8]>,
+    ) -> Result<()> {
         let hash = manifest.digest()?;
         let encoded = bytes(manifest)?;
         self.connection.with_transaction(|| {
@@ -229,6 +246,16 @@ impl SqliteAccountStorage {
                 [hex::encode(manifest.binding.account_id)], |r| r.get(0),
             ).storage()?;
             if !account_matches { return Err(SynchronizedHistoryError::WrongAccount); }
+            let archive: Option<(Vec<u8>, u8)> = conn.query_row(
+                "SELECT scope,state FROM history_archive_staging WHERE transfer_id=?1",
+                [manifest.binding.transfer_id.as_slice()], |r| Ok((r.get(0)?, r.get(1)?)),
+            ).optional().storage()?;
+            match (archive, archive_scope) {
+                (Some((_, 2)), _) => return Err(SynchronizedHistoryError::Cancelled),
+                (Some((scope, 0)), Some(expected)) if scope == expected => (),
+                (None, None) => (),
+                _ => return Err(SynchronizedHistoryError::TransferConflict),
+            }
             let previous: Option<(Vec<u8>, bool)> = conn.query_row(
                 "SELECT manifest_digest,cancelled FROM synchronized_history_transfers WHERE transfer_id=?1",
                 [manifest.binding.transfer_id.as_slice()], |r| Ok((r.get(0)?, r.get(1)?)),
