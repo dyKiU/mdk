@@ -19,6 +19,15 @@ status: overview
 
 # Current State — Implementations & Spec
 
+The default-off device-sync experiment now has a public read-only App query for
+completed logical archive records. It returns source-attested content and
+provenance in bounded message-ID pages, preserving live-event precedence,
+retention fences, payload-free tombstones and shared ordered media verdicts.
+Storage-seeded query tests qualify this presentation boundary; original transport,
+native bindings and conversation/UI adoption require their separate evidence.
+See [query qualification](../../history-readonly-query-focused-verification.json)
+and the [App query contract](../../../crates/marmot-app/README.md#read-only-synchronized-logical-history).
+
 The private, default-off multi-device experiment qualifies original-action A/B/C
 protected settlement and opaque public native three-device enrollment on ready
 isolated accounts. UniFFI/C original-action relay tests and matched host Swift/C

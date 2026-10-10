@@ -121,6 +121,10 @@ mod external_signer;
 mod groups;
 mod history_notices;
 pub use history_notices::{HistoryNotice, HistoryNoticeCause};
+mod synchronized_history;
+pub use synchronized_history::{
+    ArchivedHistoryPage, ArchivedHistoryRecord, SynchronizedHistoryReadError,
+};
 mod ids;
 mod key_package_records;
 #[cfg(test)]
