@@ -12,6 +12,9 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ## [Unreleased]
 
+- Add experimental authenticated protected-roster target observations and a deep-free root mirror. No consent or original removal handle is restored from the observation; matching generated-header qualification is separate.
+
+
 ### Added
 
 - Read-only linked history-recipient choices with an owned list of actual leaf

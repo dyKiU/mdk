@@ -538,3 +538,5 @@ never authorize a history transfer or media acquisition.
 ## Exact-device revocation
 
 The [shared exact-device contract](../marmot-uniffi/DEVICE-REVOCATION.md) applies to the blocking `marmot_begin_device_revocation` factory and opaque original handle. Retain aliases with `marmot_device_revocation_clone`; deep-free review snapshots and free each handle separately. Required outputs precede effects, and default builds refuse before input reads. Status values 121–127 append typed revocation outcomes.
+
+Experimental `marmot_device_revocation_targets` returns owned fresh protected group/epoch and indexed remote device bytes. Free the complete result with `marmot_device_revocation_targets_free`; embedded entries are not independently freed. The original factory revalidates a selected device. Matching generated header/host ABI qualification follows the source checkpoint; shipped SDK987 is unchanged.

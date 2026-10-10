@@ -98,8 +98,8 @@ mod conversions;
 mod device_linking;
 mod device_revocation;
 pub use device_revocation::{
-    DeviceRevocation, DeviceRevocationSnapshot, GroupDeviceRevocation, GroupDeviceRevocationError,
-    GroupDeviceRevocationSnapshot,
+    DeviceRevocation, DeviceRevocationSnapshot, DeviceRevocationTarget, DeviceRevocationTargets,
+    GroupDeviceRevocation, GroupDeviceRevocationError, GroupDeviceRevocationSnapshot,
 };
 mod history_transfer;
 mod native_device_linking;

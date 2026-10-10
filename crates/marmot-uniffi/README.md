@@ -1088,3 +1088,5 @@ not report synchronized messages or history.
 ## Exact-device revocation
 
 The default-off experimental `begin_device_revocation` factory returns a held original administrator action. Review its captured groups and target, approve the exact displayed revision, and observe per-group confirmed outcomes. See [Exact-device revocation](DEVICE-REVOCATION.md) for lifetime, cancellation, incomplete progress and target-inventory limits.
+
+The experimental `device_revocation_targets` query observes the current authenticated protected roster without requiring ordinary-chat admission. Use its remote signer/index entries for a picker, then begin a fresh original action; the observation never grants removal. See [exact-device revocation](DEVICE-REVOCATION.md).

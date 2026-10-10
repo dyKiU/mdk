@@ -7,6 +7,43 @@ use cgka_traits::GroupId;
 use std::sync::Arc;
 
 impl AppClient {
+    pub(crate) fn device_revocation_targets(
+        &mut self,
+    ) -> Result<crate::DeviceRevocationTargets, GroupDeviceRevocationError> {
+        use cgka_traits::StorageProvider;
+        let storage = self
+            .app
+            .account_storage(&self.state.label)
+            .map_err(|_| GroupDeviceRevocationError::RuntimeUnavailable)?;
+        let round = storage
+            .private_roster_settlement_storage()
+            .ok_or(GroupDeviceRevocationError::NotReady)?
+            .read_round()
+            .map_err(|_| GroupDeviceRevocationError::RuntimeUnavailable)?
+            .ok_or(GroupDeviceRevocationError::NotReady)?;
+        self.runtime
+            .session_mut()
+            .ensure_group_hydrated(&round.anchor.group_id)
+            .map_err(|_| GroupDeviceRevocationError::InvalidSelection)?;
+        let value = self
+            .runtime
+            .session()
+            .device_revocation_targets()
+            .map_err(|_| GroupDeviceRevocationError::InvalidSelection)?;
+        Ok(crate::DeviceRevocationTargets {
+            protected_group: value.protected_group,
+            protected_epoch: value.protected_epoch,
+            targets: value
+                .targets
+                .into_iter()
+                .map(|target| crate::DeviceRevocationTarget {
+                    leaf_index: target.leaf_index,
+                    device: target.device,
+                })
+                .collect(),
+        })
+    }
+
     pub(crate) fn begin_original_device_revocation(
         &mut self,
         target: &[u8],

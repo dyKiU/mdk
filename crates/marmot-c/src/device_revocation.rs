@@ -225,3 +225,66 @@ mod tests {
         assert!(out.is_null());
     }
 }
+
+/// Observe the current authenticated protected roster; no removal action is allocated.
+/// # Safety
+/// Live client, borrowed account and required writable output; no concurrent free.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_revocation_targets(
+    client: *const MarmotClient,
+    account: *const c_char,
+    out: *mut *mut crate::types::device_revocation::MarmotDeviceRevocationTargets,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        arg!(unsafe { preflight_out_ptr(out) });
+        #[cfg(not(feature = "experimental-device-sync"))]
+        {
+            let _ = (client, account);
+            MarmotStatus::DeviceRevocationUnsupported
+        }
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            let client = arg!(unsafe { client_ref(client) });
+            let account = arg!(unsafe { required_str(account) });
+            match client.block_on(client.marmot.device_revocation_targets(account)) {
+                Ok(value) => {
+                    unsafe { *out = boxed(value.into()) };
+                    MarmotStatus::Ok
+                }
+                Err(error) => status_from_error(&error),
+            }
+        }
+    })
+}
+#[cfg(test)]
+mod target_tests {
+    use super::*;
+    #[test]
+    fn revocation_target_output_precedes_inputs_and_default_denies() {
+        unsafe {
+            assert_eq!(
+                marmot_device_revocation_targets(
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null_mut()
+                ),
+                MarmotStatus::NullPointer
+            );
+            let mut out = std::ptr::dangling_mut();
+            let status =
+                marmot_device_revocation_targets(std::ptr::null(), std::ptr::null(), &mut out);
+            assert!(out.is_null());
+            assert_eq!(
+                status,
+                if cfg!(feature = "experimental-device-sync") {
+                    MarmotStatus::NullPointer
+                } else {
+                    MarmotStatus::DeviceRevocationUnsupported
+                }
+            );
+            crate::types::device_revocation::marmot_device_revocation_targets_free(
+                std::ptr::null_mut(),
+            );
+        }
+    }
+}

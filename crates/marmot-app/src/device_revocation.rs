@@ -59,7 +59,42 @@ pub struct DeviceRevocation {
     _private: (),
 }
 
+/// Fresh protected roster observation; never removal permission.
+#[derive(Clone, PartialEq, Eq)]
+pub struct DeviceRevocationTarget {
+    pub leaf_index: u32,
+    pub device: Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq)]
+pub struct DeviceRevocationTargets {
+    pub protected_group: GroupId,
+    pub protected_epoch: u64,
+    pub targets: Vec<DeviceRevocationTarget>,
+}
+impl std::fmt::Debug for DeviceRevocationTargets {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeviceRevocationTargets")
+            .field("targets", &self.targets.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl AccountManager {
+    pub async fn device_revocation_targets(
+        &self,
+        account: &str,
+    ) -> Result<DeviceRevocationTargets, GroupDeviceRevocationError> {
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            self.observe_device_revocation_targets(account).await
+        }
+        #[cfg(not(feature = "experimental-device-sync"))]
+        {
+            let _ = account;
+            Err(GroupDeviceRevocationError::Unsupported)
+        }
+    }
+
     pub async fn begin_device_revocation(
         &self,
         account: &str,
@@ -252,6 +287,25 @@ mod tests {
         ));
         device.cancel();
         assert!(accounts.managed_accounts().unwrap().is_empty());
+        runtime.shutdown_and_close().await.unwrap();
+    }
+}
+
+#[cfg(all(test, not(feature = "experimental-device-sync")))]
+mod target_default_tests {
+    #[tokio::test]
+    async fn device_revocation_targets_default_has_no_account_effects() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = crate::MarmotApp::with_relay(dir.path(), "wss://relay.example");
+        let runtime = app.runtime();
+        assert!(matches!(
+            runtime
+                .accounts()
+                .device_revocation_targets("missing")
+                .await,
+            Err(super::GroupDeviceRevocationError::Unsupported)
+        ));
+        assert!(runtime.accounts().managed_accounts().unwrap().is_empty());
         runtime.shutdown_and_close().await.unwrap();
     }
 }

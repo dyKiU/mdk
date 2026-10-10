@@ -6,7 +6,7 @@ Hold the returned `DeviceRevocation` object throughout review and approval. `sna
 
 `cancel()` permanently retires the original. Shared foreign aliases retain the same App owner: dropping one alias preserves other aliases, while dropping the last alias retires it. Account shutdown, cancellation and the original fixed 600-second deadline fence later approval. The runtime bounds original actions and captured groups to 128; no call renews the acquisition deadline or rebuilds permission after restart. Default builds return `DeviceRevocationUnsupported` before input/account effects.
 
-The API exposes no general linked-device inventory. `device_linking_targets` returns protected selectors/counts, while `history_transfer_recipients` observes only eligible devices for a selected ordinary chat. Neither creates revocation permission. A settings-wide target picker requires a separate authenticated inventory query; do not substitute pasted secret material or infer devices from cached review records.
+`device_revocation_targets(account_ref)` reads the actual current settled protected roster, independently of ordinary-chat admission. It returns the protected MLS group/epoch and indexed remote device signers, excluding this device, with at most 128 leaves. These are authenticated observations for a picker, never permission. Pass only a selected device into the original factory, which freshly revalidates protected state and every captured ordinary group; the query does not promise ordinary-chat administrator rights. Missing or unsettled protected state refuses. Default builds remain Unsupported before account effects. `device_linking_targets` still returns selectors/counts and `history_transfer_recipients` remains ordinary-chat scoped.
 
 ## C ownership
 

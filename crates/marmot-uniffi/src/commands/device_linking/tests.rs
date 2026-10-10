@@ -323,6 +323,49 @@ async fn native_three_device_fixture(revoke: bool) {
             .await,
         Err(MarmotKitError::DeviceLinkingNotReady | MarmotKitError::DeviceLinkingClosed)
     ));
+    if revoke {
+        let mut views = Vec::new();
+        for kit in &kits {
+            let view = kit.device_revocation_targets("test".into()).await.unwrap();
+            assert_eq!(view.targets.len(), 2);
+            assert_eq!(view.protected_epoch, 2);
+            assert!(!view.protected_group_id_hex.is_empty());
+            assert!(view.targets.iter().all(|target| target.device.len() == 32));
+            assert_ne!(view.targets[0].leaf_index, view.targets[1].leaf_index);
+            assert_ne!(view.targets[0].device, view.targets[1].device);
+            assert_eq!(
+                kit.device_revocation_targets("test".into()).await.unwrap(),
+                view
+            );
+            views.push(view);
+        }
+        assert!(
+            views
+                .iter()
+                .all(|v| v.protected_group_id_hex == views[0].protected_group_id_hex)
+        );
+        for i in 0..3 {
+            let own: Vec<_> = views[(i + 1) % 3]
+                .targets
+                .iter()
+                .filter(|other| {
+                    !views[i]
+                        .targets
+                        .iter()
+                        .any(|target| target.device == other.device)
+                })
+                .collect();
+            assert_eq!(
+                own.len(),
+                1,
+                "query excludes exactly the originating actual signer"
+            );
+        }
+        assert!(matches!(
+            kits[0].device_revocation_targets("missing".into()).await,
+            Err(MarmotKitError::DeviceRevocationRuntimeUnavailable)
+        ));
+    }
     let revocation = selected_chat_binding_request_after_actual_abc(&kits, &url, revoke).await;
     a.cancel().await.unwrap();
     c.cancel().await.unwrap();
@@ -405,6 +448,13 @@ async fn selected_chat_binding_request_after_actual_abc(
         app,
     };
     d.runtime.reconcile_accounts().await.unwrap();
+    if revoke {
+        assert!(matches!(
+            d.device_revocation_targets("test".into()).await,
+            Err(MarmotKitError::DeviceRevocationNotReady)
+        ));
+    }
+
     // Ordinary D setup uses the production relay-list publisher, not injected membership.
     d.app
         .set_account_inbox_relays(
@@ -595,17 +645,23 @@ async fn revoke_actual_selected_device(
 ) -> std::sync::Arc<crate::DeviceRevocation> {
     use std::time::Duration;
     let a_choices = kits[0]
-        .history_transfer_recipients("test".into(), chat.into())
+        .device_revocation_targets("test".into())
         .await
         .unwrap();
     let c_choices = kits[2]
-        .history_transfer_recipients("test".into(), chat.into())
+        .device_revocation_targets("test".into())
         .await
         .unwrap();
-    assert_eq!(a_choices.len(), 2);
+    assert_eq!(a_choices.targets.len(), 2);
     let target = a_choices
+        .targets
         .iter()
-        .find(|item| !c_choices.iter().any(|other| item.device == other.device))
+        .find(|item| {
+            !c_choices
+                .targets
+                .iter()
+                .any(|other| item.device == other.device)
+        })
         .expect("actual C is excluded from its own authenticated recipient choices")
         .device
         .clone();
@@ -693,6 +749,34 @@ async fn revoke_actual_selected_device(
     })
     .await
     .expect("actual Remove must reach surviving and removed independent runtimes");
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            if let Ok(view) = kits[0].device_revocation_targets("test".into()).await
+                && view.targets.len() == 1
+                && view
+                    .targets
+                    .iter()
+                    .all(|entry| entry.device != captured.target_device)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("fresh settled successor query must exclude removed C");
+    assert!(matches!(
+        kits[0]
+            .begin_device_revocation("test".into(), captured.target_device.clone())
+            .await,
+        Err(MarmotKitError::DeviceRevocationInvalidSelection)
+    ));
+    assert!(
+        kits[2]
+            .device_revocation_targets("test".into())
+            .await
+            .is_err()
+    );
     assert!(
         kits[2]
             .send_text(

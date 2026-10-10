@@ -4834,7 +4834,7 @@ Read a bounded committed logical archive separately from live conversation rows.
 [Source](src/commands/synchronized_history.rs#L8)
 
 <details>
-<summary>New exports — complete and organize before merging</summary>
+<summary>Authenticated exact-device target observations</summary>
 
 ### `DeviceRevocation::approve`
 
@@ -4844,7 +4844,7 @@ pub async fn approve(&self, revision: u64) -> Result<(), MarmotKitError>
 
 Approve this held original at the displayed revision; Core revalidates its exact device and captured group lineage. See [exact-device revocation](DEVICE-REVOCATION.md).
 
-[Source](src/commands/device_revocation.rs#L45)
+[Source](src/commands/device_revocation.rs#L58)
 
 ### `DeviceRevocation::cancel`
 
@@ -4854,7 +4854,7 @@ pub fn cancel(&self)
 
 Permanently cancel this original across all shared aliases; confirmed removals are retained. See [exact-device revocation](DEVICE-REVOCATION.md).
 
-[Source](src/commands/device_revocation.rs#L52)
+[Source](src/commands/device_revocation.rs#L65)
 
 ### `DeviceRevocation::snapshot`
 
@@ -4864,7 +4864,7 @@ pub async fn snapshot(&self) -> Result<DeviceRevocationSnapshotFfi, MarmotKitErr
 
 Read captured target/groups, displayed revision and per-group confirmed progress. This record cannot reconstruct a Remove action. See [exact-device revocation](DEVICE-REVOCATION.md).
 
-[Source](src/commands/device_revocation.rs#L41)
+[Source](src/commands/device_revocation.rs#L54)
 
 ### `Marmot::begin_device_revocation`
 
@@ -4873,6 +4873,21 @@ pub async fn begin_device_revocation( &self, account_ref: String, target_device:
 ```
 
 Create a fresh authenticated original review for an exact 32-byte device selector. Default builds refuse before account effects; explicit approval is separate. See [exact-device revocation](DEVICE-REVOCATION.md).
+
+[Source](src/commands/device_revocation.rs#L26)
+
+</details>
+
+<details>
+<summary>Authenticated exact-device target observations</summary>
+
+### `Marmot::device_revocation_targets`
+
+```rust
+pub async fn device_revocation_targets( &self, account_ref: String, ) -> Result<crate::DeviceRevocationTargetsFfi, MarmotKitError>
+```
+
+Read the fresh authenticated protected roster independently of ordinary-chat admission. The bounded remote indexed signers exclude this device and are picker observations only. Pass one device selector to the original factory, which revalidates every captured group. Default Unsupported precedes account effects. See [exact-device revocation](DEVICE-REVOCATION.md).
 
 [Source](src/commands/device_revocation.rs#L13)
 

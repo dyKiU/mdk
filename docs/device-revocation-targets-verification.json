@@ -1,0 +1,417 @@
+{
+  "base": "617d30f2368d45608105ab7ebdb28fe3acf3b76c",
+  "candidates": {
+    "v1": "794b48b22b84c1bb93ad984cd885dd67c020a575",
+    "v2": "de2da323add7b55739bc42ff05b3049be1d7ff74",
+    "v3": "3dbaeb03bff43fc5d985f13c4104b755028bb036"
+  },
+  "qualification": [
+    {
+      "source_base": "617d30f2368d45608105ab7ebdb28fe3acf3b76c",
+      "inputs": 2529,
+      "manifest_sha256": "146ddb45b62f8f8a2817ebe52dfb8a3e1ca8b1e33ddf2cafb439edebfd85323e",
+      "toolchain": "cargo 1.97.1 (c980f4866 2026-06-30)",
+      "gates": [
+        {
+          "gate": "uniffi-original",
+          "exit_code": 0,
+          "seconds": 58.684948874870315,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-uniffi",
+            "--lib",
+            "--features",
+            "experimental-device-sync,marmot-app/test-policy-overrides",
+            "opaque_device_revocation_retains_original_scope_revision_and_cancellation",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "add7e87ffca79bfd53eadba98d1d472bebc323a16903f0e49955847876d7469a",
+          "log": "/Users/pj/project/build/results/device-revocation-targets-green-v1-uniffi-original.log",
+          "summaries": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "c-original",
+          "exit_code": 101,
+          "seconds": 32.2198079591617,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-c",
+            "--lib",
+            "--features",
+            "experimental-device-sync,alloc-audit",
+            "actual_c_three_device_enrollment_retains_approval_after_list_free",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "8a346b41daf91c916727087d62cc3496e5b3119b341ed41be4ce8d7cd5a7c50e",
+          "log": "/Users/pj/project/build/results/device-revocation-targets-green-v1-c-original.log",
+          "summaries": []
+        }
+      ]
+    },
+    {
+      "source_base": "617d30f2368d45608105ab7ebdb28fe3acf3b76c",
+      "inputs": 2529,
+      "manifest_sha256": "eb0353dd49c4319bbb66734b73bf4d2b8e993bdfecea18a90b45afdf5ec1cc03",
+      "toolchain": "cargo 1.97.1 (c980f4866 2026-06-30)",
+      "gates": [
+        {
+          "gate": "uniffi-original",
+          "exit_code": 0,
+          "seconds": 15.835896250093356,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-uniffi",
+            "--lib",
+            "--features",
+            "experimental-device-sync,marmot-app/test-policy-overrides",
+            "opaque_device_revocation_retains_original_scope_revision_and_cancellation",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "6e58f3e9b0eea166c430ae05c55a38b8f36e3185b2e04ea87de7ebf187d37dfa",
+          "log": "/Users/pj/project/build/results/device-revocation-targets-green-v2-uniffi-original.log",
+          "summaries": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "c-original",
+          "exit_code": 0,
+          "seconds": 31.27989187510684,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-c",
+            "--lib",
+            "--features",
+            "experimental-device-sync,alloc-audit",
+            "actual_c_three_device_enrollment_retains_approval_after_list_free",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "26e2e449e399b508f3d7555b5a574045cb332d6f27c78f2c48a08f276805e193",
+          "log": "/Users/pj/project/build/results/device-revocation-targets-green-v2-c-original.log",
+          "summaries": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "app-family",
+          "exit_code": 0,
+          "seconds": 132.4734337090049,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "device_revocation",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "cd77d728c904e2f5946733aff754efe54e046123f0e5077b914483064331035b",
+          "log": "/Users/pj/project/build/results/device-revocation-targets-green-v2-app-family.log",
+          "summaries": [
+            [
+              "ok",
+              "9",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "app-default",
+          "exit_code": 0,
+          "seconds": 47.14362687477842,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "device_revocation",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "e2bfa54f4b0ad37f71d708963b973d1ea41219f295161e9e0f73535de5de3c8a",
+          "log": "/Users/pj/project/build/results/device-revocation-targets-green-v2-app-default.log",
+          "summaries": [
+            [
+              "ok",
+              "2",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "uniffi-default",
+          "exit_code": 0,
+          "seconds": 37.61531975003891,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-uniffi",
+            "--lib",
+            "revocation",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "88ed8d67c8d7ef40e8b5270382d15750057a13cde228cfb5ff67312fe403f114",
+          "log": "/Users/pj/project/build/results/device-revocation-targets-green-v2-uniffi-default.log",
+          "summaries": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "c-default",
+          "exit_code": 0,
+          "seconds": 35.314402458956465,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-c",
+            "--lib",
+            "revocation",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "3938a0d5f513bbd5290cd217cb44cd84f328273d547bfed29ff8a2a3db416313",
+          "log": "/Users/pj/project/build/results/device-revocation-targets-green-v2-c-default.log",
+          "summaries": [
+            [
+              "ok",
+              "3",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "strict-clippy",
+          "exit_code": 101,
+          "seconds": 35.11732641607523,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "clippy",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "cgka-engine",
+            "-p",
+            "cgka-session",
+            "-p",
+            "marmot-app",
+            "-p",
+            "marmot-uniffi",
+            "-p",
+            "marmot-c",
+            "--all-targets",
+            "--features",
+            "experimental-device-sync",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "6742ef9252529d7af2ce1bf29aed84f8fc6267605f860c3c9361b72d8a65984b",
+          "log": "/Users/pj/project/build/results/device-revocation-targets-green-v2-strict-clippy.log",
+          "summaries": []
+        }
+      ]
+    },
+    {
+      "source_base": "617d30f2368d45608105ab7ebdb28fe3acf3b76c",
+      "inputs": 2529,
+      "manifest_sha256": "766a9dac19fb8d8d05b0eb8ea6a50abf13c16bcb06697ada7b476bf98e7e4e67",
+      "toolchain": "cargo 1.97.1 (c980f4866 2026-06-30)",
+      "gates": [
+        {
+          "gate": "uniffi-original",
+          "exit_code": 0,
+          "seconds": 29.634982875082642,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-uniffi",
+            "--lib",
+            "--features",
+            "experimental-device-sync,marmot-app/test-policy-overrides",
+            "opaque_device_revocation_retains_original_scope_revision_and_cancellation",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "173dc0a354db6df9f7f230420d4e35d3c4029ecaa8921e28fe3d5bdba5b6576b",
+          "log": "/Users/pj/project/build/results/device-revocation-targets-green-v3-uniffi-original.log",
+          "summaries": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "strict-clippy",
+          "exit_code": 0,
+          "seconds": 8.24657537508756,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "clippy",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "cgka-engine",
+            "-p",
+            "cgka-session",
+            "-p",
+            "marmot-app",
+            "-p",
+            "marmot-uniffi",
+            "-p",
+            "marmot-c",
+            "--all-targets",
+            "--features",
+            "experimental-device-sync",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "608d39298571b309b24879aab6644ffe65786a06e6de25e5895cc97dfcea3e5a",
+          "log": "/Users/pj/project/build/results/device-revocation-targets-green-v3-strict-clippy.log",
+          "summaries": []
+        },
+        {
+          "gate": "default-check",
+          "exit_code": 0,
+          "seconds": 28.057887624949217,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "check",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "cgka-engine",
+            "-p",
+            "cgka-session",
+            "-p",
+            "marmot-app",
+            "-p",
+            "marmot-uniffi",
+            "-p",
+            "marmot-c",
+            "--all-targets"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "b2fa51b6dd7b3cfac104af8e4793408cb0def15b9f3cafab2bb9e470b47ea680",
+          "log": "/Users/pj/project/build/results/device-revocation-targets-green-v3-default-check.log",
+          "summaries": []
+        },
+        {
+          "gate": "fmt",
+          "exit_code": 0,
+          "seconds": 3.4952894169837236,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "fmt",
+            "--all",
+            "--",
+            "--check"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "log": "/Users/pj/project/build/results/device-revocation-targets-green-v3-fmt.log",
+          "summaries": []
+        }
+      ]
+    }
+  ],
+  "scope": "Fresh authenticated protected-roster observation before ordinary chat admission, excludes current signer, genuine ABC UF/C original controls, independent account refusal, removed C exclusion and stale observed selector refusal; default Unsupported before effects. Read-only query does not allocate original authority or confer ordinary-group administration.",
+  "baseline": "New API was absent; no artificial denying stub or behavioral RED claim. v1 C macro syntax failure is compile-only. v2 six behavioral/default gates pass, then strict Clippy test-only nested-if failure. v3 equivalent let-chain reruns genuine UF acceptance plus strict five-package Clippy/default all-target check/fmt. Runtime bytes identical across v2/v3.",
+  "static_docs": {
+    "uniffi_callables": 392,
+    "c_callables": 584,
+    "docs_regressions": 17,
+    "parity_exports": 379
+  },
+  "limits": "Generated C header, host ABI and matched Apple package qualification follow separately. Existing shipping/installed SDK987 and native app source are unchanged.",
+  "post_freeze_delta": "This compact proof and current-state status paragraph only."
+}

@@ -42,7 +42,78 @@ impl DeviceLeafRevocationSelection {
     }
 }
 
+/// Bounded fresh roster observations, never a captured removal action.
+#[derive(Clone, PartialEq, Eq)]
+pub struct DeviceRevocationTarget {
+    pub leaf_index: u32,
+    pub device: Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq)]
+pub struct DeviceRevocationTargets {
+    pub protected_group: GroupId,
+    pub protected_epoch: u64,
+    pub targets: Vec<DeviceRevocationTarget>,
+}
+impl std::fmt::Debug for DeviceRevocationTargets {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeviceRevocationTargets")
+            .field("targets", &self.targets.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl<S: StorageProvider> Engine<S> {
+    /// Observe current protected devices independently of ordinary chat admission.
+    pub fn device_revocation_targets(&self) -> Result<DeviceRevocationTargets, EngineError> {
+        self.storage.with_read_snapshot(|storage| {
+            let round = storage
+                .private_roster_settlement_storage()
+                .ok_or_else(unavailable)?
+                .read_round()?
+                .ok_or_else(unavailable)?;
+            let actual = self
+                .validated_settled_device_roster(&round.anchor.group_id)?
+                .ok_or_else(unavailable)?;
+            let protected = actual.candidate();
+            self.ensure_group_live(&protected.group_id)?;
+            let record = self.group_record(&protected.group_id)?;
+            let authority = self.group_authority(&protected.group_id)?;
+            let signer = self.identity.signer.public();
+            if protected.account != *self.identity.self_id()
+                || protected.leaves.len() > 128
+                || record.protocol_profile != ProtocolProfile::Current
+                || record.removed
+                || record.unrecoverable
+                || record.disbanded.is_some()
+                || authority.lifecycle != GroupLifecycleState::Stable
+                || authority.disbanding
+                || !authority.facts.is_admin
+                || !authority.facts.is_member
+                || !protected
+                    .leaves
+                    .iter()
+                    .any(|leaf| leaf.signature_public_key == signer)
+            {
+                return Err(unavailable());
+            }
+            let mut targets: Vec<_> = protected
+                .leaves
+                .iter()
+                .filter(|leaf| leaf.signature_public_key != signer)
+                .map(|leaf| DeviceRevocationTarget {
+                    leaf_index: leaf.leaf_index,
+                    device: leaf.signature_public_key.clone(),
+                })
+                .collect();
+            targets.sort_unstable_by_key(|target| target.leaf_index);
+            Ok(DeviceRevocationTargets {
+                protected_group: protected.group_id.clone(),
+                protected_epoch: protected.epoch.0,
+                targets,
+            })
+        })
+    }
+
     pub fn capture_device_leaf_revocation_selection(
         &self,
         group: &GroupId,

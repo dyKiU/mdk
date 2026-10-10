@@ -9,6 +9,19 @@ pub struct DeviceRevocation {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl Marmot {
+    /// Observe actual protected devices; the original factory independently revalidates selection.
+    pub async fn device_revocation_targets(
+        &self,
+        account_ref: String,
+    ) -> Result<crate::DeviceRevocationTargetsFfi, MarmotKitError> {
+        Ok(self
+            .runtime
+            .accounts()
+            .device_revocation_targets(&account_ref)
+            .await?
+            .into())
+    }
+
     /// Capture fresh authenticated groups for an exact linked device; requires explicit review.
     pub async fn begin_device_revocation(
         &self,
@@ -68,6 +81,10 @@ mod tests {
         assert!(matches!(
             kit.begin_device_revocation("missing".into(), vec![0; 65536])
                 .await,
+            Err(MarmotKitError::DeviceRevocationUnsupported)
+        ));
+        assert!(matches!(
+            kit.device_revocation_targets("missing".into()).await,
             Err(MarmotKitError::DeviceRevocationUnsupported)
         ));
         assert!(

@@ -729,6 +729,23 @@ fn actual_c_three_device_enrollment_retains_approval_after_list_free() {
             assert_eq!((*(*targets).items).device_count, 3);
             marmot_device_linking_target_list_free(targets);
         }
+        for (client, account) in clients.iter().zip(&accounts) {
+            let mut view = std::ptr::null_mut();
+            assert_eq!(
+                crate::device_revocation::marmot_device_revocation_targets(
+                    client,
+                    account.as_ptr(),
+                    &mut view
+                ),
+                MarmotStatus::Ok
+            );
+            assert_eq!((*view).protected_epoch, 2);
+            assert_eq!((*view).targets_len, 2);
+            let targets = std::slice::from_raw_parts((*view).targets, (*view).targets_len);
+            assert!(targets.iter().all(|target| target.device_len == 32));
+            assert_ne!(targets[0].leaf_index, targets[1].leaf_index);
+            crate::types::device_revocation::marmot_device_revocation_targets_free(view);
+        }
         retained_revocation = c_selected_chat_after_actual_abc(&clients, &accounts, &url);
         assert_eq!(marmot_device_linking_session_cancel(a), MarmotStatus::Ok);
         assert_eq!(marmot_device_linking_session_cancel(c), MarmotStatus::Ok);

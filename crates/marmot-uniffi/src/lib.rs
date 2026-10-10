@@ -510,7 +510,9 @@ pub use conversions::{
 
 pub use commands::DeviceRevocation;
 pub use commands::{HistoryConsent, HistoryTransfer};
-pub use conversions::DeviceRevocationSnapshotFfi;
+pub use conversions::{
+    DeviceRevocationSnapshotFfi, DeviceRevocationTargetFfi, DeviceRevocationTargetsFfi,
+};
 pub use conversions::{HistoryTransferRecipientFfi, HistoryTransferSnapshotFfi};
 
 pub use conversions::{ArchivedHistoryPageFfi, ArchivedHistoryRecordFfi};

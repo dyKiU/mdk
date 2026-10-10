@@ -8,6 +8,9 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 type Reply<T> = oneshot::Sender<Result<T, GroupDeviceRevocationError>>;
 pub(crate) enum Command {
+    Targets {
+        respond: Reply<crate::DeviceRevocationTargets>,
+    },
     BeginDevice {
         target: Vec<u8>,
         respond: Reply<Arc<State>>,
@@ -32,6 +35,14 @@ pub(crate) enum Command {
     },
 }
 impl AccountManager {
+    pub(crate) async fn observe_device_revocation_targets(
+        &self,
+        account: &str,
+    ) -> Result<crate::DeviceRevocationTargets, GroupDeviceRevocationError> {
+        self.device_revocation_command(account, |respond| Command::Targets { respond })
+            .await
+    }
+
     pub(crate) async fn begin_original_device_revocation(
         &self,
         account: &str,
@@ -130,6 +141,11 @@ impl AccountManager {
 }
 pub(crate) async fn handle(client: &mut crate::AppClient, command: Command) {
     match command {
+        Command::Targets { respond } => {
+            if !respond.is_closed() {
+                let _ = respond.send(client.device_revocation_targets());
+            }
+        }
         Command::BeginDevice { target, respond } => {
             if respond.is_closed() {
                 return;

@@ -38,3 +38,39 @@ impl std::fmt::Debug for DeviceRevocationSnapshotFfi {
             .finish_non_exhaustive()
     }
 }
+
+/// Actual protected roster observation, never a removal grant.
+#[derive(Clone, PartialEq, Eq, uniffi::Record)]
+pub struct DeviceRevocationTargetFfi {
+    pub leaf_index: u32,
+    pub device: Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq, uniffi::Record)]
+pub struct DeviceRevocationTargetsFfi {
+    pub protected_group_id_hex: String,
+    pub protected_epoch: u64,
+    pub targets: Vec<DeviceRevocationTargetFfi>,
+}
+impl From<marmot_app::DeviceRevocationTargets> for DeviceRevocationTargetsFfi {
+    fn from(value: marmot_app::DeviceRevocationTargets) -> Self {
+        Self {
+            protected_group_id_hex: hex::encode(value.protected_group.as_slice()),
+            protected_epoch: value.protected_epoch,
+            targets: value
+                .targets
+                .into_iter()
+                .map(|target| DeviceRevocationTargetFfi {
+                    leaf_index: target.leaf_index,
+                    device: target.device,
+                })
+                .collect(),
+        }
+    }
+}
+impl std::fmt::Debug for DeviceRevocationTargetsFfi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeviceRevocationTargetsFfi")
+            .field("targets", &self.targets.len())
+            .finish_non_exhaustive()
+    }
+}

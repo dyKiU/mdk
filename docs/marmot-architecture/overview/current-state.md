@@ -468,3 +468,8 @@ One-group exact-leaf removal now also has actual held-publication cancellation/l
 ### Exact-device captured-scope removal checkpoint
 
 Device-wide original removal now qualifies actual protected three-to-two and two ordinary four-to-three leaf transitions, surviving new messages and removed-device refusal. Old protected round and matching origins remain denied. Fresh positive protected successor settlement, whole-scope lifecycle/repair/reopen and native exposure remain open.
+
+
+### Authenticated revocation target observation
+
+The experimental Core/Session/App and UniFFI/C query now returns the actual fresh settled protected group, epoch and indexed sibling device signers, excluding the current signer. Genuine protected-only ABC acceptance precedes ordinary chat admission; after actual removal the returned targets exclude C and the fresh original factory rejects its stale selector. The observation conveys no original action or ordinary-group administrator permission. Default builds refuse before account effects. Source qualification is recorded in [the query proof](../../device-revocation-targets-verification.json); generated header/host ABI and matched Apple SDK adoption remain separate.
