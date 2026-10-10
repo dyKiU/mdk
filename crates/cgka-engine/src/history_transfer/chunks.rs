@@ -50,6 +50,18 @@ impl<S: StorageProvider> Engine<S> {
         {
             return Err(refused());
         }
+        if let Some(snapshot) = &channel.scope.snapshot {
+            let expected = snapshot
+                .encoded_bytes
+                .saturating_sub(ordinal * 1536)
+                .min(1536) as usize;
+            if manifest != snapshot.archive_digest
+                || ordinal >= snapshot.fragment_count
+                || (!receipt && body.len() != expected)
+            {
+                return Err(refused());
+            }
+        }
         let digest: [u8; 32] = Sha256::digest(body).into();
         if let Some(existing) = channel.sealed_chunks.get(ordinal as usize) {
             if existing.digest != digest {
@@ -128,6 +140,12 @@ impl<S: StorageProvider> Engine<S> {
         {
             return Err(refused());
         }
+        if let Some(snapshot) = &channel.scope.snapshot
+            && (frame.manifest != snapshot.archive_digest
+                || frame.ordinal >= snapshot.fragment_count)
+        {
+            return Err(refused());
+        }
         let ordinal = frame.ordinal as usize;
         let digest: [u8; 32] = Sha256::digest(wire).into();
         if let Some(old) = channel.opened_chunks.get(ordinal) {
@@ -157,6 +175,15 @@ impl<S: StorageProvider> Engine<S> {
                 &frame.binding,
             )
             .map_err(|_| refused())?;
+        if let Some(snapshot) = &channel.scope.snapshot {
+            let expected = snapshot
+                .encoded_bytes
+                .saturating_sub(frame.ordinal * 1536)
+                .min(1536) as usize;
+            if !receipt && body.len() != expected {
+                return Err(refused());
+            }
+        }
         if body.len() > MAX_HISTORY_CHUNK_BYTES {
             return Err(refused());
         }

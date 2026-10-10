@@ -41,6 +41,41 @@ pub enum HistoryControl {
     Receipt(u32),
 }
 
+/// Exporter snapshot facts, not a consent grant. The trusted actor constructs
+/// these from an immutable actual logical export after Core derives transfer IDs.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HistorySnapshotDescriptor {
+    pub archive_digest: [u8; 32],
+    pub timestamp_ceiling: u64,
+    pub encoded_bytes: u32,
+    pub fragment_count: u32,
+    pub record_count: u32,
+}
+impl HistorySnapshotDescriptor {
+    fn validate(&self) -> Result<(), EngineError> {
+        if self.archive_digest == [0; 32]
+            || self.timestamp_ceiling == 0
+            || self.encoded_bytes == 0
+            || self.encoded_bytes > 128 * 1536
+            || self.fragment_count != self.encoded_bytes.div_ceil(1536)
+            || self.record_count == 0
+            || self.record_count > 200
+        {
+            return Err(refused());
+        }
+        Ok(())
+    }
+}
+type HistorySnapshotBuilder<'a> =
+    dyn Fn(&HistoryScope) -> Result<HistorySnapshotDescriptor, EngineError> + 'a;
+
+/// Authenticated delivery metadata; never a continuation or consent grant.
+pub struct ReceivedHistoryControl {
+    pub transfer: [u8; 32],
+    pub control: HistoryControl,
+    pub signer: Vec<u8>,
+}
 /// Read-only captured scope; cannot construct a channel or recipient consent.
 #[derive(Clone, PartialEq, Eq)]
 pub struct HistoryScope {
@@ -52,6 +87,7 @@ pub struct HistoryScope {
     pub source: Vec<u8>,
     pub recipient: Vec<u8>,
     pub transfer: [u8; 32],
+    pub snapshot: Option<HistorySnapshotDescriptor>,
 }
 /// Installed trusted actor continuation. Implementations must not restore it from rows.
 pub trait TrustedHistoryLease: Send + Sync {
@@ -73,6 +109,7 @@ struct Frame {
     ordinary_epoch: u64,
     ordinary_authenticator: [u8; 32],
     transfer: [u8; 32],
+    snapshot: Option<HistorySnapshotDescriptor>,
     source: Vec<u8>,
     recipient: Vec<u8>,
     signer: Vec<u8>,
@@ -245,6 +282,7 @@ impl<S: StorageProvider> Engine<S> {
             ordinary_epoch: scope.ordinary_epoch,
             ordinary_authenticator: scope.ordinary_authenticator,
             transfer: scope.transfer,
+            snapshot: scope.snapshot.clone(),
             source: scope.source.clone(),
             recipient: scope.recipient.clone(),
             signer: self.identity.signer.public().to_vec(),
@@ -259,7 +297,8 @@ impl<S: StorageProvider> Engine<S> {
         }
     }
     fn history_fixed_context(frame: &Frame, scope: &HistoryScope) -> Result<(), EngineError> {
-        if frame.account != scope.protected.account.as_slice()
+        if frame.snapshot != scope.snapshot
+            || frame.account != scope.protected.account.as_slice()
             || frame.protected != scope.protected.group_id.as_slice()
             || frame.protected_epoch != scope.protected.epoch.0
             || frame.protected_authenticator != scope.protected.epoch_authenticator_digest
@@ -290,6 +329,28 @@ impl<S: StorageProvider> Engine<S> {
         recipient: &[u8],
         lease: Arc<dyn TrustedHistoryLease>,
     ) -> Result<OwnedHistoryChannel, EngineError> {
+        self.begin_history_channel_selected(ordinary, protected, recipient, lease, None)
+    }
+    /// Snapshot builder is a trusted actor closure over freshly Core-derived
+    /// identities/scope; the host supplies neither scope nor signed packet.
+    pub fn begin_history_snapshot_channel(
+        &self,
+        ordinary: &GroupId,
+        protected: &GroupId,
+        recipient: &[u8],
+        lease: Arc<dyn TrustedHistoryLease>,
+        build: &dyn Fn(&HistoryScope) -> Result<HistorySnapshotDescriptor, EngineError>,
+    ) -> Result<OwnedHistoryChannel, EngineError> {
+        self.begin_history_channel_selected(ordinary, protected, recipient, lease, Some(build))
+    }
+    fn begin_history_channel_selected(
+        &self,
+        ordinary: &GroupId,
+        protected: &GroupId,
+        recipient: &[u8],
+        lease: Arc<dyn TrustedHistoryLease>,
+        build: Option<&HistorySnapshotBuilder<'_>>,
+    ) -> Result<OwnedHistoryChannel, EngineError> {
         self.storage.with_read_snapshot(|_| {
             if ordinary == protected
                 || recipient.len() != 32
@@ -310,7 +371,7 @@ impl<S: StorageProvider> Engine<S> {
             }
             let mut transfer = [0; 32];
             rand::thread_rng().fill_bytes(&mut transfer);
-            let scope = HistoryScope {
+            let mut scope = HistoryScope {
                 protected: actual.candidate().clone(),
                 local_generation: actual.settlement_generation(),
                 ordinary_group: ordinary.clone(),
@@ -319,7 +380,13 @@ impl<S: StorageProvider> Engine<S> {
                 source: self.identity.signer.public().to_vec(),
                 recipient: recipient.to_vec(),
                 transfer,
+                snapshot: None,
             };
+            if let Some(build) = build {
+                let snapshot = build(&scope)?;
+                snapshot.validate()?;
+                scope.snapshot = Some(snapshot);
+            }
             let deadline = lease.validate(&scope)?;
             if Instant::now() >= deadline {
                 return Err(refused());
@@ -349,6 +416,9 @@ impl<S: StorageProvider> Engine<S> {
         })
     }
     fn history_verify(&self, mut frame: Frame) -> Result<Frame, EngineError> {
+        if let Some(snapshot) = &frame.snapshot {
+            snapshot.validate()?;
+        }
         if frame.protocol != PROTOCOL
             || frame.transfer == [0; 32]
             || frame.source_generation == 0
@@ -400,6 +470,46 @@ impl<S: StorageProvider> Engine<S> {
         frame.signature = signature;
         Ok(frame)
     }
+    /// Called only with the real MessageReceived source proof by the trusted
+    /// actor. The leaf-signed frame still independently verifies against the
+    /// full actual settled tree; observation alone cannot create an owner.
+    pub fn authenticate_received_history_control(
+        &self,
+        protected: &GroupId,
+        source: &cgka_traits::source_leaf::SourceLeafProof,
+        wire: &[u8],
+    ) -> Result<ReceivedHistoryControl, EngineError> {
+        let frame = self.history_verify(decode(wire)?)?;
+        if frame.protected != protected.as_slice()
+            || frame.protected_epoch != source.epoch.0
+            || frame.protected_authenticator != source.epoch_authenticator_digest
+            || frame.signer != source.signature_public_key
+        {
+            return Err(refused());
+        }
+        let actual = self
+            .validated_settled_device_roster(protected)?
+            .ok_or_else(refused)?;
+        if !actual.candidate().leaves.iter().any(|leaf| {
+            leaf.leaf_index == source.leaf_index && leaf.signature_public_key == frame.signer
+        }) {
+            return Err(refused());
+        }
+        let control = match frame.phase.as_str() {
+            "request" => HistoryControl::Request,
+            "consent" => HistoryControl::Consent,
+            "archive" => HistoryControl::Archive,
+            "ack" => HistoryControl::Acknowledgement,
+            "chunk" => HistoryControl::Chunk(frame.ordinal),
+            "receipt" => HistoryControl::Receipt(frame.ordinal),
+            _ => return Err(refused()),
+        };
+        Ok(ReceivedHistoryControl {
+            transfer: frame.transfer,
+            control,
+            signer: frame.signer,
+        })
+    }
     pub fn authenticate_history_request(
         &self,
         wire: &[u8],
@@ -437,6 +547,7 @@ impl<S: StorageProvider> Engine<S> {
                 source: frame.source.clone(),
                 recipient: frame.recipient.clone(),
                 transfer: frame.transfer,
+                snapshot: frame.snapshot.clone(),
             };
             Ok(AuthenticatedHistoryRequest {
                 frame,
@@ -521,6 +632,12 @@ impl<S: StorageProvider> Engine<S> {
         channel.peer_key = Some(frame.public_key);
         channel.consent = Some(wire.to_vec());
         Ok(())
+    }
+    pub fn validate_history_channel(
+        &self,
+        channel: &OwnedHistoryChannel,
+    ) -> Result<(), EngineError> {
+        self.history_channel_fresh(channel)
     }
     /// Caller is the trusted original actor; only archive/receipt roles are signed.
     pub fn seal_history_body(

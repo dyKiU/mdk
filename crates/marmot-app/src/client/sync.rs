@@ -1921,6 +1921,12 @@ impl AppClient {
             .resize_with(effects.events.len(), EventProjectionProgress::default);
         for (event, event_progress) in effects.events.iter().zip(&mut progress.events) {
             #[cfg(feature = "experimental-device-sync")]
+            if !event_progress.completed {
+                self.observe_history_control(event).map_err(|_| {
+                    AppError::InvalidAppMessagePayload("private history control unavailable".into())
+                })?;
+            }
+            #[cfg(feature = "experimental-device-sync")]
             if !event_progress.completed && self.private_event_must_remain_hidden(event)? {
                 progress.routes_dirty |= self.refresh_private_transport_route()?;
                 summary.events.push(event.clone());
@@ -6443,6 +6449,12 @@ impl AppClient {
             .events
             .resize_with(effects.events.len(), EventProjectionProgress::default);
         for (event, event_progress) in effects.events.iter().zip(&mut progress.events) {
+            #[cfg(feature = "experimental-device-sync")]
+            if !event_progress.completed {
+                self.observe_history_control(event).map_err(|_| {
+                    AppError::InvalidAppMessagePayload("private history control unavailable".into())
+                })?;
+            }
             #[cfg(feature = "experimental-device-sync")]
             if !event_progress.completed && self.private_event_must_remain_hidden(event)? {
                 progress.routes_dirty |= self.refresh_private_transport_route()?;

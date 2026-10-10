@@ -928,6 +928,11 @@ mod actual {
         selected_chat_delivery(RecipientAdmissionScenario::WelcomeLostReply).await;
     }
 
+    #[tokio::test]
+    async fn history_transfer_requires_original_recipient_consent_and_committed_prejoin_record() {
+        selected_chat_delivery(RecipientAdmissionScenario::HistoryTransfer).await;
+    }
+
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
         None,
@@ -935,6 +940,7 @@ mod actual {
         Cancel,
         Expire,
         ForeignPackageEvent,
+        HistoryTransfer,
         CommitCancel,
         CommitLostReply,
         WelcomeCancel,
@@ -1323,6 +1329,158 @@ mod actual {
                     .unwrap()
                     .is_none()
             );
+        }
+        if scenario == RecipientAdmissionScenario::HistoryTransfer {
+            let ordinary_epochs = [
+                all_runtimes[0]
+                    .group_mls_state("test", &fixture.chat)
+                    .await
+                    .unwrap()
+                    .epoch,
+                all_runtimes[1]
+                    .group_mls_state("test", &fixture.chat)
+                    .await
+                    .unwrap()
+                    .epoch,
+            ];
+            let recipient_storage = fixture.apps[1].account_storage("test").unwrap();
+            let recipient_mls = openmls::group::MlsGroup::load(
+                recipient_storage.mls_storage(),
+                &openmls::group::GroupId::from_slice(fixture.chat.as_slice()),
+            )
+            .unwrap()
+            .unwrap();
+            let recipient_selector = recipient_mls
+                .own_leaf_node()
+                .unwrap()
+                .signature_key()
+                .as_slice()
+                .to_vec();
+            assert!(
+                recipient_storage
+                    .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
+                    .unwrap()
+                    .is_empty()
+            );
+            let larger = fixture.runtimes[0]
+                .send_message("test", &fixture.chat, vec![b'x'; 8192])
+                .await
+                .unwrap();
+            let larger_id = &larger.message_ids[0];
+            tokio::time::timeout(std::time::Duration::from_secs(15), async {
+                loop {
+                    if [1usize, 2].into_iter().all(|i| {
+                        fixture.apps[i]
+                            .timeline_message("test", &fixture.chat_hex, larger_id)
+                            .unwrap()
+                            .is_some()
+                    }) {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .expect("actual larger logical record must reach ordinary MLS recipients");
+            let transfer = managers[0].begin_history_transfer("test", &fixture.chat, recipient_selector).await
+                .expect("a fresh opt-in history request must retain its original actor owner after actual four-leaf admission");
+            assert!(
+                recipient_storage
+                    .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
+                    .unwrap()
+                    .is_empty(),
+                "request is not recipient consent"
+            );
+            let consent = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    if let Some(consent) = managers[1]
+                        .pending_history_requests("test")
+                        .await
+                        .unwrap()
+                        .pop()
+                    {
+                        break consent;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .expect("actual encrypted request must reach its addressed original recipient");
+            let review = consent.snapshot().await.unwrap();
+            assert_eq!(review.group, fixture.chat);
+            assert_eq!(review.record_count, 2);
+            assert!(review.fragment_count > 1 && review.encoded_bytes > 8192);
+            consent.approve(review.revision).await.unwrap();
+            transfer
+                .continue_transfer(transfer.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+            let archived = recipient_storage
+                .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
+                .unwrap();
+            assert!(
+                archived
+                    .iter()
+                    .any(|r| hex::encode(r.record.message_id) == fixture.before_id),
+                "committed archive must contain actual prejoin logical record"
+            );
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    if managers[2]
+                        .observed_history_chunks_for_test("test")
+                        .await
+                        .unwrap()
+                        .0
+                        > 0
+                    {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .expect("genuine C must decrypt and authenticate an outer MLS history chunk");
+            assert!(
+                managers[2]
+                    .observed_history_chunks_for_test("test")
+                    .await
+                    .unwrap()
+                    .1
+                    > 0,
+                "C's Core must refuse constructing an original recipient from B's actual authenticated request"
+            );
+            assert!(
+                managers[2]
+                    .pending_history_requests("test")
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(
+                fixture.apps[2]
+                    .account_storage("test")
+                    .unwrap()
+                    .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
+                    .unwrap()
+                    .is_empty(),
+                "outer MLS membership gives C no original recipient HPKE channel or imported B archive"
+            );
+            let progress = transfer.snapshot().await.unwrap();
+            assert!(
+                progress.complete && progress.imported_records > 0,
+                "transport publication alone cannot report a committed import receipt"
+            );
+            for (index, epoch) in ordinary_epochs.into_iter().enumerate() {
+                assert_eq!(
+                    all_runtimes[index]
+                        .group_mls_state("test", &fixture.chat)
+                        .await
+                        .unwrap()
+                        .epoch,
+                    epoch,
+                    "logical archive cannot advance MLS state"
+                );
+            }
         }
         for (sender, runtime) in all_runtimes.into_iter().enumerate() {
             let payload = format!("fresh selected chat message from independent leaf {sender}");

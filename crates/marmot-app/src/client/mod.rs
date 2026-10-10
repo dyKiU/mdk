@@ -79,6 +79,8 @@ mod delivery_spill;
 pub(crate) mod device_linking;
 pub(crate) mod epoch_stall;
 pub(crate) mod history_notices;
+#[cfg(feature = "experimental-device-sync")]
+mod history_transfer;
 mod invite_recovery;
 #[cfg(feature = "experimental-device-sync")]
 pub(crate) mod private_echo;
@@ -506,6 +508,8 @@ pub struct AppClient {
     pub(crate) linking_owner: device_linking::AccountLinkingOwner,
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) selected_chat_copy_owner: crate::selected_chat_copy::enabled::AccountCopyOwner,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) history_owner: crate::history_transfer::enabled::AccountHistoryOwner,
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) selected_welcome_provenance:
         Arc<std::sync::Mutex<welcome_peeler::SelectedWelcomeProvenance>>,
