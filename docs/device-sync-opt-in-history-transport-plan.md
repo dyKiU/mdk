@@ -147,3 +147,15 @@ exact committed MLS ciphertext and a fixed original fixture lease ends a pending
 wrap. No production lifetime changed. Ordered manifest/chunks, a maximum actual
 wrapped-frame control, third-member inner privacy and committed App imports remain
 open. See [the control evidence](device-sync-history-wrap-controls-verification.json).
+
+## Qualified ordered Core framing
+
+Ten real Core controls now pass with production lint/default compilation/format.
+Each original channel binds one immutable manifest digest and at most128 ordered
+2048-byte chunks under the same recipient consent/deadline; receipt gating and
+exact retries never reconstruct authority. The maximum-frame test measures real
+Core MLS bytes using PassthroughPeeler, not production Nostr relay envelope size.
+App must fragment complete logical records and manifest within the256KiB total,
+reject oversize snapshots before consent, and derive receipt bytes only from
+committed import facts. No App history delivery or third-member privacy result is
+claimed. See [the scoped evidence](device-sync-history-ordered-framing-verification.json).

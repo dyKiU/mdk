@@ -476,3 +476,173 @@ async fn history_channel_original_fixed_expiry_ends_a_real_pending_wrap() {
     assert!(channel.keys.is_none());
     assert!(channel.outbound.is_empty());
 }
+
+#[tokio::test]
+async fn history_channel_ordered_chunks_hold_one_original_and_actual_maximum_frame() {
+    let (mut a, mut b, p, o) = fixture().await;
+    let (mut source, mut recipient, _, bl) = channels(&a, &b, &p, &o);
+    let manifest: [u8; 32] = Sha256::digest(b"immutable original archive manifest").into();
+    let first = vec![255; MAX_HISTORY_CHUNK_BYTES];
+    let sealed = a
+        .seal_history_chunk(&mut source, manifest, 0, &first, false)
+        .expect("same original consent must authorize bounded indexed first chunk");
+    assert_eq!(
+        a.seal_history_chunk(&mut source, manifest, 0, &first, false)
+            .unwrap(),
+        sealed
+    );
+    assert!(
+        a.seal_history_chunk(&mut source, manifest, 0, b"changed body", false)
+            .is_err()
+    );
+    assert!(
+        a.seal_history_chunk(&mut source, manifest, 1, b"before receipt", false)
+            .is_err()
+    );
+    assert!(
+        b.seal_history_chunk(&mut recipient, manifest, 0, b"before open", true)
+            .is_err()
+    );
+    let wrapped = a
+        .wrap_history_control(&mut source, HistoryControl::Chunk(0))
+        .await
+        .unwrap();
+    assert!(wrapped.payload.len() <= MAX_HISTORY_CONTROL_BYTES);
+    assert_eq!(
+        a.wrap_history_control(&mut source, HistoryControl::Chunk(0))
+            .await
+            .unwrap()
+            .payload,
+        wrapped.payload
+    );
+    b.drain_events();
+    b.ingest(wrapped).await.unwrap();
+    let frame = received_history(&mut b, &p);
+    let opened = b.open_history_chunk(&mut recipient, &frame).unwrap();
+    assert_eq!(opened.ordinal, 0);
+    assert_eq!(opened.body, first);
+    assert_eq!(
+        b.open_history_chunk(&mut recipient, &frame).unwrap().body,
+        first
+    );
+    let receipt = b
+        .seal_history_chunk(
+            &mut recipient,
+            manifest,
+            0,
+            b"fixture receipt, not SQL import",
+            true,
+        )
+        .unwrap();
+    assert_eq!(
+        b.seal_history_chunk(
+            &mut recipient,
+            manifest,
+            0,
+            b"fixture receipt, not SQL import",
+            true
+        )
+        .unwrap(),
+        receipt
+    );
+    let wrapped = b
+        .wrap_history_control(&mut recipient, HistoryControl::Receipt(0))
+        .await
+        .unwrap();
+    a.drain_events();
+    a.ingest(wrapped).await.unwrap();
+    let frame = received_history(&mut a, &p);
+    assert_eq!(
+        a.open_history_chunk(&mut source, &frame).unwrap().ordinal,
+        0
+    );
+    let second = a
+        .seal_history_chunk(
+            &mut source,
+            manifest,
+            1,
+            b"next ordered record fragment",
+            false,
+        )
+        .unwrap();
+    assert!(
+        a.seal_history_chunk(
+            &mut source,
+            [9; 32],
+            1,
+            b"next ordered record fragment",
+            false
+        )
+        .is_err()
+    );
+    assert!(
+        a.seal_history_chunk(
+            &mut source,
+            manifest,
+            MAX_HISTORY_CHUNKS,
+            b"over bound",
+            false
+        )
+        .is_err()
+    );
+    assert!(
+        a.seal_history_chunk(
+            &mut source,
+            manifest,
+            2,
+            &vec![0; MAX_HISTORY_CHUNK_BYTES + 1],
+            false
+        )
+        .is_err()
+    );
+    let wrapped = a
+        .wrap_history_control(&mut source, HistoryControl::Chunk(1))
+        .await
+        .unwrap();
+    b.drain_events();
+    b.ingest(wrapped).await.unwrap();
+    let frame = received_history(&mut b, &p);
+    assert_eq!(frame, second);
+    assert_eq!(
+        b.open_history_chunk(&mut recipient, &frame).unwrap().body,
+        b"next ordered record fragment"
+    );
+    bl.live.store(false, Ordering::SeqCst);
+    assert!(b.open_history_chunk(&mut recipient, &frame).is_err());
+    assert!(
+        b.seal_history_chunk(&mut recipient, manifest, 1, b"late receipt", true)
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn history_channel_chunk_substitution_cannot_bind_an_unopened_original() {
+    let (a, b, p, o) = fixture().await;
+    for case in 0..5 {
+        let (mut source, mut recipient, _, _) = channels(&a, &b, &p, &o);
+        let manifest: [u8; 32] = Sha256::digest(b"exact immutable manifest").into();
+        let wire = a
+            .seal_history_chunk(&mut source, manifest, 0, b"exact original archive", false)
+            .unwrap();
+        let mut frame = decode(&wire).unwrap();
+        match case {
+            0 => frame.manifest[0] ^= 1,
+            1 => frame.ordinal = 1,
+            2 => frame.ordinal = MAX_HISTORY_CHUNKS,
+            3 => frame.phase = "receipt".into(),
+            4 => frame.source_generation += 1,
+            _ => unreachable!(),
+        }
+        let altered = a.history_sign(frame).unwrap();
+        assert!(
+            b.open_history_chunk(&mut recipient, &altered).is_err(),
+            "same unbound original case {case}"
+        );
+        assert!(recipient.chunk_manifest.is_none());
+        assert!(recipient.opened_chunks.is_empty());
+        assert_eq!(
+            b.open_history_chunk(&mut recipient, &wire).unwrap().body,
+            b"exact original archive"
+        );
+    }
+}

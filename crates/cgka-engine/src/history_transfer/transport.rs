@@ -21,6 +21,12 @@ impl OwnedHistoryChannel {
                 .as_ref()
                 .map(|(_, wire)| wire.clone())
                 .ok_or_else(refused),
+            (false, HistoryControl::Chunk(ordinal)) | (true, HistoryControl::Receipt(ordinal)) => {
+                self.sealed_chunks
+                    .get(ordinal as usize)
+                    .map(|chunk| chunk.wire.clone())
+                    .ok_or_else(refused)
+            }
             _ => Err(refused()),
         }
     }
@@ -61,7 +67,7 @@ impl<S: StorageProvider> Engine<S> {
         let position = if let Some(position) = position {
             position
         } else {
-            if channel.outbound.len() >= 2 {
+            if channel.outbound.len() > MAX_HISTORY_CHUNKS as usize {
                 return Err(refused());
             }
             let payload = cgka_traits::app_event::MarmotAppEvent::new(

@@ -537,3 +537,8 @@ through actual protected MLS under those same leases. It retains exact ratchet
 ciphertext and wrapper bytes without an ordinary replay intent. Six pair controls
 pass; App transfer/import and third-member privacy remain unqualified. See
 `../../docs/device-sync-history-control-transport-verification.json`.
+
+Experimental history channels additionally support bounded manifest-bound
+ordered chunks/receipts under the same original fixed lease. This is Core
+framing only; App committed import and production relay size/privacy controls
+remain separately required.

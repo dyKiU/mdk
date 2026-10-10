@@ -646,3 +646,15 @@ and retains exact ciphertext across wrapping retries. At most two own controls
 per original channel; every cached/awaited return rechecks the same actual scope.
 Never create ordinary Sent, generic fanout or restart-reconstructed publication
 permission. Pair controls qualify MLS framing only, not committed history import.
+
+### Ordered history original-state bounds
+
+`history_transfer/chunks.rs` retains at most128 sealed/opened indexed chunks and
+129 exact outbound controls per original (request/consent plus chunks/receipts).
+Each plaintext chunk is at most2048 bytes, each canonical wire at most16KiB.
+This process-local owner resource is separate from convergence policy: fixed
+original lease/Engine ownership, no SQL resurrection, renewal or per-chunk new
+consent. Retire/drop clears ciphertext/peer state and zeroizes the HPKE secret.
+Core receipt framing cannot prove committed import; trusted App importer must
+validate manifest/count/receipt semantics. Production Nostr size remains a
+separate actual-wrapper gate; Passthrough tests do not qualify relay envelopes.

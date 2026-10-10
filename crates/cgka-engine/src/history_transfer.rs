@@ -15,7 +15,9 @@ use std::sync::{Arc, Weak};
 use web_time::Instant;
 use zeroize::Zeroizing;
 
+mod chunks;
 mod transport;
+pub use chunks::{MAX_HISTORY_CHUNK_BYTES, MAX_HISTORY_CHUNKS, OpenedHistoryChunk};
 
 pub const HISTORY_CONTROL_KIND: u64 = 38177;
 pub const MAX_HISTORY_CONTROL_BYTES: usize = 16384;
@@ -35,6 +37,8 @@ pub enum HistoryControl {
     Consent,
     Archive,
     Acknowledgement,
+    Chunk(u32),
+    Receipt(u32),
 }
 
 /// Read-only captured scope; cannot construct a channel or recipient consent.
@@ -74,6 +78,8 @@ struct Frame {
     signer: Vec<u8>,
     source_generation: u64,
     binding: [u8; 32],
+    manifest: [u8; 32],
+    ordinal: u32,
     public_key: Vec<u8>,
     kem: Vec<u8>,
     ciphertext: Vec<u8>,
@@ -124,6 +130,9 @@ pub struct OwnedHistoryChannel {
     recipient_role: bool,
     sealed: Option<([u8; 32], Vec<u8>)>,
     outbound: Vec<transport::FrozenHistoryControl>,
+    chunk_manifest: Option<[u8; 32]>,
+    sealed_chunks: Vec<chunks::SealedChunk>,
+    opened_chunks: Vec<[u8; 32]>,
 }
 impl OwnedHistoryChannel {
     pub fn scope(&self) -> &HistoryScope {
@@ -146,6 +155,9 @@ impl OwnedHistoryChannel {
         self.peer_key = None;
         self.sealed = None;
         self.outbound.clear();
+        self.chunk_manifest = None;
+        self.sealed_chunks.clear();
+        self.opened_chunks.clear();
     }
     fn live(&self) -> Result<(), EngineError> {
         if self.keys.is_none()
@@ -238,6 +250,8 @@ impl<S: StorageProvider> Engine<S> {
             signer: self.identity.signer.public().to_vec(),
             source_generation: scope.local_generation,
             binding: [0; 32],
+            manifest: [0; 32],
+            ordinal: 0,
             public_key: vec![],
             kem: vec![],
             ciphertext: vec![],
@@ -326,6 +340,9 @@ impl<S: StorageProvider> Engine<S> {
                 recipient_role: false,
                 sealed: None,
                 outbound: Vec::new(),
+                chunk_manifest: None,
+                sealed_chunks: Vec::new(),
+                opened_chunks: Vec::new(),
             };
             self.history_channel_fresh(&channel)?;
             Ok(channel)
@@ -389,7 +406,9 @@ impl<S: StorageProvider> Engine<S> {
     ) -> Result<AuthenticatedHistoryRequest, EngineError> {
         self.storage.with_read_snapshot(|_| {
             let frame = self.history_verify(decode(wire)?)?;
-            if frame.phase != "request"
+            if frame.manifest != [0; 32]
+                || frame.ordinal != 0
+                || frame.phase != "request"
                 || frame.signer != frame.source
                 || frame.recipient != self.identity.signer.public()
                 || frame.public_key.len() != 32
@@ -458,6 +477,9 @@ impl<S: StorageProvider> Engine<S> {
                 recipient_role: true,
                 sealed: None,
                 outbound: Vec::new(),
+                chunk_manifest: None,
+                sealed_chunks: Vec::new(),
+                opened_chunks: Vec::new(),
             };
             self.history_channel_fresh(&channel)?;
             Ok(channel)
@@ -475,7 +497,9 @@ impl<S: StorageProvider> Engine<S> {
         let frame = self.history_verify(decode(wire)?)?;
         Self::history_fixed_context(&frame, &channel.scope)?;
         let request: Frame = decode(&channel.request)?;
-        if frame.phase != "consent"
+        if frame.manifest != [0; 32]
+            || frame.ordinal != 0
+            || frame.phase != "consent"
             || frame.signer != channel.scope.recipient
             || frame.source != channel.scope.source
             || frame.recipient != channel.scope.recipient
@@ -506,7 +530,10 @@ impl<S: StorageProvider> Engine<S> {
         acknowledgement: bool,
     ) -> Result<Vec<u8>, EngineError> {
         self.history_channel_fresh(channel)?;
-        if acknowledgement != channel.recipient_role || body.len() > 4096 {
+        if acknowledgement != channel.recipient_role
+            || body.len() > 4096
+            || channel.chunk_manifest.is_some()
+        {
             return Err(refused());
         }
         let body_digest: [u8; 32] = Sha256::digest(body).into();
@@ -561,7 +588,9 @@ impl<S: StorageProvider> Engine<S> {
         } else {
             &channel.scope.recipient
         };
-        if frame.phase != expected
+        if frame.manifest != [0; 32]
+            || frame.ordinal != 0
+            || frame.phase != expected
             || &frame.signer != signer
             || frame.transfer != channel.scope.transfer
             || frame.source != channel.scope.source
