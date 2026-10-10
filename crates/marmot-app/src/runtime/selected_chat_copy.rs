@@ -77,6 +77,11 @@ pub(crate) enum ConsentCommand {
         revision: u64,
         respond: Reply<Vec<u8>>,
     },
+    Offer {
+        original: Arc<ConsentState>,
+        revision: u64,
+        respond: Reply<Vec<u8>>,
+    },
 }
 pub(crate) fn handle_consent(client: &mut crate::AppClient, command: ConsentCommand) {
     match command {
@@ -144,6 +149,22 @@ pub(crate) fn handle_consent(client: &mut crate::AppClient, command: ConsentComm
             }
             if respond
                 .send(client.selected_consent_response(&original, revision))
+                .is_err()
+            {
+                original.cancel();
+            }
+        }
+        ConsentCommand::Offer {
+            original,
+            revision,
+            respond,
+        } => {
+            if respond.is_closed() {
+                original.cancel();
+                return;
+            }
+            if respond
+                .send(client.selected_consent_offer(&original, revision))
                 .is_err()
             {
                 original.cancel();
@@ -257,6 +278,20 @@ impl AccountManager {
     ) -> Result<Vec<u8>, SelectedChatCopyError> {
         original.check_revision(revision)?;
         self.selected_command(account, |respond| ConsentCommand::Response {
+            original,
+            revision,
+            respond,
+        })
+        .await
+    }
+    pub(crate) async fn selected_consent_offer(
+        &self,
+        account: &str,
+        original: Arc<ConsentState>,
+        revision: u64,
+    ) -> Result<Vec<u8>, SelectedChatCopyError> {
+        original.check_revision(revision)?;
+        self.selected_command(account, |respond| ConsentCommand::Offer {
             original,
             revision,
             respond,

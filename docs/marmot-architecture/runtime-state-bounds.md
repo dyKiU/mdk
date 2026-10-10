@@ -311,3 +311,16 @@ Transiently failed selected routes stay pending; serviced or unattempted routes
 never erase unresolved coverage. Retained inventory may be narrower than older
 coverage debt. This adds no disk-cap claim for the previously approved unresolved
 loss-generation watermark exception.
+
+### Selected-chat private-package cleanup
+
+The experimental account actor retains at most 128 exact private-package cleanup
+identities, keyed by KeyPackage reference and containing the original scope plus
+a Weak reference to the original consent owner. This is an account-local owner
+resource, not a convergence policy. Repeated offers reuse one entry. Cancellation,
+expiry and last shared public-handle Drop make the entry eligible for exact atomic
+bundle deletion plus a retained Denied tombstone on the existing maintenance turn;
+failed storage cleanup remains queued. SQL facts never restore the weak owner.
+Exclusive account reopen atomically abandons pending packages after checking each
+actual private bundle's account, signer, bytes and reference. Durable capacity
+counts terminal tombstones and fails closed at 128 rather than forgetting refs.

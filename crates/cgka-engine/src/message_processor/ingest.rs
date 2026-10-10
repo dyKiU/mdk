@@ -318,7 +318,7 @@ impl<S: StorageProvider> Engine<S> {
                 Ok(IngestOutcome::Processed)
             }
             #[cfg(feature = "experimental-device-sync")]
-            Err(EngineError::LinkingWelcomeDenied(_)) => {
+            Err(EngineError::LinkingWelcomeDenied(_) | EngineError::SelectedChatWelcomeDenied) => {
                 self.retryable_unpersisted_ingest_id = Some(msg.id.clone());
                 // A valid private-purpose Welcome may arrive before its live
                 // verifier token. Exclude it without poisoning exact later

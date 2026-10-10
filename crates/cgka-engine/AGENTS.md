@@ -619,3 +619,5 @@ Original existing-member Add apply stages its settlement admission inside the cr
 ### Selected-chat consent observations
 
 `selected_chat_consent` exposes only bounded canonical request/response metadata signed by the actual protected indexed device leaf. Fresh completed protected full-tree checks and exact source signatures authenticate observations, not membership. Request export also derives the actual Current/admin ordinary anchor. No arbitrary signing API, account-shared signer, MLS mutation or SQL permission is added. Future recipient joining must check its original live purpose and the actual decrypted Current/admin/full tree through the transaction tail; signed remote ordinary claims alone cannot grant admission.
+
+Selected-chat private packages use a trusted original process lease, with bundle, independent purpose row, bounded signed offer and final lease check in one transaction. Scan all exact selected Welcome refs including terminal tombstones before generic usable-bundle fallback. SQL metadata never grants admission; package-only success is not chat delivery. Exact cleanup must verify actual bundle bytes/account/device/ref before deletion.

@@ -557,7 +557,11 @@ impl<S: StorageProvider> Engine<S> {
         self.build_key_package(storage, true)
     }
 
-    fn build_key_package(&self, storage: &S, last_resort: bool) -> Result<KeyPackage, EngineError> {
+    pub(crate) fn build_key_package(
+        &self,
+        storage: &S,
+        last_resort: bool,
+    ) -> Result<KeyPackage, EngineError> {
         let caps = leaf_capabilities(&self.registry, self.ciphersuite, self.new_protocol_profile);
         let leaf_extensions = self
             .identity

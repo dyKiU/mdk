@@ -1171,6 +1171,8 @@ impl AppClient {
         &mut self,
         now: std::time::Instant,
     ) -> Result<(), ClientLinkingError> {
+        self.maintain_selected_chat_packages()
+            .map_err(ClientLinkingError::Engine)?;
         self.prune_native_enrollment_intent();
         self.maintain_received_enrollment_endorsement(now)?;
         let reservation_live = self

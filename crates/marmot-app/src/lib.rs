@@ -4395,6 +4395,10 @@ impl MarmotApp {
                 .session_mut()
                 .cleanup_unjoined_linking_key_package_on_startup()
                 .map_err(cgka_session::SessionError::from)?;
+            runtime
+                .session()
+                .cleanup_selected_chat_packages_on_startup()
+                .map_err(cgka_session::SessionError::from)?;
             let owner = client::device_linking::AccountLinkingOwner::attach(
                 storage,
                 &runtime.session().self_id(),

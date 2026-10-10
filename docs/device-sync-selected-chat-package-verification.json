@@ -1,0 +1,185 @@
+{
+  "scope": "Original selected-chat consent private packages, negative cleanup and generic Welcome exclusion only; ordinary admission, Invite, new-message delivery and history remain open.",
+  "base": "eb0a0dd03cf94fa4a605bdd992f8af16f18880c7",
+  "target": "Mdk986ConformanceTargetM5; incremental disabled; jobs2",
+  "original_package_red_stash": "9d19d99e663598a33f8fcb9121e3b1437e4305c7",
+  "original_classifier_red_m5_stash": "0dfaf1019153df7e8dfae87483bfd912b40e1b27^3",
+  "fixture_patch_sha256": "242e9e3204448d400449942bf805e2db8326af570a5ac37e12dba2dd08367241",
+  "evidence_directory": "/Users/pjaeckel/project/whitenoisechat-openclaw/backups/mdk-sync-delivery-20261009",
+  "records": [
+    {
+      "prefix": "mdk-selected-chat-package-red-v1",
+      "input_count": 2406,
+      "manifest_sha256": "72881d365d1ee18f64975591586b35e5ff41ad99fa34d31cdffef4f3c9d03386",
+      "gates": [
+        {
+          "gate": "offer-red",
+          "exit_code": 101,
+          "seconds": 106.1,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "305a4d331a38a9bea01d63f46835398c814f4d8a7796ed7fa6c5c6e28055c832"
+        }
+      ]
+    },
+    {
+      "prefix": "mdk-selected-chat-package-default-v1",
+      "input_count": 2406,
+      "manifest_sha256": "72881d365d1ee18f64975591586b35e5ff41ad99fa34d31cdffef4f3c9d03386",
+      "gates": [
+        {
+          "gate": "default",
+          "exit_code": 0,
+          "seconds": 62.46,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "781c005b8447a085b23d287bd99396ad5421ba12a7f8c910defe70e64ae3026d"
+        }
+      ]
+    },
+    {
+      "prefix": "mdk-selected-chat-classifier-red-v3",
+      "input_count": 2415,
+      "manifest_sha256": "7369f914dfcb00e93f8ffc313e4b6f83fabbd0ca1b6706f5f0510658070a1a14",
+      "gates": [
+        {
+          "gate": "classifier-red",
+          "exit_code": 101,
+          "seconds": 32.03,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 4,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "7264f6adf2d018483e68d194a70d2e69798b5c2ff5776da9624129cfc0bb4f45"
+        }
+      ]
+    },
+    {
+      "prefix": "mdk-selected-chat-package-green-v3",
+      "input_count": 2416,
+      "manifest_sha256": "6376af59f6c1a645bfbf6c216f17a90d34c8550de2aba6332d0080a19945ae37",
+      "gates": [
+        {
+          "gate": "ordinary-private-controls",
+          "exit_code": 0,
+          "seconds": 5.47,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 2,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "5fadb62657fe9b26c8e64d13eb8200b38dacd5d8b30882cda85dbe1d6e414c4d"
+        },
+        {
+          "gate": "default",
+          "exit_code": 0,
+          "seconds": 76.67,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "70d1b1332be9e7f997cc1f9117be9df6a975194f1d3fcfde1f914999a9078f1f"
+        }
+      ]
+    },
+    {
+      "prefix": "mdk-selected-chat-package-green-v4",
+      "input_count": 2416,
+      "manifest_sha256": "c8f8c11378d062a1a58639ee343520cb20f208267c2ae2010c87faf49d6fac71",
+      "gates": [
+        {
+          "gate": "classifier-controls",
+          "exit_code": 0,
+          "seconds": 38.25,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 4,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "f418d148d6e197fdb878895f3968f0ecc4365f2da56435ec11e82ad750fe4104"
+        }
+      ]
+    },
+    {
+      "prefix": "mdk-selected-chat-package-green-v5",
+      "input_count": 2416,
+      "manifest_sha256": "9f4c79ad4dd270a8b7cb257671027550a3a8a43ca8be00c10c792482a12b094e",
+      "gates": [
+        {
+          "gate": "package-controls",
+          "exit_code": 0,
+          "seconds": 71.9,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 5,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "a50d5260147b63394d7734aa0fe10410535923d646a5530172767d285f4594fc"
+        },
+        {
+          "gate": "feature-clippy",
+          "exit_code": 0,
+          "seconds": 33.86,
+          "counts": [],
+          "log_sha256": "f0c5b71695e6fa2eaa7e8c578214f3f27db4f0e539ad4151644fb9402e5d4aef"
+        },
+        {
+          "gate": "default-check",
+          "exit_code": 0,
+          "seconds": 45.48,
+          "counts": [],
+          "log_sha256": "fcc69b4fd6d71ff2119cea728ba6f7fc2302e67fcdea3aaeb59dd87ae60d9679"
+        }
+      ]
+    },
+    {
+      "prefix": "mdk-selected-chat-package-final-fmt-v1",
+      "input_count": 2416,
+      "manifest_sha256": "3e49a7baf96230c496d2d08bc594021c36ac3ccfb6335f612e82d6ab60d7f079",
+      "gates": [
+        {
+          "gate": "fmt",
+          "exit_code": 0,
+          "seconds": 3.52,
+          "counts": [],
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  ],
+  "controls": "Actual public SDK ABC plus Current A/D; explicit original B/C consent; private SQL rollback; exact offer retry; no public publication/fanout/chat copies; exact cancel; alias Drop preservation; last shared Drop; fresh generation fence; encrypted reopen abandonment. Synthetic owner deadline controls are not SDK verification evidence.",
+  "final_source": "All 2416 final-format frozen inputs independently match local source bytes. The prior conformance proof is the sole additional pre-existing local doc. Proof/fixture patch and appended plan/AGENTS documentation are postfreeze only.",
+  "qualification_deltas": "v3->v4 collapses classifier if; v4->v5 rewrites equivalent cleanup filter/map; final formatting only reorders signed-base storage module declaration. Changed classifier and original-owner controls reran; production Clippy/default checks pass.",
+  "failures_preserved": "Classifier v1 compile-only constructor fixture issue; v2 one genuine missing-policy failure plus three fixture codec failures; package v2 reopen fixture reused closed app; v3/v4 strict lint failures; v5 inherited storage module-order fmt failure. Each is retained separately from genuine RED or passing checks.",
+  "default_boundary": "App API Unsupported before account effects. Exact-reference scanner is experimental only. Default opening of populated native private cohorts remains refused by the separately qualified storage foundation; no feature-off scanner claim.",
+  "limits": "No live lease/deadline or approval stored in SQL; no public directory publication, key/ratchet/database copying, consumed linking-purpose reuse, positive join permission, native artifact adoption or goal completion."
+}

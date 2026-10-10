@@ -1126,6 +1126,19 @@ impl<S: StorageProvider> Engine<S> {
         let mut accepted_linking_receipt = None;
         let result = self.storage.with_transaction(|storage| {
             let provider = EngineOpenMlsProvider::<S>::new(&self.crypto, storage.mls_storage());
+            // Classify every exact selected reference, including retained terminal
+            // tombstones, before OpenMLS can choose another usable public bundle.
+            // Persisted facts never recreate the original recipient consent.
+            #[cfg(feature = "experimental-device-sync")]
+            if let Some(purpose) = storage.selected_chat_key_package_storage() {
+                for secret in welcome.secrets() {
+                    if let Ok(reference) = <&[u8; 32]>::try_from(secret.new_member().as_slice())
+                        && purpose.selected_chat_key_package_by_ref(reference)?.is_some()
+                    {
+                        return Err(EngineError::SelectedChatWelcomeDenied);
+                    }
+                }
+            }
             // Match in the same order OpenMLS uses: the first Welcome
             // KeyPackageRef for which this account-device has a private
             // bundle. Transport tags are deliberately outside this

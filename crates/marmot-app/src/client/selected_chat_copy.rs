@@ -69,6 +69,59 @@ fn ordinary_anchor(
 }
 
 impl AppClient {
+    pub(crate) fn selected_consent_offer(
+        &mut self,
+        original: &std::sync::Arc<crate::selected_chat_copy::enabled::ConsentState>,
+        revision: u64,
+    ) -> Result<Vec<u8>, SelectedChatCopyError> {
+        let response = self.selected_consent_response(original, revision)?;
+        let mut lease = OriginalPackageLease {
+            original: original.clone(),
+            revision,
+            response_digest: Sha256::digest(&response).into(),
+        };
+        let offer = self
+            .runtime
+            .session()
+            .resolve_selected_chat_package(&original.observation, &response, &mut lease)
+            .map_err(|_| SelectedChatCopyError::RuntimeUnavailable)?;
+        let (wire, scope, reference) = offer.into_parts();
+        if let Err(error) = self.selected_chat_copy_owner.register_package_cleanup(
+            original,
+            scope.clone(),
+            reference,
+        ) {
+            original.cancel();
+            self.runtime
+                .session()
+                .retire_selected_chat_package(&scope, &reference)
+                .map_err(|_| SelectedChatCopyError::RuntimeUnavailable)?;
+            return Err(error);
+        }
+        if let Err(error) = self.fresh_selected_consent(original, revision) {
+            original.cancel();
+            self.runtime
+                .session()
+                .retire_selected_chat_package(&scope, &reference)
+                .map_err(|_| SelectedChatCopyError::RuntimeUnavailable)?;
+            self.selected_chat_copy_owner
+                .clear_package_cleanup(&reference);
+            return Err(error);
+        }
+        Ok(wire)
+    }
+    pub(crate) fn maintain_selected_chat_packages(
+        &mut self,
+    ) -> Result<(), cgka_traits::EngineError> {
+        for (scope, reference) in self.selected_chat_copy_owner.packages_to_retire() {
+            self.runtime
+                .session()
+                .retire_selected_chat_package(&scope, &reference)?;
+            self.selected_chat_copy_owner
+                .clear_package_cleanup(&reference);
+        }
+        Ok(())
+    }
     pub(crate) fn begin_owned_selected_chat_copy(
         &mut self,
         group: &GroupId,
@@ -107,6 +160,41 @@ impl AppClient {
                 Ok::<_, SelectedChatCopyError>((ordinary, protected))
             })?;
         self.selected_chat_copy_owner.reserve(ordinary, protected)
+    }
+}
+
+struct OriginalPackageLease {
+    original: std::sync::Arc<crate::selected_chat_copy::enabled::ConsentState>,
+    revision: u64,
+    response_digest: [u8; 32],
+}
+impl cgka_engine::selected_chat_consent::SelectedChatPackageLease for OriginalPackageLease {
+    fn check_original(
+        &mut self,
+        scope: &cgka_traits::selected_chat_key_package::SelectedChatPurposeScope,
+        context: &cgka_traits::selected_chat_key_package::SelectedChatPurposeContext,
+    ) -> Result<(), cgka_traits::EngineError> {
+        self.original
+            .check_revision(self.revision)
+            .map_err(|_| cgka_traits::EngineError::Other("selected consent unavailable".into()))?;
+        let progress = self
+            .original
+            .progress
+            .lock()
+            .expect("selected package original consent");
+        if progress.nonce.is_none()
+            || scope.generation != self.original.generation()
+            || scope.request_binding != self.original.observation.binding()
+            || context.approved_response_digest != self.response_digest
+            || context.protected_settlement_generation != self.original.protected_generation
+            || context.protected_group != self.original.observation.protected_group()
+            || context.ordinary_group != self.original.observation.ordinary_group()
+        {
+            return Err(cgka_traits::EngineError::Other(
+                "selected consent unavailable".into(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -236,8 +324,11 @@ impl AppClient {
         }) {
             return Err(SelectedChatCopyError::InvalidPacket);
         }
-        self.selected_chat_copy_owner
-            .receive_consent(observation, packet)
+        self.selected_chat_copy_owner.receive_consent(
+            observation,
+            packet,
+            selected.settlement_generation(),
+        )
     }
     fn fresh_selected_consent(
         &self,
@@ -255,6 +346,15 @@ impl AppClient {
             .map_err(|_| SelectedChatCopyError::InvalidPacket)?;
         if current.binding() != original.observation.binding() {
             return Err(SelectedChatCopyError::InvalidPacket);
+        }
+        if self
+            .runtime
+            .session()
+            .validated_settled_device_roster(&original.observation.protected_group())
+            .map_err(|_| SelectedChatCopyError::InvalidSelection)?
+            .is_none_or(|current| current.settlement_generation() != original.protected_generation)
+        {
+            return Err(SelectedChatCopyError::InvalidSelection);
         }
         original.check_revision(revision)
     }

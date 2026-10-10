@@ -52,6 +52,10 @@ async fn default_selected_chat_copy_is_unsupported_before_account_or_worker_effe
         Err(SelectedChatCopyError::Unsupported)
     ));
     assert!(matches!(
+        consent.offer_packet(0).await,
+        Err(SelectedChatCopyError::Unsupported)
+    ));
+    assert!(matches!(
         consent.cancel().await,
         Err(SelectedChatCopyError::Unsupported)
     ));
@@ -66,7 +70,10 @@ async fn default_selected_chat_copy_is_unsupported_before_account_or_worker_effe
 mod actual {
     use crate::native_device_linking::*;
     use crate::{MarmotApp, MarmotAppRuntime};
-    use cgka_traits::{OutboundFanoutStorage, storage::KeyPackageBundleStorage};
+    use cgka_traits::{
+        OutboundFanoutStorage,
+        storage::{KeyPackageBundleStorage, StorageProvider},
+    };
     use marmot_account::AccountHome;
     #[tokio::test]
     async fn invalid_selected_chat_bounds_refuse_before_account_or_worker_effects() {
@@ -488,10 +495,64 @@ mod actual {
             assert!(request.request_packet(collected.revision).await.unwrap() == request_packet);
             siblings.push(consent);
         }
+        // The original approved B owner must survive a real SQL failure;
+        // the generated private bundle and purpose row roll back together.
+        let package_storage_path = apps[1].account_storage_path("test");
+        let package_keys = apps[1].account_home().load_signing_keys("test").unwrap();
+        let package_sql_key = apps[1]
+            .sqlcipher_key(
+                "test",
+                &package_keys,
+                &package_storage_path,
+                crate::sqlcipher::SqlcipherDatabaseKind::Session,
+            )
+            .unwrap();
+        let package_injector = rusqlite::Connection::open(&package_storage_path).unwrap();
+        storage_sqlite::open_hardened_sqlcipher(
+            &package_injector,
+            &package_sql_key,
+            storage_sqlite::SqlCipherHardening::cipher_only(),
+        )
+        .unwrap();
+        package_injector.execute_batch("CREATE TRIGGER reject_selected_package BEFORE INSERT ON selected_chat_key_packages BEGIN SELECT RAISE(ABORT,'isolated selected package rollback'); END;").unwrap();
+        let approved_b = siblings[0].snapshot().await.unwrap();
+        assert!(siblings[0].offer_packet(approved_b.revision).await.is_err());
+        let b_storage = apps[1].account_storage("test").unwrap();
+        assert!(b_storage.stored_key_package_bundles().unwrap() == before_bundles[1]);
+        assert!(
+            b_storage
+                .selected_chat_key_package_storage()
+                .unwrap()
+                .selected_chat_key_packages()
+                .unwrap()
+                .is_empty()
+        );
+        package_injector
+            .execute_batch("DROP TRIGGER reject_selected_package;")
+            .unwrap();
+        for consent in &siblings {
+            let current = consent.snapshot().await.unwrap();
+            let offer = consent.offer_packet(current.revision).await.expect(
+                "original approved sibling must export one independent private package offer",
+            );
+            assert!(offer == consent.offer_packet(current.revision).await.unwrap());
+        }
         for (i, app) in apps.iter().enumerate() {
             let storage = app.account_storage("test").unwrap();
             // Compare private material without formatting it on a failed assertion.
-            assert!(storage.stored_key_package_bundles().unwrap() == before_bundles[i]);
+            let owned = storage.stored_key_package_bundles().unwrap();
+            if i == 0 {
+                assert!(owned == before_bundles[i]);
+            } else {
+                assert_eq!(owned.len(), before_bundles[i].len() + 1);
+                let rows = storage
+                    .selected_chat_key_package_storage()
+                    .unwrap()
+                    .selected_chat_key_packages()
+                    .unwrap();
+                assert_eq!(rows.len(), 1);
+                assert!(rows[0].state == cgka_traits::selected_chat_key_package::SelectedChatPurposeState::Pending);
+            }
             assert!(storage.list_outbound_fanouts().unwrap() == before_fanouts[i]);
         }
         for app in &apps[1..] {
@@ -517,6 +578,37 @@ mod actual {
             2
         );
         siblings[0].cancel().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let storage = apps[1].account_storage("test").unwrap();
+                let rows = storage
+                    .selected_chat_key_package_storage()
+                    .unwrap()
+                    .selected_chat_key_packages()
+                    .unwrap();
+                if rows.len() == 1
+                    && rows[0].state
+                        == cgka_traits::selected_chat_key_package::SelectedChatPurposeState::Denied
+                {
+                    assert!(storage.stored_key_package_bundles().unwrap() == before_bundles[1]);
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("cancelled original private package must retire exactly");
+        assert!(
+            apps[2]
+                .account_storage("test")
+                .unwrap()
+                .selected_chat_key_package_storage()
+                .unwrap()
+                .selected_chat_key_packages()
+                .unwrap()[0]
+                .state
+                == cgka_traits::selected_chat_key_package::SelectedChatPurposeState::Pending
+        );
         assert!(
             siblings[0]
                 .response_packet(siblings[0].snapshot().await.unwrap().revision)
@@ -568,7 +660,41 @@ mod actual {
             fresh_consent.snapshot().await.unwrap().phase,
             crate::SelectedChatConsentPhase::AwaitingApproval
         );
+        let fresh_revision = fresh_consent.snapshot().await.unwrap().revision;
+        fresh_consent.approve(fresh_revision).await.unwrap();
+        let fresh_revision = fresh_consent.snapshot().await.unwrap().revision;
+        let fresh_offer = fresh_consent.offer_packet(fresh_revision).await.unwrap();
+        let fresh_alias = managers[1]
+            .receive_selected_chat_copy_request("test", fresh_packet.clone())
+            .await
+            .unwrap();
+        drop(fresh_alias);
+        assert!(fresh_consent.offer_packet(fresh_revision).await.unwrap() == fresh_offer);
+        siblings[0].cancel().await.unwrap();
+        assert!(
+            apps[1]
+                .account_storage("test")
+                .unwrap()
+                .selected_chat_key_package_storage()
+                .unwrap()
+                .selected_chat_key_packages()
+                .unwrap()
+                .iter()
+                .any(|row| row.state
+                    == cgka_traits::selected_chat_key_package::SelectedChatPurposeState::Pending)
+        );
         drop(fresh_consent);
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let storage = apps[1].account_storage("test").unwrap();
+                let rows = storage.selected_chat_key_package_storage().unwrap().selected_chat_key_packages().unwrap();
+                if rows.len() == 2 && rows.iter().all(|row| row.state == cgka_traits::selected_chat_key_package::SelectedChatPurposeState::Denied) {
+                    assert!(storage.stored_key_package_bundles().unwrap() == before_bundles[1]);
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        }).await.expect("last shared original handle must retire its exact package");
         assert!(
             managers[1]
                 .receive_selected_chat_copy_request("test", fresh_packet)
@@ -597,6 +723,21 @@ mod actual {
             siblings[1].snapshot().await.unwrap().phase,
             crate::SelectedChatConsentPhase::Closed
         );
+        let reopened_app = MarmotApp::with_relay(dirs[2].path(), &url);
+        let reopened = reopened_app.client("test").await.unwrap();
+        let reopened_storage = reopened_app.account_storage("test").unwrap();
+        assert!(reopened_storage.stored_key_package_bundles().unwrap() == before_bundles[2]);
+        let abandoned = reopened_storage
+            .selected_chat_key_package_storage()
+            .unwrap()
+            .selected_chat_key_packages()
+            .unwrap();
+        assert_eq!(abandoned.len(), 1);
+        assert!(
+            abandoned[0].state
+                == cgka_traits::selected_chat_key_package::SelectedChatPurposeState::Denied
+        );
+        drop(reopened);
         d_runtime.shutdown_and_close().await.unwrap();
         relay.shutdown();
     }

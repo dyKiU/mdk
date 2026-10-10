@@ -2243,6 +2243,25 @@ fn delivery_plane_label(plane: TransportDeliveryPlane) -> &'static str {
 
 #[cfg(feature = "experimental-device-sync")]
 impl AccountDeviceSession {
+    pub fn resolve_selected_chat_package(
+        &self,
+        original: &cgka_engine::selected_chat_consent::AuthenticatedSelectedChatRequest,
+        response: &[u8],
+        lease: &mut dyn cgka_engine::selected_chat_consent::SelectedChatPackageLease,
+    ) -> Result<cgka_engine::selected_chat_consent::SelectedChatPackageOffer, EngineError> {
+        self.engine
+            .resolve_selected_chat_package(original, response, lease)
+    }
+    pub fn retire_selected_chat_package(
+        &self,
+        scope: &cgka_traits::selected_chat_key_package::SelectedChatPurposeScope,
+        reference: &[u8; 32],
+    ) -> Result<(), EngineError> {
+        self.engine.retire_selected_chat_package(scope, reference)
+    }
+    pub fn cleanup_selected_chat_packages_on_startup(&self) -> Result<(), EngineError> {
+        self.engine.cleanup_selected_chat_packages_on_startup()
+    }
     pub fn selected_chat_request_observation(
         &self,
         ordinary: &GroupId,

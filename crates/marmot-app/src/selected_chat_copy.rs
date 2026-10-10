@@ -128,6 +128,20 @@ impl SelectedChatConsent {
             Err(SelectedChatCopyError::Unsupported)
         }
     }
+    /// Export a private single-use package under this original explicit consent.
+    pub async fn offer_packet(&self, revision: u64) -> Result<Vec<u8>, SelectedChatCopyError> {
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            self.manager
+                .selected_consent_offer(&self.account, self.inner.original.clone(), revision)
+                .await
+        }
+        #[cfg(not(feature = "experimental-device-sync"))]
+        {
+            let _ = revision;
+            Err(SelectedChatCopyError::Unsupported)
+        }
+    }
     pub async fn cancel(&self) -> Result<(), SelectedChatCopyError> {
         #[cfg(feature = "experimental-device-sync")]
         {

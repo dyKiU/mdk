@@ -410,3 +410,6 @@ mod private_device_invite;
 
 #[path = "accepted_welcome_receipts/private_batch.rs"]
 mod private_batch;
+
+#[path = "accepted_welcome_receipts/selected_chat_purpose.rs"]
+mod selected_chat_purpose;

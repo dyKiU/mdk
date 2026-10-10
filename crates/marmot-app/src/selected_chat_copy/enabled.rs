@@ -112,6 +112,13 @@ pub(crate) struct AccountCopyOwner {
     current: Option<Weak<RequestState>>,
     consent_lifetime: Arc<AtomicU64>,
     consent_history: std::collections::HashMap<[u8; 32], (Instant, Weak<ConsentState>)>,
+    package_cleanup: std::collections::HashMap<
+        [u8; 32],
+        (
+            cgka_traits::selected_chat_key_package::SelectedChatPurposeScope,
+            Weak<ConsentState>,
+        ),
+    >,
 }
 impl Default for AccountCopyOwner {
     fn default() -> Self {
@@ -120,10 +127,42 @@ impl Default for AccountCopyOwner {
             current: None,
             consent_lifetime: Arc::new(AtomicU64::new(0)),
             consent_history: std::collections::HashMap::new(),
+            package_cleanup: std::collections::HashMap::new(),
         }
     }
 }
 impl AccountCopyOwner {
+    pub(crate) fn register_package_cleanup(
+        &mut self,
+        original: &Arc<ConsentState>,
+        scope: cgka_traits::selected_chat_key_package::SelectedChatPurposeScope,
+        reference: [u8; 32],
+    ) -> Result<(), SelectedChatCopyError> {
+        if !self.package_cleanup.contains_key(&reference)
+            && self.package_cleanup.len()
+                >= cgka_traits::selected_chat_key_package::MAX_SELECTED_CHAT_PURPOSE_ROWS
+        {
+            return Err(SelectedChatCopyError::Busy);
+        }
+        self.package_cleanup
+            .insert(reference, (scope, Arc::downgrade(original)));
+        Ok(())
+    }
+    pub(crate) fn packages_to_retire(
+        &self,
+    ) -> Vec<(
+        cgka_traits::selected_chat_key_package::SelectedChatPurposeScope,
+        [u8; 32],
+    )> {
+        self.package_cleanup
+            .iter()
+            .filter(|(_, (_, owner))| !owner.upgrade().is_some_and(|original| original.is_live()))
+            .map(|(reference, (scope, _))| (scope.clone(), *reference))
+            .collect()
+    }
+    pub(crate) fn clear_package_cleanup(&mut self, reference: &[u8; 32]) {
+        self.package_cleanup.remove(reference);
+    }
     pub(crate) fn owns_consent(&self, state: &Arc<ConsentState>) -> bool {
         self.consent_history
             .get(&state.observation.binding())
@@ -140,6 +179,7 @@ impl AccountCopyOwner {
         &mut self,
         observation: cgka_engine::selected_chat_consent::AuthenticatedSelectedChatRequest,
         packet: Vec<u8>,
+        protected_generation: u64,
     ) -> Result<Arc<ConsentState>, SelectedChatCopyError> {
         let binding = observation.binding();
         if let Some((deadline, prior)) = self.consent_history.get(&binding) {
@@ -179,6 +219,7 @@ impl AccountCopyOwner {
             },
             observation,
             packet,
+            protected_generation,
             progress: Mutex::new(ConsentProgress::default()),
             public_handle: Mutex::new(Weak::new()),
         });
@@ -257,6 +298,7 @@ pub(crate) struct ConsentState {
     lease: OwnerLease,
     pub(crate) observation: cgka_engine::selected_chat_consent::AuthenticatedSelectedChatRequest,
     pub(crate) packet: Vec<u8>,
+    pub(crate) protected_generation: u64,
     pub(crate) progress: Mutex<ConsentProgress>,
     public_handle: Mutex<Weak<ConsentHandle>>,
 }

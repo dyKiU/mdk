@@ -214,6 +214,10 @@ pub enum EngineError {
     #[error("invalid welcome")]
     InvalidWelcome,
 
+    /// Independent selected-chat reference requires an original live consent.
+    #[error("selected chat welcome denied")]
+    SelectedChatWelcomeDenied,
+
     #[error("{0}")]
     LinkingWelcomeDenied(crate::device_linking_key_package::LinkingWelcomeDenied),
 
@@ -289,6 +293,7 @@ impl EngineError {
             EngineError::Serialize(_) => "serialize",
             EngineError::InvalidWelcome => "invalid_welcome",
             EngineError::LinkingWelcomeDenied(_) => "linking_welcome_denied",
+            EngineError::SelectedChatWelcomeDenied => "selected_chat_welcome_denied",
             EngineError::MissingWelcomeKeyPackage => "missing_welcome_key_package",
             EngineError::WelcomeAlreadyProcessed => "welcome_already_processed",
             EngineError::PrivateEnrollmentIntakeAtCapacity => {
