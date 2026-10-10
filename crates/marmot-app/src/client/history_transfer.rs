@@ -474,11 +474,25 @@ impl AppClient {
                 if !entry.complete
                     && let Some(staging) = &entry.staging
                 {
-                    self.app
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    {
+                        self.history_owner.cleanup_attempts_for_test += 1;
+                    }
+                    let cleanup = self
+                        .app
                         .account_storage(&self.state.label)
-                        .map_err(|_| HistoryTransferError::RuntimeUnavailable)?
-                        .cancel_synchronized_history_archive(staging)
-                        .map_err(|_| HistoryTransferError::RuntimeUnavailable)?;
+                        .map_err(|_| HistoryTransferError::RuntimeUnavailable)
+                        .and_then(|storage| {
+                            storage
+                                .cancel_synchronized_history_archive(staging)
+                                .map_err(|_| HistoryTransferError::RuntimeUnavailable)
+                        });
+                    if let Err(error) = cleanup {
+                        // Retain only the exact negative cleanup identity. Its
+                        // original is cancelled and its channel keys retired.
+                        self.history_owner.channels.insert(transfer, entry);
+                        return Err(error);
+                    }
                 }
                 if let Some(reply) = entry.continue_reply.take() {
                     let _ = reply.send(Err(HistoryTransferError::Closed));
@@ -613,6 +627,30 @@ impl AppClient {
                         )
                         .map_err(|_| HistoryTransferError::RuntimeUnavailable)?;
                     entry.staging = Some(staging.clone());
+                    if !entry.complete
+                        && receipt.disposition
+                            == storage_sqlite::HistoryArchiveFragmentDisposition::Imported
+                    {
+                        let mut progress = original
+                            .progress
+                            .lock()
+                            .expect("history committed import receipt");
+                        progress.imported_records = receipt.imported_records;
+                        progress.complete = true;
+                        progress.revision += 1;
+                        entry.complete = true;
+                    }
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    if self.history_owner.cancel_after_stage_for_test
+                        == Some(
+                            receipt.disposition
+                                == storage_sqlite::HistoryArchiveFragmentDisposition::Imported,
+                        )
+                    {
+                        self.history_owner.cancel_after_stage_for_test = None;
+                        original.cancel();
+                    }
+
                     let body =
                         serde_json::to_vec(&receipt).map_err(|_| HistoryTransferError::NotReady)?;
                     self.runtime
@@ -626,18 +664,6 @@ impl AppClient {
                         )
                         .map_err(|_| HistoryTransferError::NotReady)?;
                     entry.receipt_to_publish = Some(ordinal);
-                    if receipt.disposition
-                        == storage_sqlite::HistoryArchiveFragmentDisposition::Imported
-                    {
-                        let mut progress = original
-                            .progress
-                            .lock()
-                            .expect("history committed import receipt");
-                        progress.imported_records = receipt.imported_records;
-                        progress.complete = true;
-                        progress.revision += 1;
-                        entry.complete = true;
-                    }
                 }
                 HistoryControl::Receipt(ordinal) if !entry.archive.is_empty() => {
                     let opened = self

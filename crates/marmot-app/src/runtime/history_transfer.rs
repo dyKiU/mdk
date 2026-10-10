@@ -8,7 +8,7 @@ type Reply<T> = oneshot::Sender<Result<T, HistoryTransferError>>;
 pub(crate) enum Command {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     ObservedChunks {
-        respond: Reply<(usize, usize, usize, usize)>,
+        respond: Reply<(usize, usize, usize, usize, usize)>,
     },
     #[cfg(all(test, feature = "test-policy-overrides"))]
     RepublishOriginalRequest {
@@ -20,6 +20,11 @@ pub(crate) enum Command {
         original: Arc<State>,
         message_id: [u8; 32],
         respond: Reply<(bool, usize)>,
+    },
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    CancelAfterStage {
+        imported: bool,
+        respond: Reply<()>,
     },
     Begin {
         group: GroupId,
@@ -66,7 +71,7 @@ impl AccountManager {
     pub(crate) async fn observed_history_chunks_for_test(
         &self,
         account: &str,
-    ) -> Result<(usize, usize, usize, usize), HistoryTransferError> {
+    ) -> Result<(usize, usize, usize, usize, usize), HistoryTransferError> {
         self.send_history(account, |respond| Command::ObservedChunks { respond })
             .await
     }
@@ -92,6 +97,18 @@ impl AccountManager {
         self.send_history(account, |respond| Command::InspectOriginalRecord {
             original,
             message_id,
+            respond,
+        })
+        .await
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) async fn cancel_after_original_history_stage_for_test(
+        &self,
+        account: &str,
+        imported: bool,
+    ) -> Result<(), HistoryTransferError> {
+        self.send_history(account, |respond| Command::CancelAfterStage {
+            imported,
             respond,
         })
         .await
@@ -155,6 +172,7 @@ pub(crate) async fn handle(client: &mut crate::AppClient, command: Command) {
                 client.history_owner.refused_original_requests,
                 client.history_owner.authenticated_request_observations,
                 client.history_owner.channels.len(),
+                client.history_owner.cleanup_attempts_for_test,
             )));
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -172,6 +190,11 @@ pub(crate) async fn handle(client: &mut crate::AppClient, command: Command) {
         } => {
             let _ = respond
                 .send(client.inspect_original_history_record_for_test(&original, message_id));
+        }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        Command::CancelAfterStage { imported, respond } => {
+            client.history_owner.cancel_after_stage_for_test = Some(imported);
+            let _ = respond.send(Ok(()));
         }
         Command::Begin {
             group,

@@ -210,3 +210,14 @@ fixture. Normal multi-fragment import and replay controls remain green. Evidence
 [source expiry](device-sync-history-source-expiry-verification.json). Later expiry
 during delayed publication, faulted cleanup and committed-receipt bookkeeping
 still require separate acceptance before native adoption.
+
+### Committed staging cancellation repair
+
+Two real multi-fragment actor regressions reproduced lost SQL cleanup and hidden
+committed import completion. The actor now retains exact negative staging cleanup
+after SQL failure with keys retired, and records Imported completion before
+fallible receipt sealing. Original cancellation cannot grant receipt publication
+or source completion. Five history controls and production/default/format gates
+pass. See [staging cancellation proof](device-sync-history-stage-cancellation-verification.json).
+Blocked publication, delayed source expiry, durable restart and native acceptance
+remain separate.

@@ -150,6 +150,10 @@ pub(crate) struct AccountHistoryOwner {
     pub(crate) refused_original_requests: usize,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) authenticated_request_observations: usize,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) cleanup_attempts_for_test: usize,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) cancel_after_stage_for_test: Option<bool>,
     // Active and terminal IDs share one account-lifetime budget. These negative
     // facts never recreate a lease, key or permission after original retirement.
     pub(crate) seen_transfers: std::collections::BTreeSet<[u8; 32]>,
@@ -165,6 +169,10 @@ impl Default for AccountHistoryOwner {
             refused_original_requests: 0,
             #[cfg(all(test, feature = "test-policy-overrides"))]
             authenticated_request_observations: 0,
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            cleanup_attempts_for_test: 0,
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            cancel_after_stage_for_test: None,
             seen_transfers: Default::default(),
             channels: Default::default(),
         }
