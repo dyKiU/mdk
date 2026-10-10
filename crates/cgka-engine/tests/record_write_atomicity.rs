@@ -3037,9 +3037,19 @@ async fn a_failed_terminal_retirement_leaves_every_row_deferred_for_the_next_pas
         error = carol.advance_convergence(&group_a).await.err();
     }
     let error = error.expect("the injected mid-retire write failure must surface");
+    // Direct apply retains Busy; canonical replay deliberately redacts the cause.
+    // Both must preserve the storage retry class and roll back the same writes.
     assert!(
-        format!("{error:?}").contains("injected message-state write failure"),
+        matches!(
+            error,
+            EngineError::Storage(StorageError::Busy(_) | StorageError::Backend(_))
+        ),
         "unexpected retire error: {error:?}"
+    );
+    assert_eq!(
+        failed_state_fault.0.load(Ordering::SeqCst),
+        0,
+        "the injected second failed-state write must have fired"
     );
 
     for row in &rows {
