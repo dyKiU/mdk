@@ -25,6 +25,10 @@ pub(crate) enum SetupCommand {
         binding: [u8; 32],
         respond: Reply<crate::DeviceLinkingApprovalPhase>,
     },
+    ApprovalReview {
+        binding: [u8; 32],
+        respond: Reply<([u8; 32], [u8; 32], u32)>,
+    },
     Continue {
         scope: PurposeAttemptScope,
         new_device: bool,
@@ -94,6 +98,9 @@ pub(super) async fn handle(
         }
         SetupCommand::ApprovalPhase { binding, respond } => {
             let _ = respond.send(client.native_received_approval_phase(&binding));
+        }
+        SetupCommand::ApprovalReview { binding, respond } => {
+            let _ = respond.send(client.native_received_approval_review(&binding));
         }
         SetupCommand::ReceiveEnrollment {
             scope,
@@ -227,6 +234,19 @@ impl AccountManager {
     ) -> Result<crate::DeviceLinkingApprovalPhase, ClientLinkingError> {
         self.verifier_command(account, |respond| {
             VerifierCommand::Setup(SetupCommand::ApprovalPhase {
+                binding: *binding,
+                respond,
+            })
+        })
+        .await
+    }
+    pub(crate) async fn native_received_approval_review(
+        &self,
+        account: &str,
+        binding: &[u8; 32],
+    ) -> Result<([u8; 32], [u8; 32], u32), ClientLinkingError> {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::ApprovalReview {
                 binding: *binding,
                 respond,
             })

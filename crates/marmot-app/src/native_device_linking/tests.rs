@@ -57,6 +57,10 @@ async fn default_native_enrollment_is_unsupported_without_account_or_worker_effe
     ));
     let approval = DeviceLinkingApproval { _private: () };
     assert!(matches!(
+        approval.review_metadata(0).await,
+        Err(DeviceLinkingError::Unsupported)
+    ));
+    assert!(matches!(
         approval.snapshot().await,
         Err(DeviceLinkingError::Unsupported)
     ));
@@ -163,13 +167,25 @@ mod actual {
 
     #[tokio::test]
     async fn native_public_original_three_device_enrollment_uses_opaque_approval_and_packets() {
-        run_native_public_three_device_enrollment(false).await;
+        run_native_public_three_device_enrollment(ApprovalScenario::Enroll).await;
     }
     #[tokio::test]
     async fn native_public_original_approval_cancel_fences_shared_handles_and_packets() {
-        run_native_public_three_device_enrollment(true).await;
+        run_native_public_three_device_enrollment(ApprovalScenario::Cancel).await;
     }
-    async fn run_native_public_three_device_enrollment(cancel_approval: bool) {
+    #[tokio::test]
+    async fn native_public_original_approval_review_identifies_authenticated_devices_without_approving()
+     {
+        run_native_public_three_device_enrollment(ApprovalScenario::ReviewThenEnroll).await;
+    }
+    #[derive(Clone, Copy, PartialEq)]
+    enum ApprovalScenario {
+        Enroll,
+        Cancel,
+        ReviewThenEnroll,
+    }
+    async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
+        use cgka_traits::StorageProvider;
         let relay =
             nostr_relay_builder::LocalRelay::new(nostr_relay_builder::RelayBuilder::default());
         relay.run().await.unwrap();
@@ -253,7 +269,55 @@ mod actual {
         assert!(Arc::ptr_eq(&approval.inner, &duplicate_handles[0].inner));
         drop(duplicate_handles);
         let observed = approval.snapshot().await.unwrap();
-        if cancel_approval {
+        if scenario == ApprovalScenario::ReviewThenEnroll {
+            let reviewed = approval.review_metadata(observed.revision).await
+                .expect("original B approval must expose authenticated sender and joining-device review metadata");
+            assert_eq!(reviewed.revision, observed.revision);
+            assert_eq!(reviewed.existing_device_count, 2);
+            assert_eq!(reviewed.source_device_public_key.len(), 32);
+            assert_eq!(reviewed.joining_device_public_key.len(), 32);
+            assert_ne!(
+                reviewed.source_device_public_key,
+                reviewed.joining_device_public_key
+            );
+            // Independent public identity oracles: the actual existing A MLS
+            // leaf and C's original public setup packet, not UI reconstruction.
+            let storage = apps[0].account_storage("test").unwrap();
+            let group = openmls::group::MlsGroup::load(
+                storage.mls_storage(),
+                &openmls::group::GroupId::from_slice(&targets[0].selector),
+            )
+            .unwrap()
+            .unwrap();
+            assert!(
+                reviewed.source_device_public_key.as_slice()
+                    == group.own_leaf_node().unwrap().signature_key().as_slice()
+            );
+            let original_setup: serde_json::Value =
+                serde_json::from_slice(&c.setup_packet()[6..]).unwrap();
+            let recipient: Vec<u8> = original_setup["recipient"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| u8::try_from(v.as_u64().unwrap()).unwrap())
+                .collect();
+            assert!(reviewed.joining_device_public_key == recipient);
+            assert_eq!(
+                approval.snapshot().await.unwrap(),
+                observed,
+                "review cannot implicitly approve the original proposal"
+            );
+            assert!(
+                a.enrollment_packet(a.snapshot().await.unwrap().revision)
+                    .await
+                    .is_err()
+            );
+            assert!(matches!(
+                approval.review_metadata(observed.revision + 1).await,
+                Err(DeviceLinkingError::StaleRevision)
+            ));
+        }
+        if scenario == ApprovalScenario::Cancel {
             let shared = managers[1]
                 .pending_device_linking_approvals("test")
                 .await
@@ -261,6 +325,10 @@ mod actual {
             approval.cancel().await.unwrap();
             let cancelled = approval.snapshot().await.unwrap();
             assert_eq!(cancelled.phase, DeviceLinkingApprovalPhase::Cancelled);
+            assert!(matches!(
+                shared[0].review_metadata(cancelled.revision).await,
+                Err(DeviceLinkingError::Closed)
+            ));
             assert!(matches!(
                 shared[0].approve(cancelled.revision).await,
                 Err(DeviceLinkingError::Closed)
@@ -345,6 +413,12 @@ mod actual {
             Err(DeviceLinkingError::Closed)
         ));
         let settled = approval.snapshot().await.unwrap();
+        if scenario == ApprovalScenario::ReviewThenEnroll {
+            assert!(matches!(
+                approval.review_metadata(settled.revision).await,
+                Err(DeviceLinkingError::Closed)
+            ));
+        }
         assert!(matches!(
             approval.approve(settled.revision).await,
             Err(DeviceLinkingError::Closed)

@@ -1,0 +1,86 @@
+{
+  "signed_base": "7bb539650ddcd71e5ff7bfd93177d397b577696c",
+  "exact_red_stash": "ce9457fa229db469ca0415a223dd2835f31057a8",
+  "exact_green_stash": "57f36f2cfe822d89e29419f469a40f0bd6dadf2b",
+  "qualified_runtime_test_paths": [
+    "crates/marmot-app/src/client/private_enrollment_proposal.rs",
+    "crates/marmot-app/src/lib.rs",
+    "crates/marmot-app/src/native_device_linking.rs",
+    "crates/marmot-app/src/native_device_linking/enabled.rs",
+    "crates/marmot-app/src/native_device_linking/tests.rs",
+    "crates/marmot-app/src/runtime/device_linking/setup.rs"
+  ],
+  "verified_inputs": 2431,
+  "result": {
+    "head": "7bb539650ddcd71e5ff7bfd93177d397b577696c",
+    "behavioral_fixture_sha256": "fd35e07429dec3c679b3e15d34ef67dfbb3c50d31d56a91329d76563b53bc9b3",
+    "input_count": 2431,
+    "source_manifest_sha256": "ea1b2f4d4f2af84fde510c4a351e1d356b3302ab23152bd14ee09479f2809d07",
+    "gates": [
+      {
+        "gate": "review-focused",
+        "exit_code": 0,
+        "seconds": 60.53,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "db326537ff0703265a3abee3814d3ec31e0d99b268dcc02dd49eab96432fb021"
+      },
+      {
+        "gate": "native-controls",
+        "exit_code": 0,
+        "seconds": 179.77,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 12,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "1f209ffe6587610f23fb14e5d951b8db755108c47f28f2dedd31fae834dbea9f"
+      },
+      {
+        "gate": "default-controls",
+        "exit_code": 0,
+        "seconds": 38.27,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "a41779b4175345abb3633a23dbee9c6eceb15795bb53e77f56b7c7ab685f9ca2"
+      },
+      {
+        "gate": "production-clippy",
+        "exit_code": 0,
+        "seconds": 30.67,
+        "counts": [],
+        "log_sha256": "e9eb1958e031a833bb3e0c262235852483a3cca9c9a98cadbf4050874f3b9e60"
+      },
+      {
+        "gate": "default-check",
+        "exit_code": 0,
+        "seconds": 25.19,
+        "counts": [],
+        "log_sha256": "1faf956872c7a068dd4cf34a129eda826e01fd9fa29800c564683dc0d4368fba"
+      },
+      {
+        "gate": "fmt",
+        "exit_code": 0,
+        "seconds": 3.57,
+        "counts": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "scope": "Original approval read-only metadata authenticates source/joining public device keys/count without approving; exact pending revision/owner is checked before and after worker awaits. Genuine RED0/1\u2192GREEN1, native12/default2 and production gates. Thin bindings/new SDK/native approval UI/application delivery and history remain open."
+}

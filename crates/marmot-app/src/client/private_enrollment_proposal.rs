@@ -151,6 +151,30 @@ impl AppClient {
         }
     }
 
+    pub(crate) fn native_received_approval_review(
+        &mut self,
+        binding: &[u8; 32],
+    ) -> Result<([u8; 32], [u8; 32], u32), ClientLinkingError> {
+        if self.native_received_approval_phase(binding)?
+            != crate::DeviceLinkingApprovalPhase::AwaitingApproval
+        {
+            return Err(rejected());
+        }
+        for request in &self.linking_owner.received_enrollment_proposals {
+            if request
+                .binding_digest()
+                .map_err(ClientLinkingError::Engine)?
+                == *binding
+            {
+                self.authenticate_received_enrollment_proposal(request)?;
+                let count =
+                    u32::try_from(request.predecessor().leaves.len()).map_err(|_| rejected())?;
+                return Ok((*request.source_signer(), *request.recipient(), count));
+            }
+        }
+        Err(rejected())
+    }
+
     /// Explicit action on the exact retained, source-authenticated observation.
     /// Neither the selector nor the signed packet is SDK or Add permission.
     pub(crate) fn endorse_received_enrollment_proposal(
