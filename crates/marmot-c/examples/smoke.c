@@ -36,6 +36,9 @@ _Static_assert(MARMOT_REPORT_REASON_SPAM == 4, "report reason ABI value");
 _Static_assert(MARMOT_REPORT_REASON_IMPERSONATION == 5, "report reason ABI value");
 _Static_assert(MARMOT_REPORT_REASON_OTHER == 6, "report reason ABI value");
 
+_Static_assert(MARMOT_STATUS_SELECTED_CHAT_COPY_UNSUPPORTED == 102, "selected unsupported ABI");
+_Static_assert(MARMOT_STATUS_SELECTED_CHAT_COPY_CLOSED == 111, "selected closed ABI");
+_Static_assert(MARMOT_SELECTED_CHAT_COPY_PHASE_INVITE_CONFIRMED == 4, "selected source confirmation ABI");
 _Static_assert(MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED == 96, "device unsupported ABI");
 _Static_assert(MARMOT_STATUS_DEVICE_LINKING_RUNTIME_UNAVAILABLE == 101, "device runtime ABI");
 _Static_assert(MARMOT_DEVICE_LINKING_PHASE_FAILED == 7, "existing device phase ABI");
@@ -243,6 +246,30 @@ int main(int argc, char **argv) {
     marmot_device_linking_approval_snapshot_free(approval_snapshot);
     marmot_device_linking_approval_free(approval_clone);
     marmot_device_linking_bytes_free(enrollment_bytes);
+    struct MarmotSelectedChatCopy *selected_copy = (void *)1;
+    st = marmot_begin_selected_chat_copy(client, "missing", "invalid", NULL, 0, &selected_copy);
+    check(st == MARMOT_STATUS_SELECTED_CHAT_COPY_UNSUPPORTED && selected_copy == NULL,
+          "default selected request refuses before lookup and clears output");
+    struct MarmotSelectedChatConsent *selected_consent = (void *)1;
+    st = marmot_receive_selected_chat_copy_request(client, "missing", NULL, 0, &selected_consent);
+    check(st == MARMOT_STATUS_SELECTED_CHAT_COPY_UNSUPPORTED && selected_consent == NULL,
+          "default selected consent refuses before lookup and clears output");
+    st = marmot_selected_chat_copy_clone(NULL, &selected_copy);
+    check(st == MARMOT_STATUS_NULL_POINTER && selected_copy == NULL,
+          "selected clone requires original request");
+    st = marmot_selected_chat_consent_clone(NULL, &selected_consent);
+    check(st == MARMOT_STATUS_NULL_POINTER && selected_consent == NULL,
+          "selected consent clone requires original owner");
+    check(marmot_selected_chat_copy_continue(NULL, UINT64_MAX) == MARMOT_STATUS_NULL_POINTER,
+          "selected continuation requires original request");
+    check(marmot_selected_chat_consent_approve(NULL, UINT64_MAX) == MARMOT_STATUS_NULL_POINTER,
+          "selected approval requires original consent");
+    marmot_selected_chat_copy_free(selected_copy);
+    marmot_selected_chat_consent_free(selected_consent);
+    marmot_selected_chat_copy_snapshot_free(NULL);
+    marmot_selected_chat_consent_snapshot_free(NULL);
+    marmot_selected_chat_bytes_free(NULL);
+
 
 
 

@@ -38,6 +38,22 @@ struct DeviceLinkingSmoke {
         let packetCopy = try FfiConverterTypeDeviceLinkingOutgoingPacketFfi.lift(
             FfiConverterTypeDeviceLinkingOutgoingPacketFfi.lower(packet))
         precondition(packetCopy == packet)
+        let copyPhases: [SelectedChatCopyPhaseFfi] = [.awaitingSiblingConsent, .cancelled, .expired, .closed, .inviteConfirmed]
+        for phase in copyPhases {
+            let value = SelectedChatCopySnapshotFfi(revision: UInt64.max, phase: phase,
+                siblingCount: 2, consentingSiblingCount: 2, offeredSiblingCount: 2)
+            let copy = try FfiConverterTypeSelectedChatCopySnapshotFfi.lift(
+                FfiConverterTypeSelectedChatCopySnapshotFfi.lower(value))
+            precondition(copy == value)
+        }
+        let consentPhases: [SelectedChatConsentPhaseFfi] = [.awaitingApproval, .approved, .cancelled, .expired, .closed]
+        for phase in consentPhases {
+            let value = SelectedChatConsentSnapshotFfi(revision: UInt64.max, phase: phase,
+                chatSelector: Data([0, 255, 0, 1]))
+            let copy = try FfiConverterTypeSelectedChatConsentSnapshotFfi.lift(
+                FfiConverterTypeSelectedChatConsentSnapshotFfi.lower(value))
+            precondition(copy == value)
+        }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let kit = try Marmot.newWithConfiguration(rootPath: root.path,
@@ -73,8 +89,24 @@ struct DeviceLinkingSmoke {
             precondition(caps.verificationSupported)
         }
         let accounts = try kit.listAccounts()
+        do {
+            _ = try await kit.beginSelectedChatCopy(accountRef: "missing", groupIdHex: "01", linkedRosterSelector: Data([2]))
+            preconditionFailure("missing account must not create a selected-chat request")
+        } catch MarmotKitError.SelectedChatCopyUnsupported {
+            precondition(!caps.verificationSupported)
+        } catch MarmotKitError.SelectedChatCopyRuntimeUnavailable {
+            precondition(caps.verificationSupported)
+        }
+        do {
+            _ = try await kit.receiveSelectedChatCopyRequest(accountRef: "missing", packet: Data([1]))
+            preconditionFailure("missing account must not create a selected-chat consent")
+        } catch MarmotKitError.SelectedChatCopyUnsupported {
+            precondition(!caps.verificationSupported)
+        } catch MarmotKitError.SelectedChatCopyRuntimeUnavailable {
+            precondition(caps.verificationSupported)
+        }
         precondition(accounts.isEmpty)
         try await kit.shutdownAndClose()
-        print("Swift device linking ABI: 18 session + 6 approval snapshots, binary target/packet round trips, capability, typed factory/observation gates and shutdown passed; experimental=\(caps.verificationSupported)")
+        print("Swift device linking ABI: 18 session + 6 approval snapshots, 5 selected request + 5 selected consent snapshots, binary selectors/target/packet round trips, capability, typed factory/observation gates and shutdown passed; experimental=\(caps.verificationSupported)")
     }
 }
