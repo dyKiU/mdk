@@ -347,3 +347,132 @@ async fn history_channel_original_control_reaches_actual_mls_member_source() {
             .is_err()
     );
 }
+
+struct ControlledWrapPeeler {
+    fail_once: AtomicBool,
+    stall: bool,
+    entered: Arc<AtomicBool>,
+    inputs: Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+}
+#[async_trait::async_trait]
+impl cgka_traits::peeler::TransportPeeler for ControlledWrapPeeler {
+    async fn peel_group_message(
+        &self,
+        msg: &cgka_traits::TransportMessage,
+        context: &cgka_traits::group_context::GroupContextSnapshot,
+    ) -> Result<cgka_traits::ingest::PeeledMessage, cgka_traits::error::PeelerError> {
+        crate::device_group_genesis::tests::PassthroughPeeler
+            .peel_group_message(msg, context)
+            .await
+    }
+    async fn peel_welcome(
+        &self,
+        msg: &cgka_traits::TransportMessage,
+    ) -> Result<cgka_traits::ingest::PeeledMessage, cgka_traits::error::PeelerError> {
+        crate::device_group_genesis::tests::PassthroughPeeler
+            .peel_welcome(msg)
+            .await
+    }
+    async fn wrap_welcome(
+        &self,
+        payload: &cgka_traits::EncryptedPayload,
+        recipient: &cgka_traits::MemberId,
+    ) -> Result<cgka_traits::TransportMessage, cgka_traits::error::PeelerError> {
+        crate::device_group_genesis::tests::PassthroughPeeler
+            .wrap_welcome(payload, recipient)
+            .await
+    }
+    async fn wrap_group_message(
+        &self,
+        payload: &cgka_traits::EncryptedPayload,
+        context: &cgka_traits::group_context::GroupContextSnapshot,
+    ) -> Result<cgka_traits::TransportMessage, cgka_traits::error::PeelerError> {
+        self.entered.store(true, Ordering::SeqCst);
+        self.inputs.lock().unwrap().push(payload.ciphertext.clone());
+        if self.stall {
+            return std::future::pending().await;
+        }
+        if self.fail_once.swap(false, Ordering::SeqCst) {
+            return Err(cgka_traits::error::PeelerError::WrapFailed(
+                "isolated first wrap failure".into(),
+            ));
+        }
+        crate::device_group_genesis::tests::PassthroughPeeler
+            .wrap_group_message(payload, context)
+            .await
+    }
+}
+#[tokio::test]
+async fn history_channel_failed_wrap_retries_the_same_real_ratchet_ciphertext() {
+    let (mut a, mut b, p, o) = fixture().await;
+    let inputs = Arc::new(std::sync::Mutex::new(Vec::new()));
+    a.peeler = Box::new(ControlledWrapPeeler {
+        fail_once: AtomicBool::new(true),
+        stall: false,
+        entered: Arc::new(AtomicBool::new(false)),
+        inputs: inputs.clone(),
+    });
+    let mut channel = a
+        .begin_history_channel(&o, &p, b.identity.signer.public(), Lease::new())
+        .unwrap();
+    assert!(matches!(
+        a.wrap_history_control(&mut channel, HistoryControl::Request)
+            .await,
+        Err(EngineError::Peeler(_))
+    ));
+    assert_eq!(channel.outbound.len(), 1);
+    let wire = a
+        .wrap_history_control(&mut channel, HistoryControl::Request)
+        .await
+        .unwrap();
+    {
+        let held = inputs.lock().unwrap();
+        assert_eq!(held.len(), 2);
+        assert_eq!(held[0], held[1]);
+    }
+    b.drain_events();
+    b.ingest(wire).await.unwrap();
+    let wire = received_history(&mut b, &p);
+    b.authenticate_history_request(&wire).unwrap();
+}
+#[tokio::test]
+async fn history_channel_original_fixed_expiry_ends_a_real_pending_wrap() {
+    let (mut a, b, p, o) = fixture().await;
+    let entered = Arc::new(AtomicBool::new(false));
+    a.peeler = Box::new(ControlledWrapPeeler {
+        fail_once: AtomicBool::new(false),
+        stall: true,
+        entered: entered.clone(),
+        inputs: Arc::new(std::sync::Mutex::new(Vec::new())),
+    });
+    // Isolated injected Core actor policy, not a production SDK clock override.
+    let deadline = Instant::now() + Duration::from_millis(300);
+    let lease = Arc::new(Lease {
+        deadline,
+        live: AtomicBool::new(true),
+    });
+    let mut channel = a
+        .begin_history_channel(&o, &p, b.identity.signer.public(), lease)
+        .unwrap();
+    assert!(
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            a.wrap_history_control(&mut channel, HistoryControl::Request)
+        )
+        .await
+        .unwrap()
+        .is_err()
+    );
+    assert!(entered.load(Ordering::SeqCst));
+    assert_eq!(channel.original_deadline(), deadline);
+    a.peeler = Box::new(crate::device_group_genesis::tests::PassthroughPeeler);
+    assert!(
+        a.wrap_history_control(&mut channel, HistoryControl::Request)
+            .await
+            .is_err()
+    );
+    assert!(channel.request_packet().is_err());
+    channel.retire();
+    assert!(channel.keys.is_none());
+    assert!(channel.outbound.is_empty());
+}

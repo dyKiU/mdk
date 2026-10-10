@@ -140,3 +140,10 @@ original-owned control ciphertexts and creates no generic replay permission.
 This adds no actor import or committed receipt, and does not yet qualify the
 third-member outer-MLS privacy control or ordered chunks. See
 [the transport evidence](device-sync-history-control-transport-verification.json).
+
+The test-only wrapper checkpoint now passes eight real Core controls, production
+lint/default compilation/formatting. It verifies a failed peeler retry uses the
+exact committed MLS ciphertext and a fixed original fixture lease ends a pending
+wrap. No production lifetime changed. Ordered manifest/chunks, a maximum actual
+wrapped-frame control, third-member inner privacy and committed App imports remain
+open. See [the control evidence](device-sync-history-wrap-controls-verification.json).
