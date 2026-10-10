@@ -128,3 +128,19 @@ request batch preparation/publication and independently guarded recipient joinin
 ### First actual four-leaf new-message delivery
 
 Signed Core/Session87f7c62c and Appb5eb25da now drive the original request through actual guarded batch Add, ordinary publish-before-apply confirmation and separately lease-guarded fresh sibling joins. The real public ABC+A/D regression verifies four indexed independent MLS leaves, distinct sibling package consumption, sender projection, exact new A/B/C/D messages on every device and absence of prejoin history on B/C. The private transport source is a genuinely signed30443 event carried alongside the intact signed offer and never sent to the public directory; exact retries preserve its bytes. Final selected6/default1 plus focused delivery1 and four-package production Clippy/default all-target/fmt pass. See device-sync-selected-chat-four-leaf-delivery-verification.json for exact hashes/counts and unqualified followups. Native selected-copy bindings/UI, current-source broader Core conformance, transient SQL/blocked-publication controls and history transfer are next; InviteConfirmed does not assert recipient joins.
+
+### Incoming selected Welcome storage retry
+
+The actual incoming SQL rollback regression initially closed the original B
+approval (RED0/1). Retaining that approval exposed a second failure: ordinary
+queries restarted a relative retry timer and prevented four-leaf adoption. The
+qualified fix keeps one exact bounded transport observation with the original
+Weak consent, revision, purpose and package reference, and a stable retry timer.
+Each attempt re-enters actual Core admission; Pending SQL only excludes an
+already committed join. Original deadlines and cancellation remain authoritative.
+Actual rollback/retry now joins all four independent MLS copies and delivers new
+messages to all four. Focused1, selected7, default1, production App Clippy/default
+check and workspace formatting pass. See
+`device-sync-selected-welcome-storage-retry-verification.json`. Combined full
+regressions, cancellation during this retained retry, blocked publication, native
+app adoption and history are still separate qualifications.

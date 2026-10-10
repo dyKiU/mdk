@@ -875,6 +875,15 @@ mod actual {
     }
     #[tokio::test]
     async fn selected_chat_copy_admits_original_siblings_and_delivers_new_messages() {
+        selected_chat_delivery(false).await;
+    }
+
+    #[tokio::test]
+    async fn selected_chat_welcome_storage_failure_retains_original_consent_for_retry() {
+        selected_chat_delivery(true).await;
+    }
+
+    async fn selected_chat_delivery(fail_recipient_storage: bool) {
         let fixture = actual_selected_chat_fixture().await;
         let directory_reader = nostr_sdk::prelude::Client::builder().build();
         directory_reader
@@ -943,9 +952,88 @@ mod actual {
                 .unwrap();
             original_consents.push(consent);
         }
+        let mut recipient_errors = fixture.runtimes[1].subscribe();
+        let injector = if fail_recipient_storage {
+            let app = &fixture.apps[1];
+            let path = app.account_storage_path("test");
+            let keys = app.account_home().load_signing_keys("test").unwrap();
+            let key = app
+                .sqlcipher_key(
+                    "test",
+                    &keys,
+                    &path,
+                    crate::sqlcipher::SqlcipherDatabaseKind::Session,
+                )
+                .unwrap();
+            let connection = rusqlite::Connection::open(path).unwrap();
+            storage_sqlite::open_hardened_sqlcipher(
+                &connection,
+                &key,
+                storage_sqlite::SqlCipherHardening::cipher_only(),
+            )
+            .unwrap();
+            connection.execute_batch("CREATE TRIGGER reject_selected_join BEFORE UPDATE OF state ON selected_chat_key_packages WHEN NEW.state=1 BEGIN SELECT RAISE(ABORT,'isolated selected admission rollback'); END;").unwrap();
+            Some(connection)
+        } else {
+            None
+        };
         assert_eq!(request.snapshot().await.unwrap().offered_sibling_count, 2);
         request.continue_copy(request.snapshot().await.unwrap().revision).await
             .expect("the original selected request and explicit sibling consents must admit both fresh device leaves");
+        if let Some(connection) = injector {
+            tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                loop {
+                    if let crate::MarmotAppEvent::AccountError(error) =
+                        recipient_errors.recv().await.unwrap()
+                        && error.message.starts_with("runtime receive failed")
+                    {
+                        assert_eq!(
+                            error.message, "runtime receive failed: storage_backend",
+                            "the observed failure must be the typed SQL admission failure"
+                        );
+                        break;
+                    }
+                }
+            })
+            .await
+            .expect("actual selected Welcome must reach the injected admission failure");
+            let storage = fixture.apps[1].account_storage("test").unwrap();
+            let rows = storage
+                .selected_chat_key_package_storage()
+                .unwrap()
+                .selected_chat_key_packages()
+                .unwrap();
+            assert_eq!(rows.len(), 1);
+            assert!(
+                rows[0].state
+                    == cgka_traits::selected_chat_key_package::SelectedChatPurposeState::Pending
+            );
+            assert!(
+                openmls::group::MlsGroup::load(
+                    storage.mls_storage(),
+                    &openmls::group::GroupId::from_slice(fixture.chat.as_slice())
+                )
+                .unwrap()
+                .is_none()
+            );
+            let original = &original_consents[0];
+            let snapshot = original.snapshot().await.unwrap();
+            assert_eq!(
+                snapshot.phase,
+                crate::SelectedChatConsentPhase::Approved,
+                "incoming storage rollback must retain the original approved sibling owner"
+            );
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                original.offer_packet(snapshot.revision),
+            )
+            .await
+            .expect("the same account worker must remain available during admission retry")
+            .expect("original approved offer must remain usable after incoming storage rollback");
+            connection
+                .execute_batch("DROP TRIGGER reject_selected_join;")
+                .unwrap();
+        }
         let public_packages_after =
             directory_reader
                 .fetch_events(nostr_sdk::prelude::ReqTarget::single(

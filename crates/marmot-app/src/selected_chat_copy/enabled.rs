@@ -167,7 +167,25 @@ pub(crate) struct SelectedPendingCleanup {
     pub(crate) group: GroupId,
     owner: Weak<RequestState>,
 }
+/// A negative retry fence from the actual Core recipient-policy invocation.
+#[derive(Clone)]
+pub(crate) struct SelectedRecipientAttempt {
+    pub(crate) original: Weak<ConsentState>,
+    pub(crate) revision: u64,
+    pub(crate) scope: cgka_traits::selected_chat_key_package::SelectedChatPurposeScope,
+    pub(crate) reference: [u8; 32],
+}
+impl SelectedRecipientAttempt {
+    pub(crate) fn is_live(&self) -> bool {
+        self.original.upgrade().is_some_and(|original| {
+            original.check_revision(self.revision).is_ok()
+                && original.generation() == self.scope.generation
+        })
+    }
+}
+
 pub(crate) struct AccountCopyOwner {
+    pub(crate) recipient_attempt: Arc<Mutex<Option<SelectedRecipientAttempt>>>,
     lifetime: Arc<AtomicU64>,
     current: Option<Weak<RequestState>>,
     consent_lifetime: Arc<AtomicU64>,
@@ -185,6 +203,7 @@ pub(crate) struct AccountCopyOwner {
 impl Default for AccountCopyOwner {
     fn default() -> Self {
         Self {
+            recipient_attempt: Arc::new(Mutex::new(None)),
             lifetime: Arc::new(AtomicU64::new(0)),
             current: None,
             consent_lifetime: Arc::new(AtomicU64::new(0)),

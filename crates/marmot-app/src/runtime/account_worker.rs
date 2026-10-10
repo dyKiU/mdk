@@ -1845,6 +1845,14 @@ async fn run_app_runtime_account_worker(
     let mut enrollment_capacity_retry: Option<
         Box<transport_nostr_adapter::ObservedTransportDelivery>,
     > = None;
+    // One exact transport observation under its original recipient owner. No
+    // serialized retry, renewed deadline, or SQL-restored permission.
+    #[cfg(feature = "experimental-device-sync")]
+    let mut selected_welcome_retry: Option<(
+        Box<transport_nostr_adapter::ObservedTransportDelivery>,
+        crate::selected_chat_copy::enabled::SelectedRecipientAttempt,
+        TokioInstant,
+    )> = None;
     'worker: loop {
         #[cfg(feature = "experimental-device-sync")]
         let private_echo_busy = private_echo_recovery.is_some();
@@ -2394,6 +2402,17 @@ async fn run_app_runtime_account_worker(
                 }
             }
             received = async {
+                #[cfg(feature = "experimental-device-sync")]
+                if let Some((_, _, retry_at)) = selected_welcome_retry.as_ref() {
+                    // Commands can cancel this select future; retain the timer
+                    // deadline so ordinary queries cannot postpone retry forever.
+                    tokio::time::sleep_until(*retry_at).await;
+                    let (delivery, attempt, _) = selected_welcome_retry.take().expect("one original selected Welcome");
+                    if attempt.is_live() {
+                        return Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(delivery));
+                    }
+                    client.adapter.release_account_delivery(&delivery.message.id);
+                }
                 if enrollment_capacity_retry.is_some() {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(
@@ -2432,9 +2451,16 @@ async fn run_app_runtime_account_worker(
                 let receive_observation = shared.app_performance_telemetry().observe(RuntimeOp::WorkerReceive);
                 let result = match received {
                     Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(delivery)) => {
+                        #[cfg(feature = "experimental-device-sync")]
+                        client.begin_selected_recipient_ingest();
                         let result = client.ingest_observed_received_delivery(&delivery).await;
                         #[cfg(feature = "experimental-device-sync")]
-                        if matches!(result.as_ref().err().and_then(AppError::as_engine_error),
+                        if delivery.message.payload.len() <= 512 * 1024
+                            && let Some(error) = result.as_ref().err()
+                            && let Some(attempt) = client.selected_recipient_storage_retry(error)
+                        {
+                            selected_welcome_retry = Some((delivery, attempt, TokioInstant::now() + Duration::from_secs(1)));
+                        } else if matches!(result.as_ref().err().and_then(AppError::as_engine_error),
                             Some(cgka_traits::error::EngineError::PrivateEnrollmentIntakeAtCapacity)) {
                             enrollment_capacity_retry = Some(delivery);
                             // No seen/cursor stamp, no reconnect, and commands remain live.
@@ -2564,6 +2590,12 @@ async fn run_app_runtime_account_worker(
                             &account_label,
                             account_error_message("runtime receive failed", &err),
                         );
+                        #[cfg(feature = "experimental-device-sync")]
+                        if selected_welcome_retry.as_ref().is_some_and(|(_, attempt, _)| attempt.is_live()) {
+                            // Reopening revokes the actual selected consent. Keep
+                            // only this exact failed observation for fresh admission.
+                            continue 'worker;
+                        }
                         #[cfg(feature = "experimental-device-sync")]
                         if client.retain_private_welcome_after_storage_error(&err) {
                             // Reopening would revoke the original verifier and

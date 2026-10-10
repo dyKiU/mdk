@@ -335,3 +335,13 @@ counts terminal tombstones and fails closed at 128 rather than forgetting refs.
 ### Original selected-chat publication and private transport carrier
 
 One original process-local request retains at most 127 authenticated sibling offer slots (bounded further by the actual protected roster), each with a canonical wire packet of at most16KiB and its verified event ID. Each original consent retains at most one exact signed envelope of at most16KiB; cancellation/expiry/last-handle Drop/account teardown revoke ownership without resetting deadlines. One request retains one prepared ordinary Invite, its exact pending/origin/group, frozen Commit/Welcomes under existing MLS/Invite limits, one actual ACK report and one unobserved confirmation-effects batch. ACKed slots advance rather than accumulating retry history. Negative pending cleanup is capped at128 exact identities with Weak original owners; retries retire only the exact pending or already processed local origin, never a later canonical epoch/another pending slot. These are account-local owner resources, not convergence policies or serialized grants. Durable selected-purpose tombstone bounds remain unchanged.
+
+Selected Welcome storage retries retain at most one original transport observation
+per account worker, with a payload cap of 512 KiB, a Weak reference to the exact
+approved consent, its original revision, purpose scope and package reference. A
+retry timer keeps its monotonic deadline across command-driven select cancellation;
+queries do not restart its one-second delay. Each retry re-enters ordinary Core
+admission, which checks the original owner and purpose again. A Pending SQL row
+only excludes an already committed join and cannot reconstruct permission. No
+serialized queue, renewed consent deadline or positive lifetime retention is added.
+Cancellation, expiry and owner loss release the retained observation without join.
