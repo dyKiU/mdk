@@ -1,0 +1,214 @@
+{
+  "scope": "Test-only correction of atomic terminal-retirement fault classification; no Core/App/storage runtime or SDK artifact change.",
+  "sdk_source": "98707713a2cc02828c2d66ed858588991896b9b0",
+  "source_base": "862d6bac57b5ea181a34915b27e2b96348b5cb2f",
+  "existing_signed_correction": "f0ade89c0cd58e2ad25d78cb0ef851e97ad7e0c3",
+  "normal_signed_cherry_pick": "3fd919c425290dc475ddab2af82764620938d85e",
+  "failure": "record_write_atomicity::a_failed_terminal_retirement_leaves_every_row_deferred_for_the_next_pass required injected debug text, but canonical replay deliberately redacts the cause while preserving EngineError::Storage(StorageError::Backend).",
+  "correction": "Assert Storage Busy|Backend and verify the real second failed-state write fired. All deferred-row rollback, full-budget charge, retry atomic retirement and budget-release checks remain unchanged.",
+  "original_full_cohort": {
+    "prefix": "sdk987-backend-full-v3",
+    "manifest_sha256": "a8790d4b4368f5ab1360906751540138d58ca1ad6f49e1b7a3d2bd867007ba82",
+    "source_inputs": 2520,
+    "default_exit_code": 101,
+    "complete_log_sha256": "8f3ce32c8cb66cc9623ca5c42dc865b6d4076bf98a35a57fed4d1b9dc441dcbe",
+    "reported_summaries": {
+      "passed": 647,
+      "failed": 1,
+      "ignored": 5
+    },
+    "full_matrix_qualified": false
+  },
+  "focused_original_red": {
+    "exit_code": 101,
+    "seconds": 1.5379940830171108,
+    "command": [
+      "/Users/pj/project/build/Mdk986ConformanceTargetM5/debug/deps/record_write_atomicity-270cdc5ab8a10596",
+      "a_failed_terminal_retirement_leaves_every_row_deferred_for_the_next_pass",
+      "--exact",
+      "--nocapture",
+      "--test-threads=2"
+    ],
+    "binary_sha256": "85f62b26ea9182d0a30b6e2e6f142e73a4ea2ec04f3d69f59c15912ec01b53b2",
+    "source_manifest_sha256": "a8790d4b4368f5ab1360906751540138d58ca1ad6f49e1b7a3d2bd867007ba82",
+    "source_inputs": 2520,
+    "source_unchanged": true,
+    "log_sha256": "3392c7cbb488a4fb9437b41b6d34ea6046490b24bbcd7ebc28d29ca45d8eae55",
+    "summaries": [
+      [
+        "FAILED",
+        "0",
+        "1",
+        "0"
+      ]
+    ],
+    "classification": "Actual exact original assertion baseline; existing frozen default SDK987 binary, no Cargo/cache/source mutation."
+  },
+  "final_green": {
+    "source": "3fd919c425290dc475ddab2af82764620938d85e",
+    "inputs": 2520,
+    "manifest_sha256": "4863ad541d42682325deb96093db8ff2715ed0e2c286ddf1c0a0d7059af897ac",
+    "toolchain": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "gates": [
+      {
+        "gate": "exact-default",
+        "exit_code": 0,
+        "seconds": 14.348517833044752,
+        "command": [
+          "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+          "test",
+          "--locked",
+          "--target-dir",
+          "/Users/pj/project/build/Mdk986ConformanceTargetM5",
+          "-p",
+          "cgka-engine",
+          "--test",
+          "record_write_atomicity",
+          "--features",
+          "cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks",
+          "a_failed_terminal_retirement_leaves_every_row_deferred_for_the_next_pass",
+          "--",
+          "--exact",
+          "--test-threads=2"
+        ],
+        "source_unchanged": true,
+        "log_sha256": "7cb5b66186ebcac1dd01262fca6acf01182093487803035796a448b426dd7483",
+        "log": "/Users/pj/project/build/results/sdk987-atomicity-green-v1-exact-default.log",
+        "summaries": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "gate": "affected-default",
+        "exit_code": 0,
+        "seconds": 60.60933404183015,
+        "command": [
+          "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+          "test",
+          "--locked",
+          "--target-dir",
+          "/Users/pj/project/build/Mdk986ConformanceTargetM5",
+          "-p",
+          "cgka-engine",
+          "--test",
+          "record_write_atomicity",
+          "--features",
+          "cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks",
+          "--",
+          "--test-threads=2"
+        ],
+        "source_unchanged": true,
+        "log_sha256": "a089c61d7b2e64164231c999e6bd1131526a02703014701a2bc8cf40a1dc831e",
+        "log": "/Users/pj/project/build/results/sdk987-atomicity-green-v1-affected-default.log",
+        "summaries": [
+          [
+            "ok",
+            "22",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "gate": "affected-experimental",
+        "exit_code": 0,
+        "seconds": 75.98980291606858,
+        "command": [
+          "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+          "test",
+          "--locked",
+          "--target-dir",
+          "/Users/pj/project/build/Mdk986ConformanceTargetM5",
+          "-p",
+          "cgka-engine",
+          "--test",
+          "record_write_atomicity",
+          "--features",
+          "cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,cgka-engine/experimental-device-sync",
+          "--",
+          "--test-threads=2"
+        ],
+        "source_unchanged": true,
+        "log_sha256": "0c93f244ae441d757561705095b2d0fe71574f84ddedfae99ce704436980ef3a",
+        "log": "/Users/pj/project/build/results/sdk987-atomicity-green-v1-affected-experimental.log",
+        "summaries": [
+          [
+            "ok",
+            "25",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "gate": "strict-test-clippy",
+        "exit_code": 0,
+        "seconds": 6.502729417057708,
+        "command": [
+          "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+          "clippy",
+          "--locked",
+          "--target-dir",
+          "/Users/pj/project/build/Mdk986ConformanceTargetM5",
+          "-p",
+          "cgka-engine",
+          "--test",
+          "record_write_atomicity",
+          "--features",
+          "cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,cgka-engine/experimental-device-sync",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "source_unchanged": true,
+        "log_sha256": "20245f44cc7bb8698d8065590aae7cfe1d754a76f0014172c66a01d53fc07e3f",
+        "log": "/Users/pj/project/build/results/sdk987-atomicity-green-v1-strict-test-clippy.log",
+        "summaries": []
+      },
+      {
+        "gate": "fmt",
+        "exit_code": 0,
+        "seconds": 3.417719750199467,
+        "command": [
+          "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "source_unchanged": true,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "log": "/Users/pj/project/build/results/sdk987-atomicity-green-v1-fmt.log",
+        "summaries": []
+      }
+    ]
+  },
+  "independent_current_source_verification": {
+    "source_inputs": 2520,
+    "mismatches": 0,
+    "manifest_sha256": "4863ad541d42682325deb96093db8ff2715ed0e2c286ddf1c0a0d7059af897ac"
+  },
+  "qualified_test_sha256": "ca94b374023c1e81ef1882ffc680428542d84fbf58f0b032b5a341a87ab0bc4e",
+  "raw_evidence_sha256": {
+    "build/results/sdk987-atomicity-fixture/sdk987-atomicity-green-v1-exact-default.log": "7cb5b66186ebcac1dd01262fca6acf01182093487803035796a448b426dd7483",
+    "build/results/sdk987-atomicity-fixture/sdk987-atomicity-green-v1-affected-experimental.log": "0c93f244ae441d757561705095b2d0fe71574f84ddedfae99ce704436980ef3a",
+    "build/results/sdk987-atomicity-fixture/sdk987-atomicity-green-v1-inputs.json": "4863ad541d42682325deb96093db8ff2715ed0e2c286ddf1c0a0d7059af897ac",
+    "build/results/sdk987-atomicity-fixture/sdk987-atomicity-original-red-v1.log": "3392c7cbb488a4fb9437b41b6d34ea6046490b24bbcd7ebc28d29ca45d8eae55",
+    "build/results/sdk987-atomicity-fixture/sdk987-atomicity-green-v1-strict-test-clippy.log": "20245f44cc7bb8698d8065590aae7cfe1d754a76f0014172c66a01d53fc07e3f",
+    "build/results/sdk987-atomicity-fixture/sdk987-atomicity-green-v1-fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "build/results/sdk987-atomicity-fixture/sdk987-atomicity-original-red-v1-results.json": "48d72c26775730b418a8f5bc9eb474874d05379c373ed42394b442b47f9bf4cd",
+    "build/results/sdk987-atomicity-fixture/sdk987-atomicity-green-v1-affected-default.log": "a089c61d7b2e64164231c999e6bd1131526a02703014701a2bc8cf40a1dc831e",
+    "build/results/sdk987-atomicity-fixture/sdk987-atomicity-green-v1-results.json": "3a617326a8499919944e66653f961406c80d51d3beabe7bcf05859c2bb681fca"
+  },
+  "postfreeze_changes": "This proof document only. Signed test source remains byte-identical to all five GREEN gates.",
+  "limits": [
+    "Focused fixture qualification only; fresh full six-package default/experimental and workspace fast-ci remain pending.",
+    "No SDK rebuild/regeneration/replacement, installed app change, privacy redaction weakening or runtime behavior change.",
+    "Original default full failure is preserved; corrected focused controls do not qualify unexecuted full-matrix gates."
+  ]
+}
