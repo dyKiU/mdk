@@ -2246,6 +2246,22 @@ fn delivery_plane_label(plane: TransportDeliveryPlane) -> &'static str {
 
 #[cfg(feature = "experimental-device-sync")]
 impl AccountDeviceSession {
+    pub fn capture_device_leaf_revocation_selection(
+        &self,
+        group: &GroupId,
+        target_device: &[u8],
+    ) -> Result<cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection, EngineError>
+    {
+        self.engine
+            .capture_device_leaf_revocation_selection(group, target_device)
+    }
+    pub fn validate_device_leaf_revocation_selection(
+        &self,
+        original: &cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection,
+    ) -> Result<(), EngineError> {
+        self.engine
+            .validate_device_leaf_revocation_selection(original)
+    }
     pub fn install_trusted_selected_chat_welcome_policy(
         &mut self,
         policy: std::sync::Arc<dyn cgka_engine::selected_chat_consent::SelectedChatWelcomePolicy>,

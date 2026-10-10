@@ -96,6 +96,10 @@ mod conversions;
     reason = "Experimental adapter awaits account-worker enrollment integration"
 )]
 mod device_linking;
+mod device_revocation;
+pub use device_revocation::{
+    GroupDeviceRevocation, GroupDeviceRevocationError, GroupDeviceRevocationSnapshot,
+};
 mod history_transfer;
 mod native_device_linking;
 mod selected_chat_copy;
@@ -1925,6 +1929,8 @@ impl MarmotApp {
             selected_chat_copy_owner: crate::selected_chat_copy::enabled::AccountCopyOwner::default(),
             #[cfg(feature = "experimental-device-sync")]
             history_owner: crate::history_transfer::enabled::AccountHistoryOwner::default(),
+            #[cfg(feature = "experimental-device-sync")]
+            device_revocation_owner: crate::device_revocation::enabled::AccountRevocationOwner::default(),
             #[cfg(feature = "experimental-device-sync")]
             selected_welcome_provenance: open.selected_welcome_provenance,
             runtime: open.runtime,

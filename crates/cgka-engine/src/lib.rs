@@ -53,6 +53,8 @@ pub mod device_group_genesis;
 mod device_group_lineage;
 #[cfg(feature = "experimental-device-sync")]
 pub mod device_group_snapshot;
+#[cfg(feature = "experimental-device-sync")]
+pub mod device_leaf_revocation;
 pub mod disband;
 pub mod distributed_convergence;
 pub mod engine;

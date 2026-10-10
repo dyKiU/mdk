@@ -22,11 +22,11 @@ fn denied() -> EngineError {
 }
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct IndexedOrdinaryLeaf {
-    index: u32,
-    account: Vec<u8>,
-    signer: Vec<u8>,
-    hash: [u8; 32],
+pub(crate) struct IndexedOrdinaryLeaf {
+    pub(crate) index: u32,
+    pub(crate) account: Vec<u8>,
+    pub(crate) signer: Vec<u8>,
+    pub(crate) hash: [u8; 32],
 }
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

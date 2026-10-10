@@ -973,6 +973,10 @@ mod actual {
     async fn history_transfer_cancelled_original_cannot_restart_after_encrypted_recipient_reopen() {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryRequestReopen).await;
     }
+    #[tokio::test]
+    async fn group_device_revocation_requires_fresh_original_for_exact_same_account_leaf() {
+        selected_chat_delivery(RecipientAdmissionScenario::DeviceLeafRevocation).await;
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
         None,
@@ -980,6 +984,7 @@ mod actual {
         Cancel,
         Expire,
         ForeignPackageEvent,
+        DeviceLeafRevocation,
         HistoryTransfer,
         HistoryRequestReplay,
         HistoryRequestReopen,
@@ -1378,6 +1383,125 @@ mod actual {
                     .unwrap()
                     .is_none()
             );
+        }
+        if scenario == RecipientAdmissionScenario::DeviceLeafRevocation {
+            let recipient_storage = fixture.apps[2].account_storage("test").unwrap();
+            let recipient_group = openmls::group::MlsGroup::load(
+                recipient_storage.mls_storage(),
+                &openmls::group::GroupId::from_slice(fixture.chat.as_slice()),
+            )
+            .unwrap()
+            .unwrap();
+            let target_device = recipient_group
+                .own_leaf_node()
+                .unwrap()
+                .signature_key()
+                .as_slice()
+                .to_vec();
+            let recipient_identity = openmls::prelude::BasicCredential::try_from(
+                recipient_group
+                    .members()
+                    .find(|member| member.index == recipient_group.own_leaf_index())
+                    .unwrap()
+                    .credential,
+            )
+            .unwrap()
+            .identity()
+            .to_vec();
+            assert_eq!(
+                recipient_group
+                    .members()
+                    .filter(|member| {
+                        openmls::prelude::BasicCredential::try_from(member.credential.clone())
+                            .unwrap()
+                            .identity()
+                            == recipient_identity.as_slice()
+                    })
+                    .count(),
+                3,
+                "the target shares its account with two surviving independent leaves"
+            );
+            let original = managers[0]
+                .begin_group_device_revocation("test", &fixture.chat, target_device.clone())
+                .await;
+            assert!(
+                original.is_ok(),
+                "fresh explicit administrator action must select exactly C's actual occupied leaf"
+            );
+            let original = original.unwrap();
+            let review = original.snapshot().await.unwrap();
+            assert_eq!(review.group, fixture.chat);
+            assert_eq!(review.epoch, recipient_group.epoch().as_u64());
+            assert_eq!(
+                review.target_leaf_index,
+                recipient_group.own_leaf_index().u32()
+            );
+            assert_eq!(review.target_device, target_device);
+            assert_eq!(review.surviving_same_account_leaves, 2);
+            assert_eq!(review.revision, 1);
+            assert!(matches!(
+                managers[0]
+                    .begin_group_device_revocation("test", &fixture.chat, target_device.clone())
+                    .await,
+                Err(crate::GroupDeviceRevocationError::Busy)
+            ));
+            for app in [&fixture.apps[0], &fixture.d_app] {
+                let storage = app.account_storage("test").unwrap();
+                let group = openmls::group::MlsGroup::load(
+                    storage.mls_storage(),
+                    &openmls::group::GroupId::from_slice(fixture.chat.as_slice()),
+                )
+                .unwrap()
+                .unwrap();
+                let refused_target = group
+                    .own_leaf_node()
+                    .unwrap()
+                    .signature_key()
+                    .as_slice()
+                    .to_vec();
+                assert!(matches!(
+                    managers[0]
+                        .begin_group_device_revocation("test", &fixture.chat, refused_target)
+                        .await,
+                    Err(crate::GroupDeviceRevocationError::InvalidSelection)
+                ));
+            }
+            original.cancel();
+            assert!(matches!(
+                original.snapshot().await,
+                Err(crate::GroupDeviceRevocationError::Closed)
+            ));
+            let next = managers[0]
+                .begin_group_device_revocation("test", &fixture.chat, target_device.clone())
+                .await
+                .unwrap();
+            original.cancel();
+            assert_eq!(next.snapshot().await.unwrap(), review);
+            drop(next);
+            let changed = managers[0]
+                .begin_group_device_revocation("test", &fixture.chat, target_device.clone())
+                .await
+                .unwrap();
+            fixture.runtimes[0]
+                .update_group_profile(
+                    "test",
+                    &fixture.chat,
+                    Some("fresh authenticated epoch invalidates old review".into()),
+                    None,
+                )
+                .await
+                .unwrap();
+            assert!(matches!(
+                changed.snapshot().await,
+                Err(crate::GroupDeviceRevocationError::InvalidSelection)
+            ));
+            drop(changed);
+            let fresh = managers[0]
+                .begin_group_device_revocation("test", &fixture.chat, target_device)
+                .await
+                .unwrap();
+            assert_eq!(fresh.snapshot().await.unwrap().epoch, review.epoch + 1);
+            fresh.cancel();
         }
         if matches!(
             scenario,

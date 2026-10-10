@@ -344,6 +344,8 @@ pub(crate) struct AccountWorkerRuntime {
 
 pub(crate) enum AccountWorkerCommand {
     #[cfg(feature = "experimental-device-sync")]
+    DeviceRevocation(Box<super::device_revocation::Command>),
+    #[cfg(feature = "experimental-device-sync")]
     HistoryTransfer(Box<super::history_transfer::Command>),
     #[cfg(feature = "experimental-device-sync")]
     SelectedChatConsent(Box<super::selected_chat_copy::ConsentCommand>),
@@ -4722,6 +4724,11 @@ fn account_worker_command_future<'a>(
     } = context;
     let storage_permit = shared.product_analytics.permit();
     match command {
+        #[cfg(feature = "experimental-device-sync")]
+        AccountWorkerCommand::DeviceRevocation(command) => Box::pin(async move {
+            super::device_revocation::handle(client, *command);
+            false
+        }),
         #[cfg(feature = "experimental-device-sync")]
         AccountWorkerCommand::HistoryTransfer(command) => Box::pin(async move {
             super::history_transfer::handle(client, *command).await;

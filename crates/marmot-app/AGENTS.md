@@ -757,3 +757,5 @@ call can create its original process owner. Retain the genuine encrypted reopen
 control using a new outer MLS frame from the unchanged original source, plus the
 distinct fresh request acceptance control. Capacity is cumulative128 and fails
 closed; this experimental fence is not an unbounded sync journal.
+
+One-group device revocation begins as an opaque original administrator review in `device_revocation`, with serial child RPC/client modules. Target device bytes are a selector only. Keep exact originating account/client identity, fixed original600-second deadline, fresh Core full-tree/epoch/generation checks, cancel/Drop/abandoned-reply retirement and one active original. Snapshot success is not removal, publication, protected-roster revocation or a per-group completion result.

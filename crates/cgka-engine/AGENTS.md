@@ -658,3 +658,5 @@ consent. Retire/drop clears ciphertext/peer state and zeroizes the HPKE secret.
 Core receipt framing cannot prove committed import; trusted App importer must
 validate manifest/count/receipt semantics. Production Nostr size remains a
 separate actual-wrapper gate; Passthrough tests do not qualify relay envelopes.
+
+Exact device-leaf review capture derives the Current/Stable ordinary full indexed tree, actual admin/own leaf, epoch authenticator and same-account non-self target under a fresh protected Completed roster/generation read. The opaque selection is tied to the originating Engine; every review read revalidates all captured state. Public review metadata grants no Remove and cannot reconstruct the original. Reuse the canonical selected-chat indexed leaf validator rather than inventing a host tree inlet.

@@ -400,3 +400,7 @@ The existing process-local128 owner/terminal-ID budget remains unchanged. This i
 a bounded experimental anti-replay limit, not an unbounded ongoing-sync journal
 or a new convergence scheduling policy. Actual encrypted reopen replay and fresh
 distinct request controls pass alongside immutable-row, rollback and capacity tests.
+
+### Original one-group device revocation review
+
+The default-off `AccountRevocationOwner` retains one weak current original and a cumulative process-client creation count capped at128. Each original holds one bounded Core selection (at most128 indexed ordinary and protected leaves), its captured600-second monotonic deadline and exact cancellation flag. Cancel/last handle Drop/expiry end that original; client Drop invalidates all retained handles. New explicit captures require fresh actual Core authority and cannot reuse old selections across Engine/client reopen. The budget is not recycled within a client lifetime. No SQL positive approval, Remove, retry queue or permission is created by this review-only checkpoint. These are process-local owner resource limits, not convergence scheduling policy.

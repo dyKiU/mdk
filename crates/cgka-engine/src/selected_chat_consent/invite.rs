@@ -59,7 +59,7 @@ pub(super) fn indexed_tree(
 }
 
 impl<S: StorageProvider> Engine<S> {
-    pub(super) fn selected_indexed_ordinary_leaves(
+    pub(crate) fn selected_indexed_ordinary_leaves(
         &self,
         group: &GroupId,
     ) -> Result<Vec<IndexedOrdinaryLeaf>, EngineError> {

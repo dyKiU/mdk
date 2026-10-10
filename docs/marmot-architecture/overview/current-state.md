@@ -430,3 +430,5 @@ separate rollout work.
 C7-C adds screen avatar metadata, bounded local encoded-byte batches and acquisition/cache invalidation delivery to
 resolved chat and conversation subscriptions, with matching UniFFI/C surfaces. C7-B's durable worker remains the
 network owner. Client cache migration and flagship-device evidence remain C9 follow-through; this is not a release.
+
+The default-off one-group device revocation boundary now supports an opaque original administrator review of one actual same-account sibling leaf, with full authenticated ordinary/protected freshness and exact cancellation. The real four-device regression covers review creation, self/foreign refusal and genuine epoch invalidation. It does not yet stage or publish a Remove, revoke the protected roster, or report multi-group outcomes.

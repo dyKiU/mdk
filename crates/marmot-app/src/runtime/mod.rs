@@ -117,6 +117,8 @@ mod commands;
 )]
 mod device_linking;
 #[cfg(feature = "experimental-device-sync")]
+mod device_revocation;
+#[cfg(feature = "experimental-device-sync")]
 mod history_transfer;
 #[cfg(feature = "experimental-device-sync")]
 mod private_commit;

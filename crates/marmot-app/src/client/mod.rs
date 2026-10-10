@@ -77,6 +77,8 @@ mod delivery_spill;
     reason = "Private owner commands await account-worker integration"
 )]
 pub(crate) mod device_linking;
+#[cfg(feature = "experimental-device-sync")]
+mod device_revocation;
 pub(crate) mod epoch_stall;
 pub(crate) mod history_notices;
 #[cfg(feature = "experimental-device-sync")]
@@ -510,6 +512,8 @@ pub struct AppClient {
     pub(crate) selected_chat_copy_owner: crate::selected_chat_copy::enabled::AccountCopyOwner,
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) history_owner: crate::history_transfer::enabled::AccountHistoryOwner,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) device_revocation_owner: crate::device_revocation::enabled::AccountRevocationOwner,
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) selected_welcome_provenance:
         Arc<std::sync::Mutex<welcome_peeler::SelectedWelcomeProvenance>>,
