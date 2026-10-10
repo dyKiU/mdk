@@ -1,0 +1,347 @@
+{
+  "scope": "Add static method field to deferred native session cleanup debug event; no runtime or permission change.",
+  "base_commit": "cf428750c478cb963c02b84332e442828c71918f",
+  "genuine_audit_failure": {
+    "head": "cf428750c478cb963c02b84332e442828c71918f",
+    "behavioral_fixture_sha256": "7bb82b52579fa7b3fa4dc862079deded8e4473771b73ceb12829e73419e85ed7",
+    "input_count": 2405,
+    "source_manifest_sha256": "7f14b5aa72ac677494b5331383e3f5955416fecfaaaa71c4cf5965f89474babc",
+    "gates": [
+      {
+        "gate": "simulator",
+        "exit_code": 101,
+        "seconds": 734.57,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 216,
+            "failed": 0,
+            "ignored": 2
+          },
+          {
+            "status": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 15,
+            "failed": 0,
+            "ignored": 3
+          },
+          {
+            "status": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 10,
+            "failed": 0,
+            "ignored": 3
+          },
+          {
+            "status": "ok",
+            "passed": 6,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 4,
+            "failed": 0,
+            "ignored": 1
+          },
+          {
+            "status": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 3
+          },
+          {
+            "status": "ok",
+            "passed": 4,
+            "failed": 0,
+            "ignored": 2
+          },
+          {
+            "status": "ok",
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 11,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 8,
+            "failed": 0,
+            "ignored": 2
+          },
+          {
+            "status": "ok",
+            "passed": 8,
+            "failed": 0,
+            "ignored": 3
+          },
+          {
+            "status": "ok",
+            "passed": 10,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 53,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 19,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 3,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 9,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 6,
+            "failed": 0,
+            "ignored": 1
+          },
+          {
+            "status": "ok",
+            "passed": 5,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 5,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 3,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 3,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 6,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 5,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 14,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 2,
+            "failed": 0,
+            "ignored": 1
+          },
+          {
+            "status": "ok",
+            "passed": 15,
+            "failed": 0,
+            "ignored": 3
+          },
+          {
+            "status": "ok",
+            "passed": 11,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 5,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 5,
+            "failed": 0,
+            "ignored": 9
+          },
+          {
+            "status": "ok",
+            "passed": 27,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 8,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 19,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "ok",
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "status": "FAILED",
+            "passed": 3,
+            "failed": 1,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "7907e269250a7a1dd264f97f7d79d040ec617f68aefb095097e9c389c277c8d4"
+      }
+    ]
+  },
+  "failure_summary": {
+    "passed": 539,
+    "failed": 1,
+    "ignored": 33,
+    "failure": "tracing_audit::production_tracing_calls_are_structured_and_privacy_safe: native_device_linking/enabled.rs152 missing method field"
+  },
+  "final_green": {
+    "head": "cf428750c478cb963c02b84332e442828c71918f",
+    "behavioral_fixture_sha256": "7bb82b52579fa7b3fa4dc862079deded8e4473771b73ceb12829e73419e85ed7",
+    "input_count": 2405,
+    "source_manifest_sha256": "3a931a5d665c300870948288012b0e6c8d4485265c6718383410743424d2776f",
+    "gates": [
+      {
+        "gate": "audit",
+        "exit_code": 0,
+        "seconds": 37.06,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "ccd4466aa5e3e35f4abc7658d851b27309bae4e5123d8a37ff05c20e14627c24"
+      },
+      {
+        "gate": "clippy",
+        "exit_code": 0,
+        "seconds": 26.73,
+        "counts": [],
+        "log_sha256": "d784117a68f18578d16354cc7adbdfa006d57ff82a09c30f30a27405f52632b7"
+      },
+      {
+        "gate": "check",
+        "exit_code": 0,
+        "seconds": 20.63,
+        "counts": [],
+        "log_sha256": "9e42c6d8ed6a7d8bb2b1cb9f1474c9c23b98262bee548174a2f53310bce77217"
+      },
+      {
+        "gate": "fmt",
+        "exit_code": 0,
+        "seconds": 3.38,
+        "counts": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "verification": "All2405 corrected frozen input bytes and four terminal raw log hashes verified locally; original2405 cf428 inputs and failed simulator raw log independently verified.",
+  "post_freeze_docs_only": [
+    "docs/device-sync-native-cleanup-tracing-verification.json"
+  ],
+  "remaining": [
+    "Full prescribed simulator/default and conformance-slow rerun pending; original runner stopped at audit failure before slow.",
+    "Selected-chat consent RED fixture/terminal log and final source verified; original RED selected_chat_copy.rs denying shape stub bytes were not separately retained and exact reconstruction remains unresolved."
+  ]
+}

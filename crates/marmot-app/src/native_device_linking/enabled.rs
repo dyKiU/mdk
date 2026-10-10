@@ -149,7 +149,7 @@ impl SessionState {
         let scope = self.scope.clone();
         self.runtime.spawn(async move {
             if manager.cancel_device_linking(&account, &scope).await.is_err() {
-                tracing::debug!(target: "marmot_app::device_linking", "native session cleanup deferred");
+                tracing::debug!(target: "marmot_app::device_linking", method = "defer_cleanup", "native session cleanup deferred");
             }
         });
     }
