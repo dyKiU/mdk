@@ -137,6 +137,9 @@ pub struct Engine<S: StorageProvider> {
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) linking_welcome_policy:
         Option<Arc<dyn crate::linking_welcome_policy::LinkingWelcomePolicy>>,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) selected_chat_welcome_policy:
+        Option<Arc<dyn crate::selected_chat_consent::SelectedChatWelcomePolicy>>,
 
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) settlement_admission:
@@ -679,6 +682,8 @@ impl<S: StorageProvider> EngineBuilder<S> {
             private_invite_policy: self.private_invite_policy,
             #[cfg(feature = "experimental-device-sync")]
             linking_welcome_policy: self.linking_welcome_policy,
+            #[cfg(feature = "experimental-device-sync")]
+            selected_chat_welcome_policy: None,
             #[cfg(feature = "experimental-device-sync")]
             settlement_admission: std::sync::Mutex::new(None),
             #[cfg(feature = "experimental-device-sync")]

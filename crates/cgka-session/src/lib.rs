@@ -2243,6 +2243,51 @@ fn delivery_plane_label(plane: TransportDeliveryPlane) -> &'static str {
 
 #[cfg(feature = "experimental-device-sync")]
 impl AccountDeviceSession {
+    pub fn install_trusted_selected_chat_welcome_policy(
+        &mut self,
+        policy: std::sync::Arc<dyn cgka_engine::selected_chat_consent::SelectedChatWelcomePolicy>,
+    ) {
+        self.engine
+            .install_trusted_selected_chat_welcome_policy(policy);
+    }
+    pub async fn prepare_selected_chat_invite(
+        &mut self,
+        original: &cgka_engine::selected_chat_consent::AuthenticatedSelectedChatRequest,
+        offers: &[&cgka_engine::selected_chat_consent::AuthenticatedSelectedChatOffer],
+        lease: &mut dyn cgka_engine::selected_chat_consent::SelectedChatInviteLease,
+    ) -> Result<cgka_traits::engine::SendResult, EngineError> {
+        self.engine
+            .prepare_selected_chat_invite(original, offers, lease)
+            .await
+    }
+    pub fn validate_prepared_selected_chat_invite(
+        &self,
+        original: &cgka_engine::selected_chat_consent::AuthenticatedSelectedChatRequest,
+        offers: &[&cgka_engine::selected_chat_consent::AuthenticatedSelectedChatOffer],
+        pending: PendingStateRef,
+        origin: &MessageId,
+    ) -> Result<(), EngineError> {
+        self.engine
+            .validate_prepared_selected_chat_invite(original, offers, pending, origin)
+    }
+    pub async fn retire_selected_chat_pending(
+        &mut self,
+        pending: PendingStateRef,
+        origin: &MessageId,
+        group: &GroupId,
+    ) -> Result<(), EngineError> {
+        self.engine
+            .retire_selected_chat_pending(pending, origin, group)
+            .await
+    }
+    pub fn confirmed_selected_chat_successor(
+        &self,
+        original: &cgka_engine::selected_chat_consent::AuthenticatedSelectedChatRequest,
+        offers: &[&cgka_engine::selected_chat_consent::AuthenticatedSelectedChatOffer],
+    ) -> Result<(), EngineError> {
+        self.engine
+            .confirmed_selected_chat_successor(original, offers)
+    }
     pub fn authenticate_selected_chat_offer(
         &self,
         request: &[u8],

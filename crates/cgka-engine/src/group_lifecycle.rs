@@ -1124,18 +1124,27 @@ impl<S: StorageProvider> Engine<S> {
         > = None;
         #[cfg(feature = "experimental-device-sync")]
         let mut accepted_linking_receipt = None;
+        #[cfg(feature = "experimental-device-sync")]
+        let mut selected_chat_lease: Option<
+            Box<dyn crate::selected_chat_consent::SelectedChatWelcomeLease>,
+        > = None;
         let result = self.storage.with_transaction(|storage| {
             let provider = EngineOpenMlsProvider::<S>::new(&self.crypto, storage.mls_storage());
             // Classify every exact selected reference, including retained terminal
             // tombstones, before OpenMLS can choose another usable public bundle.
             // Persisted facts never recreate the original recipient consent.
             #[cfg(feature = "experimental-device-sync")]
+            let mut selected_chat_package = None;
+            #[cfg(feature = "experimental-device-sync")]
             if let Some(purpose) = storage.selected_chat_key_package_storage() {
                 for secret in welcome.secrets() {
                     if let Ok(reference) = <&[u8; 32]>::try_from(secret.new_member().as_slice())
-                        && purpose.selected_chat_key_package_by_ref(reference)?.is_some()
-                    {
-                        return Err(EngineError::SelectedChatWelcomeDenied);
+                        && let Some(saved) = purpose.selected_chat_key_package_by_ref(reference)? {
+                        if saved.state != cgka_traits::selected_chat_key_package::SelectedChatPurposeState::Pending
+                            || selected_chat_package.is_some() {return Err(EngineError::SelectedChatWelcomeDenied);}
+                        let policy=self.selected_chat_welcome_policy.as_ref().ok_or(EngineError::SelectedChatWelcomeDenied)?;
+                        selected_chat_lease=Some(policy.begin_join(&saved)?);
+                        selected_chat_package=Some(saved);
                     }
                 }
             }
@@ -1167,7 +1176,12 @@ impl<S: StorageProvider> Engine<S> {
             let consumed_key_package_ref =
                 consumed_key_package_ref.ok_or(EngineError::MissingWelcomeKeyPackage)?;
             #[cfg(feature = "experimental-device-sync")]
-            let linking_purpose = match storage.device_linking_key_package_storage() {
+            if let Some(saved) = selected_chat_package.as_ref()
+                && (saved.reference.as_slice() != consumed_key_package_ref || !selected_single_use
+                    || private.is_some()) {return Err(EngineError::SelectedChatWelcomeDenied);}
+
+            #[cfg(feature = "experimental-device-sync")]
+            let linking_purpose = if selected_chat_package.is_some() {None} else {match storage.device_linking_key_package_storage() {
                 Some(purpose) => {
                     let matching = purpose.purpose_key_package()?.filter(|saved|
                         saved.reference == consumed_key_package_ref
@@ -1188,7 +1202,7 @@ impl<S: StorageProvider> Engine<S> {
                     cgka_traits::device_linking_key_package::LinkingWelcomeDenied::UnsupportedStorage,
                 )),
                 None => None,
-            };
+            }};
             #[cfg(feature = "experimental-device-sync")]
             if let Some(input) = private.as_ref() {
                 let saved = linking_purpose.as_ref().ok_or_else(crate::private_linking_join::denial)?;
@@ -1450,6 +1464,12 @@ impl<S: StorageProvider> Engine<S> {
             // 5d. The authenticated Welcome sender must be an admin.
             crate::app_components::require_admin(&mls_group, &group_id, &welcome_sender_id)?;
 
+            #[cfg(feature = "experimental-device-sync")]
+            if let Some(saved) = selected_chat_package.as_ref() {
+                self.validate_selected_chat_join(selected_chat_lease.as_mut().ok_or(EngineError::SelectedChatWelcomeDenied)?.as_mut(),
+                    saved, &mls_group, welcome_sender_index, &welcome_sender_signature_key)?;
+            }
+
             // 5e. Every advertised admin must have a current member leaf.
             crate::app_components::reject_admins_without_member_leaf(
                 &mls_group,
@@ -1605,6 +1625,8 @@ impl<S: StorageProvider> Engine<S> {
                 },
             )?;
 
+            #[cfg(feature = "experimental-device-sync")]
+            let receipt_sender_key_for_selected = welcome_sender_signature_key.clone();
             // Experimental accepted-join evidence shares the transaction with
             // private KeyPackage consumption and every authenticated join check.
             // Unsupported stores yield no receipt; supported failures must roll
@@ -1628,6 +1650,10 @@ impl<S: StorageProvider> Engine<S> {
                     return Err(EngineError::LinkingWelcomeDenied(
                         cgka_traits::device_linking_key_package::LinkingWelcomeDenied::UnsupportedStorage,
                     ));
+                }
+                if let Some(saved) = selected_chat_package.as_ref() {
+                    storage.selected_chat_key_package_storage().ok_or(EngineError::SelectedChatWelcomeDenied)?
+                        .consume_selected_chat_key_package(&saved.scope, &saved.reference)?;
                 }
                 if let Some(saved) = linking_purpose.as_ref() {
                     #[cfg(feature = "experimental-device-sync")]
@@ -1687,6 +1713,18 @@ impl<S: StorageProvider> Engine<S> {
                     return Err(EngineError::InvalidWelcome);
                 }
                 lease.check_live_before_commit().map_err(EngineError::LinkingWelcomeDenied)?;
+            }
+
+            #[cfg(feature = "experimental-device-sync")]
+            if let Some(saved) = selected_chat_package.as_ref() {
+                let current=storage.selected_chat_key_package_storage().ok_or(EngineError::SelectedChatWelcomeDenied)?
+                    .selected_chat_key_package(&saved.scope)?.ok_or(EngineError::SelectedChatWelcomeDenied)?;
+                if current.reference != saved.reference || current.context != saved.context
+                    || current.state != cgka_traits::selected_chat_key_package::SelectedChatPurposeState::Consumed {
+                    return Err(EngineError::SelectedChatWelcomeDenied);
+                }
+                self.validate_selected_chat_join(selected_chat_lease.as_mut().ok_or(EngineError::SelectedChatWelcomeDenied)?.as_mut(),
+                    saved, &mls_group, welcome_sender_index, &receipt_sender_key_for_selected)?;
             }
 
             Ok::<_, EngineError>((

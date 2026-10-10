@@ -9,12 +9,24 @@ use sha2::{Digest, Sha256};
 pub const MAX_SELECTED_CHAT_PACKET_BYTES: usize = 16_384;
 const REQUEST: &str = "whitenoise.selected-chat-request-observation.v1";
 const CONSENT: &str = "whitenoise.selected-chat-consent-observation.v1";
+mod invite;
 mod offer;
 mod package;
+mod welcome;
+pub use invite::SelectedChatInviteLease;
 pub use offer::AuthenticatedSelectedChatOffer;
 pub use package::{SelectedChatPackageLease, SelectedChatPackageOffer};
+pub use welcome::{SelectedChatWelcomeLease, SelectedChatWelcomePolicy};
 fn denied() -> EngineError {
     EngineError::Other("selected chat observation unavailable".into())
+}
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct IndexedOrdinaryLeaf {
+    index: u32,
+    account: Vec<u8>,
+    signer: Vec<u8>,
+    hash: [u8; 32],
 }
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -24,6 +36,7 @@ struct Ordinary {
     own_index: u32,
     own_hash: Vec<u8>,
     roster: [u8; 32],
+    leaves: Vec<IndexedOrdinaryLeaf>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -32,6 +45,7 @@ struct Request {
     account: Vec<u8>,
     protected_group: Vec<u8>,
     protected_epoch: u64,
+    protected_generation: u64,
     protected_authenticator: [u8; 32],
     protected_roster: [u8; 32],
     ordinary: Ordinary,
@@ -56,6 +70,7 @@ pub struct AuthenticatedSelectedChatRequest {
     frame: Request,
     wire: Vec<u8>,
     actual: CandidateDeviceGroupSnapshot,
+    local_protected_generation: u64,
 }
 impl AuthenticatedSelectedChatRequest {
     pub fn ordinary_group(&self) -> GroupId {
@@ -140,6 +155,7 @@ impl<S: StorageProvider> Engine<S> {
             own_index,
             own_hash: self.own_leaf_hash(group)?,
             roster: hash.finalize().into(),
+            leaves: self.selected_indexed_ordinary_leaves(group)?,
         })
     }
     /// Derive and sign actual metadata only; App must check its original request.
@@ -170,6 +186,7 @@ impl<S: StorageProvider> Engine<S> {
                 account: current.account.as_slice().to_vec(),
                 protected_group: protected.as_slice().to_vec(),
                 protected_epoch: current.epoch.0,
+                protected_generation: actual.settlement_generation(),
                 protected_authenticator: current.epoch_authenticator_digest,
                 protected_roster: current.roster_commitment,
                 ordinary: self.selected_ordinary(ordinary)?,
@@ -193,6 +210,7 @@ impl<S: StorageProvider> Engine<S> {
         let mut frame: Request = decode(wire)?;
         if frame.protocol != REQUEST
             || frame.nonce == [0; 32]
+            || frame.protected_generation == 0
             || frame.account.len() != 32
             || frame.protected_group.is_empty()
             || frame.protected_group.len() > 256
@@ -205,14 +223,40 @@ impl<S: StorageProvider> Engine<S> {
         {
             return Err(denied());
         }
+        let mut indices = std::collections::BTreeSet::new();
+        let mut signers = std::collections::BTreeSet::new();
+        if frame.ordinary.leaves.is_empty()
+            || frame.ordinary.leaves.len() > 128
+            || !frame
+                .ordinary
+                .leaves
+                .windows(2)
+                .all(|pair| pair[0].index < pair[1].index)
+            || frame.ordinary.leaves.iter().any(|leaf| {
+                leaf.account.len() != 32
+                    || leaf.signer.len() != 32
+                    || !indices.insert(leaf.index)
+                    || !signers.insert(leaf.signer.clone())
+            })
+            || !frame.ordinary.leaves.iter().any(|leaf| {
+                leaf.index == frame.ordinary.own_index
+                    && leaf.account == frame.account
+                    && leaf.signer == frame.source_key
+                    && leaf.hash.as_slice() == frame.ordinary.own_hash
+            })
+        {
+            return Err(denied());
+        }
         let group = GroupId::new(frame.protected_group.clone());
         self.ensure_group_live(&group)?;
-        let actual = self.storage.with_read_snapshot(|_| {
+        let (actual, local_protected_generation) = self.storage.with_read_snapshot(|_| {
             let selected = self
                 .validated_settled_device_roster(&group)?
                 .ok_or_else(denied)?;
             let actual = selected.candidate();
-            if actual.account.as_slice() != frame.account
+            if (frame.source_key == self.identity.signer.public()
+                && selected.settlement_generation() != frame.protected_generation)
+                || actual.account.as_slice() != frame.account
                 || actual.epoch.0 != frame.protected_epoch
                 || actual.epoch_authenticator_digest != frame.protected_authenticator
                 || actual.roster_commitment != frame.protected_roster
@@ -233,12 +277,13 @@ impl<S: StorageProvider> Engine<S> {
                 )
                 .map_err(|_| denied())?;
             frame.signature = signature;
-            Ok(actual.clone())
+            Ok((actual.clone(), selected.settlement_generation()))
         })?;
         Ok(AuthenticatedSelectedChatRequest {
             frame,
             wire: wire.to_vec(),
             actual,
+            local_protected_generation,
         })
     }
     /// Response signatures are observations; only App's explicit live owner approves.

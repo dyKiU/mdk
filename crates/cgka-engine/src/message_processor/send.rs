@@ -23,6 +23,8 @@ use openmls::prelude::{BasicCredential, MlsMessageOut};
 use std::collections::HashSet;
 use tls_codec::Serialize as _;
 
+type SelectedInviteCheck<'a, E> = &'a mut (dyn FnMut(&E) -> Result<(), EngineError> + Send + 'a);
+
 impl<S: StorageProvider> Engine<S> {
     pub(crate) async fn do_send_ready(
         &mut self,
@@ -174,6 +176,20 @@ impl<S: StorageProvider> Engine<S> {
         key_packages: Vec<cgka_traits::engine::KeyPackage>,
         initial_admins: Vec<MemberId>,
     ) -> Result<SendResult, EngineError> {
+        self.do_send_invite_with_guard(group_id, key_packages, initial_admins, None)
+            .await
+    }
+
+    pub(crate) async fn do_send_invite_with_guard(
+        &mut self,
+        group_id: GroupId,
+        key_packages: Vec<cgka_traits::engine::KeyPackage>,
+        initial_admins: Vec<MemberId>,
+        #[allow(unused_variables, unused_mut)] mut selected: Option<SelectedInviteCheck<'_, Self>>,
+    ) -> Result<SendResult, EngineError> {
+        if let Some(check) = selected.as_mut() {
+            check(self)?;
+        }
         // Load group + require Stable.
         let provider = EngineOpenMlsProvider::<S>::new(&self.crypto, self.storage.mls_storage());
         let mls_gid = openmls::group::GroupId::from_slice(group_id.as_slice());
@@ -354,6 +370,9 @@ impl<S: StorageProvider> Engine<S> {
             )
             .await
             .map_err(EngineError::Peeler)?;
+        if let Some(check) = selected.as_mut() {
+            check(self)?;
+        }
         let commit_msg = route_wrapped_group_message(commit_msg, &pre_commit_ctx);
         self.record_sent_openmls_message(
             &commit_msg,
@@ -386,12 +405,17 @@ impl<S: StorageProvider> Engine<S> {
                 self.peeler.wrap_welcome(&payload, &recipient).await
             }
             .map_err(EngineError::Peeler)?;
-            self.record_staged_invite_welcome(
-                &wrapped,
-                &commit_msg.id,
-                &group_id,
-                pre_commit_epoch,
-            )?;
+            if let Some(check) = selected.as_mut() {
+                check(self)?;
+            }
+            if selected.is_none() {
+                self.record_staged_invite_welcome(
+                    &wrapped,
+                    &commit_msg.id,
+                    &group_id,
+                    pre_commit_epoch,
+                )?;
+            }
             welcomes.push(wrapped);
         }
 
@@ -403,12 +427,17 @@ impl<S: StorageProvider> Engine<S> {
         // Epoch stays at the pre-merge value; that updates on confirm.
         // On `publish_failed`, the engine re-derives from the (still-
         // unmerged) MLS state, which naturally drops the projection.
-        crate::capability_manager::cache_from_key_packages(&self.storage, &group_id, &parsed_kps)?;
         let mut group_record = existing;
         group_record.members =
             crate::group_lifecycle::projected_members_with_pending(&mls_group, &parsed_kps)?;
-        self.storage.put_group(&group_record)?;
-
+        self.storage.with_transaction(|storage| {
+            crate::capability_manager::cache_from_key_packages(storage, &group_id, &parsed_kps)?;
+            storage.put_group(&group_record)?;
+            if let Some(check) = selected.as_mut() {
+                check(self)?;
+            }
+            Ok::<(), EngineError>(())
+        })?;
         // State: begin pending at the projected new epoch via EpochManager.
         // The MLS group is still at the pre-commit epoch, so the projected
         // post-merge epoch is +1.

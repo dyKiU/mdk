@@ -19,6 +19,7 @@ pub(super) struct Offer {
 
 /// Verified immutable bytes. No host constructor, serde, or live authority.
 pub struct AuthenticatedSelectedChatOffer {
+    pub(super) request_binding: [u8; 32],
     source_index: u32,
     source_key: Vec<u8>,
     generation: u64,
@@ -93,6 +94,7 @@ impl<S: StorageProvider> Engine<S> {
                 .try_into()
                 .map_err(|_| denied())?;
             Ok(AuthenticatedSelectedChatOffer {
+                request_binding: request.binding(),
                 source_index: frame.source_index,
                 source_key: frame.source_key,
                 generation: frame.generation,
