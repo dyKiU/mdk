@@ -166,3 +166,13 @@ Preserve core102, original103–110 audit and private1–13 migration bodies.
 The logical importer and archive staging share transfer-ID fences: public logical
 admission cannot claim an archive reservation or cancelled ID. Only the private
 final-archive path crosses its exact Pending scope inside the same SQL transaction.
+
+Private revision15 retains immutable authenticated history request identities outside
+group snapshots. This is a negative replay fence, never a consent/keys/deadline
+restore API. Preserve account/local-device/transfer/request digest and irreversible
+cohort activation; reject deletion, replacement, mutation and conflicting retry.
+The cumulative account-device budget is128 including terminal requests and remains
+exhausted after encrypted reopen. Do not prune or reset it silently. Exact duplicate
+observation is negative; a distinct request requires fresh original authentication.
+Keep revision14 prefix, default populated-cohort refusal, SQL rollback/fault, owner
+identity and encrypted capacity controls. Preserve core102/private1–14 bodies.

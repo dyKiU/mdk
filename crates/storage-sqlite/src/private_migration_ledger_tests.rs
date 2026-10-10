@@ -624,3 +624,87 @@ fn private_settlement_default_open_refuses_activated_rows_after_close() {
     drop(storage);
     assert!(crate::SqliteAccountStorage::open_encrypted(&path, &key).is_err());
 }
+
+#[cfg(not(feature = "experimental-device-sync"))]
+#[test]
+fn private_history_request_default_refuses_populated_encrypted_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("requests.sqlite");
+    let mut conn = encrypted(&path);
+    run_all(&mut conn).unwrap();
+    conn.execute(
+        "INSERT INTO history_request_observations VALUES(?1,?2,?3,?4)",
+        params![[1u8; 32], [2u8; 32], [3u8; 32], [4u8; 32]],
+    )
+    .unwrap();
+    drop(conn);
+    let mut conn = encrypted(&path);
+    assert!(run_all(&mut conn).is_err());
+    assert_eq!(
+        conn.query_row(
+            "SELECT count(*) FROM history_request_observations",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1
+    );
+}
+#[cfg(feature = "experimental-device-sync")]
+#[test]
+fn private_history_request_revision15_preserves_encrypted_revision14_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("revision14.sqlite");
+    let mut conn = encrypted(&path);
+    run(&mut conn, MIGRATIONS).unwrap();
+    conn.execute_batch(super::private_migration_ledger::NAMESPACE_SQL)
+        .unwrap();
+    for migration in PRIVATE_MIGRATIONS.iter().take(14) {
+        let tx = conn.transaction().unwrap();
+        (migration.apply)(&tx).unwrap();
+        tx.execute(
+            "INSERT INTO cgka_experimental_device_sync_schema_migrations(version,name,applied_at_unix_seconds) VALUES(?1,?2,17)",
+            params![migration.version, migration.name],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+    conn.execute(
+        "INSERT INTO history_archive_staging VALUES(?1,?2,0,0)",
+        params![[7u8; 32], b"retained-negative-scope".as_slice()],
+    )
+    .unwrap();
+    conn.execute("UPDATE history_archive_staging SET state=2", [])
+        .unwrap();
+    drop(conn);
+    let mut conn = encrypted(&path);
+    assert_eq!(run_all(&mut conn).unwrap(), 1);
+    assert_eq!(run_all(&mut conn).unwrap(), 0);
+    assert_eq!(conn.query_row("SELECT count(*) FROM cgka_experimental_device_sync_schema_migrations WHERE version<=14 AND applied_at_unix_seconds=17",[],|r|r.get::<_,i64>(0)).unwrap(),14);
+    assert_eq!(
+        conn.query_row("SELECT state FROM history_archive_staging", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        conn.query_row("SELECT max(version) FROM cgka_schema_migrations", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        102
+    );
+    conn.execute(
+        "INSERT INTO history_request_observations VALUES(?1,?2,?3,?4)",
+        params![[1u8; 32], [2u8; 32], [3u8; 32], [4u8; 32]],
+    )
+    .unwrap();
+    assert_eq!(
+        conn.query_row(
+            "SELECT activated FROM cgka_experimental_device_sync_cohort",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1
+    );
+}

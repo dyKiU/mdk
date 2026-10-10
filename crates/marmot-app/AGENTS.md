@@ -748,3 +748,12 @@ original-owner retirement. Reopened clients inherit only that terminal negative
 observation. Test expiry with a source-only lifetime consumed at original
 construction under test-policy-overrides; never modify an existing deadline or
 production600-second lifetime. Preserve real gate-release/no-late-chunk controls.
+
+History recipient intake must authenticate the actual received MLS source and exact
+addressed Core request before the private15 negative observation transaction. Never
+construct a new owner for an already-observed request after restart, and never
+restore consent, keys or deadlines from these rows. Only the fresh authenticated
+call can create its original process owner. Retain the genuine encrypted reopen
+control using a new outer MLS frame from the unchanged original source, plus the
+distinct fresh request acceptance control. Capacity is cumulative128 and fails
+closed; this experimental fence is not an unbounded sync journal.

@@ -242,3 +242,20 @@ watch and cancels its same original owner before transport can resume. All nine
 history controls plus production/default/format gates pass. See
 [expiry/shutdown proof](device-sync-history-publication-expiry-shutdown-verification.json).
 Durable fresh-outer restart denial and later source retention expiry remain open.
+
+### Durable negative request fencing
+
+A real encrypted recipient close/reopen reproduced a second consent owner from the
+same signed request in a freshly encrypted MLS outer frame. Private revision15 now
+reserves the authenticated addressed request identity before original-owner creation.
+Rows contain no consent, keys, deadline or archive. Exact replay is negative; a
+distinct new original request still works after reopen. The cumulative account-device
+budget is128, including retired requests, and fails closed without pruning. This
+bounded experimental fence is not an unbounded ongoing-sync journal.
+
+Ten real history controls, three storage controls, feature ledger17/default ledger7
+and production/default/format gates pass. The capacity test fills128 rows, reopens
+the encrypted store and still refuses a129th identity. See
+[durable request proof](device-sync-history-durable-request-fence-verification.json).
+Later source retention expiry after frozen snapshot, whole backend qualification
+and native history delivery/adoption remain separate.

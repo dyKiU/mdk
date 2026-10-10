@@ -969,6 +969,10 @@ mod actual {
     async fn history_transfer_runtime_shutdown_interrupts_actual_blocked_chunk_publication() {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryPublicationShutdown).await;
     }
+    #[tokio::test]
+    async fn history_transfer_cancelled_original_cannot_restart_after_encrypted_recipient_reopen() {
+        selected_chat_delivery(RecipientAdmissionScenario::HistoryRequestReopen).await;
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
         None,
@@ -978,6 +982,7 @@ mod actual {
         ForeignPackageEvent,
         HistoryTransfer,
         HistoryRequestReplay,
+        HistoryRequestReopen,
         HistoryExpiredUnpruned,
         HistoryCleanupRetry,
         HistoryCancelAfterImport,
@@ -1378,6 +1383,7 @@ mod actual {
             scenario,
             RecipientAdmissionScenario::HistoryTransfer
                 | RecipientAdmissionScenario::HistoryRequestReplay
+                | RecipientAdmissionScenario::HistoryRequestReopen
                 | RecipientAdmissionScenario::HistoryExpiredUnpruned
                 | RecipientAdmissionScenario::HistoryCleanupRetry
                 | RecipientAdmissionScenario::HistoryCancelAfterImport
@@ -1486,7 +1492,7 @@ mod actual {
                     .await
                     .unwrap();
             }
-            let transfer = managers[0].begin_history_transfer("test", &fixture.chat, recipient_selector).await
+            let transfer = managers[0].begin_history_transfer("test", &fixture.chat, recipient_selector.clone()).await
                 .expect("a fresh opt-in history request must retain its original actor owner after actual four-leaf admission");
             assert!(
                 recipient_storage
@@ -1519,6 +1525,113 @@ mod actual {
             })
             .await
             .expect("actual encrypted request must reach its addressed original recipient");
+            if scenario == RecipientAdmissionScenario::HistoryRequestReopen {
+                consent.cancel();
+                tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                    loop {
+                        if managers[1]
+                            .observed_history_chunks_for_test("test")
+                            .await
+                            .unwrap()
+                            .3
+                            == 0
+                        {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .expect("cancelled original must retire before actual encrypted close/reopen");
+                fixture.runtimes[1].shutdown_and_close().await.unwrap();
+                assert!(matches!(
+                    consent.snapshot().await,
+                    Err(crate::HistoryTransferError::Closed)
+                ));
+                drop(recipient_storage);
+                let reopened_app = MarmotApp::with_relay(fixture.dirs[1].path(), &fixture.url);
+                let reopened = MarmotAppRuntime::new(reopened_app.clone());
+                reopened.reconcile_accounts().await.unwrap();
+                let reopened_manager = reopened.accounts();
+                assert!(
+                    reopened_manager
+                        .pending_history_requests("test")
+                        .await
+                        .unwrap()
+                        .is_empty(),
+                    "reopen cannot restore original recipient consent from historical metadata"
+                );
+                let before = reopened_manager
+                    .observed_history_chunks_for_test("test")
+                    .await
+                    .unwrap()
+                    .2;
+                let epoch = reopened
+                    .group_mls_state("test", &fixture.chat)
+                    .await
+                    .unwrap()
+                    .epoch;
+                transfer
+                    .republish_original_request_for_test()
+                    .await
+                    .unwrap();
+                tokio::time::timeout(std::time::Duration::from_secs(10),async{
+                    loop {if reopened_manager.observed_history_chunks_for_test("test").await.unwrap().2>before{break;} tokio::time::sleep(std::time::Duration::from_millis(20)).await;}
+                }).await.expect("reopened original device must authenticate same signed request in fresh actual MLS outer frame");
+                assert!(
+                    reopened_manager
+                        .pending_history_requests("test")
+                        .await
+                        .unwrap()
+                        .is_empty(),
+                    "durable negative request identity must prevent new receiver consent/clock after encrypted reopen"
+                );
+                assert_eq!(
+                    reopened
+                        .group_mls_state("test", &fixture.chat)
+                        .await
+                        .unwrap()
+                        .epoch,
+                    epoch
+                );
+                assert!(
+                    reopened_app
+                        .account_storage("test")
+                        .unwrap()
+                        .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
+                        .unwrap()
+                        .is_empty()
+                );
+                transfer.cancel();
+                let fresh = managers[0]
+                    .begin_history_transfer("test", &fixture.chat, recipient_selector)
+                    .await
+                    .unwrap();
+                let next = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                    loop {
+                        if let Some(next) = reopened_manager
+                            .pending_history_requests("test")
+                            .await
+                            .unwrap()
+                            .into_iter()
+                            .next()
+                        {
+                            break next;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .expect("fresh distinct authenticated request remains possible after reopen");
+                next.cancel();
+                fresh.cancel();
+                reopened.shutdown_and_close().await.unwrap();
+                directory_reader.shutdown().await;
+                for runtime in all_runtimes {
+                    runtime.shutdown_and_close().await.unwrap();
+                }
+                return;
+            }
             if scenario == RecipientAdmissionScenario::HistoryRequestReplay {
                 let before = managers[1]
                     .observed_history_chunks_for_test("test")

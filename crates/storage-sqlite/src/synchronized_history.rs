@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 mod archive;
+mod request_observation;
 pub use archive::{
     HistoryArchiveFragmentDisposition, HistoryArchiveFragmentReceipt,
     HistoryArchiveStagingManifest, MAX_HISTORY_ARCHIVE_BYTES, MAX_HISTORY_ARCHIVE_FRAGMENT_BYTES,
