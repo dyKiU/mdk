@@ -37,3 +37,5 @@ pub unsafe extern "C" fn marmot_device_linking_bytes_free(ptr: *mut MarmotDevice
 c_enum! { MarmotDeviceLinkingApprovalPhase from DeviceLinkingApprovalPhaseFfi { AwaitingApproval, ApprovedAwaitingPacket, AwaitingSettlement, Settled, Cancelled, Expired } }
 c_mirror! { MarmotDeviceLinkingApprovalSnapshot from DeviceLinkingApprovalSnapshotFfi, free marmot_device_linking_approval_snapshot_free { copy revision: u64, copy phase: MarmotDeviceLinkingApprovalPhase, } }
 c_mirror! { MarmotDeviceLinkingTarget from DeviceLinkingTargetFfi, list(MarmotDeviceLinkingTargetList, marmot_device_linking_target_list_free) { bytes selector/selector_len, copy device_count: u32, } }
+
+c_mirror! { MarmotDeviceLinkingApprovalReviewMetadata from DeviceLinkingApprovalReviewMetadataFfi, free marmot_device_linking_approval_review_metadata_free { copy revision: u64, bytes source_device_public_key/source_device_public_key_len, bytes joining_device_public_key/joining_device_public_key_len, copy existing_device_count: u32, } }

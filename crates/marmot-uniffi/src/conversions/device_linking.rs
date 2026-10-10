@@ -143,3 +143,24 @@ impl From<marmot_app::DeviceLinkingApprovalSnapshot> for DeviceLinkingApprovalSn
         }
     }
 }
+
+/// Authenticated display metadata; copying it grants no enrollment authority.
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct DeviceLinkingApprovalReviewMetadataFfi {
+    pub revision: u64,
+    pub source_device_public_key: Vec<u8>,
+    pub joining_device_public_key: Vec<u8>,
+    pub existing_device_count: u32,
+}
+impl From<marmot_app::DeviceLinkingApprovalReviewMetadata>
+    for DeviceLinkingApprovalReviewMetadataFfi
+{
+    fn from(value: marmot_app::DeviceLinkingApprovalReviewMetadata) -> Self {
+        Self {
+            revision: value.revision,
+            source_device_public_key: value.source_device_public_key,
+            joining_device_public_key: value.joining_device_public_key,
+            existing_device_count: value.existing_device_count,
+        }
+    }
+}

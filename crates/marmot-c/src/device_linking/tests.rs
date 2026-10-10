@@ -419,6 +419,44 @@ fn enrollment_outputs_preflight_and_new_records_deep_free() {
             MarmotStatus::NullPointer
         );
         assert!(observed.is_null());
+        let mut review = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_device_linking_approval_review_metadata(std::ptr::null(), u64::MAX, &mut review),
+            MarmotStatus::NullPointer
+        );
+        assert!(review.is_null());
+        assert_eq!(
+            marmot_device_linking_approval_review_metadata(
+                std::ptr::dangling(),
+                0,
+                std::ptr::null_mut()
+            ),
+            MarmotStatus::NullPointer
+        );
+        let review = MarmotDeviceLinkingApprovalReviewMetadata::from(
+            marmot_uniffi::DeviceLinkingApprovalReviewMetadataFfi {
+                revision: u64::MAX,
+                source_device_public_key: vec![0, 255, 0],
+                joining_device_public_key: vec![255, 0, 255],
+                existing_device_count: 2,
+            },
+        );
+        assert_eq!(
+            std::slice::from_raw_parts(
+                review.source_device_public_key,
+                review.source_device_public_key_len
+            ),
+            &[0, 255, 0]
+        );
+        assert_eq!(
+            std::slice::from_raw_parts(
+                review.joining_device_public_key,
+                review.joining_device_public_key_len
+            ),
+            &[255, 0, 255]
+        );
+        marmot_device_linking_approval_review_metadata_free(boxed(review));
+        marmot_device_linking_approval_review_metadata_free(std::ptr::null_mut());
         let mut bytes = std::ptr::dangling_mut();
         assert_eq!(
             marmot_device_linking_session_enrollment_packet(std::ptr::null(), 0, &mut bytes),
@@ -565,6 +603,35 @@ fn actual_c_three_device_enrollment_retains_approval_after_list_free() {
             marmot_device_linking_approval_approve(retained, (*observed).revision + 1),
             MarmotStatus::DeviceLinkingStaleRevision
         );
+        let mut stale_review = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_device_linking_approval_review_metadata(
+                retained,
+                (*observed).revision + 1,
+                &mut stale_review
+            ),
+            MarmotStatus::DeviceLinkingStaleRevision
+        );
+        assert!(stale_review.is_null());
+        let mut review = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_device_linking_approval_review_metadata(
+                retained,
+                (*observed).revision,
+                &mut review
+            ),
+            MarmotStatus::Ok,
+            "original C approval must expose authenticated review metadata"
+        );
+        assert_eq!((*review).revision, (*observed).revision);
+        assert_eq!((*review).existing_device_count, 2);
+        assert_eq!((*review).source_device_public_key_len, 32);
+        assert_eq!((*review).joining_device_public_key_len, 32);
+        assert_ne!(
+            std::slice::from_raw_parts((*review).source_device_public_key, 32),
+            std::slice::from_raw_parts((*review).joining_device_public_key, 32)
+        );
+        marmot_device_linking_approval_review_metadata_free(review);
         assert_eq!(
             marmot_device_linking_approval_approve(retained, (*observed).revision),
             MarmotStatus::Ok

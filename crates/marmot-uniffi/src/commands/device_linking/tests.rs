@@ -241,7 +241,30 @@ async fn opaque_binding_three_device_enrollment_reports_actual_completion() {
         approval.approve(observed.revision + 1).await,
         Err(MarmotKitError::DeviceLinkingStaleRevision)
     ));
+    assert!(matches!(
+        approval.review_metadata(observed.revision + 1).await,
+        Err(MarmotKitError::DeviceLinkingStaleRevision)
+    ));
+    let review = approval
+        .review_metadata(observed.revision)
+        .await
+        .expect("original opaque approval must expose authenticated review metadata");
+    assert_eq!(review.revision, observed.revision);
+    assert_eq!(review.existing_device_count, 2);
+    assert_eq!(review.source_device_public_key.len(), 32);
+    assert_eq!(review.joining_device_public_key.len(), 32);
+    assert_ne!(
+        review.source_device_public_key,
+        review.joining_device_public_key
+    );
+    assert_eq!(approval.snapshot().await.unwrap(), observed);
     approval.approve(observed.revision).await.unwrap();
+    assert!(matches!(
+        approval
+            .review_metadata(approval.snapshot().await.unwrap().revision)
+            .await,
+        Err(MarmotKitError::DeviceLinkingNotReady)
+    ));
     let packet = tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             match a
@@ -283,6 +306,12 @@ async fn opaque_binding_three_device_enrollment_reports_actual_completion() {
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].device_count, 3);
     }
+    assert!(matches!(
+        approval
+            .review_metadata(approval.snapshot().await.unwrap().revision)
+            .await,
+        Err(MarmotKitError::DeviceLinkingNotReady | MarmotKitError::DeviceLinkingClosed)
+    ));
     selected_chat_binding_request_after_actual_abc(&kits, &url).await;
     a.cancel().await.unwrap();
     c.cancel().await.unwrap();

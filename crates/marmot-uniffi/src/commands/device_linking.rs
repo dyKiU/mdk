@@ -159,6 +159,13 @@ impl DeviceLinkingSession {
 }
 #[uniffi::export(async_runtime = "tokio")]
 impl DeviceLinkingApproval {
+    /// Read authenticated display metadata for this original pending approval and displayed revision.
+    pub async fn review_metadata(
+        &self,
+        displayed_revision: u64,
+    ) -> Result<crate::DeviceLinkingApprovalReviewMetadataFfi, MarmotKitError> {
+        Ok(self.inner.review_metadata(displayed_revision).await?.into())
+    }
     /// Finite observation of the exact original existing-device action.
     pub async fn snapshot(&self) -> Result<DeviceLinkingApprovalSnapshotFfi, MarmotKitError> {
         Ok(self.inner.snapshot().await?.into())

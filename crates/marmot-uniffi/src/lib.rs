@@ -496,9 +496,10 @@ pub use commands::AttachmentTransferSubscription;
 
 pub use commands::{DeviceLinkingApproval, DeviceLinkingSession, DeviceLinkingSubscription};
 pub use conversions::{
-    DeviceLinkingApprovalPhaseFfi, DeviceLinkingApprovalSnapshotFfi, DeviceLinkingCapabilitiesFfi,
-    DeviceLinkingDecimalsFfi, DeviceLinkingOutgoingPacketFfi, DeviceLinkingPhaseFfi,
-    DeviceLinkingSnapshotFfi, DeviceLinkingTargetFfi,
+    DeviceLinkingApprovalPhaseFfi, DeviceLinkingApprovalReviewMetadataFfi,
+    DeviceLinkingApprovalSnapshotFfi, DeviceLinkingCapabilitiesFfi, DeviceLinkingDecimalsFfi,
+    DeviceLinkingOutgoingPacketFfi, DeviceLinkingPhaseFfi, DeviceLinkingSnapshotFfi,
+    DeviceLinkingTargetFfi,
 };
 
 pub use commands::{SelectedChatConsent, SelectedChatCopy};

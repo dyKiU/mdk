@@ -9,6 +9,11 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- Revision-bound authenticated approval review metadata with owned binary source
+  and joining device signature keys, predecessor count and matching deep free.
+  This additive display record grants no enrollment permission; use matching
+  generated headers and libraries.
+
 - Opaque selected-chat request and consent handles, explicit shared clones,
   revision-bound private packet methods and source continuation. Selected-chat
   statuses append 102–111; request phase `InviteConfirmed` is value 4. New display

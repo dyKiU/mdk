@@ -70,7 +70,13 @@ These checks do not package Apple artifacts or demonstrate chat synchronization.
 After both devices finish comparison, call revision-bound `continue_linking` on
 the original new-device and approver sessions. Other current devices poll
 `pending_device_linking_approvals(account_ref)`, display each approval snapshot
-and explicitly submit `approve(displayed_revision)`. Repeated polls share the
+and call `review_metadata(displayed_revision)` before explicitly submitting
+`approve(displayed_revision)`. Review metadata authenticates the originating and
+joining device signature public keys and the existing protected roster count.
+These are device identities, not account keys; copying or displaying them grants
+no permission. Review is available only on the same original pending action and
+refuses a changed revision or later approval phase. It leaves the snapshot and
+revision unchanged. Repeated polls share the
 same original action; a retained handle grants no permission after its original
 receipt expires, is cancelled or its worker closes.
 
