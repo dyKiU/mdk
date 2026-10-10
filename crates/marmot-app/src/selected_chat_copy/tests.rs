@@ -323,7 +323,7 @@ mod actual {
             .create_group(
                 "test",
                 "Selected ordinary chat",
-                &[d_account.account_id_hex.clone()],
+                std::slice::from_ref(&d_account.account_id_hex),
                 None,
             )
             .await
@@ -981,6 +981,20 @@ mod actual {
     async fn group_device_revocation_approved_original_removes_only_one_occupied_leaf() {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceLeafRemoval).await;
     }
+    #[tokio::test]
+    async fn group_device_revocation_original_cancel_interrupts_actual_blocked_remove_publication()
+    {
+        selected_chat_delivery(RecipientAdmissionScenario::DeviceLeafRemovalCancel).await;
+    }
+    #[tokio::test]
+    async fn group_device_revocation_lost_approval_reply_interrupts_actual_blocked_remove_publication()
+     {
+        selected_chat_delivery(RecipientAdmissionScenario::DeviceLeafRemovalLostReply).await;
+    }
+    #[tokio::test]
+    async fn group_device_revocation_removed_leaf_stays_evicted_after_encrypted_reopen() {
+        selected_chat_delivery(RecipientAdmissionScenario::DeviceLeafRemovalReopen).await;
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
         None,
@@ -990,6 +1004,9 @@ mod actual {
         ForeignPackageEvent,
         DeviceLeafRevocation,
         DeviceLeafRemoval,
+        DeviceLeafRemovalCancel,
+        DeviceLeafRemovalLostReply,
+        DeviceLeafRemovalReopen,
         HistoryTransfer,
         HistoryRequestReplay,
         HistoryRequestReopen,
@@ -1393,6 +1410,9 @@ mod actual {
             scenario,
             RecipientAdmissionScenario::DeviceLeafRevocation
                 | RecipientAdmissionScenario::DeviceLeafRemoval
+                | RecipientAdmissionScenario::DeviceLeafRemovalCancel
+                | RecipientAdmissionScenario::DeviceLeafRemovalLostReply
+                | RecipientAdmissionScenario::DeviceLeafRemovalReopen
         ) {
             let recipient_storage = fixture.apps[2].account_storage("test").unwrap();
             let recipient_group = openmls::group::MlsGroup::load(
@@ -1510,8 +1530,35 @@ mod actual {
                 .await
                 .unwrap();
             assert_eq!(fresh.snapshot().await.unwrap().epoch, review.epoch + 1);
-            if scenario == RecipientAdmissionScenario::DeviceLeafRemoval {
+            if matches!(
+                scenario,
+                RecipientAdmissionScenario::DeviceLeafRemovalCancel
+                    | RecipientAdmissionScenario::DeviceLeafRemovalLostReply
+            ) {
+                assert_blocked_original_leaf_removal_terminal(
+                    &fixture,
+                    fresh,
+                    &directory_reader,
+                    scenario == RecipientAdmissionScenario::DeviceLeafRemovalLostReply,
+                )
+                .await;
+                directory_reader.shutdown().await;
+                for runtime in all_runtimes {
+                    runtime.shutdown_and_close().await.unwrap();
+                }
+                drop(original_consents);
+                return;
+            }
+            if matches!(
+                scenario,
+                RecipientAdmissionScenario::DeviceLeafRemoval
+                    | RecipientAdmissionScenario::DeviceLeafRemovalReopen
+            ) {
                 let displayed = fresh.snapshot().await.unwrap();
+                assert!(matches!(
+                    fresh.approve(displayed.revision + 1).await,
+                    Err(crate::GroupDeviceRevocationError::StaleRevision)
+                ));
                 let approved = fresh.approve(displayed.revision).await;
                 assert!(
                     approved.is_ok(),
@@ -1586,6 +1633,59 @@ mod actual {
                             .unwrap()
                             .is_none()
                     );
+                }
+                let committed = fresh.snapshot().await.unwrap();
+                assert!(committed.complete);
+                assert_eq!(committed.revision, displayed.revision + 1);
+                assert!(matches!(
+                    fresh.approve(displayed.revision).await,
+                    Err(crate::GroupDeviceRevocationError::StaleRevision)
+                ));
+                fresh.approve(committed.revision).await.unwrap();
+                if scenario == RecipientAdmissionScenario::DeviceLeafRemovalReopen {
+                    drop(recipient_group);
+                    drop(recipient_storage);
+                    all_runtimes[2].shutdown_and_close().await.unwrap();
+                    let reopened_app = MarmotApp::with_relay(fixture.dirs[2].path(), &fixture.url);
+                    let reopened = MarmotAppRuntime::new(reopened_app.clone());
+                    reopened.reconcile_accounts().await.unwrap();
+                    let storage = reopened_app.account_storage("test").unwrap();
+                    assert!(
+                        cgka_traits::GroupStorage::get_group(&storage, &fixture.chat)
+                            .unwrap()
+                            .removed
+                    );
+                    assert!(
+                        reopened
+                            .send_message(
+                                "test",
+                                &fixture.chat,
+                                b"reopened removed leaf cannot send".to_vec()
+                            )
+                            .await
+                            .is_err()
+                    );
+                    let payload = "future epoch ciphertext after C encrypted reopen";
+                    let sent = all_runtimes[0]
+                        .send_message("test", &fixture.chat, payload.as_bytes().to_vec())
+                        .await
+                        .unwrap();
+                    assert_eq!(sent.message_ids.len(), 1);
+                    let id = &sent.message_ids[0];
+                    tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                        loop {
+                            if [0usize,1,3].iter().all(|&index| all_apps[index].timeline_message("test", &fixture.chat_hex, id).unwrap().is_some_and(|message| message.plaintext == payload)) {break;}
+                            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                        }
+                    }).await.expect("fresh future ciphertext must reach each surviving leaf after recipient reopen");
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    assert!(
+                        reopened_app
+                            .timeline_message("test", &fixture.chat_hex, id)
+                            .unwrap()
+                            .is_none()
+                    );
+                    reopened.shutdown_and_close().await.unwrap();
                 }
                 directory_reader.shutdown().await;
                 for runtime in all_runtimes {
@@ -2251,6 +2351,134 @@ mod actual {
             runtime.shutdown_and_close().await.unwrap();
         }
         drop(original_consents);
+    }
+    async fn assert_blocked_original_leaf_removal_terminal(
+        fixture: &SelectedChatFixture,
+        action: crate::GroupDeviceRevocation,
+        relay_reader: &nostr_sdk::prelude::Client,
+        lost_reply: bool,
+    ) {
+        let before = fixture.runtimes[0]
+            .group_mls_state("test", &fixture.chat)
+            .await
+            .unwrap();
+        let account = fixture.apps[0].account_home().account("test").unwrap();
+        let account = cgka_traits::MemberId::new(hex::decode(account.account_id_hex).unwrap());
+        let (held, release) = fixture.apps[0]
+            .relay_plane
+            .hold_next_selected_commit(account);
+        let release_on_drop = ReleaseSelectedWelcome(release.clone());
+        let action = std::sync::Arc::new(action);
+        let displayed = action.snapshot().await.unwrap();
+        let operation = action.clone();
+        let mut publication =
+            tokio::spawn(async move { operation.approve(displayed.revision).await });
+        let _abort_on_drop = AbortSelectedContinuation(publication.abort_handle());
+        let held = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            tokio::select! {
+                message = held => message.unwrap(),
+                result = &mut publication => panic!("original removal escaped real publication gate: {result:?}"),
+            }
+        }).await.expect("actual original Remove must reach transport before cancellation control");
+        assert!(!matches!(
+            held.envelope,
+            cgka_traits::TransportEnvelope::Welcome { .. }
+        ));
+        if lost_reply {
+            publication.abort();
+            assert!(publication.await.unwrap_err().is_cancelled());
+        } else {
+            action.cancel();
+            assert!(matches!(
+                tokio::time::timeout(std::time::Duration::from_secs(2), publication)
+                    .await
+                    .expect("original cancellation must interrupt blocked Remove")
+                    .unwrap(),
+                Err(crate::GroupDeviceRevocationError::Closed)
+            ));
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if matches!(
+                    action.snapshot().await,
+                    Err(crate::GroupDeviceRevocationError::Closed)
+                ) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("lost reply must negatively retire the exact original removal");
+        assert!(matches!(
+            action.approve(displayed.revision).await,
+            Err(crate::GroupDeviceRevocationError::Closed)
+        ));
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let actual = fixture.runtimes[0]
+                    .group_mls_state("test", &fixture.chat)
+                    .await
+                    .unwrap();
+                if actual.lifecycle_state == crate::AppGroupLifecycleState::Stable {
+                    assert_eq!(actual.epoch, before.epoch);
+                    assert_eq!(actual.member_count, before.member_count);
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("exact negative pending cleanup must preserve original four-leaf epoch");
+        let storage = fixture.apps[0].account_storage("test").unwrap();
+        let actual = openmls::group::MlsGroup::load(
+            storage.mls_storage(),
+            &openmls::group::GroupId::from_slice(fixture.chat.as_slice()),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(actual.pending_commit().is_none());
+        assert_eq!(actual.epoch().as_u64(), before.epoch);
+        assert_eq!(actual.members().count(), 4);
+        release.notify_one();
+        drop(release_on_drop);
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let event_id = nostr_sdk::prelude::EventId::from_slice(held.id.as_slice()).unwrap();
+        let published = relay_reader
+            .fetch_events(nostr_sdk::prelude::ReqTarget::single(
+                fixture.url.as_str(),
+                [nostr_sdk::prelude::Filter::new().ids([event_id])],
+            ))
+            .timeout(std::time::Duration::from_secs(5))
+            .await
+            .unwrap();
+        assert!(
+            published.is_empty(),
+            "late released original Remove must never publish after negative retirement"
+        );
+        for app in [
+            &fixture.apps[0],
+            &fixture.apps[1],
+            &fixture.apps[2],
+            &fixture.d_app,
+        ] {
+            let storage = app.account_storage("test").unwrap();
+            let actual = openmls::group::MlsGroup::load(
+                storage.mls_storage(),
+                &openmls::group::GroupId::from_slice(fixture.chat.as_slice()),
+            )
+            .unwrap()
+            .unwrap();
+            assert!(actual.is_active());
+            assert_eq!(actual.members().count(), 4);
+        }
+        let fresh = fixture.runtimes[0]
+            .accounts()
+            .begin_group_device_revocation("test", &fixture.chat, displayed.target_device)
+            .await
+            .unwrap();
+        assert_eq!(fresh.snapshot().await.unwrap().epoch, before.epoch);
+        fresh.cancel();
     }
     async fn assert_blocked_selected_publication_terminal(
         fixture: &SelectedChatFixture,
