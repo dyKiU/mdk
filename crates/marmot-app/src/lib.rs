@@ -104,7 +104,9 @@ pub use native_device_linking::{
     DeviceLinkingOutgoingPacket, DeviceLinkingPhase, DeviceLinkingSession, DeviceLinkingSnapshot,
     DeviceLinkingSubscription, DeviceLinkingTarget,
 };
-pub use selected_chat_copy::{SelectedChatCopy, SelectedChatCopyError};
+pub use selected_chat_copy::{
+    SelectedChatCopy, SelectedChatCopyError, SelectedChatCopyPhase, SelectedChatCopySnapshot,
+};
 mod directory;
 mod drafts;
 mod local_submissions;
@@ -1892,6 +1894,8 @@ impl MarmotApp {
             maintenance_observation_generation: self.product_analytics.permit(),
             #[cfg(feature = "experimental-device-sync")]
             linking_owner: open.linking_owner,
+            #[cfg(feature = "experimental-device-sync")]
+            selected_chat_copy_owner: crate::selected_chat_copy::enabled::AccountCopyOwner::default(),
             runtime: open.runtime,
             _session_guard: open.session_guard,
             adapter: open.adapter,

@@ -344,6 +344,17 @@ pub(crate) struct AccountWorkerRuntime {
 
 pub(crate) enum AccountWorkerCommand {
     #[cfg(feature = "experimental-device-sync")]
+    BeginSelectedChatCopy {
+        group: GroupId,
+        selector: Vec<u8>,
+        respond: oneshot::Sender<
+            Result<
+                Arc<crate::selected_chat_copy::enabled::RequestState>,
+                crate::SelectedChatCopyError,
+            >,
+        >,
+    },
+    #[cfg(feature = "experimental-device-sync")]
     DeviceLinkingVerifier(Box<super::device_linking::VerifierCommand>),
     #[cfg(feature = "experimental-device-sync")]
     PrepareDeviceLinking {
@@ -4665,6 +4676,20 @@ fn account_worker_command_future<'a>(
     } = context;
     let storage_permit = shared.product_analytics.permit();
     match command {
+        #[cfg(feature = "experimental-device-sync")]
+        AccountWorkerCommand::BeginSelectedChatCopy {
+            group,
+            selector,
+            respond,
+        } => Box::pin(async move {
+            if !respond.is_closed() {
+                let result = client.begin_owned_selected_chat_copy(&group, &selector);
+                if let Err(Ok(state)) = respond.send(result) {
+                    state.cancel();
+                }
+            }
+            false
+        }),
         #[cfg(feature = "experimental-device-sync")]
         AccountWorkerCommand::DeviceLinkingVerifier(command) => Box::pin(async move {
             super::device_linking::handle_verifier_command(client, *command, publication_control)

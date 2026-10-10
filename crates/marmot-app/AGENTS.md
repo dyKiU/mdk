@@ -661,3 +661,12 @@ publication or extend its original deadline. No cached phase grants permission.
 Keep TransportClosed and actual owner/SDK failures terminal, preserve exact
 cancellation against late replies, and test the real production wait with an
 original blocked publication rather than advancing consent clocks.
+
+
+Selected ordinary-chat requests retain a separate process-local owner after fresh
+Current/Stable indexed local-leaf/admin and protected Completed roster reads.
+A request snapshot or cached roster is never sibling consent or recipient admission.
+Preserve original monotonic expiry, exact cancellation, generation and account
+teardown fences; create no private package, fanout or transport before explicit
+sibling consent. Keep the real public ABC+A/D ownership regression and default
+Unsupported-before-effects control when extending this path.

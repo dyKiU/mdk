@@ -93,6 +93,8 @@ mod push;
 mod receipts;
 pub(crate) mod recovery;
 mod retention;
+#[cfg(feature = "experimental-device-sync")]
+mod selected_chat_copy;
 mod sync;
 #[cfg(test)]
 mod upload_cleanup_tests;
@@ -501,6 +503,8 @@ pub struct AppClient {
     // engine storage are still held by this client.
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) linking_owner: device_linking::AccountLinkingOwner,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) selected_chat_copy_owner: crate::selected_chat_copy::enabled::AccountCopyOwner,
     pub(crate) runtime: AppRuntime,
     pub(crate) maintenance_observation_generation: Option<crate::DiagnosticsPermit>,
     // Struct fields drop in declaration order. Keep the engine-owning runtime

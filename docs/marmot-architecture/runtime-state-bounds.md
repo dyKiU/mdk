@@ -39,6 +39,13 @@ only positive authority.
 | Unapproved cancellation tombstones | Existing 128-entry negative-action bound; each uses its exact retained proposal's acquisition deadline. | Idempotent cancellation does not add another entry; actor maintenance prunes expired entries and actor destruction clears the set. |
 
 
+### `marmot-app` selected ordinary-chat requests (`src/selected_chat_copy/enabled.rs`)
+
+| Structure | Bound | Reclamation |
+| --- | --- | --- |
+| Account request slot | One weak request per live account worker; independent checked generation and immutable 600-second monotonic deadline. Retains one ordinary group/epoch/local-leaf anchor and canonical roster digest, one validated protected roster (existing 128-leaf bound), and a random request nonce. Selectors are bounded to 256 bytes. This is a native consent-owner bound, not a convergence policy. | Exact handle cancel/Drop retires only that original request. Expiry, generation change and account-client destruction close access; terminal observations are sticky. A replacement can occupy the slot only after the prior request is negative or dropped. An abandoned worker reply cancels its exact original state. No timer, registry, SQL permission, KeyPackage or transport work is retained. |
+
+
 ### `marmot-app` audit export admission (`src/audit_export_lifecycle.rs`)
 
 | Structure | Bound | Reclamation |

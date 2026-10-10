@@ -77,3 +77,23 @@ Commit/Welcome. All eleven native feature tests and two default controls passed,
 including actual public ABC settlement, expiry, Drop, shutdown and subscriptions.
 See `device-sync-native-stalled-observation-verification.json` for source/log hashes.
 This lifecycle fix remains separate from selected-chat permission and delivery.
+
+
+## Qualified independent request-owner slice
+
+The explicit A request is wired through its own account-worker command,
+independent of consumed device-linking purposes and native session scopes. The
+worker reads the selected ordinary Current group and its actual Stable indexed
+local leaf/admin state together with a fresh validated Completed protected
+roster. It captures read-only anchors and reserves one bounded process-local
+owner. A snapshot reports only revision, phase and sibling count; it supplies
+neither sibling consent nor recipient admission.
+
+The original request expires after 600 monotonic seconds. Exact cancellation,
+handle Drop, account teardown and generation replacement cannot revive it or
+cancel a newer request. No sibling KeyPackage, offer, ordinary Invite, Welcome,
+fanout or message transport is created before explicit sibling consent. The
+actual completed public ABC plus independent A/D fixture now targets positive
+request ownership, real nonadmin refusal, Busy, cancellation/replacement and
+teardown while asserting unchanged private material and transport inventories.
+Five focused feature tests, the default Unsupported control, production App all-target Clippy/default checks and workspace formatting passed. See `device-sync-selected-chat-request-verification.json` for exact RED/final fixture and terminal/source hashes. Explicit sibling consent and recipient admission are still the next boundary.

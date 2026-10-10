@@ -15,6 +15,15 @@ async fn default_selected_chat_copy_is_unsupported_before_account_or_worker_effe
             .await,
         Err(SelectedChatCopyError::Unsupported)
     ));
+    let request = SelectedChatCopy { _private: () };
+    assert!(matches!(
+        request.snapshot().await,
+        Err(SelectedChatCopyError::Unsupported)
+    ));
+    assert!(matches!(
+        request.cancel().await,
+        Err(SelectedChatCopyError::Unsupported)
+    ));
     assert!(accounts.managed_accounts().unwrap().is_empty());
     runtime.shutdown_and_close().await.unwrap();
 }
@@ -28,6 +37,29 @@ mod actual {
     use crate::{MarmotApp, MarmotAppRuntime};
     use cgka_traits::{OutboundFanoutStorage, storage::KeyPackageBundleStorage};
     use marmot_account::AccountHome;
+    #[tokio::test]
+    async fn invalid_selected_chat_bounds_refuse_before_account_or_worker_effects() {
+        let dir = tempfile::tempdir().unwrap();
+        let runtime =
+            MarmotAppRuntime::new(MarmotApp::with_relay(dir.path(), "wss://relay.example"));
+        let accounts = runtime.accounts();
+        for (group, selector) in [
+            (cgka_traits::GroupId::new(vec![]), vec![1]),
+            (cgka_traits::GroupId::new(vec![1; 257]), vec![2]),
+            (cgka_traits::GroupId::new(vec![1]), vec![]),
+            (cgka_traits::GroupId::new(vec![1]), vec![2; 257]),
+            (cgka_traits::GroupId::new(vec![1]), vec![1]),
+        ] {
+            assert!(matches!(
+                accounts
+                    .begin_selected_chat_copy("missing", &group, selector)
+                    .await,
+                Err(crate::SelectedChatCopyError::InvalidSelection)
+            ));
+        }
+        assert!(accounts.managed_accounts().unwrap().is_empty());
+        runtime.shutdown_and_close().await.unwrap();
+    }
     async fn drain(from: &DeviceLinkingSession, to: &DeviceLinkingSession) {
         for packet in from.outgoing_packets().await.unwrap() {
             to.receive_packet(packet.bytes).await.unwrap();
@@ -268,6 +300,14 @@ mod actual {
                     .is_none()
             );
         }
+        // D is a genuinely joined nonadmin of this actual Current A/D chat.
+        // Refuse its ordinary role before any protected-roster target lookup.
+        let role = d_runtime.group_roster("test", &chat).await.unwrap();
+        assert!(
+            role.members
+                .iter()
+                .any(|member| member.is_self && !member.is_admin)
+        );
         let target = managers[0]
             .device_linking_targets("test")
             .await
@@ -293,13 +333,36 @@ mod actual {
                     .unwrap()
             })
             .collect();
-        let missing = managers[0]
-            .begin_selected_chat_copy("test", &chat, target.selector)
-            .await;
+        let request = managers[0]
+            .begin_selected_chat_copy("test", &chat, target.selector.clone())
+            .await
+            .expect("explicit ordinary admin request must retain a new independent original owner");
         assert!(matches!(
-            missing,
-            Err(crate::SelectedChatCopyError::NotReady)
+            managers[0]
+                .begin_selected_chat_copy("test", &chat, vec![])
+                .await,
+            Err(crate::SelectedChatCopyError::InvalidSelection)
         ));
+        assert!(matches!(
+            d_runtime
+                .accounts()
+                .begin_selected_chat_copy("test", &chat, target.selector.clone())
+                .await,
+            Err(crate::SelectedChatCopyError::NotAdmin)
+        ));
+        assert!(matches!(
+            managers[0]
+                .begin_selected_chat_copy("test", &chat, target.selector.clone())
+                .await,
+            Err(crate::SelectedChatCopyError::Busy)
+        ));
+        let snapshot = request.snapshot().await.unwrap();
+        assert_eq!(
+            snapshot.phase,
+            crate::SelectedChatCopyPhase::AwaitingSiblingConsent
+        );
+        assert_eq!(snapshot.sibling_count, 2);
+        assert!(snapshot.revision > 0);
         for (i, app) in apps.iter().enumerate() {
             let storage = app.account_storage("test").unwrap();
             // Compare private material without formatting it on a failed assertion.
@@ -324,9 +387,33 @@ mod actual {
                 2
             );
         }
+        request.cancel().await.unwrap();
+        assert_eq!(
+            request.snapshot().await.unwrap().phase,
+            crate::SelectedChatCopyPhase::Cancelled
+        );
+        let replacement = managers[0]
+            .begin_selected_chat_copy("test", &chat, target.selector.clone())
+            .await
+            .unwrap();
+        // Cancelling an old request must not retire a newer original owner.
+        request.cancel().await.unwrap();
+        assert_eq!(
+            replacement.snapshot().await.unwrap().phase,
+            crate::SelectedChatCopyPhase::AwaitingSiblingConsent
+        );
+        drop(replacement);
+        let after_drop = managers[0]
+            .begin_selected_chat_copy("test", &chat, target.selector)
+            .await
+            .unwrap();
         for runtime in runtimes {
             runtime.shutdown_and_close().await.unwrap();
         }
+        assert_eq!(
+            after_drop.snapshot().await.unwrap().phase,
+            crate::SelectedChatCopyPhase::Closed
+        );
         d_runtime.shutdown_and_close().await.unwrap();
         relay.shutdown();
     }

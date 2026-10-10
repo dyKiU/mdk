@@ -118,6 +118,8 @@ mod commands;
 mod device_linking;
 #[cfg(feature = "experimental-device-sync")]
 mod private_commit;
+#[cfg(feature = "experimental-device-sync")]
+mod selected_chat_copy;
 
 mod event_routing;
 mod local_submission_queue;
