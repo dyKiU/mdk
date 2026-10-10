@@ -98,6 +98,7 @@ mod selected_chat_copy;
 mod sync;
 #[cfg(test)]
 mod upload_cleanup_tests;
+pub(crate) mod welcome_peeler;
 
 use epoch_stall::EpochStallDetector;
 use push::notification_trigger_for_intent;
@@ -505,6 +506,9 @@ pub struct AppClient {
     pub(crate) linking_owner: device_linking::AccountLinkingOwner,
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) selected_chat_copy_owner: crate::selected_chat_copy::enabled::AccountCopyOwner,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) selected_welcome_provenance:
+        Arc<std::sync::Mutex<welcome_peeler::SelectedWelcomeProvenance>>,
     pub(crate) runtime: AppRuntime,
     pub(crate) maintenance_observation_generation: Option<crate::DiagnosticsPermit>,
     // Struct fields drop in declaration order. Keep the engine-owning runtime

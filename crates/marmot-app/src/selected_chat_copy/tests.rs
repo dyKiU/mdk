@@ -79,7 +79,7 @@ mod actual {
     use crate::native_device_linking::*;
     use crate::{MarmotApp, MarmotAppRuntime};
     use cgka_traits::{
-        OutboundFanoutStorage,
+        MessageStorage, OutboundFanoutStorage,
         storage::{KeyPackageBundleStorage, StorageProvider},
     };
     use marmot_account::AccountHome;
@@ -875,27 +875,33 @@ mod actual {
     }
     #[tokio::test]
     async fn selected_chat_copy_admits_original_siblings_and_delivers_new_messages() {
-        selected_chat_delivery(RecipientStorageFailure::None).await;
+        selected_chat_delivery(RecipientAdmissionScenario::None).await;
     }
 
     #[tokio::test]
     async fn selected_chat_welcome_storage_failure_retains_original_consent_for_retry() {
-        selected_chat_delivery(RecipientStorageFailure::Retry).await;
+        selected_chat_delivery(RecipientAdmissionScenario::Retry).await;
     }
 
     #[tokio::test]
     async fn selected_chat_welcome_cancel_during_storage_retry_cannot_admit_or_deliver() {
-        selected_chat_delivery(RecipientStorageFailure::Cancel).await;
+        selected_chat_delivery(RecipientAdmissionScenario::Cancel).await;
+    }
+
+    #[tokio::test]
+    async fn selected_chat_welcome_foreign_package_event_refuses_without_consuming_original() {
+        selected_chat_delivery(RecipientAdmissionScenario::ForeignPackageEvent).await;
     }
 
     #[derive(Clone, Copy, PartialEq)]
-    enum RecipientStorageFailure {
+    enum RecipientAdmissionScenario {
         None,
         Retry,
         Cancel,
+        ForeignPackageEvent,
     }
 
-    async fn selected_chat_delivery(storage_failure: RecipientStorageFailure) {
+    async fn selected_chat_delivery(scenario: RecipientAdmissionScenario) {
         let fixture = actual_selected_chat_fixture().await;
         let recipient_bundles_before = fixture.apps[1]
             .account_storage("test")
@@ -970,7 +976,10 @@ mod actual {
             original_consents.push(consent);
         }
         let mut recipient_errors = fixture.runtimes[1].subscribe();
-        let injector = if storage_failure != RecipientStorageFailure::None {
+        let injector = if matches!(
+            scenario,
+            RecipientAdmissionScenario::Retry | RecipientAdmissionScenario::Cancel
+        ) {
             let app = &fixture.apps[1];
             let path = app.account_storage_path("test");
             let keys = app.account_home().load_signing_keys("test").unwrap();
@@ -995,8 +1004,34 @@ mod actual {
             None
         };
         assert_eq!(request.snapshot().await.unwrap().offered_sibling_count, 2);
-        request.continue_copy(request.snapshot().await.unwrap().revision).await
-            .expect("the original selected request and explicit sibling consents must admit both fresh device leaves");
+        if scenario == RecipientAdmissionScenario::ForeignPackageEvent {
+            let account = fixture.apps[0].account_home().account("test").unwrap();
+            let (held, release) =
+                fixture.apps[0]
+                    .relay_plane
+                    .hold_next_selected_welcome(cgka_traits::MemberId::new(
+                        hex::decode(account.account_id_hex).unwrap(),
+                    ));
+            let release_on_drop = ReleaseSelectedWelcome(release.clone());
+            let revision = request.snapshot().await.unwrap().revision;
+            let continuation = request.continue_copy(revision);
+            tokio::pin!(continuation);
+            let message = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                tokio::select! {
+                    message = held => message.unwrap(),
+                    result = &mut continuation => panic!("original continuation escaped publication gate: {result:?}"),
+                }
+            }).await.expect("actual selected Welcome must reach the real publisher gate");
+            assert_foreign_selected_welcome_refused(&fixture, message).await;
+            release.notify_one();
+            continuation
+                .await
+                .expect("unchanged rightful Welcome must still publish");
+            drop(release_on_drop);
+        } else {
+            request.continue_copy(request.snapshot().await.unwrap().revision).await
+                .expect("the original selected request and explicit sibling consents must admit both fresh device leaves");
+        }
         if let Some(connection) = injector {
             tokio::time::timeout(std::time::Duration::from_secs(20), async {
                 loop {
@@ -1047,7 +1082,7 @@ mod actual {
             .await
             .expect("the same account worker must remain available during admission retry")
             .expect("original approved offer must remain usable after incoming storage rollback");
-            if storage_failure == RecipientStorageFailure::Cancel {
+            if scenario == RecipientAdmissionScenario::Cancel {
                 tokio::time::timeout(std::time::Duration::from_millis(500), original.cancel())
                     .await
                     .expect("original cancellation must remain responsive during storage retry")
@@ -1071,7 +1106,7 @@ mod actual {
                 .execute_batch("DROP TRIGGER reject_selected_join;")
                 .unwrap();
         }
-        if storage_failure == RecipientStorageFailure::Cancel {
+        if scenario == RecipientAdmissionScenario::Cancel {
             assert_cancelled_recipient_stays_out(&fixture, &request).await;
             directory_reader.shutdown().await;
             for runtime in [
@@ -1227,6 +1262,126 @@ mod actual {
         }
         drop(original_consents);
     }
+    struct ReleaseSelectedWelcome(std::sync::Arc<tokio::sync::Notify>);
+    impl Drop for ReleaseSelectedWelcome {
+        fn drop(&mut self) {
+            self.0.notify_one();
+        }
+    }
+
+    async fn assert_foreign_selected_welcome_refused(
+        fixture: &SelectedChatFixture,
+        original: cgka_traits::TransportMessage,
+    ) {
+        use cgka_traits::peeler::TransportPeeler;
+        let storage = fixture.apps[1].account_storage("test").unwrap();
+        let bundles = storage.stored_key_package_bundles().unwrap();
+        let packages = storage
+            .selected_chat_key_package_storage()
+            .unwrap()
+            .selected_chat_key_packages()
+            .unwrap();
+        assert_eq!(packages.len(), 1);
+        assert!(
+            packages[0].state
+                == cgka_traits::selected_chat_key_package::SelectedChatPurposeState::Pending
+        );
+        let keys = fixture.apps[1]
+            .account_home()
+            .load_signing_keys("test")
+            .unwrap();
+        let peeler = transport_nostr_peeler::NostrMlsPeeler::new().with_welcome_signer(keys);
+        let (peeled, provenance) = peeler
+            .peel_welcome_with_provenance(&original)
+            .await
+            .unwrap();
+        let cgka_traits::ingest::PeeledContent::Welcome { bytes, .. } = peeled.content else {
+            panic!("held publication is not a genuine MLS Welcome")
+        };
+        let cgka_traits::TransportEnvelope::Welcome { recipient } = original.envelope else {
+            panic!("held publication lost its actual recipient")
+        };
+        let foreign_id = [0x9d; 32];
+        assert_ne!(provenance.key_package_event_id, foreign_id);
+        let sender = fixture.apps[0]
+            .account_home()
+            .load_signing_keys("test")
+            .unwrap();
+        let altered = transport_nostr_peeler::NostrMlsPeeler::new()
+            .with_welcome_signer(sender)
+            .wrap_welcome_with_metadata(
+                &cgka_traits::EncryptedPayload {
+                    ciphertext: bytes.clone(),
+                    aad: vec![],
+                },
+                &recipient,
+                &cgka_traits::engine::WelcomeMetadata {
+                    key_package_event_id: cgka_traits::MessageId::new(foreign_id.to_vec()),
+                    relays: vec![cgka_traits::TransportEndpoint(fixture.url.clone())],
+                },
+            )
+            .await
+            .unwrap();
+        let (check, altered_provenance) =
+            peeler.peel_welcome_with_provenance(&altered).await.unwrap();
+        let cgka_traits::ingest::PeeledContent::Welcome {
+            bytes: checked_bytes,
+            ..
+        } = check.content
+        else {
+            panic!("altered transport lost the real MLS Welcome")
+        };
+        assert_eq!(
+            checked_bytes, bytes,
+            "only authenticated transport metadata changes"
+        );
+        assert_eq!(altered_provenance.key_package_event_id, foreign_id);
+        let event = transport_nostr_peeler::NostrTransportEvent::from_transport_message(&altered)
+            .unwrap()
+            .to_verified_nostr_event()
+            .unwrap();
+        let publisher = nostr_sdk::prelude::Client::default();
+        publisher.add_relay(fixture.url.clone()).await.unwrap();
+        publisher.connect().await;
+        let actual_ingest = fixture.apps[1]
+            .relay_plane
+            .observe_exact_welcome_ingest(altered.id.clone());
+        publisher.send_event(&event).await.unwrap();
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(20), actual_ingest)
+            .await
+            .expect("exact altered source message must reach actual recipient admission")
+            .expect("recipient ingest observation must remain owned");
+        publisher.shutdown().await;
+        assert_eq!(
+            outcome,
+            Some(cgka_traits::IngestOutcome::Ignored {
+                category: cgka_traits::InputRejectionCategory::AuthorizationFailed
+            }),
+            "foreign authenticated KeyPackage event must be refused by actual recipient admission"
+        );
+        assert!(
+            fixture.runtimes[1]
+                .group_mls_state("test", &fixture.chat)
+                .await
+                .is_err(),
+            "foreign authenticated KeyPackage event must not consume original selected consent or admit the recipient"
+        );
+        let after = storage
+            .selected_chat_key_package_storage()
+            .unwrap()
+            .selected_chat_key_packages()
+            .unwrap();
+        assert!(
+            after == packages,
+            "refusal must preserve the exact pending purpose rows"
+        );
+        assert_eq!(storage.stored_key_package_bundles().unwrap(), bundles);
+        assert!(!storage.has_ingress_dedup_marker(&altered.id).unwrap());
+        use sha2::Digest as _;
+        let content_id = cgka_traits::MessageId::new(sha2::Sha256::digest(&bytes).to_vec());
+        assert!(!storage.has_ingress_dedup_marker(&content_id).unwrap());
+    }
+
     async fn assert_cancelled_recipient_stays_out(
         fixture: &SelectedChatFixture,
         request: &crate::SelectedChatCopy,

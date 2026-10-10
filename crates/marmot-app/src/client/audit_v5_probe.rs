@@ -22,7 +22,9 @@ use cgka_traits::transport::EncryptedPayload;
 use cgka_traits::types::MemberId;
 use cgka_traits::{GroupEvent, GroupId, MessageId, TransportMessage};
 use marmot_forensics::v5::*;
-use transport_nostr_peeler::{NostrMlsPeeler, NostrTransportEvent, WelcomePeelProvenance};
+#[cfg(test)]
+use transport_nostr_peeler::NostrMlsPeeler;
+use transport_nostr_peeler::{NostrTransportEvent, WelcomePeelProvenance};
 
 use crate::AppGroupRecord;
 
@@ -73,7 +75,7 @@ impl PeelSlot {
 /// The only selected test peeler. It delegates product behavior, and observes
 /// the same concrete Welcome peel the engine uses without a second decode.
 pub(crate) struct ProbePeeler {
-    pub inner: NostrMlsPeeler,
+    pub inner: Box<dyn super::welcome_peeler::WelcomePeeler>,
     pub slot: Arc<Mutex<PeelSlot>>,
 }
 

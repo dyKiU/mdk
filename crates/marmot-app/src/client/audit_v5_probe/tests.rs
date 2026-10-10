@@ -31,7 +31,7 @@ async fn private_batch_round_trip_uses_product_probe_peeler() {
         welcome_digest: Sha256::digest(&payload.ciphertext).into(),
     };
     let probe = ProbePeeler {
-        inner: NostrMlsPeeler::new().with_welcome_signer(keys),
+        inner: Box::new(NostrMlsPeeler::new().with_welcome_signer(keys)),
         slot: Arc::new(Mutex::new(PeelSlot::default())),
     };
     let transport: &dyn TransportPeeler = &probe;
@@ -90,7 +90,7 @@ async fn private_chunk_observation_uses_product_peeler_trait() {
         welcome_digest: Sha256::digest(&payload.ciphertext).into(),
     };
     let probe = ProbePeeler {
-        inner: NostrMlsPeeler::new().with_welcome_signer(keys),
+        inner: Box::new(NostrMlsPeeler::new().with_welcome_signer(keys)),
         slot: Arc::new(Mutex::new(PeelSlot::default())),
     };
     let transport: &dyn TransportPeeler = &probe;
@@ -1231,7 +1231,7 @@ async fn ambiguous_nip59_decrypt_error_is_failed_without_inner_refs() {
         ),
     );
     let peeler = ProbePeeler {
-        inner: NostrMlsPeeler::new().with_welcome_signer(wrong_key),
+        inner: Box::new(NostrMlsPeeler::new().with_welcome_signer(wrong_key)),
         slot: slot.clone(),
     };
     assert!(matches!(

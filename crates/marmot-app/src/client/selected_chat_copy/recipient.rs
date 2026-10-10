@@ -17,12 +17,14 @@ struct OriginalRecipientPolicy {
     revision: u64,
     scope: SelectedChatPurposeScope,
     reference: [u8; 32],
+    provenance: Arc<Mutex<super::super::welcome_peeler::SelectedWelcomeProvenance>>,
 }
 struct OriginalRecipientLease {
     original: Arc<ConsentState>,
     revision: u64,
     scope: SelectedChatPurposeScope,
     reference: [u8; 32],
+    provenance: Arc<Mutex<super::super::welcome_peeler::SelectedWelcomeProvenance>>,
 }
 impl SelectedChatWelcomePolicy for OriginalRecipientPolicy {
     fn begin_join(
@@ -37,6 +39,7 @@ impl SelectedChatWelcomePolicy for OriginalRecipientPolicy {
             revision: self.revision,
             scope: self.scope.clone(),
             reference: self.reference,
+            provenance: self.provenance.clone(),
         };
         lease.check_live(package)?;
         // This records which original owner Core actually validated. It cannot
@@ -67,6 +70,25 @@ impl SelectedChatWelcomeLease for OriginalRecipientLease {
             .progress
             .lock()
             .map_err(|_| EngineError::SelectedChatWelcomeDenied)?;
+        let carrier = super::carrier::decode(
+            progress
+                .offer
+                .as_deref()
+                .ok_or(EngineError::SelectedChatWelcomeDenied)?,
+        )
+        .map_err(|_| EngineError::SelectedChatWelcomeDenied)?;
+        let expected: [u8; 32] = hex::decode(&carrier.event.id)
+            .map_err(|_| EngineError::SelectedChatWelcomeDenied)?
+            .try_into()
+            .map_err(|_| EngineError::SelectedChatWelcomeDenied)?;
+        if !self
+            .provenance
+            .lock()
+            .map_err(|_| EngineError::SelectedChatWelcomeDenied)?
+            .matches(&expected)
+        {
+            return Err(EngineError::SelectedChatWelcomeDenied);
+        }
         let response = progress
             .response
             .as_ref()
@@ -138,6 +160,7 @@ impl AppClient {
                 revision,
                 scope,
                 reference,
+                provenance: self.selected_welcome_provenance.clone(),
             }));
     }
 }
