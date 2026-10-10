@@ -693,3 +693,11 @@ production 600-second lifetime unchanged; never renew imported/retained owners o
 advance a global clock. The real SQL-rollback control requires original expiry,
 exact Pending-purpose/private-bundle retirement, no same-request restart, and no
 late admission after releasing the fault while other actual copies keep delivering.
+
+Selected publication cancellation acceptance must hold the actual original Commit
+or Welcome before real relay publication. Retain the same public request while
+dropping its RPC receiver to isolate lost-reply custody. Exact cancellation must
+interrupt blocked transport without waiting for it; releasing the gate must never
+publish canceled work. Before Commit confirmation retire only exact pending MLS
+work; after confirmation preserve canonical membership while preventing Welcome
+release. Independent sibling consent is not revoked by source cancellation.

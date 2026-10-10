@@ -908,6 +908,26 @@ mod actual {
         selected_chat_delivery(RecipientAdmissionScenario::ForeignPackageEvent).await;
     }
 
+    #[tokio::test]
+    async fn selected_chat_blocked_commit_cancel_prevents_late_publication() {
+        selected_chat_delivery(RecipientAdmissionScenario::CommitCancel).await;
+    }
+
+    #[tokio::test]
+    async fn selected_chat_blocked_commit_lost_reply_prevents_late_publication() {
+        selected_chat_delivery(RecipientAdmissionScenario::CommitLostReply).await;
+    }
+
+    #[tokio::test]
+    async fn selected_chat_blocked_welcome_cancel_preserves_confirmation_without_late_join() {
+        selected_chat_delivery(RecipientAdmissionScenario::WelcomeCancel).await;
+    }
+
+    #[tokio::test]
+    async fn selected_chat_blocked_welcome_lost_reply_preserves_confirmation_without_late_join() {
+        selected_chat_delivery(RecipientAdmissionScenario::WelcomeLostReply).await;
+    }
+
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
         None,
@@ -915,6 +935,10 @@ mod actual {
         Cancel,
         Expire,
         ForeignPackageEvent,
+        CommitCancel,
+        CommitLostReply,
+        WelcomeCancel,
+        WelcomeLostReply,
     }
 
     async fn selected_chat_delivery(scenario: RecipientAdmissionScenario) {
@@ -1026,7 +1050,33 @@ mod actual {
             None
         };
         assert_eq!(request.snapshot().await.unwrap().offered_sibling_count, 2);
-        if scenario == RecipientAdmissionScenario::ForeignPackageEvent {
+        let publication_control = match scenario {
+            RecipientAdmissionScenario::CommitCancel => Some((false, false)),
+            RecipientAdmissionScenario::CommitLostReply => Some((false, true)),
+            RecipientAdmissionScenario::WelcomeCancel => Some((true, false)),
+            RecipientAdmissionScenario::WelcomeLostReply => Some((true, true)),
+            _ => None,
+        };
+        if let Some((welcome, lost_reply)) = publication_control {
+            assert_blocked_selected_publication_terminal(
+                &fixture,
+                request,
+                &directory_reader,
+                welcome,
+                lost_reply,
+            )
+            .await;
+            directory_reader.shutdown().await;
+            for runtime in [
+                &fixture.runtimes[0],
+                &fixture.runtimes[1],
+                &fixture.runtimes[2],
+                &fixture.d_runtime,
+            ] {
+                runtime.shutdown_and_close().await.unwrap();
+            }
+            return;
+        } else if scenario == RecipientAdmissionScenario::ForeignPackageEvent {
             let account = fixture.apps[0].account_home().account("test").unwrap();
             let (held, release) =
                 fixture.apps[0]
@@ -1314,6 +1364,170 @@ mod actual {
         }
         drop(original_consents);
     }
+    async fn assert_blocked_selected_publication_terminal(
+        fixture: &SelectedChatFixture,
+        request: crate::SelectedChatCopy,
+        relay_reader: &nostr_sdk::prelude::Client,
+        welcome: bool,
+        lost_reply: bool,
+    ) {
+        let before = fixture.runtimes[0]
+            .group_mls_state("test", &fixture.chat)
+            .await
+            .unwrap();
+        let account = fixture.apps[0].account_home().account("test").unwrap();
+        let account = cgka_traits::MemberId::new(hex::decode(account.account_id_hex).unwrap());
+        let (held, release) = if welcome {
+            fixture.apps[0]
+                .relay_plane
+                .hold_next_selected_welcome(account)
+        } else {
+            fixture.apps[0]
+                .relay_plane
+                .hold_next_selected_commit(account)
+        };
+        let release_on_drop = ReleaseSelectedWelcome(release.clone());
+        let request = std::sync::Arc::new(request);
+        let revision = request.snapshot().await.unwrap().revision;
+        let operation = request.clone();
+        let mut continuation = tokio::spawn(async move { operation.continue_copy(revision).await });
+        let _abort_on_drop = AbortSelectedContinuation(continuation.abort_handle());
+        let held = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            tokio::select! {
+                message = held => message.unwrap(),
+                result = &mut continuation => panic!("original continuation escaped publication gate: {result:?}"),
+            }
+        }).await.expect("actual selected publication must reach its original transport gate");
+        assert_eq!(
+            matches!(
+                held.envelope,
+                cgka_traits::TransportEnvelope::Welcome { .. }
+            ),
+            welcome
+        );
+        if lost_reply {
+            continuation.abort();
+            assert!(continuation.await.unwrap_err().is_cancelled());
+        } else {
+            tokio::time::timeout(std::time::Duration::from_millis(500), request.cancel())
+                .await
+                .expect("exact cancellation must not wait for blocked transport")
+                .unwrap();
+            assert!(matches!(
+                tokio::time::timeout(std::time::Duration::from_secs(2), continuation)
+                    .await
+                    .expect("original cancellation must release continuation")
+                    .unwrap(),
+                Err(crate::SelectedChatCopyError::Closed)
+            ));
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if request.snapshot().await.unwrap().phase
+                    == crate::SelectedChatCopyPhase::Cancelled
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("lost reply must retire the same original request");
+        assert!(matches!(
+            request
+                .continue_copy(request.snapshot().await.unwrap().revision)
+                .await,
+            Err(crate::SelectedChatCopyError::Closed)
+        ));
+        let expected_epoch = before.epoch + u64::from(welcome);
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let actual = fixture.runtimes[0]
+                    .group_mls_state("test", &fixture.chat)
+                    .await
+                    .unwrap();
+                if actual.lifecycle_state == crate::AppGroupLifecycleState::Stable {
+                    assert_eq!(
+                        actual.epoch, expected_epoch,
+                        "negative cleanup must preserve canonical confirmation"
+                    );
+                    assert_eq!(
+                        actual.member_count,
+                        if welcome { 4 } else { before.member_count }
+                    );
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("exact pending publication cleanup must restore stable owned state");
+        let storage = fixture.apps[0].account_storage("test").unwrap();
+        let actual = openmls::group::MlsGroup::load(
+            storage.mls_storage(),
+            &openmls::group::GroupId::from_slice(fixture.chat.as_slice()),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(actual.epoch().as_u64(), expected_epoch);
+        assert!(actual.pending_commit().is_none());
+        release.notify_one();
+        drop(release_on_drop);
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let event_id = nostr_sdk::prelude::EventId::from_slice(held.id.as_slice()).unwrap();
+        let published = relay_reader
+            .fetch_events(nostr_sdk::prelude::ReqTarget::single(
+                fixture.url.as_str(),
+                [nostr_sdk::prelude::Filter::new().ids([event_id])],
+            ))
+            .timeout(std::time::Duration::from_secs(5))
+            .await
+            .unwrap();
+        assert!(
+            published.is_empty(),
+            "released blocked original must never publish after cancellation or lost reply"
+        );
+        let remote = fixture
+            .d_runtime
+            .group_mls_state("test", &fixture.chat)
+            .await
+            .unwrap();
+        assert_eq!(remote.epoch, expected_epoch);
+        for index in [1, 2] {
+            assert!(
+                fixture.runtimes[index]
+                    .group_mls_state("test", &fixture.chat)
+                    .await
+                    .is_err()
+            );
+            assert!(
+                fixture.apps[index]
+                    .group("test", &fixture.chat_hex)
+                    .unwrap()
+                    .is_none()
+            );
+            let rows = fixture.apps[index]
+                .account_storage("test")
+                .unwrap()
+                .selected_chat_key_package_storage()
+                .unwrap()
+                .selected_chat_key_packages()
+                .unwrap();
+            assert_eq!(rows.len(), 1);
+            assert!(
+                rows[0].state
+                    == cgka_traits::selected_chat_key_package::SelectedChatPurposeState::Pending
+            );
+        }
+    }
+
+    struct AbortSelectedContinuation(tokio::task::AbortHandle);
+    impl Drop for AbortSelectedContinuation {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+
     struct ReleaseSelectedWelcome(std::sync::Arc<tokio::sync::Notify>);
     impl Drop for ReleaseSelectedWelcome {
         fn drop(&mut self) {

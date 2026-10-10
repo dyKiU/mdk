@@ -128,7 +128,7 @@ struct MarmotRelayPlaneInner {
     >,
 }
 
-/// Hold one actual selected Welcome before its unchanged real relay publication.
+/// Hold one actual selected publication before its unchanged real relay publication.
 /// This fixture observation never supplies recipient consent or replaces transport.
 #[cfg(all(
     test,
@@ -137,6 +137,7 @@ struct MarmotRelayPlaneInner {
 ))]
 struct SelectedWelcomePublicationGate {
     account: MemberId,
+    welcome: bool,
     observed: tokio::sync::oneshot::Sender<cgka_traits::TransportMessage>,
     release: Arc<Notify>,
 }
@@ -1302,12 +1303,44 @@ impl MarmotRelayPlane {
         tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
         Arc<Notify>,
     ) {
+        self.hold_next_selected_publication(account, true)
+    }
+
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn hold_next_selected_commit(
+        &self,
+        account: MemberId,
+    ) -> (
+        tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
+        Arc<Notify>,
+    ) {
+        self.hold_next_selected_publication(account, false)
+    }
+
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    fn hold_next_selected_publication(
+        &self,
+        account: MemberId,
+        welcome: bool,
+    ) -> (
+        tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
+        Arc<Notify>,
+    ) {
         let (observed, receiver) = tokio::sync::oneshot::channel();
         let release = Arc::new(Notify::new());
         let mut held = self.inner.selected_welcome_gate.lock().unwrap();
         assert!(held.is_none(), "only one fixture publication may be held");
         *held = Some(SelectedWelcomePublicationGate {
             account,
+            welcome,
             observed,
             release: release.clone(),
         });
@@ -3452,16 +3485,16 @@ impl MarmotRelayPlaneAccountAdapter {
         request: TransportPublishRequest,
     ) -> Result<TransportPublishReport, TransportAdapterError> {
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if matches!(
-            request.message.envelope,
-            cgka_traits::TransportEnvelope::Welcome { .. }
-        ) {
+        {
+            let welcome = matches!(
+                request.message.envelope,
+                cgka_traits::TransportEnvelope::Welcome { .. }
+            );
             let gate = {
                 let mut held = self.relay_plane.inner.selected_welcome_gate.lock().unwrap();
-                if held
-                    .as_ref()
-                    .is_some_and(|gate| gate.account == request.account_id)
-                {
+                if held.as_ref().is_some_and(|gate| {
+                    gate.account == request.account_id && gate.welcome == welcome
+                }) {
                     held.take()
                 } else {
                     None
