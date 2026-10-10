@@ -1,0 +1,183 @@
+{
+  "head": "3fab3184d8cc089c7a3d24988443ff2d38ee93a5",
+  "input_count": 2444,
+  "source_manifest_sha256": "d13bc39e9af7943c4918f91ab64dbf33114c25abad84217cb43b5691c2fc0ff8",
+  "gates": [
+    {
+      "gate": "app-feature-full-lib",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "seconds": 1994.14,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2074,
+          "failed": 0,
+          "ignored": 6
+        }
+      ],
+      "log_sha256": "ff58d5fcdd40436809104bdada53d40a6d2cef3d184299bb5b3af5cc7c50c6c9"
+    },
+    {
+      "gate": "uniffi-feature-full",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "--features",
+        "experimental-device-sync"
+      ],
+      "exit_code": 0,
+      "seconds": 97.47,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 199,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 29,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "e780c8dd5aa97a848063ecea38dca473e7fe760625a3a2464620b187a2fb830b"
+    },
+    {
+      "gate": "c-feature-full",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-c",
+        "--features",
+        "experimental-device-sync,alloc-audit"
+      ],
+      "exit_code": 0,
+      "seconds": 83.61,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 86,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "0421492b04d418702f72a80635a8e32d4687976d27e9c968c8eea96a05cd2f8a"
+    },
+    {
+      "gate": "swift-feature",
+      "command": [
+        "env",
+        "EXPERIMENTAL_DEVICE_SYNC=1",
+        "bash",
+        "crates/marmot-uniffi/device-linking-smoke.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 44.14,
+      "counts": [],
+      "log_sha256": "477c4ffeba4fc85b4f540f52c61dd0e69ef8f43c459e7bc54b22ac1b28e5daaf"
+    },
+    {
+      "gate": "production-feature-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--features",
+        "experimental-device-sync",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 33.66,
+      "counts": [],
+      "log_sha256": "9ec7b3172fb3127fe3be9ebef187ee99eab02ba612c667db9cec37244f420ec4"
+    }
+  ],
+  "qualification_scope": "Integrated experimental App full-lib, complete UniFFI/C test commands, generated Swift experimental ABI smoke, and production App/UniFFI/C all-target feature Clippy.",
+  "independent_verification": {
+    "signed_git_archive_input_hashes_matched": 2444,
+    "complete_raw_log_hashes_matched": 5,
+    "symlink_inputs": "Compared dereferenced signed target bytes.",
+    "runtime_changes_after_freeze": false
+  },
+  "artifact_directory": "backups/mdk-sync-delivery-20261009 (parent workspace)",
+  "limitations": [
+    "Default App full regression is independently running; its result is not included here.",
+    "Candidate matched Apple products are not installed or accepted by this qualification.",
+    "Selected Welcome event-tag provenance, blocked selected publication/lost reply, and retained retry expiry remain separate acceptance controls.",
+    "Native multi-host delivery and history transfer remain incomplete."
+  ],
+  "post_freeze_changes": "This qualification document only; all tested source bytes match the signed integration head."
+}
