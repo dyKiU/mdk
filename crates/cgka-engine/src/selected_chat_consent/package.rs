@@ -1,4 +1,5 @@
 //! Original selected-consent private packages. No publication or join permission.
+use super::offer::{OFFER, Offer};
 use super::*;
 use cgka_traits::accepted_device_group_anchor::DeviceGroupAnchorRoster;
 use cgka_traits::device_group_genesis::GenesisLeaf;
@@ -29,18 +30,6 @@ impl SelectedChatPackageOffer {
     pub fn into_parts(self) -> (Vec<u8>, SelectedChatPurposeScope, [u8; 32]) {
         (self.wire, self.scope, self.reference)
     }
-}
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Offer {
-    protocol: String,
-    binding: [u8; 32],
-    approved_response_digest: [u8; 32],
-    generation: u64,
-    source_index: u32,
-    source_key: Vec<u8>,
-    package: Vec<u8>,
-    signature: Vec<u8>,
 }
 
 impl<S: StorageProvider> Engine<S> {
@@ -165,7 +154,7 @@ impl<S: StorageProvider> Engine<S> {
                 return Err(denied());
             }
             let mut frame = Offer {
-                protocol: "whitenoise.selected-chat-key-package-offer-observation.v1".into(),
+                protocol: OFFER.into(),
                 binding: scope.request_binding,
                 approved_response_digest: context.approved_response_digest,
                 generation: scope.generation,

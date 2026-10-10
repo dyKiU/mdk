@@ -1,7 +1,7 @@
 ---
 title: "Current State — Implementations & Spec"
 created: 2026-04-19
-updated: 2026-10-09
+updated: 2026-10-10
 tags: [marmot, overview, current-state, implementations]
 status: overview
 ---
@@ -30,6 +30,12 @@ protected enrollment alone grants no ordinary-chat permission. See
 [original ABC evidence](../../device-sync-original-abc-settlement-verification.json),
 [public native enrollment](../../device-sync-native-three-device-enrollment-verification.json)
 and [binding qualification](../../device-sync-native-three-device-bindings-verification.json).
+
+The same private experiment now produces original-consent single-use selected-chat
+packages and collects their authenticated offers under the original request.
+Canonical signatures and exact package identity are observations; original-owner
+ordinary publication, recipient admission and message/history delivery remain open.
+See [offer collection evidence](../../device-sync-selected-chat-offer-collection-verification.json).
 
 On master, one durable recovery owner (#1946) authorizes account-history acquisition for startup, receive,
 maintenance, convergence and explicit repair; its coalesced demand and retry pacing survive reopen, and EOSE alone never

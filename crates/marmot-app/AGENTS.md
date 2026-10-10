@@ -676,3 +676,10 @@ Unsupported-before-effects control when extending this path.
 Selected-chat packet import creates review metadata plus a new bounded process-local consent owner; approval requires the same original owner, current revision, fixed 600-second monotonic deadline and fresh exact protected roster. Export/collection revalidate original owners and anchors before and after crypto. Reimport shares the exact public handle owner; dropping an alias must not cancel another retained alias. The last public handle, exact cancellation, expiry, account-client Drop and abandoned RPC result retire original intent. Keep the account-lifetime 128-entry receipt/tombstone bound; negative or expired imports cannot restart clocks. Collected device signatures are observations, never package/Add/Welcome/join authority.
 
 Selected-chat offer production must use the original revision-checked approved consent and fixed deadline. Register bounded Weak-owner exact cleanup before replying; lost replies, exact cancellation and last shared handle Drop retire the package without cancelling an independent alias. Reopen abandons pending packages without restoring consent. No ordinary admission/delivery claim from offer metadata.
+
+Original request offer collection retains exact approved response bytes and one
+immutable authenticated package observation per selected indexed sibling. Recheck
+the original request/ordinary/protected anchors before and after authentication;
+propagate storage errors without trying another response. Exact offer retries
+are revision-idempotent; conflicting frames never replace the prior observation.
+Offer counts and snapshots do not grant Add, Welcome publication or joining.

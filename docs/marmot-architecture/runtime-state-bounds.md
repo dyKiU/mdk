@@ -1,7 +1,7 @@
 ---
 title: "Long-lived runtime state — bounds and reclamation"
 created: 2026-07-02
-updated: 2026-09-28
+updated: 2026-10-10
 tags: [marmot, architecture, runtime, daemon, broker, memory]
 ---
 
@@ -59,6 +59,12 @@ Request and consent packets are canonical metadata bounded to 16 KiB, signed by
 actual indexed protected MLS device keys; no exporter secret or database copy is
 retained. Exact-source receipt observations are bounded by the selected sibling
 count (at most 127) and never grant Add or recipient admission.
+
+Each original request additionally retains at most one canonical approved response
+and one exact offer frame plus parsed authenticated package per selected sibling
+(at most127). Each wire frame is bounded to16 KiB. These caller-owned observations
+share the original request deadline and cannot restore an owner or recipient lease;
+request destruction reclaims them. No durable publish queue or timer is added.
 
 ### `marmot-app` audit export admission (`src/audit_export_lifecycle.rs`)
 

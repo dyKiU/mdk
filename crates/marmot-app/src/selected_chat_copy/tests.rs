@@ -33,6 +33,10 @@ async fn default_selected_chat_copy_is_unsupported_before_account_or_worker_effe
         Err(SelectedChatCopyError::Unsupported)
     ));
     assert!(matches!(
+        request.receive_offer_packet(0, vec![0; 600_000]).await,
+        Err(SelectedChatCopyError::Unsupported)
+    ));
+    assert!(matches!(
         accounts
             .receive_selected_chat_copy_request("missing", vec![0; 600_000])
             .await,
@@ -530,12 +534,61 @@ mod actual {
         package_injector
             .execute_batch("DROP TRIGGER reject_selected_package;")
             .unwrap();
-        for consent in &siblings {
+        for (index, consent) in siblings.iter().enumerate() {
             let current = consent.snapshot().await.unwrap();
             let offer = consent.offer_packet(current.revision).await.expect(
                 "original approved sibling must export one independent private package offer",
             );
             assert!(offer == consent.offer_packet(current.revision).await.unwrap());
+            let revision = request.snapshot().await.unwrap().revision;
+            assert!(matches!(
+                request.receive_offer_packet(0, offer.clone()).await,
+                Err(crate::SelectedChatCopyError::StaleRevision)
+            ));
+            let marker = b"\"signature\":[";
+            let start = offer
+                .windows(marker.len())
+                .position(|bytes| bytes == marker)
+                .unwrap()
+                + marker.len();
+            let end = start
+                + offer[start..]
+                    .iter()
+                    .position(|byte| *byte == b',' || *byte == b']')
+                    .unwrap();
+            let mut forged = offer.clone();
+            // Flip a decimal value, retaining valid canonical JSON and byte range.
+            forged[end - 1] ^= 1;
+            let _: serde_json::Value = serde_json::from_slice(&forged).unwrap();
+            for invalid in [
+                offer[..offer.len() - 1].to_vec(),
+                vec![0; cgka_engine::selected_chat_consent::MAX_SELECTED_CHAT_PACKET_BYTES + 1],
+                forged,
+            ] {
+                assert!(matches!(
+                    request.receive_offer_packet(revision, invalid).await,
+                    Err(crate::SelectedChatCopyError::InvalidPacket)
+                ));
+                let unchanged = request.snapshot().await.unwrap();
+                assert_eq!(unchanged.revision, revision);
+                assert_eq!(unchanged.offered_sibling_count, index as u32);
+            }
+            request
+                .receive_offer_packet(revision, offer.clone())
+                .await
+                .expect(
+                    "original request must collect authentic offers from its approved siblings",
+                );
+            let collected = request.snapshot().await.unwrap();
+            assert_eq!(collected.offered_sibling_count, index as u32 + 1);
+            request
+                .receive_offer_packet(collected.revision, offer)
+                .await
+                .unwrap();
+            assert_eq!(
+                request.snapshot().await.unwrap().revision,
+                collected.revision
+            );
         }
         for (i, app) in apps.iter().enumerate() {
             let storage = app.account_storage("test").unwrap();

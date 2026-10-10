@@ -4,6 +4,7 @@ use crate::selected_chat_copy::{SelectedChatCopyError, enabled::OrdinaryChatAnch
 use cgka_session::AccountDeviceSession;
 use cgka_traits::{GroupId, GroupLifecycleState, group::ProtocolProfile};
 use sha2::{Digest, Sha256};
+mod collection;
 
 impl From<cgka_traits::StorageError> for SelectedChatCopyError {
     fn from(_: cgka_traits::StorageError) -> Self {
@@ -430,7 +431,7 @@ impl AppClient {
             .lock()
             .expect("selected receipt observation");
         if let Some(prior) = progress.receipts.get(&receipt.source_index()) {
-            return if prior == &(digest, receipt.source_key().to_vec()) {
+            return if prior == &(digest, packet.to_vec()) {
                 Ok(())
             } else {
                 Err(SelectedChatCopyError::InvalidPacket)
@@ -439,10 +440,9 @@ impl AppClient {
         if progress.receipts.len() >= original._protected.leaves.len().saturating_sub(1) {
             return Err(SelectedChatCopyError::InvalidPacket);
         }
-        progress.receipts.insert(
-            receipt.source_index(),
-            (digest, receipt.source_key().to_vec()),
-        );
+        progress
+            .receipts
+            .insert(receipt.source_index(), (digest, packet.to_vec()));
         Ok(())
     }
 }

@@ -103,3 +103,23 @@ Five focused feature tests, the default Unsupported control, production App all-
 Actual public ABC plus Current A/D now exports A’s original request and imports review-only metadata on B/C. Explicit revision-checked sibling approval produces canonical bounded per-device signed responses; A collects each actual sibling once. Alias Drop, stale revision, malformed/foreign/self packets, exact retry, old-response substitution, cancellation, last-handle Drop and account shutdown are covered. Private bundles, outbound fanouts, absent B/C ordinary copies and two-leaf A/D state remain unchanged. Feature five tests, default refusal one, three-package production Clippy/default checks and formatting passed; broader Core conformance checks are pending postcommit. See `device-sync-selected-chat-consent-verification.json`. Recipient-purpose, single-use private package creation, guarded ordinary Invite/join, new-message delivery and history remain open.
 
 The private-package checkpoint now exports exactly one retryable single-use private offer per original approved sibling consent. Actual SQL rollback, exact cancellation, alias/last-handle lifetime and encrypted reopen cleanup are covered. Pending and terminal selected references block generic Welcome fallback, including hostile mixed-secret containers. This is package production and exclusion only: guarded ordinary Invite/join and four-leaf new-message delivery remain next. Default scanner is inactive; populated private cohorts refuse feature-off opening. See `device-sync-selected-chat-package-verification.json`. The previously prescribed default/slow Core conformance commands both passed 543 tests with 33 ignored on signed848; that qualification is separate from this package slice.
+
+### Original request offer collection
+
+`SelectedChatCopy::receive_offer_packet(revision, packet)` now retains one
+immutable authenticated package observation per approved sibling under the
+original A request. Core authenticates the canonical request, exact approved
+response and offer signatures, request binding, response digest, generation,
+indexed device signer and Current non-last-resort package account/reference.
+Collection checks the original owner and exact ordinary/protected anchors before
+and after authentication. Exact retries preserve the revision; conflicting or
+invalid frames leave collection unchanged. Responses and offers stay bounded by
+the original selected sibling count and 16 KiB packet limit. No durable permission,
+Invite, Welcome or ordinary recipient join is created.
+The genuine real ABC/AD fixture failed0/1 before implementation; initial feature3
+and final full selected feature5/default1 pass, including canonical signature
+forgery, malformed/oversized packets and stale revisions. Four-package production
+Clippy/default checks and final App Clippy/format pass. Root verifies all2,421
+inputs and complete logs per RED/initial/final cohort. See
+`device-sync-selected-chat-offer-collection-verification.json`. Next is original
+request batch preparation/publication and independently guarded recipient joining.

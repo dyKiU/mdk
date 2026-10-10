@@ -39,6 +39,7 @@ pub struct SelectedChatCopySnapshot {
     pub phase: SelectedChatCopyPhase,
     pub sibling_count: u32,
     pub consenting_sibling_count: u32,
+    pub offered_sibling_count: u32,
 }
 
 /// Opaque original request; neither its snapshot nor linked roster is consent.
@@ -156,6 +157,24 @@ impl SelectedChatConsent {
 }
 
 impl SelectedChatCopy {
+    /// Collect a signed private package offer without granting membership.
+    pub async fn receive_offer_packet(
+        &self,
+        revision: u64,
+        packet: Vec<u8>,
+    ) -> Result<(), SelectedChatCopyError> {
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            self.manager
+                .selected_request_collect_offer(&self.account, self.inner.clone(), revision, packet)
+                .await
+        }
+        #[cfg(not(feature = "experimental-device-sync"))]
+        {
+            let _ = (revision, packet);
+            Err(SelectedChatCopyError::Unsupported)
+        }
+    }
     pub async fn request_packet(&self, revision: u64) -> Result<Vec<u8>, SelectedChatCopyError> {
         #[cfg(feature = "experimental-device-sync")]
         {

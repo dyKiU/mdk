@@ -75,6 +75,11 @@ pub(crate) struct RequestState {
 pub(crate) struct RequestProgress {
     pub(crate) packet: Option<Vec<u8>>,
     pub(crate) receipts: std::collections::HashMap<u32, ([u8; 32], Vec<u8>)>,
+    pub(crate) offers: std::collections::HashMap<u32, CollectedOffer>,
+}
+pub(crate) struct CollectedOffer {
+    pub(crate) wire: Vec<u8>,
+    pub(crate) observation: Arc<cgka_engine::selected_chat_consent::AuthenticatedSelectedChatOffer>,
 }
 impl RequestState {
     pub(crate) fn check_revision(&self, revision: u64) -> Result<(), SelectedChatCopyError> {
@@ -93,13 +98,14 @@ impl RequestState {
         let phase = self.lease.phase();
         SelectedChatCopySnapshot {
             revision: if phase == SelectedChatCopyPhase::AwaitingSiblingConsent {
-                1 + progress.receipts.len() as u64
+                1 + progress.receipts.len() as u64 + progress.offers.len() as u64
             } else {
-                2 + progress.receipts.len() as u64
+                2 + progress.receipts.len() as u64 + progress.offers.len() as u64
             },
             phase,
             sibling_count: self.sibling_count,
             consenting_sibling_count: progress.receipts.len() as u32,
+            offered_sibling_count: progress.offers.len() as u32,
         }
     }
     pub(crate) fn cancel(&self) {

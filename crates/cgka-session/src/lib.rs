@@ -2243,6 +2243,16 @@ fn delivery_plane_label(plane: TransportDeliveryPlane) -> &'static str {
 
 #[cfg(feature = "experimental-device-sync")]
 impl AccountDeviceSession {
+    pub fn authenticate_selected_chat_offer(
+        &self,
+        request: &[u8],
+        approved_response: &[u8],
+        offer: &[u8],
+    ) -> Result<cgka_engine::selected_chat_consent::AuthenticatedSelectedChatOffer, EngineError>
+    {
+        self.engine
+            .authenticate_selected_chat_offer(request, approved_response, offer)
+    }
     pub fn resolve_selected_chat_package(
         &self,
         original: &cgka_engine::selected_chat_consent::AuthenticatedSelectedChatRequest,
