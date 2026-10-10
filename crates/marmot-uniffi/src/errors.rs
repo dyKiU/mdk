@@ -377,6 +377,20 @@ pub enum MarmotKitError {
     SynchronizedHistoryUnavailable,
     #[error("Invalid synchronized history logical record")]
     SynchronizedHistoryInvalidRecord,
+    #[error("Device revocation: Unsupported")]
+    DeviceRevocationUnsupported,
+    #[error("Device revocation: NotReady")]
+    DeviceRevocationNotReady,
+    #[error("Device revocation: Closed")]
+    DeviceRevocationClosed,
+    #[error("Device revocation: InvalidSelection")]
+    DeviceRevocationInvalidSelection,
+    #[error("Device revocation: Busy")]
+    DeviceRevocationBusy,
+    #[error("Device revocation: StaleRevision")]
+    DeviceRevocationStaleRevision,
+    #[error("Device revocation: RuntimeUnavailable")]
+    DeviceRevocationRuntimeUnavailable,
 }
 
 impl From<AppError> for MarmotKitError {
@@ -1290,6 +1304,28 @@ impl From<marmot_app::SynchronizedHistoryReadError> for MarmotKitError {
             }
             marmot_app::SynchronizedHistoryReadError::InvalidRecord => {
                 Self::SynchronizedHistoryInvalidRecord
+            }
+        }
+    }
+}
+
+impl From<marmot_app::GroupDeviceRevocationError> for MarmotKitError {
+    fn from(value: marmot_app::GroupDeviceRevocationError) -> Self {
+        match value {
+            marmot_app::GroupDeviceRevocationError::Unsupported => {
+                Self::DeviceRevocationUnsupported
+            }
+            marmot_app::GroupDeviceRevocationError::NotReady => Self::DeviceRevocationNotReady,
+            marmot_app::GroupDeviceRevocationError::Closed => Self::DeviceRevocationClosed,
+            marmot_app::GroupDeviceRevocationError::InvalidSelection => {
+                Self::DeviceRevocationInvalidSelection
+            }
+            marmot_app::GroupDeviceRevocationError::Busy => Self::DeviceRevocationBusy,
+            marmot_app::GroupDeviceRevocationError::StaleRevision => {
+                Self::DeviceRevocationStaleRevision
+            }
+            marmot_app::GroupDeviceRevocationError::RuntimeUnavailable => {
+                Self::DeviceRevocationRuntimeUnavailable
             }
         }
     }

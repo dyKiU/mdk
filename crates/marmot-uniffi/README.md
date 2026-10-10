@@ -15,6 +15,7 @@ Read the documentation at the tag matching your binaries; `master` can describe 
   [exclusive root ownership](#exclusive-root-ownership), [service endpoint defaults](#service-endpoint-defaults)
 - [Device verification](#device-verification): opaque sessions, SAS comparison and cancellation
 - [Selected-chat copies](SELECTED-CHAT-COPY.md): explicit original selection, sibling consent and bounded private offers
+- [Exact-device revocation](#exact-device-revocation)
 - [Original history transfers](HISTORY-TRANSFER.md): authenticated review, explicit original consent and committed-import observations
 - [Committed synchronized history](SYNCHRONIZED-HISTORY.md): bounded local source-attested records, retention and keyset paging
 - Accounts and identity: [interactive account onboarding](#interactive-account-onboarding),
@@ -1083,3 +1084,7 @@ packet/finalization methods support ready-account protected three-device
 enrollment. Enrollment capability remains false pending matched artifacts and
 application acceptance. Completed verification or continuation alone does
 not report synchronized messages or history.
+
+## Exact-device revocation
+
+The default-off experimental `begin_device_revocation` factory returns a held original administrator action. Review its captured groups and target, approve the exact displayed revision, and observe per-group confirmed outcomes. See [Exact-device revocation](DEVICE-REVOCATION.md) for lifetime, cancellation, incomplete progress and target-inventory limits.

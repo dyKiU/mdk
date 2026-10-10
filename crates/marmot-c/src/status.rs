@@ -161,6 +161,13 @@ pub enum MarmotStatus {
     SynchronizedHistoryInvalidQuery = 118,
     SynchronizedHistoryUnavailable = 119,
     SynchronizedHistoryInvalidRecord = 120,
+    DeviceRevocationUnsupported = 121,
+    DeviceRevocationNotReady = 122,
+    DeviceRevocationClosed = 123,
+    DeviceRevocationInvalidSelection = 124,
+    DeviceRevocationBusy = 125,
+    DeviceRevocationStaleRevision = 126,
+    DeviceRevocationRuntimeUnavailable = 127,
 }
 
 thread_local! {
@@ -275,6 +282,19 @@ pub(crate) fn status_from_error(err: &MarmotKitError) -> MarmotStatus {
         }
         MarmotKitError::SynchronizedHistoryInvalidRecord => {
             MarmotStatus::SynchronizedHistoryInvalidRecord
+        }
+        MarmotKitError::DeviceRevocationUnsupported => MarmotStatus::DeviceRevocationUnsupported,
+        MarmotKitError::DeviceRevocationNotReady => MarmotStatus::DeviceRevocationNotReady,
+        MarmotKitError::DeviceRevocationClosed => MarmotStatus::DeviceRevocationClosed,
+        MarmotKitError::DeviceRevocationInvalidSelection => {
+            MarmotStatus::DeviceRevocationInvalidSelection
+        }
+        MarmotKitError::DeviceRevocationBusy => MarmotStatus::DeviceRevocationBusy,
+        MarmotKitError::DeviceRevocationStaleRevision => {
+            MarmotStatus::DeviceRevocationStaleRevision
+        }
+        MarmotKitError::DeviceRevocationRuntimeUnavailable => {
+            MarmotStatus::DeviceRevocationRuntimeUnavailable
         }
         MarmotKitError::HistoryTransferUnsupported => MarmotStatus::HistoryTransferUnsupported,
         MarmotKitError::HistoryTransferNotReady => MarmotStatus::HistoryTransferNotReady,

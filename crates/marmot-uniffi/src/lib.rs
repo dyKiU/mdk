@@ -508,7 +508,9 @@ pub use conversions::{
     SelectedChatCopySnapshotFfi,
 };
 
+pub use commands::DeviceRevocation;
 pub use commands::{HistoryConsent, HistoryTransfer};
+pub use conversions::DeviceRevocationSnapshotFfi;
 pub use conversions::{HistoryTransferRecipientFfi, HistoryTransferSnapshotFfi};
 
 pub use conversions::{ArchivedHistoryPageFfi, ArchivedHistoryRecordFfi};

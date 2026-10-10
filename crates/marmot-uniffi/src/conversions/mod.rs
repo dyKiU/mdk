@@ -838,3 +838,6 @@ pub use history_transfer::*;
 
 mod synchronized_history;
 pub use synchronized_history::*;
+
+mod device_revocation;
+pub use device_revocation::*;

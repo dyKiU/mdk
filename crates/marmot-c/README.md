@@ -17,6 +17,7 @@ per feature.
 - [NIP-46 accounts](#nip-46-accounts)
 - [Device verification](#device-verification)
 - [Selected-chat copies](#selected-chat-copies)
+- [Exact-device revocation](#exact-device-revocation)
 - [Original history transfers](#original-history-transfers)
 - [Committed synchronized history](#committed-synchronized-history)
 - Feature notes: [runtime construction](#runtime-construction), [local sends](#local-sends),
@@ -533,3 +534,7 @@ releases it with `marmot_archived_history_page_free`; embedded records are owned
 by that page. Required outputs are cleared before input reads or effects. NULL
 cursor starts the first page. Query statuses append117–120; page/cursor records
 never authorize a history transfer or media acquisition.
+
+## Exact-device revocation
+
+The [shared exact-device contract](../marmot-uniffi/DEVICE-REVOCATION.md) applies to the blocking `marmot_begin_device_revocation` factory and opaque original handle. Retain aliases with `marmot_device_revocation_clone`; deep-free review snapshots and free each handle separately. Required outputs precede effects, and default builds refuse before input reads. Status values 121–127 append typed revocation outcomes.

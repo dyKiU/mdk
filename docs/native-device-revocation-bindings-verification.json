@@ -1,0 +1,489 @@
+{
+  "source_base": "d219a550412d788b87259fad583409430958ca88",
+  "scope": "Thin original App device-revocation UniFFI/C forwarding and actual native ownership acceptance; shipping SDK987 unchanged.",
+  "baseline": "Native API absent; no artificial failing implementation or behavioral RED claimed.",
+  "runtime_source_sha256": {
+    "crates/marmot-c/src/device_linking/tests.rs": "23b7e7b4ef1bdf647d302503c0757294c1d0083718e48d1b4a5a0fe11df910e0",
+    "crates/marmot-c/src/device_revocation.rs": "a2508c59b8257a4d58a24d6009c9ec7ef25290458376487fc4578709be53ad84",
+    "crates/marmot-c/src/lib.rs": "1d38aa7641ececd816659a2b4486f2dd3303d2c02f5cc5fad942dc4cd7728872",
+    "crates/marmot-c/src/status.rs": "3288cae7d6b965e28a0638205aab4caeaef20d4527dba9d2133cb038091bc12e",
+    "crates/marmot-c/src/types/device_revocation.rs": "77db68da518d5355af9eb3a95d0e3483cd7cfcabb3a50c62e9f8b7f49db2455a",
+    "crates/marmot-c/src/types/mod.rs": "53d4eb7e9a81d62d7afbb8c29c1d43d8ae63a71338d34e65667fbd405cc01080",
+    "crates/marmot-uniffi/src/commands/device_linking/tests.rs": "43ecb4625c74dbefa33bee29245e6215bd2ae3b6730d2d2a077c4753f1cb897a",
+    "crates/marmot-uniffi/src/commands/device_revocation.rs": "4a4105bbd1e97c176c9e52e857226b88d6238630ca50c2695365b8b2ce87f4aa",
+    "crates/marmot-uniffi/src/commands/mod.rs": "1de5d18fe579865276e83671b4ffa092822f88c404454baf3cba47bec0894d56",
+    "crates/marmot-uniffi/src/conversions/device_revocation.rs": "b66d2282325dfc62461d9dc96cd4eda2bee4457acc34b54d880c2c43b601b581",
+    "crates/marmot-uniffi/src/conversions/mod.rs": "cadf5eede0ba0d7a5a3d1f9920a2ac3f883646b6edf8b3e215df0d1598d9fbe0",
+    "crates/marmot-uniffi/src/errors.rs": "3e4a9b365336234cf954e5bfbc64d2038012275b8c4fcfa0cb8ac256a59cf179",
+    "crates/marmot-uniffi/src/lib.rs": "808c7405f421d57b83faf6d0a2972fb0073d245c0d6d1cd3f3f08af079f60e83"
+  },
+  "qualified": "UniFFI original 1; C original 1; C feature controls 2; UniFFI default 1; C default controls 2; two-package feature all-target strict Clippy/default all-target check/workspace fmt.",
+  "cohorts": [
+    {
+      "version": 1,
+      "manifest_sha256": "820c83da4de657cf92d793579391509ef71e0b3af11b9b7861268abc70ed0ae6",
+      "inputs": 2525,
+      "gates": [
+        {
+          "gate": "uniffi-original",
+          "exit_code": 101,
+          "seconds": 92.49465083400719,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-uniffi",
+            "--lib",
+            "--features",
+            "experimental-device-sync,marmot-app/test-policy-overrides",
+            "opaque_device_revocation_retains_original_scope_revision_and_cancellation",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "a34a99d817c2a5416ce923200993a6c2b07ed7bbeb3994b02fa21683079ebc2e",
+          "log": "/Users/pj/project/build/results/native-device-revocation-green-v1-uniffi-original.log",
+          "summaries": [
+            [
+              "FAILED",
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "version": 2,
+      "manifest_sha256": "3d5d52573c40ad199fdf74f5b4779b8168deff7455c21ea741183fbcee6ec114",
+      "inputs": 2525,
+      "gates": [
+        {
+          "gate": "uniffi-original",
+          "exit_code": 101,
+          "seconds": 44.35297850007191,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-uniffi",
+            "--lib",
+            "--features",
+            "experimental-device-sync,marmot-app/test-policy-overrides",
+            "opaque_device_revocation_retains_original_scope_revision_and_cancellation",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "647996e26053a66178e01e6c907e682e9efd8d867282e871eacd777d4ba8c712",
+          "log": "/Users/pj/project/build/results/native-device-revocation-green-v2-uniffi-original.log",
+          "summaries": []
+        }
+      ]
+    },
+    {
+      "version": 3,
+      "manifest_sha256": "90748d30fffd1a3b28049e81bb0bebc4cc0b6fe9f6a3c5507b635d5a146780f3",
+      "inputs": 2525,
+      "gates": [
+        {
+          "gate": "uniffi-original",
+          "exit_code": 101,
+          "seconds": 6.685862833168358,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-uniffi",
+            "--lib",
+            "--features",
+            "experimental-device-sync,marmot-app/test-policy-overrides",
+            "opaque_device_revocation_retains_original_scope_revision_and_cancellation",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "196d16de0c3118033e6f49f00e711816b3753cf7371f90382749b64ad7f6b48b",
+          "log": "/Users/pj/project/build/results/native-device-revocation-green-v3-uniffi-original.log",
+          "summaries": []
+        }
+      ]
+    },
+    {
+      "version": 4,
+      "manifest_sha256": "26a65648068e7bd52976bf97b7972f07574ffc80e1772e1a7818db42dca92adf",
+      "inputs": 2525,
+      "gates": [
+        {
+          "gate": "uniffi-original",
+          "exit_code": 0,
+          "seconds": 29.505517000099644,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-uniffi",
+            "--lib",
+            "--features",
+            "experimental-device-sync,marmot-app/test-policy-overrides",
+            "opaque_device_revocation_retains_original_scope_revision_and_cancellation",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "d147868368be216efd09bcb5cb2914029737041a09157d7831963b469aace6e0",
+          "log": "/Users/pj/project/build/results/native-device-revocation-green-v4-uniffi-original.log",
+          "summaries": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "c-original",
+          "exit_code": 101,
+          "seconds": 0.07991137495264411,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-c",
+            "--lib",
+            "--features",
+            "experimental-device-sync,marmot-app/test-policy-overrides,alloc-audit",
+            "actual_c_three_device_enrollment_retains_approval_after_list_free",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "c9ea55f20a5ebc566c0ce9e665f7a3d7e8ba89f7d5575ca8b46e9a95ca870e21",
+          "log": "/Users/pj/project/build/results/native-device-revocation-green-v4-c-original.log",
+          "summaries": []
+        }
+      ]
+    },
+    {
+      "version": 5,
+      "manifest_sha256": "26a65648068e7bd52976bf97b7972f07574ffc80e1772e1a7818db42dca92adf",
+      "inputs": 2525,
+      "gates": [
+        {
+          "gate": "c-original",
+          "exit_code": 101,
+          "seconds": 33.11704570893198,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-c",
+            "--lib",
+            "--features",
+            "experimental-device-sync,alloc-audit",
+            "actual_c_three_device_enrollment_retains_approval_after_list_free",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "d7b86e67eaf101e701aac5080890bf587ba05277c17921e11d6851ec776ad25e",
+          "log": "/Users/pj/project/build/results/native-device-revocation-green-v5-c-original.log",
+          "summaries": []
+        }
+      ]
+    },
+    {
+      "version": 6,
+      "manifest_sha256": "176f62c3bef208fefe96479a0a4aabfbd58ffc6ceb8eb5411253a334c911eaf3",
+      "inputs": 2525,
+      "gates": [
+        {
+          "gate": "c-original",
+          "exit_code": 101,
+          "seconds": 1.2091830419376493,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-c",
+            "--lib",
+            "--features",
+            "experimental-device-sync,alloc-audit",
+            "actual_c_three_device_enrollment_retains_approval_after_list_free",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "c30e46e4ad917808a6ce4ccd5f77bd822f98d43d649d368a7615e744d4de7029",
+          "log": "/Users/pj/project/build/results/native-device-revocation-green-v6-c-original.log",
+          "summaries": []
+        }
+      ]
+    },
+    {
+      "version": 7,
+      "manifest_sha256": "9e2f961804535c7d7498e518c4f2cb4557b62cf980143605f04adf76974b0af4",
+      "inputs": 2525,
+      "gates": [
+        {
+          "gate": "c-original",
+          "exit_code": 0,
+          "seconds": 30.59943399997428,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-c",
+            "--lib",
+            "--features",
+            "experimental-device-sync,alloc-audit",
+            "actual_c_three_device_enrollment_retains_approval_after_list_free",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "8ebefd718380bd9ca4d0de471fe29322f9d8aa04aad94c35feaf786b1247796d",
+          "log": "/Users/pj/project/build/results/native-device-revocation-green-v7-c-original.log",
+          "summaries": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "c-controls",
+          "exit_code": 0,
+          "seconds": 0.29477058397606015,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-c",
+            "--lib",
+            "--features",
+            "experimental-device-sync,alloc-audit",
+            "revocation",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "23cbe3c5ca7af5d861f7de31b751b38c5438e79832d2d86cfefdc3b69f05e919",
+          "log": "/Users/pj/project/build/results/native-device-revocation-green-v7-c-controls.log",
+          "summaries": [
+            [
+              "ok",
+              "2",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "uniffi-default",
+          "exit_code": 0,
+          "seconds": 37.99050558404997,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-uniffi",
+            "--lib",
+            "revocation",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "e1033b4b11e7c53919f424fe949024f9397e421867c2631d39c646b238780938",
+          "log": "/Users/pj/project/build/results/native-device-revocation-green-v7-uniffi-default.log",
+          "summaries": [
+            [
+              "ok",
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "c-default",
+          "exit_code": 0,
+          "seconds": 35.7352602079045,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-c",
+            "--lib",
+            "--features",
+            "alloc-audit",
+            "revocation",
+            "--",
+            "--test-threads=2"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "bf47d563f60d7bcf1a4de1c2339f71fc6ff3d60b32a077b310fb7371c3d46eae",
+          "log": "/Users/pj/project/build/results/native-device-revocation-green-v7-c-default.log",
+          "summaries": [
+            [
+              "ok",
+              "2",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "strict-clippy",
+          "exit_code": 101,
+          "seconds": 31.16390883293934,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "clippy",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-uniffi",
+            "-p",
+            "marmot-c",
+            "--all-targets",
+            "--features",
+            "experimental-device-sync",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "a79f87f936ffd6dafa76480f1ae1674f4050524f04645c1de3620c31e7b8b1c5",
+          "log": "/Users/pj/project/build/results/native-device-revocation-green-v7-strict-clippy.log",
+          "summaries": []
+        }
+      ]
+    },
+    {
+      "version": 8,
+      "manifest_sha256": "bd9789a09570484af29b41513819a805371b6b02bcfd5c7fa1d8884b5b0ae02b",
+      "inputs": 2525,
+      "gates": [
+        {
+          "gate": "strict-clippy",
+          "exit_code": 0,
+          "seconds": 7.563812040956691,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "clippy",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-uniffi",
+            "-p",
+            "marmot-c",
+            "--all-targets",
+            "--features",
+            "experimental-device-sync",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "619c020d875e9d8e387ef2b6841d9a4caf4c796843f625f0dae4dec9a82d27bd",
+          "log": "/Users/pj/project/build/results/native-device-revocation-green-v8-strict-clippy.log",
+          "summaries": []
+        },
+        {
+          "gate": "default-check",
+          "exit_code": 0,
+          "seconds": 21.133558084024116,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "check",
+            "--locked",
+            "--target-dir",
+            "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+            "-p",
+            "marmot-uniffi",
+            "-p",
+            "marmot-c",
+            "--all-targets"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "216f5fd055b178ee347a5d0f3aee5f10b2ffc997a2553eb5c48e49b7a284aedd",
+          "log": "/Users/pj/project/build/results/native-device-revocation-green-v8-default-check.log",
+          "summaries": []
+        },
+        {
+          "gate": "fmt",
+          "exit_code": 0,
+          "seconds": 3.5152649581432343,
+          "command": [
+            "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "fmt",
+            "--all",
+            "--",
+            "--check"
+          ],
+          "source_unchanged": true,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "log": "/Users/pj/project/build/results/native-device-revocation-green-v8-fmt.log",
+          "summaries": []
+        }
+      ]
+    }
+  ],
+  "failed_cohort_classification": {
+    "v1": "Actual fixture failure: historical MLS remains readable after Remove; corrected wait to authoritative public Removed membership. No runtime change.",
+    "v2": "Compile-only enum import path.",
+    "v3": "Compile-only test equality unsupported; matches! used.",
+    "v4": "C command feature selection rejected before compilation; UniFFI original passed.",
+    "v5": "C test compile-only missing ptr import.",
+    "v6": "C test compile-only bool assertion mismatch.",
+    "v7": "All four native/default gates passed; strict Clippy rejected module placement.",
+    "v8": "Registration ordering only corrected after v7; all production gates passed."
+  },
+  "post_freeze_delta": "Authored API documentation and this proof only. Header regeneration and Swift/external ABI validation are next qualification slice.",
+  "remaining": [
+    "Authenticated settings-wide device inventory",
+    "Generated C header and host Swift/C ABI qualification",
+    "Installed native revocation UI acceptance",
+    "Native encrypted reopen and lifecycle matrices beyond existing qualified Rust controls"
+  ]
+}

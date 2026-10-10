@@ -65,3 +65,6 @@ mod history_transfer;
 pub use history_transfer::{HistoryConsent, HistoryTransfer};
 
 mod synchronized_history;
+
+mod device_revocation;
+pub use device_revocation::DeviceRevocation;
