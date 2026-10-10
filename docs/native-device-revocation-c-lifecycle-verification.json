@@ -1,0 +1,139 @@
+{
+  "base": "0ea89301ebe11f0f8fc9ec1cd16793c3a521c651",
+  "candidate_stash": "ceed1ed0ec4ae7749ec37b93d389704a96e7884e",
+  "qualification": {
+    "source_base": "0ea89301ebe11f0f8fc9ec1cd16793c3a521c651",
+    "inputs": 2528,
+    "manifest_sha256": "085810f5396622158cbecffd9eb913a81039cef9d09977e2452e497908d44567",
+    "toolchain": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "gates": [
+      {
+        "gate": "c-original",
+        "exit_code": 0,
+        "seconds": 30.575197083875537,
+        "command": [
+          "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+          "test",
+          "--locked",
+          "--target-dir",
+          "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+          "-p",
+          "marmot-c",
+          "--lib",
+          "--features",
+          "experimental-device-sync,alloc-audit",
+          "actual_c_three_device_enrollment_retains_approval_after_list_free",
+          "--",
+          "--test-threads=2"
+        ],
+        "source_unchanged": true,
+        "log_sha256": "119662ce06d668ecbda0ac9726f10e5f9b69dac15c624fb126349157f6adbd17",
+        "log": "/Users/pj/project/build/results/native-device-revocation-c-shutdown-v1-c-original.log",
+        "summaries": [
+          [
+            "ok",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "gate": "c-default",
+        "exit_code": 0,
+        "seconds": 17.23764599999413,
+        "command": [
+          "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+          "test",
+          "--locked",
+          "--target-dir",
+          "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+          "-p",
+          "marmot-c",
+          "--lib",
+          "revocation",
+          "--",
+          "--test-threads=2"
+        ],
+        "source_unchanged": true,
+        "log_sha256": "052594cc9f3f8156f290fe6abeec09e94a6422e8a576d36caca34295a1c280f0",
+        "log": "/Users/pj/project/build/results/native-device-revocation-c-shutdown-v1-c-default.log",
+        "summaries": [
+          [
+            "ok",
+            "2",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      {
+        "gate": "strict-clippy",
+        "exit_code": 0,
+        "seconds": 24.496499333996326,
+        "command": [
+          "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+          "clippy",
+          "--locked",
+          "--target-dir",
+          "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+          "-p",
+          "marmot-uniffi",
+          "-p",
+          "marmot-c",
+          "--all-targets",
+          "--features",
+          "experimental-device-sync",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "source_unchanged": true,
+        "log_sha256": "348904820ca8c978f4b0375494846c72e67b02d2a3e63684b4d9b23c989dd809",
+        "log": "/Users/pj/project/build/results/native-device-revocation-c-shutdown-v1-strict-clippy.log",
+        "summaries": []
+      },
+      {
+        "gate": "default-check",
+        "exit_code": 0,
+        "seconds": 17.771678084041923,
+        "command": [
+          "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+          "check",
+          "--locked",
+          "--target-dir",
+          "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+          "-p",
+          "marmot-uniffi",
+          "-p",
+          "marmot-c",
+          "--all-targets"
+        ],
+        "source_unchanged": true,
+        "log_sha256": "847a542c5df4664cc893e34f96a250987279f06fcc66d395d938207fa2f9f8f3",
+        "log": "/Users/pj/project/build/results/native-device-revocation-c-shutdown-v1-default-check.log",
+        "summaries": []
+      },
+      {
+        "gate": "fmt",
+        "exit_code": 0,
+        "seconds": 3.492765709059313,
+        "command": [
+          "/Users/pj/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "source_unchanged": true,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "log": "/Users/pj/project/build/results/native-device-revocation-c-shutdown-v1-fmt.log",
+        "summaries": []
+      }
+    ]
+  },
+  "test_sha256": "0ede0e69c8e5c913029064083c311f8b56e32fdc41b3f91366d257f29b7c3393",
+  "scope": "Actual held original C alias retained through authenticated two-group removal, future survivor message seen A/B and absent C, revoked C send refused, all genuine client runtime shutdown and Rust-owned client drops, then typed Closed/RuntimeUnavailable snapshot and approval with output cleared and allocation audit returned baseline. No fabricated failing baseline or runtime fix.",
+  "limits": "C client instances are Rust-owned fixture objects, so C marmot_client_free is not invoked on invalid stack pointers. Actual owning client shutdown/drop is covered. Shipping SDK987 remains unchanged; inventory and installed acceptance remain separate.",
+  "post_freeze_delta": "This proof only."
+}
