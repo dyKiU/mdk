@@ -298,6 +298,31 @@ through the account worker and may wait behind an in-flight mutation. Updates us
 semantics; hosts must handle publication uncertainty and `GroupChangeSuperseded` rather than assuming a successful local
 change wins every later concurrent commit. This API does not add automatic retries of an application's desired value.
 
+## Read-only synchronized logical history
+
+With `experimental-device-sync`, `MarmotApp::synchronized_history_page` reads
+completed logical archive records from one account's encrypted storage. Select
+an opaque MLS group ID and a page limit from 1 to 200. Results use message-ID
+keyset order; pass `next_message_id` for the following page. A full last page
+may require an additional empty read. Default builds return typed `Unsupported`
+before account or storage effects.
+
+Each `ArchivedHistoryRecord` carries logical content and tags, captured expiry,
+source device, transfer ID and manifest digest. This is source-attested history.
+It does not independently authenticate the original author's MLS message or
+supply permission for another transfer. Live authenticated events shadow archive
+copies. Completed-import retention fences and captured expiry govern visibility;
+tombstones contain no content or attachments. Invalid logical payloads fail the
+page with a typed error. Media outcomes preserve the shared parser's ordered
+accepted/rejected verdicts without initiating downloads.
+
+The query performs no relay I/O, read acknowledgment, moderation or media
+acquisition. It remains separate from the existing live conversation projection.
+Hosts must keep provenance visible when presenting archive records; native ABI,
+conversation integration and installed-app history acceptance require separate
+qualification. Storage-seeded query tests alone do not prove original history
+transport or consent.
+
 ## Explicit full-history repair
 
 `MarmotAppRuntime::repair_full_history` requests one owner-authorized explicit-history obligation and runs the account's
