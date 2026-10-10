@@ -4627,6 +4627,19 @@ typedef struct MarmotDeviceRevocationSnapshot {
   uintptr_t target_device_len;
 } MarmotDeviceRevocationSnapshot;
 
+typedef struct MarmotDeviceRevocationTarget {
+  uint32_t leaf_index;
+  uint8_t *device;
+  uintptr_t device_len;
+} MarmotDeviceRevocationTarget;
+
+typedef struct MarmotDeviceRevocationTargets {
+  char *protected_group_id_hex;
+  uint64_t protected_epoch;
+  struct MarmotDeviceRevocationTarget *targets;
+  uintptr_t targets_len;
+} MarmotDeviceRevocationTargets;
+
 typedef struct MarmotHistoryTransferRecipient {
   uint32_t leaf_index;
   uint8_t *device;
@@ -9828,6 +9841,15 @@ MarmotStatus marmot_device_revocation_approve(const struct MarmotDeviceRevocatio
 MarmotStatus marmot_device_revocation_cancel(const struct MarmotDeviceRevocation *handle);
 
 /**
+ * Observe the current authenticated protected roster; no removal action is allocated.
+ * # Safety
+ * Live client, borrowed account and required writable output; no concurrent free.
+ */
+MarmotStatus marmot_device_revocation_targets(const struct MarmotClient *client,
+                                              const char *account,
+                                              struct MarmotDeviceRevocationTargets **out);
+
+/**
  * Observe current linked-recipient choices; creates no transfer or consent.
  * # Safety
  * Live client, borrowed NUL-terminated strings and writable out; no concurrent free.
@@ -12714,6 +12736,16 @@ void marmot_archived_history_page_free(struct MarmotArchivedHistoryPage *ptr);
  * this library.
  */
 void marmot_device_revocation_snapshot_free(struct MarmotDeviceRevocationSnapshot *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_device_revocation_targets_free(struct MarmotDeviceRevocationTargets *ptr);
 
 /**
  * Free a value of this type returned by this library. NULL

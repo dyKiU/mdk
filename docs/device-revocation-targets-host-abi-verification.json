@@ -1,0 +1,80 @@
+{
+  "base": "7099b035d81f838ebc3252013cd115700e9b0d2e",
+  "candidate_stash": "3174cb0c23a76603bbf11bac28d31039b314d700",
+  "qualification": {
+    "source_inputs": 2530,
+    "manifest_sha256": "123ba928c24dc98d04cc90415251d2cf3cb2bb72d5e40b3057c005353da80820",
+    "gates": [
+      {
+        "gate": "docs",
+        "command": [
+          "just",
+          "binding-docs-gate"
+        ],
+        "experimental": false,
+        "exit_code": 0,
+        "seconds": 0.28316837502643466,
+        "log_sha256": "ba914e1ad239831df1f53102c7e2f76fa4a237cf54815cf66dd8484d4db7ae9f"
+      },
+      {
+        "gate": "parity",
+        "command": [
+          "just",
+          "c-parity-gate"
+        ],
+        "experimental": false,
+        "exit_code": 0,
+        "seconds": 0.10885050008073449,
+        "log_sha256": "95c174857cfe19900ae634793de3f766f32a832555e89679b03ee76f0782146a"
+      },
+      {
+        "gate": "swift-default",
+        "command": [
+          "bash",
+          "crates/marmot-uniffi/device-linking-smoke.sh"
+        ],
+        "experimental": false,
+        "exit_code": 0,
+        "seconds": 78.48560629086569,
+        "log_sha256": "4655899c0930db495f02170839ba08124bb512a5ea8e9fe47529cc420f7f8da2"
+      },
+      {
+        "gate": "c-default",
+        "command": [
+          "bash",
+          "crates/marmot-c/history-transfer-smoke.sh"
+        ],
+        "experimental": false,
+        "exit_code": 0,
+        "seconds": 42.53240899997763,
+        "log_sha256": "9cdec9ebf78acac58a0c560878fff520b8c5f6f30305664fa92902e5fe38884e"
+      },
+      {
+        "gate": "swift-feature",
+        "command": [
+          "bash",
+          "crates/marmot-uniffi/device-linking-smoke.sh"
+        ],
+        "experimental": true,
+        "exit_code": 0,
+        "seconds": 87.79827545792796,
+        "log_sha256": "15350708f8ba2ad0626c9ff2bc216a23e0cea483d4f0111a696e41b1872fb817"
+      },
+      {
+        "gate": "c-feature",
+        "command": [
+          "bash",
+          "crates/marmot-c/history-transfer-smoke.sh"
+        ],
+        "experimental": true,
+        "exit_code": 0,
+        "seconds": 63.53551908303052,
+        "log_sha256": "0b235c5560d4c25fee4cd32081ee63f88f81b60551737172d4a915b9334ff4ec"
+      }
+    ],
+    "scope": "Matched host Swift and C shared/static ABI; not Apple packaged artifacts or native multi-device acceptance"
+  },
+  "scope": "Generated cbindgen header; matching host Swift target DTO binary roundtrip/query typed refusal and C shared/static target root/layout/query refusal/preflight/NULL-free in default and experimental modes. Original ownership and genuine device discovery remain qualified by preceding source/native acceptance.",
+  "limits": "Host ABI does not establish Apple artifacts or installed application acceptance. Existing SDK987 outputs and installed apps unchanged.",
+  "post_freeze_delta": "This compact proof only."
+}

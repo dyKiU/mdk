@@ -50,6 +50,21 @@ int main(int argc, char **argv) {
     assert(choice.leaf_index == UINT32_MAX && choice.device == recipient && choice.device_len == 32);
     _Static_assert(MARMOT_STATUS_DEVICE_REVOCATION_UNSUPPORTED == 121, "revocation unsupported ABI");
     _Static_assert(MARMOT_STATUS_DEVICE_REVOCATION_RUNTIME_UNAVAILABLE == 127, "revocation runtime ABI");
+    MarmotDeviceRevocationTargets *targets = (MarmotDeviceRevocationTargets *)(uintptr_t)1;
+    assert(marmot_device_revocation_targets(NULL, NULL, NULL) == MARMOT_STATUS_NULL_POINTER);
+    status = marmot_device_revocation_targets(NULL, NULL, &targets);
+    assert(targets == NULL);
+    assert(status == (experimental ? MARMOT_STATUS_NULL_POINTER : MARMOT_STATUS_DEVICE_REVOCATION_UNSUPPORTED));
+    status = marmot_device_revocation_targets(client, "missing", &targets);
+    assert(targets == NULL);
+    assert(status == (experimental ? MARMOT_STATUS_DEVICE_REVOCATION_RUNTIME_UNAVAILABLE
+                                  : MARMOT_STATUS_DEVICE_REVOCATION_UNSUPPORTED));
+    marmot_device_revocation_targets_free(NULL);
+    MarmotDeviceRevocationTarget target = {.leaf_index = UINT32_MAX, .device = recipient, .device_len = 32};
+    MarmotDeviceRevocationTargets roster = {.protected_group_id_hex = NULL, .protected_epoch = UINT64_MAX,
+        .targets = &target, .targets_len = 1};
+    assert(roster.protected_epoch == UINT64_MAX && roster.targets_len == 1
+        && roster.targets[0].leaf_index == UINT32_MAX && roster.targets[0].device_len == 32);
     MarmotDeviceRevocation *revocation = (MarmotDeviceRevocation *)(uintptr_t)1;
     assert(marmot_begin_device_revocation(NULL, NULL, NULL, SIZE_MAX, NULL) == MARMOT_STATUS_NULL_POINTER);
     status = marmot_begin_device_revocation(NULL, NULL, NULL, SIZE_MAX, &revocation);
