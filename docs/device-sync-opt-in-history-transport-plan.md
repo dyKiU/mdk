@@ -197,3 +197,16 @@ signed request, scope, keys and deadline, and a receiver authentication witness
 proves fresh delivery. This is not durable restart qualification. Evidence:
 [replay repair](device-sync-history-fresh-outer-replay-verification.json). Source
 expiry privacy and faulted staging cleanup/bookkeeping are still immediate repairs.
+
+### Source expiry serialization repair
+
+The actual expired-but-unpruned source regression exposed8199 bytes of encoded
+plaintext in the original frozen canonical archive. It now passes unchanged:
+source visibility time is captured before serialization, and expired records
+become zero-payload tombstones. This proves source-side non-disclosure rather
+than recipient-side hiding. Actual decrypted8192-byte ordinary MLS data is used;
+only its persisted retention deadline is controlled in the isolated SQLCipher
+fixture. Normal multi-fragment import and replay controls remain green. Evidence:
+[source expiry](device-sync-history-source-expiry-verification.json). Later expiry
+during delayed publication, faulted cleanup and committed-receipt bookkeeping
+still require separate acceptance before native adoption.

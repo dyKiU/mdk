@@ -216,3 +216,23 @@ impl HistoryTransfer {
             .await
     }
 }
+
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+impl HistoryTransfer {
+    pub(crate) async fn original_record_for_test(
+        &self,
+        message_id: [u8; 32],
+    ) -> Result<(bool, usize), HistoryTransferError> {
+        self.manager
+            .inspect_original_history_record_for_test(
+                &self.account,
+                self.original.clone(),
+                message_id,
+            )
+            .await
+    }
+}

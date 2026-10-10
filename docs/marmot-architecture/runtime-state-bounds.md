@@ -373,3 +373,9 @@ consent or restart authority. The real relay/MLS regression sends a newly
 ratchet-encrypted outer frame from the unchanged original source after actual
 recipient retirement; duplicate ciphertext is not used as evidence. SQL cleanup
 and source retention privacy repairs described above remain open.
+
+Source snapshot visibility is now captured before record serialization;
+expired-unpruned logical rows consume the same bounded record slot as a
+zero-payload tombstone. Recipient retention is not relied on to undo source
+plaintext disclosure. This does not qualify later expiry during stalled
+publication or the remaining negative staging cleanup/bookkeeping controls.
