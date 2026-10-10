@@ -729,3 +729,23 @@ The original-action three-device backend regression establishes actual ABC
 settlement, including both SQL rollback retries. Public native singleton
 continuation is separately qualified; public three-device enrollment and app
 adoption remain separate gates.
+
+### Native approval review
+
+With `experimental-device-sync`, the original `DeviceLinkingApproval` exposes
+`review_metadata(displayed_revision)` while awaiting explicit approval. The
+record contains the exact revision, authenticated source and joining device
+public keys (32 bytes each), and existing device count. These are device signing
+keys, not account display names or account identity keys.
+
+The serial account worker revalidates the original received proposal against
+fresh protected predecessor and Current KeyPackage state. The native handle
+checks its original owner, pending phase and displayed revision before and after
+awaits. Reading this record leaves approval pending and creates no endorsement,
+Add or permission. Stale revisions and cancelled/settled owners refuse; default
+builds return `Unsupported` before account or worker effects.
+
+The genuine public three-device regression compares identities to A's actual
+MLS leaf and C's original setup, checks unchanged pending state, then completes
+ABC. Native binding/artifact adoption, approval UI and installed application
+delivery remain separate from this read-only App API checkpoint.

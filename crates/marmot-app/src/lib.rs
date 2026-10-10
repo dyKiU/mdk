@@ -99,10 +99,10 @@ mod device_linking;
 mod native_device_linking;
 mod selected_chat_copy;
 pub use native_device_linking::{
-    DeviceLinkingApproval, DeviceLinkingApprovalPhase, DeviceLinkingApprovalSnapshot,
-    DeviceLinkingCapabilities, DeviceLinkingDecimals, DeviceLinkingError,
-    DeviceLinkingOutgoingPacket, DeviceLinkingPhase, DeviceLinkingSession, DeviceLinkingSnapshot,
-    DeviceLinkingSubscription, DeviceLinkingTarget,
+    DeviceLinkingApproval, DeviceLinkingApprovalPhase, DeviceLinkingApprovalReviewMetadata,
+    DeviceLinkingApprovalSnapshot, DeviceLinkingCapabilities, DeviceLinkingDecimals,
+    DeviceLinkingError, DeviceLinkingOutgoingPacket, DeviceLinkingPhase, DeviceLinkingSession,
+    DeviceLinkingSnapshot, DeviceLinkingSubscription, DeviceLinkingTarget,
 };
 pub use selected_chat_copy::{
     SelectedChatConsent, SelectedChatConsentPhase, SelectedChatConsentSnapshot, SelectedChatCopy,

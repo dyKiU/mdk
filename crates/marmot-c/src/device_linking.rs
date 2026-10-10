@@ -531,6 +531,29 @@ pub unsafe extern "C" fn marmot_device_linking_approval_snapshot(
         }
     })
 }
+/// Read authenticated display metadata for one original pending approval.
+/// # Safety
+/// handle must remain valid and out writable for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_approval_review_metadata(
+    handle: *const MarmotDeviceLinkingApproval,
+    displayed_revision: u64,
+    out: *mut *mut MarmotDeviceLinkingApprovalReviewMetadata,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        arg!(unsafe { preflight_out_ptr(out) });
+        let handle = arg!(unsafe { approval(handle) });
+        unsafe {
+            deliver(
+                block_on_handle(
+                    &handle.runtime,
+                    handle.inner.review_metadata(displayed_revision),
+                ),
+                out,
+            )
+        }
+    })
+}
 /// Explicit human approval bound to the displayed revision.
 /// # Safety
 /// handle must remain valid for the call.

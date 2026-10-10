@@ -4584,6 +4584,15 @@ typedef struct MarmotDeviceLinkingApprovalSnapshot {
   enum MarmotDeviceLinkingApprovalPhase phase;
 } MarmotDeviceLinkingApprovalSnapshot;
 
+typedef struct MarmotDeviceLinkingApprovalReviewMetadata {
+  uint64_t revision;
+  uint8_t *source_device_public_key;
+  uintptr_t source_device_public_key_len;
+  uint8_t *joining_device_public_key;
+  uintptr_t joining_device_public_key_len;
+  uint32_t existing_device_count;
+} MarmotDeviceLinkingApprovalReviewMetadata;
+
 /**
  * Stable stream and start-message identifiers.
  */
@@ -9588,6 +9597,15 @@ MarmotStatus marmot_device_linking_approval_snapshot(const struct MarmotDeviceLi
                                                      struct MarmotDeviceLinkingApprovalSnapshot **out);
 
 /**
+ * Read authenticated display metadata for one original pending approval.
+ * # Safety
+ * handle must remain valid and out writable for the call.
+ */
+MarmotStatus marmot_device_linking_approval_review_metadata(const struct MarmotDeviceLinkingApproval *handle,
+                                                            uint64_t displayed_revision,
+                                                            struct MarmotDeviceLinkingApprovalReviewMetadata **out);
+
+/**
  * Explicit human approval bound to the displayed revision.
  * # Safety
  * handle must remain valid for the call.
@@ -12335,6 +12353,16 @@ void marmot_device_linking_approval_snapshot_free(struct MarmotDeviceLinkingAppr
  * library.
  */
 void marmot_device_linking_target_list_free(struct MarmotDeviceLinkingTargetList *list);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_device_linking_approval_review_metadata_free(struct MarmotDeviceLinkingApprovalReviewMetadata *ptr);
 
 /**
  * Free a value of this type returned by this library. NULL
