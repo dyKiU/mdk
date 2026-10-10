@@ -345,3 +345,22 @@ admission, which checks the original owner and purpose again. A Pending SQL row
 only excludes an already committed join and cannot reconstruct permission. No
 serialized queue, renewed consent deadline or positive lifetime retention is added.
 Cancellation, expiry and owner loss release the retained observation without join.
+
+
+### Original opt-in history actor transport
+
+Per account, at most128 process-local history owners retain a fixed600-second
+monotonic deadline. A source freezes at most200 logical records in one canonical
+archive of at most196608 bytes; a201-row query detects overflow and rejects the
+whole snapshot. Each original owner retains at most128 incoming frames, each at
+most16KiB, and Core retains at most129 frozen outbound control slots. Ordered
+archive fragments are at most1536 bytes, at most128. This is a per-account bound;
+there is no newly introduced global process credit. Keys remain original-owned
+and are retired, not restored from staged/imported rows. Completed receipts are
+observations; pending SQL rows never schedule new approval or transport.
+
+Current checkpoint limits: active entries are bounded but terminal transfer IDs
+are not yet retained, so fresh-outer replay can recreate a canceled owner. SQL
+failure during negative cleanup can lose its removed entry, and postcommit
+receipt-seal failures require completion-observation repair. These are immediate
+regression/fix work, not qualified lifecycle behavior. No native adoption claim.

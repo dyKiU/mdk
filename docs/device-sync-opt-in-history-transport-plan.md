@@ -12,8 +12,8 @@ storage: immutable recipient-specific manifests, digest-bound ordered chunks,
 atomic import receipts, exact retry, cancellation, retention and provenance pages.
 Staged records are invisible until the final chunk commits. Authentic live
 `app_events` shadow archived records; archive records never become MLS evidence,
-moderation authority, membership, ratchets or recovery-cursor inputs. No current
-Core, Session or App caller authenticates or transports those manifests.
+moderation authority, membership, ratchets or recovery-cursor inputs. At the audited83 runtime, no
+Core, Session or App caller authenticated or transported those manifests.
 
 Current storage bounds are 128 chunks, 200 records/chunk, 1 MiB/chunk, 64 KiB/record,
 128 retained transfers and 512 MiB total archive charge. The first transport slice
@@ -159,3 +159,30 @@ App must fragment complete logical records and manifest within the256KiB total,
 reject oversize snapshots before consent, and derive receipt bytes only from
 committed import facts. No App history delivery or third-member privacy result is
 claimed. See [the scoped evidence](device-sync-history-ordered-framing-verification.json).
+
+## Qualified original actor transport checkpoint
+
+Core/Session `643261a7` and App `fc43b1f7` now freeze an authenticated snapshot
+review, obtain explicit original recipient consent, transport a bounded canonical
+archive over actual recipient-only encrypted protected MLS/Nostr frames, and
+complete on committed import receipts. The actual public ABC/Current AD/four-leaf
+fixture imports the prejoin record and transfers a multi-fragment snapshot with
+an8192-byte ordinary record, preserving ordinary MLS state and live projections.
+The recipient sees authenticated group/device/count/byte/fragment review metadata.
+A source query reads at most201 rows and rejects whole snapshots above200 records
+or196608 encoded bytes before consent. Fragments are1536 bytes, at most128.
+
+Evidence: [original actor qualification](device-sync-history-original-actors-verification.json).
+The corrected Core matrix verifies actual signatures before context refusals; its
+older ordered matrix could previously mask substitutions through a stale signature.
+C's actual outer-frame observation/request refusal and absent archive are actor
+exclusion evidence, not a literal C HPKE wrong-key open in this fixture.
+
+This is a transport checkpoint, not lifecycle or native adoption acceptance.
+Known immediate repairs are same-Request fresh-outer replay fencing, source expiry
+filtering before plaintext transfer, retryable negative staging cleanup on SQL
+failure, and committed-import observation before fallible receipt sealing.
+Blocked-network cancellation/deadline/shutdown controls and full backend/App
+qualification remain pending. Native user-visible provenance queries/bindings are
+separate; imported records remain source-attested and never become MLS proof,
+membership, moderation, ratchet state or recovery-cursor/debt authority.

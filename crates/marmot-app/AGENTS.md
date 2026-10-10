@@ -701,3 +701,16 @@ interrupt blocked transport without waiting for it; releasing the gate must neve
 publish canceled work. Before Commit confirmation retire only exact pending MLS
 work; after confirmation preserve canonical membership while preventing Welcome
 release. Independent sibling consent is not revoked by source cancellation.
+
+
+Original opt-in history actors must derive authenticated scope and source proof
+from real Core/MLS delivery, freeze whole bounded logical snapshots, and require
+explicit original recipient revision approval. Keep private controls hidden in
+both direct and replay paths; imported archives are source-attested, never live
+MLS projection or recovery authority. No row can restore a consent lease.
+Preserve exact fixed deadlines and original alias custody. Negative staging
+cleanup must survive SQL failure; committed import completion must precede
+fallible receipt publication; source expiry must be filtered before serialization.
+Test fresh-outer same-request replay, not only duplicate ciphertext, before
+claiming cancellation/restart acceptance. Current actor checkpoint explicitly
+leaves these lifecycle/privacy repairs and native presentation unqualified.
