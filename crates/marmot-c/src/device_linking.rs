@@ -590,6 +590,22 @@ pub unsafe extern "C" fn marmot_device_linking_approval_approve(
         ))
     })
 }
+/// Approve original enrollment and sharing existing and future chats with its joining device.
+/// # Safety
+/// handle must remain valid for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_approval_approve_and_share_chats(
+    handle: *const MarmotDeviceLinkingApproval,
+    displayed_revision: u64,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        let handle = arg!(unsafe { approval(handle) });
+        unit(block_on_handle(
+            &handle.runtime,
+            handle.inner.approve_and_share_chats(displayed_revision),
+        ))
+    })
+}
 /// Validate the complete packet through the same original existing-device action.
 /// # Safety
 /// handle and borrowed bytes must remain valid for the call.

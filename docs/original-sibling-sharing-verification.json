@@ -1,0 +1,359 @@
+{
+  "scope": "Original bilateral sibling-sharing and native approve-and-share development slice; not final SDK or installed app promotion",
+  "base": "fb1ced429d89f62e3d699a47735178879b777fe7",
+  "qualified_source": "57ad34f36338f5b4557f4c6096dcac3cdfa0e7e8",
+  "source_inputs_verified": 2592,
+  "post_qualification_rust_matches": true,
+  "owned_rust_sha256": {
+    "crates/marmot-app/src/client/account_chat_sharing.rs": "9fb23d9ef1f1d29e299bcffac180fcc7068e74601f45c2e280d55ff08994e1bf",
+    "crates/marmot-app/src/client/device_linking.rs": "78a34b31963b8b71c9500279d6c020b8bad272fb9bd9d29a79b95d4e8f020e5f",
+    "crates/marmot-app/src/client/device_linking/enrollment.rs": "1d6b9f63e40a6d70295d2e785051e406d197cc59944ae9e265c34ab6e0065ea1",
+    "crates/marmot-app/src/client/device_linking/native_enrollment.rs": "50307b743ab2ba858de4eb6af982edbc783c025733fac107639b0f8e0c6ee7b0",
+    "crates/marmot-app/src/client/device_linking/setup.rs": "0e69ab5b30ca52461dead2d7be90f9a65cc1f85fd4af412f8d6d3e32a5a7b1b7",
+    "crates/marmot-app/src/client/device_linking/sibling_sharing.rs": "dd80c6b8ac8803e130f35e187eb5b956ded0f61527782585cacfb6f19a15cc86",
+    "crates/marmot-app/src/client/device_linking/sibling_sharing/tests.rs": "2c0a011a5094a20d8795f26a7aadec1d01486e655c8a4320d489d7ca8b3173f4",
+    "crates/marmot-app/src/client/private_enrollment_proposal.rs": "d68531d27b97f75ce610e185fe9de04b05f31d7be48a9335750dbbbc142ab7a0",
+    "crates/marmot-app/src/client/private_enrollment_proposal/sibling_sharing.rs": "c528f16c93bd931d3542ae70e109b84346fffa0335d88f0a5a2855c167a80e95",
+    "crates/marmot-app/src/native_device_linking.rs": "b0b2c7f12063bdf1d63f54ffd00f05ef0a747fb82c82507dd2b403ba52fd0e7b",
+    "crates/marmot-app/src/native_device_linking/enabled.rs": "e8cefa6e0dcbc0801badd1afda84a447bcb82e4fc49d097a02c87f90f7018bff",
+    "crates/marmot-app/src/native_device_linking/tests.rs": "69154b195e12d4c019476e12ae596588a841df1b8d610c1d2ff1b381d5ade171",
+    "crates/marmot-app/src/native_device_linking/sharing_default_tests.rs": "d6cbf332068bf2f617e6dd2c63d9c399a3e1344ddaa7232cef1690c85b3171e0",
+    "crates/marmot-app/src/native_device_linking/sibling_sharing_acceptance.rs": "fe4492cda7fa9ec82e86286496eeaf6885fd18a65b99ec0c3b6c5d482453ed2c",
+    "crates/marmot-app/src/runtime/device_linking.rs": "fa19c73d7ed0294a0045100c23f67eb3e1bb793b6b2729f3231b9c384d08d9f8",
+    "crates/marmot-app/src/runtime/device_linking/setup.rs": "1840c5663c3041ff91c248f3a1e54aa1aea700cc5cced1b4d176b48243b9977a",
+    "crates/marmot-c/src/device_linking.rs": "4a641729ec515a0357d7c68164d36db393ba57e8ba959f3a8abbe430a322a690",
+    "crates/marmot-c/src/device_linking/tests.rs": "b646cc58c74b4de8e8759a43acd8e577b7602c2b77216e9f1293de2835607593",
+    "crates/marmot-uniffi/src/commands/device_linking.rs": "32c652174a1e707483ca4a8049ec58c1c4e4d9fc0fb68cff1869ab224017b9cc",
+    "crates/cgka-engine/src/account_chat_sharing.rs": "92edb7f70529e571304466332d48123642762a22ec92cf2df5843f62de729777",
+    "crates/marmot-app/src/native_device_linking/sibling_sharing_routing_acceptance.rs": "f53ed846845e6e5543e597292567215fa18f37ac665a5cb6cb9c9aeac8d0b20d",
+    "crates/cgka-engine/src/account_chat_sharing/transport.rs": "4f4f59b068ecc032f61bee7302a6198beeb9af2618fafaa0f70ee286bf4ad089",
+    "crates/marmot-app/src/relay_plane/mod.rs": "098d431a3db82bb787bc87f09186392c6b6eb2af05c483a52950b5a9a790203a",
+    "crates/marmot-app/src/runtime/mod.rs": "b3a53e4c35056d8ec8dc1162a5a901f6c6b457a83949e7f4714d7254f592272e",
+    "crates/marmot-app/src/relay_plane/tests.rs": "7b818f728b7d07a38d3ce76a263c3eb53f4a5a0cd61b451423d8c6ce3d8a91a3",
+    "crates/marmot-app/src/native_device_linking/sibling_sharing_projection_acceptance.rs": "4651758d10f51f1b75e89731b711e60aacd796a225feeedcea22212dccb27f78"
+  },
+  "behavioral_red": {
+    "source": "27558116c1e0e8f2f28b875ffe345cf0d18a97a3",
+    "passed": 0,
+    "failed": 1,
+    "duration": 41.478,
+    "log_sha256": "8ff2faa70f098518aa1e518c47bde77a88f2e806166fb6adba7f03b91ca5029d"
+  },
+  "app": [
+    {
+      "source": "57ad34f36338f5b4557f4c6096dcac3cdfa0e7e8",
+      "gate": "forced-green",
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--lib",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "-E",
+        "test(public_broad_sibling_projection_head_failure_does_not_starve_original)",
+        "--test-threads",
+        "1",
+        "--no-fail-fast"
+      ],
+      "exit": 0,
+      "duration": 89.90942597389221,
+      "source_tail_unchanged": true,
+      "log_sha256": "795b8b8529eb8549cb1ed967c339fdac3b6bee3718ca75f686779a8a031d643b"
+    },
+    {
+      "source": "57ad34f36338f5b4557f4c6096dcac3cdfa0e7e8",
+      "gate": "affected",
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--lib",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "-E",
+        "test(native_device_linking::tests::sibling_sharing) | test(client::device_linking::sibling_sharing::tests) | test(opaque_native_sessions_complete_real_sdk)",
+        "--test-threads",
+        "1",
+        "--no-fail-fast"
+      ],
+      "exit": 0,
+      "duration": 75.43233299255371,
+      "source_tail_unchanged": true,
+      "log_sha256": "e82501a0a41674e5ae6bc2507e2d9a737d8141fc53ac97de1fb841c9274ad1bb"
+    },
+    {
+      "source": "57ad34f36338f5b4557f4c6096dcac3cdfa0e7e8",
+      "gate": "strict-experimental",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "duration": 48.75430393218994,
+      "source_tail_unchanged": true,
+      "log_sha256": "62b468d54edb3c69c5cd10dc8f6ebfdde9634fb85f3dbb5cf5d7371e739aad30"
+    },
+    {
+      "source": "57ad34f36338f5b4557f4c6096dcac3cdfa0e7e8",
+      "gate": "default-check",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "marmot-app"
+      ],
+      "exit": 0,
+      "duration": 22.148486137390137,
+      "source_tail_unchanged": true,
+      "log_sha256": "5a9a05e5547ef4a88502ec2aa55c097f7cfc8f87bc03692ae9728ffb95a275bd"
+    },
+    {
+      "source": "57ad34f36338f5b4557f4c6096dcac3cdfa0e7e8",
+      "gate": "default-tests",
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--lib",
+        "-E",
+        "test(default_native_) | test(default_original_sibling_)",
+        "--test-threads",
+        "1",
+        "--no-fail-fast"
+      ],
+      "exit": 0,
+      "duration": 66.01891303062439,
+      "source_tail_unchanged": true,
+      "log_sha256": "7eb66ee83e953b99ab5461a36fc08aabb874217333cb537aa8afba6a83a26212"
+    },
+    {
+      "source": "57ad34f36338f5b4557f4c6096dcac3cdfa0e7e8",
+      "gate": "strict-default",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "duration": 44.92306709289551,
+      "source_tail_unchanged": true,
+      "log_sha256": "94327073671f764638e39c82e9788c21e8995cb9fdcd15e1e7dab1c46cd541fc"
+    },
+    {
+      "source": "57ad34f36338f5b4557f4c6096dcac3cdfa0e7e8",
+      "gate": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit": 0,
+      "duration": 3.5435211658477783,
+      "source_tail_unchanged": true,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "bindings": [
+    {
+      "source": "57ad34f36338f5b4557f4c6096dcac3cdfa0e7e8",
+      "gate": "native-bindings",
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--lib",
+        "--features",
+        "experimental-device-sync,marmot-app/test-policy-overrides",
+        "-E",
+        "test(device_linking::tests)",
+        "--test-threads",
+        "1",
+        "--no-fail-fast"
+      ],
+      "exit": 0,
+      "duration": 140.83884191513062,
+      "source_tail_unchanged": true,
+      "log_sha256": "434d396a95ac36098ac08b8e9a48b5e892070d7b078e4bc0c2c9098bc45c0ace"
+    },
+    {
+      "source": "57ad34f36338f5b4557f4c6096dcac3cdfa0e7e8",
+      "gate": "strict-experimental",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync,marmot-app/test-policy-overrides",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "duration": 37.168684005737305,
+      "source_tail_unchanged": true,
+      "log_sha256": "a75d160d70ebbe134af8460232a1e270c86f22bd80dee8caee207ea67d3b5cf3"
+    },
+    {
+      "source": "57ad34f36338f5b4557f4c6096dcac3cdfa0e7e8",
+      "gate": "default-bindings",
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--lib",
+        "-E",
+        "test(device_linking::tests)",
+        "--test-threads",
+        "1",
+        "--no-fail-fast"
+      ],
+      "exit": 0,
+      "duration": 77.392324924469,
+      "source_tail_unchanged": true,
+      "log_sha256": "f87f3b920a56e26198c4d2ec9102e92863227e8d38cf164c01edd0a0dbbe7f16"
+    },
+    {
+      "source": "57ad34f36338f5b4557f4c6096dcac3cdfa0e7e8",
+      "gate": "strict-default",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "duration": 38.290754079818726,
+      "source_tail_unchanged": true,
+      "log_sha256": "4de6913099ebbf19d7461f20a50f9faf26b58a9e309f4f8fdbbb49f186ba3e0d"
+    }
+  ],
+  "header": {
+    "source": "57ad34f36338f5b4557f4c6096dcac3cdfa0e7e8",
+    "command": [
+      "cbindgen",
+      "--config",
+      "crates/marmot-c/cbindgen.toml",
+      "--crate",
+      "marmot-c",
+      "--output",
+      "crates/marmot-c/include/marmot.h",
+      "crates/marmot-c"
+    ],
+    "exit": 0,
+    "duration": 58.70076537132263,
+    "header_sha256": "346de517dd70f13a388fb96260960e611caae06548399e1075d7650a0c417d56",
+    "log_sha256": "1c309bec66ce8b620c2244856fa775a5ade1bc3e59bb667634d6b63c48105397"
+  },
+  "convergence_pin": {
+    "source": "57ad34f36338f5b4557f4c6096dcac3cdfa0e7e8",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "cgka-engine",
+      "--test",
+      "convergence_policy_pin"
+    ],
+    "exit": 0,
+    "duration": 24.917668104171753,
+    "header_sha256": "52869de07228ffa0462ef5917fa895734e9544fa8621c2b146c07fc0408a62bc",
+    "log_sha256": "06506766e0a2b53b3bee28a7328052b19e1bdba19ce26d105531ec5c4308ea16"
+  },
+  "counts": {
+    "app_controlled": 1,
+    "app_affected": 12,
+    "app_default": 3,
+    "bindings_experimental": 9,
+    "bindings_default": 8
+  },
+  "strict_lint_exemptions": [],
+  "runtime_linker_warning": "Inherited Apple ld __eh_frame compact-unwind warning; runtime builds have no -D warnings flag. Strict checks above passed without exemptions.",
+  "prior_broad_suite": {
+    "source": "cf26ac3d0079ce45096e8a602acd49e5d82ec344",
+    "passed": 28,
+    "failed": 1,
+    "limitation": "Unordered test-only head failure-observation assertion; replaced by the genuine independent A-to-B distractor. Production inputs unchanged."
+  },
+  "static": {
+    "passed_recipes": [
+      "naming-gate",
+      "binding-build-gate",
+      "convergence-ledger-gate",
+      "campaign-toolchain-gate",
+      "app-stack-campaign-contract",
+      "audit-otlp-receiver-contract",
+      "agent-install-docs-gate",
+      "install-example-sha256-gate",
+      "cargo-audit-policy-gate",
+      "ci-path-classifier-gate",
+      "apple-privacy-gate",
+      "release-profile-gate"
+    ],
+    "aggregate_log_sha256": "50a2ec60d5dd1b21321f72335d5d53a556182a722250e3988c0bc134a251acef",
+    "initial_aggregate_exit": 1,
+    "initial_failure": "Release-profile subprocess lacked pinned rustc PATH; two report files absent. All earlier recipes passed.",
+    "corrected_release_profile_tests": 29,
+    "corrected_release_profile_exit": 0,
+    "corrected_release_profile_log_sha256": "0c7f1742f50653bbf8cb08d030908bb3f155ed8c47eaf1489af77cfedd74c206",
+    "binding_parity_exports": 382,
+    "uniffi_documented_callables": 395,
+    "c_documented_callables": 590,
+    "binding_docs_tests": 17,
+    "documentation_gates_exit": 0
+  },
+  "remaining": [
+    "Final combined integration full required suites",
+    "Generated foreign-language SDK qualification",
+    "Installed three-device acceptance"
+  ]
+}

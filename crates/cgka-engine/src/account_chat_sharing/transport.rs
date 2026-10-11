@@ -11,6 +11,17 @@ pub(super) struct FrozenSharingControl {
     wrapped: Option<TransportMessage>,
 }
 impl OwnedAccountSharingChannel {
+    /// Test observation of already-frozen MLS bytes, never permission evidence.
+    #[cfg(feature = "test-policy-overrides")]
+    pub fn outbound_content_id_for_test(
+        &self,
+        kind: AccountSharingControl,
+    ) -> Option<cgka_traits::MessageId> {
+        self.outbound
+            .iter()
+            .find(|entry| entry.kind == kind)
+            .map(|entry| crate::message_processor::content_dedup_id(&entry.ciphertext))
+    }
     fn control_wire(&self, kind: AccountSharingControl) -> Result<Vec<u8>, EngineError> {
         self.live()?;
         match (self.recipient_role, kind) {

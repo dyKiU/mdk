@@ -218,6 +218,12 @@ pub(super) mod actual {
     }
     #[derive(Clone, Copy, PartialEq)]
     pub(super) enum ApprovalScenario {
+        BroadEnrollment,
+        BroadPreAuthFailure,
+        BroadProjectionHeadFailure,
+        BroadWrongRecipientRouting,
+        BroadPairPlainSibling,
+        BroadSiblingCancel,
         Enroll,
         Cancel,
         ReviewThenEnroll,
@@ -230,8 +236,15 @@ pub(super) mod actual {
     }
     pub(super) async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
         use cgka_traits::StorageProvider;
-        let relay =
-            nostr_relay_builder::LocalRelay::new(nostr_relay_builder::RelayBuilder::default());
+        let relay_database = Arc::new(nostr_relay_builder::prelude::MemoryDatabase::with_opts(
+            nostr_relay_builder::prelude::MemoryDatabaseOptions {
+                events: true,
+                max_events: Some(75_000),
+            },
+        ));
+        let relay = nostr_relay_builder::LocalRelay::new(
+            nostr_relay_builder::RelayBuilder::default().database(relay_database.clone()),
+        );
         relay.run().await.unwrap();
         let url = relay.url().await.to_string();
         let keys = nostr::prelude::Keys::generate();
@@ -256,7 +269,16 @@ pub(super) mod actual {
             .await
             .unwrap();
         verify_public_pair(&initial_a, &b).await;
-        if scenario == ApprovalScenario::ShareChats {
+        let broad_enrollment = matches!(
+            scenario,
+            ApprovalScenario::BroadEnrollment
+                | ApprovalScenario::BroadPreAuthFailure
+                | ApprovalScenario::BroadProjectionHeadFailure
+                | ApprovalScenario::BroadWrongRecipientRouting
+                | ApprovalScenario::BroadPairPlainSibling
+                | ApprovalScenario::BroadSiblingCancel
+        );
+        if scenario == ApprovalScenario::ShareChats || broad_enrollment {
             let b_revision = b.snapshot().await.unwrap().revision;
             assert!(matches!(
                 b.continue_linking_and_share_chats(b_revision + 1).await,
@@ -305,7 +327,7 @@ pub(super) mod actual {
                     .unwrap()
             })
             .collect();
-        if scenario == ApprovalScenario::ShareChats {
+        if scenario == ApprovalScenario::ShareChats || broad_enrollment {
             use cgka_traits::approved_account_sharing_policy::approved_account_sharing_identity;
             assert!(policies.iter().all(|rows| rows.len() == 1));
             let ids: Vec<_> = policies
@@ -351,12 +373,21 @@ pub(super) mod actual {
             .await
             .unwrap();
         verify_public_pair(&a, &c).await;
-        c.continue_linking(c.snapshot().await.unwrap().revision)
-            .await
-            .unwrap();
-        a.continue_linking(a.snapshot().await.unwrap().revision)
-            .await
-            .unwrap();
+        if broad_enrollment {
+            c.continue_linking_and_share_chats(c.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+            a.continue_linking_and_share_chats(a.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+        } else {
+            c.continue_linking(c.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+            a.continue_linking(a.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+        }
         let approval = tokio::time::timeout(std::time::Duration::from_secs(20), async {
             loop {
                 let mut pending = managers[1]
@@ -427,11 +458,39 @@ pub(super) mod actual {
                 Err(DeviceLinkingError::StaleRevision)
             ));
         }
-        if scenario == ApprovalScenario::Cancel {
+        if scenario == ApprovalScenario::Cancel || scenario == ApprovalScenario::BroadSiblingCancel
+        {
             let shared = managers[1]
                 .pending_device_linking_approvals("test")
                 .await
                 .unwrap();
+            if scenario == ApprovalScenario::BroadSiblingCancel {
+                approval
+                    .approve_and_share_chats(observed.revision)
+                    .await
+                    .unwrap();
+                let original = approval.sharing_original_for_test().unwrap();
+                assert!(original.status_for_test().0);
+                approval.cancel().await.unwrap();
+                assert!(
+                    !original.status_for_test().0,
+                    "native cancellation must synchronously retire the actual original"
+                );
+                assert!(!original.status_for_test().1);
+                for app in &apps {
+                    assert!(
+                        app.account_storage("test")
+                            .unwrap()
+                            .approved_account_sharing_policy_storage()
+                            .unwrap()
+                            .approved_account_sharing_policies()
+                            .unwrap()
+                            .iter()
+                            .all(|policy| policy.approved_protected_epoch == 1),
+                        "cancelled B/C original must create no third-device policy"
+                    );
+                }
+            }
             approval.cancel().await.unwrap();
             let cancelled = approval.snapshot().await.unwrap();
             assert_eq!(cancelled.phase, DeviceLinkingApprovalPhase::Cancelled);
@@ -471,7 +530,56 @@ pub(super) mod actual {
             approval.approve(observed.revision + 1).await,
             Err(DeviceLinkingError::StaleRevision)
         ));
-        approval.approve(observed.revision).await.unwrap();
+        let mut pre_auth_probe = None;
+        if matches!(
+            scenario,
+            ApprovalScenario::BroadEnrollment
+                | ApprovalScenario::BroadPreAuthFailure
+                | ApprovalScenario::BroadProjectionHeadFailure
+        ) {
+            assert!(matches!(
+                approval
+                    .approve_and_share_chats(observed.revision + 1)
+                    .await,
+                Err(DeviceLinkingError::StaleRevision)
+            ));
+            approval
+                .approve_and_share_chats(observed.revision)
+                .await
+                .unwrap();
+            if scenario == ApprovalScenario::BroadPreAuthFailure {
+                pre_auth_probe = Some(
+                    managers[1]
+                        .arm_sibling_pre_auth_failure_for_test(
+                            "test",
+                            approval.sharing_original_for_test().unwrap(),
+                        )
+                        .await
+                        .unwrap(),
+                );
+            }
+            let approved = approval.snapshot().await.unwrap();
+            assert_eq!(
+                approved.phase,
+                DeviceLinkingApprovalPhase::ApprovedAwaitingPacket
+            );
+            assert!(
+                approval.approve(approved.revision).await.is_err(),
+                "ordinary retry cannot change the original broad choice"
+            );
+        } else {
+            approval.approve(observed.revision).await.unwrap();
+            if scenario == ApprovalScenario::BroadPairPlainSibling {
+                let approved = approval.snapshot().await.unwrap();
+                assert!(
+                    approval
+                        .approve_and_share_chats(approved.revision)
+                        .await
+                        .is_err(),
+                    "a taken ordinary B approval cannot be upgraded"
+                );
+            }
+        }
         let packet = tokio::time::timeout(std::time::Duration::from_secs(20), async {
             loop {
                 let revision = a.snapshot().await.unwrap().revision;
@@ -496,12 +604,84 @@ pub(super) mod actual {
             .receive_enrollment_packet(approval.snapshot().await.unwrap().revision, packet)
             .await
             .unwrap();
+        let projection_head_probe = (scenario == ApprovalScenario::BroadProjectionHeadFailure)
+            .then(|| c.arm_sibling_projection_head_probe_for_test().unwrap());
+        if let Some(head) = &projection_head_probe {
+            managers[1]
+                .arm_sibling_pre_auth_failure_for_test(
+                    "test",
+                    approval.sharing_original_for_test().unwrap(),
+                )
+                .await
+                .unwrap()
+                .hold_request_until_projection_head_for_test(head)
+                .unwrap();
+        }
         // Both actual original actors are armed before A moves its proposal
         // lease into Add; transporting/acknowledging bytes is never admission.
         a.finalize_linking(a.snapshot().await.unwrap().revision)
             .await
             .unwrap();
         wait_actual_roster(&apps, 3).await;
+        let projection_distractor = if projection_head_probe.is_some() {
+            Some(
+                super::sibling_sharing_projection_acceptance::begin_actual_approver_distractor(
+                    &apps, &managers,
+                )
+                .await,
+            )
+        } else {
+            None
+        };
+        if broad_enrollment {
+            super::sibling_sharing_acceptance::assert_bilateral_completion(
+                &apps,
+                &a,
+                &c,
+                &approval,
+                matches!(
+                    scenario,
+                    ApprovalScenario::BroadEnrollment
+                        | ApprovalScenario::BroadPreAuthFailure
+                        | ApprovalScenario::BroadProjectionHeadFailure
+                ),
+                pre_auth_probe.as_deref(),
+                (relay_database.as_ref(), runtimes[2].relay_plane_for_test()),
+            )
+            .await;
+        }
+        if let Some(action) = projection_distractor {
+            action.cancel();
+        }
+        if let Some(probe) = projection_head_probe {
+            let counts = probe.snapshot_for_test();
+            assert!(
+                counts[0] > 0,
+                "actual A control must fail before Core authentication"
+            );
+            assert!(
+                counts[1] > 0,
+                "same retained original must retry Core after actual B channel admission"
+            );
+        }
+        if let Some(probe) = pre_auth_probe {
+            assert_eq!(
+                probe.failures(),
+                1,
+                "genuine MLS intake must encounter the one-shot failure"
+            );
+            assert!(
+                probe.buffered() >= 1,
+                "the original retains the unprocessed opaque control"
+            );
+            assert!(
+                probe.authenticated_retries() >= 1,
+                "retry must pass genuine Core authentication for the same channel"
+            );
+        }
+        if scenario == ApprovalScenario::BroadWrongRecipientRouting {
+            super::sibling_sharing_routing_acceptance::assert_wrong_recipient_request_is_not_pending(&apps, &managers, &c).await;
+        }
         // Membership alone cannot silently broaden the original A/B choice
         // to C. Its separate ordinary pairing created no sharing approval.
         for (index, app) in apps.iter().enumerate() {
@@ -512,10 +692,12 @@ pub(super) mod actual {
                 .unwrap()
                 .approved_account_sharing_policies()
                 .unwrap();
-            assert_eq!(
-                policies.len(),
-                usize::from(scenario == ApprovalScenario::ShareChats && index < 2)
-            );
+            if !broad_enrollment {
+                assert_eq!(
+                    policies.len(),
+                    usize::from(scenario == ApprovalScenario::ShareChats && index < 2)
+                );
+            }
         }
         let initial_shared_chat = if matches!(
             scenario,
@@ -1566,5 +1748,26 @@ pub(super) mod actual {
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
+#[path = "sibling_sharing_acceptance.rs"]
+mod sibling_sharing_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "sibling_sharing_routing_acceptance.rs"]
+mod sibling_sharing_routing_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 #[path = "automatic_records_acceptance.rs"]
 mod automatic_records_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "sibling_sharing_projection_acceptance.rs"]
+mod sibling_sharing_projection_acceptance;

@@ -47,6 +47,10 @@ pub struct ReceivedAccountSharingControl {
     pub nonce: [u8; 32],
     pub control: AccountSharingControl,
     pub signer: Vec<u8>,
+    /// Authenticated routing observations, never local sharing approval.
+    pub source: Vec<u8>,
+    pub recipient: Vec<u8>,
+    pub approval_id: [u8; 32],
 }
 fn refused() -> EngineError {
     EngineError::Other("original account sharing policy unavailable".into())
@@ -312,6 +316,9 @@ impl<S: StorageProvider> Engine<S> {
                 nonce: frame.nonce,
                 control,
                 signer: frame.signer,
+                source: frame.source,
+                recipient: frame.recipient,
+                approval_id: frame.approval_id,
             })
         })
     }

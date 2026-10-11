@@ -85,6 +85,8 @@ impl AppClient {
         &mut self,
         event: &GroupEvent,
     ) -> Result<(), AccountSharingError> {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.observe_sibling_event_diagnostic_for_test(event);
         let GroupEvent::MessageReceived {
             group_id,
             source_leaf: Some(source),
@@ -101,12 +103,32 @@ impl AppClient {
             return Ok(());
         }
         let wire = app.content.as_bytes();
-        let received = self
-            .runtime
-            .session()
-            .authenticate_received_account_sharing_control(group_id, source, wire)
-            .map_err(|_| AccountSharingError::NotReady)?;
-        if self.observe_automatic_sharing_control(&received, wire)? {
+        let received = self.authenticate_sharing_control_intake(group_id, source, wire);
+        let received = match received {
+            Ok(received) => received,
+            Err(error) => {
+                if self.retain_pending_sibling_control(group_id, source, wire) {
+                    return Ok(());
+                }
+                return Err(error);
+            }
+        };
+        let result = self.dispatch_authenticated_account_sharing_control(&received, wire);
+        if result.is_err() && self.retain_pending_sibling_control(group_id, source, wire) {
+            return Ok(());
+        }
+        result
+    }
+    /// Retry only an actual Core-authenticated observation; this creates no grant.
+    pub(crate) fn dispatch_authenticated_account_sharing_control(
+        &mut self,
+        received: &cgka_engine::account_chat_sharing::ReceivedAccountSharingControl,
+        wire: &[u8],
+    ) -> Result<(), AccountSharingError> {
+        if self.observe_sibling_sharing_control(received, wire)? {
+            return Ok(());
+        }
+        if self.observe_automatic_sharing_control(received, wire)? {
             return Ok(());
         }
         match received.control {

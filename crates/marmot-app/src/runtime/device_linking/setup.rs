@@ -6,6 +6,14 @@ use crate::device_linking::{LinkError, OwnerError};
 use cgka_traits::{GroupId, device_linking_key_package::PurposeAttemptScope};
 
 pub(crate) enum SetupCommand {
+    CaptureSharingChoice {
+        scope: PurposeAttemptScope,
+        respond: Reply<
+            std::sync::Arc<
+                crate::client::device_linking::sibling_sharing::OriginalEnrollmentSharingChoice,
+            >,
+        >,
+    },
     ApprovalBindings {
         respond: Reply<Vec<([u8; 32], std::time::Instant)>>,
     },
@@ -95,6 +103,15 @@ pub(super) async fn handle(
     publication_control: &crate::runtime::private_commit::PublicationControl,
 ) {
     match command {
+        SetupCommand::CaptureSharingChoice { scope, respond } => {
+            let result = client.capture_owned_native_sharing_choice(&scope);
+            if let Err(result) = respond.send(result) {
+                if let Ok(original) = result {
+                    original.cancel();
+                }
+                cancel_abandoned_setup(client, &scope).await;
+            }
+        }
         SetupCommand::ApprovalBindings { respond } => {
             let _ = respond.send(client.native_authenticated_received_bindings());
         }
@@ -204,6 +221,24 @@ pub(super) async fn handle(
 }
 
 impl AccountManager {
+    pub(crate) async fn native_capture_sharing_choice(
+        &self,
+        account: &str,
+        scope: &PurposeAttemptScope,
+    ) -> Result<
+        std::sync::Arc<
+            crate::client::device_linking::sibling_sharing::OriginalEnrollmentSharingChoice,
+        >,
+        ClientLinkingError,
+    > {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::CaptureSharingChoice {
+                scope: scope.clone(),
+                respond,
+            })
+        })
+        .await
+    }
     pub(crate) async fn native_received_proposals(
         &self,
         account: &str,
@@ -220,6 +255,22 @@ impl AccountManager {
     ) -> Result<(), ClientLinkingError> {
         self.verifier_command(account, |respond| {
             VerifierCommand::EndorseReceivedEnrollmentProposal {
+                binding: *binding,
+                respond,
+            }
+        })
+        .await
+    }
+    pub(crate) async fn native_approve_received_proposal_and_share_chats(
+        &self,
+        account: &str,
+        binding: &[u8; 32],
+    ) -> Result<
+        std::sync::Arc<crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval>,
+        ClientLinkingError,
+    > {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::EndorseReceivedEnrollmentProposalAndShareChats {
                 binding: *binding,
                 respond,
             }

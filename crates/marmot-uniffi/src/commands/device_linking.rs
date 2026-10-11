@@ -186,6 +186,17 @@ impl DeviceLinkingApproval {
     pub async fn approve(&self, displayed_revision: u64) -> Result<(), MarmotKitError> {
         Ok(self.inner.approve(displayed_revision).await?)
     }
+    /// Approve this original enrollment and sharing existing and future chats
+    /// with the joining device. Ordinary approval cannot be upgraded later.
+    pub async fn approve_and_share_chats(
+        &self,
+        displayed_revision: u64,
+    ) -> Result<(), MarmotKitError> {
+        Ok(self
+            .inner
+            .approve_and_share_chats(displayed_revision)
+            .await?)
+    }
     /// Validate the complete packet through the same original approval action.
     pub async fn receive_enrollment_packet(
         &self,

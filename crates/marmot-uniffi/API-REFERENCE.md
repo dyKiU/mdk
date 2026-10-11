@@ -4445,7 +4445,7 @@ pub fn close(&self)
 
 Close this observation stream and wake waiting reads. This is an independent negative observation control, not session cancellation; use the original session's cancel when ending verification.
 
-[Source](src/commands/device_linking.rs#L212)
+[Source](src/commands/device_linking.rs#L223)
 
 ### `DeviceLinkingSubscription::next`
 
@@ -4455,7 +4455,7 @@ pub async fn next(&self) -> Result<DeviceLinkingSnapshotFfi, MarmotKitError>
 
 Await the initial/coalesced observation with one active receiver. Explicit `close()` wakes pending reads with typed Closed; cancelled waits do not consume a future update. Session cancellation remains a separate operation.
 
-[Source](src/commands/device_linking.rs#L208)
+[Source](src/commands/device_linking.rs#L219)
 
 ### `Marmot::approve_device_linking_session`
 
@@ -4510,7 +4510,7 @@ pub async fn cancel(&self) -> Result<(), MarmotKitError>
 
 **Current.** Revoke this exact original existing-device action before waiting for worker cleanup. Prefer awaited cancellation when its account/UI scope ends; release all retained handles afterward.
 
-[Source](src/commands/device_linking.rs#L201)
+[Source](src/commands/device_linking.rs#L212)
 
 ### `DeviceLinkingApproval::receive_enrollment_packet`
 
@@ -4520,7 +4520,7 @@ pub async fn receive_enrollment_packet( &self, displayed_revision: u64, packet: 
 
 **Current.** Submit the approver’s bounded complete all-leaf packet under this original existing-device action and displayed revision. Rust authenticates the packet and stages the protected transition; successful receipt alone is not settlement.
 
-[Source](src/commands/device_linking.rs#L190)
+[Source](src/commands/device_linking.rs#L201)
 
 ### `Marmot::begin_selected_chat_copy`
 
@@ -4834,7 +4834,7 @@ Read a bounded committed logical archive separately from live conversation rows.
 [Source](src/commands/synchronized_history.rs#L8)
 
 <details>
-<summary>New exports — complete and organize before merging</summary>
+<summary>Existing-device enrollment and chat sharing approval</summary>
 
 ### `AccountSharingApproval::approve`
 
@@ -4905,5 +4905,20 @@ pub async fn pending_account_chat_sharing( &self, account_ref: String, ) -> Resu
 Return aliases of authenticated requests addressed to this account’s current local device. Polling never grants permission. Retain the original object while presenting its review and invoke approve only after the user accepts its broad scope; preserve account selection and displayed revisions across asynchronous work.
 
 [Source](src/commands/account_chat_sharing.rs#L36)
+
+</details>
+
+<details>
+<summary>Existing-device enrollment and chat sharing approval</summary>
+
+### `DeviceLinkingApproval::approve_and_share_chats`
+
+```rust
+pub async fn approve_and_share_chats( &self, displayed_revision: u64, ) -> Result<(), MarmotKitError>
+```
+
+Approve this exact original existing-device enrollment while authorizing existing and future chat sharing with the joining device. Use the revision actually displayed by this handle; ordinary approval cannot be upgraded retrospectively. Retain the same handle through packet admission and settlement. Cancellation immediately retires pending original work, and `Settled` is reported only after the durable bilateral handoff completes. This does not confer ordinary MLS membership or recreate an approval after restart.
+
+[Source](src/commands/device_linking.rs#L191)
 
 </details>

@@ -1614,6 +1614,15 @@ impl MarmotAppRuntime {
             .cached_identity_projections_for_account_ids(account_id_hexes)
     }
 
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn relay_plane_for_test(&self) -> &MarmotRelayPlane {
+        self.shared.relay_plane()
+    }
+
     pub fn accounts(&self) -> AccountManager {
         self.accounts.clone()
     }

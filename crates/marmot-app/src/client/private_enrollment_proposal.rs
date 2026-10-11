@@ -7,8 +7,10 @@ use cgka_engine::private_enrollment_request::AuthenticatedEnrollmentRequest;
 use cgka_traits::group::ProtocolProfile;
 use cgka_traits::{GroupId, KeyPackage, MemberId};
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
 mod publication;
+mod sibling_sharing;
 
 const MAX_PART_BYTES: usize = 16 * 1024;
 struct ValidatedProposalParts {
@@ -22,6 +24,36 @@ pub(super) struct OwnedReceivedEndorsement {
     group: GroupId,
     owned: cgka_engine::private_enrollment_endorsement::OwnedEnrollmentEndorsement,
     cancelled: bool,
+    sharing: Option<Arc<OriginalSiblingSharingApproval>>,
+}
+
+/// Negative control for the actual original B choice, never a portable grant.
+/// Native aliases can revoke blocked work without waiting for the worker RPC.
+pub(crate) struct OriginalSiblingSharingApproval {
+    pub(super) state: Arc<crate::account_chat_sharing::enabled::State>,
+    cancellation: cgka_engine::private_enrollment_endorsement::EnrollmentEndorsementCancellation,
+}
+impl OriginalSiblingSharingApproval {
+    pub(crate) fn cancel(&self) {
+        self.state.cancel();
+        self.cancellation.cancel();
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn status_for_test(&self) -> (bool, bool) {
+        (self.state.live(), self.complete())
+    }
+    fn complete(&self) -> bool {
+        self.state
+            .progress
+            .lock()
+            .expect("sharing progress")
+            .complete
+    }
+}
+impl Drop for OriginalSiblingSharingApproval {
+    fn drop(&mut self) {
+        self.cancel();
+    }
 }
 
 fn rejected() -> ClientLinkingError {
@@ -134,6 +166,13 @@ impl AppClient {
                         .map_err(ClientLinkingError::Engine)?
                         .is_some()
                 {
+                    if action
+                        .sharing
+                        .as_ref()
+                        .is_some_and(|original| !original.complete())
+                    {
+                        return Ok(Phase::AwaitingSettlement);
+                    }
                     return Ok(Phase::Settled);
                 }
                 return Ok(Phase::AwaitingSettlement);
@@ -181,6 +220,23 @@ impl AppClient {
         &mut self,
         binding: &[u8; 32],
     ) -> Result<(), ClientLinkingError> {
+        self.endorse_received_enrollment_proposal_choice(binding, false)
+            .map(|_| ())
+    }
+
+    pub(crate) fn endorse_received_enrollment_proposal_and_share_chats(
+        &mut self,
+        binding: &[u8; 32],
+    ) -> Result<Arc<OriginalSiblingSharingApproval>, ClientLinkingError> {
+        self.endorse_received_enrollment_proposal_choice(binding, true)?
+            .ok_or_else(rejected)
+    }
+
+    fn endorse_received_enrollment_proposal_choice(
+        &mut self,
+        binding: &[u8; 32],
+        share_chats: bool,
+    ) -> Result<Option<Arc<OriginalSiblingSharingApproval>>, ClientLinkingError> {
         let now = std::time::Instant::now();
         self.linking_owner
             .cancelled_endorsements
@@ -194,7 +250,15 @@ impl AppClient {
             return Err(rejected());
         }
         if let Some(attempt) = self.linking_owner.received_endorsement.as_ref() {
-            if attempt.binding != *binding || attempt.cancelled || now >= attempt.deadline {
+            if attempt.binding != *binding
+                || attempt.cancelled
+                || now >= attempt.deadline
+                || attempt.sharing.is_some() != share_chats
+                || attempt
+                    .sharing
+                    .as_ref()
+                    .is_some_and(|original| !original.state.live())
+            {
                 return Err(rejected());
             }
             self.runtime
@@ -202,7 +266,7 @@ impl AppClient {
                 .validate_owned_private_enrollment_endorsement(&attempt.owned)
                 .map_err(ClientLinkingError::Engine)?;
             attempt.owned.wire().map_err(ClientLinkingError::Engine)?;
-            return Ok(());
+            return Ok(attempt.sharing.clone());
         }
         self.retain_received_enrollment_proposals()?;
         let mut selected = None;
@@ -219,29 +283,48 @@ impl AppClient {
         let request = selected.ok_or_else(rejected)?;
         let parts = self.authenticate_received_enrollment_proposal(request)?;
         let deadline = request.observed_deadline();
-        let owned = self
-            .runtime
-            .session()
-            .endorse_private_enrollment_request(
+        let owned = if share_chats {
+            self.runtime
+                .session()
+                .endorse_private_enrollment_request_and_share_chats(
+                    request,
+                    &parts.artifact,
+                    &parts.package,
+                    &parts.context_digest,
+                )
+        } else {
+            self.runtime.session().endorse_private_enrollment_request(
                 request,
                 &parts.artifact,
                 &parts.package,
                 &parts.context_digest,
             )
-            .map_err(ClientLinkingError::Engine)?;
+        }
+        .map_err(ClientLinkingError::Engine)?;
         self.runtime
             .session()
             .validate_owned_private_enrollment_endorsement(&owned)
             .map_err(ClientLinkingError::Engine)?;
         owned.wire().map_err(ClientLinkingError::Engine)?;
+        let sharing = share_chats.then(|| {
+            Arc::new(OriginalSiblingSharingApproval {
+                state: crate::account_chat_sharing::enabled::State::new_until(
+                    &self.account_sharing_owner.lifetime,
+                    parts.context_digest,
+                    deadline,
+                ),
+                cancellation: owned.cancellation_handle(),
+            })
+        });
         self.linking_owner.received_endorsement = Some(OwnedReceivedEndorsement {
             binding: *binding,
             deadline,
             group: GroupId::new(request.group_id().to_vec()),
             owned,
             cancelled: false,
+            sharing: sharing.clone(),
         });
-        Ok(())
+        Ok(sharing)
     }
 
     pub(crate) fn arm_existing_member_enrollment(
@@ -355,6 +438,9 @@ impl AppClient {
         };
         // Negative fence first, even if the Core cleanup subsequently fails.
         attempt.cancelled = true;
+        if let Some(original) = &attempt.sharing {
+            original.cancel();
+        }
         if let Some(settlement) = self.linking_owner.existing_settlement_attempt.as_ref() {
             settlement.guard.cancellation_handle().cancel();
         }
