@@ -377,6 +377,16 @@ pub enum MarmotKitError {
     SynchronizedHistoryUnavailable,
     #[error("Invalid synchronized history logical record")]
     SynchronizedHistoryInvalidRecord,
+    #[error("Account chat sharing: Unsupported")]
+    AccountSharingUnsupported,
+    #[error("Account chat sharing: NotReady")]
+    AccountSharingNotReady,
+    #[error("Account chat sharing: Closed")]
+    AccountSharingClosed,
+    #[error("Account chat sharing: StaleRevision")]
+    AccountSharingStaleRevision,
+    #[error("Account chat sharing: RuntimeUnavailable")]
+    AccountSharingRuntimeUnavailable,
 }
 
 impl From<AppError> for MarmotKitError {
@@ -1290,6 +1300,20 @@ impl From<marmot_app::SynchronizedHistoryReadError> for MarmotKitError {
             }
             marmot_app::SynchronizedHistoryReadError::InvalidRecord => {
                 Self::SynchronizedHistoryInvalidRecord
+            }
+        }
+    }
+}
+
+impl From<marmot_app::AccountSharingError> for MarmotKitError {
+    fn from(v: marmot_app::AccountSharingError) -> Self {
+        match v {
+            marmot_app::AccountSharingError::Unsupported => Self::AccountSharingUnsupported,
+            marmot_app::AccountSharingError::NotReady => Self::AccountSharingNotReady,
+            marmot_app::AccountSharingError::Closed => Self::AccountSharingClosed,
+            marmot_app::AccountSharingError::StaleRevision => Self::AccountSharingStaleRevision,
+            marmot_app::AccountSharingError::RuntimeUnavailable => {
+                Self::AccountSharingRuntimeUnavailable
             }
         }
     }

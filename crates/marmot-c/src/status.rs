@@ -161,6 +161,11 @@ pub enum MarmotStatus {
     SynchronizedHistoryInvalidQuery = 118,
     SynchronizedHistoryUnavailable = 119,
     SynchronizedHistoryInvalidRecord = 120,
+    AccountSharingUnsupported = 121,
+    AccountSharingNotReady = 122,
+    AccountSharingClosed = 123,
+    AccountSharingStaleRevision = 124,
+    AccountSharingRuntimeUnavailable = 125,
 }
 
 thread_local! {
@@ -275,6 +280,13 @@ pub(crate) fn status_from_error(err: &MarmotKitError) -> MarmotStatus {
         }
         MarmotKitError::SynchronizedHistoryInvalidRecord => {
             MarmotStatus::SynchronizedHistoryInvalidRecord
+        }
+        MarmotKitError::AccountSharingUnsupported => MarmotStatus::AccountSharingUnsupported,
+        MarmotKitError::AccountSharingNotReady => MarmotStatus::AccountSharingNotReady,
+        MarmotKitError::AccountSharingClosed => MarmotStatus::AccountSharingClosed,
+        MarmotKitError::AccountSharingStaleRevision => MarmotStatus::AccountSharingStaleRevision,
+        MarmotKitError::AccountSharingRuntimeUnavailable => {
+            MarmotStatus::AccountSharingRuntimeUnavailable
         }
         MarmotKitError::HistoryTransferUnsupported => MarmotStatus::HistoryTransferUnsupported,
         MarmotKitError::HistoryTransferNotReady => MarmotStatus::HistoryTransferNotReady,
@@ -555,10 +567,15 @@ mod tests {
             },
             MarmotKitError::AccountWorkerBusy,
             MarmotKitError::AccountWorkerResponseTimedOut,
+            MarmotKitError::AccountSharingUnsupported,
+            MarmotKitError::AccountSharingNotReady,
+            MarmotKitError::AccountSharingClosed,
+            MarmotKitError::AccountSharingStaleRevision,
+            MarmotKitError::AccountSharingRuntimeUnavailable,
         ];
         assert_eq!(
             variants.len(),
-            86,
+            91,
             "list every MarmotKitError variant exactly once (update this count with the enum)"
         );
         assert_eq!(status_from_error(&MarmotKitError::UserBlocked) as i32, 78);

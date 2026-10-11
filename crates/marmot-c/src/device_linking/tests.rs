@@ -82,6 +82,10 @@ fn device_binding_null_outputs_precede_handle_or_input_access() {
             marmot_device_linking_subscription_next(std::ptr::null(), 0, std::ptr::null_mut()),
             MarmotStatus::NullPointer
         );
+        assert_eq!(
+            marmot_device_linking_session_continue_linking_and_share_chats(std::ptr::null(), 0),
+            MarmotStatus::NullPointer
+        );
         // The bounded copier refuses before dereferencing caller memory.
         assert!(matches!(
             packet(std::ptr::dangling(), usize::MAX, 512 * 1024),
@@ -276,15 +280,36 @@ fn actual_c_sessions_continue_original_enrollment_and_close_is_reentrant() {
         );
         let cc = snapshot(c);
         assert_eq!(
-            marmot_device_linking_session_continue_linking(c, (*cc).revision),
+            marmot_device_linking_session_continue_linking_and_share_chats(c, (*cc).revision + 1),
+            MarmotStatus::DeviceLinkingStaleRevision
+        );
+        assert_eq!(
+            marmot_device_linking_session_continue_linking_and_share_chats(c, (*cc).revision),
             MarmotStatus::Ok
         );
         marmot_device_linking_snapshot_free(cc);
         assert_eq!(
-            marmot_device_linking_session_continue_linking(a, (*ac).revision),
+            marmot_device_linking_session_continue_linking_and_share_chats(a, (*ac).revision),
             MarmotStatus::Ok
         );
         marmot_device_linking_snapshot_free(ac);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let ac = snapshot(a);
+            let cc = snapshot(c);
+            let complete = (*ac).phase == MarmotDeviceLinkingPhase::EnrollmentComplete
+                && (*cc).phase == MarmotDeviceLinkingPhase::EnrollmentComplete;
+            marmot_device_linking_snapshot_free(ac);
+            marmot_device_linking_snapshot_free(cc);
+            if complete {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "enrollment timed out");
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        crate::account_chat_sharing::tests::verify_account_sharing_binding_originals(
+            &clients, &accounts,
+        );
         let mut sub = std::ptr::null_mut();
         assert_eq!(
             marmot_device_linking_session_subscribe(a, &mut sub),

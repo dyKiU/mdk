@@ -4375,7 +4375,7 @@ pub async fn continue_linking(&self, displayed_revision: u64) -> Result<(), Marm
 
 After genuine verification, feature builds accept revision-bound singleton continuation through the original actor-owned actions. Before verification or for gated existing-group enrollment, return typed NotReady. Default builds are Unsupported; no synchronized completion can be inferred from this operation.
 
-[Source](src/commands/device_linking.rs#L156)
+[Source](src/commands/device_linking.rs#L168)
 
 ### `DeviceLinkingSession::outgoing_packets`
 
@@ -4445,7 +4445,7 @@ pub fn close(&self)
 
 Close this observation stream and wake waiting reads. This is an independent negative observation control, not session cancellation; use the original session's cancel when ending verification.
 
-[Source](src/commands/device_linking.rs#L200)
+[Source](src/commands/device_linking.rs#L212)
 
 ### `DeviceLinkingSubscription::next`
 
@@ -4455,7 +4455,7 @@ pub async fn next(&self) -> Result<DeviceLinkingSnapshotFfi, MarmotKitError>
 
 Await the initial/coalesced observation with one active receiver. Explicit `close()` wakes pending reads with typed Closed; cancelled waits do not consume a future update. Session cancellation remains a separate operation.
 
-[Source](src/commands/device_linking.rs#L196)
+[Source](src/commands/device_linking.rs#L208)
 
 ### `Marmot::approve_device_linking_session`
 
@@ -4500,7 +4500,7 @@ pub async fn approve(&self, displayed_revision: u64) -> Result<(), MarmotKitErro
 
 **Current.** Explicit human approval of the revision actually displayed for this original existing-device action. Stale, expired or cancelled actions are refused; historical roster records cannot authorize this operation.
 
-[Source](src/commands/device_linking.rs#L174)
+[Source](src/commands/device_linking.rs#L186)
 
 ### `DeviceLinkingApproval::cancel`
 
@@ -4510,7 +4510,7 @@ pub async fn cancel(&self) -> Result<(), MarmotKitError>
 
 **Current.** Revoke this exact original existing-device action before waiting for worker cleanup. Prefer awaited cancellation when its account/UI scope ends; release all retained handles afterward.
 
-[Source](src/commands/device_linking.rs#L189)
+[Source](src/commands/device_linking.rs#L201)
 
 ### `DeviceLinkingApproval::receive_enrollment_packet`
 
@@ -4520,7 +4520,7 @@ pub async fn receive_enrollment_packet( &self, displayed_revision: u64, packet: 
 
 **Current.** Submit the approver’s bounded complete all-leaf packet under this original existing-device action and displayed revision. Rust authenticates the packet and stages the protected transition; successful receipt alone is not settlement.
 
-[Source](src/commands/device_linking.rs#L178)
+[Source](src/commands/device_linking.rs#L190)
 
 ### `Marmot::begin_selected_chat_copy`
 
@@ -4661,7 +4661,7 @@ pub async fn review_metadata( &self, displayed_revision: u64, ) -> Result<crate:
 
 Read authenticated display metadata from this original pending approval at the displayed revision. The returned source and joining device signature keys and predecessor device count are observations, never enrollment permission. Stale revisions and non-pending phases are refused; read a fresh snapshot before explicitly approving.
 
-[Source](src/commands/device_linking.rs#L163)
+[Source](src/commands/device_linking.rs#L175)
 
 ### `DeviceLinkingApproval::snapshot`
 
@@ -4671,7 +4671,7 @@ pub async fn snapshot(&self) -> Result<DeviceLinkingApprovalSnapshotFfi, MarmotK
 
 **Current.** Read the sanitized revision and approval phase. Settled is a historical observation of actual protected completion; it grants no further positive action. Display the returned revision before requesting approval.
 
-[Source](src/commands/device_linking.rs#L170)
+[Source](src/commands/device_linking.rs#L182)
 
 ### `DeviceLinkingSession::enrollment_packet`
 
@@ -4832,3 +4832,78 @@ pub fn synchronized_history_page( &self, account_ref: String, group_id_hex: Stri
 Read a bounded committed logical archive separately from live conversation rows. This synchronous App-policy query uses a nonempty opaque MLS group ID, a 1–200 page limit and optional exact 32-byte message-ID hex cursor. Offload storage work from the UI thread. Results retain source-attested provenance and ordered media verdicts, confer no transfer/download permission, and may require a final empty page. Default builds refuse before parsing or account work; normal experimental account/storage initialization can occur. See [reader contract](SYNCHRONIZED-HISTORY.md).
 
 [Source](src/commands/synchronized_history.rs#L8)
+
+<details>
+<summary>New exports — complete and organize before merging</summary>
+
+### `AccountSharingApproval::approve`
+
+```rust
+pub async fn approve(&self, displayed_revision: u64) -> Result<(), MarmotKitError>
+```
+
+Approve the held authenticated original at the revision displayed to the user. The scope covers existing and future chats, history, and messaging between this pair; never infer approval from snapshot fields. Stale, cancelled, retired or unavailable originals return typed errors.
+
+[Source](src/commands/account_chat_sharing.rs#L53)
+
+### `AccountSharingApproval::cancel`
+
+```rust
+pub fn cancel(&self)
+```
+
+Cancel an unfinished original and its live negotiation. Shared aliases retain the same owner; dropping the final alias also cancels unfinished work. This is not a revocation operation for a completed durable sharing policy.
+
+[Source](src/commands/account_chat_sharing.rs#L132)
+
+### `AccountSharingApproval::snapshot`
+
+```rust
+pub fn snapshot(&self) -> Result<AccountSharingSnapshotFfi, MarmotKitError>
+```
+
+Observe the authenticated original’s device identities, protected epoch, revision and completion. These fields are display observations and cannot recreate consent. Completion reports the negotiated durable policy, not installed chat-delivery acceptance.
+
+[Source](src/commands/account_chat_sharing.rs#L128)
+
+### `DeviceLinkingSession::continue_linking_and_share_chats`
+
+```rust
+pub async fn continue_linking_and_share_chats( &self, displayed_revision: u64, ) -> Result<(), MarmotKitError>
+```
+
+Explicitly continue the original verified pairing while approving account-wide chat sharing with its authenticated peer. Display the existing/future-chat, history and messaging scope before invoking the named action. Ordinary continue_linking retains its narrower scope; use the displayed revision and handle stale/cancelled originals.
+
+[Source](src/commands/device_linking.rs#L158)
+
+### `Marmot::account_chat_sharing_targets`
+
+```rust
+pub async fn account_chat_sharing_targets( &self, account_ref: String, ) -> Result<AccountSharingTargetsFfi, MarmotKitError>
+```
+
+List current actual Completed same-account protected peers in leaf-index order. Pending, removed and local devices are excluded. This read grants no permission; begin_account_chat_sharing freshly revalidates the selected device. Default builds return typed Unsupported before account validation or effects.
+
+[Source](src/commands/account_chat_sharing.rs#L11)
+
+### `Marmot::begin_account_chat_sharing`
+
+```rust
+pub async fn begin_account_chat_sharing( &self, account_ref: String, recipient_device: Vec<u8>, ) -> Result<Arc<AccountSharingApproval>, MarmotKitError>
+```
+
+Create an opaque original review for an existing paired device selected from account_chat_sharing_targets. The recipient public-device key must identify a current authenticated protected peer. This avoids re-enrolling an existing pair and does not approve it automatically; both original reviews require explicit revision-bound approval.
+
+[Source](src/commands/account_chat_sharing.rs#L23)
+
+### `Marmot::pending_account_chat_sharing`
+
+```rust
+pub async fn pending_account_chat_sharing( &self, account_ref: String, ) -> Result<Vec<Arc<AccountSharingApproval>>, MarmotKitError>
+```
+
+Return aliases of authenticated requests addressed to this account’s current local device. Polling never grants permission. Retain the original object while presenting its review and invoke approve only after the user accepts its broad scope; preserve account selection and displayed revisions across asynchronous work.
+
+[Source](src/commands/account_chat_sharing.rs#L36)
+
+</details>

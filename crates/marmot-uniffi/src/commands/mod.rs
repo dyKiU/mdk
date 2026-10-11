@@ -65,3 +65,6 @@ mod history_transfer;
 pub use history_transfer::{HistoryConsent, HistoryTransfer};
 
 mod synchronized_history;
+
+mod account_chat_sharing;
+pub use account_chat_sharing::AccountSharingApproval;

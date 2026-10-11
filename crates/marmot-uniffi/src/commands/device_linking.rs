@@ -152,6 +152,18 @@ impl DeviceLinkingSession {
     pub async fn cancel(&self) -> Result<(), MarmotKitError> {
         Ok(self.inner.cancel().await?)
     }
+    /// Explicitly approve sharing existing/future chats, history and messaging
+    /// while continuing this exact original pairing action. Retained metadata
+    /// and ordinary linking completion cannot grant this policy.
+    pub async fn continue_linking_and_share_chats(
+        &self,
+        displayed_revision: u64,
+    ) -> Result<(), MarmotKitError> {
+        Ok(self
+            .inner
+            .continue_linking_and_share_chats(displayed_revision)
+            .await?)
+    }
     /// Continue original singleton actions after genuine verification of the displayed revision.
     pub async fn continue_linking(&self, displayed_revision: u64) -> Result<(), MarmotKitError> {
         Ok(self.inner.continue_linking(displayed_revision).await?)

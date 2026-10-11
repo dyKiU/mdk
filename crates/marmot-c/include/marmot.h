@@ -203,6 +203,11 @@ enum MarmotStatus
   MARMOT_STATUS_SYNCHRONIZED_HISTORY_INVALID_QUERY = 118,
   MARMOT_STATUS_SYNCHRONIZED_HISTORY_UNAVAILABLE = 119,
   MARMOT_STATUS_SYNCHRONIZED_HISTORY_INVALID_RECORD = 120,
+  MARMOT_STATUS_ACCOUNT_SHARING_UNSUPPORTED = 121,
+  MARMOT_STATUS_ACCOUNT_SHARING_NOT_READY = 122,
+  MARMOT_STATUS_ACCOUNT_SHARING_CLOSED = 123,
+  MARMOT_STATUS_ACCOUNT_SHARING_STALE_REVISION = 124,
+  MARMOT_STATUS_ACCOUNT_SHARING_RUNTIME_UNAVAILABLE = 125,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -1185,6 +1190,8 @@ typedef enum MarmotHostPerformanceOutcome {
  */
 typedef struct MarmotAccountAttentionSubscription MarmotAccountAttentionSubscription;
 
+typedef struct MarmotAccountSharingApproval MarmotAccountSharingApproval;
+
 /**
  * Single live stream. Free before its creating `MarmotClient`; never free
  * concurrently with an in-flight call on this handle.
@@ -1438,6 +1445,46 @@ typedef struct MarmotClientOptions {
    */
   uint32_t attachment_acquisition_mode;
 } MarmotClientOptions;
+
+typedef struct MarmotAccountSharingTarget {
+  uint32_t leaf_index;
+  uint8_t *device;
+  uintptr_t device_len;
+} MarmotAccountSharingTarget;
+
+typedef struct MarmotAccountSharingTargets {
+  char *protected_group_id_hex;
+  uint64_t protected_epoch;
+  struct MarmotAccountSharingTarget *targets;
+  uintptr_t targets_len;
+} MarmotAccountSharingTargets;
+
+/**
+ * Entry owned by its returned list. Clone the handle before freeing that list.
+ */
+typedef struct MarmotAccountSharingApprovalEntry {
+  struct MarmotAccountSharingApproval *handle;
+} MarmotAccountSharingApprovalEntry;
+
+/**
+ * Deep-owned aliases; releasing the last alias cancels unfinished originals.
+ */
+typedef struct MarmotAccountSharingApprovalList {
+  struct MarmotAccountSharingApprovalEntry *items;
+  uintptr_t items_len;
+} MarmotAccountSharingApprovalList;
+
+typedef struct MarmotAccountSharingSnapshot {
+  char *protected_group_id_hex;
+  uint64_t protected_epoch;
+  uint8_t *source_device;
+  uintptr_t source_device_len;
+  uint8_t *recipient_device;
+  uintptr_t recipient_device_len;
+  uint64_t revision;
+  bool approved;
+  bool complete;
+} MarmotAccountSharingSnapshot;
 
 /**
  * NULL reference means unavailable, with byte_count zero. A non-NULL reference
@@ -5890,6 +5937,80 @@ void marmot_string_free(char *s);
 void marmot_bytes_free(uint8_t *data, uintptr_t len);
 
 /**
+ * Observe current actual same-account Completed protected peers; never approve.
+ * # Safety
+ * Live client, borrowed account and writable out; no concurrent free.
+ */
+MarmotStatus marmot_account_chat_sharing_targets(const struct MarmotClient *client,
+                                                 const char *account,
+                                                 struct MarmotAccountSharingTargets **out);
+
+/**
+ * Begin one broad original review with an exact32-byte current protected peer.
+ * # Safety
+ * Live client, borrowed account/recipient and writable out; no concurrent free.
+ */
+MarmotStatus marmot_begin_account_chat_sharing(const struct MarmotClient *client,
+                                               const char *account,
+                                               const uint8_t *recipient,
+                                               uintptr_t recipient_len,
+                                               struct MarmotAccountSharingApproval **out);
+
+/**
+ * Observe addressed authenticated originals; polling never approves.
+ * # Safety
+ * Live client, borrowed account and writable out; no concurrent free.
+ */
+MarmotStatus marmot_pending_account_chat_sharing(const struct MarmotClient *client,
+                                                 const char *account,
+                                                 struct MarmotAccountSharingApprovalList **out);
+
+/**
+ * Retain the same original owner; this does not create new consent.
+ * # Safety
+ * Live handle and writable out; no concurrent free.
+ */
+MarmotStatus marmot_account_sharing_approval_clone(const struct MarmotAccountSharingApproval *handle,
+                                                   struct MarmotAccountSharingApproval **out);
+
+/**
+ * Release one alias. NULL is a no-op; the last alias cancels unfinished work.
+ * # Safety
+ * NULL or a library-owned handle freed exactly once; no concurrent calls.
+ */
+void marmot_account_sharing_approval_free(struct MarmotAccountSharingApproval *handle);
+
+/**
+ * Release the deep-owned list and its aliases. Clone retained entries first.
+ * # Safety
+ * NULL or a library-owned list freed exactly once; no concurrent calls.
+ */
+void marmot_account_sharing_approval_list_free(struct MarmotAccountSharingApprovalList *list);
+
+/**
+ * Observe this held original's authenticated review and completion.
+ * # Safety
+ * Live handle and writable out; no concurrent free.
+ */
+MarmotStatus marmot_account_sharing_approval_snapshot(const struct MarmotAccountSharingApproval *handle,
+                                                      struct MarmotAccountSharingSnapshot **out);
+
+/**
+ * Explicitly approve this exact original's displayed revision, callback-safe.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_account_sharing_approval_approve(const struct MarmotAccountSharingApproval *handle,
+                                                     uint64_t displayed_revision);
+
+/**
+ * Cancel the unfinished original; completed broad policy requires revocation.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_account_sharing_approval_cancel(const struct MarmotAccountSharingApproval *handle);
+
+/**
  * Free a list returned by this library. NULL is a no-op.
  *
  * # Safety
@@ -9595,6 +9716,15 @@ MarmotStatus marmot_device_linking_session_continue_linking(const struct MarmotD
                                                             uint64_t displayed_revision);
 
 /**
+ * Approve existing/future chats, history and messaging through this original pairing action.
+ * Retained metadata and ordinary enrollment completion do not imply this approval.
+ * # Safety
+ * handle must remain live for the call.
+ */
+MarmotStatus marmot_device_linking_session_continue_linking_and_share_chats(const struct MarmotDeviceLinkingSession *handle,
+                                                                            uint64_t displayed_revision);
+
+/**
  * Acknowledge bounded UTF-8 transport metadata only; never approves enrollment.
  * # Safety
  * handle must be live and id valid for id_len; bytes are borrowed for this call.
@@ -12634,6 +12764,26 @@ void marmot_selected_chat_bytes_free(struct MarmotSelectedChatBytes *ptr);
  * this library.
  */
 void marmot_archived_history_page_free(struct MarmotArchivedHistoryPage *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_account_sharing_snapshot_free(struct MarmotAccountSharingSnapshot *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_account_sharing_targets_free(struct MarmotAccountSharingTargets *ptr);
 
 /**
  * Free a value of this type returned by this library. NULL

@@ -16,6 +16,7 @@ per feature.
 - [Lifecycle and teardown](#lifecycle-and-teardown)
 - [NIP-46 accounts](#nip-46-accounts)
 - [Device verification](#device-verification)
+- [Account-wide sharing approval](#account-wide-sharing-approval)
 - [Selected-chat copies](#selected-chat-copies)
 - [Original history transfers](#original-history-transfers)
 - [Committed synchronized history](#committed-synchronized-history)
@@ -533,3 +534,15 @@ releases it with `marmot_archived_history_page_free`; embedded records are owned
 by that page. Required outputs are cleared before input reads or effects. NULL
 cursor starts the first page. Query statuses append117–120; page/cursor records
 never authorize a history transfer or media acquisition.
+
+## Account-wide sharing approval
+
+See the [shared original-approval contract](../marmot-uniffi/ACCOUNT-CHAT-SHARING.md).
+The C factories preflight and clear required outputs before effects; default
+builds refuse before reading foreign inputs. Each approval is an opaque alias
+of the same UniFFI original. Clone entries before freeing a pending-approval list,
+then free retained aliases separately. Snapshot and target roots have matching
+deep frees; their device buffers and target entries belong to those roots.
+Approval calls are blocking and callback-safe. Status values 121–125 append
+account-sharing errors without renumbering existing values. No observation DTO
+or list entry grants approval.

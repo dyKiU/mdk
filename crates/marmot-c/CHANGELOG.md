@@ -9,6 +9,14 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- Account-wide original sharing review handles, authenticated current protected
+  peer inventory and owned review snapshots. Pending entries are list-owned;
+  clone before releasing the list. Status values 121–125 append typed account-
+  sharing errors. The named pairing continuation approves existing/future-chat,
+  history and messaging scope; ordinary continuation retains its narrower scope.
+  Use matching generated headers and libraries. Policy completion does not
+  establish automatic installed chat delivery.
+
 - Read-only linked history-recipient choices with an owned list of actual leaf
   indices and public device byte buffers. The list deep-free owns every embedded
   entry; listing creates no consent or channel. Required outputs are preflighted

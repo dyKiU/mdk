@@ -107,12 +107,30 @@ async fn native_binding_continues_original_actions_and_close_wakes_waiter() {
         DeviceLinkingPhaseFfi::VerificationCompleteEnrollmentPending
     );
     assert!(kits[0].device_linking_capabilities().enrollment_supported);
-    c.continue_linking(c.snapshot().await.unwrap().revision)
+    assert!(matches!(
+        c.continue_linking_and_share_chats(c.snapshot().await.unwrap().revision + 1)
+            .await,
+        Err(MarmotKitError::DeviceLinkingStaleRevision)
+    ));
+    c.continue_linking_and_share_chats(c.snapshot().await.unwrap().revision)
         .await
         .unwrap();
-    a.continue_linking(a.snapshot().await.unwrap().revision)
+    a.continue_linking_and_share_chats(a.snapshot().await.unwrap().revision)
         .await
         .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            if a.snapshot().await.unwrap().phase == DeviceLinkingPhaseFfi::EnrollmentComplete
+                && c.snapshot().await.unwrap().phase == DeviceLinkingPhaseFfi::EnrollmentComplete
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap();
+    crate::commands::account_chat_sharing::verify_account_sharing_binding_originals(&kits).await;
     let sub = a.subscribe();
     sub.next().await.unwrap();
     let pending = {
@@ -130,6 +148,10 @@ async fn native_binding_continues_original_actions_and_close_wakes_waiter() {
     ));
     a.cancel().await.unwrap();
     c.cancel().await.unwrap();
+    assert!(matches!(
+        c.continue_linking_and_share_chats(0).await,
+        Err(MarmotKitError::DeviceLinkingClosed)
+    ));
     for kit in kits {
         kit.runtime.shutdown_and_close().await.unwrap();
     }

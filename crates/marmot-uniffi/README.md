@@ -14,6 +14,7 @@ Read the documentation at the tag matching your binaries; `master` can describe 
 - Runtime setup: [runtime options and client label](#runtime-options-and-client-label),
   [exclusive root ownership](#exclusive-root-ownership), [service endpoint defaults](#service-endpoint-defaults)
 - [Device verification](#device-verification): opaque sessions, SAS comparison and cancellation
+- [Account-wide sharing approval](ACCOUNT-CHAT-SHARING.md): original paired-device reviews and durable policy scope
 - [Selected-chat copies](SELECTED-CHAT-COPY.md): explicit original selection, sibling consent and bounded private offers
 - [Original history transfers](HISTORY-TRANSFER.md): authenticated review, explicit original consent and committed-import observations
 - [Committed synchronized history](SYNCHRONIZED-HISTORY.md): bounded local source-attested records, retention and keyset paging

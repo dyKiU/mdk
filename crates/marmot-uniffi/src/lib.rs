@@ -508,7 +508,11 @@ pub use conversions::{
     SelectedChatCopySnapshotFfi,
 };
 
+pub use commands::AccountSharingApproval;
 pub use commands::{HistoryConsent, HistoryTransfer};
+pub use conversions::{
+    AccountSharingSnapshotFfi, AccountSharingTargetFfi, AccountSharingTargetsFfi,
+};
 pub use conversions::{HistoryTransferRecipientFfi, HistoryTransferSnapshotFfi};
 
 pub use conversions::{ArchivedHistoryPageFfi, ArchivedHistoryRecordFfi};

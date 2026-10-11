@@ -838,3 +838,6 @@ pub use history_transfer::*;
 
 mod synchronized_history;
 pub use synchronized_history::*;
+
+mod account_chat_sharing;
+pub use account_chat_sharing::*;

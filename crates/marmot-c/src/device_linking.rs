@@ -283,6 +283,26 @@ pub unsafe extern "C" fn marmot_device_linking_session_continue_linking(
     })
 }
 
+/// Approve existing/future chats, history and messaging through this original pairing action.
+/// Retained metadata and ordinary enrollment completion do not imply this approval.
+/// # Safety
+/// handle must remain live for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_session_continue_linking_and_share_chats(
+    handle: *const MarmotDeviceLinkingSession,
+    displayed_revision: u64,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        let session = arg!(unsafe { session(handle) });
+        unit(block_on_handle(
+            &session.runtime,
+            session
+                .inner
+                .continue_linking_and_share_chats(displayed_revision),
+        ))
+    })
+}
+
 /// Acknowledge bounded UTF-8 transport metadata only; never approves enrollment.
 /// # Safety
 /// handle must be live and id valid for id_len; bytes are borrowed for this call.
