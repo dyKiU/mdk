@@ -8,6 +8,14 @@ async fn automatic_records_include_preapproval_and_future_messages_without_per_c
         .await;
 }
 
+#[tokio::test]
+async fn automatic_records_wake_the_original_open_conversation_after_committed_future_import() {
+    actual::run_native_public_three_device_enrollment(
+        actual::ApprovalScenario::AutomaticRecordsWindow,
+    )
+    .await;
+}
+
 pub(super) async fn seed(
     manager: &crate::runtime::AccountManager,
     group: &crate::GroupId,
@@ -27,8 +35,26 @@ pub(super) async fn verify(
     group: &crate::GroupId,
     scope: &cgka_traits::mirrored_chat_catalog::MirroredChatScope,
     initial: &[String],
+    window_runtime: Option<&MarmotAppRuntime>,
 ) {
     wait_for_records(apps, group, scope, initial).await;
+    // Open the real approved C observation owner before the ordinary A send.
+    // Catalog discovery and earlier record receipt are already complete; no
+    // explicit page/reopen or fabricated wake may expose this later batch.
+    let mut window = if let Some(runtime) = window_runtime {
+        let window = runtime
+            .open_account_conversation_window("test", group, 128)
+            .await
+            .unwrap();
+        assert!(matches!(
+            window.snapshot.header,
+            crate::AccountConversationHeader::PairedSource(_)
+        ));
+        assert!(initial.iter().all(|id| has_record(&window.snapshot, id)));
+        Some(window)
+    } else {
+        None
+    };
     let future = manager
         .send_message("test", group, b"automatic future message".to_vec())
         .await
@@ -36,8 +62,34 @@ pub(super) async fn verify(
     assert_eq!(future.published, 1);
     assert_eq!(future.message_ids.len(), 1);
     let mut expected = initial.to_vec();
-    expected.extend(future.message_ids);
+    expected.extend(future.message_ids.clone());
     wait_for_records(apps, group, scope, &expected).await;
+    if let Some(window) = &mut window {
+        let generation = window.snapshot.generation.clone();
+        let sequence = window.snapshot.sequence;
+        // The SQL and authenticated receipt witness above is deliberately
+        // independent of the window. A stale subscription must fail even
+        // though automatic transport/import succeeded.
+        let visible = tokio::time::timeout(std::time::Duration::from_secs(8), async {
+            loop {
+                let update = window
+                    .recv()
+                    .await
+                    .unwrap()
+                    .expect("the original approved conversation must remain live");
+                if future.message_ids.iter().all(|id| has_record(&update, id)) {
+                    break update;
+                }
+            }
+        })
+        .await
+        .expect("committed future record import must wake the original open conversation without paging or reopening");
+        assert!(visible.generation == generation);
+        assert!(visible.sequence > sequence);
+        assert!(expected.iter().all(|id| has_record(&visible, id)));
+        window.window_handle().cancel();
+        assert!(window.recv().await.unwrap().is_none());
+    }
     assert!(
         apps[2].load_state("test").unwrap().groups.is_empty(),
         "source-attested rows must not fabricate ordinary membership"
@@ -52,6 +104,13 @@ pub(super) async fn verify(
             .is_err(),
         "unapproved B cannot read C-owned records"
     );
+}
+
+fn has_record(snapshot: &crate::AccountConversationWindowSnapshot, event_id: &str) -> bool {
+    snapshot.rows.iter().any(|row| {
+        matches!(row, crate::AccountConversationRow::PairedSource(record)
+            if hex::encode(record.event_id) == event_id)
+    })
 }
 
 async fn wait_for_records(

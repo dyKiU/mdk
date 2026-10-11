@@ -227,6 +227,7 @@ pub(super) mod actual {
         AutomaticRenewal,
         AutomaticCatalogRetry,
         AutomaticRecords,
+        AutomaticRecordsWindow,
         AutomaticForwarding,
         AutomaticForwardingReply,
         AutomaticForwardingOffline,
@@ -527,6 +528,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticRenewal
                 | ApprovalScenario::AutomaticCatalogRetry
                 | ApprovalScenario::AutomaticRecords
+                | ApprovalScenario::AutomaticRecordsWindow
                 | ApprovalScenario::AutomaticForwarding
                 | ApprovalScenario::AutomaticForwardingReply
                 | ApprovalScenario::AutomaticForwardingOffline
@@ -548,6 +550,7 @@ pub(super) mod actual {
         let initial_record_ids = if matches!(
             scenario,
             ApprovalScenario::AutomaticRecords
+                | ApprovalScenario::AutomaticRecordsWindow
                 | ApprovalScenario::AutomaticForwarding
                 | ApprovalScenario::AutomaticForwardingReply
                 | ApprovalScenario::AutomaticForwardingOffline
@@ -583,6 +586,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticRenewal
                 | ApprovalScenario::AutomaticCatalogRetry
                 | ApprovalScenario::AutomaticRecords
+                | ApprovalScenario::AutomaticRecordsWindow
                 | ApprovalScenario::AutomaticForwarding
                 | ApprovalScenario::AutomaticForwardingReply
                 | ApprovalScenario::AutomaticForwardingOffline
@@ -928,6 +932,7 @@ pub(super) mod actual {
             if matches!(
                 scenario,
                 ApprovalScenario::AutomaticRecords
+                    | ApprovalScenario::AutomaticRecordsWindow
                     | ApprovalScenario::AutomaticForwarding
                     | ApprovalScenario::AutomaticForwardingReply
                     | ApprovalScenario::AutomaticForwardingOffline
@@ -938,6 +943,7 @@ pub(super) mod actual {
                     initial_shared_chat.as_ref().unwrap(),
                     &mirror,
                     &initial_record_ids,
+                    (scenario == ApprovalScenario::AutomaticRecordsWindow).then_some(&runtimes[2]),
                 )
                 .await;
             }
@@ -1034,6 +1040,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticRenewal
                 | ApprovalScenario::AutomaticCatalogRetry
                 | ApprovalScenario::AutomaticRecords
+                | ApprovalScenario::AutomaticRecordsWindow
                 | ApprovalScenario::AutomaticForwarding
                 | ApprovalScenario::AutomaticForwardingReply
                 | ApprovalScenario::AutomaticForwardingOffline
@@ -1046,6 +1053,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticRenewal
                 | ApprovalScenario::AutomaticCatalogRetry
                 | ApprovalScenario::AutomaticRecords
+                | ApprovalScenario::AutomaticRecordsWindow
                 | ApprovalScenario::AutomaticForwarding
                 | ApprovalScenario::AutomaticForwardingReply
                 | ApprovalScenario::AutomaticForwardingOffline

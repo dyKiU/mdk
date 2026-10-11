@@ -232,6 +232,9 @@ impl AppClient {
                 &|| self.automatic_record_original(entry),
             )
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        // Wake observation owners only after the original-checked SQL commit.
+        // Their worker reads still revalidate current policy at publication.
+        self.notify_mirrored_presentation_changed();
         // A rollback retains complete authenticated bytes. A committed import
         // alone creates the typed receipt, independently of relay publication.
         entry.records.assembly = None;
