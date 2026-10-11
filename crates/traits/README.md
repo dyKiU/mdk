@@ -125,3 +125,8 @@ The experimental `revoked_device_group_anchor` contract retains bounded authenti
 single-Remove successor metadata and permanent denial references. Its optional
 storage accessor defaults unavailable. Retained rows and serialized drafts never
 restore original consent, a deadline, or settlement admission.
+
+`approved_account_sharing_policy` stores immutable explicit pairing approvals,
+permanent revocations and a bounded local-source sequence journal. Stable policy
+identity is symmetric and independent of ephemeral encryption channels. Retained
+facts only schedule fresh authenticated Core checks; they never restore a grant.

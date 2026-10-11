@@ -1431,6 +1431,15 @@ impl StorageProvider for SqliteAccountStorage {
         Some(self)
     }
 
+    #[cfg(feature = "experimental-device-sync")]
+    fn approved_account_sharing_policy_storage(
+        &self,
+    ) -> Option<
+        &dyn cgka_traits::approved_account_sharing_policy::ApprovedAccountSharingPolicyStorage,
+    > {
+        Some(self)
+    }
+
     fn group_replay_state_fingerprint(
         &self,
         group_id: &cgka_traits::types::GroupId,

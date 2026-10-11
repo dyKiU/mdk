@@ -95,3 +95,8 @@ metadata under a distinct local Revoked generation. No Debug, stored deadline,
 consent or live guard is supplied. Bounded all-facts observation is solely for
 negative historical privacy checks; positive Core admission still requires the
 original authenticated transition and actual indexed successor tree.
+
+`approved_account_sharing_policy.rs` defines symmetric approval identities and
+optional private persistence. No Debug, stored keys/deadline or permission restore.
+Original before/tail callbacks guard writes; the retained protected epoch is only
+negative revocation metadata. Source sequences retry only the current exact digest.

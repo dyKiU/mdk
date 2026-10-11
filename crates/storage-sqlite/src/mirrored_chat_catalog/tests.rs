@@ -3,7 +3,7 @@ use super::*;
 use cgka_traits::{
     MemberId,
     group::ProtocolProfile,
-    storage::{AccountDeviceSignerStorage, GroupStorage},
+    storage::{AccountDeviceSignerBinding, AccountDeviceSignerStorage, GroupStorage},
 };
 use std::cell::Cell;
 

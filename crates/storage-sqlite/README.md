@@ -569,3 +569,10 @@ The separate `PrivateInviteOrigin::Revoked` generation supports a fresh settleme
 and subsequent Add while preserving old denial fences. No persisted consent, lease,
 or original guard is supplied. Core integration and full workspace qualification
 are required separately from the synthetic storage contracts.
+
+Private revision18 persists immutable explicit account/device pairing approvals
+and monotonic local-source chat observations. Approval revocation is permanent;
+renewed recipient-only channels do not reset the policy's source sequences.
+Original-owner callbacks run before work and before the same transaction commits.
+The protected epoch is retained for revocation checks, never to restore a live
+permission. These tables remain separate from ordinary MLS and Group state.

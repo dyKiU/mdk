@@ -189,3 +189,11 @@ denies them; bounded historical reads are negative privacy observation only.
 Core/Session/App integration, full workspace and native qualification remain
 separate from the synthetic storage proof in
 `docs/revoked-device-anchor-storage-verification.json`. Preserve core102/private1–15.
+
+Private revision18 (`approved_account_sharing_policy.rs`) retains at most128
+immutable approvals including revoked references, plus8192 latest group-digest
+observations. Counters, observations and original before/tail checks share SQL;
+exact current retries retain sequence, historical bodies after changes get fresh
+sequence. Never reconstruct positive original ownership or channel crypto from
+facts. Preserve core102/private1–17 and configured identity/signer fences. Closed
+storage is terminal; encrypted restart retains revocation and replay state.

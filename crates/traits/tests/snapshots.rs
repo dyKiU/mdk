@@ -1228,3 +1228,20 @@ fn snapshot_mirrored_chat_observations_are_not_membership() {
         serde_json::json!({"scope":scope,"entry":entry})
     );
 }
+
+#[test]
+fn approved_account_sharing_policy_fact() {
+    use cgka_traits::approved_account_sharing_policy::ApprovedAccountSharingPolicy;
+    insta::assert_json_snapshot!(ApprovedAccountSharingPolicy {
+        account: [1; 32],
+        local_device: [2; 32],
+        peer_device: [3; 32],
+        protected_group: GroupId::new(vec![5; 16]),
+        approval_id: [4; 32],
+        version: 1,
+        capabilities: 0x0f,
+        created_at: 100,
+        approved_protected_epoch: 2,
+        revoked: false,
+    });
+}

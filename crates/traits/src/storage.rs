@@ -1128,6 +1128,14 @@ pub trait StorageProvider:
         None
     }
 
+    /// Optional durable explicit approvals; facts never restore live grants.
+    fn approved_account_sharing_policy_storage(
+        &self,
+    ) -> Option<&dyn crate::approved_account_sharing_policy::ApprovedAccountSharingPolicyStorage>
+    {
+        None
+    }
+
     /// Run a storage operation inside one backend transaction when the backend
     /// supports it. Backends without transactional support use the closure
     /// directly; SQLite overrides this so multi-write OpenMLS transitions are

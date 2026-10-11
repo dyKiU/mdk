@@ -3,7 +3,7 @@ use crate::{SqliteAccountStorage, SqliteResultExt};
 use cgka_traits::{
     GroupId,
     mirrored_chat_catalog::*,
-    storage::{AccountDeviceSignerBinding, StorageError, StorageResult},
+    storage::{StorageError, StorageResult},
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::HashSet;
@@ -69,38 +69,11 @@ fn state_value(state: MirroredChatState) -> i64 {
 }
 
 fn check_owner(conn: &Connection, scope: &MirroredChatScope) -> StorageResult<()> {
-    let mut statement = conn
-        .prepare(
-            "SELECT local_account_id_hex FROM account_state WHERE local_account_id_hex IS NOT NULL",
-        )
-        .storage()?;
-    let accounts = statement
-        .query_map([], |r| r.get::<_, String>(0))
-        .storage()?;
-    let mut found = false;
-    for account in accounts {
-        if hex::decode(account.storage()?).map_err(|_| invalid())? != scope.account {
-            return Err(invalid());
-        }
-        found = true;
-    }
-    if !found {
-        return Err(invalid());
-    }
-    let bytes: Vec<u8> = conn
-        .query_row(
-            "SELECT record FROM cgka_account_device_signers WHERE marmot_identity=?1",
-            [scope.account.as_slice()],
-            |r| r.get(0),
-        )
-        .storage()?;
-    let signer: AccountDeviceSignerBinding =
-        serde_json::from_slice(&bytes).map_err(|_| invalid())?;
-    if signer.marmot_identity.as_slice() != scope.account
-        || signer.mls_signature_public_key != scope.local_device
-    {
-        return Err(invalid());
-    }
+    crate::approved_account_sharing_policy::check_configured_owner(
+        conn,
+        &scope.account,
+        &scope.local_device,
+    )?;
     let mismatched: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM mirrored_chat_scopes WHERE account!=?1 OR local_device!=?2)", params![scope.account.as_slice(),scope.local_device.as_slice()], |r|r.get(0)).storage()?;
     if mismatched {
         return Err(invalid());
