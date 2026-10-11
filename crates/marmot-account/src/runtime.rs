@@ -423,6 +423,7 @@ pub struct AccountDeviceRuntime<A, R = StaticTransportRouting, K = NoopKeyPackag
     maintenance_random: Arc<dyn MaintenanceRandom>,
     maintenance_timing: MaintenanceTiming,
     maintenance_paused: bool,
+    public_key_package_publication_disabled: bool,
     maintenance_activity: std::sync::Mutex<MaintenanceActivity>,
     maintenance_quiet_monotonic: HashMap<cgka_traits::MessageId, Duration>,
     /// Secondary maintenance writes must not discard committed session effects.
@@ -457,6 +458,7 @@ where
             maintenance_random: Arc::new(OsMaintenanceRandom),
             maintenance_timing: MaintenanceTiming::default(),
             maintenance_paused: false,
+            public_key_package_publication_disabled: false,
             maintenance_activity: std::sync::Mutex::new(MaintenanceActivity::default()),
             maintenance_quiet_monotonic: HashMap::new(),
             pending_leaf_reconciliations: HashMap::new(),
@@ -689,6 +691,9 @@ where
     /// When no usable current package or signed artifact exists, this falls back to
     /// [`Self::publish_fresh_key_package`].
     pub async fn republish_key_package(&mut self) -> AccountResult<KeyPackage> {
+        if self.public_key_package_publication_disabled {
+            return Err(AccountError::PublicKeyPackagePublicationDisabled);
+        }
         let Some(mut lifecycle) = self.session.key_package_lifecycle()? else {
             tracing::debug!(
                 target: TRACE_TARGET,
@@ -960,6 +965,9 @@ where
     }
 
     pub async fn publish_fresh_key_package(&mut self) -> AccountResult<KeyPackage> {
+        if self.public_key_package_publication_disabled {
+            return Err(AccountError::PublicKeyPackagePublicationDisabled);
+        }
         tracing::debug!(
             target: TRACE_TARGET,
             method = "publish_fresh_key_package",
@@ -1121,6 +1129,9 @@ where
     /// replacement owns the work until ACK; its revision prevents regenerating
     /// on every retry while the acknowledged current revision is still old.
     pub fn key_package_generation_upgrade_due(&self) -> AccountResult<bool> {
+        if self.public_key_package_publication_disabled {
+            return Ok(false);
+        }
         Ok(self
             .session
             .key_package_lifecycle()?
@@ -1136,6 +1147,9 @@ where
     }
 
     pub fn key_package_network_maintenance_due(&self) -> AccountResult<bool> {
+        if self.public_key_package_publication_disabled {
+            return Ok(false);
+        }
         let now = self.wall_clock.now();
         Ok(match self.session.key_package_lifecycle()? {
             None => true,
@@ -1161,6 +1175,9 @@ where
     }
 
     pub fn key_package_has_pending_fanout(&self) -> AccountResult<bool> {
+        if self.public_key_package_publication_disabled {
+            return Ok(false);
+        }
         Ok(self
             .session
             .key_package_lifecycle()?
@@ -1366,6 +1383,14 @@ where
         policy: PeriodicMaintenancePolicy,
     ) -> AccountResult<()> {
         Ok(self.session.put_periodic_maintenance_policy(policy)?)
+    }
+
+    /// A companion may use its own private MLS state without advertising a
+    /// competing public invitation receiver. This gate also fences retained
+    /// publication fanout; pausing periodic maintenance alone does not.
+    pub fn with_public_key_package_publication_disabled(mut self) -> Self {
+        self.public_key_package_publication_disabled = true;
+        self
     }
 
     pub fn pause_maintenance(&mut self) {

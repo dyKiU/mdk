@@ -68,6 +68,8 @@ pub enum AccountError {
     KeyPackage(#[from] KeyPackagePublishError),
     #[error("key package replacement is blocked by local clock skew")]
     ClockSkewBlocked,
+    #[error("public KeyPackage publication is disabled for this companion installation")]
+    PublicKeyPackagePublicationDisabled,
     #[error("key package rotation is already in progress")]
     KeyPackageRotationInProgress,
     #[error("transport delivery was addressed to a different account")]

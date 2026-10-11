@@ -1216,3 +1216,53 @@ fn onboarding_latest_evidence_and_recovery_journal_are_private() {
         }
     }
 }
+
+#[test]
+fn companion_publication_hold_survives_reopen_and_setup_cleanup() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = AccountHome::open(dir.path());
+    let companion = home.create_nostr_account().unwrap();
+    let primary = home.create_nostr_account().unwrap();
+    assert!(
+        !home
+            .public_key_package_publication_disabled(&companion.label)
+            .unwrap()
+    );
+    home.disable_public_key_package_publication(&companion.label)
+        .unwrap();
+    home.complete_account_setup(&companion.label).unwrap();
+    let reopened = AccountHome::open(dir.path());
+    assert!(
+        reopened
+            .public_key_package_publication_disabled(&companion.label)
+            .unwrap()
+    );
+    assert!(
+        !reopened
+            .public_key_package_publication_disabled(&primary.label)
+            .unwrap()
+    );
+    #[cfg(unix)]
+    assert_eq!(
+        std::fs::metadata(
+            home.account_dir(&companion.label)
+                .join("public-key-package-hold.json")
+        )
+        .unwrap()
+        .permissions()
+        .mode()
+            & 0o777,
+        0o600
+    );
+    std::fs::write(
+        home.account_dir(&companion.label)
+            .join("public-key-package-hold.json"),
+        b"invalid",
+    )
+    .unwrap();
+    assert!(
+        reopened
+            .public_key_package_publication_disabled(&companion.label)
+            .is_err()
+    );
+}
