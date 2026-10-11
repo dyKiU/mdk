@@ -221,6 +221,10 @@ not this crate.
 
 ### Compatibility
 
+Device-linking subscriptions expose `closeStream()` in Swift/Kotlin for closing the
+original stream. Kotlin's generated `close()` disposes the wrapper; it is a separate
+operation. Rust and C retain their existing stream-close names.
+
 Generated source, DTOs, enums, errors, headers and native code form one versioned contract.
 An additive Rust method, record field or enum case does not imply that an old generated binding
 can call or decode a new library: regenerate Swift/Kotlin bindings from the native library you ship

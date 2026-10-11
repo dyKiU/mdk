@@ -209,6 +209,8 @@ impl DeviceLinkingSubscription {
         Ok(self.inner.next().await?.into())
     }
     /// Close this stream without granting permission or cancelling another session.
+    /// Foreign hosts use closeStream, distinct from Kotlin object disposal's close.
+    #[uniffi::method(name = "close_stream")]
     pub fn close(&self) {
         self.inner.close();
     }

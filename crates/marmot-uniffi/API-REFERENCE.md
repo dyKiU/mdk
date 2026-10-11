@@ -4443,9 +4443,9 @@ Create a coalesced observation stream with an initial snapshot. Drive one receiv
 pub fn close(&self)
 ```
 
-Close this observation stream and wake waiting reads. This is an independent negative observation control, not session cancellation; use the original session's cancel when ending verification.
+Close this observation stream and wake waiting reads. Swift/Kotlin expose this action as `closeStream()`; Kotlin's generated `close()` disposes the wrapper. The verification session remains independent; use its original cancel action to end verification.
 
-[Source](src/commands/device_linking.rs#L212)
+[Source](src/commands/device_linking.rs#L214)
 
 ### `DeviceLinkingSubscription::next`
 

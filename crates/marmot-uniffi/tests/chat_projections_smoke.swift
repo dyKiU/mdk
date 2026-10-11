@@ -272,3 +272,8 @@ func compileAttachmentControls(_ marmot: Marmot, account: String, group: String,
     _ = try await stream.next()
     stream.cancel()
 }
+
+// The stream action must not collide with Kotlin's generated AutoCloseable disposal.
+func compileDeviceLinkingStreamClose(_ subscription: DeviceLinkingSubscription) {
+    subscription.closeStream()
+}
