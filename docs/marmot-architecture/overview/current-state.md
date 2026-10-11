@@ -1,7 +1,7 @@
 ---
 title: "Current State — Implementations & Spec"
 created: 2026-04-19
-updated: 2026-10-10
+updated: 2026-10-11
 tags: [marmot, overview, current-state, implementations]
 status: overview
 ---
@@ -208,10 +208,14 @@ setup/onboarding changes can retry it. Aggregate reconciliation still reports pa
 
 MDK now exposes opt-in durable onboarding for imported identities, with per-step
 validation, repair proposals, explicit approval, and Swift/Kotlin/C bindings.
-It requires single-device acknowledgment before KeyPackage publication and offers
-advisory detection of packages that may belong to another installation.
+It pauses for single-device acknowledgment before public KeyPackage publication.
+Possible or inconclusive other-installation discovery makes Continue complete
+companion setup with a durable public-publication hold, preserving existing
+invitation keys through restart and retained-fanout retries. Complete empty
+discovery retains normal first-installation publication unless a hold exists.
+Companion sign-in is not pairing, history transfer or repair of old public slots.
 Account onboarding gates normal worker commands until required checks and
-KeyPackage publication complete. Hosts can cancel an interactive attempt at any
+publication or companion setup complete. Hosts can cancel an interactive attempt at any
 step, including approved or ready checkpoints: the account stays signed out, the
 attempt is retired, and its exact evidence is retained in the latest cancellation
 checkpoint. A later cancellation replaces earlier evidence even if publication

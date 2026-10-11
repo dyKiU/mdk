@@ -5423,6 +5423,18 @@ impl MarmotAppRuntime {
         Ok(match state.phase {
             AccountSetupPhase::LocalStateCreated => AccountSetupReadiness::Initializing,
             AccountSetupPhase::LocalReady => AccountSetupReadiness::LocalReady,
+            AccountSetupPhase::CompanionReady => {
+                if self
+                    .accounts
+                    .app
+                    .account_home()
+                    .public_key_package_publication_disabled(&account.label)?
+                {
+                    AccountSetupReadiness::NetworkReady
+                } else {
+                    AccountSetupReadiness::RecoveryRequired
+                }
+            }
             AccountSetupPhase::BootstrapPublicationStarted
             | AccountSetupPhase::BootstrapPublicationConfirmed
             | AccountSetupPhase::KeyPackagePublicationStarted

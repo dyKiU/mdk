@@ -2630,7 +2630,7 @@ Approve with the epoch and revision from the same displayed snapshot.
 pub async fn acknowledge_onboarding_single_device_in_epoch( &self, account_ref: String, revision: u64, recovery_epoch: String, ) -> Result<OnboardingSnapshotFfi, MarmotKitError>
 ```
 
-Acknowledge with the epoch and revision from the displayed device notice.
+Acknowledge with the epoch and revision from the displayed device notice. Possible or inconclusive other-installation discovery durably holds public KeyPackage publication; companion sign-in does not pair devices.
 
 [Source](src/commands/onboarding.rs#L69)
 
@@ -2654,7 +2654,7 @@ Cancel the current interactive onboarding attempt at any step, including approve
 pub async fn acknowledge_onboarding_single_device( &self, account_ref: String, revision: u64, ) -> Result<OnboardingSnapshotFfi, MarmotKitError>
 ```
 
-Record Continue anyway for the displayed notice, then resume setup.
+Continue the displayed notice, then resume setup. Possible or inconclusive other-installation discovery durably holds public KeyPackage publication and skips that step; complete empty discovery retains ordinary publication unless a companion hold already exists. See the [onboarding contract](README.md#single-device-notice).
 
 [Source](src/commands/onboarding.rs#L98)
 

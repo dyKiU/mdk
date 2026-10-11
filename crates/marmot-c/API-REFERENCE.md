@@ -152,7 +152,7 @@ Approve using the epoch and revision from the same displayed snapshot.
 MarmotStatus marmot_acknowledge_onboarding_single_device_in_epoch(const struct MarmotClient *client, const char *account_ref, uint64_t revision, const char *recovery_epoch, struct MarmotOnboardingSnapshot **out);
 ```
 
-Acknowledge the displayed device notice in a recovered attempt.
+Acknowledge the displayed device notice in a recovered attempt. Possible or inconclusive discovery preserves existing public invitation keys through a durable companion publication hold.
 
 [Shared method and API guidance](../marmot-uniffi/API-REFERENCE.md#marmotacknowledge_onboarding_single_device_in_epoch) · [Header contract](include/marmot.h#L6183)
 
@@ -162,7 +162,7 @@ Acknowledge the displayed device notice in a recovered attempt.
 MarmotStatus marmot_acknowledge_onboarding_single_device(const struct MarmotClient *client, const char *account_ref, uint64_t revision, struct MarmotOnboardingSnapshot **out);
 ```
 
-Acknowledge the displayed one-device notice and resume setup.
+Acknowledge the displayed one-device notice and resume setup. Possible or inconclusive discovery holds public KeyPackage publication and completes companion setup without claiming pairing or chat history.
 
 [Shared method and API guidance](../marmot-uniffi/API-REFERENCE.md#marmotacknowledge_onboarding_single_device) · [Header contract](include/marmot.h#L6212)
 

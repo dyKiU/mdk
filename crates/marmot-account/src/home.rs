@@ -158,6 +158,9 @@ pub enum AccountSetupPhase {
     /// exact signed bytes are persisted there before the first network send.
     KeyPackagePublicationStarted,
     KeyPackagePublicationConfirmed,
+    /// Interactive companion sign-in is ready without public KeyPackage
+    /// publication. The separate account-scoped publication hold stays durable.
+    CompanionReady,
 }
 
 impl NostrAccountImport {

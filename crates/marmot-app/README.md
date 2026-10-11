@@ -115,6 +115,15 @@ version.
 
 ## Account bootstrap and KeyPackages
 
+Interactive imported-account sign-in pauses at `SingleDevice`. Continuing after
+possible or inconclusive other-installation discovery persists a companion
+publication hold, skips the public KeyPackage step and completes local setup.
+Complete empty discovery retains ordinary publication unless a hold already
+exists. Reopening applies the hold before activation; it blocks manual publication
+and retained maintenance fanout, without copying MLS state or pairing devices.
+Existing public slots and invitations already encrypted for another installation
+are not repaired by this policy. See the [native onboarding contract](../marmot-uniffi/README.md#single-device-notice).
+
 **New accounts.** Bootstrap publishes the required NIP-65 kind `10002` and inbox kind `10050` relay-list events, a
 kind `0` profile, and an initial last-resort Marmot kind `30443` KeyPackage from a default relay set. Account setup
 requires acknowledgements from its operational relays.

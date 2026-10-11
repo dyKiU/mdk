@@ -414,7 +414,15 @@ one installation and conversations will not automatically appear on both.
 Reinstallation or cleared local state can produce the same evidence; do not
 claim to have identified a physical device or a particular app.
 
-Offer **Cancel** and **Continue anyway**. For Cancel, invalidate the current UI
+Offer **Cancel** and **Continue**. Continuing after `OtherInstallationPossible` or
+incomplete/`Unknown` discovery signs this installation in as a companion without
+publishing a competing public KeyPackage. Explain that existing invitation keys
+stay unchanged and pairing is required to share chats. A complete `NoneFound`
+check retains ordinary first-installation publication unless this account already
+has a durable companion hold. The hold survives restart, cancellation, rechecking
+and setup cleanup; corrupt records fail account opening. It neither deletes older
+public slots nor transfers an invitation encrypted for a different installation.
+For Cancel, invalidate the current UI
 attempt first, then await `cancel_onboarding(account_ref)` before any new
 `begin_*_onboarding`. Cancellation is legal at every interactive step, including
 an approved but unconfirmed repair and a ready checkpoint that the host has not
@@ -436,13 +444,18 @@ restoration are not explicit sign-in. If the call returns
 retry the same cancel; dropping the waiter does not abort cleanup. Do not treat
 `ready` as an Open Chats command — the host still owns that transition.
 
-For Continue anyway, call `acknowledge_onboarding_single_device(account_ref, snapshot.revision)`.
+For Continue, call `acknowledge_onboarding_single_device(account_ref, snapshot.revision)`.
 If `snapshot.recovery_epoch` is present, use
 `acknowledge_onboarding_single_device_in_epoch(account_ref, snapshot.revision, epoch)`
 and `approve_onboarding_repair_in_epoch(account_ref, snapshot.revision, epoch)`
 for approvals. Pass the epoch from the same displayed snapshot. The original
 revision-only methods reject recovered attempts, even when the number matches.
 MDK rejects a stale revision, persists the acknowledgment, and resumes setup.
+Companion setup marks `KeyPackage` as `Skipped`, completes a distinct local
+`CompanionReady` journal phase and persists readiness before setup cleanup. This
+does not claim network publication, pairing or synchronized history. Native hosts
+must use the matching core artifact; the unchanged method name alone does not
+make older released libraries preserve the receiver.
 The acknowledgment survives KeyPackage publication failure, task interruption,
 and restart. Rechecking an earlier prerequisite, changing discovery sources,
 approving another repair, explicitly retrying `SingleDevice`, or signing in again
