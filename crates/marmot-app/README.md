@@ -827,3 +827,9 @@ Account workers now negotiate fresh encrypted channels under the original pair-w
 This checkpoint does not populate normal conversation views or forward messages. Catalog delivery receipts, loss/reordering, withdrawals, large-catalog renewal and retired-request replay controls remain pending. See [acceptance and limits](../../docs/automatic-approved-policy-catalog-actor-verification.json).
 
 Catalog scheduling now reserves a whole entry before exhausting a channel and resumes the scan under a newly validated channel. The real 22-chat renewal regression and earlier policy SQL-race/default controls pass. Recipient committed catalog acknowledgements and loss/reorder recovery remain separate; see `docs/automatic-catalog-renewal-verification.json`.
+
+### Automatic paired-source text sends
+
+With `experimental-device-sync`, an approved mirrored-only chat can use the existing runtime `submit_text` client-token API. Admission verifies the fresh pair policy and active mirrored catalog inside the queue transaction. The queued intent retains its exact ordinary inner event; an actual member publishes it through the ordinary send pipeline. `local_send_status` stays `Queued` until an authenticated publication receipt confirms that canonical event ID. Mirror rows never become ordinary MLS membership, and ordinary member sends retain their existing path.
+
+The scoped relay acceptance covers plain text, same-token retry, conflicting-body refusal, genuine publication receipts and automatic record import. Mirrored `submit_message_draft`, media and edits explicitly remain unavailable; reply, offline/restart recovery and blocked publication require their next controls. No installed automatic feature or SDK adoption is implied. See [checkpoint and limits](../../docs/automatic-account-chat-forwarding-verification.json).

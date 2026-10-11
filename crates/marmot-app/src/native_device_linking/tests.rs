@@ -227,6 +227,7 @@ pub(super) mod actual {
         AutomaticRenewal,
         AutomaticCatalogRetry,
         AutomaticRecords,
+        AutomaticForwarding,
     }
     pub(super) async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
         use cgka_traits::StorageProvider;
@@ -524,6 +525,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticRenewal
                 | ApprovalScenario::AutomaticCatalogRetry
                 | ApprovalScenario::AutomaticRecords
+                | ApprovalScenario::AutomaticForwarding
         ) {
             Some(
                 managers[0]
@@ -539,7 +541,10 @@ pub(super) mod actual {
         } else {
             None
         };
-        let initial_record_ids = if scenario == ApprovalScenario::AutomaticRecords {
+        let initial_record_ids = if matches!(
+            scenario,
+            ApprovalScenario::AutomaticRecords | ApprovalScenario::AutomaticForwarding
+        ) {
             super::automatic_records_acceptance::seed(
                 &managers[0],
                 initial_shared_chat.as_ref().unwrap(),
@@ -571,6 +576,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticRenewal
                 | ApprovalScenario::AutomaticCatalogRetry
                 | ApprovalScenario::AutomaticRecords
+                | ApprovalScenario::AutomaticForwarding
         ) {
             // Select C from actual settled protected tree, never invent a target.
             let c_key = apps[2]
@@ -910,13 +916,25 @@ pub(super) mod actual {
                     .is_err(),
                 "unapproved B cannot read C-owned mirrors"
             );
-            if scenario == ApprovalScenario::AutomaticRecords {
+            if matches!(
+                scenario,
+                ApprovalScenario::AutomaticRecords | ApprovalScenario::AutomaticForwarding
+            ) {
                 super::automatic_records_acceptance::verify(
                     &apps,
                     &managers[0],
                     initial_shared_chat.as_ref().unwrap(),
                     &mirror,
                     &initial_record_ids,
+                )
+                .await;
+            }
+            if scenario == ApprovalScenario::AutomaticForwarding {
+                super::automatic_forwarding_acceptance::verify(
+                    &apps,
+                    &runtimes[2],
+                    initial_shared_chat.as_ref().unwrap(),
+                    &mirror,
                 )
                 .await;
             }
@@ -972,6 +990,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticRenewal
                 | ApprovalScenario::AutomaticCatalogRetry
                 | ApprovalScenario::AutomaticRecords
+                | ApprovalScenario::AutomaticForwarding
         ) && index == 0
             || app.load_state("test").unwrap().groups.is_empty()));
         if matches!(
@@ -981,6 +1000,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticRenewal
                 | ApprovalScenario::AutomaticCatalogRetry
                 | ApprovalScenario::AutomaticRecords
+                | ApprovalScenario::AutomaticForwarding
         ) {
             let old = managers[0]
                 .account_chat_sharing_targets("test")
@@ -1568,3 +1588,10 @@ pub(super) mod actual {
 ))]
 #[path = "automatic_records_acceptance.rs"]
 mod automatic_records_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_forwarding_acceptance.rs"]
+mod automatic_forwarding_acceptance;

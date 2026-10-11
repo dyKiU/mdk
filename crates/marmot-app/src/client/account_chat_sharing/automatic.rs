@@ -1,6 +1,7 @@
 //! Fresh scheduling from durable explicit policy. Stored facts do not restore keys.
 use super::*;
 mod records;
+mod sends;
 use crate::account_chat_sharing::enabled::OriginalLease;
 use base64::Engine as _;
 use cgka_engine::account_chat_sharing::{AccountSharedBodyKind, OwnedAccountSharingChannel};
@@ -67,6 +68,7 @@ pub(crate) struct AutomaticChannel {
     assembly: Option<Assembly>,
     pending_catalog: Option<PendingCatalog>,
     records: records::RecordProgress,
+    sends: sends::SendProgress,
     renew: bool,
 }
 impl AutomaticChannel {
@@ -230,6 +232,7 @@ impl AppClient {
                     assembly: None,
                     pending_catalog: None,
                     records: records::RecordProgress::default(),
+                    sends: sends::SendProgress::default(),
                     renew: false,
                 },
             );
@@ -278,6 +281,12 @@ impl AppClient {
                     }
                     AccountSharedBodyKind::RecordReceipt => {
                         self.accept_automatic_record_receipt(&mut entry, &body)?
+                    }
+                    AccountSharedBodyKind::SendIntent => {
+                        self.accept_automatic_send_intent(&mut entry, &body)?
+                    }
+                    AccountSharedBodyKind::SendReceipt => {
+                        self.accept_automatic_send_receipt(&mut entry, &body)?
                     }
                     _ => return Err(AccountSharingError::NotReady),
                 }
@@ -526,6 +535,7 @@ impl AppClient {
                     assembly: None,
                     pending_catalog: None,
                     records: records::RecordProgress::default(),
+                    sends: sends::SendProgress::default(),
                     renew: false,
                 },
             );
@@ -569,6 +579,7 @@ impl AppClient {
                 assembly: None,
                 pending_catalog: None,
                 records: records::RecordProgress::default(),
+                sends: sends::SendProgress::default(),
                 renew: false,
             },
         );
@@ -681,6 +692,9 @@ impl AppClient {
         if !entry.ready {
             return Ok(());
         }
+        if entry.pending.is_empty() {
+            self.prepare_automatic_sends(entry).await?;
+        }
         if entry.pending.is_empty()
             && entry.pending_catalog.is_none()
             && !entry.records.has_pending()
@@ -722,6 +736,7 @@ impl AppClient {
             pending.published_at = Some(std::time::Instant::now());
         }
         self.automatic_record_mark_published(entry);
+        self.automatic_send_mark_published(entry);
         Ok(())
     }
     fn prepare_automatic_catalog(

@@ -4,6 +4,12 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 type Reply<T> = oneshot::Sender<Result<T, AccountSharingError>>;
 pub(crate) enum Command {
+    SubmitChat {
+        group: crate::GroupId,
+        token: String,
+        request: crate::local_submissions::LocalMessageRequest,
+        respond: oneshot::Sender<Result<crate::LocalSendAcceptance, crate::AppError>>,
+    },
     #[cfg(test)]
     AutomaticKick {
         respond: Reply<()>,
@@ -25,6 +31,30 @@ pub(crate) enum Command {
     },
 }
 impl AccountManager {
+    pub(crate) async fn admit_forwarded_chat(
+        &self,
+        account: &str,
+        group: crate::GroupId,
+        token: String,
+        request: crate::local_submissions::LocalMessageRequest,
+    ) -> Result<crate::LocalSendAcceptance, crate::AppError> {
+        let commands = self.worker_commands(account).await?;
+        let (respond, receive) = oneshot::channel();
+        commands
+            .send(AccountWorkerCommand::AccountSharing(Box::new(
+                Command::SubmitChat {
+                    group,
+                    token,
+                    request,
+                    respond,
+                },
+            )))
+            .await
+            .map_err(|_| crate::AppError::TransportClosed)?;
+        receive
+            .await
+            .map_err(|_| crate::AppError::TransportClosed)?
+    }
     #[cfg(test)]
     pub(crate) async fn kick_approved_automatic_channel(
         &self,
@@ -92,6 +122,14 @@ impl AccountManager {
 }
 pub(crate) async fn handle(client: &mut crate::AppClient, command: Command) {
     match command {
+        Command::SubmitChat {
+            group,
+            token,
+            request,
+            respond,
+        } => {
+            let _ = respond.send(client.admit_forwarded_chat(&group, token, request));
+        }
         #[cfg(test)]
         Command::AutomaticKick { respond } => {
             let _ = respond.send(client.kick_approved_automatic_channel().await);
