@@ -81,7 +81,7 @@ pub(crate) fn check_owner(conn: &Connection, scope: &MirroredChatScope) -> Stora
     Ok(())
 }
 
-fn decode_entry(
+pub(crate) fn decode_entry(
     scope: &MirroredChatScope,
     group: Vec<u8>,
     sequence: i64,

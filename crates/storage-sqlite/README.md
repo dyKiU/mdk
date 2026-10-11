@@ -623,3 +623,12 @@ the original receipt even after a fresh authenticated projection scope, while
 applying observations to that scope. Retained approvals do not supply original
 authority, keys or a deadline. The journal has 100,000 lifetime references and
 incoming receipts/progress each have 8,192. Core102 and private1–20 remain frozen.
+
+Experimental paired-chat presentation reads accept at most128 caller-validated
+source scopes and return at most128 total observations across them. Catalog
+pages use canonical group order; message pages use canonical event time/ID.
+Ordinary stored groups and live event identities take precedence over mirrors.
+Cross-source terminal and restrictive expiry fences still hide mirrored payloads.
+These read-only scopes and cursors carry no membership, consent or media grant.
+See `docs/account-chat-presentation-storage-verification.json` for the synthetic
+storage controls; App worker and native presentation require separate qualification.

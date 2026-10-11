@@ -219,6 +219,10 @@ mod approved_account_sharing_policy;
 mod mirrored_chat_catalog;
 #[cfg(feature = "experimental-device-sync")]
 mod mirrored_chat_messages;
+#[cfg(feature = "experimental-device-sync")]
+mod mirrored_chat_presentation;
+#[cfg(feature = "experimental-device-sync")]
+pub use mirrored_chat_presentation::{MirroredCatalogObservation, MirroredMessageObservation};
 
 #[cfg(feature = "experimental-device-sync")]
 mod private_roster_settlement;
