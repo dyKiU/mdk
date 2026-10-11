@@ -231,6 +231,8 @@ pub(super) mod actual {
         AutomaticForwarding,
         AutomaticForwardingReply,
         AutomaticForwardingOffline,
+        AutomaticForwardingNonAdmin,
+        AutomaticForwardingReceiptRetry,
     }
     pub(super) async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
         use cgka_traits::StorageProvider;
@@ -247,7 +249,23 @@ pub(super) mod actual {
             MarmotApp::with_relay(dirs[i].path(), &url)
         });
         let runtimes = apps.clone().map(MarmotAppRuntime::new);
-        for r in &runtimes {
+        runtimes[0].reconcile_accounts().await.unwrap();
+        // Establish the real incoming chat while A is the sole active public
+        // installation. Account-level invitations may select any later sibling.
+        let incoming_peer = if scenario == ApprovalScenario::AutomaticForwardingNonAdmin {
+            Some(
+                super::automatic_forwarding_non_admin_acceptance::IncomingPeer::create(
+                    &url,
+                    &apps[0],
+                    &runtimes[0],
+                    &keys.public_key().to_hex(),
+                )
+                .await,
+            )
+        } else {
+            None
+        };
+        for r in &runtimes[1..] {
             r.reconcile_accounts().await.unwrap();
         }
         let managers = runtimes.each_ref().map(|r| r.accounts());
@@ -532,18 +550,24 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticForwarding
                 | ApprovalScenario::AutomaticForwardingReply
                 | ApprovalScenario::AutomaticForwardingOffline
+                | ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticForwardingReceiptRetry
         ) {
-            Some(
-                managers[0]
-                    .create_group(
-                        "test",
-                        "Automatically discovered existing chat",
-                        &[],
-                        Some("x".repeat(4096)),
-                    )
-                    .await
-                    .unwrap(),
-            )
+            if scenario == ApprovalScenario::AutomaticForwardingNonAdmin {
+                Some(incoming_peer.as_ref().unwrap().group.clone())
+            } else {
+                Some(
+                    managers[0]
+                        .create_group(
+                            "test",
+                            "Automatically discovered existing chat",
+                            &[],
+                            Some("x".repeat(4096)),
+                        )
+                        .await
+                        .unwrap(),
+                )
+            }
         } else {
             None
         };
@@ -554,12 +578,18 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticForwarding
                 | ApprovalScenario::AutomaticForwardingReply
                 | ApprovalScenario::AutomaticForwardingOffline
+                | ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticForwardingReceiptRetry
         ) {
-            super::automatic_records_acceptance::seed(
+            let mut ids = super::automatic_records_acceptance::seed(
                 &managers[0],
                 initial_shared_chat.as_ref().unwrap(),
             )
-            .await
+            .await;
+            if let Some(peer) = &incoming_peer {
+                ids.push(peer.preapproval_message.clone());
+            }
+            ids
         } else {
             Vec::new()
         };
@@ -590,6 +620,8 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticForwarding
                 | ApprovalScenario::AutomaticForwardingReply
                 | ApprovalScenario::AutomaticForwardingOffline
+                | ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticForwardingReceiptRetry
         ) {
             // Select C from actual settled protected tree, never invent a target.
             let c_key = apps[2]
@@ -936,6 +968,8 @@ pub(super) mod actual {
                     | ApprovalScenario::AutomaticForwarding
                     | ApprovalScenario::AutomaticForwardingReply
                     | ApprovalScenario::AutomaticForwardingOffline
+                    | ApprovalScenario::AutomaticForwardingNonAdmin
+                    | ApprovalScenario::AutomaticForwardingReceiptRetry
             ) {
                 super::automatic_records_acceptance::verify(
                     &apps,
@@ -947,7 +981,11 @@ pub(super) mod actual {
                 )
                 .await;
             }
-            if scenario == ApprovalScenario::AutomaticForwarding {
+            if matches!(
+                scenario,
+                ApprovalScenario::AutomaticForwarding
+                    | ApprovalScenario::AutomaticForwardingNonAdmin
+            ) {
                 super::automatic_forwarding_acceptance::verify(
                     &apps,
                     &runtimes[2],
@@ -956,6 +994,9 @@ pub(super) mod actual {
                 )
                 .await;
             }
+            if let Some(peer) = &incoming_peer {
+                peer.verify_forwarded_receipt(&runtimes[2]).await;
+            }
             if scenario == ApprovalScenario::AutomaticForwardingReply {
                 super::automatic_forwarding_acceptance::verify_reply(
                     &apps,
@@ -963,6 +1004,15 @@ pub(super) mod actual {
                     initial_shared_chat.as_ref().unwrap(),
                     &mirror,
                     &initial_record_ids[0],
+                )
+                .await;
+            }
+            if scenario == ApprovalScenario::AutomaticForwardingReceiptRetry {
+                super::automatic_forwarding_acceptance::verify_receipt_sql_retry(
+                    &apps,
+                    &runtimes[2],
+                    initial_shared_chat.as_ref().unwrap(),
+                    &mirror,
                 )
                 .await;
             }
@@ -1044,6 +1094,8 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticForwarding
                 | ApprovalScenario::AutomaticForwardingReply
                 | ApprovalScenario::AutomaticForwardingOffline
+                | ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticForwardingReceiptRetry
         ) && index == 0
             || app.load_state("test").unwrap().groups.is_empty()));
         if matches!(
@@ -1057,6 +1109,8 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticForwarding
                 | ApprovalScenario::AutomaticForwardingReply
                 | ApprovalScenario::AutomaticForwardingOffline
+                | ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticForwardingReceiptRetry
         ) {
             let old = managers[0]
                 .account_chat_sharing_targets("test")
@@ -1114,6 +1168,10 @@ pub(super) mod actual {
                     .await
                     .is_err()
             );
+        }
+        if let Some(peer) = incoming_peer {
+            peer.runtime.shutdown_and_close().await.unwrap();
+            assert!(peer.runtime.storage_is_closed());
         }
         for runtime in runtimes {
             runtime.shutdown_and_close().await.unwrap();
@@ -1651,3 +1709,10 @@ mod automatic_records_acceptance;
 ))]
 #[path = "automatic_forwarding_acceptance.rs"]
 mod automatic_forwarding_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_forwarding_non_admin_acceptance.rs"]
+mod automatic_forwarding_non_admin_acceptance;

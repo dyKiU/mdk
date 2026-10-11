@@ -1,0 +1,188 @@
+{
+  "scope": "Test-only genuine non-administrator ordinary-member forwarding and unacknowledged encrypted receipt SQL rollback/retry acceptance; runtime unchanged from signed02ea.",
+  "base": "02ea0e712aa6c95c8b834235031dcd4448bf3eb1",
+  "source_owned": [
+    "crates/marmot-app/src/native_device_linking/automatic_forwarding_acceptance.rs",
+    "crates/marmot-app/src/native_device_linking/automatic_forwarding_non_admin_acceptance.rs",
+    "crates/marmot-app/src/native_device_linking/tests.rs"
+  ],
+  "evidence_root": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-forwarding-non-admin-receipt",
+  "remote_evidence_root": "/Users/pj/project/build",
+  "cohorts": [
+    {
+      "prefix": "automatic-forwarding-non-admin-receipt-v1",
+      "candidate": "ef4dfbce952f46c37e37e316415c73549a645f07",
+      "input_count": 2597,
+      "manifest_sha256": "8d6c376dfdde643f5f96eb314429ec88aade211d52b72b5df04b7b55ef658945",
+      "gates": [
+        {
+          "gate": "non-admin",
+          "exit": 101,
+          "seconds": 46.1472487449646,
+          "log": "/Users/pj/project/build/automatic-forwarding-non-admin-receipt-v1-non-admin.log",
+          "log_sha256": "859e7a73a3cc2a57dc6265d3f61a9d06fbea08b4c94090f4862b5b87a758ebfe",
+          "summaries": []
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-forwarding-non-admin-receipt-v2",
+      "candidate": "4d1c6a1beee033944f15b333a0fc008d35337c61",
+      "input_count": 2597,
+      "manifest_sha256": "4d9fe677c4b461d1788caf8ee74b430f0dde13028f5e3963b8aa04a237864c7f",
+      "gates": [
+        {
+          "gate": "non-admin",
+          "exit": 101,
+          "seconds": 122.00542902946472,
+          "log": "/Users/pj/project/build/automatic-forwarding-non-admin-receipt-v2-non-admin.log",
+          "log_sha256": "d0a8883079748624142ddcae654c7dcfc8b03654bbb675fd2bf15039124bdeb5",
+          "summaries": [
+            [
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-forwarding-non-admin-receipt-v3",
+      "candidate": "1479cd0a24416c8b749ae58b4ec1612d729bf4fe",
+      "input_count": 2597,
+      "manifest_sha256": "991275dfe61c66e65ae83f1e662e9c3e60886ebf28b12a6ccba53b6ab74995d1",
+      "gates": [
+        {
+          "gate": "non-admin",
+          "exit": 101,
+          "seconds": 91.81058883666992,
+          "log": "/Users/pj/project/build/automatic-forwarding-non-admin-receipt-v3-non-admin.log",
+          "log_sha256": "e196356b96b834e1280264c40e431c975fb8cab0745c7d106ff92e0f41826aea",
+          "summaries": [
+            [
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-forwarding-non-admin-receipt-v4",
+      "candidate": "931f3ac7b57b7aebae9d2a18af66d967b0bd55a3",
+      "input_count": 2597,
+      "manifest_sha256": "60d8706351ad6d1c36db780001440e5bd7cc8663b39dfeae391202e900ed2a76",
+      "gates": [
+        {
+          "gate": "non-admin",
+          "exit": 0,
+          "seconds": 118.46585392951965,
+          "log": "/Users/pj/project/build/automatic-forwarding-non-admin-receipt-v4-non-admin.log",
+          "log_sha256": "7c6c0c4b4802c51fed3003f5ad1b8bbdf56ca653d0641ab6e051ff776234d1e8",
+          "summaries": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "receipt-retry",
+          "exit": 0,
+          "seconds": 38.16180109977722,
+          "log": "/Users/pj/project/build/automatic-forwarding-non-admin-receipt-v4-receipt-retry.log",
+          "log_sha256": "c09c16d85a178f6240be357a02db92909c527f01da02b1a5b2188c12090debb5",
+          "summaries": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-forwarding-non-admin-receipt-affected-v1",
+      "candidate": "931f3ac7b57b7aebae9d2a18af66d967b0bd55a3",
+      "input_count": 2597,
+      "manifest_sha256": "60d8706351ad6d1c36db780001440e5bd7cc8663b39dfeae391202e900ed2a76",
+      "gates": [
+        {
+          "gate": "plain-control",
+          "exit": 0,
+          "seconds": 117.59186315536499,
+          "log": "/Users/pj/project/build/automatic-forwarding-non-admin-receipt-affected-v1-plain-control.log",
+          "log_sha256": "1185eff0a549ccb755dceaa1784dc2639de8dba8387f05dbb0fc885785573a6c",
+          "summaries": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "default-refusal",
+          "exit": 0,
+          "seconds": 65.57500195503235,
+          "log": "/Users/pj/project/build/automatic-forwarding-non-admin-receipt-affected-v1-default-refusal.log",
+          "log_sha256": "81c34c01b34862c7e086f79791ca7a2bbac9c2a83d54282fc78a8c0dfaaeca89",
+          "summaries": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        },
+        {
+          "gate": "fixture-clippy",
+          "exit": 101,
+          "seconds": 52.314079999923706,
+          "log": "/Users/pj/project/build/automatic-forwarding-non-admin-receipt-affected-v1-fixture-clippy.log",
+          "log_sha256": "8455b2e319df95bbb8ad1253427b82d826cbd16f301fa393550f872c8ed5be08",
+          "summaries": []
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-forwarding-non-admin-receipt-lint-v1",
+      "candidate": "08175d75810da568e733db45acba3fdd53fd7523",
+      "input_count": 2597,
+      "manifest_sha256": "51df3ef94ed8646b85c0f18dd583ddc77351b2f2c501f6f5e884883597d0089c",
+      "gates": [
+        {
+          "gate": "fixture-clippy",
+          "exit": 0,
+          "seconds": 49.439472913742065,
+          "log": "/Users/pj/project/build/automatic-forwarding-non-admin-receipt-lint-v1-fixture-clippy.log",
+          "log_sha256": "add18ee51d365c9abb1ef6001590a3f51647a6bfa5661c35f96a351b20026644",
+          "summaries": []
+        }
+      ]
+    }
+  ],
+  "verified_inputs": 15582,
+  "verified_raw_logs": 9,
+  "acceptance": [
+    "Independent D creates and explicitly invites A before B/C activation; actual authenticated roster proves A non-admin and D admin. Genuine pairing and automatic catalog/records unchanged; C client-token forwarding via actual A member reaches D with exact canonical event ID.",
+    "Recipient receipt SQL rollback leaves C Queued and source Published receipt outstanding. Same token retains canonical ID; removing fault permits encrypted receipt retry, truthful Completed and authenticated ACK clears outstanding receipt."
+  ],
+  "iterations": [
+    "v1 compile-only missing fixture imports/roster field; zero tests.",
+    "v2 actual invite absent on A with three active installations; retained separate unresolved multi-install invitation compatibility finding, destination not established.",
+    "v3 genuine incoming setup succeeded; unchanged4096-description assertion failed because fixture passed None. Corrected D public create_group description; no runtime or assertion relaxation.",
+    "Affected strict gate failed solely inherited Root test diagnostic single_match; v5 equivalent result.is_err correction excludes dependency path from this owned commit."
+  ],
+  "lint_contract": "Clippy denies warnings except inherited dead_code and linker_messages; not an unqualified all-warning strict claim.",
+  "limits": [
+    "No literal network packet-loss proof; receipt remains unacknowledged due genuine SQL rollback.",
+    "Multi-install ordinary invitation compatibility remains required before promotion.",
+    "Pre-admission revocation/cancellation, mirrored persistent drafts, media/edit forwarding and installed demo remain separate.",
+    "No SDK regeneration, generated artifacts, app adoption or private data copies."
+  ]
+}
