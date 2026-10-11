@@ -1,0 +1,361 @@
+use super::*;
+
+#[cfg(not(feature = "experimental-device-sync"))]
+#[tokio::test]
+async fn paired_presentation_default_refuses_before_input_and_account_effects() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = crate::MarmotAppRuntime::new(crate::MarmotApp::with_relay(
+        dir.path(),
+        "wss://relay.example",
+    ));
+    let manager = runtime.accounts();
+    assert!(matches!(
+        manager
+            .paired_chat_list_page("missing", Some(GroupId::new(Vec::new())), 0)
+            .await,
+        Err(AccountChatReadError::Unsupported)
+    ));
+    assert!(matches!(
+        manager
+            .paired_chat_message_page("missing", GroupId::new(Vec::new()), None, 0)
+            .await,
+        Err(AccountChatReadError::Unsupported)
+    ));
+    assert!(matches!(
+        runtime.open_account_chat_list_window("missing", 0).await,
+        Err(AccountChatReadError::Unsupported)
+    ));
+    assert!(matches!(
+        manager
+            .account_conversation_page("missing", GroupId::new(Vec::new()), None, 0)
+            .await,
+        Err(AccountChatReadError::Unsupported)
+    ));
+    assert!(matches!(
+        runtime
+            .open_account_conversation_window("missing", &GroupId::new(Vec::new()), 0)
+            .await,
+        Err(AccountChatReadError::Unsupported)
+    ));
+    assert!(manager.managed_accounts().unwrap().is_empty());
+    runtime.shutdown_and_close().await.unwrap();
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[test]
+fn paired_presentation_canonical_decode_keeps_ordered_rejections_and_tombstone_privacy() {
+    use cgka_traits::{
+        mirrored_chat_catalog::MirroredChatScope, mirrored_chat_messages::MirroredChatRecord,
+    };
+    let scope = MirroredChatScope {
+        account: [1; 32],
+        local_device: [2; 32],
+        source_device: [3; 32],
+        policy_digest: [4; 32],
+        protected_group: GroupId::new(vec![5]),
+        protected_generation: 1,
+    };
+    let tags: Vec<Vec<String>> = vec![
+        vec!["imeta".into(), "v unsupported".into()],
+        vec!["imeta".into(), "url https://example.invalid/image".into()],
+    ];
+    let record = MirroredChatRecord {
+        event_id: [6; 32],
+        author: [7; 32],
+        created_at: 10,
+        kind: 9,
+        payload: serde_json::to_vec(&("synthetic", tags.clone())).unwrap(),
+        content_digest: Some([8; 32]),
+        expires_at: None,
+        deleted: false,
+        source_epoch: 1,
+        source_sequence: 2,
+        source_digest: [9; 32],
+    };
+    let row = storage_sqlite::MirroredMessageObservation { scope, record };
+    let presented = present_message(row.clone(), false).unwrap();
+    assert!(presented.tags == tags);
+    assert_eq!(presented.media_attachments.len(), 2);
+    assert_eq!(presented.source.device, [3; 32]);
+    let mut noncanonical = row.clone();
+    noncanonical.record.payload.insert(0, b' ');
+    assert!(matches!(
+        present_message(noncanonical, false),
+        Err(AccountChatReadError::InvalidRecord)
+    ));
+    let mut tombstone = row.clone();
+    tombstone.record.deleted = true;
+    assert!(matches!(
+        present_message(tombstone.clone(), false),
+        Err(AccountChatReadError::InvalidRecord)
+    ));
+    tombstone.record.payload.clear();
+    let deleted = present_message(tombstone, false).unwrap();
+    assert!(
+        deleted.deleted
+            && deleted.content.is_empty()
+            && deleted.tags.is_empty()
+            && deleted.media_attachments.is_empty()
+    );
+    let mut wrong = row;
+    wrong.record.kind = 42;
+    let unsupported = present_message(wrong, false).unwrap();
+    assert_eq!(
+        unsupported.content_kind,
+        PairedChatContent::UnsupportedKind(42)
+    );
+    assert_eq!(unsupported.event_id, [6; 32]);
+    assert_eq!(unsupported.source.device, [3; 32]);
+    assert!(
+        unsupported.content.is_empty()
+            && unsupported.tags.is_empty()
+            && unsupported.media_attachments.is_empty()
+    );
+}
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[tokio::test]
+async fn paired_presentation_actual_original_approval_catalog_without_fake_mls_group() {
+    use crate::{DeviceLinkingPhase, DeviceLinkingSession, MarmotApp, MarmotAppRuntime};
+    use cgka_traits::storage::GroupStorage;
+    let relay = nostr_relay_builder::LocalRelay::new(nostr_relay_builder::RelayBuilder::default());
+    relay.run().await.unwrap();
+    let url = relay.url().await.to_string();
+    let keys = nostr::prelude::Keys::generate();
+    let dirs: [tempfile::TempDir; 2] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
+    let apps: [MarmotApp; 2] = std::array::from_fn(|i| {
+        marmot_account::AccountHome::open(dirs[i].path())
+            .import_account("test", &keys.secret_key().to_secret_hex())
+            .unwrap();
+        MarmotApp::with_relay(dirs[i].path(), &url)
+    });
+    let runtimes = apps.clone().map(MarmotAppRuntime::new);
+    for runtime in &runtimes {
+        runtime.reconcile_accounts().await.unwrap();
+    }
+    let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
+    assert!(
+        managers[1]
+            .paired_chat_list_page("test", None, 128)
+            .await
+            .unwrap()
+            .chats
+            .is_empty()
+    );
+    let b = managers[1]
+        .begin_device_linking_session("test")
+        .await
+        .unwrap();
+    let a = managers[0]
+        .approve_device_linking_session("test", b.setup_packet(), None)
+        .await
+        .unwrap();
+    async fn drain(from: &DeviceLinkingSession, to: &DeviceLinkingSession) {
+        for packet in from.outgoing_packets().await.unwrap() {
+            to.receive_packet(packet.bytes).await.unwrap();
+            from.acknowledge_packet(packet.acknowledgement_id)
+                .await
+                .unwrap();
+        }
+    }
+    b.receive_setup_packet(a.setup_packet()).await.unwrap();
+    for _ in 0..8 {
+        drain(&a, &b).await;
+        drain(&b, &a).await;
+    }
+    let first = a.snapshot().await.unwrap();
+    let second = b.snapshot().await.unwrap();
+    assert_eq!(first.phase, DeviceLinkingPhase::ComparisonAvailable);
+    assert_eq!(first.decimals, second.decimals);
+    a.confirm_comparison(first.revision).await.unwrap();
+    b.confirm_comparison(second.revision).await.unwrap();
+    for _ in 0..8 {
+        drain(&a, &b).await;
+        drain(&b, &a).await;
+    }
+    b.continue_linking_and_share_chats(b.snapshot().await.unwrap().revision)
+        .await
+        .unwrap();
+    a.continue_linking_and_share_chats(a.snapshot().await.unwrap().revision)
+        .await
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        loop {
+            if a.snapshot().await.unwrap().phase == DeviceLinkingPhase::EnrollmentComplete
+                && b.snapshot().await.unwrap().phase == DeviceLinkingPhase::EnrollmentComplete
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("actual original two-device protected settlement");
+    a.cancel().await.unwrap();
+    b.cancel().await.unwrap();
+    let mut window = runtimes[1]
+        .open_account_chat_list_window("test", 128)
+        .await
+        .unwrap();
+    assert!(window.snapshot.rows.is_empty());
+    let group = managers[0]
+        .create_group("test", "synthetic paired conversation", &[], None)
+        .await
+        .unwrap();
+    let page = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        loop {
+            let page = managers[1]
+                .paired_chat_list_page("test", None, 128)
+                .await
+                .unwrap();
+            if page.chats.iter().any(|chat| chat.group_id == group) {
+                break page;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("real encrypted original-approved catalogue must reach worker query");
+    let row = page
+        .chats
+        .iter()
+        .find(|chat| chat.group_id == group)
+        .unwrap();
+    assert_eq!(row.name, "synthetic paired conversation");
+    assert_ne!(row.source.device, [0; 32]);
+    let visible = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        loop {
+            let update = window
+                .recv()
+                .await
+                .unwrap()
+                .expect("live source-qualified window");
+            if update.rows.iter().any(|row| {
+                matches!(row,
+                crate::AccountChatRow::PairedSource(row) if row.group_id==group)
+            }) {
+                break update;
+            }
+        }
+    })
+    .await
+    .expect("committed catalogue wake must make mirrored conversation visible");
+    assert!(visible.rows.len() <= 128);
+    assert!(visible.local.rows.is_empty());
+    assert!(matches!(
+        window
+            .window_handle()
+            .paired_page(visible.sequence + 1, None)
+            .await,
+        Err(AccountChatReadError::StaleWindow)
+    ));
+
+    assert!(
+        matches!(
+            apps[1].account_storage("test").unwrap().get_group(&group),
+            Err(cgka_traits::StorageError::NotFound)
+        ),
+        "read presentation must not fabricate MLS membership"
+    );
+    assert!(
+        managers[0]
+            .paired_chat_list_page("test", None, 128)
+            .await
+            .unwrap()
+            .chats
+            .iter()
+            .all(|chat| chat.group_id != group),
+        "ordinary local group takes precedence"
+    );
+    assert!(
+        managers[1]
+            .paired_chat_message_page("test", group.clone(), None, 128)
+            .await
+            .unwrap()
+            .messages
+            .is_empty()
+    );
+    assert!(matches!(
+        managers[1]
+            .paired_chat_list_page("missing", None, 128)
+            .await,
+        Err(AccountChatReadError::RuntimeUnavailable)
+    ));
+    let mut local_conversation = runtimes[0]
+        .open_account_conversation_window("test", &group, 128)
+        .await
+        .unwrap();
+    assert!(matches!(
+        local_conversation.snapshot.header,
+        crate::AccountConversationHeader::LocalMls(_)
+    ));
+    local_conversation.window_handle().cancel();
+    assert!(local_conversation.recv().await.unwrap().is_none());
+    let mut conversation = runtimes[1]
+        .open_account_conversation_window("test", &group, 128)
+        .await
+        .unwrap();
+    assert!(matches!(
+        conversation.snapshot.header,
+        crate::AccountConversationHeader::PairedSource(_)
+    ));
+    assert!(conversation.snapshot.rows.is_empty());
+    assert!(matches!(
+        conversation
+            .window_handle()
+            .older_page(conversation.snapshot.sequence + 1, None)
+            .await,
+        Err(AccountChatReadError::StaleWindow)
+    ));
+    conversation.window_handle().cancel();
+    assert!(conversation.recv().await.unwrap().is_none());
+    assert!(matches!(
+        conversation
+            .window_handle()
+            .older_page(conversation.snapshot.sequence, None)
+            .await,
+        Err(AccountChatReadError::Closed)
+    ));
+    let mut live_conversation = runtimes[1]
+        .open_account_conversation_window("test", &group, 128)
+        .await
+        .unwrap();
+    window.window_handle().cancel();
+    assert!(window.recv().await.unwrap().is_none());
+    assert!(matches!(
+        window
+            .window_handle()
+            .paired_page(visible.sequence, None)
+            .await,
+        Err(AccountChatReadError::Closed)
+    ));
+    let mut live_window = runtimes[1]
+        .open_account_chat_list_window("test", 128)
+        .await
+        .unwrap();
+    assert!(live_window.snapshot.rows.iter().any(|row| matches!(row,
+        crate::AccountChatRow::PairedSource(row) if row.group_id==group)));
+    for runtime in &runtimes {
+        runtime.shutdown_and_close().await.unwrap();
+    }
+    assert!(live_conversation.recv().await.unwrap().is_none());
+    assert!(live_window.recv().await.unwrap().is_none());
+    assert!(window.recv().await.unwrap().is_none());
+    assert!(matches!(
+        window
+            .window_handle()
+            .paired_page(visible.sequence, None)
+            .await,
+        Err(AccountChatReadError::Closed)
+    ));
+
+    assert!(
+        managers[1]
+            .paired_chat_list_page("test", None, 128)
+            .await
+            .is_err()
+    );
+}

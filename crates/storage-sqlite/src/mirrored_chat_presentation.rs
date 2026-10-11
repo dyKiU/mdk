@@ -21,6 +21,13 @@ pub struct MirroredMessageObservation {
     pub record: MirroredChatRecord,
 }
 
+/// Ordinary materialized rows keep their authenticated local provenance.
+#[derive(Clone)]
+pub enum AccountConversationObservation {
+    LocalMls(Box<crate::TimelineMessageRecord>),
+    PairedSource(Box<MirroredMessageObservation>),
+}
+
 fn invalid() -> StorageError {
     StorageError::Serialization("invalid mirrored presentation read".into())
 }
@@ -119,6 +126,158 @@ impl SqliteAccountStorage {
         .collect()
     }
 
+    /// Resolve one mirrored header without walking preceding catalogue pages.
+    pub fn mirrored_catalog_observation(
+        &self,
+        scopes: &[MirroredChatScope],
+        group: &GroupId,
+    ) -> StorageResult<Option<MirroredCatalogObservation>> {
+        let keys = eligible(scopes, 1)?;
+        if !(1..=255).contains(&group.as_slice().len()) {
+            return Err(invalid());
+        }
+        let conn = self.lock()?;
+        for scope in scopes {
+            mirrored_chat_catalog::check_owner(&conn, scope)?;
+        }
+        if keys.is_empty() {
+            return Ok(None);
+        }
+        let (prefix, mut arguments) = selection(&keys);
+        arguments.push(Value::Blob(group.as_slice().to_vec()));
+        let sql = format!("{prefix} SELECT e.position,c.group_id,c.source_sequence,c.state,c.record
+          FROM eligible e JOIN mirrored_chat_catalog c ON c.scope=e.scope
+          JOIN mirrored_chat_scopes s ON s.scope=c.scope
+          WHERE c.group_id=? AND c.state=0
+          AND NOT EXISTS(SELECT 1 FROM mirrored_chat_catalog terminal
+            JOIN mirrored_chat_scopes ts ON ts.scope=terminal.scope
+            WHERE terminal.group_id=c.group_id AND terminal.state!=0 AND ts.source_device=s.source_device)
+          ORDER BY c.scope LIMIT 1");
+        let mut statement = conn.prepare(&sql).storage()?;
+        let mut rows = statement.query(params_from_iter(arguments)).storage()?;
+        let Some(row) = rows.next().storage()? else {
+            return Ok(None);
+        };
+        let scope = scopes
+            .get(row.get::<_, i64>(0).storage()? as usize)
+            .ok_or_else(invalid)?;
+        Ok(Some(MirroredCatalogObservation {
+            scope: scope.clone(),
+            entry: mirrored_chat_catalog::decode_entry(
+                scope,
+                row.get(1).storage()?,
+                row.get(2).storage()?,
+                row.get(3).storage()?,
+                row.get(4).storage()?,
+            )?,
+        }))
+    }
+
+    /// A single total SQL limit over genuine ordinary and eligible mirrored rows.
+    /// The exclusive cursor uses original event time/id, never local replay order.
+    pub fn account_conversation_observation_window(
+        &self,
+        scopes: &[MirroredChatScope],
+        group: &GroupId,
+        before: Option<&MirroredChatCursor>,
+        limit: usize,
+        now: u64,
+    ) -> StorageResult<Vec<AccountConversationObservation>> {
+        let keys = eligible(scopes, limit)?;
+        if !(1..=255).contains(&group.as_slice().len())
+            || now > i64::MAX as u64
+            || before.is_some_and(|v| v.created_at > i64::MAX as u64 || v.event_id == [0; 32])
+        {
+            return Err(invalid());
+        }
+        cgka_traits::StorageProvider::with_read_snapshot(self, |store| {
+            let selected = {
+                let conn = store.lock()?;
+                for scope in scopes {
+                    mirrored_chat_catalog::check_owner(&conn, scope)?;
+                }
+                let (prefix, mut arguments) = if keys.is_empty() {
+                    (
+                        "WITH eligible(position,scope) AS (SELECT 0,NULL WHERE 0)".to_owned(),
+                        Vec::new(),
+                    )
+                } else {
+                    selection(&keys)
+                };
+                arguments.extend([
+                    Value::Blob(group.as_slice().to_vec()),
+                    Value::Text(hex::encode(group.as_slice())),
+                    Value::Text(hex::encode(group.as_slice())),
+                    Value::Integer(before.is_some() as i64),
+                    Value::Integer(before.map(|v| v.created_at as i64).unwrap_or(0)),
+                    Value::Text(before.map(|v| hex::encode(v.event_id)).unwrap_or_default()),
+                    Value::Integer(limit as i64),
+                ]);
+                let sql = format!("{prefix}, ranked AS (
+              SELECT m.*,e.position,row_number() OVER(PARTITION BY m.event_id ORDER BY m.scope) AS rank
+              FROM eligible e JOIN mirrored_chat_messages m ON m.scope=e.scope
+              JOIN mirrored_chat_catalog c ON c.scope=m.scope AND c.group_id=m.group_id
+              JOIN mirrored_chat_scopes s ON s.scope=m.scope
+              WHERE m.group_id=? AND c.state=0
+              AND NOT EXISTS(SELECT 1 FROM mirrored_chat_catalog terminal JOIN mirrored_chat_scopes ts ON ts.scope=terminal.scope WHERE terminal.group_id=c.group_id AND terminal.state!=0 AND ts.source_device=s.source_device)
+              AND NOT EXISTS(SELECT 1 FROM user_blocks blocked WHERE blocked.public_key=lower(hex(m.author)))
+              AND NOT EXISTS(SELECT 1 FROM app_events live WHERE live.group_id_hex=? AND live.message_id_hex=lower(hex(m.event_id)))
+              AND (m.deleted=1 OR NOT EXISTS(SELECT 1 FROM mirrored_chat_messages terminal WHERE terminal.group_id=m.group_id AND terminal.event_id=m.event_id AND terminal.deleted=1))
+            ), united AS (
+              SELECT 1 AS paired,position,created_at AS event_time,lower(hex(event_id)) AS event_id FROM ranked WHERE rank=1
+              UNION ALL SELECT 0,0,timeline_at,message_id_hex FROM visible_message_timeline WHERE group_id_hex=?
+            ) SELECT paired,position,event_time,event_id FROM united WHERE (?=0 OR (event_time,event_id)<(?,?))
+              ORDER BY event_time DESC,event_id DESC LIMIT ?");
+                let mut statement = conn.prepare(&sql).storage()?;
+                statement
+                    .query_map(params_from_iter(arguments), |row| {
+                        Ok((
+                            row.get::<_, bool>(0)?,
+                            row.get::<_, i64>(1)? as usize,
+                            row.get::<_, String>(3)?,
+                        ))
+                    })
+                    .storage()?
+                    .map(|row| row.storage())
+                    .collect::<StorageResult<Vec<_>>>()?
+            };
+            let mut observed = Vec::with_capacity(selected.len());
+            for (paired, position, event) in selected {
+                if !paired {
+                    let row = store
+                        .timeline_message(&hex::encode(group.as_slice()), &event)?
+                        .ok_or_else(invalid)?;
+                    observed.push(AccountConversationObservation::LocalMls(Box::new(
+                        store.scrub_paired_timeline_record(row, now)?,
+                    )));
+                } else {
+                    let scope = scopes.get(position).ok_or_else(invalid)?;
+                    let conn = store.lock()?;
+                    let scope_key = mirrored_chat_catalog::scope_bytes(scope)?;
+                    let event_bytes = hex::decode(&event).map_err(|_| invalid())?;
+                    let (mut record,expiry)=conn.query_row("SELECT event_id,author,created_at,kind,payload,expires_at,content_digest,deleted,source_epoch,source_sequence,source_digest,
+                (SELECT min(expires_at) FROM mirrored_chat_messages expiry WHERE expiry.group_id=m.group_id AND expiry.event_id=m.event_id)
+                FROM mirrored_chat_messages m WHERE m.scope=? AND m.group_id=? AND m.event_id=?",rusqlite::params![scope_key,group.as_slice(),event_bytes],
+                |row|Ok((mirrored_chat_messages::read_record(row)?,row.get::<_,Option<i64>>(11)?))).storage()?;
+                    mirrored_chat_messages::validate(&record)?;
+                    record.expires_at = expiry.map(|v| v as u64);
+                    if record.expires_at.is_some_and(|v| v <= now) {
+                        record.deleted = true;
+                        record.payload.clear();
+                    }
+                    observed.push(AccountConversationObservation::PairedSource(Box::new(
+                        MirroredMessageObservation {
+                            scope: scope.clone(),
+                            record,
+                        },
+                    )));
+                }
+            }
+            observed.reverse();
+            Ok(observed)
+        })
+    }
+
     /// Canonical event-time order, not local replay insert order. Ordinary live
     /// identities always suppress a mirror, including invalidated ordinary rows.
     pub fn mirrored_message_observation_page(
@@ -128,6 +287,31 @@ impl SqliteAccountStorage {
         after: Option<&MirroredChatCursor>,
         limit: usize,
         now: u64,
+    ) -> StorageResult<Vec<MirroredMessageObservation>> {
+        self.mirrored_message_observation_read(scopes, group, after, limit, now, false)
+    }
+
+    /// Latest bounded window or exclusive earlier canonical cursor. Returned
+    /// rows remain ascending; the descending SQL limit never scans all records.
+    pub fn mirrored_message_observation_window(
+        &self,
+        scopes: &[MirroredChatScope],
+        group: &GroupId,
+        before: Option<&MirroredChatCursor>,
+        limit: usize,
+        now: u64,
+    ) -> StorageResult<Vec<MirroredMessageObservation>> {
+        self.mirrored_message_observation_read(scopes, group, before, limit, now, true)
+    }
+
+    fn mirrored_message_observation_read(
+        &self,
+        scopes: &[MirroredChatScope],
+        group: &GroupId,
+        after: Option<&MirroredChatCursor>,
+        limit: usize,
+        now: u64,
+        newest: bool,
     ) -> StorageResult<Vec<MirroredMessageObservation>> {
         let keys = eligible(scopes, limit)?;
         if !(1..=255).contains(&group.as_slice().len())
@@ -158,19 +342,25 @@ impl SqliteAccountStorage {
             Value::Text(hex::encode(group.as_slice())),
             Value::Integer(limit as i64),
         ]);
+        let comparison = if newest { "<" } else { ">" };
+        let ordering = if newest {
+            "created_at DESC,event_id DESC"
+        } else {
+            "created_at,event_id"
+        };
         let sql = format!("{prefix}, ranked AS (
           SELECT m.*,e.position,row_number() OVER(PARTITION BY m.event_id ORDER BY m.scope) AS rank
           FROM eligible e JOIN mirrored_chat_messages m ON m.scope=e.scope
           JOIN mirrored_chat_catalog c ON c.scope=m.scope AND c.group_id=m.group_id
           JOIN mirrored_chat_scopes s ON s.scope=m.scope
-          WHERE m.group_id=? AND (?=0 OR (m.created_at,m.event_id)>(?,?)) AND c.state=0
+          WHERE m.group_id=? AND (?=0 OR (m.created_at,m.event_id){comparison}(?,?)) AND c.state=0
           AND NOT EXISTS(SELECT 1 FROM mirrored_chat_catalog terminal JOIN mirrored_chat_scopes ts ON ts.scope=terminal.scope WHERE terminal.group_id=c.group_id AND terminal.state!=0 AND ts.source_device=s.source_device)
           AND NOT EXISTS(SELECT 1 FROM user_blocks blocked WHERE blocked.public_key=lower(hex(m.author)))
           AND NOT EXISTS(SELECT 1 FROM app_events live WHERE live.group_id_hex=? AND live.message_id_hex=lower(hex(m.event_id)))
           AND (m.deleted=1 OR NOT EXISTS(SELECT 1 FROM mirrored_chat_messages terminal WHERE terminal.group_id=m.group_id AND terminal.event_id=m.event_id AND terminal.deleted=1))
         ) SELECT event_id,author,created_at,kind,payload,expires_at,content_digest,deleted,source_epoch,source_sequence,source_digest,position,
           (SELECT min(expiry.expires_at) FROM mirrored_chat_messages expiry WHERE expiry.group_id=ranked.group_id AND expiry.event_id=ranked.event_id)
-          FROM ranked WHERE rank=1 ORDER BY created_at,event_id LIMIT ?");
+          FROM ranked WHERE rank=1 ORDER BY {ordering} LIMIT ?");
         let mut statement = conn.prepare(&sql).storage()?;
         let rows = statement
             .query_map(params_from_iter(arguments), |row| {
@@ -181,21 +371,26 @@ impl SqliteAccountStorage {
                 ))
             })
             .storage()?;
-        rows.map(|row| {
-            let (mut record, position, expiry) = row.storage()?;
-            mirrored_chat_messages::validate(&record)?;
-            record.expires_at = expiry.map(|value| value as u64);
-            if record.expires_at.is_some_and(|expiry| expiry <= now) {
-                record.deleted = true;
-                record.payload.clear();
-            }
-            let scope = scopes.get(position).ok_or_else(invalid)?;
-            Ok(MirroredMessageObservation {
-                scope: scope.clone(),
-                record,
+        let mut observed = rows
+            .map(|row| {
+                let (mut record, position, expiry) = row.storage()?;
+                mirrored_chat_messages::validate(&record)?;
+                record.expires_at = expiry.map(|value| value as u64);
+                if record.expires_at.is_some_and(|expiry| expiry <= now) {
+                    record.deleted = true;
+                    record.payload.clear();
+                }
+                let scope = scopes.get(position).ok_or_else(invalid)?;
+                Ok(MirroredMessageObservation {
+                    scope: scope.clone(),
+                    record,
+                })
             })
-        })
-        .collect()
+            .collect::<StorageResult<Vec<_>>>()?;
+        if newest {
+            observed.reverse();
+        }
+        Ok(observed)
     }
 }
 

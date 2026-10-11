@@ -350,6 +350,8 @@ pub(crate) enum AccountWorkerCommand {
     #[cfg(feature = "experimental-device-sync")]
     AccountSharing(Box<super::account_chat_sharing::Command>),
     #[cfg(feature = "experimental-device-sync")]
+    AccountChatPresentation(Box<super::account_chat_presentation::Command>),
+    #[cfg(feature = "experimental-device-sync")]
     SelectedChatConsent(Box<super::selected_chat_copy::ConsentCommand>),
     #[cfg(feature = "experimental-device-sync")]
     BeginSelectedChatCopy {
@@ -4744,6 +4746,11 @@ fn account_worker_command_future<'a>(
         #[cfg(feature = "experimental-device-sync")]
         AccountWorkerCommand::DeviceRevocation(command) => Box::pin(async move {
             super::device_revocation::handle(client, *command).await;
+            false
+        }),
+        #[cfg(feature = "experimental-device-sync")]
+        AccountWorkerCommand::AccountChatPresentation(command) => Box::pin(async move {
+            super::account_chat_presentation::handle(client, *command);
             false
         }),
         #[cfg(feature = "experimental-device-sync")]
