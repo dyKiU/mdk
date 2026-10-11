@@ -124,3 +124,9 @@ policy store; this checkpoint uses the exact agreed domain/encoding locally.
 The named explicit A/B continuation now captures broad sharing before the genuine SDK original is consumed and records the symmetric durable policy only after its actual Completed all-leaf settlement. The public completion observation performs this handoff synchronously. Ordinary continuation and later ordinary C enrollment leave broad policy unchanged. Stable identity now uses the shared signed traits helper; no duplicate Core encoding remains.
 
 Real independent-store/relay approval, ordinary ABC controls, Core channel controls and default refusal pass. This is an approval foundation; automatic exchange, normal mirrored timelines and durable forwarded sends remain unfinished. Existing paired installations require a fresh explicit broad approval, not a repeated Add or a policy inferred from their roster. Raw evidence and exact frozen-source qualification are in `automatic-pairing-chat-sharing-verification.json`.
+
+## Fresh existing-pair approval checkpoint
+
+Already paired devices can now obtain fresh opaque source and recipient reviews without repeating enrollment. The source's explicit action sends a real signed protected Request, the addressed peer explicitly approves its own original, and both retain symmetric policy identity only under fresh Core/SQL checks. Actual ABC acceptance verifies A/C approval, B exclusion, stale revisions, source cancellation, surviving aliases and default refusal. The current snapshot is review metadata, never permission.
+
+The source qualification is separate from automatic renewal, catalog/message delivery, normal conversation integration and forwarded sends. B's enrollment `approve_and_share_chats` hook and authenticated peer inventory remain next slices. See `automatic-existing-pair-sharing-verification.json` for exact source/cohort distinctions and retained compile failures.

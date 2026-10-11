@@ -1922,6 +1922,11 @@ impl AppClient {
         for (event, event_progress) in effects.events.iter().zip(&mut progress.events) {
             #[cfg(feature = "experimental-device-sync")]
             if !event_progress.completed {
+                self.observe_account_sharing_control(event).map_err(|_| {
+                    AppError::InvalidAppMessagePayload(
+                        "private account sharing control unavailable".into(),
+                    )
+                })?;
                 self.observe_history_control(event).map_err(|_| {
                     AppError::InvalidAppMessagePayload("private history control unavailable".into())
                 })?;
@@ -6451,6 +6456,11 @@ impl AppClient {
         for (event, event_progress) in effects.events.iter().zip(&mut progress.events) {
             #[cfg(feature = "experimental-device-sync")]
             if !event_progress.completed {
+                self.observe_account_sharing_control(event).map_err(|_| {
+                    AppError::InvalidAppMessagePayload(
+                        "private account sharing control unavailable".into(),
+                    )
+                })?;
                 self.observe_history_control(event).map_err(|_| {
                     AppError::InvalidAppMessagePayload("private history control unavailable".into())
                 })?;

@@ -24,6 +24,16 @@ async fn default_native_verification_is_unsupported_before_account_or_worker_eff
             .await,
         Err(DeviceLinkingError::Unsupported)
     ));
+    assert!(matches!(
+        accounts
+            .begin_account_chat_sharing("missing", vec![0; 32])
+            .await,
+        Err(crate::AccountSharingError::Unsupported)
+    ));
+    assert!(matches!(
+        accounts.pending_account_chat_sharing("missing").await,
+        Err(crate::AccountSharingError::Unsupported)
+    ));
     assert!(accounts.managed_accounts().unwrap().is_empty());
     runtime.shutdown_and_close().await.unwrap();
 }
@@ -186,12 +196,17 @@ mod actual {
     async fn native_pairing_explicit_chat_sharing_persists_only_completed_original() {
         run_native_public_three_device_enrollment(ApprovalScenario::ShareChats).await;
     }
+    #[tokio::test]
+    async fn existing_pair_explicit_account_sharing_uses_original_relay_consent() {
+        run_native_public_three_device_enrollment(ApprovalScenario::ExistingShare).await;
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum ApprovalScenario {
         Enroll,
         Cancel,
         ReviewThenEnroll,
         ShareChats,
+        ExistingShare,
     }
     async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
         use cgka_traits::StorageProvider;
@@ -481,6 +496,114 @@ mod actual {
                 policies.len(),
                 usize::from(scenario == ApprovalScenario::ShareChats && index < 2)
             );
+        }
+        if scenario == ApprovalScenario::ExistingShare {
+            // Select C from actual settled protected tree, never invent a target.
+            let c_key = apps[2]
+                .account_storage("test")
+                .unwrap()
+                .private_roster_settlement_storage()
+                .unwrap()
+                .read_round()
+                .unwrap()
+                .unwrap()
+                .anchor
+                .local_device;
+            let cancelled = managers[0]
+                .begin_account_chat_sharing("test", c_key.to_vec())
+                .await
+                .unwrap();
+            let cancelled_revision = cancelled.snapshot().unwrap().revision;
+            cancelled.cancel();
+            assert!(matches!(
+                cancelled.approve(cancelled_revision).await,
+                Err(crate::AccountSharingError::Closed)
+            ));
+            let source = managers[0]
+                .begin_account_chat_sharing("test", c_key.to_vec())
+                .await
+                .unwrap();
+            let review = source.snapshot().unwrap();
+            assert!(!review.approved && !review.complete);
+            assert!(
+                managers[2]
+                    .pending_account_chat_sharing("test")
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(
+                managers[0]
+                    .begin_account_chat_sharing("missing", c_key.to_vec())
+                    .await
+                    .is_err()
+            );
+            assert!(matches!(
+                source.approve(review.revision + 1).await,
+                Err(crate::AccountSharingError::StaleRevision)
+            ));
+            let alias = source.clone();
+            drop(alias);
+            source.approve(review.revision).await.unwrap();
+            let end = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            let recipient = loop {
+                let mut pending = managers[2]
+                    .pending_account_chat_sharing("test")
+                    .await
+                    .unwrap();
+                if !pending.is_empty() {
+                    break pending.remove(0);
+                }
+                assert!(
+                    std::time::Instant::now() < end,
+                    "real protected request did not arrive"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            };
+            let recipient_review = recipient.snapshot().unwrap();
+            assert_eq!(recipient_review.protected_group, review.protected_group);
+            assert_eq!(recipient_review.protected_epoch, review.protected_epoch);
+            assert_eq!(recipient_review.source_device, review.source_device);
+            assert_eq!(recipient_review.recipient_device, review.recipient_device);
+            assert!(
+                managers[1]
+                    .pending_account_chat_sharing("test")
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(matches!(
+                recipient.approve(recipient_review.revision + 1).await,
+                Err(crate::AccountSharingError::StaleRevision)
+            ));
+            recipient.approve(recipient_review.revision).await.unwrap();
+            while !source.snapshot().unwrap().complete {
+                assert!(
+                    std::time::Instant::now() < end,
+                    "real signed consent did not complete"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            assert!(recipient.snapshot().unwrap().complete);
+            let facts: Vec<_> = apps
+                .iter()
+                .map(|app| {
+                    app.account_storage("test")
+                        .unwrap()
+                        .approved_account_sharing_policy_storage()
+                        .unwrap()
+                        .approved_account_sharing_policies()
+                        .unwrap()
+                })
+                .collect();
+            assert_eq!(facts[0].len(), 1);
+            assert!(facts[1].is_empty());
+            assert_eq!(facts[2].len(), 1);
+            assert_eq!(facts[0][0].approval_id, facts[2][0].approval_id);
+            assert_eq!(facts[0][0].local_device, facts[2][0].peer_device);
+            assert_eq!(facts[0][0].peer_device, facts[2][0].local_device);
+            source.cancel();
+            recipient.cancel();
         }
         assert!(
             managers

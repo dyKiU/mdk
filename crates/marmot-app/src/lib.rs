@@ -101,6 +101,10 @@ pub use device_revocation::{
     DeviceRevocation, DeviceRevocationSnapshot, GroupDeviceRevocation, GroupDeviceRevocationError,
     GroupDeviceRevocationSnapshot,
 };
+mod account_chat_sharing;
+pub use account_chat_sharing::{
+    AccountSharingApproval, AccountSharingError, AccountSharingSnapshot,
+};
 mod history_transfer;
 mod native_device_linking;
 mod selected_chat_copy;
@@ -1935,6 +1939,8 @@ impl MarmotApp {
             selected_chat_copy_owner: crate::selected_chat_copy::enabled::AccountCopyOwner::default(),
             #[cfg(feature = "experimental-device-sync")]
             history_owner: crate::history_transfer::enabled::AccountHistoryOwner::default(),
+            #[cfg(feature = "experimental-device-sync")]
+            account_sharing_owner: crate::account_chat_sharing::enabled::AccountSharingOwner::default(),
             #[cfg(feature = "experimental-device-sync")]
             device_revocation_owner: crate::device_revocation::enabled::AccountRevocationOwner::default(),
             #[cfg(feature = "experimental-device-sync")]

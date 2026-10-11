@@ -109,6 +109,8 @@ pub use attachment_history::{
 };
 mod avatar_access;
 pub use avatar_access::{LocalAvatarRead, MAX_AVATAR_BATCH_BYTES, MAX_AVATAR_BATCH_ITEMS};
+#[cfg(feature = "experimental-device-sync")]
+mod account_chat_sharing;
 mod commands;
 #[cfg(feature = "experimental-device-sync")]
 #[allow(

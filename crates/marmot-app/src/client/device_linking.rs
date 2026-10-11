@@ -1193,6 +1193,11 @@ impl AppClient {
                 "history original maintenance unavailable".into(),
             )))
         })?;
+        self.maintain_existing_pair_sharing().map_err(|_| {
+            ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
+                "account sharing original maintenance unavailable".into(),
+            )))
+        })?;
         self.persist_completed_pair_sharing_approval()?;
         self.prune_native_enrollment_intent();
         self.maintain_received_enrollment_endorsement(now)?;

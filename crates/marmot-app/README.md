@@ -813,3 +813,9 @@ delivery remain separate from this read-only App API checkpoint.
 `DeviceLinkingSession::continue_linking_and_share_chats(displayed_revision)` forwards the exact held verified pairing original. This action approves sharing existing and future chats, history and messaging with that paired device. Durable policy is recorded only after the same SDK-derived original and fresh all-leaf Completed settlement validate; the public EnrollmentComplete observation waits for that write. Ordinary `continue_linking` does not approve broad sharing, and the default build returns Unsupported before effects. Adding another device does not implicitly grant it an existing pair's policy.
 
 This checkpoint qualifies original A/B approval and durable handoff, not automatic catalog exchange, mirrored conversation presentation or bridge sends. Existing pairs still need a fresh explicit pair-wide approval. See [qualification](../../docs/automatic-pairing-chat-sharing-verification.json).
+
+### Existing paired-device broad approval
+
+`AccountManager::begin_account_chat_sharing(account, recipient_device)` creates a fresh opaque review for an already paired device. Its `approve(displayed_revision)` publishes the genuine protected Request; `pending_account_chat_sharing(account)` exposes the addressed recipient's authenticated original for its own explicit approval. The read-only snapshot identifies both devices and the protected group/epoch. Neither a snapshot nor a device selector grants access. Signed Request/Consent and fresh Core context checks precede each peer's immutable durable policy write. Default builds return Unsupported before account effects.
+
+This source checkpoint does not yet exchange automatic catalogs/messages or populate ordinary conversation views. No packets, channel keys or grant DTOs are exposed. See [acceptance and limits](../../docs/automatic-existing-pair-sharing-verification.json).

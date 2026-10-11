@@ -66,6 +66,8 @@ use crate::{
     SelfMembership, SendSummary, unix_now_seconds,
 };
 
+#[cfg(feature = "experimental-device-sync")]
+mod account_chat_sharing;
 mod audit;
 mod audit_recovery;
 mod audit_v5_app_update;
@@ -512,6 +514,8 @@ pub struct AppClient {
     pub(crate) selected_chat_copy_owner: crate::selected_chat_copy::enabled::AccountCopyOwner,
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) history_owner: crate::history_transfer::enabled::AccountHistoryOwner,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) account_sharing_owner: crate::account_chat_sharing::enabled::AccountSharingOwner,
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) device_revocation_owner: crate::device_revocation::enabled::AccountRevocationOwner,
     #[cfg(feature = "experimental-device-sync")]

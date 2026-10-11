@@ -786,3 +786,7 @@ Typed received Remove storage rollback now retains the same client only when Cor
 ### Original pairing-wide sharing approval
 
 Capture explicit sharing intent before taking the genuine verified SDK original. Persist only under its unchanged deadline, matching SDK context and fresh Completed settlement guard, with validation before and at the SQL transaction tail. Public EnrollmentComplete must synchronously finish the durable handoff before an app can close the original. Ordinary continuation and new third-device enrollment cannot create implicit broad policy.
+
+### Existing-pair broad approval originals
+
+`account_chat_sharing` owns the fresh source/recipient action; the worker and client children retain actual Core channels. Authenticate the real protected source proof before constructing recipient review. Bind immutable metadata, fixed600-second original and displayedrevision; do not manufacture approval from stored policy or old SDK context. Durable writes validate the same channel before/tail SQL. Observe private controls identically on direct/replay paths, and keep them hidden from ordinary projection. Retain process-lifetime negative request IDs at the128-owner bound; this checkpoint does not claim restart denial or automatic channel renewal.
