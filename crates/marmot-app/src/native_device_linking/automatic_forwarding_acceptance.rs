@@ -91,6 +91,109 @@ async fn automatic_forwarding_queues_without_members_and_reopens_both_independen
     .await;
 }
 
+#[tokio::test]
+async fn automatic_forwarding_retries_unacknowledged_receipt_after_recipient_sql_rollback() {
+    actual::run_native_public_three_device_enrollment(
+        actual::ApprovalScenario::AutomaticForwardingReceiptRetry,
+    )
+    .await;
+}
+
+pub(super) async fn verify_receipt_sql_retry(
+    apps: &[MarmotApp; 3],
+    runtime: &MarmotAppRuntime,
+    group: &crate::GroupId,
+    scope: &cgka_traits::mirrored_chat_catalog::MirroredChatScope,
+) {
+    let path = apps[2].account_storage_path("test");
+    let keys = apps[2].account_home().load_signing_keys("test").unwrap();
+    let sql_key = apps[2]
+        .sqlcipher_key(
+            "test",
+            &keys,
+            &path,
+            crate::sqlcipher::SqlcipherDatabaseKind::Session,
+        )
+        .unwrap();
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    storage_sqlite::open_hardened_sqlcipher(
+        &connection,
+        &sql_key,
+        storage_sqlite::SqlCipherHardening::cipher_only(),
+    )
+    .unwrap();
+    connection.execute_batch("CREATE TRIGGER hold_forwarded_receipt BEFORE UPDATE ON account_chat_send_intents WHEN NEW.state=2 BEGIN SELECT RAISE(ABORT,'isolated forwarded receipt rollback'); END;").unwrap();
+    let mut errors = runtime.subscribe();
+    let token = "receipt-rollback-original-client-token".to_owned();
+    let accepted = runtime
+        .submit_text("test", group, "receipt retry".into(), token.clone())
+        .await
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(90), async {
+        loop {
+            if let crate::MarmotAppEvent::AccountError(error) = errors.recv().await.unwrap()
+                && error.message.starts_with("runtime receive failed")
+            {
+                assert_eq!(
+                    error.message,
+                    "runtime receive failed: invalid_app_message_payload"
+                );
+                break;
+            }
+        }
+    })
+    .await
+    .expect("actual encrypted receipt must reach recipient SQL refusal");
+    assert!(matches!(
+        runtime.local_send_status("test", group, &token).unwrap(),
+        Some(crate::LocalSendStatus::Queued)
+    ));
+    let storage = apps[0].account_storage("test").unwrap();
+    let policy = storage
+        .approved_account_sharing_policy_storage()
+        .unwrap()
+        .approved_account_sharing_policies()
+        .unwrap()
+        .into_iter()
+        .find(|p| p.peer_device == scope.local_device)
+        .unwrap();
+    let receipts = storage
+        .account_chat_send_queue_storage()
+        .unwrap()
+        .pending_account_chat_send_receipts(&policy.account, &policy.local_device, None, 128)
+        .unwrap();
+    assert!(receipts.iter().any(|r| r.actual_member_device == policy.local_device
+        && matches!(r.state, cgka_traits::account_chat_send_queue::AccountChatSendState::Published { event_id } if hex::encode(event_id) == accepted.message_id_hex)));
+    assert!(
+        storage
+            .app_message(&hex::encode(group.as_slice()), &accepted.message_id_hex)
+            .unwrap()
+            .is_some()
+    );
+    let retried = runtime
+        .submit_text("test", group, "receipt retry".into(), token.clone())
+        .await
+        .unwrap();
+    assert!(retried == accepted);
+    connection
+        .execute_batch("DROP TRIGGER hold_forwarded_receipt;")
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(90), async {
+        loop {
+            if let Some(crate::LocalSendStatus::Completed(summary)) = runtime.local_send_status("test", group, &token).unwrap() {
+                assert_eq!(summary.published, 1);
+                assert!(summary.message_ids == [accepted.message_id_hex.clone()]);
+                if storage.account_chat_send_queue_storage().unwrap()
+                    .pending_account_chat_send_receipts(&policy.account, &policy.local_device, None, 128).unwrap().is_empty() {
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }).await.expect("same published event must receive a committed recipient receipt and authenticated acknowledgement");
+    assert!(apps[2].load_state("test").unwrap().groups.is_empty());
+}
+
 pub(super) async fn verify_reply(
     apps: &[MarmotApp; 3],
     runtime: &MarmotAppRuntime,
