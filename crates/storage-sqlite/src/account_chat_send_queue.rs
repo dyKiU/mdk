@@ -15,6 +15,40 @@ use sha2::{Digest, Sha256};
 fn invalid() -> StorageError {
     StorageError::Serialization("invalid account chat send metadata".into())
 }
+fn capacity() -> StorageError {
+    StorageError::Capacity("paired chat forwarding limit reached".into())
+}
+fn check_row_capacity(conn: &Connection, query: &str, maximum: usize) -> StorageResult<()> {
+    let count: i64 = conn.query_row(query, [], |r| r.get(0)).storage()?;
+    if count < 0 {
+        return Err(invalid());
+    }
+    if count >= maximum as i64 {
+        return Err(capacity());
+    }
+    Ok(())
+}
+fn check_intent_capacity(conn: &Connection, payload_bytes: usize) -> StorageResult<()> {
+    check_row_capacity(
+        conn,
+        "SELECT count(*) FROM account_chat_send_intents",
+        MAX_ACCOUNT_CHAT_SEND_INTENTS,
+    )?;
+    let retained: i64 = conn
+        .query_row(
+            "SELECT coalesce(sum(length(payload)),0) FROM account_chat_send_intents",
+            [],
+            |r| r.get(0),
+        )
+        .storage()?;
+    if retained < 0 {
+        return Err(invalid());
+    }
+    if retained as u64 + payload_bytes as u64 > MAX_ACCOUNT_CHAT_SEND_BYTES as u64 {
+        return Err(capacity());
+    }
+    Ok(())
+}
 fn check_intent(intent: &AccountChatSendIntent) -> StorageResult<()> {
     if [
         intent.intent_id,
@@ -150,6 +184,7 @@ fn receipt_transition(
             let digest=receipt.digest(); let encoded=serde_json::to_vec(receipt).map_err(|_|invalid())?;
             let old:Option<Vec<u8>>=conn.query_row("SELECT record FROM account_chat_send_receipts WHERE digest=?1",[digest.as_slice()],|r|r.get(0)).optional().storage()?;
             if let Some(old)=old {if old!=encoded {return Err(invalid());}} else {
+                check_row_capacity(&conn,"SELECT count(*) FROM account_chat_send_receipts",MAX_ACCOUNT_CHAT_SEND_RECEIPTS)?;
                 conn.execute("INSERT INTO account_chat_send_receipts VALUES(?1,?2,?3,?4,0)",params![digest.as_slice(),receipt.intent_id.as_slice(),receipt.route.policy_id.as_slice(),encoded]).storage()?;
             }
         }
@@ -204,12 +239,14 @@ impl AccountChatSendQueueStorage for SqliteAccountStorage {
                 if !same_identity(&old,intent) || (state==0 && old.event_payload!=intent.event_payload) || state==3 {return Err(invalid());}
                 if state==2 {drop(conn);validate_original()?;return Ok(());}
             } else {
+                check_intent_capacity(&conn,intent.event_payload.len())?;
                 conn.execute("INSERT INTO account_chat_send_intents VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0)",params![intent.intent_id.as_slice(),intent.account.as_slice(),intent.originating_device.as_slice(),intent.group.as_slice(),intent.ordinary_event_id.as_slice(),intent.event_payload,intent.payload_digest.as_slice(),intent.created_at as i64]).storage()?;
             }
             let previous:Option<(Vec<u8>,Vec<u8>,i64)>=conn.query_row("SELECT local_device,peer_device,state FROM account_chat_send_routes WHERE intent_id=?1 AND policy_id=?2",params![intent.intent_id.as_slice(),route.policy_id.as_slice()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().storage()?;
             if let Some((local,peer,status))=previous {
                 if local!=route.local_device || peer!=route.peer_device || status==3 {return Err(invalid());}
             } else {
+                check_row_capacity(&conn,"SELECT count(*) FROM account_chat_send_routes",MAX_ACCOUNT_CHAT_SEND_ROUTES)?;
                 conn.execute("INSERT INTO account_chat_send_routes VALUES(?1,?2,?3,?4,0,NULL)",params![intent.intent_id.as_slice(),route.policy_id.as_slice(),route.local_device.as_slice(),route.peer_device.as_slice()]).storage()?;
             }
             drop(conn);validate_original()?;Ok(())

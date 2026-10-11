@@ -467,7 +467,7 @@ fn account_chat_queue_actual_byte_budget_rolls_back_and_terminal_clears_only_pay
         admit(&s, &i, &r).unwrap();
     }
     i.intent_id[..4].copy_from_slice(&257u32.to_be_bytes());
-    assert!(admit(&s, &i, &r).is_err());
+    assert!(matches!(admit(&s, &i, &r), Err(StorageError::Capacity(_))));
     assert_eq!(
         s.lock()
             .unwrap()
@@ -511,12 +511,21 @@ fn account_chat_queue_lifetime_intent_and_route_capacity_survives_terminal_clean
             Ok::<_, StorageError>(())
         })
         .unwrap();
-    assert!(admit(&s, &intent(4097), &r).is_err());
+    assert!(matches!(
+        admit(&s, &intent(4097), &r),
+        Err(StorageError::Capacity(_))
+    ));
     let third = route(&s, 2, 9, 10);
-    assert!(admit(&s, &intent(1), &third).is_err());
+    assert!(matches!(
+        admit(&s, &intent(1), &third),
+        Err(StorageError::Capacity(_))
+    ));
     s.deny_account_chat_send_intent(&[1; 32], &[2; 32], &intent(1).intent_id, &|| Ok(()))
         .unwrap();
-    assert!(admit(&s, &intent(4097), &r).is_err());
+    assert!(matches!(
+        admit(&s, &intent(4097), &r),
+        Err(StorageError::Capacity(_))
+    ));
     assert_eq!(
         s.lock()
             .unwrap()

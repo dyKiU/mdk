@@ -112,7 +112,49 @@
   },
   "limits": [
     "Storage callbacks are synthetic. Actual member authentication, normal publication and no-button automatic dispatch need Core/App independent-relay acceptance.",
-    "Experimental bounded lifetime budgets do not include authenticated compaction; capacities must surface a refusal, never a false Sent state. Current logical-budget SQL refusal is generic backend error; typed Capacity follow-up remains open.",
+    "Experimental bounded lifetime budgets do not include authenticated compaction. Typed capacity refusal is qualified in the follow-up; native UI must surface refusal, never a false Sent state.",
     "Source stream cursor/fragment import acknowledgment, SDK forwarders, normal UI presentation and matched app deployment remain unfinished."
-  ]
+  ],
+  "typed_capacity_followup": {
+    "base": "9f8a4903b6ae383ca887ca5f88799c972c3e32d8",
+    "scope": "Same-transaction logical capacity prechecks return existing typed StorageError::Capacity; immutable SQL guards and private20 migration unchanged",
+    "inputs": {
+      "count": 755,
+      "manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-chat-send-queue-capacity-v4-inputs.json",
+      "sha256": "f5eec845fe2c641d108eadd9f521f87f941142aa72ad4c23a4880019e9b7c34f",
+      "M1_M5_hash_match": true
+    },
+    "actual_red": {
+      "passed": 0,
+      "failed": 2,
+      "skipped": 1136,
+      "seconds": 3.29,
+      "log": "automatic-chat-send-queue-capacity-red-v4.log"
+    },
+    "green": {
+      "passed": 49,
+      "failed": 0,
+      "skipped": 1089,
+      "seconds": 14.428,
+      "log": "automatic-chat-send-queue-capacity-green-v4.log"
+    },
+    "static": {
+      "strict_clippy": "Passed",
+      "default_all_targets": "Passed",
+      "format_diff": "Passed",
+      "logs": [
+        "automatic-chat-send-queue-capacity-clippy-v4.log",
+        "automatic-chat-send-queue-capacity-default-v4.log",
+        "automatic-chat-send-queue-capacity-format-v4.log"
+      ]
+    },
+    "retained_results": "Full1131/0/7 and traits173 at signed9f remain the explicitly scoped baseline. Only queue capacity precheck implementation and corresponding typed-error assertions changed; final native/app promotion must exercise the final candidate.",
+    "raw_sha256": {
+      "automatic-chat-send-queue-capacity-clippy-v4.log": "68674fda3f722b96378f67e9340a328c3423b88b9b0958ad952e0d9bccd80ca7",
+      "automatic-chat-send-queue-capacity-default-v4.log": "7f9c1104b378d23890ba9b17ff277b583511ba7919b03ea2d1d619afa47e43a7",
+      "automatic-chat-send-queue-capacity-format-v4.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "automatic-chat-send-queue-capacity-green-v4.log": "7d9d2c0357e7ac2ccd44c395223e3877cc88cac946efcff0388ab6ed43f9c8a1",
+      "automatic-chat-send-queue-capacity-red-v4.log": "2985de6c53bfc5a34ba48478a2f09348696ad9269f01786f8d4b26f65a5b1a00"
+    }
+  }
 }
