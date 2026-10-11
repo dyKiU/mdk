@@ -4258,6 +4258,9 @@ impl MarmotApp {
         // Account refs may be labels, hex pubkeys, or npubs. Ownership is keyed
         // by the canonical stored label so aliases cannot open a second engine.
         let label = account.label.as_str();
+        let public_key_package_publication_disabled = self
+            .account_home
+            .public_key_package_publication_disabled(label)?;
         let session_guard = self.acquire_account_session(label)?;
         let state = self.load_state(label)?;
         let recovery_storage = self.account_storage(label)?;
@@ -4429,6 +4432,9 @@ impl MarmotApp {
         let routing = self.routing_for(&state)?;
         let mut runtime =
             AccountDeviceRuntime::new(session, adapter.clone(), routing.clone(), key_packages);
+        if public_key_package_publication_disabled {
+            runtime = runtime.with_public_key_package_publication_disabled();
+        }
         if let Some(timing) = dev_maintenance_timing(&self.config) {
             runtime = runtime.with_maintenance_timing(timing);
         }

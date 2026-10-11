@@ -7584,6 +7584,42 @@ async fn legacy_ambiguous_setup_requires_consent_before_reset() {
 }
 
 #[tokio::test]
+async fn companion_publication_hold_is_applied_when_app_opens_an_account() {
+    let directory = tempfile::tempdir().unwrap();
+    let home = AccountHome::open(directory.path());
+    let account = home.create_account("companion").unwrap();
+    home.disable_public_key_package_publication(&account.label)
+        .unwrap();
+    let app = MarmotApp::with_relay(directory.path(), "wss://relay.example");
+    app.ensure_account_state(&account.label).unwrap();
+    let relay_plane = MarmotRelayPlane::with_subscription_rebuild_lookback(Duration::from_secs(30));
+    let mut opened = app
+        .open_account(&account.label, &relay_plane, false)
+        .unwrap();
+    assert!(
+        !opened
+            .runtime
+            .key_package_network_maintenance_due()
+            .unwrap()
+    );
+    assert!(matches!(
+        opened.runtime.publish_fresh_key_package().await,
+        Err(marmot_account::AccountError::PublicKeyPackagePublicationDisabled)
+    ));
+    drop(opened);
+    std::fs::write(
+        home.account_dir(&account.label)
+            .join("public-key-package-hold.json"),
+        b"invalid",
+    )
+    .unwrap();
+    assert!(
+        app.open_account(&account.label, &relay_plane, false)
+            .is_err()
+    );
+}
+
+#[tokio::test]
 async fn unpublished_legacy_session_bundle_schedules_replacement_before_open() {
     let directory = tempfile::tempdir().unwrap();
     let home = AccountHome::open(directory.path());
