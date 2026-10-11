@@ -210,4 +210,7 @@ mod revoked_device_group_anchor;
 mod selected_chat_key_package;
 
 #[cfg(feature = "experimental-device-sync")]
+mod mirrored_chat_catalog;
+
+#[cfg(feature = "experimental-device-sync")]
 mod private_roster_settlement;

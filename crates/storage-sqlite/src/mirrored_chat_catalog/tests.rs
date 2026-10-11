@@ -1,0 +1,411 @@
+//! Synthetic persistence acceptance; not pairing or transport qualification.
+use super::*;
+use cgka_traits::{
+    MemberId,
+    group::ProtocolProfile,
+    storage::{AccountDeviceSignerStorage, GroupStorage},
+};
+use std::cell::Cell;
+
+fn scope() -> MirroredChatScope {
+    MirroredChatScope {
+        account: [1; 32],
+        local_device: [2; 32],
+        source_device: [3; 32],
+        policy_digest: [4; 32],
+        protected_group: GroupId::new(vec![5; 16]),
+        protected_generation: 1,
+    }
+}
+
+fn configure(storage: &SqliteAccountStorage) {
+    storage
+        .lock()
+        .unwrap()
+        .execute(
+            "INSERT INTO account_state(label,updated_at,local_account_id_hex) VALUES('test',0,?1)",
+            [hex::encode(scope().account)],
+        )
+        .unwrap();
+    storage
+        .put_account_device_signer(&AccountDeviceSignerBinding {
+            marmot_identity: MemberId::new(scope().account.to_vec()),
+            mls_signature_public_key: scope().local_device.to_vec(),
+        })
+        .unwrap();
+}
+
+fn entry(id: u8, sequence: u64) -> MirroredChatEntry {
+    MirroredChatEntry {
+        group_id: GroupId::new(vec![id; 16]),
+        source_epoch: 0,
+        source_sequence: sequence,
+        source_digest: [id; 32],
+        profile: ProtocolProfile::Current,
+        name: "same title".into(),
+        description: String::new(),
+        state: MirroredChatState::Active,
+    }
+}
+
+#[test]
+fn mirrored_catalog_pages_identity_and_retries_without_mls_membership() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    configure(&storage);
+    let records = vec![entry(8, 1), entry(7, 2)];
+    let calls = Cell::new(0);
+    let validate = || {
+        calls.set(calls.get() + 1);
+        Ok(())
+    };
+    assert_eq!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &records, &validate)
+            .unwrap(),
+        2
+    );
+    assert_eq!(calls.get(), 2);
+    assert_eq!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &records, &validate)
+            .unwrap(),
+        0
+    );
+    let first = storage
+        .mirrored_chat_catalog_page(&scope(), None, 1)
+        .unwrap();
+    assert!(first == vec![entry(7, 2)]);
+    let second = storage
+        .mirrored_chat_catalog_page(&scope(), Some(&first[0].group_id), 1)
+        .unwrap();
+    assert!(second == vec![entry(8, 1)]);
+    assert!(
+        storage
+            .mirrored_chat_catalog_page(&scope(), Some(&second[0].group_id), 1)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(storage.list_group_records().unwrap().is_empty());
+    let mut conflict = records[0].clone();
+    conflict.name = "different".into();
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[conflict], &validate)
+            .is_err()
+    );
+    assert!(
+        storage
+            .mirrored_chat_catalog_page(&scope(), None, 128)
+            .unwrap()
+            == vec![entry(7, 2), entry(8, 1)]
+    );
+}
+
+#[test]
+fn mirrored_catalog_terminal_fence_and_original_cancellation_are_atomic() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    configure(&storage);
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[entry(7, 2)], &|| Ok(()))
+        .unwrap();
+    let mut terminal = entry(7, 3);
+    terminal.state = MirroredChatState::Left;
+    terminal.name.clear();
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[terminal.clone()], &|| Ok(()))
+        .unwrap();
+    assert_eq!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[entry(7, 1)], &|| Ok(()))
+            .unwrap(),
+        0
+    );
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[entry(7, 4)], &|| Ok(()))
+            .is_err()
+    );
+    let calls = Cell::new(0);
+    let cancelled = || {
+        calls.set(calls.get() + 1);
+        if calls.get() == 2 {
+            Err(invalid())
+        } else {
+            Ok(())
+        }
+    };
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[entry(8, 4), entry(9, 5)], &cancelled)
+            .is_err()
+    );
+    assert!(
+        storage
+            .mirrored_chat_catalog_page(&scope(), None, 128)
+            .unwrap()
+            == vec![terminal]
+    );
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[entry(8, 4)], &|| Err(invalid()))
+            .is_err()
+    );
+    assert!(storage.list_group_records().unwrap().is_empty());
+}
+
+#[test]
+fn mirrored_catalog_refuses_wrong_owner_scope_bounds_and_duplicate_ids() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[entry(7, 1)], &|| Ok(()))
+            .is_err()
+    );
+    configure(&storage);
+    let mut wrong = scope();
+    wrong.account = [9; 32];
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&wrong, &[entry(7, 1)], &|| Ok(()))
+            .is_err()
+    );
+    wrong = scope();
+    wrong.local_device = [9; 32];
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&wrong, &[entry(7, 1)], &|| Ok(()))
+            .is_err()
+    );
+    wrong = scope();
+    wrong.source_device = wrong.local_device;
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&wrong, &[entry(7, 1)], &|| Ok(()))
+            .is_err()
+    );
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[], &|| Ok(()))
+            .is_err()
+    );
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[entry(7, 1), entry(7, 2)], &|| Ok(()))
+            .is_err()
+    );
+    let mut invalid_entry = entry(7, 1);
+    invalid_entry.name = "x".repeat(1025);
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[invalid_entry], &|| Ok(()))
+            .is_err()
+    );
+    invalid_entry = entry(7, 1);
+    invalid_entry.group_id = scope().protected_group;
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[invalid_entry], &|| Ok(()))
+            .is_err()
+    );
+    assert!(
+        storage
+            .mirrored_chat_catalog_page(&scope(), None, 0)
+            .is_err()
+    );
+    assert!(
+        storage
+            .mirrored_chat_catalog_page(&scope(), None, 129)
+            .is_err()
+    );
+    assert!(
+        storage
+            .mirrored_chat_catalog_page(&scope(), Some(&GroupId::new(vec![])), 1)
+            .is_err()
+    );
+    assert!(
+        storage
+            .mirrored_chat_catalog_page(&scope(), None, 128)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn mirrored_catalog_encrypted_reopen_preserves_terminal_fence_and_close_is_final() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("catalog.db");
+    let key = crate::SqlCipherKey::new("42".repeat(32)).unwrap();
+    let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    configure(&storage);
+    let mut terminal = entry(7, 3);
+    terminal.state = MirroredChatState::Deleted;
+    terminal.name.clear();
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[terminal.clone()], &|| Ok(()))
+        .unwrap();
+    storage.close().unwrap();
+    assert!(matches!(
+        storage.mirrored_chat_catalog_page(&scope(), None, 128),
+        Err(StorageError::Closed(_))
+    ));
+    let reopened = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    assert!(
+        reopened
+            .mirrored_chat_catalog_page(&scope(), None, 128)
+            .unwrap()
+            == vec![terminal]
+    );
+    assert!(
+        reopened
+            .apply_mirrored_chat_catalog(&scope(), &[entry(7, 4)], &|| Ok(()))
+            .is_err()
+    );
+    assert!(reopened.list_group_records().unwrap().is_empty());
+    assert_eq!(
+        reopened
+            .lock()
+            .unwrap()
+            .query_row("SELECT max(version) FROM cgka_schema_migrations", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        102
+    );
+}
+
+#[test]
+fn mirrored_catalog_multirow_conflict_rolls_back_and_owner_change_cannot_adopt_rows() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    configure(&storage);
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[entry(7, 1)], &|| Ok(()))
+        .unwrap();
+    let mut conflict = entry(7, 1);
+    conflict.description = "conflicting update".into();
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[entry(8, 2), conflict], &|| Ok(()))
+            .is_err()
+    );
+    assert!(
+        storage
+            .mirrored_chat_catalog_page(&scope(), None, 128)
+            .unwrap()
+            == vec![entry(7, 1)]
+    );
+    storage
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE account_state SET local_account_id_hex=?1",
+            [hex::encode([9; 32])],
+        )
+        .unwrap();
+    assert!(
+        storage
+            .mirrored_chat_catalog_page(&scope(), None, 128)
+            .is_err()
+    );
+    let mut other = scope();
+    other.account = [9; 32];
+    storage
+        .put_account_device_signer(&AccountDeviceSignerBinding {
+            marmot_identity: MemberId::new(other.account.to_vec()),
+            mls_signature_public_key: other.local_device.to_vec(),
+        })
+        .unwrap();
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&other, &[entry(8, 2)], &|| Ok(()))
+            .is_err()
+    );
+}
+
+#[test]
+fn mirrored_catalog_sql_guards_preserve_scope_and_terminal_references() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    configure(&storage);
+    let mut terminal = entry(7, 3);
+    terminal.state = MirroredChatState::Left;
+    terminal.name.clear();
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[terminal], &|| Ok(()))
+        .unwrap();
+    let key = scope_bytes(&scope()).unwrap();
+    let conn = storage.lock().unwrap();
+    assert!(
+        conn.execute("DELETE FROM mirrored_chat_catalog", [])
+            .is_err()
+    );
+    assert!(
+        conn.execute("DELETE FROM mirrored_chat_scopes", [])
+            .is_err()
+    );
+    assert!(
+        conn.execute(
+            "UPDATE mirrored_chat_catalog SET state=0,source_sequence=4",
+            []
+        )
+        .is_err()
+    );
+    assert!(
+        conn.execute("UPDATE mirrored_chat_catalog SET source_sequence=2", [])
+            .is_err()
+    );
+    assert!(
+        conn.execute(
+            "UPDATE mirrored_chat_scopes SET local_device=?1",
+            [[9; 32].as_slice()]
+        )
+        .is_err()
+    );
+    assert!(conn.execute("INSERT OR REPLACE INTO mirrored_chat_scopes(scope,account,local_device,source_device) VALUES(?1,?2,?3,?4)", params![key,scope().account.as_slice(),scope().local_device.as_slice(),scope().source_device.as_slice()]).is_err());
+    assert!(conn.execute("INSERT OR REPLACE INTO mirrored_chat_catalog(scope,group_id,source_sequence,state,record) VALUES(?1,?2,4,0,?3)",params![key,entry(7,4).group_id.as_slice(),crate::serialize(&entry(7,4)).unwrap()]).is_err());
+}
+
+#[test]
+fn mirrored_catalog_terminal_fence_survives_policy_and_roster_renewal() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    configure(&storage);
+    let mut newer_scope = scope();
+    newer_scope.protected_generation = 2;
+    newer_scope.policy_digest = [6; 32];
+    storage
+        .apply_mirrored_chat_catalog(&newer_scope, &[entry(7, 1)], &|| Ok(()))
+        .unwrap();
+    let mut terminal = entry(7, 2);
+    terminal.state = MirroredChatState::Left;
+    terminal.name.clear();
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[terminal], &|| Ok(()))
+        .unwrap();
+    assert!(
+        storage
+            .mirrored_chat_catalog_page(&newer_scope, None, 128)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&newer_scope, &[entry(7, 3)], &|| Ok(()))
+            .is_err()
+    );
+    let mut fresh_scope = newer_scope.clone();
+    fresh_scope.protected_generation = 3;
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&fresh_scope, &[entry(7, 3)], &|| Ok(()))
+            .is_err()
+    );
+    // Another actual member source has independent membership; a source leave
+    // does not forge a global disband or delete that sibling's valid observation.
+    fresh_scope.source_device = [8; 32];
+    storage
+        .apply_mirrored_chat_catalog(&fresh_scope, &[entry(7, 3)], &|| Ok(()))
+        .unwrap();
+    assert!(
+        storage
+            .mirrored_chat_catalog_page(&fresh_scope, None, 128)
+            .unwrap()
+            == vec![entry(7, 3)]
+    );
+}

@@ -130,6 +130,18 @@ refuse an upgraded schema; downgrading a binary requires a pre-upgrade backup.
 
 ## Experimental synchronized history
 
+Private revision17 adds a separate paired-source chat catalog. The default-off
+`MirroredChatCatalogStorage` capability accepts bounded pages only after the
+trusted original policy owner validates before work and before SQL commit.
+Configured account and local signer must match. Canonical group IDs distinguish
+same-title chats; exact retries are idempotent, conflicting sequences are refused,
+and retained Left/Deleted observations cannot become Active under the same scope.
+The catalog never writes live MLS groups or membership. Paging returns
+observations, not consent. Limits are 128 entries per page, 128 retained scopes
+and 8,192 retained rows, including terminal references. Database reopen does not
+restore a channel, approval or permission. Automatic transport and normal app
+projection remain separate integration work.
+
 The default-off `experimental-device-sync` feature exposes a bounded account-history archive importer on
 `SqliteAccountStorage`. This storage integration is not a pairing protocol, a continuous replication journal, or an
 end-to-end multi-device client implementation. The caller must authenticate the device-group roster, user consent,

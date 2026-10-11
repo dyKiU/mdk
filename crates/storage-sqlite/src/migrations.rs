@@ -890,6 +890,9 @@ mod private_migration_0014_history_staging;
 #[path = "private_migrations/0016_revoked_device_group_anchor.rs"]
 mod private_migration_0016_revoked_anchor;
 
+#[path = "private_migrations/0017_mirrored_chat_catalog.rs"]
+mod private_migration_0017_mirrored_catalog;
+
 const PRIVATE_MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -970,6 +973,11 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
         version: 16,
         name: "0016_revoked_device_group_anchor",
         apply: private_migration_0016_revoked_anchor::apply,
+    },
+    Migration {
+        version: 17,
+        name: "0017_mirrored_chat_catalog",
+        apply: private_migration_0017_mirrored_catalog::apply,
     },
 ];
 

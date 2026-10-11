@@ -34,6 +34,9 @@ between engine, peeler, transport adapter, storage, and caller imports from here
   `GroupCapabilities`, `FeatureStatus`.
 - `GroupContextSnapshot` — the cross-boundary group-context view.
 - Durable convergence-pass and maintenance/publication-recovery records.
+- `MirroredChatScope`, `MirroredChatEntry`, and optional `MirroredChatCatalogStorage`
+  store paired-source chat observations separately from MLS membership. Stored
+  metadata never restores approval or authorizes message delivery.
 - Agent text stream preview values: QUIC policy/component state (`AgentTextStreamQuicPolicyV1`), role/feature bits,
   length-delimited records (`AgentTextStreamRecordV1`), and key-context/transcript-hash helpers
   (`AgentTextStreamKeyContextV1`, `AgentTextStreamTranscriptV1`).

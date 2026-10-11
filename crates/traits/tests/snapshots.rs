@@ -1201,3 +1201,30 @@ fn snapshot_private_settlement_metadata_is_not_admission() {
         serde_json::json!({"state":state,"fact":fact})
     );
 }
+
+#[test]
+fn snapshot_mirrored_chat_observations_are_not_membership() {
+    use cgka_traits::mirrored_chat_catalog::*;
+    let scope = MirroredChatScope {
+        account: [1; 32],
+        local_device: [2; 32],
+        source_device: [3; 32],
+        policy_digest: [4; 32],
+        protected_group: gid(),
+        protected_generation: 5,
+    };
+    let entry = MirroredChatEntry {
+        group_id: GroupId::new(vec![6; 16]),
+        source_epoch: 7,
+        source_sequence: 8,
+        source_digest: [9; 32],
+        profile: ProtocolProfile::Current,
+        name: "Test chat".into(),
+        description: String::new(),
+        state: MirroredChatState::Active,
+    };
+    insta::assert_json_snapshot!(
+        "mirrored_chat_observations",
+        serde_json::json!({"scope":scope,"entry":entry})
+    );
+}

@@ -1121,6 +1121,13 @@ pub trait StorageProvider:
         None
     }
 
+    /// Optional paired-source catalog observations, never membership or consent.
+    fn mirrored_chat_catalog_storage(
+        &self,
+    ) -> Option<&dyn crate::mirrored_chat_catalog::MirroredChatCatalogStorage> {
+        None
+    }
+
     /// Run a storage operation inside one backend transaction when the backend
     /// supports it. Backends without transactional support use the closure
     /// directly; SQLite overrides this so multi-write OpenMLS transitions are

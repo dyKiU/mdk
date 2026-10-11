@@ -678,7 +678,7 @@ fn private_history_request_revision15_preserves_encrypted_revision14_prefix() {
         .unwrap();
     drop(conn);
     let mut conn = encrypted(&path);
-    assert_eq!(run_all(&mut conn).unwrap(), 1);
+    assert_eq!(run_all(&mut conn).unwrap(), PRIVATE_MIGRATIONS.len() - 14);
     assert_eq!(run_all(&mut conn).unwrap(), 0);
     assert_eq!(conn.query_row("SELECT count(*) FROM cgka_experimental_device_sync_schema_migrations WHERE version<=14 AND applied_at_unix_seconds=17",[],|r|r.get::<_,i64>(0)).unwrap(),14);
     assert_eq!(

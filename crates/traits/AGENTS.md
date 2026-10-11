@@ -20,6 +20,7 @@ what lives here is in [`README.md`](README.md#what-lives-in-here).
 | `src/storage.rs` | Storage traits, the `StorageProvider` aggregate (`type Mls` / `mls_storage()`), and the snapshot/rollback contract. |
 | `src/engine_state.rs` | Epoch and welcome state machines. |
 | `src/source_leaf.rs` | Optional authenticated source-leaf fact, legacy absence/serialization compatibility, redacted Debug; never authorization. |
+| `src/mirrored_chat_catalog.rs` | Optional bounded paired-source chat observations, exact account/device/policy scope and terminal fences; no Debug, approval restore or membership grant. |
 | `src/device_linking_key_package.rs` | Experimental purpose scope/context/public metadata and optional atomic storage contract; typed privacy-safe policy denials, never permission. |
 | `src/accepted_device_group_anchor.rs` | Optional trusted-core accepted-successor persistence contract; canonical predecessor/successor metadata and local selection scope, no Debug, SDK consent or settlement grants. |
 | `src/accepted_welcome.rs` | Experimental accepted-join fact; no Debug of identity bindings or authorization. Optional storage capability defaults unavailable. |
