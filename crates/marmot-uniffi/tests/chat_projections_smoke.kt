@@ -250,3 +250,9 @@ suspend fun compileAutomaticAttachment(marmot: Marmot, account: String, group: S
         check(!result.newlyQueued || result.status.state == AttachmentTransferStateFfi.QUEUED)
     }
 }
+
+// Distinct generated operations: close the original stream, then dispose its wrapper.
+private fun compileDeviceLinkingStreamClose(subscription: DeviceLinkingSubscription) {
+    subscription.closeStream()
+    subscription.close()
+}
