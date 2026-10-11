@@ -1,5 +1,6 @@
 //! Real protected-source intake and original pair-wide policy custody.
 use super::AppClient;
+pub(crate) mod automatic;
 use crate::{
     AccountSharingError,
     account_chat_sharing::enabled::{Entry, MAX_OWNERS, OriginalLease, State},
@@ -105,6 +106,9 @@ impl AppClient {
             .session()
             .authenticate_received_account_sharing_control(group_id, source, wire)
             .map_err(|_| AccountSharingError::NotReady)?;
+        if self.observe_automatic_sharing_control(&received, wire)? {
+            return Ok(());
+        }
         match received.control {
             AccountSharingControl::Request => {
                 if self.account_sharing_owner.seen.contains(&received.nonce) {

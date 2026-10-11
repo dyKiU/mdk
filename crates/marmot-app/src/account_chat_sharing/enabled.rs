@@ -32,9 +32,20 @@ pub(crate) struct Progress {
 }
 impl State {
     pub(crate) fn new(owner: &Arc<AtomicBool>, approval_id: [u8; 32]) -> Arc<Self> {
+        Self::new_until(
+            owner,
+            approval_id,
+            Instant::now() + Duration::from_secs(600),
+        )
+    }
+    pub(crate) fn new_until(
+        owner: &Arc<AtomicBool>,
+        approval_id: [u8; 32],
+        deadline: Instant,
+    ) -> Arc<Self> {
         Arc::new(Self {
             owner: Arc::downgrade(owner),
-            deadline: Instant::now() + Duration::from_secs(600),
+            deadline: deadline.min(Instant::now() + Duration::from_secs(600)),
             approval_id,
             created_at: crate::unix_now_seconds(),
             scope: Mutex::new(None),
@@ -132,6 +143,8 @@ pub(crate) struct AccountSharingOwner {
     pub(crate) lifetime: Arc<AtomicBool>,
     pub(crate) entries: BTreeMap<[u8; 32], Entry>,
     pub(crate) seen: BTreeSet<[u8; 32]>,
+    pub(crate) automatic:
+        BTreeMap<[u8; 32], crate::client::account_chat_sharing::automatic::AutomaticChannel>,
 }
 impl Default for AccountSharingOwner {
     fn default() -> Self {
@@ -139,6 +152,7 @@ impl Default for AccountSharingOwner {
             lifetime: Arc::new(AtomicBool::new(true)),
             entries: BTreeMap::new(),
             seen: BTreeSet::new(),
+            automatic: BTreeMap::new(),
         }
     }
 }

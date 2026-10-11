@@ -1199,6 +1199,13 @@ impl AppClient {
             )))
         })?;
         self.persist_completed_pair_sharing_approval()?;
+        self.maintain_automatic_account_sharing()
+            .await
+            .map_err(|_| {
+                ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
+                    "automatic sharing maintenance unavailable".into(),
+                )))
+            })?;
         self.prune_native_enrollment_intent();
         self.maintain_received_enrollment_endorsement(now)?;
         let reservation_live = self

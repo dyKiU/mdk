@@ -204,6 +204,10 @@ mod actual {
     async fn existing_pair_explicit_account_sharing_uses_original_relay_consent() {
         run_native_public_three_device_enrollment(ApprovalScenario::ExistingShare).await;
     }
+    #[tokio::test]
+    async fn automatic_sharing_request_before_source_policy_commit_retains_original_deadline() {
+        run_native_public_three_device_enrollment(ApprovalScenario::AutomaticRace).await;
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum ApprovalScenario {
         Enroll,
@@ -211,6 +215,7 @@ mod actual {
         ReviewThenEnroll,
         ShareChats,
         ExistingShare,
+        AutomaticRace,
     }
     async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
         use cgka_traits::StorageProvider;
@@ -501,7 +506,28 @@ mod actual {
                 usize::from(scenario == ApprovalScenario::ShareChats && index < 2)
             );
         }
-        if scenario == ApprovalScenario::ExistingShare {
+        let initial_shared_chat = if matches!(
+            scenario,
+            ApprovalScenario::ExistingShare | ApprovalScenario::AutomaticRace
+        ) {
+            Some(
+                managers[0]
+                    .create_group(
+                        "test",
+                        "Automatically discovered existing chat",
+                        &[],
+                        Some("x".repeat(4096)),
+                    )
+                    .await
+                    .unwrap(),
+            )
+        } else {
+            None
+        };
+        if matches!(
+            scenario,
+            ApprovalScenario::ExistingShare | ApprovalScenario::AutomaticRace
+        ) {
             // Select C from actual settled protected tree, never invent a target.
             let c_key = apps[2]
                 .account_storage("test")
@@ -622,7 +648,79 @@ mod actual {
                 recipient.approve(recipient_review.revision + 1).await,
                 Err(crate::AccountSharingError::StaleRevision)
             ));
+            let policy_injector = if scenario == ApprovalScenario::AutomaticRace {
+                let path = apps[0].account_storage_path("test");
+                let keys = apps[0].account_home().load_signing_keys("test").unwrap();
+                let sql_key = apps[0]
+                    .sqlcipher_key(
+                        "test",
+                        &keys,
+                        &path,
+                        crate::sqlcipher::SqlcipherDatabaseKind::Session,
+                    )
+                    .unwrap();
+                let connection = rusqlite::Connection::open(&path).unwrap();
+                storage_sqlite::open_hardened_sqlcipher(
+                    &connection,
+                    &sql_key,
+                    storage_sqlite::SqlCipherHardening::cipher_only(),
+                )
+                .unwrap();
+                connection.execute_batch("CREATE TRIGGER hold_original_sharing_policy BEFORE INSERT ON approved_account_sharing_policies BEGIN SELECT RAISE(ABORT,'isolated original sharing policy rollback'); END;").unwrap();
+                Some(connection)
+            } else {
+                None
+            };
             recipient.approve(recipient_review.revision).await.unwrap();
+            let retained_request = if let Some(connection) = policy_injector.as_ref() {
+                assert!(recipient.snapshot().unwrap().complete);
+                assert!(!source.snapshot().unwrap().complete);
+                assert!(
+                    apps[0]
+                        .account_storage("test")
+                        .unwrap()
+                        .approved_account_sharing_policy_storage()
+                        .unwrap()
+                        .approved_account_sharing_policies()
+                        .unwrap()
+                        .is_empty()
+                );
+                // Change only scheduling: use the exact normal factory, durable
+                // original-approved policy, Core validation and relay publisher.
+                managers[2]
+                    .kick_approved_automatic_channel("test")
+                    .await
+                    .unwrap();
+                let pending = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                    loop {
+                        let pending = managers[0]
+                            .pending_account_chat_sharing("test")
+                            .await
+                            .unwrap();
+                        if let Some(original) = pending.into_iter().find(|original| {
+                            original.snapshot().unwrap().source_device == review.recipient_device
+                        }) {
+                            break original;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .expect("actual encrypted request must precede source policy commit");
+                let observed = pending.snapshot().unwrap();
+                assert_eq!(observed.protected_group, review.protected_group);
+                assert_eq!(observed.protected_epoch, review.protected_epoch);
+                assert_eq!(observed.recipient_device, review.source_device);
+                assert!(!observed.approved && !observed.complete);
+                let deadline = pending.original.deadline;
+                connection
+                    .execute_batch("DROP TRIGGER hold_original_sharing_policy;")
+                    .unwrap();
+                Some((pending, deadline))
+            } else {
+                None
+            };
+
             while !source.snapshot().unwrap().complete {
                 assert!(
                     std::time::Instant::now() < end,
@@ -631,6 +729,14 @@ mod actual {
                 tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             }
             assert!(recipient.snapshot().unwrap().complete);
+            if let Some((pending, deadline)) = retained_request {
+                tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                    while pending.original.live() {
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }).await.expect("newly committed original policy must promote the retained authenticated request without another manual approval");
+                assert_eq!(pending.original.deadline, deadline);
+            }
             let facts: Vec<_> = apps
                 .iter()
                 .map(|app| {
@@ -648,6 +754,61 @@ mod actual {
             assert_eq!(facts[0][0].approval_id, facts[2][0].approval_id);
             assert_eq!(facts[0][0].local_device, facts[2][0].peer_device);
             assert_eq!(facts[0][0].peer_device, facts[2][0].local_device);
+            let policy = &facts[2][0];
+            let mirror = cgka_traits::mirrored_chat_catalog::MirroredChatScope {
+                account: policy.account,
+                local_device: policy.local_device,
+                source_device: policy.peer_device,
+                policy_digest:
+                    cgka_traits::approved_account_sharing_policy::approved_account_sharing_identity(
+                        &policy.account,
+                        &policy.protected_group,
+                        &policy.local_device,
+                        &policy.peer_device,
+                        &policy.approval_id,
+                    )
+                    .unwrap(),
+                protected_group: policy.protected_group.clone(),
+                protected_generation: apps[2]
+                    .account_storage("test")
+                    .unwrap()
+                    .private_roster_settlement_storage()
+                    .unwrap()
+                    .read_round()
+                    .unwrap()
+                    .unwrap()
+                    .generation,
+            };
+            let later = managers[0]
+                .create_group("test", "Automatically discovered later chat", &[], None)
+                .await
+                .unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(30),async{
+                loop{
+                    let rows=apps[2].account_storage("test").unwrap().mirrored_chat_catalog_storage().unwrap().mirrored_chat_catalog_page(&mirror,None,128).unwrap();
+                    if rows.len()==2 {
+                        let old=rows.iter().find(|record|Some(&record.group_id)==initial_shared_chat.as_ref()).unwrap();
+                        assert_eq!(old.description.len(),4096);
+                        assert!(rows.iter().any(|record|record.group_id==later));
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            }).await.expect("approved policy must automatically discover existing and later chats without per-chat actions");
+            assert!(
+                apps[2].load_state("test").unwrap().groups.is_empty(),
+                "a mirrored catalog is not MLS membership"
+            );
+            assert!(
+                apps[1]
+                    .account_storage("test")
+                    .unwrap()
+                    .mirrored_chat_catalog_storage()
+                    .unwrap()
+                    .mirrored_chat_catalog_page(&mirror, None, 128)
+                    .is_err(),
+                "unapproved B cannot read C-owned mirrors"
+            );
             source.cancel();
             recipient.cancel();
         }
@@ -693,11 +854,15 @@ mod actual {
         assert_eq!(a.snapshot().await.unwrap(), complete);
         assert_eq!(approval.snapshot().await.unwrap(), settled);
 
-        assert!(
-            apps.iter()
-                .all(|app| app.load_state("test").unwrap().groups.is_empty())
-        );
-        if scenario == ApprovalScenario::ExistingShare {
+        assert!(apps.iter().enumerate().all(|(index, app)| matches!(
+            scenario,
+            ApprovalScenario::ExistingShare | ApprovalScenario::AutomaticRace
+        ) && index == 0
+            || app.load_state("test").unwrap().groups.is_empty()));
+        if matches!(
+            scenario,
+            ApprovalScenario::ExistingShare | ApprovalScenario::AutomaticRace
+        ) {
             let old = managers[0]
                 .account_chat_sharing_targets("test")
                 .await

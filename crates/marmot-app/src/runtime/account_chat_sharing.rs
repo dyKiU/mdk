@@ -4,6 +4,10 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 type Reply<T> = oneshot::Sender<Result<T, AccountSharingError>>;
 pub(crate) enum Command {
+    #[cfg(test)]
+    AutomaticKick {
+        respond: Reply<()>,
+    },
     Targets {
         respond: Reply<crate::AccountSharingTargets>,
     },
@@ -21,6 +25,14 @@ pub(crate) enum Command {
     },
 }
 impl AccountManager {
+    #[cfg(test)]
+    pub(crate) async fn kick_approved_automatic_channel(
+        &self,
+        account: &str,
+    ) -> Result<(), AccountSharingError> {
+        self.send_account_sharing(account, |respond| Command::AutomaticKick { respond })
+            .await
+    }
     pub(crate) async fn query_account_sharing_targets(
         &self,
         account: &str,
@@ -80,6 +92,10 @@ impl AccountManager {
 }
 pub(crate) async fn handle(client: &mut crate::AppClient, command: Command) {
     match command {
+        #[cfg(test)]
+        Command::AutomaticKick { respond } => {
+            let _ = respond.send(client.kick_approved_automatic_channel().await);
+        }
         Command::Targets { respond } => {
             let _ = respond.send(client.account_sharing_targets());
         }

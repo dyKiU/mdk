@@ -819,3 +819,9 @@ This checkpoint qualifies original A/B approval and durable handoff, not automat
 `AccountManager::begin_account_chat_sharing(account, recipient_device)` creates a fresh opaque review for an already paired device. Its `approve(displayed_revision)` publishes the genuine protected Request; `pending_account_chat_sharing(account)` exposes the addressed recipient's authenticated original for its own explicit approval. The read-only snapshot identifies both devices and the protected group/epoch. Neither a snapshot nor a device selector grants access. Signed Request/Consent and fresh Core context checks precede each peer's immutable durable policy write. Default builds return Unsupported before account effects.
 
 This source checkpoint does not yet exchange automatic catalogs/messages or populate ordinary conversation views. No packets, channel keys or grant DTOs are exposed. See [acceptance and limits](../../docs/automatic-existing-pair-sharing-verification.json).
+
+### Approved-policy catalog exchange (experimental checkpoint)
+
+Account workers now negotiate fresh encrypted channels under the original pair-wide approval and import initial and later source catalogs into separate source-attested mirror storage. The independent-store relay regression preserves canonical chat IDs and a fragmented 4096-byte description; a protected member without the addressed pair policy remains excluded. Receiving metadata does not create ordinary MLS membership.
+
+This checkpoint does not populate normal conversation views or forward messages. Catalog delivery receipts, loss/reordering, withdrawals, large-catalog renewal and retired-request replay controls remain pending. See [acceptance and limits](../../docs/automatic-approved-policy-catalog-actor-verification.json).

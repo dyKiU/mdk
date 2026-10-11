@@ -472,3 +472,5 @@ One-group exact-leaf removal now also has actual held-publication cancellation/l
 ### Exact-device captured-scope removal checkpoint
 
 Device-wide original removal now qualifies actual protected three-to-two and two ordinary four-to-three leaf transitions, surviving new messages and removed-device refusal. Old protected round and matching origins remain denied. Fresh positive protected successor settlement, whole-scope lifecycle/repair/reopen and native exposure remain open.
+
+Approved pair-wide policy now schedules actual encrypted initial/later catalog exchange into separate source-attested mirror storage. The retained-request/source-policy SQL race is qualified with unchanged original custody and a capped deadline. Normal chat-list/timeline/message/send integration and reliable renewal/replay/withdrawal delivery remain separate work; see [scoped proof](../../automatic-approved-policy-catalog-actor-verification.json).

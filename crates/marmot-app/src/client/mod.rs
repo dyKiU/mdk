@@ -67,7 +67,7 @@ use crate::{
 };
 
 #[cfg(feature = "experimental-device-sync")]
-mod account_chat_sharing;
+pub(crate) mod account_chat_sharing;
 mod audit;
 mod audit_recovery;
 mod audit_v5_app_update;
