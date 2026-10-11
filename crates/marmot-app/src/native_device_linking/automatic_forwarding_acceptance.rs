@@ -74,3 +74,204 @@ pub(super) async fn verify(
         "forwarding never creates synthetic ordinary membership"
     );
 }
+
+#[tokio::test]
+async fn automatic_forwarding_preserves_actual_reply_reference_and_canonical_id() {
+    actual::run_native_public_three_device_enrollment(
+        actual::ApprovalScenario::AutomaticForwardingReply,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn automatic_forwarding_queues_without_members_and_reopens_both_independent_stores() {
+    actual::run_native_public_three_device_enrollment(
+        actual::ApprovalScenario::AutomaticForwardingOffline,
+    )
+    .await;
+}
+
+pub(super) async fn verify_reply(
+    apps: &[MarmotApp; 3],
+    runtime: &MarmotAppRuntime,
+    group: &crate::GroupId,
+    scope: &cgka_traits::mirrored_chat_catalog::MirroredChatScope,
+    target: &str,
+) {
+    let token = "paired-reply-fixed-client-token".to_owned();
+    let text = "reply from the paired mirror".to_owned();
+    let accepted = runtime
+        .submit_reply(
+            "test",
+            group,
+            target.to_owned(),
+            text.clone(),
+            token.clone(),
+        )
+        .await
+        .unwrap();
+    let retry = runtime
+        .submit_reply(
+            "test",
+            group,
+            target.to_owned(),
+            text.clone(),
+            token.clone(),
+        )
+        .await
+        .unwrap();
+    assert!(accepted == retry);
+    assert!(
+        runtime
+            .submit_text("test", group, text.clone(), token.clone())
+            .await
+            .is_err(),
+        "reply tags are part of immutable client-token correlation"
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(90), async {
+        loop {
+            if let Some(crate::LocalSendStatus::Completed(summary)) =
+                runtime.local_send_status("test", group, &token).unwrap()
+            {
+                assert_eq!(summary.published, 1);
+                assert!(summary.message_ids == [accepted.message_id_hex.clone()]);
+                let source = apps[0].account_storage("test").unwrap();
+                if let Some(row) = source
+                    .app_message(&hex::encode(group.as_slice()), &accepted.message_id_hex)
+                    .unwrap()
+                {
+                    assert!(row.plaintext == text);
+                    assert!(
+                        row.tags
+                            .iter()
+                            .any(|tag| tag.first().is_some_and(|v| v == "e")
+                                && tag.get(1).is_some_and(|v| v == target))
+                    );
+                    let storage = apps[2].account_storage("test").unwrap();
+                    let records = storage
+                        .mirrored_chat_message_storage()
+                        .unwrap()
+                        .mirrored_chat_message_page(
+                            scope,
+                            group,
+                            None,
+                            128,
+                            crate::unix_now_seconds(),
+                        )
+                        .unwrap();
+                    if let Some(record) = records
+                        .iter()
+                        .find(|r| hex::encode(r.event_id) == accepted.message_id_hex)
+                    {
+                        let logical: (String, Vec<Vec<String>>) =
+                            serde_json::from_slice(&record.payload).unwrap();
+                        assert!(logical.0 == text);
+                        assert!(logical.1 == row.tags);
+                        break;
+                    }
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("real reply publication and source-attested exact tags must arrive");
+    assert!(apps[2].load_state("test").unwrap().groups.is_empty());
+}
+
+pub(super) async fn verify_offline_reopen(
+    apps: &[MarmotApp; 3],
+    runtimes: &[MarmotAppRuntime; 3],
+    roots: [&std::path::Path; 2],
+    url: &str,
+    group: &crate::GroupId,
+    scope: &cgka_traits::mirrored_chat_catalog::MirroredChatScope,
+) {
+    // Only A has this ordinary membership; B/C retain no ordinary group.
+    assert!(
+        apps[0]
+            .load_state("test")
+            .unwrap()
+            .groups
+            .iter()
+            .any(|g| g.group_id_hex == hex::encode(group.as_slice()))
+    );
+    assert!(apps[1].load_state("test").unwrap().groups.is_empty());
+    assert!(apps[2].load_state("test").unwrap().groups.is_empty());
+    runtimes[0].shutdown_and_close().await.unwrap();
+    assert!(runtimes[0].storage_is_closed());
+    let token = "offline-mirror-durable-client-token".to_owned();
+    let text = "queued while all actual members are closed".to_owned();
+    let accepted = runtimes[2]
+        .submit_text("test", group, text.clone(), token.clone())
+        .await
+        .unwrap();
+    assert!(matches!(
+        runtimes[2]
+            .local_send_status("test", group, &token)
+            .unwrap(),
+        Some(crate::LocalSendStatus::Queued)
+    ));
+    runtimes[2].shutdown_and_close().await.unwrap();
+    assert!(runtimes[2].storage_is_closed());
+    // Fresh clients reopen only their own encrypted roots. No old channel,
+    // opaque consent or MLS database is copied into either new engine.
+    let recipient_app = MarmotApp::with_relay(roots[1], url);
+    let recipient = MarmotAppRuntime::new(recipient_app.clone());
+    recipient.reconcile_accounts().await.unwrap();
+    assert!(matches!(
+        recipient.local_send_status("test", group, &token).unwrap(),
+        Some(crate::LocalSendStatus::Queued)
+    ));
+    let retry = recipient
+        .submit_text("test", group, text.clone(), token.clone())
+        .await
+        .unwrap();
+    assert!(
+        accepted == retry,
+        "encrypted restart preserves exact original event identity"
+    );
+    assert!(
+        recipient
+            .submit_text("test", group, "changed after restart".into(), token.clone())
+            .await
+            .is_err()
+    );
+    let member_app = MarmotApp::with_relay(roots[0], url);
+    let member = MarmotAppRuntime::new(member_app.clone());
+    member.reconcile_accounts().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(120), async {
+        loop {
+            if let Some(crate::LocalSendStatus::Completed(summary)) =
+                recipient.local_send_status("test", group, &token).unwrap()
+            {
+                assert_eq!(summary.published, 1);
+                assert!(summary.message_ids == [accepted.message_id_hex.clone()]);
+                let source = member_app.account_storage("test").unwrap();
+                let receiver = recipient_app.account_storage("test").unwrap();
+                let records = receiver
+                    .mirrored_chat_message_storage()
+                    .unwrap()
+                    .mirrored_chat_message_page(scope, group, None, 128, crate::unix_now_seconds())
+                    .unwrap();
+                if let Some(row) = source
+                    .app_message(&hex::encode(group.as_slice()), &accepted.message_id_hex)
+                    .unwrap()
+                    && records
+                        .iter()
+                        .any(|r| hex::encode(r.event_id) == accepted.message_id_hex)
+                {
+                    assert!(row.plaintext == text);
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("fresh approved channels must deliver original durable offline intent");
+    assert!(recipient_app.load_state("test").unwrap().groups.is_empty());
+    recipient.shutdown_and_close().await.unwrap();
+    member.shutdown_and_close().await.unwrap();
+    assert!(recipient.storage_is_closed() && member.storage_is_closed());
+}

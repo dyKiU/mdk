@@ -1,0 +1,107 @@
+{
+  "schema": 1,
+  "source_base": "2bab1039cfa39addf7ac8f842b839b382255e8b7",
+  "scope": "Test-only genuine reply and all-member-offline encrypted restart acceptance; no production behavior or SDK changes.",
+  "cohorts": [
+    {
+      "version": "v1",
+      "candidate": "8c7a8c83b9b3814a42d3c2c63262bc06dd2542b8",
+      "input_count": 2595,
+      "manifest_sha256": "89630a9befa422b6c1cdd489deacdae63c025750bf3ecac8fff54b622f6f337d",
+      "gates": [
+        {
+          "gate": "reply",
+          "exit": 101,
+          "seconds": 120.88217377662659,
+          "log": "/Users/pj/project/build/automatic-forwarding-reply-offline-v1-reply.log",
+          "log_sha256": "3a7b782fb6d33ef496e07f81d4da14b664a2501c9de2251247eab5ea1d5d3ddf",
+          "actual_counts": []
+        }
+      ]
+    },
+    {
+      "version": "v2",
+      "candidate": "c94fd8c46f68f0699197d6b3cefa52b60b1924de",
+      "input_count": 2595,
+      "manifest_sha256": "b39b1edbec43bbd57d04d7f7f96e650bcb0316ded395d6ec6d416f9896769f28",
+      "gates": [
+        {
+          "gate": "reply",
+          "exit": 0,
+          "seconds": 118.92210507392883,
+          "log": "/Users/pj/project/build/automatic-forwarding-reply-offline-v2-reply.log",
+          "log_sha256": "ee8f632a92ef89deac4821b3a1b2caf385966b4341a307b3aba4c8383c95ec80",
+          "actual_counts": [
+            {
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "offline-reopen",
+          "exit": 0,
+          "seconds": 46.00129270553589,
+          "log": "/Users/pj/project/build/automatic-forwarding-reply-offline-v2-offline-reopen.log",
+          "log_sha256": "4fa209ab6385e705ebe0322b6a21af819ab7ef694310f19f6d154c97d488c427",
+          "actual_counts": [
+            {
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        },
+        {
+          "gate": "plain-control",
+          "exit": 0,
+          "seconds": 42.800950050354004,
+          "log": "/Users/pj/project/build/automatic-forwarding-reply-offline-v2-plain-control.log",
+          "log_sha256": "a163dd666401343ad7a96c778fea2d0f38c1fd1db68929d1ac96d01d4cda645d",
+          "actual_counts": [
+            {
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "frozen_inputs_verified": 5190,
+    "mismatches": 0,
+    "complete_raw_logs": 4
+  },
+  "controls": [
+    "Reply uses actual imported target, fixed client token, real canonical published ID, exact source and mirrored reply tags.",
+    "Sole actual member closes before origin admission; origin is Queued, closes, reopens independently, preserves same token/event identity, rejects changed request; actual member independently reopens and completes genuine publication/receipt/import.",
+    "Unchanged plain forwarding control passes. No synthetic ordinary membership appears in origin."
+  ],
+  "fixture_delta": "v1 executed zero tests: unfinished unrelated sibling diagnostic getter/type mismatches. v2 isolates signed base shared fixture plus only reply/offline scenarios; captured production dependency overlays unchanged. Signed fixture contains only own hunks, excluding Root sibling diagnostic scenarios.",
+  "limits": [
+    "No lost/reordered ACK, alternate-source or revocation-before-publication proof.",
+    "No persisted mirror draft, attachments/media/edit or installed native journey qualification.",
+    "Ordinary EngineOwned publication retains its established irreversible ownership; queued is not sent."
+  ],
+  "evidence_root": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-forwarding-reply-offline",
+  "remote_prefix": "/Users/pj/project/build/automatic-forwarding-reply-offline-v2",
+  "target": "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+  "environment": {
+    "toolchain": "1.97.1-aarch64-apple-darwin",
+    "jobs": 1,
+    "incremental": 0,
+    "debug": 0
+  },
+  "historical_binary": {
+    "path": "/Users/pj/project/build/historical-final-default-app-93eaf71300bfdb25",
+    "sha256": "93eaf71300bfdb25df091d11a626db7986cf36ad553f3387829efadf79d4e28d"
+  },
+  "checks": {
+    "owned_fixture_rustfmt": "passed",
+    "owned_diff_check": "passed",
+    "production_static": "unchanged production source; qualified parent2bab retained"
+  }
+}

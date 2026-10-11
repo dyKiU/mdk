@@ -228,6 +228,8 @@ pub(super) mod actual {
         AutomaticCatalogRetry,
         AutomaticRecords,
         AutomaticForwarding,
+        AutomaticForwardingReply,
+        AutomaticForwardingOffline,
     }
     pub(super) async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
         use cgka_traits::StorageProvider;
@@ -526,6 +528,8 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticCatalogRetry
                 | ApprovalScenario::AutomaticRecords
                 | ApprovalScenario::AutomaticForwarding
+                | ApprovalScenario::AutomaticForwardingReply
+                | ApprovalScenario::AutomaticForwardingOffline
         ) {
             Some(
                 managers[0]
@@ -543,7 +547,10 @@ pub(super) mod actual {
         };
         let initial_record_ids = if matches!(
             scenario,
-            ApprovalScenario::AutomaticRecords | ApprovalScenario::AutomaticForwarding
+            ApprovalScenario::AutomaticRecords
+                | ApprovalScenario::AutomaticForwarding
+                | ApprovalScenario::AutomaticForwardingReply
+                | ApprovalScenario::AutomaticForwardingOffline
         ) {
             super::automatic_records_acceptance::seed(
                 &managers[0],
@@ -577,6 +584,8 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticCatalogRetry
                 | ApprovalScenario::AutomaticRecords
                 | ApprovalScenario::AutomaticForwarding
+                | ApprovalScenario::AutomaticForwardingReply
+                | ApprovalScenario::AutomaticForwardingOffline
         ) {
             // Select C from actual settled protected tree, never invent a target.
             let c_key = apps[2]
@@ -918,7 +927,10 @@ pub(super) mod actual {
             );
             if matches!(
                 scenario,
-                ApprovalScenario::AutomaticRecords | ApprovalScenario::AutomaticForwarding
+                ApprovalScenario::AutomaticRecords
+                    | ApprovalScenario::AutomaticForwarding
+                    | ApprovalScenario::AutomaticForwardingReply
+                    | ApprovalScenario::AutomaticForwardingOffline
             ) {
                 super::automatic_records_acceptance::verify(
                     &apps,
@@ -938,8 +950,40 @@ pub(super) mod actual {
                 )
                 .await;
             }
+            if scenario == ApprovalScenario::AutomaticForwardingReply {
+                super::automatic_forwarding_acceptance::verify_reply(
+                    &apps,
+                    &runtimes[2],
+                    initial_shared_chat.as_ref().unwrap(),
+                    &mirror,
+                    &initial_record_ids[0],
+                )
+                .await;
+            }
             source.cancel();
             recipient.cancel();
+            if scenario == ApprovalScenario::AutomaticForwardingOffline {
+                for session in [&a, &c] {
+                    assert_eq!(
+                        session.snapshot().await.unwrap().phase,
+                        DeviceLinkingPhase::EnrollmentComplete
+                    );
+                }
+                super::automatic_forwarding_acceptance::verify_offline_reopen(
+                    &apps,
+                    &runtimes,
+                    [dirs[0].path(), dirs[2].path()],
+                    &url,
+                    initial_shared_chat.as_ref().unwrap(),
+                    &mirror,
+                )
+                .await;
+                for runtime in runtimes {
+                    runtime.shutdown_and_close().await.unwrap();
+                }
+                relay.shutdown();
+                return;
+            }
         }
         assert!(
             managers
@@ -991,6 +1035,8 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticCatalogRetry
                 | ApprovalScenario::AutomaticRecords
                 | ApprovalScenario::AutomaticForwarding
+                | ApprovalScenario::AutomaticForwardingReply
+                | ApprovalScenario::AutomaticForwardingOffline
         ) && index == 0
             || app.load_state("test").unwrap().groups.is_empty()));
         if matches!(
@@ -1001,6 +1047,8 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticCatalogRetry
                 | ApprovalScenario::AutomaticRecords
                 | ApprovalScenario::AutomaticForwarding
+                | ApprovalScenario::AutomaticForwardingReply
+                | ApprovalScenario::AutomaticForwardingOffline
         ) {
             let old = managers[0]
                 .account_chat_sharing_targets("test")
