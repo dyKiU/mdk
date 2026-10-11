@@ -217,3 +217,15 @@ old route cannot be rebound under a new approval. Existing preapproved alternati
 remain independently valid. Transition+outbox and original before/tail checks share
 SQL. Cursor reads are observations only; no persisted deadline/keys/permissions.
 Preserve core102/private1–19 and configured account/signer/terminal-close fences.
+
+Private revision21 (`account_chat_record_stream.rs`) keeps a separate source
+record journal, canonical delivery outbox and immutable committed receipts.
+Logical apply, receipt and maximum observed sequence share one SQL transaction;
+earlier batches still apply through per-event fences. Receipt identity is stable
+policy/group/digest across current projection scopes. Source ACK and permanent
+denial are distinct; both erase encoded bytes without deleting lifetime identity.
+The exact configured owner may negatively retire a revoked policy's pending batch.
+Limits: 100,000 journal refs, 4,096 outbox refs, 8,192 receipts/progress refs,
+64 MiB active outbox bytes, 1 MiB canonical batch and 128 records. Original
+before/tail guards remain mandatory; no keys/lease or permission is restored.
+Preserve core102/private1–20 bodies and the irreversible cohort marker.

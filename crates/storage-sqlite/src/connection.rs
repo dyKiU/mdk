@@ -1448,6 +1448,13 @@ impl StorageProvider for SqliteAccountStorage {
     }
 
     #[cfg(feature = "experimental-device-sync")]
+    fn account_chat_record_stream_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::account_chat_record_stream::AccountChatRecordStreamStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
     fn account_chat_send_queue_storage(
         &self,
     ) -> Option<&dyn cgka_traits::account_chat_send_queue::AccountChatSendQueueStorage> {

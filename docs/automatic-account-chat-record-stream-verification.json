@@ -1,0 +1,361 @@
+{
+  "status": "qualified storage slice; automatic protocol/native/app integration unfinished",
+  "host": "macbook.m5",
+  "source_cohorts": [
+    {
+      "version": 1,
+      "source": "3bb43c1baa7724bf99fd4639270e9f87190df8db",
+      "base": "e94665a91fbdebe61faaee7b3a7a819e75c8b7b9",
+      "input_count": 2570,
+      "manifest_sha256": "d14633a94c3a4a0486affbe14d6441fb5aaabc24c1b36bd9af76bca779ed36e0"
+    },
+    {
+      "version": 2,
+      "source": "066692a6564a005d1072d8c8077413369ef1f656",
+      "base": "e94665a91fbdebe61faaee7b3a7a819e75c8b7b9",
+      "input_count": 2570,
+      "manifest_sha256": "0d8380c1667f4cdcc7b14cd9c0e12e6de45a87fa29ca28719a49d841ced7d5bc"
+    },
+    {
+      "version": 3,
+      "source": "347d83faa185c78d0f0a492e9a35b0c61372866d",
+      "base": "e94665a91fbdebe61faaee7b3a7a819e75c8b7b9",
+      "input_count": 2570,
+      "manifest_sha256": "6611c2d8a19ca5c1992b6242305e34c512f95a08a93c05cccde7135d16ef3777"
+    },
+    {
+      "version": 4,
+      "source": "54e642fded7a76733b9630a8bb17788286c316ef",
+      "base": "728d67ae3d05e551a184ccbda95a00bc4a5a1952",
+      "input_count": 2572,
+      "manifest_sha256": "bc2376680db5c46ddf848863fd004ab4a30dee1ae1438879c842f3d109b00106"
+    },
+    {
+      "version": 5,
+      "source": "b529c654512cbaa78499eeae5a0981c80294f378",
+      "base": "728d67ae3d05e551a184ccbda95a00bc4a5a1952",
+      "input_count": 2572,
+      "manifest_sha256": "40c95d07f9cdac3866a00dc6276865579ceffb8cdcb9df1f36d837ef35102db4"
+    }
+  ],
+  "source_inputs": "Each complete frozen tree rehashed from normal Git objects on M1; M5 hashes guarded before/after gates. Eleven final owned product paths byte-identical to v5; docs-only updates excluded from compiled inputs.",
+  "focused_attempts": [
+    {
+      "source": "3bb43c1baa7724bf99fd4639270e9f87190df8db",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync",
+        "record_stream_",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 101,
+      "seconds": 15.270533800125122,
+      "log_sha256": "b7113a295de7eb1fbfff31374ded3de2aa91b73aa07f1fc36bfdd5e0693e1ed1",
+      "version": 1,
+      "kind": "compile-only failure",
+      "passed": 0,
+      "failed_tests": 0,
+      "ignored": 0
+    },
+    {
+      "source": "066692a6564a005d1072d8c8077413369ef1f656",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync",
+        "record_stream_",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 38.68679404258728,
+      "log_sha256": "7879b574deaadeedb3a9d205b2e5c171118ec7974029e05d573020990458c6fb",
+      "version": 2,
+      "kind": "focused actual acceptance",
+      "passed": 7,
+      "failed_tests": 0,
+      "ignored": 0
+    },
+    {
+      "source": "347d83faa185c78d0f0a492e9a35b0c61372866d",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync",
+        "record_stream_",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 39.35344696044922,
+      "log_sha256": "f3b966d52c195b7902ee468d24d074f0dd763c08eee59042e6208f8d674f75f6",
+      "version": 3,
+      "kind": "focused actual acceptance",
+      "passed": 9,
+      "failed_tests": 0,
+      "ignored": 0
+    },
+    {
+      "source": "54e642fded7a76733b9630a8bb17788286c316ef",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync",
+        "record_stream_",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 36.87077283859253,
+      "log_sha256": "b25f0119ea001c88f08f4b60d1341971d7d1211edd5f5a635157233c55397a3d",
+      "version": 4,
+      "kind": "focused actual acceptance",
+      "passed": 9,
+      "failed_tests": 0,
+      "ignored": 0
+    },
+    {
+      "source": "b529c654512cbaa78499eeae5a0981c80294f378",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "--locked",
+        "--features",
+        "experimental-device-sync",
+        "record_stream_",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 38.551910161972046,
+      "log_sha256": "fd4d0f4094ccebc6d360128be5af044e89a3aa2913b9702cf1a35d8e9a6c706f",
+      "version": 5,
+      "kind": "focused actual acceptance",
+      "passed": 9,
+      "failed_tests": 0,
+      "ignored": 0
+    }
+  ],
+  "traits": {
+    "passed": 173,
+    "failed": 0,
+    "ignored": 0,
+    "doctests": 0,
+    "name": "traits",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "cgka-traits",
+      "--locked"
+    ],
+    "exit_code": 0,
+    "seconds": 10.854460954666138,
+    "log_sha256": "33fda855969ceb48bf3a64bfe7db5c7a32d32506411cdb4fb0ac3d7c1e728435"
+  },
+  "full_storage": {
+    "source": "347d83faa185c78d0f0a492e9a35b0c61372866d",
+    "experimental": {
+      "passed": 1140,
+      "failed": 0,
+      "skipped": 7,
+      "name": "experimental-full",
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "-p",
+        "storage-sqlite",
+        "--locked",
+        "--features",
+        "experimental-device-sync",
+        "--retries",
+        "0",
+        "--no-fail-fast",
+        "-j4"
+      ],
+      "exit_code": 0,
+      "seconds": 429.98076701164246,
+      "log_sha256": "a32d3a6dad5a5392cee171a3a3b35c2cefc354502d5c7837bf5406f6efbbff61"
+    },
+    "default": {
+      "passed": 979,
+      "failed": 0,
+      "skipped": 8,
+      "name": "default-full",
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "-p",
+        "storage-sqlite",
+        "--locked",
+        "--retries",
+        "0",
+        "--no-fail-fast",
+        "-j4"
+      ],
+      "exit_code": 0,
+      "seconds": 379.66317892074585,
+      "log_sha256": "7c342a1d4bbef88aa1d068a4ddcf6696ae0aa6ec0e428dbb057aa9e3e546a396"
+    }
+  },
+  "static_attempts": {
+    "v3_clippy": {
+      "name": "experimental-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cgka-traits",
+        "-p",
+        "storage-sqlite",
+        "--all-targets",
+        "--locked",
+        "--features",
+        "storage-sqlite/experimental-device-sync",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 101,
+      "seconds": 19.981732845306396,
+      "log_sha256": "a63de61dcb98885e7cee993d9bbbaa19f39683e4c1b7f8e461109e5f0adf04a0"
+    },
+    "final_v5": [
+      {
+        "name": "experimental-clippy",
+        "command": [
+          "cargo",
+          "clippy",
+          "-p",
+          "cgka-traits",
+          "-p",
+          "storage-sqlite",
+          "--all-targets",
+          "--locked",
+          "--features",
+          "storage-sqlite/experimental-device-sync",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "seconds": 15.427356958389282,
+        "log_sha256": "c86a30f1a1d6426b3dca7b1ae50862edf090b912cdd3db226161fd47f995b273"
+      },
+      {
+        "name": "default-clippy",
+        "command": [
+          "cargo",
+          "clippy",
+          "-p",
+          "cgka-traits",
+          "-p",
+          "storage-sqlite",
+          "--all-targets",
+          "--locked",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "seconds": 8.217519760131836,
+        "log_sha256": "597aa100d5dcee617bfc461b4af7dbb03eb181513b1df68ee6865ce9cc0a953e"
+      },
+      {
+        "name": "format",
+        "command": [
+          "rustfmt",
+          "--edition",
+          "2024",
+          "--config",
+          "skip_children=true",
+          "--check",
+          "crates/traits/src/account_chat_record_stream.rs",
+          "crates/traits/src/lib.rs",
+          "crates/traits/src/storage.rs",
+          "crates/storage-sqlite/src/account_chat_record_stream.rs",
+          "crates/storage-sqlite/src/account_chat_record_stream/tests.rs",
+          "crates/storage-sqlite/src/private_migrations/0021_account_chat_record_stream.rs",
+          "crates/storage-sqlite/src/approved_account_sharing_policy.rs",
+          "crates/storage-sqlite/src/mirrored_chat_messages.rs",
+          "crates/storage-sqlite/src/lib.rs",
+          "crates/storage-sqlite/src/connection.rs",
+          "crates/storage-sqlite/src/migrations.rs"
+        ],
+        "exit_code": 0,
+        "seconds": 0.1269969940185547,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "retained_equivalence": "v3\u2192v4 changes only test singleton cloned slice to std::slice::from_ref, plus base728 App-only changes. v4\u2192v5 changes SQL whitespace in three queries and rustfmt layout only: applying those exact three whitespace replacements to frozen v4 then rustfmt produces byte-identical final module. Full storage and traits results retained; final focused nine and both strict Clippy profiles and formatting re-executed.",
+  "interrupted_attempt": {
+    "status": "intentionally interrupted partial serial experimental run, not product failure or full-suite result",
+    "name": "experimental-full",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "storage-sqlite",
+      "--lib",
+      "--locked",
+      "--features",
+      "experimental-device-sync",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit_code": 101,
+    "seconds": 157.27361178398132,
+    "log_sha256": "5042cdd3d6469a7238bd77d47120b1daa2e9f9952b4e96fd786dfbbfbf040e3b"
+  },
+  "git_transfer_warning": "v5 cat-file emitted transient stale pack-index warnings after bundle auto-maintenance; every object read completed and whole-tree hash comparison passed; source/tests/static gates terminal success.",
+  "migration_prefix": {
+    "base": "728d67ae3d05e551a184ccbda95a00bc4a5a1952",
+    "unchanged_body_files": 127,
+    "paths_sha256": "856d05174718b228463141bb0dabcbc978199e08effe9637c22d3c25ba9d0130",
+    "new_private_revision": 21,
+    "core_revision": 102
+  },
+  "coverage": [
+    "Independent record journal; exact current attestation retries; rollback counter; catalog independence",
+    "Canonical bounded batches; exact reserved attestations; durable outbox retries; matching immutable ACK",
+    "Atomic logical apply/receipt/progress; earlier out-of-order batches; renewed projection scope duplicate retains original receipt",
+    "Actual 100000 journal, 4096 outbox, 8192 receipts/progress and 64MiB active byte limits; typed capacity; SQL immutable terminal fences",
+    "Expiry/tombstone/revocation denial erases bytes without ACK; cannot reopen; negative cleanup after revocation",
+    "Encrypted reopen, terminal close and fair 130-batch digest paging"
+  ],
+  "limits": [
+    "Storage callbacks are supplied by trusted Core; these tests do not establish wire authentication or current channel authority.",
+    "No automatic Records/RecordReceipt actor, catalog receipt/replay completion, normal forwarding delivery, visible list/timeline or matched SDK/app deployment is claimed.",
+    "Capacity fixture uses synthetic SQL metadata for large reference budgets, not a claim of 100000 cryptographic transfers.",
+    "Full workspace/relay interoperability and platform promotion remain required on final combined candidate."
+  ],
+  "artifacts": "Parent build/results/automatic-record-stream on M1; /Users/pj/project/build/automatic-record-stream-v* on M5; raw logs excluded from Git."
+}

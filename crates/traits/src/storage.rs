@@ -1143,6 +1143,13 @@ pub trait StorageProvider:
         None
     }
 
+    /// Optional logical-delivery metadata. Reading it cannot restore authorization.
+    fn account_chat_record_stream_storage(
+        &self,
+    ) -> Option<&dyn crate::account_chat_record_stream::AccountChatRecordStreamStorage> {
+        None
+    }
+
     /// Optional durable paired-member sends; never a live permission or MLS ID.
     fn account_chat_send_queue_storage(
         &self,

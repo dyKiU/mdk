@@ -19,7 +19,7 @@ fn invalid() -> StorageError {
 fn group_valid(group: &GroupId) -> bool {
     (1..=255).contains(&group.as_slice().len())
 }
-fn validate(record: &MirroredChatRecord) -> StorageResult<()> {
+pub(crate) fn validate(record: &MirroredChatRecord) -> StorageResult<()> {
     if record.event_id == [0; 32]
         || record.author == [0; 32]
         || record.source_digest == [0; 32]
@@ -39,7 +39,7 @@ fn validate(record: &MirroredChatRecord) -> StorageResult<()> {
     }
     Ok(())
 }
-fn check_catalog(
+pub(crate) fn check_catalog(
     conn: &Connection,
     scope: &MirroredChatScope,
     key: &[u8],

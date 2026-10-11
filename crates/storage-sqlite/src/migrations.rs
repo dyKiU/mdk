@@ -902,6 +902,9 @@ mod private_migration_0019_mirrored_messages;
 #[path = "private_migrations/0020_account_chat_send_queue.rs"]
 mod private_migration_0020_chat_send_queue;
 
+#[path = "private_migrations/0021_account_chat_record_stream.rs"]
+mod private_migration_0021_record_stream;
+
 const PRIVATE_MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -1002,6 +1005,11 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
         version: 20,
         name: "0020_account_chat_send_queue",
         apply: private_migration_0020_chat_send_queue::apply,
+    },
+    Migration {
+        version: 21,
+        name: "0021_account_chat_record_stream",
+        apply: private_migration_0021_record_stream::apply,
     },
 ];
 

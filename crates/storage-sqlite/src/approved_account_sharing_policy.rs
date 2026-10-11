@@ -99,7 +99,10 @@ fn decode(
     Ok(policy)
 }
 
-fn load(conn: &Connection, id: &[u8; 32]) -> StorageResult<ApprovedAccountSharingPolicy> {
+pub(crate) fn load(
+    conn: &Connection,
+    id: &[u8; 32],
+) -> StorageResult<ApprovedAccountSharingPolicy> {
     let (account,local,bytes,revoked)=conn.query_row("SELECT account,local_device,record,revoked FROM approved_account_sharing_policies WHERE policy_id=?1",[id.as_slice()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).storage()?;
     let policy = decode(id, account, local, bytes, revoked)?;
     check_owner(conn, &policy)?;

@@ -112,3 +112,10 @@ routes and genuine ordinary-ID receipts. No Debug, live permission or queue-ID
 alias. Retry observations retain original time/digest after terminal payload erase.
 Fair intent/route and receipt-digest cursors are separate from message chronology.
 Optional storage defaults unavailable; Core still validates original authority.
+
+`account_chat_record_stream` defines separate logical-record sequence, canonical
+batch outbox and committed-receipt metadata. No Debug, channel keys, persisted
+deadline or restored grant. Stable policy/group/digest identifies receipts across
+fresh scope generations; source chronology and catalog counters are independent.
+Original validation guards writes. Denial erases bytes permanently and never
+claims acknowledgment. Optional storage defaults unavailable.

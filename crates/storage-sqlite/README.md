@@ -596,3 +596,20 @@ old route cannot be rebound under a new approval. Existing preapproved alternati
 remain independently valid. Transition+outbox and original before/tail checks share
 SQL. Cursor reads are observations only; no persisted deadline/keys/permissions.
 Preserve core102/private1–19 and configured account/signer/terminal-close fences.
+
+Private revision21 provides the optional `AccountChatRecordStreamStorage`
+capability. Its record counter is independent of catalog counters and chronology.
+The current exact event attestation retries its sequence; changed retention facts
+advance it. Canonical ordered batches are retained before publication, up to
+128 records and 1 MiB each, with 64 MiB active bytes and 4,096 lifetime outbox
+references. A fresh authenticated peer acknowledgment clears bytes; source
+deletion/expiry/revocation instead permanently denies the batch without claiming
+delivery. Neither terminal state reopens through retry.
+
+Recipient record apply, immutable receipt and maximum observed stream sequence
+commit together. Out-of-order batches remain admissible through per-event fences;
+the maximum is an observation, not completeness. Exact duplicate delivery returns
+the original receipt even after a fresh authenticated projection scope, while
+applying observations to that scope. Retained approvals do not supply original
+authority, keys or a deadline. The journal has 100,000 lifetime references and
+incoming receipts/progress each have 8,192. Core102 and private1–20 remain frozen.

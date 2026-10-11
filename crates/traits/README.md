@@ -141,3 +141,9 @@ routes and genuine ordinary-ID receipts. No Debug, live permission or queue-ID
 alias. Retry observations retain original time/digest after terminal payload erase.
 Fair intent/route and receipt-digest cursors are separate from message chronology.
 Optional storage defaults unavailable; Core still validates original authority.
+
+`account_chat_record_stream` retains canonical logical batches until an actual
+authenticated peer receipt. Record sequences, outbox digest cursors and message
+chronology are separate. Source expiry/deletion can permanently deny a queued
+batch and erase bytes without claiming delivery. Metadata carries no restored
+keys, deadlines or original authority; the storage capability defaults unavailable.
