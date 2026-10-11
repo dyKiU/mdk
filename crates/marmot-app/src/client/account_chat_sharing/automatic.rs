@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, VecDeque};
 const FRAGMENT_BYTES: usize = 768;
 const MAX_ENTRY_BYTES: usize = 65536;
+const CHANNEL_BODY_BUDGET: u64 = 100;
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CatalogFragment {
@@ -28,6 +29,12 @@ struct Assembly {
     bytes: Vec<u8>,
     next: u32,
 }
+struct CatalogProgress {
+    generation: u64,
+    cursor: Option<crate::GroupId>,
+    inventory_digest: Option<[u8; 32]>,
+    sent: BTreeMap<Vec<u8>, [u8; 32]>,
+}
 pub(crate) struct AutomaticChannel {
     original: Arc<State>,
     policy: ApprovedAccountSharingPolicy,
@@ -41,6 +48,27 @@ pub(crate) struct AutomaticChannel {
     inventory_digest: Option<[u8; 32]>,
     sent: BTreeMap<Vec<u8>, [u8; 32]>,
     assembly: Option<Assembly>,
+    pending_catalog: Option<(crate::GroupId, [u8; 32])>,
+    renew: bool,
+}
+impl AutomaticChannel {
+    fn take_catalog_progress(&mut self) -> CatalogProgress {
+        CatalogProgress {
+            generation: self.channel.scope().local_generation,
+            cursor: self.cursor.take(),
+            inventory_digest: self.inventory_digest.take(),
+            sent: std::mem::take(&mut self.sent),
+        }
+    }
+    fn restore_catalog_progress(&mut self, progress: Option<CatalogProgress>) {
+        if let Some(progress) = progress
+            && progress.generation == self.channel.scope().local_generation
+        {
+            self.cursor = progress.cursor;
+            self.inventory_digest = progress.inventory_digest;
+            self.sent = progress.sent;
+        }
+    }
 }
 impl Drop for AutomaticChannel {
     fn drop(&mut self) {
@@ -160,6 +188,11 @@ impl AppClient {
                     Arc::new(OriginalLease(Arc::downgrade(&original))),
                 )
                 .map_err(|_| AccountSharingError::NotReady)?;
+            let progress = self
+                .account_sharing_owner
+                .automatic
+                .get_mut(&id)
+                .map(AutomaticChannel::take_catalog_progress);
             self.account_sharing_owner.automatic.insert(
                 id,
                 AutomaticChannel {
@@ -175,8 +208,15 @@ impl AppClient {
                     inventory_digest: None,
                     sent: BTreeMap::new(),
                     assembly: None,
+                    pending_catalog: None,
+                    renew: false,
                 },
             );
+            self.account_sharing_owner
+                .automatic
+                .get_mut(&id)
+                .expect("inserted automatic channel")
+                .restore_catalog_progress(progress);
             return Ok(true);
         }
         let id = self
@@ -403,6 +443,8 @@ impl AppClient {
                     inventory_digest: None,
                     sent: BTreeMap::new(),
                     assembly: None,
+                    pending_catalog: None,
+                    renew: false,
                 },
             );
         }
@@ -411,6 +453,7 @@ impl AppClient {
     fn begin_automatic_channel(
         &mut self,
         policy: ApprovedAccountSharingPolicy,
+        progress: Option<CatalogProgress>,
     ) -> Result<(), AccountSharingError> {
         self.automatic_policy_current(&policy)?;
         let id = Self::automatic_policy_id(&policy)?;
@@ -442,8 +485,15 @@ impl AppClient {
                 inventory_digest: None,
                 sent: BTreeMap::new(),
                 assembly: None,
+                pending_catalog: None,
+                renew: false,
             },
         );
+        self.account_sharing_owner
+            .automatic
+            .get_mut(&id)
+            .expect("inserted automatic channel")
+            .restore_catalog_progress(progress);
         Ok(())
     }
     #[cfg(test)]
@@ -459,7 +509,7 @@ impl AppClient {
             .approved_account_sharing_policies()
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
         for policy in policies {
-            self.begin_automatic_channel(policy)?;
+            self.begin_automatic_channel(policy, None)?;
         }
         self.maintain_automatic_account_sharing().await
     }
@@ -494,15 +544,19 @@ impl AppClient {
                             .session()
                             .validate_account_sharing_channel(&entry.channel)
                             .is_err()
-                        || entry.next_body >= 100
+                        || entry.next_body >= CHANNEL_BODY_BUDGET
+                        || entry.renew
                 });
-            if retired {
-                self.account_sharing_owner.automatic.remove(&id);
+            let mut progress = None;
+            let mut budget_renewal = false;
+            if retired && let Some(mut old) = self.account_sharing_owner.automatic.remove(&id) {
+                budget_renewal = old.renew || old.next_body >= CHANNEL_BODY_BUDGET;
+                progress = Some(old.take_catalog_progress());
             }
             if !self.account_sharing_owner.automatic.contains_key(&id)
-                && policy.local_device < policy.peer_device
+                && (policy.local_device < policy.peer_device || budget_renewal)
             {
-                self.begin_automatic_channel(policy)?;
+                self.begin_automatic_channel(policy, progress)?;
             }
         }
         let ids: Vec<_> = self
@@ -563,6 +617,12 @@ impl AppClient {
             .await?;
         entry.pending.pop_front();
         entry.next_body += 1;
+        if entry.pending.is_empty()
+            && let Some((group, digest)) = entry.pending_catalog.take()
+        {
+            entry.cursor = Some(group.clone());
+            entry.sent.insert(group.as_slice().to_vec(), digest);
+        }
         Ok(())
     }
     fn prepare_automatic_catalog(
@@ -585,7 +645,6 @@ impl AppClient {
         let Some(source) = page.entries.first() else {
             return Ok(());
         };
-        entry.cursor = Some(source.group_id.clone());
         let storage = self
             .app
             .account_storage(&self.state.label)
@@ -607,6 +666,7 @@ impl AppClient {
             Sha256::digest(serde_json::to_vec(&record).map_err(|_| AccountSharingError::NotReady)?)
                 .into();
         if entry.sent.get(record.group_id.as_slice()) == Some(&digest) {
+            entry.cursor = Some(record.group_id.clone());
             return Ok(());
         }
         let validate = || {
@@ -640,6 +700,10 @@ impl AppClient {
         }
         let whole: [u8; 32] = Sha256::digest(&bytes).into();
         let count = bytes.len().div_ceil(FRAGMENT_BYTES) as u32;
+        if entry.next_body + u64::from(count) > CHANNEL_BODY_BUDGET {
+            entry.renew = true;
+            return Ok(());
+        }
         for (ordinal, body) in bytes.chunks(FRAGMENT_BYTES).enumerate() {
             entry.pending.push_back(
                 serde_json::to_vec(&CatalogFragment {
@@ -652,9 +716,7 @@ impl AppClient {
                 .map_err(|_| AccountSharingError::NotReady)?,
             );
         }
-        entry
-            .sent
-            .insert(record.group_id.as_slice().to_vec(), digest);
+        entry.pending_catalog = Some((record.group_id, digest));
         Ok(())
     }
     async fn publish_automatic_control(

@@ -208,6 +208,10 @@ mod actual {
     async fn automatic_sharing_request_before_source_policy_commit_retains_original_deadline() {
         run_native_public_three_device_enrollment(ApprovalScenario::AutomaticRace).await;
     }
+    #[tokio::test]
+    async fn automatic_catalog_channel_renewal_reaches_later_entries_without_manual_consent() {
+        run_native_public_three_device_enrollment(ApprovalScenario::AutomaticRenewal).await;
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum ApprovalScenario {
         Enroll,
@@ -216,6 +220,7 @@ mod actual {
         ShareChats,
         ExistingShare,
         AutomaticRace,
+        AutomaticRenewal,
     }
     async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
         use cgka_traits::StorageProvider;
@@ -508,7 +513,9 @@ mod actual {
         }
         let initial_shared_chat = if matches!(
             scenario,
-            ApprovalScenario::ExistingShare | ApprovalScenario::AutomaticRace
+            ApprovalScenario::ExistingShare
+                | ApprovalScenario::AutomaticRace
+                | ApprovalScenario::AutomaticRenewal
         ) {
             Some(
                 managers[0]
@@ -524,9 +531,27 @@ mod actual {
         } else {
             None
         };
+        let mut renewal_chats = Vec::new();
+        if scenario == ApprovalScenario::AutomaticRenewal {
+            for index in 0..20 {
+                renewal_chats.push(
+                    managers[0]
+                        .create_group(
+                            "test",
+                            &format!("Renewal chat {index}"),
+                            &[],
+                            Some("x".repeat(4096)),
+                        )
+                        .await
+                        .unwrap(),
+                );
+            }
+        }
         if matches!(
             scenario,
-            ApprovalScenario::ExistingShare | ApprovalScenario::AutomaticRace
+            ApprovalScenario::ExistingShare
+                | ApprovalScenario::AutomaticRace
+                | ApprovalScenario::AutomaticRenewal
         ) {
             // Select C from actual settled protected tree, never invent a target.
             let c_key = apps[2]
@@ -783,13 +808,14 @@ mod actual {
                 .create_group("test", "Automatically discovered later chat", &[], None)
                 .await
                 .unwrap();
-            tokio::time::timeout(std::time::Duration::from_secs(30),async{
+            tokio::time::timeout(std::time::Duration::from_secs(if scenario == ApprovalScenario::AutomaticRenewal {180} else {30}),async{
                 loop{
                     let rows=apps[2].account_storage("test").unwrap().mirrored_chat_catalog_storage().unwrap().mirrored_chat_catalog_page(&mirror,None,128).unwrap();
-                    if rows.len()==2 {
+                    if rows.len()==2 + renewal_chats.len() {
                         let old=rows.iter().find(|record|Some(&record.group_id)==initial_shared_chat.as_ref()).unwrap();
                         assert_eq!(old.description.len(),4096);
                         assert!(rows.iter().any(|record|record.group_id==later));
+                        for group in &renewal_chats {assert!(rows.iter().any(|record|&record.group_id==group && record.description.len()==4096));}
                         break;
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
@@ -856,12 +882,16 @@ mod actual {
 
         assert!(apps.iter().enumerate().all(|(index, app)| matches!(
             scenario,
-            ApprovalScenario::ExistingShare | ApprovalScenario::AutomaticRace
+            ApprovalScenario::ExistingShare
+                | ApprovalScenario::AutomaticRace
+                | ApprovalScenario::AutomaticRenewal
         ) && index == 0
             || app.load_state("test").unwrap().groups.is_empty()));
         if matches!(
             scenario,
-            ApprovalScenario::ExistingShare | ApprovalScenario::AutomaticRace
+            ApprovalScenario::ExistingShare
+                | ApprovalScenario::AutomaticRace
+                | ApprovalScenario::AutomaticRenewal
         ) {
             let old = managers[0]
                 .account_chat_sharing_targets("test")

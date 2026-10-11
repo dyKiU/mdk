@@ -1,0 +1,221 @@
+{
+  "scope": "Experimental encrypted catalog whole-entry budget and fresh-channel scan continuation; not full automatic chat sharing",
+  "source_base": "fc60443403c3c38986d7218d6be4ffe8e785b71b",
+  "candidate_stash": "7d404aecc477dcc87d820b10e2a72c2469c9c9c4",
+  "product_paths_sha256": {
+    "crates/marmot-app/src/client/account_chat_sharing/automatic.rs": "72ea1133a40f37cf8ae671e1dab7ddd59f2eb2bb2539741cfbaec0422f46ae38",
+    "crates/marmot-app/src/native_device_linking/tests.rs": "96a3b86f553a0efd09c3eff2122f93d6b86bab171ec80bf165b8c370120d033c"
+  },
+  "acceptance": {
+    "unchanged_regression": "automatic_catalog_channel_renewal_reaches_later_entries_without_manual_consent",
+    "fixture_test_file_sha256": "96a3b86f553a0efd09c3eff2122f93d6b86bab171ec80bf165b8c370120d033c",
+    "actual_red": "0 passed / 1 failed at existing/later22-chat discovery 180-second wait; 198.08-second test",
+    "actual_green": "1 passed / 0 failed; 148.97-second test. Same 180-second bound, actualABC independent stores, real relay, fixed4096-byte description on21 existing groups plus later group",
+    "checks": "Earlier exact SQL policy race1/1, default refusal1/1, production3-crate all-target strictClippy, default3-crate all-targetcheck, workspacefmt; allpass bothbefore andafter signed private21 dependency integration",
+    "implementation": "Reserve whole-entry remaining body budget before framing; advance cursor/sent only after full entry publication; fresh approved-policy negotiation can initiate on either actual peer after budget exhaustion. Carry only cursor/metadata digest/sent observations into a new same-generation channel. Original, deadline and keys are newly constructed; old original is retired. Changed generation discards progress."
+  },
+  "verification": {
+    "base": "728d67ae3d05e551a184ccbda95a00bc4a5a1952",
+    "cohorts": [
+      {
+        "prefix": "automatic-catalog-renewal-red-v1",
+        "base": "728d67ae3d05e551a184ccbda95a00bc4a5a1952",
+        "stash": "ea05f6349140f5944296c68edccec08148b891e5",
+        "verified_inputs": 2568,
+        "manifest_sha256": "bf9c956a2622cf3c58a9c24770d704baba541d2feb69d533542379c861e882b4",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 101,
+            "seconds": 296.7060821056366,
+            "log": "/Users/pj/project/build/automatic-catalog-renewal-red-v1-catalog.log",
+            "log_sha256": "3a92d56a6c1d6218610f8bf1fcca6d90c5aa8ff74d72f3884c0ff826336b9eba"
+          }
+        ],
+        "counts": {
+          "catalog": [
+            [
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      },
+      {
+        "prefix": "automatic-catalog-renewal-green-v1",
+        "base": "728d67ae3d05e551a184ccbda95a00bc4a5a1952",
+        "stash": "86c58021561d9aef2e552e635d4f303173081ae3",
+        "verified_inputs": 2568,
+        "manifest_sha256": "47e38cfcae42810b58aa49db5f09e7271ffb11cf010f0a9106fd71a71891cf3c",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 0,
+            "seconds": 244.96393394470215,
+            "log": "/Users/pj/project/build/automatic-catalog-renewal-green-v1-catalog.log",
+            "log_sha256": "51b156f083df9a35e3c2c37ca3ca905fcdc994760fdc059ddc15596549bf10be"
+          }
+        ],
+        "counts": {
+          "catalog": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        }
+      },
+      {
+        "prefix": "automatic-catalog-renewal-final-v1",
+        "base": "728d67ae3d05e551a184ccbda95a00bc4a5a1952",
+        "stash": "86c58021561d9aef2e552e635d4f303173081ae3",
+        "verified_inputs": 2568,
+        "manifest_sha256": "47e38cfcae42810b58aa49db5f09e7271ffb11cf010f0a9106fd71a71891cf3c",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "race",
+            "exit": 0,
+            "seconds": 22.159165859222412,
+            "log": "/Users/pj/project/build/automatic-catalog-renewal-final-v1-race.log",
+            "log_sha256": "1ab66acd8532d60b1bf0d4176d1adb5f7e78c5d496b995a20c9399eede22136f"
+          },
+          {
+            "gate": "default",
+            "exit": 0,
+            "seconds": 80.98760390281677,
+            "log": "/Users/pj/project/build/automatic-catalog-renewal-final-v1-default.log",
+            "log_sha256": "0371315ce4a6e2478f451593a1ff4cc4a6f402eaf99865204433ffb0bec0969f"
+          },
+          {
+            "gate": "production-clippy",
+            "exit": 0,
+            "seconds": 73.91165733337402,
+            "log": "/Users/pj/project/build/automatic-catalog-renewal-final-v1-production-clippy.log",
+            "log_sha256": "658db636f04e72a6d14a7b77a7e7f01775be7816a821e61270d695bc624058ea"
+          },
+          {
+            "gate": "default-check",
+            "exit": 0,
+            "seconds": 56.20261335372925,
+            "log": "/Users/pj/project/build/automatic-catalog-renewal-final-v1-default-check.log",
+            "log_sha256": "7dd9e64243785651023c3dc3f8b16031bec9ce5cb83dd393bca364739f996ea4"
+          },
+          {
+            "gate": "fmt",
+            "exit": 0,
+            "seconds": 4.221239805221558,
+            "log": "/Users/pj/project/build/automatic-catalog-renewal-final-v1-fmt.log",
+            "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ],
+        "counts": {
+          "race": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "default": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "production-clippy": [],
+          "default-check": [],
+          "fmt": []
+        }
+      },
+      {
+        "prefix": "automatic-catalog-renewal-final-v2",
+        "base": "fc60443403c3c38986d7218d6be4ffe8e785b71b",
+        "stash": "7d404aecc477dcc87d820b10e2a72c2469c9c9c4",
+        "verified_inputs": 2573,
+        "manifest_sha256": "c1f55773a0cb378e7195cb2e14bb26386a405bc35c1a2f8935c20385539cfaba",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "race",
+            "exit": 0,
+            "seconds": 118.2588279247284,
+            "log": "/Users/pj/project/build/automatic-catalog-renewal-final-v2-race.log",
+            "log_sha256": "8bf950b5b1dfa4eb412128dabb67f5ac16f30bd4a8a4207741433c7f4b632355"
+          },
+          {
+            "gate": "default",
+            "exit": 0,
+            "seconds": 76.78266787528992,
+            "log": "/Users/pj/project/build/automatic-catalog-renewal-final-v2-default.log",
+            "log_sha256": "3f25b20c2e772da877f59656527ac6b95db7a64993491dbc880c6e314fd31cea"
+          },
+          {
+            "gate": "production-clippy",
+            "exit": 0,
+            "seconds": 69.47953701019287,
+            "log": "/Users/pj/project/build/automatic-catalog-renewal-final-v2-production-clippy.log",
+            "log_sha256": "3e469a6ede97684ab490bb72cb337e1054e8aa2057db76cdfd68ffa898eb1373"
+          },
+          {
+            "gate": "default-check",
+            "exit": 0,
+            "seconds": 45.6348979473114,
+            "log": "/Users/pj/project/build/automatic-catalog-renewal-final-v2-default-check.log",
+            "log_sha256": "7ef298adf1d1c23232b3799cd397dc679ce457ea7aa5eab9ae20b2b57454fb26"
+          },
+          {
+            "gate": "fmt",
+            "exit": 0,
+            "seconds": 4.353300333023071,
+            "log": "/Users/pj/project/build/automatic-catalog-renewal-final-v2-fmt.log",
+            "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ],
+        "counts": {
+          "race": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "default": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "production-clippy": [],
+          "default-check": [],
+          "fmt": []
+        }
+      }
+    ],
+    "total_input_hashes_verified": 10277
+  },
+  "raw_backup": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-catalog-renewal",
+  "full_source_verification_sha256": "e676381bf256e86d30c9f1117619673e17ee8a80529ebee85f9739ad792c9ba1",
+  "post_freeze_delta": "Only this proof plus AppREADME/current-state annotations; root B endorsement drafts excluded",
+  "limits": [
+    "RelayACK still does not establish committed recipient catalog receipt; loss/reorder/offline retry remains unqualified.",
+    "Sent observations remain process-local. Restart rescan, source leave/disband withdrawals and live metadata refresh need subsequent controls.",
+    "Records/RecordReceipt, history/messages, visible normal chat-list/timeline and genuine forwarded-send actors remain pending.",
+    "This source slice produces no SDK artifacts or installed/native automatic-sharing claim.",
+    "Signed private21 is independently storage-qualified; unchanged renewal App source behavior was tested on 728 baseline, combined fc604 receives exact SQLrace/default/static checks; no broad App matrix claim."
+  ],
+  "resources": {
+    "target": "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+    "jobs": 1,
+    "incremental": 0,
+    "toolchain": "Rust1.97.1 aarch64-apple-darwin",
+    "historical_binary": "/Users/pj/project/build/historical-final-default-app-93eaf71300bfdb25",
+    "historical_sha256": "93eaf71300bfdb25df091d11a626db7986cf36ad553f3387829efadf79d4e28d"
+  }
+}
