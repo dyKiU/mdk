@@ -1,0 +1,669 @@
+//! Canonical logical records, separately acknowledged from catalog discovery.
+use super::*;
+use cgka_traits::account_chat_record_stream::{AccountChatRecordBatch, AccountChatRecordReceipt};
+use cgka_traits::mirrored_chat_messages::MirroredChatRecord;
+
+const MAX_RECORD_WIRE_BYTES: usize = 96 * 1024;
+// Keep eight of the original 128 bodies available for authenticated receipts.
+const RECORD_BODY_BUDGET: u64 = 120;
+
+#[derive(Default)]
+pub(super) struct RecordProgress {
+    group_after: Option<crate::GroupId>,
+    group: Option<crate::GroupId>,
+    cursor: Option<storage_sqlite::AppEventReplayCursor>,
+    pending: Option<PendingRecord>,
+    assembly: Option<Assembly>,
+}
+pub(super) struct RecordSourceCursor {
+    group_after: Option<crate::GroupId>,
+    group: Option<crate::GroupId>,
+    cursor: Option<storage_sqlite::AppEventReplayCursor>,
+}
+impl RecordProgress {
+    pub(super) fn has_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+    pub(super) fn take_source_cursor(&mut self) -> RecordSourceCursor {
+        RecordSourceCursor {
+            group_after: self.group_after.take(),
+            group: self.group.take(),
+            cursor: self.cursor.take(),
+        }
+    }
+    pub(super) fn restore_source_cursor(&mut self, cursor: RecordSourceCursor) {
+        self.group_after = cursor.group_after;
+        self.group = cursor.group;
+        self.cursor = cursor.cursor;
+    }
+}
+struct PendingRecord {
+    group: crate::GroupId,
+    batch: AccountChatRecordBatch,
+    published_at: Option<std::time::Instant>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompactRecord {
+    event_id: [u8; 32],
+    author: [u8; 32],
+    created_at: u64,
+    kind: u16,
+    payload: String,
+    content_digest: Option<[u8; 32]>,
+    expires_at: Option<u64>,
+    deleted: bool,
+    source_epoch: u64,
+    source_sequence: u64,
+    source_digest: [u8; 32],
+}
+impl CompactRecord {
+    fn from_record(record: &MirroredChatRecord) -> Self {
+        Self {
+            event_id: record.event_id,
+            author: record.author,
+            created_at: record.created_at,
+            kind: record.kind,
+            payload: base64::engine::general_purpose::STANDARD.encode(&record.payload),
+            content_digest: record.content_digest,
+            expires_at: record.expires_at,
+            deleted: record.deleted,
+            source_epoch: record.source_epoch,
+            source_sequence: record.source_sequence,
+            source_digest: record.source_digest,
+        }
+    }
+    fn into_record(self) -> Result<MirroredChatRecord, AccountSharingError> {
+        let payload = base64::engine::general_purpose::STANDARD
+            .decode(&self.payload)
+            .map_err(|_| AccountSharingError::NotReady)?;
+        if base64::engine::general_purpose::STANDARD.encode(&payload) != self.payload {
+            return Err(AccountSharingError::NotReady);
+        }
+        Ok(MirroredChatRecord {
+            event_id: self.event_id,
+            author: self.author,
+            created_at: self.created_at,
+            kind: self.kind,
+            payload,
+            content_digest: self.content_digest,
+            expires_at: self.expires_at,
+            deleted: self.deleted,
+            source_epoch: self.source_epoch,
+            source_sequence: self.source_sequence,
+            source_digest: self.source_digest,
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RecordWire {
+    version: u8,
+    group: String,
+    batch_digest: [u8; 32],
+    first_sequence: u64,
+    last_sequence: u64,
+    record_count: u32,
+    records: Vec<CompactRecord>,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RecordReceiptWire {
+    version: u8,
+    group: String,
+    receipt: AccountChatRecordReceipt,
+}
+fn encode_group(group: &crate::GroupId) -> String {
+    base64::engine::general_purpose::STANDARD.encode(group.as_slice())
+}
+fn decode_group(value: &str) -> Result<crate::GroupId, AccountSharingError> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(value)
+        .map_err(|_| AccountSharingError::NotReady)?;
+    if !(1..=255).contains(&bytes.len())
+        || base64::engine::general_purpose::STANDARD.encode(&bytes) != value
+    {
+        return Err(AccountSharingError::NotReady);
+    }
+    Ok(crate::GroupId::new(bytes))
+}
+
+impl AppClient {
+    pub(super) fn accept_automatic_records(
+        &self,
+        entry: &mut AutomaticChannel,
+        bytes: &[u8],
+    ) -> Result<(), AccountSharingError> {
+        let fragment: CatalogFragment =
+            serde_json::from_slice(bytes).map_err(|_| AccountSharingError::NotReady)?;
+        if serde_json::to_vec(&fragment).map_err(|_| AccountSharingError::NotReady)? != bytes
+            || fragment.version != 1
+            || fragment.count == 0
+            || fragment.count as usize > MAX_RECORD_WIRE_BYTES.div_ceil(FRAGMENT_BYTES)
+            || fragment.ordinal >= fragment.count
+        {
+            return Err(AccountSharingError::NotReady);
+        }
+        let part = base64::engine::general_purpose::STANDARD
+            .decode(&fragment.body)
+            .map_err(|_| AccountSharingError::NotReady)?;
+        if part.is_empty()
+            || part.len() > FRAGMENT_BYTES
+            || base64::engine::general_purpose::STANDARD.encode(&part) != fragment.body
+        {
+            return Err(AccountSharingError::NotReady);
+        }
+        if entry
+            .records
+            .assembly
+            .as_ref()
+            .is_none_or(|old| old.digest != fragment.digest)
+        {
+            entry.records.assembly = Some(Assembly {
+                digest: fragment.digest,
+                fragments: vec![None; fragment.count as usize],
+            });
+        }
+        let assembly = entry.records.assembly.as_mut().expect("record assembly");
+        if assembly.fragments.len() != fragment.count as usize {
+            return Err(AccountSharingError::NotReady);
+        }
+        let slot = &mut assembly.fragments[fragment.ordinal as usize];
+        if slot.as_ref().is_some_and(|old| old != &part) {
+            return Err(AccountSharingError::NotReady);
+        }
+        *slot = Some(part);
+        if assembly.fragments.iter().any(Option::is_none) {
+            return Ok(());
+        }
+        let bytes: Vec<u8> = assembly
+            .fragments
+            .iter()
+            .flat_map(|part| part.as_ref().expect("complete record part").iter().copied())
+            .collect();
+        if bytes.len() > MAX_RECORD_WIRE_BYTES
+            || <[u8; 32]>::from(Sha256::digest(&bytes)) != fragment.digest
+        {
+            return Err(AccountSharingError::NotReady);
+        }
+        let wire: RecordWire =
+            serde_json::from_slice(&bytes).map_err(|_| AccountSharingError::NotReady)?;
+        if wire.version != 1
+            || serde_json::to_vec(&wire).map_err(|_| AccountSharingError::NotReady)? != bytes
+        {
+            return Err(AccountSharingError::NotReady);
+        }
+        let group = decode_group(&wire.group)?;
+        let records = wire
+            .records
+            .into_iter()
+            .map(CompactRecord::into_record)
+            .collect::<Result<Vec<_>, _>>()?;
+        let batch = AccountChatRecordBatch {
+            batch_digest: wire.batch_digest,
+            first_sequence: wire.first_sequence,
+            last_sequence: wire.last_sequence,
+            record_count: wire.record_count,
+            encoded_records: serde_json::to_vec(&records)
+                .map_err(|_| AccountSharingError::NotReady)?,
+        };
+        let scope = MirroredChatScope {
+            account: entry.policy.account,
+            local_device: entry.policy.local_device,
+            source_device: entry.policy.peer_device,
+            policy_digest: Self::automatic_policy_id(&entry.policy)?,
+            protected_group: entry.policy.protected_group.clone(),
+            protected_generation: entry.channel.scope().local_generation,
+        };
+        let storage = self
+            .app
+            .account_storage(&self.state.label)
+            .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        let receipt = storage
+            .account_chat_record_stream_storage()
+            .ok_or(AccountSharingError::NotReady)?
+            .apply_account_chat_record_batch(
+                &scope,
+                &group,
+                &batch,
+                crate::unix_now_seconds(),
+                &|| self.automatic_record_original(entry),
+            )
+            .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        // A rollback retains complete authenticated bytes. A committed import
+        // alone creates the typed receipt, independently of relay publication.
+        entry.records.assembly = None;
+        let bytes = serde_json::to_vec(&RecordReceiptWire {
+            version: 1,
+            group: encode_group(&group),
+            receipt,
+        })
+        .map_err(|_| AccountSharingError::NotReady)?;
+        if bytes.len() > cgka_engine::account_chat_sharing::MAX_ACCOUNT_SHARED_BODY_BYTES
+            || entry.pending.len() >= CHANNEL_BODY_BUDGET as usize
+        {
+            return Err(AccountSharingError::NotReady);
+        }
+        entry.pending.push_back(PendingBody {
+            kind: AccountSharedBodyKind::RecordReceipt,
+            bytes,
+        });
+        Ok(())
+    }
+
+    pub(super) fn accept_automatic_record_receipt(
+        &self,
+        entry: &mut AutomaticChannel,
+        bytes: &[u8],
+    ) -> Result<(), AccountSharingError> {
+        let wire: RecordReceiptWire =
+            serde_json::from_slice(bytes).map_err(|_| AccountSharingError::NotReady)?;
+        if wire.version != 1
+            || serde_json::to_vec(&wire).map_err(|_| AccountSharingError::NotReady)? != bytes
+        {
+            return Err(AccountSharingError::NotReady);
+        }
+        let group = decode_group(&wire.group)?;
+        let Some(pending) = entry.records.pending.as_ref() else {
+            return Ok(());
+        };
+        if group != pending.group
+            || wire.receipt.batch_digest != pending.batch.batch_digest
+            || wire.receipt.first_sequence != pending.batch.first_sequence
+            || wire.receipt.last_sequence != pending.batch.last_sequence
+            || wire.receipt.record_count != pending.batch.record_count
+            || wire.receipt.imported_count > wire.receipt.record_count
+        {
+            return Err(AccountSharingError::NotReady);
+        }
+        let storage = self
+            .app
+            .account_storage(&self.state.label)
+            .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        storage
+            .account_chat_record_stream_storage()
+            .ok_or(AccountSharingError::NotReady)?
+            .acknowledge_account_chat_record_batch(
+                &Self::automatic_policy_id(&entry.policy)?,
+                &group,
+                &wire.receipt,
+                &|| self.automatic_record_original(entry),
+            )
+            .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        entry.records.pending = None;
+        Ok(())
+    }
+
+    pub(super) fn automatic_record_publication_current(
+        &self,
+        entry: &mut AutomaticChannel,
+    ) -> Result<bool, AccountSharingError> {
+        let Some(pending) = entry.records.pending.as_ref() else {
+            return Ok(true);
+        };
+        if !self.automatic_record_batch_source_current(entry, &pending.group, &pending.batch)? {
+            let storage = self
+                .app
+                .account_storage(&self.state.label)
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+            storage
+                .account_chat_record_stream_storage()
+                .ok_or(AccountSharingError::NotReady)?
+                .deny_account_chat_record_batch(
+                    &Self::automatic_policy_id(&entry.policy)?,
+                    &pending.group,
+                    &pending.batch.batch_digest,
+                    &|| self.automatic_record_original(entry),
+                )
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+            entry.renew = true;
+            entry.records.cursor = None;
+            return Ok(false);
+        }
+        if pending
+            .published_at
+            .is_some_and(|published| published.elapsed() >= std::time::Duration::from_secs(10))
+        {
+            entry.renew = true;
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    pub(super) fn automatic_record_publication_deadline(
+        &self,
+        entry: &AutomaticChannel,
+    ) -> Result<std::time::Instant, AccountSharingError> {
+        if !entry
+            .pending
+            .front()
+            .is_some_and(|body| body.kind == AccountSharedBodyKind::Records)
+        {
+            return Ok(entry.original.deadline);
+        }
+        let Some(pending) = entry.records.pending.as_ref() else {
+            return Err(AccountSharingError::NotReady);
+        };
+        let records: Vec<MirroredChatRecord> =
+            serde_json::from_slice(&pending.batch.encoded_records)
+                .map_err(|_| AccountSharingError::NotReady)?;
+        let now = crate::unix_now_seconds();
+        let deadline = records
+            .iter()
+            .filter(|record| !record.deleted)
+            .filter_map(|record| record.expires_at)
+            .min()
+            .map(|expiry| {
+                std::time::Instant::now()
+                    + std::time::Duration::from_secs(expiry.saturating_sub(now).saturating_sub(1))
+            })
+            .unwrap_or(entry.original.deadline);
+        Ok(deadline.min(entry.original.deadline))
+    }
+
+    pub(super) fn automatic_record_mark_published(&self, entry: &mut AutomaticChannel) {
+        if entry.pending.is_empty()
+            && let Some(pending) = entry.records.pending.as_mut()
+            && pending.published_at.is_none()
+        {
+            pending.published_at = Some(std::time::Instant::now());
+        }
+    }
+
+    fn automatic_record_original(
+        &self,
+        entry: &AutomaticChannel,
+    ) -> cgka_traits::storage::StorageResult<()> {
+        self.automatic_policy_current(&entry.policy)
+            .and_then(|()| {
+                self.runtime
+                    .session()
+                    .validate_account_sharing_channel(&entry.channel)
+                    .map_err(|_| AccountSharingError::Closed)
+            })
+            .map_err(|_| {
+                cgka_traits::storage::StorageError::Serialization(
+                    "automatic record original unavailable".into(),
+                )
+            })
+    }
+
+    fn automatic_record_source_epoch(
+        &self,
+        entry: &AutomaticChannel,
+        group: &crate::GroupId,
+    ) -> Result<Option<u64>, AccountSharingError> {
+        let page = self
+            .runtime
+            .session()
+            .account_chat_catalog(
+                &entry.policy.protected_group,
+                entry.records.group_after.as_ref(),
+                1,
+            )
+            .map_err(|_| AccountSharingError::Closed)?;
+        Ok(page
+            .entries
+            .first()
+            .filter(|source| &source.group_id == group)
+            .map(|source| source.epoch))
+    }
+
+    fn automatic_record_batch_source_current(
+        &self,
+        entry: &AutomaticChannel,
+        group: &crate::GroupId,
+        batch: &AccountChatRecordBatch,
+    ) -> Result<bool, AccountSharingError> {
+        let Some(epoch) = self.automatic_record_source_epoch(entry, group)? else {
+            return Ok(false);
+        };
+        let records: Vec<MirroredChatRecord> = serde_json::from_slice(&batch.encoded_records)
+            .map_err(|_| AccountSharingError::NotReady)?;
+        let storage = self
+            .app
+            .account_storage(&self.state.label)
+            .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        for record in records {
+            let Some(row) = storage
+                .app_message(
+                    &hex::encode(group.as_slice()),
+                    &hex::encode(record.event_id),
+                )
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?
+            else {
+                return Ok(false);
+            };
+            let current =
+                self.automatic_record_from_source(group, epoch, &row, crate::unix_now_seconds())?;
+            let digest: [u8; 32] = Sha256::digest(
+                serde_json::to_vec(&current).map_err(|_| AccountSharingError::NotReady)?,
+            )
+            .into();
+            if digest != record.source_digest {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    pub(super) fn prepare_automatic_records(
+        &self,
+        entry: &mut AutomaticChannel,
+    ) -> Result<(), AccountSharingError> {
+        if entry.records.pending.is_some() {
+            return Ok(());
+        }
+        if entry.records.group.is_none() {
+            let page = self
+                .runtime
+                .session()
+                .account_chat_catalog(
+                    &entry.policy.protected_group,
+                    entry.records.group_after.as_ref(),
+                    1,
+                )
+                .map_err(|_| AccountSharingError::Closed)?;
+            let Some(source) = page.entries.first() else {
+                // A cursor is not coverage: restart a bounded fresh scan for
+                // late older events, retention changes and future messages.
+                entry.records.group_after = None;
+                return Ok(());
+            };
+            if !entry.sent.contains_key(source.group_id.as_slice()) {
+                return Ok(());
+            }
+            entry.records.group = Some(source.group_id.clone());
+        }
+        let group = entry.records.group.as_ref().expect("source group").clone();
+        let Some(epoch) = self.automatic_record_source_epoch(entry, &group)? else {
+            entry.records.group_after = Some(group);
+            entry.records.group = None;
+            entry.records.cursor = None;
+            return Ok(());
+        };
+        let storage = self
+            .app
+            .account_storage(&self.state.label)
+            .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        let store = storage
+            .account_chat_record_stream_storage()
+            .ok_or(AccountSharingError::NotReady)?;
+        let policy = Self::automatic_policy_id(&entry.policy)?;
+        let mut pending = store
+            .pending_account_chat_record_batches(&policy, &group, None, 1)
+            .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        if pending.is_empty() {
+            let rows = storage
+                .app_messages_page(
+                    storage_sqlite::StoredAppMessageQuery {
+                        group_id_hex: Some(hex::encode(group.as_slice())),
+                        kinds: Some(vec![9]),
+                        limit: Some(1),
+                    },
+                    entry.records.cursor.as_ref(),
+                )
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+            let Some(row) = rows.first() else {
+                entry.records.group_after = Some(group);
+                entry.records.group = None;
+                entry.records.cursor = None;
+                return Ok(());
+            };
+            let mut record =
+                self.automatic_record_from_source(&group, epoch, row, crate::unix_now_seconds())?;
+            let attestation: [u8; 32] = Sha256::digest(
+                serde_json::to_vec(&record).map_err(|_| AccountSharingError::NotReady)?,
+            )
+            .into();
+            let validate = || self.automatic_record_original(entry);
+            record.source_sequence = store
+                .reserve_account_chat_record_sequence(
+                    &policy,
+                    &group,
+                    &record.event_id,
+                    &attestation,
+                    &validate,
+                )
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+            record.source_digest = attestation;
+            let encoded_records = serde_json::to_vec(std::slice::from_ref(&record))
+                .map_err(|_| AccountSharingError::NotReady)?;
+            let batch = AccountChatRecordBatch {
+                batch_digest: Sha256::digest(&encoded_records).into(),
+                first_sequence: record.source_sequence,
+                last_sequence: record.source_sequence,
+                record_count: 1,
+                encoded_records,
+            };
+            store
+                .stage_account_chat_record_batch(&policy, &group, &batch, &validate)
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+            // This advances only after a durable outbox exists (or its exact
+            // receipt already exists). It is never proof of recipient import.
+            entry.records.cursor = Some(row.replay_cursor());
+            pending = store
+                .pending_account_chat_record_batches(&policy, &group, None, 1)
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        }
+        let Some(batch) = pending.into_iter().next() else {
+            return Ok(());
+        };
+        if !self.automatic_record_batch_source_current(entry, &group, &batch)? {
+            store
+                .deny_account_chat_record_batch(&policy, &group, &batch.batch_digest, &|| {
+                    self.automatic_record_original(entry)
+                })
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+            entry.records.cursor = None;
+            return Ok(());
+        }
+        let records: Vec<MirroredChatRecord> = serde_json::from_slice(&batch.encoded_records)
+            .map_err(|_| AccountSharingError::NotReady)?;
+        let bytes = serde_json::to_vec(&RecordWire {
+            version: 1,
+            group: encode_group(&group),
+            batch_digest: batch.batch_digest,
+            first_sequence: batch.first_sequence,
+            last_sequence: batch.last_sequence,
+            record_count: batch.record_count,
+            records: records.iter().map(CompactRecord::from_record).collect(),
+        })
+        .map_err(|_| AccountSharingError::NotReady)?;
+        if bytes.len() > MAX_RECORD_WIRE_BYTES {
+            return Err(AccountSharingError::NotReady);
+        }
+        let count = bytes.len().div_ceil(FRAGMENT_BYTES) as u32;
+        if entry.next_body + u64::from(count) > RECORD_BODY_BUDGET {
+            entry.renew = true;
+            return Ok(());
+        }
+        let digest: [u8; 32] = Sha256::digest(&bytes).into();
+        for (ordinal, body) in bytes.chunks(FRAGMENT_BYTES).enumerate() {
+            entry.pending.push_back(PendingBody {
+                kind: AccountSharedBodyKind::Records,
+                bytes: serde_json::to_vec(&CatalogFragment {
+                    version: 1,
+                    digest,
+                    ordinal: ordinal as u32,
+                    count,
+                    body: base64::engine::general_purpose::STANDARD.encode(body),
+                })
+                .map_err(|_| AccountSharingError::NotReady)?,
+            });
+        }
+        entry.records.pending = Some(PendingRecord {
+            group,
+            batch,
+            published_at: None,
+        });
+        Ok(())
+    }
+
+    fn automatic_record_from_source(
+        &self,
+        group: &crate::GroupId,
+        epoch: u64,
+        row: &storage_sqlite::StoredAppMessageRecord,
+        now: u64,
+    ) -> Result<MirroredChatRecord, AccountSharingError> {
+        if row.group_id_hex != hex::encode(group.as_slice()) || row.kind != 9 {
+            return Err(AccountSharingError::NotReady);
+        }
+        let storage = self
+            .app
+            .account_storage(&self.state.label)
+            .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        let visible = storage
+            .timeline_message(&row.group_id_hex, &row.message_id_hex)
+            .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        let expires_at = visible
+            .as_ref()
+            .and_then(|message| message.retention_expires_at)
+            .or(row
+                .retention
+                .as_ref()
+                .and_then(|decision| decision.expires_at));
+        // Source visibility is checked before any logical plaintext encoding.
+        let deleted = row.invalidated
+            || expires_at.is_some_and(|expiry| expiry <= now)
+            || visible
+                .as_ref()
+                .is_none_or(|message| message.deleted || message.invalidation_status.is_some());
+        let payload = if deleted {
+            Vec::new()
+        } else {
+            // Preserve the canonical original event, not an edited timeline
+            // projection under the original event ID. Modifiers are separate.
+            serde_json::to_vec(&(&row.plaintext, &row.tags))
+                .map_err(|_| AccountSharingError::NotReady)?
+        };
+        if payload.len() > cgka_traits::mirrored_chat_messages::MAX_MIRRORED_MESSAGE_PAYLOAD {
+            return Err(AccountSharingError::NotReady);
+        }
+        let content_digest = (!deleted).then(|| Sha256::digest(&payload).into());
+        Ok(MirroredChatRecord {
+            event_id: hex::decode(&row.message_id_hex)
+                .map_err(|_| AccountSharingError::NotReady)?
+                .as_slice()
+                .try_into()
+                .map_err(|_| AccountSharingError::NotReady)?,
+            author: hex::decode(&row.sender)
+                .map_err(|_| AccountSharingError::NotReady)?
+                .as_slice()
+                .try_into()
+                .map_err(|_| AccountSharingError::NotReady)?,
+            created_at: row.recorded_at,
+            kind: u16::try_from(row.kind).map_err(|_| AccountSharingError::NotReady)?,
+            payload,
+            content_digest,
+            expires_at,
+            deleted,
+            source_epoch: epoch,
+            source_sequence: 0,
+            source_digest: [0; 32],
+        })
+    }
+}

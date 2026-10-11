@@ -102,7 +102,7 @@ async fn default_native_enrollment_is_unsupported_without_account_or_worker_effe
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-mod actual {
+pub(super) mod actual {
     use super::*;
     use marmot_account::AccountHome;
     use std::sync::Arc;
@@ -217,7 +217,7 @@ mod actual {
         run_native_public_three_device_enrollment(ApprovalScenario::AutomaticCatalogRetry).await;
     }
     #[derive(Clone, Copy, PartialEq)]
-    enum ApprovalScenario {
+    pub(super) enum ApprovalScenario {
         Enroll,
         Cancel,
         ReviewThenEnroll,
@@ -226,8 +226,9 @@ mod actual {
         AutomaticRace,
         AutomaticRenewal,
         AutomaticCatalogRetry,
+        AutomaticRecords,
     }
-    async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
+    pub(super) async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
         use cgka_traits::StorageProvider;
         let relay =
             nostr_relay_builder::LocalRelay::new(nostr_relay_builder::RelayBuilder::default());
@@ -522,6 +523,7 @@ mod actual {
                 | ApprovalScenario::AutomaticRace
                 | ApprovalScenario::AutomaticRenewal
                 | ApprovalScenario::AutomaticCatalogRetry
+                | ApprovalScenario::AutomaticRecords
         ) {
             Some(
                 managers[0]
@@ -536,6 +538,15 @@ mod actual {
             )
         } else {
             None
+        };
+        let initial_record_ids = if scenario == ApprovalScenario::AutomaticRecords {
+            super::automatic_records_acceptance::seed(
+                &managers[0],
+                initial_shared_chat.as_ref().unwrap(),
+            )
+            .await
+        } else {
+            Vec::new()
         };
         let mut renewal_chats = Vec::new();
         if scenario == ApprovalScenario::AutomaticRenewal {
@@ -559,6 +570,7 @@ mod actual {
                 | ApprovalScenario::AutomaticRace
                 | ApprovalScenario::AutomaticRenewal
                 | ApprovalScenario::AutomaticCatalogRetry
+                | ApprovalScenario::AutomaticRecords
         ) {
             // Select C from actual settled protected tree, never invent a target.
             let c_key = apps[2]
@@ -898,6 +910,16 @@ mod actual {
                     .is_err(),
                 "unapproved B cannot read C-owned mirrors"
             );
+            if scenario == ApprovalScenario::AutomaticRecords {
+                super::automatic_records_acceptance::verify(
+                    &apps,
+                    &managers[0],
+                    initial_shared_chat.as_ref().unwrap(),
+                    &mirror,
+                    &initial_record_ids,
+                )
+                .await;
+            }
             source.cancel();
             recipient.cancel();
         }
@@ -949,6 +971,7 @@ mod actual {
                 | ApprovalScenario::AutomaticRace
                 | ApprovalScenario::AutomaticRenewal
                 | ApprovalScenario::AutomaticCatalogRetry
+                | ApprovalScenario::AutomaticRecords
         ) && index == 0
             || app.load_state("test").unwrap().groups.is_empty()));
         if matches!(
@@ -957,6 +980,7 @@ mod actual {
                 | ApprovalScenario::AutomaticRace
                 | ApprovalScenario::AutomaticRenewal
                 | ApprovalScenario::AutomaticCatalogRetry
+                | ApprovalScenario::AutomaticRecords
         ) {
             let old = managers[0]
                 .account_chat_sharing_targets("test")
@@ -1537,3 +1561,10 @@ mod actual {
         runtimes[0].shutdown_and_close().await.unwrap();
     }
 }
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_records_acceptance.rs"]
+mod automatic_records_acceptance;

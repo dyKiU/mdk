@@ -1,5 +1,6 @@
 //! Fresh scheduling from durable explicit policy. Stored facts do not restore keys.
 use super::*;
+mod records;
 use crate::account_chat_sharing::enabled::OriginalLease;
 use base64::Engine as _;
 use cgka_engine::account_chat_sharing::{AccountSharedBodyKind, OwnedAccountSharingChannel};
@@ -13,7 +14,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, VecDeque};
 const FRAGMENT_BYTES: usize = 768;
 const MAX_ENTRY_BYTES: usize = 65536;
-const CHANNEL_BODY_BUDGET: u64 = 100;
+const CHANNEL_BODY_BUDGET: u64 = 120;
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CatalogFragment {
@@ -49,6 +50,7 @@ struct CatalogProgress {
     cursor: Option<crate::GroupId>,
     inventory_digest: Option<[u8; 32]>,
     sent: BTreeMap<Vec<u8>, [u8; 32]>,
+    record_cursor: records::RecordSourceCursor,
 }
 pub(crate) struct AutomaticChannel {
     original: Arc<State>,
@@ -64,6 +66,7 @@ pub(crate) struct AutomaticChannel {
     sent: BTreeMap<Vec<u8>, [u8; 32]>,
     assembly: Option<Assembly>,
     pending_catalog: Option<PendingCatalog>,
+    records: records::RecordProgress,
     renew: bool,
 }
 impl AutomaticChannel {
@@ -73,6 +76,7 @@ impl AutomaticChannel {
             cursor: self.cursor.take(),
             inventory_digest: self.inventory_digest.take(),
             sent: std::mem::take(&mut self.sent),
+            record_cursor: self.records.take_source_cursor(),
         }
     }
     fn restore_catalog_progress(&mut self, progress: Option<CatalogProgress>) {
@@ -82,6 +86,7 @@ impl AutomaticChannel {
             self.cursor = progress.cursor;
             self.inventory_digest = progress.inventory_digest;
             self.sent = progress.sent;
+            self.records.restore_source_cursor(progress.record_cursor);
         }
     }
 }
@@ -224,6 +229,7 @@ impl AppClient {
                     sent: BTreeMap::new(),
                     assembly: None,
                     pending_catalog: None,
+                    records: records::RecordProgress::default(),
                     renew: false,
                 },
             );
@@ -266,6 +272,12 @@ impl AppClient {
                     }
                     AccountSharedBodyKind::CatalogReceipt => {
                         self.accept_automatic_catalog_receipt(&mut entry, &body)?
+                    }
+                    AccountSharedBodyKind::Records => {
+                        self.accept_automatic_records(&mut entry, &body)?
+                    }
+                    AccountSharedBodyKind::RecordReceipt => {
+                        self.accept_automatic_record_receipt(&mut entry, &body)?
                     }
                     _ => return Err(AccountSharingError::NotReady),
                 }
@@ -513,6 +525,7 @@ impl AppClient {
                     sent: BTreeMap::new(),
                     assembly: None,
                     pending_catalog: None,
+                    records: records::RecordProgress::default(),
                     renew: false,
                 },
             );
@@ -555,6 +568,7 @@ impl AppClient {
                 sent: BTreeMap::new(),
                 assembly: None,
                 pending_catalog: None,
+                records: records::RecordProgress::default(),
                 renew: false,
             },
         );
@@ -667,8 +681,17 @@ impl AppClient {
         if !entry.ready {
             return Ok(());
         }
-        if entry.pending.is_empty() && entry.pending_catalog.is_none() {
+        if entry.pending.is_empty()
+            && entry.pending_catalog.is_none()
+            && !entry.records.has_pending()
+        {
             self.prepare_automatic_catalog(entry)?;
+            if entry.pending.is_empty() && entry.pending_catalog.is_none() {
+                self.prepare_automatic_records(entry)?;
+            }
+        }
+        if !self.automatic_record_publication_current(entry)? {
+            return Ok(());
         }
         if entry
             .pending_catalog
@@ -698,6 +721,7 @@ impl AppClient {
         {
             pending.published_at = Some(std::time::Instant::now());
         }
+        self.automatic_record_mark_published(entry);
         Ok(())
     }
     fn prepare_automatic_catalog(
@@ -841,7 +865,8 @@ impl AppClient {
             },
             required_acks: 1,
         };
-        let revoked = entry.original.revoked.notified();
+        let original = Arc::clone(&entry.original);
+        let revoked = original.revoked.notified();
         tokio::pin!(revoked);
         revoked.as_mut().enable();
         if !entry.original.live() {
@@ -862,8 +887,12 @@ impl AppClient {
                 std::future::pending::<()>().await
             }
         };
-        tokio::select! {biased;()=stopping=>return Err(AccountSharingError::Closed),()=&mut revoked=>return Err(AccountSharingError::Closed),()=tokio::time::sleep_until(entry.original.deadline.into())=>return Err(AccountSharingError::Closed),report=self.adapter.publish_selected_chat(request)=>{if !report.map_err(|_|AccountSharingError::RuntimeUnavailable)?.met_required_acks(){return Err(AccountSharingError::NotReady)}}}
+        let publication_deadline = self.automatic_record_publication_deadline(entry)?;
+        tokio::select! {biased;()=stopping=>return Err(AccountSharingError::Closed),()=&mut revoked=>return Err(AccountSharingError::Closed),()=tokio::time::sleep_until(publication_deadline.into())=>{entry.renew=true;return Err(AccountSharingError::Closed)},report=self.adapter.publish_selected_chat(request)=>{if !report.map_err(|_|AccountSharingError::RuntimeUnavailable)?.met_required_acks(){return Err(AccountSharingError::NotReady)}}}
         self.automatic_policy_current(&entry.policy)?;
+        if !self.automatic_record_publication_current(entry)? {
+            return Err(AccountSharingError::Closed);
+        }
         self.runtime
             .session()
             .validate_account_sharing_channel(&entry.channel)

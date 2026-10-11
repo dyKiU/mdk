@@ -104,6 +104,7 @@ pub enum AccountSharedBodyKind {
     CatalogReceipt,
     PairPolicyCommitted,
     Records,
+    RecordReceipt,
     SendIntent,
     SendReceipt,
 }
