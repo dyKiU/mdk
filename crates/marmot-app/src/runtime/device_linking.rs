@@ -12,6 +12,21 @@ use tokio::sync::oneshot;
 
 type Reply<T> = oneshot::Sender<Result<T, ClientLinkingError>>;
 pub(crate) enum VerifierCommand {
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    ArmSiblingPreAuthFailureForTest {
+        original: std::sync::Arc<
+            crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval,
+        >,
+        respond: Reply<
+            std::sync::Arc<
+                crate::client::device_linking::sibling_sharing::SiblingPreAuthFailureProbe,
+            >,
+        >,
+    },
     ArmExistingMemberEnrollment {
         binding: [u8; 32],
         packet: Vec<u8>,
@@ -49,6 +64,14 @@ pub(crate) enum VerifierCommand {
     EndorseReceivedEnrollmentProposal {
         binding: [u8; 32],
         respond: Reply<()>,
+    },
+    EndorseReceivedEnrollmentProposalAndShareChats {
+        binding: [u8; 32],
+        respond: Reply<
+            std::sync::Arc<
+                crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval,
+            >,
+        >,
     },
     PrepareEnrollmentProposal {
         scope: PurposeAttemptScope,
@@ -179,6 +202,19 @@ pub(super) async fn handle_verifier_command(
     publication_control: &super::private_commit::PublicationControl,
 ) {
     match command {
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        VerifierCommand::ArmSiblingPreAuthFailureForTest { original, respond } => {
+            let result = client.arm_sibling_pre_auth_failure(&original).map_err(|_| {
+                ClientLinkingError::Owner(crate::device_linking::OwnerError::Verifier(
+                    crate::device_linking::LinkError::InvalidContext,
+                ))
+            });
+            let _ = respond.send(result);
+        }
         VerifierCommand::ArmExistingMemberEnrollment {
             binding,
             packet,
@@ -238,6 +274,15 @@ pub(super) async fn handle_verifier_command(
         VerifierCommand::EndorseReceivedEnrollmentProposal { binding, respond } => {
             let result = client.endorse_received_enrollment_proposal(&binding);
             if respond.send(result).is_err() {
+                let _ = client.cancel_received_enrollment_endorsement(&binding);
+            }
+        }
+        VerifierCommand::EndorseReceivedEnrollmentProposalAndShareChats { binding, respond } => {
+            let result = client.endorse_received_enrollment_proposal_and_share_chats(&binding);
+            if let Err(result) = respond.send(result) {
+                if let Ok(original) = result {
+                    original.cancel();
+                }
                 let _ = client.cancel_received_enrollment_endorsement(&binding);
             }
         }
@@ -477,6 +522,26 @@ async fn response<T>(
     }
 }
 impl AccountManager {
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) async fn arm_sibling_pre_auth_failure_for_test(
+        &self,
+        account_ref: &str,
+        original: std::sync::Arc<
+            crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval,
+        >,
+    ) -> Result<
+        std::sync::Arc<crate::client::device_linking::sibling_sharing::SiblingPreAuthFailureProbe>,
+        ClientLinkingError,
+    > {
+        self.verifier_command(account_ref, |respond| {
+            VerifierCommand::ArmSiblingPreAuthFailureForTest { original, respond }
+        })
+        .await
+    }
     async fn verifier_command<T>(
         &self,
         account_ref: &str,

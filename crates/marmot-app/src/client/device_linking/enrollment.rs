@@ -77,6 +77,7 @@ impl AppClient {
             .session()
             .validate_owned_recipient_evidence(&evidence, &metadata, &predecessor)
             .map_err(ClientLinkingError::Engine)?;
+        self.capture_recipient_sharing_devices(evidence.sharing_devices())?;
         // All negative metadata checks precede the one-shot original SDK release.
         let token = self.take_device_linking_verified(scope).await?;
         let guard = Arc::new(

@@ -86,6 +86,10 @@ fn device_binding_null_outputs_precede_handle_or_input_access() {
             marmot_device_linking_session_continue_linking_and_share_chats(std::ptr::null(), 0),
             MarmotStatus::NullPointer
         );
+        assert_eq!(
+            marmot_device_linking_approval_approve_and_share_chats(std::ptr::null(), u64::MAX),
+            MarmotStatus::NullPointer
+        );
         // The bounded copier refuses before dereferencing caller memory.
         assert!(matches!(
             packet(std::ptr::dangling(), usize::MAX, 512 * 1024),

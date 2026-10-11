@@ -142,9 +142,44 @@ struct SelectedWelcomePublicationGate {
     release: Arc<Notify>,
 }
 
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[derive(Default)]
+struct NotificationDispositionObserver(std::sync::Mutex<HashMap<String, [u64; 8]>>);
+
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+impl NotificationDispositionObserver {
+    fn record(&self, id: &str, slot: usize) {
+        let mut counts = self.0.lock().unwrap();
+        if counts.len() < 512 || counts.contains_key(id) {
+            counts.entry(id.to_owned()).or_default()[slot] += 1;
+        }
+    }
+}
+
 struct RelayPlaneTransport {
     adapter: NostrTransportAdapter,
     sdk_relay_client: Option<NostrSdkRelayClient>,
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    test_account_sdk_clients: Mutex<HashMap<MemberId, NostrSdkClient>>,
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    test_notification_dispositions:
+        std::sync::Mutex<HashMap<MemberId, Arc<NotificationDispositionObserver>>>,
     directory_client: Option<NostrSdkClient>,
     directory_events: broadcast::Sender<DirectoryRelayPlaneEvent>,
     account_deliveries: RwLock<HashMap<MemberId, AccountDeliveryRoute>>,
@@ -1441,6 +1476,18 @@ impl MarmotRelayPlane {
         let transport = Arc::new(RelayPlaneTransport {
             adapter,
             sdk_relay_client,
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            test_account_sdk_clients: Mutex::new(HashMap::new()),
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            test_notification_dispositions: std::sync::Mutex::new(HashMap::new()),
             directory_client,
             directory_events: broadcast::channel(DIRECTORY_EVENT_BUFFER).0,
             account_deliveries: RwLock::new(HashMap::new()),
@@ -1585,6 +1632,80 @@ impl MarmotRelayPlane {
     #[cfg(test)]
     pub(crate) fn route_account_delivery_for_test(&self, delivery: TransportDelivery) {
         route_account_delivery(&self.inner.transport, delivery);
+    }
+
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn account_notification_disposition_for_test(
+        &self,
+        account: &MemberId,
+        id: &str,
+    ) -> Option<[u64; 8]> {
+        let observers = self
+            .inner
+            .transport
+            .test_notification_dispositions
+            .lock()
+            .unwrap();
+        let observer = observers.get(account)?;
+        let counts = observer.0.lock().unwrap();
+        counts.get(id).copied()
+    }
+
+    /// Observe the actual registered SDK context without traffic or new ownership.
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) async fn account_sdk_event_observation_for_test(
+        &self,
+        account: &MemberId,
+        event_json: &str,
+    ) -> Option<[bool; 3]> {
+        let event = serde_json::from_str::<NostrTransportEvent>(event_json)
+            .ok()?
+            .to_verified_nostr_event()
+            .ok()?;
+        let client = self
+            .inner
+            .transport
+            .test_account_sdk_clients
+            .lock()
+            .await
+            .get(account)
+            .cloned()?;
+        // The default SDK database tracks IDs rather than complete event bodies.
+        let cached = matches!(
+            client.database().check_id(&event.id).await.ok()?,
+            nostr_sdk::prelude::DatabaseEventStatus::Saved
+        );
+        let subscriptions = client.subscriptions().await;
+        let matches = subscriptions
+            .values()
+            .flat_map(HashMap::values)
+            .flat_map(|filters| filters.iter())
+            .any(|filter| {
+                filter.match_event(&event, nostr_sdk::prelude::MatchEventOptions::default())
+            });
+        let matches_without_time = subscriptions
+            .values()
+            .flat_map(HashMap::values)
+            .flat_map(|filters| filters.iter())
+            .any(|filter| {
+                filter.match_event(
+                    &event,
+                    nostr_sdk::prelude::MatchEventOptions {
+                        since: false,
+                        until: false,
+                        ..Default::default()
+                    },
+                )
+            });
+        Some([cached, matches, matches_without_time])
     }
 
     pub(crate) fn sanitize_relay_endpoints(
@@ -1741,6 +1862,17 @@ impl MarmotRelayPlane {
             let account_client = sdk_relay_client
                 .register_account(account_id.clone(), signer)
                 .await?;
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            {
+                let mut clients = self.inner.transport.test_account_sdk_clients.lock().await;
+                if clients.len() < 32 || clients.contains_key(account_id) {
+                    clients.insert(account_id.clone(), account_client.client().clone());
+                }
+            }
             let mut forwarders = self
                 .inner
                 .transport
@@ -1806,6 +1938,17 @@ impl MarmotRelayPlane {
         &self,
         account_id: &MemberId,
     ) -> Result<(), TransportAdapterError> {
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        self.inner
+            .transport
+            .test_account_sdk_clients
+            .lock()
+            .await
+            .remove(account_id);
         let removed =
             account_deliveries_write(&self.inner.transport.account_deliveries).remove(account_id);
         if let Some(removed) = removed {
@@ -2292,6 +2435,12 @@ impl MarmotRelayPlane {
                 Arc::new(SdkRelayNotificationSource {
                     client: client.clone(),
                     loss: None,
+                    #[cfg(all(
+                        test,
+                        feature = "experimental-device-sync",
+                        feature = "test-policy-overrides"
+                    ))]
+                    disposition_observer: None,
                 }),
                 self.inner.transport.directory_events.clone(),
                 self.inner.directory.clone(),
@@ -2600,6 +2749,14 @@ impl RelayNotificationRestartBackoff {
 
 trait RelayNotificationSource: Send + Sync {
     fn notifications(&self) -> RelayNotificationStream;
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    fn disposition_observer(&self) -> Option<Arc<NotificationDispositionObserver>> {
+        None
+    }
     fn is_shutdown(&self) -> bool;
     /// Record receiver loss and return the lowest REQ `since` that could have
     /// delivered the lost notifications. A source without that evidence
@@ -2629,9 +2786,23 @@ struct NotificationWorkerFailureHook {
 struct SdkRelayNotificationSource {
     client: NostrSdkClient,
     loss: Option<NostrSdkRelayClient>,
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    disposition_observer: Option<Arc<NotificationDispositionObserver>>,
 }
 
 impl RelayNotificationSource for SdkRelayNotificationSource {
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    fn disposition_observer(&self) -> Option<Arc<NotificationDispositionObserver>> {
+        self.disposition_observer.clone()
+    }
     fn notifications(&self) -> RelayNotificationStream {
         self.client.notifications_with_gaps()
     }
@@ -2672,6 +2843,15 @@ fn spawn_relay_notification_forwarder_scoped(
     let source: Arc<dyn RelayNotificationSource> = Arc::new(SdkRelayNotificationSource {
         client: sdk_relay_client.client().clone(),
         loss: Some(sdk_relay_client),
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        disposition_observer: account_id.as_ref().map(|account| {
+            let mut observers = transport.test_notification_dispositions.lock().unwrap();
+            observers.entry(account.clone()).or_default().clone()
+        }),
     });
     spawn_relay_notification_supervisor_scoped(source, transport, account_id)
 }
@@ -2942,6 +3122,12 @@ async fn run_relay_notification_consumer_scoped(
     let worker_pending = pending.clone();
     #[cfg(test)]
     let worker_failure_hook = source.worker_failure_hook();
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    let disposition_observer = source.disposition_observer();
     let mut worker = tokio::spawn(async move {
         while let Some((notification, capture)) = event_rx.recv().await {
             #[cfg(test)]
@@ -2960,6 +3146,12 @@ async fn run_relay_notification_consumer_scoped(
                 &adapter,
                 account_id.as_ref(),
                 capture,
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                disposition_observer.as_deref(),
             )
             .await
             {
@@ -3065,6 +3257,12 @@ async fn handle_relay_notification(
         None,
         #[cfg(not(feature = "experimental-device-sync"))]
         (),
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        None,
     )
     .await
 }
@@ -3112,6 +3310,12 @@ async fn handle_relay_notification_captured(
         transport_nostr_adapter::CapturedLiveRelayEvent,
     >,
     #[cfg(not(feature = "experimental-device-sync"))] _capture: (),
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    disposition_observer: Option<&NotificationDispositionObserver>,
 ) -> bool {
     match notification {
         ClientNotification::Event {
@@ -3119,6 +3323,20 @@ async fn handle_relay_notification_captured(
             subscription_id,
             event,
         } => {
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            let observed_id = event.id.to_string();
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            if let Some(observer) = disposition_observer {
+                observer.record(&observed_id, 0);
+            }
             if let Ok(event) = NostrTransportEvent::from_nostr_event(&event) {
                 tracing::trace!(
                     target: "marmot_app::relay_plane",
@@ -3135,9 +3353,31 @@ async fn handle_relay_notification_captured(
                 // Account notifications feed only account/group delivery.
                 // Public directory interests use the anonymous receiver.
                 #[cfg(feature = "experimental-device-sync")]
-                let _ = adapter
+                let result = adapter
                     .handle_captured_live_relay_event(account_id, relay_event, capture)
                     .await;
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                if let Some(observer) = disposition_observer {
+                    observer.record(
+                        &observed_id,
+                        match result {
+                            Ok(0) => 2,
+                            Ok(_) => 3,
+                            Err(_) => 4,
+                        },
+                    );
+                }
+                #[cfg(not(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                )))]
+                #[cfg(feature = "experimental-device-sync")]
+                let _ = result;
                 #[cfg(not(feature = "experimental-device-sync"))]
                 let _ = if let Some(account_id) = account_id {
                     adapter
@@ -3155,6 +3395,14 @@ async fn handle_relay_notification_captured(
                     subscription_id,
                     event,
                 } => {
+                    #[cfg(all(
+                        test,
+                        feature = "experimental-device-sync",
+                        feature = "test-policy-overrides"
+                    ))]
+                    if let Some(observer) = disposition_observer {
+                        observer.record(&event.id.to_string(), 1);
+                    }
                     // Raw per-relay copy is telemetry only. Delivery uses the
                     // deduplicated Event notification above.
                     if let Ok(event) = NostrTransportEvent::from_nostr_event(&event) {
@@ -4381,12 +4629,53 @@ fn route_account_delivery(
     delivery: impl Into<transport_nostr_adapter::ObservedTransportDelivery>,
 ) {
     let delivery = delivery.into();
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    let observer = transport
+        .test_notification_dispositions
+        .lock()
+        .unwrap()
+        .get(&delivery.account_id)
+        .cloned();
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    let observed_id = hex::encode(delivery.message.id.as_slice());
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    if let Some(observer) = &observer {
+        observer.record(&observed_id, 5);
+    }
     let Some(route) = account_deliveries_read(&transport.account_deliveries)
         .get(&delivery.account_id)
         .cloned()
     else {
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        if let Some(observer) = &observer {
+            observer.record(&observed_id, 6);
+        }
         return;
     };
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    if let Some(observer) = &observer {
+        observer.record(&observed_id, 7);
+    }
     let queue_depth = route
         .sender
         .max_capacity()

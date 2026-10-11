@@ -15,6 +15,13 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
   are borrowed on input. The experimental feature is required; default builds
   refuse before reading inputs or opening a window.
 
+- Original enrollment approval can explicitly include existing and future chats
+  through `marmot_device_linking_approval_approve_and_share_chats`. The borrowed
+  original-action handle and displayed revision are required; ordinary approval
+  cannot be upgraded later. This additive export requires the matching generated
+  header and library and preserves default-build refusal. Source qualification
+  does not establish a released SDK or installed automatic delivery.
+
 - Account-wide original sharing review handles, authenticated current protected
   peer inventory and owned review snapshots. Pending entries are list-owned;
   clone before releasing the list. Status values 121–125 append typed account-

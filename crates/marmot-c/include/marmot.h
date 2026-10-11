@@ -10011,6 +10011,14 @@ MarmotStatus marmot_device_linking_approval_approve(const struct MarmotDeviceLin
                                                     uint64_t displayed_revision);
 
 /**
+ * Approve original enrollment and sharing existing and future chats with its joining device.
+ * # Safety
+ * handle must remain valid for the call.
+ */
+MarmotStatus marmot_device_linking_approval_approve_and_share_chats(const struct MarmotDeviceLinkingApproval *handle,
+                                                                    uint64_t displayed_revision);
+
+/**
  * Validate the complete packet through the same original existing-device action.
  * # Safety
  * handle and borrowed bytes must remain valid for the call.

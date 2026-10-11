@@ -2,6 +2,7 @@
 mod enrollment;
 pub(crate) mod native_enrollment;
 pub(crate) mod setup;
+pub(crate) mod sibling_sharing;
 use super::AppClient;
 use crate::device_linking::invite_gate::RuntimeInviteGate;
 use crate::device_linking::runtime_gate::RuntimeWelcomeGate;
@@ -50,7 +51,16 @@ pub(crate) struct AccountLinkingOwner {
     welcome_collection: PrivateWelcomeCollection,
     native_setup_request: Option<setup::NewDeviceSetup>,
     native_enrollment: Option<native_enrollment::NativeEnrollmentIntent>,
-    sharing_approval: Option<native_enrollment::OriginalPairSharingApproval>,
+    sharing_approval: Option<Arc<sibling_sharing::OriginalEnrollmentSharingChoice>>,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    sibling_projection_observations:
+        Arc<std::sync::Mutex<std::collections::HashMap<cgka_traits::MessageId, [usize; 6]>>>,
+    sibling_channels: Vec<sibling_sharing::SiblingChannel>,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) sibling_pre_auth_probe: Option<(
+        std::sync::Weak<super::private_enrollment_proposal::OriginalSiblingSharingApproval>,
+        Arc<sibling_sharing::SiblingPreAuthFailureProbe>,
+    )>,
     pub(super) hidden_transport_group: Option<cgka_traits::GroupId>,
     pub(super) private_echo_retry: Option<std::time::Instant>,
     pub(super) private_echo_compared_route: Option<(
@@ -61,6 +71,9 @@ pub(crate) struct AccountLinkingOwner {
 
 impl Drop for AccountLinkingOwner {
     fn drop(&mut self) {
+        if let Some(choice) = &self.sharing_approval {
+            choice.cancel();
+        }
         // The engine also retains this policy Arc. Revoke it before the verifier
         // fences its generation and before the client releases its session.
         if let Some(attempt) = &self.settlement_attempt {
@@ -112,6 +125,11 @@ impl AccountLinkingOwner {
             native_setup_request: None,
             native_enrollment: None,
             sharing_approval: None,
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            sibling_projection_observations: Arc::default(),
+            sibling_channels: Vec::new(),
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            sibling_pre_auth_probe: None,
             hidden_transport_group: None,
             private_echo_retry: None,
             private_echo_compared_route: None,
@@ -152,6 +170,9 @@ impl AppClient {
                 _ => OwnerError::Verifier(crate::device_linking::LinkError::NotReady),
             })?;
         self.linking_owner.native_enrollment = None;
+        if let Some(choice) = &self.linking_owner.sharing_approval {
+            choice.cancel();
+        }
         self.linking_owner.sharing_approval = None;
         let scope = self.linking_owner.verifier.reserve_scope()?;
         self.clear_private_welcome_collection();
@@ -1199,6 +1220,7 @@ impl AppClient {
             )))
         })?;
         self.persist_completed_pair_sharing_approval()?;
+        self.maintain_sibling_sharing().await?;
         self.maintain_automatic_account_sharing()
             .await
             .map_err(|_| {
@@ -1298,6 +1320,9 @@ impl AppClient {
     pub(crate) async fn cancel_device_linking(&mut self) -> Result<(), ClientLinkingError> {
         self.linking_owner.native_setup_request = None;
         self.linking_owner.native_enrollment = None;
+        if let Some(choice) = &self.linking_owner.sharing_approval {
+            choice.cancel();
+        }
         self.linking_owner.sharing_approval = None;
         self.linking_owner.recipient_enrollment = None;
         // Revoke admission before terminal fencing or private deletion. The

@@ -7,15 +7,6 @@ use cgka_traits::{
 };
 use std::time::{Duration, Instant};
 
-/// Original explicit broader approval survives only its own live settlement.
-/// Never serialized, inferred from a catalog or reconstructed on restart.
-pub(super) struct OriginalPairSharingApproval {
-    scope: PurposeAttemptScope,
-    context: crate::device_linking::LinkingContext,
-    deadline: Instant,
-    created_at: u64,
-}
-
 pub(super) struct NativeEnrollmentIntent {
     scope: PurposeAttemptScope,
     recipient: bool,
@@ -37,29 +28,7 @@ impl AppClient {
         scope: &PurposeAttemptScope,
         new_device: bool,
     ) -> Result<(), ClientLinkingError> {
-        if let Some(original) = &self.linking_owner.sharing_approval {
-            if original.scope != *scope || Instant::now() >= original.deadline {
-                return Err(ClientLinkingError::Gate(
-                    LinkingWelcomeDenied::ContextMismatch,
-                ));
-            }
-        } else {
-            // A taken verifier cannot be upgraded retrospectively. Capture the
-            // explicit choice while the same verified SDK original is held.
-            let (context, deadline) = self
-                .scoped_linking_verifier(scope)?
-                .native_sharing_context(scope, Instant::now())
-                .map_err(ClientLinkingError::Owner)?;
-            self.linking_owner.sharing_approval = Some(OriginalPairSharingApproval {
-                scope: scope.clone(),
-                context,
-                deadline,
-                created_at: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_err(|_| ClientLinkingError::Gate(LinkingWelcomeDenied::ContextMismatch))?
-                    .as_secs(),
-            });
-        }
+        self.capture_owned_native_sharing_choice(scope)?;
         self.continue_owned_native_linking(scope, new_device).await
     }
 
@@ -74,8 +43,12 @@ impl AppClient {
         let Some(original) = self.linking_owner.sharing_approval.as_ref() else {
             return Ok(());
         };
-        if Instant::now() >= original.deadline {
+        if !original.live() {
+            original.cancel();
             self.linking_owner.sharing_approval = None;
+            return Ok(());
+        }
+        if original.primary_committed() {
             return Ok(());
         }
         let Some(attempt) = self.linking_owner.settlement_attempt.as_ref() else {
@@ -83,6 +56,7 @@ impl AppClient {
         };
         let guard = attempt.guard.clone();
         if guard.scope() != &original.scope || !guard.matches_original_context(&original.context) {
+            original.cancel();
             self.linking_owner.sharing_approval = None;
             return Ok(());
         }
@@ -161,7 +135,7 @@ impl AppClient {
             ))?
             .put_approved_account_sharing_policy(&policy, &validator)
             .map_err(|error| ClientLinkingError::Engine(error.into()))?;
-        self.linking_owner.sharing_approval = None;
+        self.mark_primary_sharing_committed();
         Ok(())
     }
 
