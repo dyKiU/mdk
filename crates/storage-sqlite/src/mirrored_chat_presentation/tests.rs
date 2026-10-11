@@ -269,3 +269,29 @@ fn mirrored_presentation_real_ordinary_id_precedence_even_after_invalidation() {
             .is_empty()
     );
 }
+#[test]
+fn mirrored_presentation_blocked_author_is_filtered_before_total_limit() {
+    let storage = stored();
+    let a = scope(3);
+    let group = GroupId::new(vec![1]);
+    catalog(&storage, &a, &[1], MirroredChatState::Active);
+    let blocked = record(1, 10);
+    let mut allowed = record(2, 20);
+    allowed.author = [8; 32];
+    storage
+        .apply_mirrored_chat_messages(&a, &group, &[blocked, allowed], 0, &|| Ok(()))
+        .unwrap();
+    storage
+        .lock()
+        .unwrap()
+        .execute(
+            "INSERT INTO user_blocks(public_key,is_private,created_at_ms) VALUES(?1,0,0)",
+            [hex::encode([7; 32])],
+        )
+        .unwrap();
+    let page = storage
+        .mirrored_message_observation_page(std::slice::from_ref(&a), &group, None, 1, 0)
+        .unwrap();
+    assert_eq!(page.len(), 1);
+    assert_eq!(page[0].record.event_id, [2; 32]);
+}

@@ -165,6 +165,7 @@ impl SqliteAccountStorage {
           JOIN mirrored_chat_scopes s ON s.scope=m.scope
           WHERE m.group_id=? AND (?=0 OR (m.created_at,m.event_id)>(?,?)) AND c.state=0
           AND NOT EXISTS(SELECT 1 FROM mirrored_chat_catalog terminal JOIN mirrored_chat_scopes ts ON ts.scope=terminal.scope WHERE terminal.group_id=c.group_id AND terminal.state!=0 AND ts.source_device=s.source_device)
+          AND NOT EXISTS(SELECT 1 FROM user_blocks blocked WHERE blocked.public_key=lower(hex(m.author)))
           AND NOT EXISTS(SELECT 1 FROM app_events live WHERE live.group_id_hex=? AND live.message_id_hex=lower(hex(m.event_id)))
           AND (m.deleted=1 OR NOT EXISTS(SELECT 1 FROM mirrored_chat_messages terminal WHERE terminal.group_id=m.group_id AND terminal.event_id=m.event_id AND terminal.deleted=1))
         ) SELECT event_id,author,created_at,kind,payload,expires_at,content_digest,deleted,source_epoch,source_sequence,source_digest,position,
