@@ -1,0 +1,247 @@
+{
+  "scope": "Test-only companion onboarding receiver-preservation oracle; no production, protocol, binding or SDK changes",
+  "base": "de38be1295618728ef541e43bfc00ffb6cdb6a86",
+  "test_source": "crates/marmot-app/tests/relay_runtime.rs",
+  "test_source_sha256": "8c69913da2a4e759c18ce5b7e3d1840fa674a1351d7333b1c2312d31ccaa50ae",
+  "diagnosis": "The September onboarding fixture expects a third public KeyPackage slot after companion continuation. Existing 8af010399b44d9fdb09b823ef28cd91250d484b7 intentionally preserves the existing invitation receiver: a genuine OtherInstallationPossible notice causes a durable publication hold and a skipped KeyPackage step. The old count contradicts this typed original-action outcome.",
+  "oracle": "Capture both original relay slot/package-reference pairs before the second installation continues. Verify the original acknowledgement yields Ready and KeyPackage Skipped, a durable publication hold, and zero owned second-installation packages. After restart verify the same hold, zero owned packages, and exactly unchanged relay slot/reference pairs. Existing discovery, stale-revision refusal, gated ownership, persisted notice, sign-out and new sign-in assertions remain.",
+  "red": {
+    "source": "de38be1295618728ef541e43bfc00ffb6cdb6a86",
+    "binary": "/Users/pj/project/build/MdkRecipientCollectionTargetM5/debug/deps/relay_runtime-5e3b1896474905db",
+    "passed": 0,
+    "failed": 1,
+    "filtered": 183,
+    "seconds": 3.25,
+    "log": "/Users/pj/project/build/results/onboarding-installation-slot-v1-red.log",
+    "sha256": "db65fb33ccbcb18cb637a6dd9b91888e2850ae0b55b1adbddc9de5772c055124",
+    "assertion": "distinct public KeyPackage slot count >= 3"
+  },
+  "full_baseline_failure": {
+    "log": "/Users/pj/project/build/results/automatic-final-de38be12-backend-v1-default-full.log",
+    "sha256": "8ce09178b2ce2fcb1076b177f65ebde851f18e032512eef33b3ddea43b875a15",
+    "fixture": "onboarding_single_device_detects_other_installation_and_retains_notice_across_restart"
+  },
+  "frozen_inputs": {
+    "count": 2622,
+    "manifest": "/Users/pj/project/build/results/onboarding-installation-slot-v1-inputs.json",
+    "sha256": "c05249252b57813d8751d3f4bebf88fe1c0c7a389400393410003d29ba9b6320",
+    "local_source_matches_every_input": true
+  },
+  "execution": {
+    "host": "macbook.m5",
+    "toolchain": "1.97.1",
+    "jobs": 1,
+    "incremental": 0,
+    "debug": 0,
+    "stack_bytes": 4194304,
+    "minimum_free_bytes_each_gate": 16106127360,
+    "target": "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+    "strict_scope": "Changed relay_runtime integration test plus compiled production dependencies; -D warnings without exemptions. This does not qualify the complete App lib-test target.",
+    "counts": {
+      "focused_green": {
+        "passed": 1,
+        "failed": 0,
+        "filtered": 183
+      },
+      "default_onboarding": {
+        "passed": 12,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 172
+      },
+      "experimental_onboarding": {
+        "passed": 12,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 172
+      },
+      "default_companion": {
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 1932
+      },
+      "experimental_companion": {
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 2164
+      }
+    }
+  },
+  "gates": [
+    {
+      "gate": "format",
+      "command": [
+        "rustfmt",
+        "--edition",
+        "2024",
+        "--check",
+        "crates/marmot-app/tests/relay_runtime.rs"
+      ],
+      "exit_code": 0,
+      "seconds": 0.08,
+      "log": "/Users/pj/project/build/results/onboarding-installation-slot-v1-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "inputs_unchanged": true
+    },
+    {
+      "gate": "focused-green",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--test",
+        "relay_runtime",
+        "--features",
+        "marmot-app/otlp-export,marmot-app/product-analytics-export,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,marmot-app/test-policy-overrides",
+        "onboarding_single_device_detects_other_installation_and_retains_notice_across_restart",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 61.97,
+      "log": "/Users/pj/project/build/results/onboarding-installation-slot-v1-focused-green.log",
+      "sha256": "b47e22c52c69280a0f2053a0c90b23c3ed31ec7fd57bb1e3f0603105ed017e5c",
+      "inputs_unchanged": true
+    },
+    {
+      "gate": "default-onboarding",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--test",
+        "relay_runtime",
+        "--features",
+        "marmot-app/otlp-export,marmot-app/product-analytics-export,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,marmot-app/test-policy-overrides",
+        "onboarding_",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit_code": 0,
+      "seconds": 14.98,
+      "log": "/Users/pj/project/build/results/onboarding-installation-slot-v1-default-onboarding.log",
+      "sha256": "e999ff729a0ea218317b15cad31b69bb7b5c125a56438c718ea4fa389cf6aad7",
+      "inputs_unchanged": true
+    },
+    {
+      "gate": "experimental-onboarding",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--test",
+        "relay_runtime",
+        "--features",
+        "marmot-app/otlp-export,marmot-app/product-analytics-export,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,marmot-app/test-policy-overrides,experimental-device-sync",
+        "onboarding_",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit_code": 0,
+      "seconds": 78.98,
+      "log": "/Users/pj/project/build/results/onboarding-installation-slot-v1-experimental-onboarding.log",
+      "sha256": "c0c63cde472fe6b3b24d71986fc9b8590b78a93c53d66e797b0b40ddb4f42967",
+      "inputs_unchanged": true
+    },
+    {
+      "gate": "default-companion",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--lib",
+        "--features",
+        "marmot-app/otlp-export,marmot-app/product-analytics-export,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,marmot-app/test-policy-overrides",
+        "companion_sign_in_",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit_code": 0,
+      "seconds": 54.74,
+      "log": "/Users/pj/project/build/results/onboarding-installation-slot-v1-default-companion.log",
+      "sha256": "08890ecc4a579ff6294f6cdf93700b43a4d1156a15c80d01cb7c046e0e9337e4",
+      "inputs_unchanged": true
+    },
+    {
+      "gate": "experimental-companion",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--lib",
+        "--features",
+        "marmot-app/otlp-export,marmot-app/product-analytics-export,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,marmot-app/test-policy-overrides,experimental-device-sync",
+        "companion_sign_in_",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit_code": 0,
+      "seconds": 64.17,
+      "log": "/Users/pj/project/build/results/onboarding-installation-slot-v1-experimental-companion.log",
+      "sha256": "af1a92ccc784bb331878eef186aca0252711d92350a821d6cdc2fe67e082aea0",
+      "inputs_unchanged": true
+    },
+    {
+      "gate": "strict-default",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--test",
+        "relay_runtime",
+        "--features",
+        "marmot-app/otlp-export,marmot-app/product-analytics-export,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,marmot-app/test-policy-overrides",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 27.96,
+      "log": "/Users/pj/project/build/results/onboarding-installation-slot-v1-strict-default.log",
+      "sha256": "314d0d9b4686e1996d2d652e6c22775c20e2aac7ce60d2865c49c39d428601c8",
+      "inputs_unchanged": true
+    },
+    {
+      "gate": "strict-experimental",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--test",
+        "relay_runtime",
+        "--features",
+        "marmot-app/otlp-export,marmot-app/product-analytics-export,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,marmot-app/test-policy-overrides,experimental-device-sync",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 30.11,
+      "log": "/Users/pj/project/build/results/onboarding-installation-slot-v1-strict-experimental.log",
+      "sha256": "a80919163a87960f65eea519785ee13d8c2e8db59ac07c28f6484d086ffadf2b",
+      "inputs_unchanged": true
+    }
+  ],
+  "preserved_warnings": [
+    "Default App lib-test compilation warns that unchanged ScriptedPushRelayClient::published_events_snapshot at crates/marmot-app/src/tests.rs:717 is unused. This fixture slice does not fix or exempt it; final all-target strict qualification remains separate.",
+    "Apple test linking warns that __eh_frame exceeds compact-unwind offsets; raw logs retain this platform linker warning."
+  ],
+  "limits": "The complete backend, binding and SDK qualification is still owned by final integration. This passing scoped fixture correction changes no production Rust input, API, header, manifest or protocol. Unchanged binding/static inputs retain parent evidence. No new SDK build or installed-client claim is made."
+}
