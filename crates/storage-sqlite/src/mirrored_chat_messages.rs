@@ -58,7 +58,7 @@ pub(crate) fn check_catalog(
     }
     Ok(())
 }
-fn read_record(row: &Row<'_>) -> rusqlite::Result<MirroredChatRecord> {
+pub(crate) fn read_record(row: &Row<'_>) -> rusqlite::Result<MirroredChatRecord> {
     fn fixed(row: &Row<'_>, column: usize) -> rusqlite::Result<[u8; 32]> {
         let bytes: Vec<u8> = row.get(column)?;
         bytes.try_into().map_err(|_| rusqlite::Error::InvalidQuery)
