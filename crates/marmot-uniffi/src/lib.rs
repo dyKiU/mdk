@@ -56,6 +56,7 @@ pub use markdown::{
 };
 pub use secret_store::SecretStore;
 pub use subscriptions::ConversationWindowSubscription;
+pub use subscriptions::{AccountChatListWindowSubscription, AccountConversationWindowSubscription};
 
 uniffi::setup_scaffolding!();
 

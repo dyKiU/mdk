@@ -9,6 +9,12 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- Add bounded paired chat pages and cancellable account chat/conversation windows.
+  Snapshot tagged unions keep ordinary MLS authority distinct from paired-source
+  observations. Root snapshots/pages deep-free all owned union payloads; cursors
+  are borrowed on input. The experimental feature is required; default builds
+  refuse before reading inputs or opening a window.
+
 - Account-wide original sharing review handles, authenticated current protected
   peer inventory and owned review snapshots. Pending entries are list-owned;
   clone before releasing the list. Status values 121–125 append typed account-

@@ -3485,7 +3485,7 @@ pub fn new_with_configuration( root_path: String, relay_urls: Vec<String>, optio
 
 Open with any combination of runtime options. Existing constructors are compatibility wrappers around this entry point.
 
-[Source](src/lib.rs#L243)
+[Source](src/lib.rs#L244)
 
 ### `Marmot::new_with_options`
 
@@ -3497,7 +3497,7 @@ pub fn new_with_options( root_path: String, relay_urls: Vec<String>, relay_polic
 
 Open with an explicit relay policy and optional host-owned key storage. Existing constructors retain their public-only relay policy.
 
-[Source](src/lib.rs#L259)
+[Source](src/lib.rs#L260)
 
 ### `Marmot::new`
 
@@ -3509,7 +3509,7 @@ pub fn new(root_path: String, relay_urls: Vec<String>) -> Result<Arc<Self>, Marm
 
 Open the Marmot app at `root_path`, configured with the given default relay URLs. Account secrets (Nostr private keys) are stored in the platform keyring (Keychain on Apple platforms, Android's native keyring on Android) via the default keychain-backed account home — not in a plaintext file. Fallible because initializing the platform secret store can fail or another process may own the same root (`MarmotKitError::RuntimeBusy`). Root ownership is nonblocking and remains held until the final `Marmot`/runtime handle is dropped, even after `Marmot::shutdown`. Call `Marmot::start` before subscribing to events.
 
-[Source](src/lib.rs#L287)
+[Source](src/lib.rs#L288)
 
 ### `Marmot::new_with_secret_store`
 
@@ -3521,7 +3521,7 @@ pub fn new_with_secret_store( root_path: String, relay_urls: Vec<String>, secret
 
 Open the Marmot app with host-supplied account-secret storage instead of the platform keychain. Identical to `Marmot::new` except that every read, write, and removal of an account signing key goes through `secret_store`.
 
-[Source](src/lib.rs#L305)
+[Source](src/lib.rs#L306)
 
 ### `Marmot::new_with_cursor_persistence`
 
@@ -3533,7 +3533,7 @@ pub fn new_with_cursor_persistence( root_path: String, relay_urls: Vec<String>, 
 
 Construct with explicit advancing/frozen relay cursor behavior; new_with_configuration composes this with other options.
 
-[Source](src/lib.rs#L335)
+[Source](src/lib.rs#L336)
 
 ### `Marmot::new_with_client_name`
 
@@ -3545,7 +3545,7 @@ pub fn new_with_client_name( root_path: String, relay_urls: Vec<String>, client_
 
 Open with an optional public client label for new KeyPackage publications. Existing constructors remain untagged. Whitespace-only labels are omitted. Hosts must supply this on every foreground/background runtime construction.
 
-[Source](src/lib.rs#L354)
+[Source](src/lib.rs#L355)
 
 ### `Marmot::start`
 
@@ -3557,7 +3557,7 @@ pub async fn start(&self) -> Result<(), MarmotKitError>
 
 Bring the runtime to local readiness.
 
-[Source](src/lib.rs#L391)
+[Source](src/lib.rs#L392)
 
 ### `Marmot::shutdown`
 
@@ -3569,7 +3569,7 @@ pub async fn shutdown(&self)
 
 Tear the runtime down. Drops all subscriptions; long-lived `EventsSubscription` / `ChatsSubscription` / etc. instances on the host side will see their `next()` return `None` shortly after.
 
-[Source](src/lib.rs#L403)
+[Source](src/lib.rs#L404)
 
 ### `Marmot::shutdown_and_close`
 
@@ -3581,7 +3581,7 @@ pub async fn shutdown_and_close(&self) -> Result<(), MarmotKitError>
 
 Terminally stop work, close storage and release root ownership; reconstruct before further reads/work.
 
-[Source](src/lib.rs#L438)
+[Source](src/lib.rs#L439)
 
 ### `Marmot::storage_is_closed`
 
@@ -3593,7 +3593,7 @@ pub fn storage_is_closed(&self) -> bool
 
 True once `Marmot::shutdown_and_close` has closed the store. A host can check this to confirm it is safe to be suspended, or to notice it is holding a spent handle and needs a fresh one.
 
-[Source](src/lib.rs#L446)
+[Source](src/lib.rs#L447)
 
 ### `Marmot::is_stopping`
 
@@ -3605,7 +3605,7 @@ pub fn is_stopping(&self) -> bool
 
 True once shutdown has started. Host apps can use this to avoid launching more subscriptions or account work while they are moving to the background.
 
-[Source](src/lib.rs#L453)
+[Source](src/lib.rs#L454)
 
 </details>
 
@@ -4905,5 +4905,130 @@ pub async fn pending_account_chat_sharing( &self, account_ref: String, ) -> Resu
 Return aliases of authenticated requests addressed to this account’s current local device. Polling never grants permission. Retain the original object while presenting its review and invoke approve only after the user accepts its broad scope; preserve account selection and displayed revisions across asynchronous work.
 
 [Source](src/commands/account_chat_sharing.rs#L36)
+
+</details>
+
+<details>
+<summary>New exports — complete and organize before merging</summary>
+
+### `AccountChatListWindowSubscription::cancel`
+
+```rust
+pub fn cancel(&self)
+```
+
+Synchronously cancel the original App window and clear its initial snapshot. This is idempotent and wakes a pending receiver; it does not change account sharing consent.
+
+[Source](src/subscriptions/account_chat_windows.rs#L62)
+
+### `AccountChatListWindowSubscription::next`
+
+```rust
+pub async fn next(&self) -> Result<Option<AccountChatListWindowSnapshotFfi>, MarmotKitError>
+```
+
+Receive complete replacement snapshots with one active receiver. Install the initial snapshot first; commands and cancellation do not acquire the receiver lock. Closure returns None.
+
+[Source](src/subscriptions/account_chat_windows.rs#L35)
+
+### `AccountChatListWindowSubscription::paired_page`
+
+```rust
+pub async fn paired_page( &self, sequence: u64, after_group_id_hex: Option<String>, ) -> Result<AccountChatListWindowSnapshotFfi, MarmotKitError>
+```
+
+Fetch a bounded paired-source catalog page using the installed sequence and opaque returned group cursor. Stale sequences fail; ordinary chat paging remains on its original window.
+
+[Source](src/subscriptions/account_chat_windows.rs#L46)
+
+### `AccountChatListWindowSubscription::snapshot`
+
+```rust
+pub fn snapshot(&self) -> Option<AccountChatListWindowSnapshotFfi>
+```
+
+Take the initial replacement exactly once. Display rows without concatenating the nested ordinary metadata rows again; subsequent calls return None.
+
+[Source](src/subscriptions/account_chat_windows.rs#L31)
+
+### `AccountConversationWindowSubscription::cancel`
+
+```rust
+pub fn cancel(&self)
+```
+
+Synchronously cancel the original App conversation view and clear its initial snapshot. Cancellation wakes receivers and grants or revokes no sharing authority.
+
+[Source](src/subscriptions/account_chat_windows.rs#L122)
+
+### `AccountConversationWindowSubscription::next`
+
+```rust
+pub async fn next( &self, ) -> Result<Option<AccountConversationWindowSnapshotFfi>, MarmotKitError>
+```
+
+Receive one complete replacement with a single active receiver. Preserve local-MLS versus paired-source row provenance; closure returns None.
+
+[Source](src/subscriptions/account_chat_windows.rs#L96)
+
+### `AccountConversationWindowSubscription::older_page`
+
+```rust
+pub async fn older_page( &self, sequence: u64, before: Option<PairedChatMessageCursorFfi>, ) -> Result<AccountConversationWindowSnapshotFfi, MarmotKitError>
+```
+
+Fetch bounded earlier observations using the installed sequence and returned chronological cursor verbatim. Stale sequences fail; this command grants no send, moderation or attachment authority.
+
+[Source](src/subscriptions/account_chat_windows.rs#L109)
+
+### `AccountConversationWindowSubscription::snapshot`
+
+```rust
+pub fn snapshot(&self) -> Option<AccountConversationWindowSnapshotFfi>
+```
+
+Take the initial replacement once. Use the explicitly local or paired-source header; retain the ordinary conversation window for authenticated system content and revision-bound actions.
+
+[Source](src/subscriptions/account_chat_windows.rs#L93)
+
+### `Marmot::open_account_chat_list_window`
+
+```rust
+pub async fn open_account_chat_list_window( &self, account_ref: String, initial_rows: u32, ) -> Result<Arc<AccountChatListWindowSubscription>, MarmotKitError>
+```
+
+Open a cancellable account-owned view of ordinary and paired-source chats with 2–128 retained rows. The experimental feature is required. Default builds refuse before opening a window; this is a local view, not a manual sync trigger.
+
+[Source](src/commands/account_chat_windows.rs#L13)
+
+### `Marmot::open_account_conversation_window`
+
+```rust
+pub async fn open_account_conversation_window( &self, account_ref: String, group_id_hex: String, initial_rows: u32, ) -> Result<Arc<AccountConversationWindowSubscription>, MarmotKitError>
+```
+
+Open a cancellable account conversation view with 1–128 rows and an explicit local or paired-source header. The experimental feature is required; ordinary authority remains with the original ordinary conversation window.
+
+[Source](src/commands/account_chat_windows.rs#L29)
+
+### `Marmot::paired_chat_list_page`
+
+```rust
+pub async fn paired_chat_list_page( &self, account_ref: String, after_group_id_hex: Option<String>, limit: u32, ) -> Result<PairedChatListPageFfi, MarmotKitError>
+```
+
+Read a bounded authenticated paired-source catalog page without networking or reconstructed MLS membership. Pass the opaque group cursor verbatim. Default builds return Unsupported before decoding inputs.
+
+[Source](src/commands/account_chat_presentation.rs#L34)
+
+### `Marmot::paired_chat_message_page`
+
+```rust
+pub async fn paired_chat_message_page( &self, account_ref: String, group_id_hex: String, after: Option<PairedChatMessageCursorFfi>, limit: u32, ) -> Result<PairedChatMessagePageFfi, MarmotKitError>
+```
+
+Read bounded canonical message observations and source provenance using the returned message-ID/time cursor. This local read grants no send, attachment or moderation authority; default builds refuse before decoding inputs.
+
+[Source](src/commands/account_chat_presentation.rs#L55)
 
 </details>

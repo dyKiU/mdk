@@ -20,6 +20,7 @@ per feature.
 - [Selected-chat copies](#selected-chat-copies)
 - [Original history transfers](#original-history-transfers)
 - [Committed synchronized history](#committed-synchronized-history)
+- [Account chat views](#account-chat-views)
 - Feature notes: [runtime construction](#runtime-construction), [local sends](#local-sends),
   [public event verification](#public-event-verification), [host performance stages](#host-performance-stages),
   [Markdown rendering](#markdown-rendering), [identity references and pseudonyms](#identity-references-and-pseudonyms),
@@ -546,3 +547,13 @@ deep frees; their device buffers and target entries belong to those roots.
 Approval calls are blocking and callback-safe. Status values 121–125 append
 account-sharing errors without renumbering existing values. No observation DTO
 or list entry grants approval.
+
+## Account chat views
+
+See the shared [account chat view contract](../marmot-uniffi/ACCOUNT-CHAT-VIEWS.md).
+Pages and window snapshots own every embedded tagged-union payload; release only
+with the root deep-free. Window handles offer blocking timed `next`, a one-time
+initial snapshot, bounded paging and synchronous cancellation. Cancel before
+teardown; free each handle before its client and while no other call uses it.
+These windows do not install callbacks. Inputs and cursors are borrowed for the
+call; default builds refuse before inspecting them.

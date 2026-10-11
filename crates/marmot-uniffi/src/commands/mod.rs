@@ -68,3 +68,6 @@ mod synchronized_history;
 
 mod account_chat_sharing;
 pub use account_chat_sharing::AccountSharingApproval;
+
+pub(crate) mod account_chat_presentation;
+mod account_chat_windows;

@@ -217,18 +217,76 @@ typedef int32_t MarmotStatus;
 #endif // __STDC_VERSION__ >= 202311L
 #endif // __cplusplus
 
-typedef enum MarmotAttachmentCategory {
-  MARMOT_ATTACHMENT_CATEGORY_IMAGE,
-  MARMOT_ATTACHMENT_CATEGORY_VIDEO,
-  MARMOT_ATTACHMENT_CATEGORY_AUDIO,
-  MARMOT_ATTACHMENT_CATEGORY_FILE,
-  MARMOT_ATTACHMENT_CATEGORY_REJECTED,
-} MarmotAttachmentCategory;
+/**
+ * Safety classification of a link/image/autolink destination.
+ */
+typedef enum MarmotMarkdownLinkDestinationKind {
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_WEB,
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_CONTACT,
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_APP,
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_NOSTR,
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_RELATIVE,
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_UNKNOWN,
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_DANGEROUS,
+  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_SENSITIVE,
+} MarmotMarkdownLinkDestinationKind;
 
-typedef enum MarmotAttachmentRole {
-  MARMOT_ATTACHMENT_ROLE_SHARED,
-  MARMOT_ATTACHMENT_ROLE_INLINE_EMOJI,
-} MarmotAttachmentRole;
+/**
+ * Autolink flavor.
+ */
+typedef enum MarmotMarkdownAutolinkKind {
+  MARMOT_MARKDOWN_AUTOLINK_KIND_URI,
+  MARMOT_MARKDOWN_AUTOLINK_KIND_EMAIL,
+  /**
+   * Bare `www.` host/path text. Hosts synthesize `https://`.
+   */
+  MARMOT_MARKDOWN_AUTOLINK_KIND_WWW,
+} MarmotMarkdownAutolinkKind;
+
+/**
+ * Bech32 human-readable prefix of a Nostr entity.
+ */
+typedef enum MarmotMarkdownNostrHrp {
+  MARMOT_MARKDOWN_NOSTR_HRP_NPUB,
+  MARMOT_MARKDOWN_NOSTR_HRP_NOTE,
+  MARMOT_MARKDOWN_NOSTR_HRP_NEVENT,
+  MARMOT_MARKDOWN_NOSTR_HRP_NPROFILE,
+  MARMOT_MARKDOWN_NOSTR_HRP_NADDR,
+  MARMOT_MARKDOWN_NOSTR_HRP_NRELAY,
+} MarmotMarkdownNostrHrp;
+
+/**
+ * Timestamp presentation style; hosts format using the device locale and time zone.
+ */
+typedef enum MarmotMarkdownTimestampStyle {
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_SHORT_TIME,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_LONG_TIME,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_SHORT_DATE,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_LONG_DATE,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_SHORT_DATE_TIME,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_LONG_DATE_TIME,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_COMPACT_DATE_TIME,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_COMPACT_DATE_TIME_SECONDS,
+  MARMOT_MARKDOWN_TIMESTAMP_STYLE_RELATIVE,
+} MarmotMarkdownTimestampStyle;
+
+/**
+ * How a fenced/indented code block was written.
+ */
+typedef enum MarmotMarkdownCodeBlockKind {
+  MARMOT_MARKDOWN_CODE_BLOCK_KIND_INDENTED,
+  MARMOT_MARKDOWN_CODE_BLOCK_KIND_FENCED,
+} MarmotMarkdownCodeBlockKind;
+
+/**
+ * Table column alignment.
+ */
+typedef enum MarmotMarkdownAlignment {
+  MARMOT_MARKDOWN_ALIGNMENT_NONE,
+  MARMOT_MARKDOWN_ALIGNMENT_LEFT,
+  MARMOT_MARKDOWN_ALIGNMENT_CENTER,
+  MARMOT_MARKDOWN_ALIGNMENT_RIGHT,
+} MarmotMarkdownAlignment;
 
 /**
  * Stable category of a rejected encrypted-media attachment (mdk#1787).
@@ -257,6 +315,19 @@ typedef enum MarmotMediaAttachmentRejectionKind {
    */
   MARMOT_MEDIA_ATTACHMENT_REJECTION_KIND_MALFORMED_FIELD,
 } MarmotMediaAttachmentRejectionKind;
+
+typedef enum MarmotAttachmentCategory {
+  MARMOT_ATTACHMENT_CATEGORY_IMAGE,
+  MARMOT_ATTACHMENT_CATEGORY_VIDEO,
+  MARMOT_ATTACHMENT_CATEGORY_AUDIO,
+  MARMOT_ATTACHMENT_CATEGORY_FILE,
+  MARMOT_ATTACHMENT_CATEGORY_REJECTED,
+} MarmotAttachmentCategory;
+
+typedef enum MarmotAttachmentRole {
+  MARMOT_ATTACHMENT_ROLE_SHARED,
+  MARMOT_ATTACHMENT_ROLE_INLINE_EMOJI,
+} MarmotAttachmentRole;
 
 typedef enum MarmotAvatarAvailability {
   MARMOT_AVATAR_AVAILABILITY_MISSING,
@@ -515,77 +586,6 @@ typedef enum MarmotGroupSystemEventProvenance {
   MARMOT_GROUP_SYSTEM_EVENT_PROVENANCE_AUTHENTICATED_GROUP_STATE,
   MARMOT_GROUP_SYSTEM_EVENT_PROVENANCE_MEMBER_AUTHORED,
 } MarmotGroupSystemEventProvenance;
-
-/**
- * Safety classification of a link/image/autolink destination.
- */
-typedef enum MarmotMarkdownLinkDestinationKind {
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_WEB,
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_CONTACT,
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_APP,
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_NOSTR,
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_RELATIVE,
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_UNKNOWN,
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_DANGEROUS,
-  MARMOT_MARKDOWN_LINK_DESTINATION_KIND_SENSITIVE,
-} MarmotMarkdownLinkDestinationKind;
-
-/**
- * Autolink flavor.
- */
-typedef enum MarmotMarkdownAutolinkKind {
-  MARMOT_MARKDOWN_AUTOLINK_KIND_URI,
-  MARMOT_MARKDOWN_AUTOLINK_KIND_EMAIL,
-  /**
-   * Bare `www.` host/path text. Hosts synthesize `https://`.
-   */
-  MARMOT_MARKDOWN_AUTOLINK_KIND_WWW,
-} MarmotMarkdownAutolinkKind;
-
-/**
- * Bech32 human-readable prefix of a Nostr entity.
- */
-typedef enum MarmotMarkdownNostrHrp {
-  MARMOT_MARKDOWN_NOSTR_HRP_NPUB,
-  MARMOT_MARKDOWN_NOSTR_HRP_NOTE,
-  MARMOT_MARKDOWN_NOSTR_HRP_NEVENT,
-  MARMOT_MARKDOWN_NOSTR_HRP_NPROFILE,
-  MARMOT_MARKDOWN_NOSTR_HRP_NADDR,
-  MARMOT_MARKDOWN_NOSTR_HRP_NRELAY,
-} MarmotMarkdownNostrHrp;
-
-/**
- * Timestamp presentation style; hosts format using the device locale and time zone.
- */
-typedef enum MarmotMarkdownTimestampStyle {
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_SHORT_TIME,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_LONG_TIME,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_SHORT_DATE,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_LONG_DATE,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_SHORT_DATE_TIME,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_LONG_DATE_TIME,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_COMPACT_DATE_TIME,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_COMPACT_DATE_TIME_SECONDS,
-  MARMOT_MARKDOWN_TIMESTAMP_STYLE_RELATIVE,
-} MarmotMarkdownTimestampStyle;
-
-/**
- * How a fenced/indented code block was written.
- */
-typedef enum MarmotMarkdownCodeBlockKind {
-  MARMOT_MARKDOWN_CODE_BLOCK_KIND_INDENTED,
-  MARMOT_MARKDOWN_CODE_BLOCK_KIND_FENCED,
-} MarmotMarkdownCodeBlockKind;
-
-/**
- * Table column alignment.
- */
-typedef enum MarmotMarkdownAlignment {
-  MARMOT_MARKDOWN_ALIGNMENT_NONE,
-  MARMOT_MARKDOWN_ALIGNMENT_LEFT,
-  MARMOT_MARKDOWN_ALIGNMENT_CENTER,
-  MARMOT_MARKDOWN_ALIGNMENT_RIGHT,
-} MarmotMarkdownAlignment;
 
 /**
  * Accepted deletion origin; meaningful only for deleted rows.
@@ -1190,6 +1190,16 @@ typedef enum MarmotHostPerformanceOutcome {
  */
 typedef struct MarmotAccountAttentionSubscription MarmotAccountAttentionSubscription;
 
+/**
+ * Free before its client; commands may run during next, never free during a call.
+ */
+typedef struct MarmotAccountChatListWindowSubscription MarmotAccountChatListWindowSubscription;
+
+/**
+ * Free before its client; commands may run during next, never free during a call.
+ */
+typedef struct MarmotAccountConversationWindowSubscription MarmotAccountConversationWindowSubscription;
+
 typedef struct MarmotAccountSharingApproval MarmotAccountSharingApproval;
 
 /**
@@ -1446,6 +1456,435 @@ typedef struct MarmotClientOptions {
   uint32_t attachment_acquisition_mode;
 } MarmotClientOptions;
 
+typedef struct MarmotPairedChatSource {
+  char *device_hex;
+  char *policy_digest_hex;
+  uint64_t protected_generation;
+  uint64_t source_epoch;
+  uint64_t source_sequence;
+  char *source_digest_hex;
+} MarmotPairedChatSource;
+
+typedef struct MarmotPairedChatSummary {
+  char *group_id_hex;
+  char *name;
+  char *description;
+  struct MarmotPairedChatSource source;
+} MarmotPairedChatSummary;
+
+typedef struct MarmotPairedChatListPage {
+  struct MarmotPairedChatSummary *chats;
+  uintptr_t chats_len;
+  char *next_group_id_hex;
+} MarmotPairedChatListPage;
+
+typedef struct MarmotPairedChatMessageCursor {
+  uint64_t created_at;
+  char *message_id_hex;
+} MarmotPairedChatMessageCursor;
+
+/**
+ * One referenced Nostr entity.
+ */
+typedef struct MarmotMarkdownNostrEntity {
+  enum MarmotMarkdownNostrHrp hrp;
+  char *bech32;
+} MarmotMarkdownNostrEntity;
+
+/**
+ * One inline Markdown node. Child arrays are owned by the parent; free
+ * only the document root.
+ */
+typedef enum MarmotMarkdownInline_Tag {
+  MARMOT_MARKDOWN_INLINE_TEXT,
+  MARMOT_MARKDOWN_INLINE_SOFT_BREAK,
+  MARMOT_MARKDOWN_INLINE_HARD_BREAK,
+  MARMOT_MARKDOWN_INLINE_CODE,
+  MARMOT_MARKDOWN_INLINE_EMPH,
+  MARMOT_MARKDOWN_INLINE_STRONG,
+  MARMOT_MARKDOWN_INLINE_STRIKETHROUGH,
+  MARMOT_MARKDOWN_INLINE_LINK,
+  MARMOT_MARKDOWN_INLINE_IMAGE,
+  MARMOT_MARKDOWN_INLINE_AUTOLINK,
+  MARMOT_MARKDOWN_INLINE_MATH,
+  MARMOT_MARKDOWN_INLINE_NOSTR_MENTION,
+  MARMOT_MARKDOWN_INLINE_NOSTR_URI,
+  /**
+   * Signed Unix seconds and presentation style, without an allocated label.
+   */
+  MARMOT_MARKDOWN_INLINE_TIMESTAMP,
+} MarmotMarkdownInline_Tag;
+
+typedef struct MarmotMarkdownInline_Text_Body {
+  char *content;
+} MarmotMarkdownInline_Text_Body;
+
+typedef struct MarmotMarkdownInline_Code_Body {
+  char *content;
+} MarmotMarkdownInline_Code_Body;
+
+typedef struct MarmotMarkdownInline_Emph_Body {
+  struct MarmotMarkdownInline *children;
+  uintptr_t children_len;
+} MarmotMarkdownInline_Emph_Body;
+
+typedef struct MarmotMarkdownInline_Strong_Body {
+  struct MarmotMarkdownInline *children;
+  uintptr_t children_len;
+} MarmotMarkdownInline_Strong_Body;
+
+typedef struct MarmotMarkdownInline_Strikethrough_Body {
+  struct MarmotMarkdownInline *children;
+  uintptr_t children_len;
+} MarmotMarkdownInline_Strikethrough_Body;
+
+typedef struct MarmotMarkdownInline_Link_Body {
+  char *dest;
+  /**
+   * Nullable.
+   */
+  char *title;
+  struct MarmotMarkdownInline *children;
+  uintptr_t children_len;
+  enum MarmotMarkdownLinkDestinationKind classification;
+} MarmotMarkdownInline_Link_Body;
+
+typedef struct MarmotMarkdownInline_Image_Body {
+  char *dest;
+  /**
+   * Nullable.
+   */
+  char *title;
+  struct MarmotMarkdownInline *alt;
+  uintptr_t alt_len;
+  enum MarmotMarkdownLinkDestinationKind classification;
+} MarmotMarkdownInline_Image_Body;
+
+typedef struct MarmotMarkdownInline_Autolink_Body {
+  char *url;
+  enum MarmotMarkdownAutolinkKind kind;
+  enum MarmotMarkdownLinkDestinationKind classification;
+} MarmotMarkdownInline_Autolink_Body;
+
+typedef struct MarmotMarkdownInline_Math_Body {
+  char *content;
+} MarmotMarkdownInline_Math_Body;
+
+typedef struct MarmotMarkdownInline_NostrMention_Body {
+  struct MarmotMarkdownNostrEntity entity;
+} MarmotMarkdownInline_NostrMention_Body;
+
+typedef struct MarmotMarkdownInline_NostrUri_Body {
+  struct MarmotMarkdownNostrEntity entity;
+} MarmotMarkdownInline_NostrUri_Body;
+
+typedef struct MarmotMarkdownInline_Timestamp_Body {
+  int64_t unix_seconds;
+  enum MarmotMarkdownTimestampStyle style;
+} MarmotMarkdownInline_Timestamp_Body;
+
+typedef struct MarmotMarkdownInline {
+  MarmotMarkdownInline_Tag tag;
+  union {
+    MarmotMarkdownInline_Text_Body TEXT;
+    MarmotMarkdownInline_Code_Body CODE;
+    MarmotMarkdownInline_Emph_Body EMPH;
+    MarmotMarkdownInline_Strong_Body STRONG;
+    MarmotMarkdownInline_Strikethrough_Body STRIKETHROUGH;
+    MarmotMarkdownInline_Link_Body LINK;
+    MarmotMarkdownInline_Image_Body IMAGE;
+    MarmotMarkdownInline_Autolink_Body AUTOLINK;
+    MarmotMarkdownInline_Math_Body MATH;
+    MarmotMarkdownInline_NostrMention_Body NOSTR_MENTION;
+    MarmotMarkdownInline_NostrUri_Body NOSTR_URI;
+    MarmotMarkdownInline_Timestamp_Body TIMESTAMP;
+  };
+} MarmotMarkdownInline;
+
+/**
+ * List flavor (bullet vs ordered).
+ */
+typedef enum MarmotMarkdownListKind_Tag {
+  /**
+   * `marker` is a single-character string: "-", "*", or "+".
+   */
+  MARMOT_MARKDOWN_LIST_KIND_BULLET,
+  /**
+   * `delimiter` is a single-character string: "." or ")".
+   */
+  MARMOT_MARKDOWN_LIST_KIND_ORDERED,
+} MarmotMarkdownListKind_Tag;
+
+typedef struct MarmotMarkdownListKind_Bullet_Body {
+  char *marker;
+} MarmotMarkdownListKind_Bullet_Body;
+
+typedef struct MarmotMarkdownListKind_Ordered_Body {
+  uint32_t start;
+  char *delimiter;
+} MarmotMarkdownListKind_Ordered_Body;
+
+typedef struct MarmotMarkdownListKind {
+  MarmotMarkdownListKind_Tag tag;
+  union {
+    MarmotMarkdownListKind_Bullet_Body BULLET;
+    MarmotMarkdownListKind_Ordered_Body ORDERED;
+  };
+} MarmotMarkdownListKind;
+
+/**
+ * One list item: nested blocks plus an optional task-list checkbox.
+ */
+typedef struct MarmotMarkdownListItem {
+  struct MarmotMarkdownBlock *blocks;
+  uintptr_t blocks_len;
+  /**
+   * Task-list state: unset for plain items.
+   */
+  bool has_checked;
+  bool checked;
+  /**
+   * Blank source lines before each corresponding child block.
+   */
+  uint8_t *blank_lines_before;
+  uintptr_t blank_lines_before_len;
+} MarmotMarkdownListItem;
+
+/**
+ * One table cell.
+ */
+typedef struct MarmotMarkdownTableCell {
+  struct MarmotMarkdownInline *inlines;
+  uintptr_t inlines_len;
+} MarmotMarkdownTableCell;
+
+/**
+ * One table body row.
+ */
+typedef struct MarmotMarkdownTableRow {
+  struct MarmotMarkdownTableCell *cells;
+  uintptr_t cells_len;
+} MarmotMarkdownTableRow;
+
+/**
+ * Owned payload for [`MarmotMarkdownBlock::Details`]. Indirection keeps the
+ * existing tagged-union size and discriminants unchanged.
+ */
+typedef struct MarmotMarkdownDetails {
+  struct MarmotMarkdownInline *summary;
+  uintptr_t summary_len;
+  bool open;
+  struct MarmotMarkdownBlock *body;
+  uintptr_t body_len;
+  uint8_t *blank_lines_before;
+  uintptr_t blank_lines_before_len;
+} MarmotMarkdownDetails;
+
+/**
+ * One block-level Markdown node.
+ */
+typedef enum MarmotMarkdownBlock_Tag {
+  MARMOT_MARKDOWN_BLOCK_PARAGRAPH,
+  MARMOT_MARKDOWN_BLOCK_HEADING,
+  MARMOT_MARKDOWN_BLOCK_THEMATIC_BREAK,
+  MARMOT_MARKDOWN_BLOCK_CODE_BLOCK,
+  MARMOT_MARKDOWN_BLOCK_BLOCK_QUOTE,
+  MARMOT_MARKDOWN_BLOCK_LIST_BLOCK,
+  MARMOT_MARKDOWN_BLOCK_TABLE,
+  MARMOT_MARKDOWN_BLOCK_MATH_BLOCK,
+  MARMOT_MARKDOWN_BLOCK_DETAILS,
+} MarmotMarkdownBlock_Tag;
+
+typedef struct MarmotMarkdownBlock_Paragraph_Body {
+  struct MarmotMarkdownInline *inlines;
+  uintptr_t inlines_len;
+} MarmotMarkdownBlock_Paragraph_Body;
+
+typedef struct MarmotMarkdownBlock_Heading_Body {
+  uint8_t level;
+  struct MarmotMarkdownInline *inlines;
+  uintptr_t inlines_len;
+} MarmotMarkdownBlock_Heading_Body;
+
+typedef struct MarmotMarkdownBlock_CodeBlock_Body {
+  enum MarmotMarkdownCodeBlockKind kind;
+  char *info;
+  char *content;
+} MarmotMarkdownBlock_CodeBlock_Body;
+
+typedef struct MarmotMarkdownBlock_BlockQuote_Body {
+  struct MarmotMarkdownBlock *blocks;
+  uintptr_t blocks_len;
+  /**
+   * Blank source lines before each corresponding child block.
+   */
+  uint8_t *blank_lines_before;
+  uintptr_t blank_lines_before_len;
+} MarmotMarkdownBlock_BlockQuote_Body;
+
+typedef struct MarmotMarkdownBlock_ListBlock_Body {
+  struct MarmotMarkdownListKind kind;
+  bool tight;
+  struct MarmotMarkdownListItem *items;
+  uintptr_t items_len;
+} MarmotMarkdownBlock_ListBlock_Body;
+
+typedef struct MarmotMarkdownBlock_Table_Body {
+  enum MarmotMarkdownAlignment *alignments;
+  uintptr_t alignments_len;
+  struct MarmotMarkdownTableCell *header;
+  uintptr_t header_len;
+  struct MarmotMarkdownTableRow *rows;
+  uintptr_t rows_len;
+} MarmotMarkdownBlock_Table_Body;
+
+typedef struct MarmotMarkdownBlock_MathBlock_Body {
+  char *content;
+} MarmotMarkdownBlock_MathBlock_Body;
+
+typedef struct MarmotMarkdownBlock_Details_Body {
+  struct MarmotMarkdownDetails *details;
+} MarmotMarkdownBlock_Details_Body;
+
+typedef struct MarmotMarkdownBlock {
+  MarmotMarkdownBlock_Tag tag;
+  union {
+    MarmotMarkdownBlock_Paragraph_Body PARAGRAPH;
+    MarmotMarkdownBlock_Heading_Body HEADING;
+    MarmotMarkdownBlock_CodeBlock_Body CODE_BLOCK;
+    MarmotMarkdownBlock_BlockQuote_Body BLOCK_QUOTE;
+    MarmotMarkdownBlock_ListBlock_Body LIST_BLOCK;
+    MarmotMarkdownBlock_Table_Body TABLE;
+    MarmotMarkdownBlock_MathBlock_Body MATH_BLOCK;
+    MarmotMarkdownBlock_Details_Body DETAILS;
+  };
+} MarmotMarkdownBlock;
+
+/**
+ * A parsed Markdown display document.
+ */
+typedef struct MarmotMarkdownDocument {
+  struct MarmotMarkdownBlock *blocks;
+  uintptr_t blocks_len;
+  /**
+   * True when the input exceeded the FFI Markdown safety cap and
+   * `blocks` were parsed from a UTF-8-boundary prefix.
+   */
+  bool truncated;
+  /**
+   * Blank source lines before each corresponding block.
+   */
+  uint8_t *blank_lines_before;
+  uintptr_t blank_lines_before_len;
+} MarmotMarkdownDocument;
+
+/**
+ * One Nostr tag of the inner Marmot app event, as its string values.
+ */
+typedef struct MarmotMessageTag {
+  char **values;
+  uintptr_t values_len;
+} MarmotMessageTag;
+
+/**
+ * One storage locator for an encrypted attachment.
+ */
+typedef struct MarmotMediaLocator {
+  char *kind;
+  char *value;
+} MarmotMediaLocator;
+
+/**
+ * Fully-resolved encrypted attachment reference. Also a borrowed
+ * input to `marmot_send_media_reference` /
+ * `marmot_send_media_attachments` / `marmot_download_media`.
+ */
+typedef struct MarmotMediaAttachmentReference {
+  struct MarmotMediaLocator *locators;
+  uintptr_t locators_len;
+  char *ciphertext_sha256;
+  char *plaintext_sha256;
+  char *nonce_hex;
+  char *file_name;
+  char *media_type;
+  /**
+   * `MarmotEncryptedMediaVersion` discriminant.
+   */
+  uint32_t version;
+  uint64_t source_epoch;
+  char *dim;
+  char *thumbhash;
+} MarmotMediaAttachmentReference;
+
+/**
+ * Why one attachment was rejected. `detail` is privacy-safe
+ * presentation text from the shared parser; it never echoes tag
+ * content.
+ */
+typedef struct MarmotMediaAttachmentRejection {
+  enum MarmotMediaAttachmentRejectionKind kind;
+  char *detail;
+} MarmotMediaAttachmentRejection;
+
+/**
+ * One `imeta` attachment of a message, in tag order. `attachment_index`
+ * is the position among the message's `imeta` tags, rejected siblings
+ * included, so a host can render media and placeholders in order and
+ * correlate a timeline row with `MarmotMediaRecord` entries for the same
+ * message. Pass an `Accepted` reference to `marmot_download_media`;
+ * render `Rejected` as an unsupported/invalid attachment placeholder
+ * using `rejection.kind`.
+ */
+typedef enum MarmotMediaAttachmentOutcome_Tag {
+  MARMOT_MEDIA_ATTACHMENT_OUTCOME_ACCEPTED,
+  MARMOT_MEDIA_ATTACHMENT_OUTCOME_REJECTED,
+} MarmotMediaAttachmentOutcome_Tag;
+
+typedef struct MarmotMediaAttachmentOutcome_Accepted_Body {
+  uint32_t attachment_index;
+  struct MarmotMediaAttachmentReference reference;
+} MarmotMediaAttachmentOutcome_Accepted_Body;
+
+typedef struct MarmotMediaAttachmentOutcome_Rejected_Body {
+  uint32_t attachment_index;
+  struct MarmotMediaAttachmentRejection rejection;
+} MarmotMediaAttachmentOutcome_Rejected_Body;
+
+typedef struct MarmotMediaAttachmentOutcome {
+  MarmotMediaAttachmentOutcome_Tag tag;
+  union {
+    MarmotMediaAttachmentOutcome_Accepted_Body ACCEPTED;
+    MarmotMediaAttachmentOutcome_Rejected_Body REJECTED;
+  };
+} MarmotMediaAttachmentOutcome;
+
+typedef struct MarmotPairedChatMessage {
+  uint16_t kind;
+  bool canonical_chat;
+  char *message_id_hex;
+  char *author_hex;
+  uint64_t created_at;
+  bool has_expires_at;
+  /**
+   *Only meaningful when the matching `has_` flag is set.
+   */
+  uint64_t expires_at;
+  bool deleted;
+  char *content;
+  struct MarmotMarkdownDocument content_tokens;
+  struct MarmotMessageTag *tags;
+  uintptr_t tags_len;
+  struct MarmotMediaAttachmentOutcome *media_attachments;
+  uintptr_t media_attachments_len;
+  struct MarmotPairedChatSource source;
+} MarmotPairedChatMessage;
+
+typedef struct MarmotPairedChatMessagePage {
+  struct MarmotPairedChatMessage *messages;
+  uintptr_t messages_len;
+  struct MarmotPairedChatMessageCursor *next;
+} MarmotPairedChatMessagePage;
+
 typedef struct MarmotAccountSharingTarget {
   uint32_t leaf_index;
   uint8_t *device;
@@ -1522,78 +1961,6 @@ typedef struct MarmotAttachmentLocalTarget {
   const char *source_message_id_hex;
   uint32_t attachment_index;
 } MarmotAttachmentLocalTarget;
-
-/**
- * One storage locator for an encrypted attachment.
- */
-typedef struct MarmotMediaLocator {
-  char *kind;
-  char *value;
-} MarmotMediaLocator;
-
-/**
- * Fully-resolved encrypted attachment reference. Also a borrowed
- * input to `marmot_send_media_reference` /
- * `marmot_send_media_attachments` / `marmot_download_media`.
- */
-typedef struct MarmotMediaAttachmentReference {
-  struct MarmotMediaLocator *locators;
-  uintptr_t locators_len;
-  char *ciphertext_sha256;
-  char *plaintext_sha256;
-  char *nonce_hex;
-  char *file_name;
-  char *media_type;
-  /**
-   * `MarmotEncryptedMediaVersion` discriminant.
-   */
-  uint32_t version;
-  uint64_t source_epoch;
-  char *dim;
-  char *thumbhash;
-} MarmotMediaAttachmentReference;
-
-/**
- * Why one attachment was rejected. `detail` is privacy-safe
- * presentation text from the shared parser; it never echoes tag
- * content.
- */
-typedef struct MarmotMediaAttachmentRejection {
-  enum MarmotMediaAttachmentRejectionKind kind;
-  char *detail;
-} MarmotMediaAttachmentRejection;
-
-/**
- * One `imeta` attachment of a message, in tag order. `attachment_index`
- * is the position among the message's `imeta` tags, rejected siblings
- * included, so a host can render media and placeholders in order and
- * correlate a timeline row with `MarmotMediaRecord` entries for the same
- * message. Pass an `Accepted` reference to `marmot_download_media`;
- * render `Rejected` as an unsupported/invalid attachment placeholder
- * using `rejection.kind`.
- */
-typedef enum MarmotMediaAttachmentOutcome_Tag {
-  MARMOT_MEDIA_ATTACHMENT_OUTCOME_ACCEPTED,
-  MARMOT_MEDIA_ATTACHMENT_OUTCOME_REJECTED,
-} MarmotMediaAttachmentOutcome_Tag;
-
-typedef struct MarmotMediaAttachmentOutcome_Accepted_Body {
-  uint32_t attachment_index;
-  struct MarmotMediaAttachmentReference reference;
-} MarmotMediaAttachmentOutcome_Accepted_Body;
-
-typedef struct MarmotMediaAttachmentOutcome_Rejected_Body {
-  uint32_t attachment_index;
-  struct MarmotMediaAttachmentRejection rejection;
-} MarmotMediaAttachmentOutcome_Rejected_Body;
-
-typedef struct MarmotMediaAttachmentOutcome {
-  MarmotMediaAttachmentOutcome_Tag tag;
-  union {
-    MarmotMediaAttachmentOutcome_Accepted_Body ACCEPTED;
-    MarmotMediaAttachmentOutcome_Rejected_Body REJECTED;
-  };
-} MarmotMediaAttachmentOutcome;
 
 typedef struct MarmotAttachmentEntry {
   char *message_id_hex;
@@ -2623,301 +2990,6 @@ typedef struct MarmotGroupSystemEvent {
 } MarmotGroupSystemEvent;
 
 /**
- * One referenced Nostr entity.
- */
-typedef struct MarmotMarkdownNostrEntity {
-  enum MarmotMarkdownNostrHrp hrp;
-  char *bech32;
-} MarmotMarkdownNostrEntity;
-
-/**
- * One inline Markdown node. Child arrays are owned by the parent; free
- * only the document root.
- */
-typedef enum MarmotMarkdownInline_Tag {
-  MARMOT_MARKDOWN_INLINE_TEXT,
-  MARMOT_MARKDOWN_INLINE_SOFT_BREAK,
-  MARMOT_MARKDOWN_INLINE_HARD_BREAK,
-  MARMOT_MARKDOWN_INLINE_CODE,
-  MARMOT_MARKDOWN_INLINE_EMPH,
-  MARMOT_MARKDOWN_INLINE_STRONG,
-  MARMOT_MARKDOWN_INLINE_STRIKETHROUGH,
-  MARMOT_MARKDOWN_INLINE_LINK,
-  MARMOT_MARKDOWN_INLINE_IMAGE,
-  MARMOT_MARKDOWN_INLINE_AUTOLINK,
-  MARMOT_MARKDOWN_INLINE_MATH,
-  MARMOT_MARKDOWN_INLINE_NOSTR_MENTION,
-  MARMOT_MARKDOWN_INLINE_NOSTR_URI,
-  /**
-   * Signed Unix seconds and presentation style, without an allocated label.
-   */
-  MARMOT_MARKDOWN_INLINE_TIMESTAMP,
-} MarmotMarkdownInline_Tag;
-
-typedef struct MarmotMarkdownInline_Text_Body {
-  char *content;
-} MarmotMarkdownInline_Text_Body;
-
-typedef struct MarmotMarkdownInline_Code_Body {
-  char *content;
-} MarmotMarkdownInline_Code_Body;
-
-typedef struct MarmotMarkdownInline_Emph_Body {
-  struct MarmotMarkdownInline *children;
-  uintptr_t children_len;
-} MarmotMarkdownInline_Emph_Body;
-
-typedef struct MarmotMarkdownInline_Strong_Body {
-  struct MarmotMarkdownInline *children;
-  uintptr_t children_len;
-} MarmotMarkdownInline_Strong_Body;
-
-typedef struct MarmotMarkdownInline_Strikethrough_Body {
-  struct MarmotMarkdownInline *children;
-  uintptr_t children_len;
-} MarmotMarkdownInline_Strikethrough_Body;
-
-typedef struct MarmotMarkdownInline_Link_Body {
-  char *dest;
-  /**
-   * Nullable.
-   */
-  char *title;
-  struct MarmotMarkdownInline *children;
-  uintptr_t children_len;
-  enum MarmotMarkdownLinkDestinationKind classification;
-} MarmotMarkdownInline_Link_Body;
-
-typedef struct MarmotMarkdownInline_Image_Body {
-  char *dest;
-  /**
-   * Nullable.
-   */
-  char *title;
-  struct MarmotMarkdownInline *alt;
-  uintptr_t alt_len;
-  enum MarmotMarkdownLinkDestinationKind classification;
-} MarmotMarkdownInline_Image_Body;
-
-typedef struct MarmotMarkdownInline_Autolink_Body {
-  char *url;
-  enum MarmotMarkdownAutolinkKind kind;
-  enum MarmotMarkdownLinkDestinationKind classification;
-} MarmotMarkdownInline_Autolink_Body;
-
-typedef struct MarmotMarkdownInline_Math_Body {
-  char *content;
-} MarmotMarkdownInline_Math_Body;
-
-typedef struct MarmotMarkdownInline_NostrMention_Body {
-  struct MarmotMarkdownNostrEntity entity;
-} MarmotMarkdownInline_NostrMention_Body;
-
-typedef struct MarmotMarkdownInline_NostrUri_Body {
-  struct MarmotMarkdownNostrEntity entity;
-} MarmotMarkdownInline_NostrUri_Body;
-
-typedef struct MarmotMarkdownInline_Timestamp_Body {
-  int64_t unix_seconds;
-  enum MarmotMarkdownTimestampStyle style;
-} MarmotMarkdownInline_Timestamp_Body;
-
-typedef struct MarmotMarkdownInline {
-  MarmotMarkdownInline_Tag tag;
-  union {
-    MarmotMarkdownInline_Text_Body TEXT;
-    MarmotMarkdownInline_Code_Body CODE;
-    MarmotMarkdownInline_Emph_Body EMPH;
-    MarmotMarkdownInline_Strong_Body STRONG;
-    MarmotMarkdownInline_Strikethrough_Body STRIKETHROUGH;
-    MarmotMarkdownInline_Link_Body LINK;
-    MarmotMarkdownInline_Image_Body IMAGE;
-    MarmotMarkdownInline_Autolink_Body AUTOLINK;
-    MarmotMarkdownInline_Math_Body MATH;
-    MarmotMarkdownInline_NostrMention_Body NOSTR_MENTION;
-    MarmotMarkdownInline_NostrUri_Body NOSTR_URI;
-    MarmotMarkdownInline_Timestamp_Body TIMESTAMP;
-  };
-} MarmotMarkdownInline;
-
-/**
- * List flavor (bullet vs ordered).
- */
-typedef enum MarmotMarkdownListKind_Tag {
-  /**
-   * `marker` is a single-character string: "-", "*", or "+".
-   */
-  MARMOT_MARKDOWN_LIST_KIND_BULLET,
-  /**
-   * `delimiter` is a single-character string: "." or ")".
-   */
-  MARMOT_MARKDOWN_LIST_KIND_ORDERED,
-} MarmotMarkdownListKind_Tag;
-
-typedef struct MarmotMarkdownListKind_Bullet_Body {
-  char *marker;
-} MarmotMarkdownListKind_Bullet_Body;
-
-typedef struct MarmotMarkdownListKind_Ordered_Body {
-  uint32_t start;
-  char *delimiter;
-} MarmotMarkdownListKind_Ordered_Body;
-
-typedef struct MarmotMarkdownListKind {
-  MarmotMarkdownListKind_Tag tag;
-  union {
-    MarmotMarkdownListKind_Bullet_Body BULLET;
-    MarmotMarkdownListKind_Ordered_Body ORDERED;
-  };
-} MarmotMarkdownListKind;
-
-/**
- * One list item: nested blocks plus an optional task-list checkbox.
- */
-typedef struct MarmotMarkdownListItem {
-  struct MarmotMarkdownBlock *blocks;
-  uintptr_t blocks_len;
-  /**
-   * Task-list state: unset for plain items.
-   */
-  bool has_checked;
-  bool checked;
-  /**
-   * Blank source lines before each corresponding child block.
-   */
-  uint8_t *blank_lines_before;
-  uintptr_t blank_lines_before_len;
-} MarmotMarkdownListItem;
-
-/**
- * One table cell.
- */
-typedef struct MarmotMarkdownTableCell {
-  struct MarmotMarkdownInline *inlines;
-  uintptr_t inlines_len;
-} MarmotMarkdownTableCell;
-
-/**
- * One table body row.
- */
-typedef struct MarmotMarkdownTableRow {
-  struct MarmotMarkdownTableCell *cells;
-  uintptr_t cells_len;
-} MarmotMarkdownTableRow;
-
-/**
- * Owned payload for [`MarmotMarkdownBlock::Details`]. Indirection keeps the
- * existing tagged-union size and discriminants unchanged.
- */
-typedef struct MarmotMarkdownDetails {
-  struct MarmotMarkdownInline *summary;
-  uintptr_t summary_len;
-  bool open;
-  struct MarmotMarkdownBlock *body;
-  uintptr_t body_len;
-  uint8_t *blank_lines_before;
-  uintptr_t blank_lines_before_len;
-} MarmotMarkdownDetails;
-
-/**
- * One block-level Markdown node.
- */
-typedef enum MarmotMarkdownBlock_Tag {
-  MARMOT_MARKDOWN_BLOCK_PARAGRAPH,
-  MARMOT_MARKDOWN_BLOCK_HEADING,
-  MARMOT_MARKDOWN_BLOCK_THEMATIC_BREAK,
-  MARMOT_MARKDOWN_BLOCK_CODE_BLOCK,
-  MARMOT_MARKDOWN_BLOCK_BLOCK_QUOTE,
-  MARMOT_MARKDOWN_BLOCK_LIST_BLOCK,
-  MARMOT_MARKDOWN_BLOCK_TABLE,
-  MARMOT_MARKDOWN_BLOCK_MATH_BLOCK,
-  MARMOT_MARKDOWN_BLOCK_DETAILS,
-} MarmotMarkdownBlock_Tag;
-
-typedef struct MarmotMarkdownBlock_Paragraph_Body {
-  struct MarmotMarkdownInline *inlines;
-  uintptr_t inlines_len;
-} MarmotMarkdownBlock_Paragraph_Body;
-
-typedef struct MarmotMarkdownBlock_Heading_Body {
-  uint8_t level;
-  struct MarmotMarkdownInline *inlines;
-  uintptr_t inlines_len;
-} MarmotMarkdownBlock_Heading_Body;
-
-typedef struct MarmotMarkdownBlock_CodeBlock_Body {
-  enum MarmotMarkdownCodeBlockKind kind;
-  char *info;
-  char *content;
-} MarmotMarkdownBlock_CodeBlock_Body;
-
-typedef struct MarmotMarkdownBlock_BlockQuote_Body {
-  struct MarmotMarkdownBlock *blocks;
-  uintptr_t blocks_len;
-  /**
-   * Blank source lines before each corresponding child block.
-   */
-  uint8_t *blank_lines_before;
-  uintptr_t blank_lines_before_len;
-} MarmotMarkdownBlock_BlockQuote_Body;
-
-typedef struct MarmotMarkdownBlock_ListBlock_Body {
-  struct MarmotMarkdownListKind kind;
-  bool tight;
-  struct MarmotMarkdownListItem *items;
-  uintptr_t items_len;
-} MarmotMarkdownBlock_ListBlock_Body;
-
-typedef struct MarmotMarkdownBlock_Table_Body {
-  enum MarmotMarkdownAlignment *alignments;
-  uintptr_t alignments_len;
-  struct MarmotMarkdownTableCell *header;
-  uintptr_t header_len;
-  struct MarmotMarkdownTableRow *rows;
-  uintptr_t rows_len;
-} MarmotMarkdownBlock_Table_Body;
-
-typedef struct MarmotMarkdownBlock_MathBlock_Body {
-  char *content;
-} MarmotMarkdownBlock_MathBlock_Body;
-
-typedef struct MarmotMarkdownBlock_Details_Body {
-  struct MarmotMarkdownDetails *details;
-} MarmotMarkdownBlock_Details_Body;
-
-typedef struct MarmotMarkdownBlock {
-  MarmotMarkdownBlock_Tag tag;
-  union {
-    MarmotMarkdownBlock_Paragraph_Body PARAGRAPH;
-    MarmotMarkdownBlock_Heading_Body HEADING;
-    MarmotMarkdownBlock_CodeBlock_Body CODE_BLOCK;
-    MarmotMarkdownBlock_BlockQuote_Body BLOCK_QUOTE;
-    MarmotMarkdownBlock_ListBlock_Body LIST_BLOCK;
-    MarmotMarkdownBlock_Table_Body TABLE;
-    MarmotMarkdownBlock_MathBlock_Body MATH_BLOCK;
-    MarmotMarkdownBlock_Details_Body DETAILS;
-  };
-} MarmotMarkdownBlock;
-
-/**
- * A parsed Markdown display document.
- */
-typedef struct MarmotMarkdownDocument {
-  struct MarmotMarkdownBlock *blocks;
-  uintptr_t blocks_len;
-  /**
-   * True when the input exceeded the FFI Markdown safety cap and
-   * `blocks` were parsed from a UTF-8-boundary prefix.
-   */
-  bool truncated;
-  /**
-   * Blank source lines before each corresponding block.
-   */
-  uint8_t *blank_lines_before;
-  uintptr_t blank_lines_before_len;
-} MarmotMarkdownDocument;
-
-/**
  * Preview of a chat row's last message.
  */
 typedef struct MarmotChatListMessagePreview {
@@ -3197,14 +3269,6 @@ typedef struct MarmotChatNotificationSettings {
   int64_t muted_until_ms;
   int64_t updated_at_ms;
 } MarmotChatNotificationSettings;
-
-/**
- * One Nostr tag of the inner Marmot app event, as its string values.
- */
-typedef struct MarmotMessageTag {
-  char **values;
-  uintptr_t values_len;
-} MarmotMessageTag;
 
 /**
  * One stored raw app message.
@@ -5684,6 +5748,99 @@ typedef struct MarmotConversationWindowSnapshot {
   bool has_more_after;
 } MarmotConversationWindowSnapshot;
 
+typedef enum MarmotAccountChatRow_Tag {
+  MARMOT_ACCOUNT_CHAT_ROW_LOCAL_MLS,
+  MARMOT_ACCOUNT_CHAT_ROW_PAIRED_SOURCE,
+} MarmotAccountChatRow_Tag;
+
+typedef struct MarmotAccountChatRow_LocalMls_Body {
+  struct MarmotPresentedChatRow *row;
+} MarmotAccountChatRow_LocalMls_Body;
+
+typedef struct MarmotAccountChatRow_PairedSource_Body {
+  struct MarmotPairedChatSummary *row;
+} MarmotAccountChatRow_PairedSource_Body;
+
+typedef struct MarmotAccountChatRow {
+  MarmotAccountChatRow_Tag tag;
+  union {
+    MarmotAccountChatRow_LocalMls_Body LOCAL_MLS;
+    MarmotAccountChatRow_PairedSource_Body PAIRED_SOURCE;
+  };
+} MarmotAccountChatRow;
+
+typedef struct MarmotAccountChatListWindowSnapshot {
+  char *generation;
+  uint64_t sequence;
+  struct MarmotChatListWindowSnapshot local;
+  struct MarmotAccountChatRow *rows;
+  uintptr_t rows_len;
+  char *next_paired_group_id_hex;
+} MarmotAccountChatListWindowSnapshot;
+
+typedef struct MarmotLocalAccountConversationHeader {
+  struct MarmotConversationWindowRevision revision;
+  struct MarmotConversationHeader header;
+  struct MarmotConversationIdentity *identities;
+  uintptr_t identities_len;
+  struct MarmotConversationMessageReferences *references;
+  uintptr_t references_len;
+  struct MarmotConversationOpenReadState read_state;
+  struct MarmotSelectedMessageDraft draft;
+  bool pending_confirmation;
+} MarmotLocalAccountConversationHeader;
+
+typedef enum MarmotAccountConversationHeader_Tag {
+  MARMOT_ACCOUNT_CONVERSATION_HEADER_LOCAL_MLS,
+  MARMOT_ACCOUNT_CONVERSATION_HEADER_PAIRED_SOURCE,
+} MarmotAccountConversationHeader_Tag;
+
+typedef struct MarmotAccountConversationHeader_LocalMls_Body {
+  struct MarmotLocalAccountConversationHeader *header;
+} MarmotAccountConversationHeader_LocalMls_Body;
+
+typedef struct MarmotAccountConversationHeader_PairedSource_Body {
+  struct MarmotPairedChatSummary *header;
+} MarmotAccountConversationHeader_PairedSource_Body;
+
+typedef struct MarmotAccountConversationHeader {
+  MarmotAccountConversationHeader_Tag tag;
+  union {
+    MarmotAccountConversationHeader_LocalMls_Body LOCAL_MLS;
+    MarmotAccountConversationHeader_PairedSource_Body PAIRED_SOURCE;
+  };
+} MarmotAccountConversationHeader;
+
+typedef enum MarmotAccountConversationRow_Tag {
+  MARMOT_ACCOUNT_CONVERSATION_ROW_LOCAL_MLS,
+  MARMOT_ACCOUNT_CONVERSATION_ROW_PAIRED_SOURCE,
+} MarmotAccountConversationRow_Tag;
+
+typedef struct MarmotAccountConversationRow_LocalMls_Body {
+  struct MarmotTimelineMessageRecord *row;
+} MarmotAccountConversationRow_LocalMls_Body;
+
+typedef struct MarmotAccountConversationRow_PairedSource_Body {
+  struct MarmotPairedChatMessage *row;
+} MarmotAccountConversationRow_PairedSource_Body;
+
+typedef struct MarmotAccountConversationRow {
+  MarmotAccountConversationRow_Tag tag;
+  union {
+    MarmotAccountConversationRow_LocalMls_Body LOCAL_MLS;
+    MarmotAccountConversationRow_PairedSource_Body PAIRED_SOURCE;
+  };
+} MarmotAccountConversationRow;
+
+typedef struct MarmotAccountConversationWindowSnapshot {
+  char *generation;
+  uint64_t sequence;
+  struct MarmotAccountConversationHeader header;
+  struct MarmotAccountConversationRow *rows;
+  uintptr_t rows_len;
+  struct MarmotPairedChatMessageCursor *next_before;
+} MarmotAccountConversationWindowSnapshot;
+
 typedef struct MarmotArchivedHistoryRecord {
   char *message_id_hex;
   char *author_pubkey;
@@ -5935,6 +6092,30 @@ void marmot_string_free(char *s);
  * been freed already.
  */
 void marmot_bytes_free(uint8_t *data, uintptr_t len);
+
+/**
+ * Read one bounded paired chat catalog page. Nullable after_group starts at the beginning.
+ * # Safety
+ * Live client, readable borrowed strings and writable out; no concurrent free.
+ */
+MarmotStatus marmot_paired_chat_list_page(const struct MarmotClient *client,
+                                          const char *account,
+                                          const char *after_group,
+                                          uint32_t limit,
+                                          struct MarmotPairedChatListPage **out);
+
+/**
+ * Read chronological paired observations. Nullable after starts at the oldest retained record.
+ * A returned cursor can be borrowed here; it remains owned by its page until page_free.
+ * # Safety
+ * Live client; readable borrowed strings/cursor; writable out; no concurrent free.
+ */
+MarmotStatus marmot_paired_chat_message_page(const struct MarmotClient *client,
+                                             const char *account,
+                                             const char *group,
+                                             const struct MarmotPairedChatMessageCursor *after,
+                                             uint32_t limit,
+                                             struct MarmotPairedChatMessagePage **out);
 
 /**
  * Observe current actual same-account Completed protected peers; never approve.
@@ -11525,6 +11706,111 @@ MarmotStatus marmot_send_message_draft_with_client_token(const struct MarmotClie
                                                          struct MarmotLocalSendAcceptance **out);
 
 /**
+ * Take the initial complete replacement once. A second call returns Closed.
+ * # Safety
+ * Live handle and writable output; no concurrent free.
+ */
+MarmotStatus marmot_account_chat_list_window_subscription_snapshot(const struct MarmotAccountChatListWindowSubscription *sub,
+                                                                   struct MarmotAccountChatListWindowSnapshot **out);
+
+/**
+ * Receive one replacement. Zero timeout waits indefinitely; timeout consumes no update.
+ * # Safety
+ * Live handle and writable output; one receiver and no concurrent free.
+ */
+MarmotStatus marmot_account_chat_list_window_subscription_next(const struct MarmotAccountChatListWindowSubscription *sub,
+                                                               uint32_t timeout_ms,
+                                                               struct MarmotAccountChatListWindowSnapshot **out);
+
+/**
+ * Synchronously cancel the original owner and wake a pending receiver. Idempotent.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_account_chat_list_window_subscription_cancel(const struct MarmotAccountChatListWindowSubscription *sub);
+
+/**
+ * Cancel and free. NULL is a no-op; previously returned snapshots remain owned by caller.
+ * # Safety
+ * Library-owned handle with no active calls, or NULL.
+ */
+void marmot_account_chat_list_window_subscription_free(struct MarmotAccountChatListWindowSubscription *sub);
+
+/**
+ * Open an account-owned source-qualified view. Take snapshot once, then receive replacements.
+ * Default cohorts return Unsupported after output preflight, before reading borrowed inputs.
+ * # Safety
+ * Live client, readable borrowed strings and writable output; no concurrent free.
+ */
+MarmotStatus marmot_open_account_chat_list_window(const struct MarmotClient *client,
+                                                  const char *account_ref,
+                                                  uint32_t initial_rows,
+                                                  struct MarmotAccountChatListWindowSubscription **out);
+
+/**
+ * Take the initial complete replacement once. A second call returns Closed.
+ * # Safety
+ * Live handle and writable output; no concurrent free.
+ */
+MarmotStatus marmot_account_conversation_window_subscription_snapshot(const struct MarmotAccountConversationWindowSubscription *sub,
+                                                                      struct MarmotAccountConversationWindowSnapshot **out);
+
+/**
+ * Receive one replacement. Zero timeout waits indefinitely; timeout consumes no update.
+ * # Safety
+ * Live handle and writable output; one receiver and no concurrent free.
+ */
+MarmotStatus marmot_account_conversation_window_subscription_next(const struct MarmotAccountConversationWindowSubscription *sub,
+                                                                  uint32_t timeout_ms,
+                                                                  struct MarmotAccountConversationWindowSnapshot **out);
+
+/**
+ * Synchronously cancel the original owner and wake a pending receiver. Idempotent.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_account_conversation_window_subscription_cancel(const struct MarmotAccountConversationWindowSubscription *sub);
+
+/**
+ * Cancel and free. NULL is a no-op; previously returned snapshots remain owned by caller.
+ * # Safety
+ * Library-owned handle with no active calls, or NULL.
+ */
+void marmot_account_conversation_window_subscription_free(struct MarmotAccountConversationWindowSubscription *sub);
+
+/**
+ * Open an account-owned source-qualified view. Take snapshot once, then receive replacements.
+ * Default cohorts return Unsupported after output preflight, before reading borrowed inputs.
+ * # Safety
+ * Live client, readable borrowed strings and writable output; no concurrent free.
+ */
+MarmotStatus marmot_open_account_conversation_window(const struct MarmotClient *client,
+                                                     const char *account_ref,
+                                                     const char *group_id_hex,
+                                                     uint32_t initial_rows,
+                                                     struct MarmotAccountConversationWindowSubscription **out);
+
+/**
+ * Read a bounded paired catalog page, conditional on the installed sequence.
+ * # Safety
+ * Live handle, readable nullable cursor string and writable output; no concurrent free.
+ */
+MarmotStatus marmot_account_chat_list_window_subscription_paired_page(const struct MarmotAccountChatListWindowSubscription *sub,
+                                                                      uint64_t sequence,
+                                                                      const char *after_group_id_hex,
+                                                                      struct MarmotAccountChatListWindowSnapshot **out);
+
+/**
+ * Read bounded older observations, conditional on the installed sequence.
+ * # Safety
+ * Live handle, readable nullable borrowed cursor and writable output; no concurrent free.
+ */
+MarmotStatus marmot_account_conversation_window_subscription_older_page(const struct MarmotAccountConversationWindowSubscription *sub,
+                                                                        uint64_t sequence,
+                                                                        const struct MarmotPairedChatMessageCursor *before,
+                                                                        struct MarmotAccountConversationWindowSnapshot **out);
+
+/**
  * Read a bounded committed archive page in message-ID keyset order.
  * Default builds refuse before reading inputs. Results attest the source,
  * not independent original-author MLS authentication. No media is acquired.
@@ -12784,6 +13070,46 @@ void marmot_account_sharing_snapshot_free(struct MarmotAccountSharingSnapshot *p
  * this library.
  */
 void marmot_account_sharing_targets_free(struct MarmotAccountSharingTargets *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_paired_chat_list_page_free(struct MarmotPairedChatListPage *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_paired_chat_message_page_free(struct MarmotPairedChatMessagePage *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_account_chat_list_window_snapshot_free(struct MarmotAccountChatListWindowSnapshot *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_account_conversation_window_snapshot_free(struct MarmotAccountConversationWindowSnapshot *ptr);
 
 /**
  * Free a value of this type returned by this library. NULL

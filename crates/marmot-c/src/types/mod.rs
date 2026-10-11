@@ -48,3 +48,6 @@ pub mod selected_chat_copy;
 pub mod synchronized_history;
 
 pub mod account_chat_sharing;
+
+pub mod account_chat_presentation;
+pub mod account_chat_windows;
