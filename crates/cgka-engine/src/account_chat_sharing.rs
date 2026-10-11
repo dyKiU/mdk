@@ -30,6 +30,18 @@ pub enum AccountSharingControl {
     Consent,
     Body(u64),
 }
+/// Current authenticated paired-device selectors; never a sharing grant.
+#[derive(Clone, PartialEq, Eq)]
+pub struct AccountSharingTarget {
+    pub leaf_index: u32,
+    pub device: Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq)]
+pub struct AccountSharingTargets {
+    pub protected_group: GroupId,
+    pub protected_epoch: u64,
+    pub targets: Vec<AccountSharingTarget>,
+}
 /// Authenticated observation from the actual protected MLS source leaf.
 pub struct ReceivedAccountSharingControl {
     pub nonce: [u8; 32],
@@ -212,6 +224,47 @@ impl OwnedAccountSharingChannel {
     }
 }
 impl<S: StorageProvider> Engine<S> {
+    /// Read only the current settled account-owned protected roster. No owner,
+    /// consent, channel, ordinary membership or transport mutation is created.
+    pub fn account_chat_sharing_targets(
+        &self,
+        protected: &GroupId,
+    ) -> Result<AccountSharingTargets, EngineError> {
+        self.storage.with_read_snapshot(|_| {
+            let roster = self
+                .validated_settled_device_roster(protected)?
+                .ok_or_else(refused)?;
+            let snapshot = roster.candidate();
+            if &snapshot.account != self.identity.self_id()
+                || !snapshot
+                    .leaves
+                    .iter()
+                    .any(|leaf| leaf.signature_public_key == self.identity.signer.public())
+                || snapshot.leaves.len() > 128
+            {
+                return Err(refused());
+            }
+            let mut targets = Vec::new();
+            for leaf in &snapshot.leaves {
+                if leaf.signature_public_key == self.identity.signer.public() {
+                    continue;
+                }
+                if leaf.signature_public_key.len() != 32 {
+                    return Err(refused());
+                }
+                targets.push(AccountSharingTarget {
+                    leaf_index: leaf.leaf_index,
+                    device: leaf.signature_public_key.clone(),
+                });
+            }
+            targets.sort_by_key(|target| target.leaf_index);
+            Ok(AccountSharingTargets {
+                protected_group: snapshot.group_id.clone(),
+                protected_epoch: snapshot.epoch.0,
+                targets,
+            })
+        })
+    }
     pub fn validate_account_sharing_channel(
         &self,
         channel: &OwnedAccountSharingChannel,

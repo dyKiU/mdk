@@ -103,7 +103,8 @@ pub use device_revocation::{
 };
 mod account_chat_sharing;
 pub use account_chat_sharing::{
-    AccountSharingApproval, AccountSharingError, AccountSharingSnapshot,
+    AccountSharingApproval, AccountSharingError, AccountSharingSnapshot, AccountSharingTarget,
+    AccountSharingTargets,
 };
 mod history_transfer;
 mod native_device_linking;

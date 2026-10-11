@@ -10,6 +10,12 @@ use cgka_engine::{
 use cgka_traits::{EngineError, GroupId, TransportMessage, source_leaf::SourceLeafProof};
 use std::sync::Arc;
 impl AccountDeviceSession {
+    pub fn account_chat_sharing_targets(
+        &self,
+        protected: &GroupId,
+    ) -> Result<cgka_engine::account_chat_sharing::AccountSharingTargets, EngineError> {
+        self.engine.account_chat_sharing_targets(protected)
+    }
     pub fn account_chat_catalog(
         &self,
         protected: &GroupId,

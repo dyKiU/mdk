@@ -26,6 +26,17 @@ pub struct AccountSharingSnapshot {
     pub approved: bool,
     pub complete: bool,
 }
+#[derive(Clone, PartialEq, Eq)]
+pub struct AccountSharingTarget {
+    pub leaf_index: u32,
+    pub device: Vec<u8>,
+}
+#[derive(Clone, PartialEq, Eq)]
+pub struct AccountSharingTargets {
+    pub protected_group: crate::GroupId,
+    pub protected_epoch: u64,
+    pub targets: Vec<AccountSharingTarget>,
+}
 pub struct AccountSharingApproval {
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) original: std::sync::Arc<enabled::State>,
@@ -95,6 +106,21 @@ impl Drop for AccountSharingApproval {
     }
 }
 impl AccountManager {
+    pub async fn account_chat_sharing_targets(
+        &self,
+        account: &str,
+    ) -> Result<AccountSharingTargets, AccountSharingError> {
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            self.query_account_sharing_targets(account).await
+        }
+        #[cfg(not(feature = "experimental-device-sync"))]
+        {
+            let _ = account;
+            Err(AccountSharingError::Unsupported)
+        }
+    }
+
     pub async fn begin_account_chat_sharing(
         &self,
         account: &str,

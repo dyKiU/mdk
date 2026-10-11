@@ -34,6 +34,10 @@ async fn default_native_verification_is_unsupported_before_account_or_worker_eff
         accounts.pending_account_chat_sharing("missing").await,
         Err(crate::AccountSharingError::Unsupported)
     ));
+    assert!(matches!(
+        accounts.account_chat_sharing_targets("missing").await,
+        Err(crate::AccountSharingError::Unsupported)
+    ));
     assert!(accounts.managed_accounts().unwrap().is_empty());
     runtime.shutdown_and_close().await.unwrap();
 }
@@ -509,8 +513,48 @@ mod actual {
                 .unwrap()
                 .anchor
                 .local_device;
+            let inventory = managers[0]
+                .account_chat_sharing_targets("test")
+                .await
+                .unwrap();
+            assert_eq!(inventory.targets.len(), 2);
+            assert!(
+                inventory
+                    .targets
+                    .windows(2)
+                    .all(|pair| pair[0].leaf_index < pair[1].leaf_index)
+            );
+            assert!(
+                managers[0]
+                    .account_chat_sharing_targets("missing")
+                    .await
+                    .is_err()
+            );
+            let local = apps[0]
+                .account_storage("test")
+                .unwrap()
+                .private_roster_settlement_storage()
+                .unwrap()
+                .read_round()
+                .unwrap()
+                .unwrap()
+                .anchor
+                .local_device;
+            assert!(
+                inventory
+                    .targets
+                    .iter()
+                    .all(|target| target.device != local)
+            );
+            let chosen = inventory
+                .targets
+                .iter()
+                .find(|target| target.device == c_key)
+                .unwrap()
+                .device
+                .clone();
             let cancelled = managers[0]
-                .begin_account_chat_sharing("test", c_key.to_vec())
+                .begin_account_chat_sharing("test", chosen.clone())
                 .await
                 .unwrap();
             let cancelled_revision = cancelled.snapshot().unwrap().revision;
@@ -520,11 +564,13 @@ mod actual {
                 Err(crate::AccountSharingError::Closed)
             ));
             let source = managers[0]
-                .begin_account_chat_sharing("test", c_key.to_vec())
+                .begin_account_chat_sharing("test", chosen)
                 .await
                 .unwrap();
             let review = source.snapshot().unwrap();
             assert!(!review.approved && !review.complete);
+            assert_eq!(review.protected_group, inventory.protected_group);
+            assert_eq!(review.protected_epoch, inventory.protected_epoch);
             assert!(
                 managers[2]
                     .pending_account_chat_sharing("test")
@@ -651,6 +697,45 @@ mod actual {
             apps.iter()
                 .all(|app| app.load_state("test").unwrap().groups.is_empty())
         );
+        if scenario == ApprovalScenario::ExistingShare {
+            let old = managers[0]
+                .account_chat_sharing_targets("test")
+                .await
+                .unwrap();
+            let removed = apps[2]
+                .account_storage("test")
+                .unwrap()
+                .private_roster_settlement_storage()
+                .unwrap()
+                .read_round()
+                .unwrap()
+                .unwrap()
+                .anchor
+                .local_device
+                .to_vec();
+            let action = managers[0]
+                .begin_device_revocation("test", removed.clone())
+                .await
+                .unwrap();
+            let review = action.snapshot().await.unwrap();
+            assert!(review.ordinary_groups.is_empty());
+            action.approve(review.revision).await.unwrap();
+            wait_actual_roster(&apps[..2], 2).await;
+            let fresh = managers[0]
+                .account_chat_sharing_targets("test")
+                .await
+                .unwrap();
+            assert_eq!(fresh.targets.len(), 1);
+            assert!(fresh.targets.iter().all(|target| target.device != removed));
+            assert_eq!(fresh.protected_group, old.protected_group);
+            assert!(fresh.protected_epoch > old.protected_epoch);
+            assert!(
+                managers[0]
+                    .begin_account_chat_sharing("test", removed)
+                    .await
+                    .is_err()
+            );
+        }
         for runtime in runtimes {
             runtime.shutdown_and_close().await.unwrap();
         }

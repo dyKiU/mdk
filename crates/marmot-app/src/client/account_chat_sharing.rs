@@ -8,6 +8,36 @@ use cgka_engine::account_chat_sharing::{ACCOUNT_SHARING_CONTROL_KIND, AccountSha
 use cgka_traits::{GroupEvent, StorageProvider, app_event::MarmotAppEvent};
 use std::sync::Arc;
 impl AppClient {
+    pub(crate) fn account_sharing_targets(
+        &self,
+    ) -> Result<crate::AccountSharingTargets, AccountSharingError> {
+        let protected = self
+            .runtime
+            .session()
+            .private_transport_evidence(crate::NOSTR_ROUTING_COMPONENT_ID)
+            .map_err(|_| AccountSharingError::RuntimeUnavailable)?
+            .ok_or(AccountSharingError::NotReady)?
+            .group_id()
+            .clone();
+        let current = self
+            .runtime
+            .session()
+            .account_chat_sharing_targets(&protected)
+            .map_err(|_| AccountSharingError::NotReady)?;
+        Ok(crate::AccountSharingTargets {
+            protected_group: current.protected_group,
+            protected_epoch: current.protected_epoch,
+            targets: current
+                .targets
+                .into_iter()
+                .map(|target| crate::AccountSharingTarget {
+                    leaf_index: target.leaf_index,
+                    device: target.device,
+                })
+                .collect(),
+        })
+    }
+
     pub(crate) fn begin_existing_pair_sharing(
         &mut self,
         recipient: &[u8],

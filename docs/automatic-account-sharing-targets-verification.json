@@ -1,0 +1,129 @@
+{
+  "base": "b8c5afbb9954ad384bb95cf38cfab2c15ce50889",
+  "scope": "Read-only fresh settled protected-device inventory for explicit existing-pair sharing. Observations cannot authorize channels or ordinary membership.",
+  "cohorts": [
+    {
+      "version": 1,
+      "stash": "aa6f4bf033df8d2530bb4c139554650ca55eb431",
+      "verified_inputs": 2558,
+      "manifest_sha256": "7351d1a297c46ae4b3b65b7024500a3ad9e64b2bdbfd255b6c7887c90a693386",
+      "mismatches": [],
+      "gates": [
+        {
+          "gate": "pairing",
+          "exit": 101,
+          "seconds": 7.221397876739502,
+          "log": "/Users/pj/project/build/automatic-sharing-targets-v1-pairing.log",
+          "log_sha256": "bc86d65bd6c28a9023cdb513c90b50c1844e2b8322d15aa47b58eae7c1505a6c"
+        }
+      ],
+      "counts": {
+        "pairing": []
+      }
+    },
+    {
+      "version": 2,
+      "stash": "aed753e970796f85a0be072552472166a159017a",
+      "verified_inputs": 2558,
+      "manifest_sha256": "9b2a2bb390672a442ec5746383b65ea6c61ba7b65c61ddc0767060ce230220f8",
+      "mismatches": [],
+      "gates": [
+        {
+          "gate": "pairing",
+          "exit": 0,
+          "seconds": 88.27546501159668,
+          "log": "/Users/pj/project/build/automatic-sharing-targets-v2-pairing.log",
+          "log_sha256": "01099b3f4af467c4fe1cf7e9c2fc54a73f3e85904eca1797353c9ccc81f56fb0"
+        },
+        {
+          "gate": "ordinary-pairing",
+          "exit": 0,
+          "seconds": 30.608466863632202,
+          "log": "/Users/pj/project/build/automatic-sharing-targets-v2-ordinary-pairing.log",
+          "log_sha256": "fc34a120b2d8304d2f7312ce17406339309e40d272c2b96df8a87bc8dbbbb01c"
+        },
+        {
+          "gate": "core",
+          "exit": 0,
+          "seconds": 26.130347967147827,
+          "log": "/Users/pj/project/build/automatic-sharing-targets-v2-core.log",
+          "log_sha256": "2a5017b97230fb8b570301cf974290389ddc7b017114912851a7ded37512d049"
+        },
+        {
+          "gate": "default-refusal",
+          "exit": 0,
+          "seconds": 62.87701678276062,
+          "log": "/Users/pj/project/build/automatic-sharing-targets-v2-default-refusal.log",
+          "log_sha256": "86f53ae723141295cf07a5fc50f23a16c6b3d9fb25a3ac33e07752ca0dc1c563"
+        },
+        {
+          "gate": "clippy",
+          "exit": 0,
+          "seconds": 55.752663135528564,
+          "log": "/Users/pj/project/build/automatic-sharing-targets-v2-clippy.log",
+          "log_sha256": "4d108b6e12d6d35bf609ad5a8f94f82e3e59e5f72dd433a5a9cfc549363075a1"
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 39.745177030563354,
+          "log": "/Users/pj/project/build/automatic-sharing-targets-v2-default.log",
+          "log_sha256": "c45d4171dba65efbc426e6d3e4c3e158c0cd82e1b2c3280fdcf7f1343158dca6"
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "seconds": 3.5405750274658203,
+          "log": "/Users/pj/project/build/automatic-sharing-targets-v2-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "counts": {
+        "pairing": [
+          [
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "ordinary-pairing": [
+          [
+            "3",
+            "0",
+            "0"
+          ]
+        ],
+        "core": [
+          [
+            "4",
+            "0",
+            "0"
+          ]
+        ],
+        "default-refusal": [
+          [
+            "2",
+            "0",
+            "0"
+          ]
+        ],
+        "clippy": [],
+        "default": [],
+        "fmt": []
+      }
+    }
+  ],
+  "acceptance": [
+    "Actual independently stored ABC protected roster before any ordinary chat admission; excludes local signer and returns sorted actual leaf indexes.",
+    "Returned C choice begins the held explicit original; source and recipient separately approve exact revisions through genuine relay Request/Consent.",
+    "Actual protected C Remove; fresh inventory keeps B, excludes C, advances epoch and stale C selector cannot create a new approval.",
+    "Missing account refuses; default Unsupported before managed-account effects."
+  ],
+  "limits": [
+    "No native forwarding/header/SDK generated in this slice.",
+    "Automatic catalog/message actor and ordinary projection/send integration remain pending.",
+    "No new channel lifetime/reopen or blocked sharing-publication qualification."
+  ],
+  "post_freeze_delta": "This verification JSON only; runtime/test source equals immutable final candidate.",
+  "raw_artifacts": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-sharing-targets"
+}
