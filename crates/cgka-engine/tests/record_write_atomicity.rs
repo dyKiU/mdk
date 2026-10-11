@@ -283,35 +283,58 @@ impl LeaveWriteFault {
     }
 }
 
-/// Nth-write arm like [`LeaveWriteFault`], but scoped to
-/// `update_message_state(_, Failed)` so unrelated state transitions in the
-/// same ingest do not consume it.
+/// Nth-write fault scoped to the retained rows being retired. Its causal
+/// counters are independent of the error detail that canonical replay sanitizes.
 #[derive(Clone, Default)]
-struct FailedStateWriteFault(Arc<AtomicUsize>);
+struct FailedStateWriteFault(Arc<std::sync::Mutex<FailedStateWriteFaultState>>);
+
+#[derive(Default)]
+struct FailedStateWriteFaultState {
+    remaining: usize,
+    rows: Vec<MessageId>,
+    writes: usize,
+    failures: usize,
+}
 
 impl FailedStateWriteFault {
     #[cfg(feature = "test-policy-overrides")]
-    fn arm_on_write(&self, write: usize) {
+    fn arm_on_write(&self, write: usize, rows: impl IntoIterator<Item = MessageId>) {
         assert!(write > 0);
-        self.0.store(write, Ordering::SeqCst);
+        let mut state = self.0.lock().unwrap();
+        *state = FailedStateWriteFaultState {
+            remaining: write,
+            rows: rows.into_iter().collect(),
+            ..Default::default()
+        };
+        assert!(state.rows.len() >= write);
     }
 
     #[cfg(feature = "test-policy-overrides")]
     fn disarm(&self) {
-        self.0.store(0, Ordering::SeqCst);
+        self.0.lock().unwrap().remaining = 0;
     }
 
-    fn should_fail(&self, new_state: MessageState) -> bool {
+    #[cfg(feature = "test-policy-overrides")]
+    fn observed_writes_and_failures(&self) -> (usize, usize) {
+        let state = self.0.lock().unwrap();
+        (state.writes, state.failures)
+    }
+
+    fn should_fail(&self, id: &MessageId, new_state: MessageState) -> bool {
         if new_state != MessageState::Failed {
             return false;
         }
-        matches!(
-            self.0
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
-                    (remaining > 0).then(|| remaining - 1)
-                }),
-            Ok(1)
-        )
+        let mut state = self.0.lock().unwrap();
+        if state.remaining == 0 || !state.rows.contains(id) {
+            return false;
+        }
+        state.writes += 1;
+        state.remaining -= 1;
+        if state.remaining == 0 {
+            state.failures += 1;
+            return true;
+        }
+        false
     }
 }
 
@@ -430,7 +453,7 @@ impl MessageStorage for FaultStorage {
         self.inner.delete_message(id)
     }
     fn update_message_state(&self, id: &MessageId, new_state: MessageState) -> StorageResult<()> {
-        if self.failed_state_fault.should_fail(new_state) {
+        if self.failed_state_fault.should_fail(id, new_state) {
             return Err(StorageError::Busy(
                 "injected message-state write failure".into(),
             ));
@@ -3021,7 +3044,7 @@ async fn a_failed_terminal_retirement_leaves_every_row_deferred_for_the_next_pas
         }
         other => panic!("expected group evolution, got {other:?}"),
     };
-    failed_state_fault.arm_on_write(2);
+    failed_state_fault.arm_on_write(2, rows.iter().map(|row| row.id.clone()));
     // The removing commit may realize the removal on the direct apply or
     // through a convergence pass; drive both so the retirement runs wherever
     // this delivery happens to own it.
@@ -3037,9 +3060,14 @@ async fn a_failed_terminal_retirement_leaves_every_row_deferred_for_the_next_pas
         error = carol.advance_convergence(&group_a).await.err();
     }
     let error = error.expect("the injected mid-retire write failure must surface");
+    assert_eq!(
+        failed_state_fault.observed_writes_and_failures(),
+        (2, 1),
+        "the second retained-row retirement write must actually inject the fault"
+    );
     assert!(
-        format!("{error:?}").contains("injected message-state write failure"),
-        "unexpected retire error: {error:?}"
+        matches!(error, EngineError::Storage(_)),
+        "retirement must preserve the storage retry class: {error:?}"
     );
 
     for row in &rows {
