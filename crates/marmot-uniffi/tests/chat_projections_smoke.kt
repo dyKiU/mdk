@@ -2,6 +2,24 @@ package dev.ipf.marmotkit
 
 /** Exercise generated record layout and enum discriminants, including presentation roles. */
 fun main() {
+    val pairedSource = PairedChatSourceFfi("device", "policy", ULong.MAX_VALUE, 2uL, 3uL, "digest")
+    val pairedSummary = PairedChatSummaryFfi("opaque-group", "Paired 🦀", "source observation", pairedSource)
+    val pairedList = PairedChatListPageFfi(listOf(pairedSummary), "opaque-next")
+    check(FfiConverterTypePairedChatListPageFfi.lift(FfiConverterTypePairedChatListPageFfi.lower(pairedList)) == pairedList)
+    val pairedRow = AccountChatRowFfi.PairedSource(pairedSummary)
+    check(FfiConverterTypeAccountChatRowFfi.lift(FfiConverterTypeAccountChatRowFfi.lower(pairedRow)) == pairedRow)
+    for (cursor in listOf(null, PairedChatMessageCursorFfi(ULong.MAX_VALUE, "canonical"))) {
+        val observation = PairedChatMessageFfi(9u, true, "canonical", "author", 1uL, null, false, "fixture 🦀", MarkdownDocumentFfi(emptyList(), false, byteArrayOf()), listOf(MessageTagFfi(listOf("e", "reply"))), emptyList(), pairedSource)
+        val pairedPage = PairedChatMessagePageFfi(listOf(observation), cursor)
+        val pairedPageCopy = FfiConverterTypePairedChatMessagePageFfi.lift(FfiConverterTypePairedChatMessagePageFfi.lower(pairedPage))
+        check(pairedPageCopy.next == cursor && pairedPageCopy.messages.single().content == observation.content && pairedPageCopy.messages.single().tags == observation.tags)
+        check(pairedPageCopy.messages.single().contentTokens.blankLinesBefore.contentEquals(observation.contentTokens.blankLinesBefore))
+        val pairedWindow = AccountConversationWindowSnapshotFfi("original-window", ULong.MAX_VALUE, AccountConversationHeaderFfi.PairedSource(pairedSummary), listOf(AccountConversationRowFfi.PairedSource(observation)), cursor)
+        val copy = FfiConverterTypeAccountConversationWindowSnapshotFfi.lift(FfiConverterTypeAccountConversationWindowSnapshotFfi.lower(pairedWindow))
+        check(copy.generation == pairedWindow.generation && copy.sequence == pairedWindow.sequence && copy.header == pairedWindow.header && copy.nextBefore == pairedWindow.nextBefore)
+        val copiedRow = (copy.rows.single() as AccountConversationRowFfi.PairedSource).row
+        check(copiedRow.messageIdHex == observation.messageIdHex && copiedRow.tags == observation.tags && copiedRow.source == observation.source && copiedRow.content == observation.content)
+    }
     for (role in AttachmentRoleFfi.entries) {
         val entry = AttachmentEntryFfi("m", "s", "a", 1u, 2u, null, AttachmentCategoryFfi.REJECTED, role,
             MediaAttachmentOutcomeFfi.Rejected(7u, MediaAttachmentRejectionFfi(MediaAttachmentRejectionKindFfi.UNSUPPORTED_FORMAT, "unsupported")))
