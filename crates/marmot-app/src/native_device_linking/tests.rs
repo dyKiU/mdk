@@ -55,6 +55,10 @@ async fn default_native_enrollment_is_unsupported_without_account_or_worker_effe
         session.finalize_linking(0).await,
         Err(DeviceLinkingError::Unsupported)
     ));
+    assert!(matches!(
+        session.continue_linking_and_share_chats(0).await,
+        Err(DeviceLinkingError::Unsupported)
+    ));
     let approval = DeviceLinkingApproval { _private: () };
     assert!(matches!(
         approval.review_metadata(0).await,
@@ -178,11 +182,16 @@ mod actual {
      {
         run_native_public_three_device_enrollment(ApprovalScenario::ReviewThenEnroll).await;
     }
+    #[tokio::test]
+    async fn native_pairing_explicit_chat_sharing_persists_only_completed_original() {
+        run_native_public_three_device_enrollment(ApprovalScenario::ShareChats).await;
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum ApprovalScenario {
         Enroll,
         Cancel,
         ReviewThenEnroll,
+        ShareChats,
     }
     async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
         use cgka_traits::StorageProvider;
@@ -212,14 +221,80 @@ mod actual {
             .await
             .unwrap();
         verify_public_pair(&initial_a, &b).await;
-        b.continue_linking(b.snapshot().await.unwrap().revision)
-            .await
-            .unwrap();
-        initial_a
-            .continue_linking(initial_a.snapshot().await.unwrap().revision)
-            .await
-            .unwrap();
+        if scenario == ApprovalScenario::ShareChats {
+            let b_revision = b.snapshot().await.unwrap().revision;
+            assert!(matches!(
+                b.continue_linking_and_share_chats(b_revision + 1).await,
+                Err(DeviceLinkingError::StaleRevision)
+            ));
+            b.continue_linking_and_share_chats(b_revision)
+                .await
+                .unwrap();
+            initial_a
+                .continue_linking_and_share_chats(initial_a.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+        } else {
+            b.continue_linking(b.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+            initial_a
+                .continue_linking(initial_a.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+        }
         wait_actual_roster(&apps[..2], 2).await;
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                if initial_a.snapshot().await.unwrap().phase
+                    == DeviceLinkingPhase::EnrollmentComplete
+                    && b.snapshot().await.unwrap().phase == DeviceLinkingPhase::EnrollmentComplete
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("actual original enrollment completion must remain observable");
+        // Completion is a synchronous durable handoff: the native UI may close
+        // both originals immediately, without another background tick.
+        let policies: Vec<_> = apps[..2]
+            .iter()
+            .map(|app| {
+                app.account_storage("test")
+                    .unwrap()
+                    .approved_account_sharing_policy_storage()
+                    .unwrap()
+                    .approved_account_sharing_policies()
+                    .unwrap()
+            })
+            .collect();
+        if scenario == ApprovalScenario::ShareChats {
+            use cgka_traits::approved_account_sharing_policy::approved_account_sharing_identity;
+            assert!(policies.iter().all(|rows| rows.len() == 1));
+            let ids: Vec<_> = policies
+                .iter()
+                .map(|rows| {
+                    let p = &rows[0];
+                    assert!(!p.revoked);
+                    assert_eq!(p.approved_protected_epoch, 1);
+                    approved_account_sharing_identity(
+                        &p.account,
+                        &p.protected_group,
+                        &p.local_device,
+                        &p.peer_device,
+                        &p.approval_id,
+                    )
+                    .unwrap()
+                })
+                .collect();
+            assert_eq!(ids[0], ids[1]);
+            assert_eq!(policies[0][0].local_device, policies[1][0].peer_device);
+            assert_eq!(policies[1][0].local_device, policies[0][0].peer_device);
+        } else {
+            assert!(policies.iter().all(Vec::is_empty));
+        }
         initial_a.cancel().await.unwrap();
         b.cancel().await.unwrap();
         let targets = managers[0]
@@ -392,6 +467,21 @@ mod actual {
             .await
             .unwrap();
         wait_actual_roster(&apps, 3).await;
+        // Membership alone cannot silently broaden the original A/B choice
+        // to C. Its separate ordinary pairing created no sharing approval.
+        for (index, app) in apps.iter().enumerate() {
+            let policies = app
+                .account_storage("test")
+                .unwrap()
+                .approved_account_sharing_policy_storage()
+                .unwrap()
+                .approved_account_sharing_policies()
+                .unwrap();
+            assert_eq!(
+                policies.len(),
+                usize::from(scenario == ApprovalScenario::ShareChats && index < 2)
+            );
+        }
         assert!(
             managers
                 .iter()

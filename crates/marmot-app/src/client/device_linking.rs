@@ -50,6 +50,7 @@ pub(crate) struct AccountLinkingOwner {
     welcome_collection: PrivateWelcomeCollection,
     native_setup_request: Option<setup::NewDeviceSetup>,
     native_enrollment: Option<native_enrollment::NativeEnrollmentIntent>,
+    sharing_approval: Option<native_enrollment::OriginalPairSharingApproval>,
     pub(super) hidden_transport_group: Option<cgka_traits::GroupId>,
     pub(super) private_echo_retry: Option<std::time::Instant>,
     pub(super) private_echo_compared_route: Option<(
@@ -110,6 +111,7 @@ impl AccountLinkingOwner {
             welcome_collection: PrivateWelcomeCollection::default(),
             native_setup_request: None,
             native_enrollment: None,
+            sharing_approval: None,
             hidden_transport_group: None,
             private_echo_retry: None,
             private_echo_compared_route: None,
@@ -150,6 +152,7 @@ impl AppClient {
                 _ => OwnerError::Verifier(crate::device_linking::LinkError::NotReady),
             })?;
         self.linking_owner.native_enrollment = None;
+        self.linking_owner.sharing_approval = None;
         let scope = self.linking_owner.verifier.reserve_scope()?;
         self.clear_private_welcome_collection();
         self.linking_owner.received_enrollment_proposals.clear();
@@ -1190,6 +1193,7 @@ impl AppClient {
                 "history original maintenance unavailable".into(),
             )))
         })?;
+        self.persist_completed_pair_sharing_approval()?;
         self.prune_native_enrollment_intent();
         self.maintain_received_enrollment_endorsement(now)?;
         let reservation_live = self
@@ -1282,6 +1286,7 @@ impl AppClient {
     pub(crate) async fn cancel_device_linking(&mut self) -> Result<(), ClientLinkingError> {
         self.linking_owner.native_setup_request = None;
         self.linking_owner.native_enrollment = None;
+        self.linking_owner.sharing_approval = None;
         self.linking_owner.recipient_enrollment = None;
         // Revoke admission before terminal fencing or private deletion. The
         // serial owner must not retire a package while its join lease is busy.

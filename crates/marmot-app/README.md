@@ -807,3 +807,9 @@ The genuine public three-device regression compares identities to A's actual
 MLS leaf and C's original setup, checks unchanged pending state, then completes
 ABC. Native binding/artifact adoption, approval UI and installed application
 delivery remain separate from this read-only App API checkpoint.
+
+### Explicit pairing-wide chat sharing approval
+
+`DeviceLinkingSession::continue_linking_and_share_chats(displayed_revision)` forwards the exact held verified pairing original. This action approves sharing existing and future chats, history and messaging with that paired device. Durable policy is recorded only after the same SDK-derived original and fresh all-leaf Completed settlement validate; the public EnrollmentComplete observation waits for that write. Ordinary `continue_linking` does not approve broad sharing, and the default build returns Unsupported before effects. Adding another device does not implicitly grant it an existing pair's policy.
+
+This checkpoint qualifies original A/B approval and durable handoff, not automatic catalog exchange, mirrored conversation presentation or bridge sends. Existing pairs still need a fresh explicit pair-wide approval. See [qualification](../../docs/automatic-pairing-chat-sharing-verification.json).

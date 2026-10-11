@@ -29,6 +29,11 @@ pub(crate) enum SetupCommand {
         binding: [u8; 32],
         respond: Reply<([u8; 32], [u8; 32], u32)>,
     },
+    ContinueAndShareChats {
+        scope: PurposeAttemptScope,
+        new_device: bool,
+        respond: Reply<()>,
+    },
     Continue {
         scope: PurposeAttemptScope,
         new_device: bool,
@@ -118,6 +123,26 @@ pub(super) async fn handle(
             let result = client.native_finalize_enrollment(&scope).await;
             if result.is_ok()
                 && let Ok((_, gate)) = client.private_commit_control(&scope)
+            {
+                publication_control.install(scope.clone(), gate);
+            }
+            if respond.send(result).is_err() {
+                cancel_abandoned_setup(client, &scope).await;
+            }
+        }
+        SetupCommand::ContinueAndShareChats {
+            scope,
+            new_device,
+            respond,
+        } => {
+            let result = client
+                .continue_owned_native_linking_and_share_chats(&scope, new_device)
+                .await;
+            if result.is_ok()
+                && !new_device
+                && let Ok((_, gate)) = client
+                    .private_commit_control(&scope)
+                    .or_else(|_| client.enrollment_proposal_control(&scope))
             {
                 publication_control.install(scope.clone(), gate);
             }
@@ -283,6 +308,21 @@ impl AccountManager {
         .await
     }
 
+    pub(crate) async fn native_continue_device_linking_and_share_chats(
+        &self,
+        account: &str,
+        scope: &PurposeAttemptScope,
+        new_device: bool,
+    ) -> Result<(), ClientLinkingError> {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::ContinueAndShareChats {
+                scope: scope.clone(),
+                new_device,
+                respond,
+            })
+        })
+        .await
+    }
     pub(crate) async fn native_continue_device_linking(
         &self,
         account: &str,

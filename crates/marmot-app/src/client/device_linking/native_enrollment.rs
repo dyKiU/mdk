@@ -7,6 +7,15 @@ use cgka_traits::{
 };
 use std::time::{Duration, Instant};
 
+/// Original explicit broader approval survives only its own live settlement.
+/// Never serialized, inferred from a catalog or reconstructed on restart.
+pub(super) struct OriginalPairSharingApproval {
+    scope: PurposeAttemptScope,
+    context: crate::device_linking::LinkingContext,
+    deadline: Instant,
+    created_at: u64,
+}
+
 pub(super) struct NativeEnrollmentIntent {
     scope: PurposeAttemptScope,
     recipient: bool,
@@ -23,6 +32,139 @@ pub(crate) enum NativeInvitePublication {
 }
 
 impl AppClient {
+    pub(crate) async fn continue_owned_native_linking_and_share_chats(
+        &mut self,
+        scope: &PurposeAttemptScope,
+        new_device: bool,
+    ) -> Result<(), ClientLinkingError> {
+        if let Some(original) = &self.linking_owner.sharing_approval {
+            if original.scope != *scope || Instant::now() >= original.deadline {
+                return Err(ClientLinkingError::Gate(
+                    LinkingWelcomeDenied::ContextMismatch,
+                ));
+            }
+        } else {
+            // A taken verifier cannot be upgraded retrospectively. Capture the
+            // explicit choice while the same verified SDK original is held.
+            let (context, deadline) = self
+                .scoped_linking_verifier(scope)?
+                .native_sharing_context(scope, Instant::now())
+                .map_err(ClientLinkingError::Owner)?;
+            self.linking_owner.sharing_approval = Some(OriginalPairSharingApproval {
+                scope: scope.clone(),
+                context,
+                deadline,
+                created_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|_| ClientLinkingError::Gate(LinkingWelcomeDenied::ContextMismatch))?
+                    .as_secs(),
+            });
+        }
+        self.continue_owned_native_linking(scope, new_device).await
+    }
+
+    pub(super) fn persist_completed_pair_sharing_approval(
+        &mut self,
+    ) -> Result<(), ClientLinkingError> {
+        use cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard;
+        use cgka_traits::approved_account_sharing_policy::{
+            ACCOUNT_SHARING_CAPABILITIES, ACCOUNT_SHARING_POLICY_VERSION,
+            ApprovedAccountSharingPolicy,
+        };
+        let Some(original) = self.linking_owner.sharing_approval.as_ref() else {
+            return Ok(());
+        };
+        if Instant::now() >= original.deadline {
+            self.linking_owner.sharing_approval = None;
+            return Ok(());
+        }
+        let Some(attempt) = self.linking_owner.settlement_attempt.as_ref() else {
+            return Ok(());
+        };
+        let guard = attempt.guard.clone();
+        if guard.scope() != &original.scope || !guard.matches_original_context(&original.context) {
+            self.linking_owner.sharing_approval = None;
+            return Ok(());
+        }
+        let group = guard.group();
+        let Some(roster) = self
+            .runtime
+            .session()
+            .validated_settled_device_roster(&group)
+            .map_err(ClientLinkingError::Engine)?
+        else {
+            return Ok(());
+        };
+        let peer = if original.scope.local_device == original.context.approver {
+            original.context.recipient
+        } else if original.scope.local_device == original.context.recipient {
+            original.context.approver
+        } else {
+            return Err(ClientLinkingError::Gate(
+                LinkingWelcomeDenied::ContextMismatch,
+            ));
+        };
+        let approval_id = original.context.digest().map_err(|error| {
+            ClientLinkingError::Owner(crate::device_linking::OwnerError::Verifier(error))
+        })?;
+        let policy = ApprovedAccountSharingPolicy {
+            account: original.scope.account,
+            local_device: original.scope.local_device,
+            peer_device: peer,
+            protected_group: group.clone(),
+            approval_id,
+            version: ACCOUNT_SHARING_POLICY_VERSION,
+            capabilities: ACCOUNT_SHARING_CAPABILITIES,
+            created_at: original.created_at,
+            approved_protected_epoch: roster.candidate().epoch.0,
+            revoked: false,
+        };
+        let generation = roster.settlement_generation();
+        let storage = self
+            .app
+            .account_storage(&self.state.label)
+            .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
+        let validator = || -> cgka_traits::storage::StorageResult<()> {
+            let denied = || {
+                cgka_traits::storage::StorageError::Serialization(
+                    "original pairing sharing approval unavailable".into(),
+                )
+            };
+            if Instant::now() >= original.deadline
+                || !guard.matches_original_context(&original.context)
+            {
+                return Err(denied());
+            }
+            let round = storage
+                .private_roster_settlement_storage()
+                .ok_or_else(denied)?
+                .read_round()?
+                .ok_or_else(denied)?;
+            guard.validate(&round.anchor).map_err(|_| denied())?;
+            let fresh = self
+                .runtime
+                .session()
+                .validated_settled_device_roster(&group)
+                .map_err(|_| denied())?
+                .ok_or_else(denied)?;
+            if fresh.settlement_generation() != generation
+                || fresh.candidate() != roster.candidate()
+            {
+                return Err(denied());
+            }
+            Ok(())
+        };
+        storage
+            .approved_account_sharing_policy_storage()
+            .ok_or(ClientLinkingError::Gate(
+                LinkingWelcomeDenied::UnsupportedStorage,
+            ))?
+            .put_approved_account_sharing_policy(&policy, &validator)
+            .map_err(|error| ClientLinkingError::Engine(error.into()))?;
+        self.linking_owner.sharing_approval = None;
+        Ok(())
+    }
+
     pub(crate) async fn continue_owned_native_linking(
         &mut self,
         scope: &PurposeAttemptScope,

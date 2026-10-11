@@ -57,23 +57,24 @@ pub struct AccountSharingScope {
     pub approval_id: [u8; 32],
 }
 // Stable persistence identity is independent of local role, keys, nonce and clock.
-fn approved_policy_identity(scope: &AccountSharingScope) -> [u8; 32] {
-    let mut hash = Sha256::new();
-    hash.update(b"WN-approved-account-chat-sharing-v1");
-    hash.update(scope.protected.account.as_slice());
-    hash.update((scope.protected.group_id.as_slice().len() as u16).to_be_bytes());
-    hash.update(scope.protected.group_id.as_slice());
-    let (first, second) = if scope.source < scope.recipient {
-        (&scope.source, &scope.recipient)
-    } else {
-        (&scope.recipient, &scope.source)
-    };
-    hash.update(first);
-    hash.update(second);
-    hash.update(scope.approval_id);
-    hash.update(1u16.to_be_bytes());
-    hash.update([15u8]);
-    hash.finalize().into()
+fn approved_policy_identity(scope: &AccountSharingScope) -> Result<[u8; 32], EngineError> {
+    cgka_traits::approved_account_sharing_policy::approved_account_sharing_identity(
+        &scope
+            .protected
+            .account
+            .as_slice()
+            .try_into()
+            .map_err(|_| refused())?,
+        &scope.protected.group_id,
+        &scope.source.as_slice().try_into().map_err(|_| refused())?,
+        &scope
+            .recipient
+            .as_slice()
+            .try_into()
+            .map_err(|_| refused())?,
+        &scope.approval_id,
+    )
+    .map_err(|_| refused())
 }
 
 /// Installed by the account actor after explicit existing/future-chat approval.
@@ -211,6 +212,13 @@ impl OwnedAccountSharingChannel {
     }
 }
 impl<S: StorageProvider> Engine<S> {
+    pub fn validate_account_sharing_channel(
+        &self,
+        channel: &OwnedAccountSharingChannel,
+    ) -> Result<(), EngineError> {
+        self.storage
+            .with_read_snapshot(|_| self.sharing_channel_fresh(channel))
+    }
     /// Trusted actor intake must retain the genuine MessageReceived source proof.
     /// A signed packet alone cannot substitute for protected MLS delivery.
     pub fn authenticate_received_account_sharing_control(
@@ -359,7 +367,7 @@ impl<S: StorageProvider> Engine<S> {
             approved_policy_identity: frame.approved_policy_identity,
             approval_id: frame.approval_id,
         };
-        if scope.approved_policy_identity != approved_policy_identity(&scope) {
+        if scope.approved_policy_identity != approved_policy_identity(&scope)? {
             return Err(refused());
         }
         Self::sharing_fixed_context(&frame, &scope)?;
@@ -425,7 +433,7 @@ impl<S: StorageProvider> Engine<S> {
                 approval_id: [0; 32],
             };
             scope.approval_id = lease.approved_policy_id(&scope)?;
-            scope.approved_policy_identity = approved_policy_identity(&scope);
+            scope.approved_policy_identity = approved_policy_identity(&scope)?;
             if scope.approval_id == [0; 32] {
                 return Err(refused());
             }

@@ -118,3 +118,9 @@ Nostr wrapper. Actual third-member exclusion, fragment reassembly, durable polic
 approval, automatic actor negotiation and normal list/timeline/send integration
 remain unqualified. The storage identity helper will be shared with the approved
 policy store; this checkpoint uses the exact agreed domain/encoding locally.
+
+## Original pairing approval checkpoint
+
+The named explicit A/B continuation now captures broad sharing before the genuine SDK original is consumed and records the symmetric durable policy only after its actual Completed all-leaf settlement. The public completion observation performs this handoff synchronously. Ordinary continuation and later ordinary C enrollment leave broad policy unchanged. Stable identity now uses the shared signed traits helper; no duplicate Core encoding remains.
+
+Real independent-store/relay approval, ordinary ABC controls, Core channel controls and default refusal pass. This is an approval foundation; automatic exchange, normal mirrored timelines and durable forwarded sends remain unfinished. Existing paired installations require a fresh explicit broad approval, not a repeated Add or a policy inferred from their roster. Raw evidence and exact frozen-source qualification are in `automatic-pairing-chat-sharing-verification.json`.

@@ -156,6 +156,10 @@ impl AppClient {
                     .map_err(ClientLinkingError::Engine)?
                     .is_some()
             {
+                // A host can immediately close its original on this terminal
+                // observation. Complete the explicit durable approval handoff
+                // before exposing completion, not on a later maintenance tick.
+                self.persist_completed_pair_sharing_approval()?;
                 return Ok((crate::DeviceLinkingPhase::EnrollmentComplete, None));
             }
             return Ok((

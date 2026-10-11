@@ -40,6 +40,8 @@ use storage_sqlite::{
 };
 
 #[cfg(feature = "experimental-device-sync")]
+mod account_chat_sharing;
+#[cfg(feature = "experimental-device-sync")]
 mod history_transfer;
 
 const TRACE_TARGET: &str = "cgka_session::session";

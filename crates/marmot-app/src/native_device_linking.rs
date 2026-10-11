@@ -121,6 +121,12 @@ impl DeviceLinkingSession {
     pub async fn cancel(&self) -> Result<(), DeviceLinkingError> {
         Err(DeviceLinkingError::Unsupported)
     }
+    pub async fn continue_linking_and_share_chats(
+        &self,
+        _revision: u64,
+    ) -> Result<(), DeviceLinkingError> {
+        Err(DeviceLinkingError::Unsupported)
+    }
     pub async fn continue_linking(&self, _revision: u64) -> Result<(), DeviceLinkingError> {
         Err(DeviceLinkingError::Unsupported)
     }
