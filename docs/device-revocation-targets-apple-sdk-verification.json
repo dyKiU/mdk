@@ -1,0 +1,124 @@
+{
+  "source_sha": "d8b38c4086d23dc469ed969e00cc2192de4597ac",
+  "signed_input_count": 2531,
+  "inputs_sha256": "1d2cbbe0878bc514ec00b5aa83e5bca61971dea12ecc6ea09e505e79916e7733",
+  "all_ten_gates": [
+    {
+      "gate": "shared-generation",
+      "exit": 0,
+      "log": "/Users/pj/project/build/device-revocation-targets-sdk-v2-shared-generation.log",
+      "log_sha256": "81cb73cd245433b7a6a423f16d0f8fdc631f0dcad495f6b59dcaf59cd9991d24",
+      "seconds": 574.5147650241852
+    },
+    {
+      "gate": "mac-native",
+      "exit": 0,
+      "log": "/Users/pj/project/build/device-revocation-targets-sdk-v2-mac-native.log",
+      "log_sha256": "c6bda8b59754102fd838827d2293f6ee2844ede621f01a5f2d2b910bfa2ef07e",
+      "seconds": 289.8749499320984
+    },
+    {
+      "gate": "mac-assemble",
+      "exit": 0,
+      "log": "/Users/pj/project/build/device-revocation-targets-sdk-v2-mac-assemble.log",
+      "log_sha256": "123bfcf9f78e4b886a805d6a9f3ef1515575cd1556f098185540908d531fa562",
+      "seconds": 2.8759689331054688
+    },
+    {
+      "gate": "ios-device-native",
+      "exit": 0,
+      "log": "/Users/pj/project/build/device-revocation-targets-sdk-v2-ios-device-native.log",
+      "log_sha256": "c4f7619343a89ad0d49cc3dce02475a853c172fac3beb3487db8a091165b7987",
+      "seconds": 289.8072566986084
+    },
+    {
+      "gate": "ios-simulator-native",
+      "exit": 0,
+      "log": "/Users/pj/project/build/device-revocation-targets-sdk-v2-ios-simulator-native.log",
+      "log_sha256": "c6ec88ac1afe2e7e6a3f9f8fdc60a5b388a0ce02c19219925d8dedd123b40837",
+      "seconds": 289.29141092300415
+    },
+    {
+      "gate": "ios-assemble",
+      "exit": 0,
+      "log": "/Users/pj/project/build/device-revocation-targets-sdk-v2-ios-assemble.log",
+      "log_sha256": "042212be8893bd246e2737158fadb84add13623b3b3600681dd61c3333cfd4e8",
+      "seconds": 4.318063020706177
+    },
+    {
+      "gate": "mac-artifact",
+      "exit": 0,
+      "log": "/Users/pj/project/build/device-revocation-targets-sdk-v2-mac-artifact.log",
+      "log_sha256": "64f144b853881cb729f5dc49d2b900dff79af232390ead82ccb4272a75a1b9f3",
+      "seconds": 1.8610076904296875
+    },
+    {
+      "gate": "ios-artifact",
+      "exit": 0,
+      "log": "/Users/pj/project/build/device-revocation-targets-sdk-v2-ios-artifact.log",
+      "log_sha256": "e4a9020c23ff536a7cb954ebc4d15a003fbb2840e63f6c127ab98f9bbdc877a7",
+      "seconds": 1.9551270008087158
+    },
+    {
+      "gate": "mac-consumer",
+      "exit": 0,
+      "log": "/Users/pj/project/build/device-revocation-targets-sdk-v2-mac-consumer.log",
+      "log_sha256": "d0102b16b77ede7575ccf21daca223a256d3cd4f491dcf1cafa8e75d87314bd8",
+      "seconds": 28.550393104553223
+    },
+    {
+      "gate": "ios-consumer",
+      "exit": 0,
+      "log": "/Users/pj/project/build/device-revocation-targets-sdk-v2-ios-consumer.log",
+      "log_sha256": "fb2d83af17022607c0bc221fa25ba7aa576fe585598e7c769598f2f889609afd",
+      "seconds": 51.67936062812805
+    }
+  ],
+  "artifact_count": 15,
+  "artifacts_sha256": "8749a72c63b17e081270adf92e3f0d3529d6b14e99d133d9c3ea647c44656a7d",
+  "old_outputs_and_historical_binary_preserved": true,
+  "shipping_apps_changed": false,
+  "features": [
+    "otlp-export",
+    "product-analytics-export",
+    "experimental-device-sync"
+  ],
+  "toolchain": "1.97.1",
+  "target": "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+  "output": "/Users/pj/project/mdk-sync-sdk-device-revocation-d8b38c40/crates/marmot-uniffi/output",
+  "artifact_files": {
+    "output/MarmotKit.swift": "170deecb2ba75b524198d1347273f640bb8004ff51e7a950131e78f08d4be9b7",
+    "output/PrivacyInfo.xcprivacy": "3759ff2493741386342599b39673989a461f491ad1fb207a7133a2b0035140f7",
+    "output/macos/MarmotKit.swift": "170deecb2ba75b524198d1347273f640bb8004ff51e7a950131e78f08d4be9b7",
+    "output/macos/PrivacyInfo.xcprivacy": "3759ff2493741386342599b39673989a461f491ad1fb207a7133a2b0035140f7",
+    "output/MarmotKit.xcframework/Info.plist": "8a316e6086ece9e04dd0288a87be575bc1dd487506170c452fb48505d9901c87",
+    "output/MarmotKit.xcframework/ios-arm64-simulator/libmarmot_uniffi.a": "bec73b15beec967efdb554321bc80ea202ecdaa084a0fe11674c59f42d1e28c6",
+    "output/MarmotKit.xcframework/ios-arm64/libmarmot_uniffi.a": "f89a68de54637d05520e19fb1fdf5f1a40e7fbc0a077a3e2b6a7759dab49a75c",
+    "output/MarmotKit.xcframework/ios-arm64/Headers/marmot_uniffiFFI.h": "235e92c5835b5373f51849a8b0046dc8aeeb9d37805ee6f06ba17c47912bb1bf",
+    "output/MarmotKit.xcframework/ios-arm64/Headers/module.modulemap": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685",
+    "output/MarmotKit.xcframework/ios-arm64-simulator/Headers/marmot_uniffiFFI.h": "235e92c5835b5373f51849a8b0046dc8aeeb9d37805ee6f06ba17c47912bb1bf",
+    "output/MarmotKit.xcframework/ios-arm64-simulator/Headers/module.modulemap": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685",
+    "output/macos/MarmotKit.xcframework/Info.plist": "d9a67b4014865ad6fa6a89b40fad98e7151603cd8f029c2111dbf425d6279a08",
+    "output/macos/MarmotKit.xcframework/macos-arm64/libmarmot_uniffi.a": "f8b1f509da5d32594ec98e07f66364c91201f35743405d67ce446734e2e92770",
+    "output/macos/MarmotKit.xcframework/macos-arm64/Headers/marmot_uniffiFFI.h": "235e92c5835b5373f51849a8b0046dc8aeeb9d37805ee6f06ba17c47912bb1bf",
+    "output/macos/MarmotKit.xcframework/macos-arm64/Headers/module.modulemap": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685"
+  },
+  "shared_generation": {
+    "marmot_uniffi.swift": {
+      "ios_sha256": "170deecb2ba75b524198d1347273f640bb8004ff51e7a950131e78f08d4be9b7",
+      "macos_sha256": "170deecb2ba75b524198d1347273f640bb8004ff51e7a950131e78f08d4be9b7"
+    },
+    "marmot_uniffiFFI.h": {
+      "ios_sha256": "235e92c5835b5373f51849a8b0046dc8aeeb9d37805ee6f06ba17c47912bb1bf",
+      "macos_sha256": "235e92c5835b5373f51849a8b0046dc8aeeb9d37805ee6f06ba17c47912bb1bf"
+    },
+    "marmot_uniffiFFI.modulemap": {
+      "ios_sha256": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685",
+      "macos_sha256": "f08ed742371741da4ba33db63af56b72cb8c6a64bec8cc8fb389626de04ed685"
+    }
+  },
+  "scope": "Matched macOS arm64 and iOS arm64/device+simulator release artifacts and consumer validators only. No app adoption, install, live account change or full-backend qualification. SDK987 full v4 experimental remains failed at migration fixture count.",
+  "preflight_v1": "Runner-only FileNotFoundError before any Cargo/gate/output because source-worktree creation had not completed; original traceback retained. v2 launched only after clean source/signature preflight.",
+  "capacity": "Existing release cache; jobs2/incremental0. Adaptive20GiB reserve after measured prior three-slice growth~2.1GiB.",
+  "postfreeze_delta": "This compact proof is authored after the complete d8 source freeze; no runtime/builder/generated output changes."
+}
