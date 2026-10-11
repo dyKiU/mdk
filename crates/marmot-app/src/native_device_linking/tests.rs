@@ -212,6 +212,10 @@ mod actual {
     async fn automatic_catalog_channel_renewal_reaches_later_entries_without_manual_consent() {
         run_native_public_three_device_enrollment(ApprovalScenario::AutomaticRenewal).await;
     }
+    #[tokio::test]
+    async fn automatic_catalog_recipient_sql_failure_retries_without_manual_consent() {
+        run_native_public_three_device_enrollment(ApprovalScenario::AutomaticCatalogRetry).await;
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum ApprovalScenario {
         Enroll,
@@ -221,6 +225,7 @@ mod actual {
         ExistingShare,
         AutomaticRace,
         AutomaticRenewal,
+        AutomaticCatalogRetry,
     }
     async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
         use cgka_traits::StorageProvider;
@@ -516,6 +521,7 @@ mod actual {
             ApprovalScenario::ExistingShare
                 | ApprovalScenario::AutomaticRace
                 | ApprovalScenario::AutomaticRenewal
+                | ApprovalScenario::AutomaticCatalogRetry
         ) {
             Some(
                 managers[0]
@@ -552,6 +558,7 @@ mod actual {
             ApprovalScenario::ExistingShare
                 | ApprovalScenario::AutomaticRace
                 | ApprovalScenario::AutomaticRenewal
+                | ApprovalScenario::AutomaticCatalogRetry
         ) {
             // Select C from actual settled protected tree, never invent a target.
             let c_key = apps[2]
@@ -696,6 +703,30 @@ mod actual {
             } else {
                 None
             };
+            let mut catalog_errors = runtimes[2].subscribe();
+            let catalog_injector = if scenario == ApprovalScenario::AutomaticCatalogRetry {
+                let path = apps[2].account_storage_path("test");
+                let keys = apps[2].account_home().load_signing_keys("test").unwrap();
+                let sql_key = apps[2]
+                    .sqlcipher_key(
+                        "test",
+                        &keys,
+                        &path,
+                        crate::sqlcipher::SqlcipherDatabaseKind::Session,
+                    )
+                    .unwrap();
+                let connection = rusqlite::Connection::open(&path).unwrap();
+                storage_sqlite::open_hardened_sqlcipher(
+                    &connection,
+                    &sql_key,
+                    storage_sqlite::SqlCipherHardening::cipher_only(),
+                )
+                .unwrap();
+                connection.execute_batch("CREATE TRIGGER hold_automatic_catalog BEFORE INSERT ON mirrored_chat_catalog BEGIN SELECT RAISE(ABORT,'isolated catalog commit rollback'); END;").unwrap();
+                Some(connection)
+            } else {
+                None
+            };
             recipient.approve(recipient_review.revision).await.unwrap();
             let retained_request = if let Some(connection) = policy_injector.as_ref() {
                 assert!(recipient.snapshot().unwrap().complete);
@@ -804,6 +835,38 @@ mod actual {
                     .unwrap()
                     .generation,
             };
+            if let Some(connection) = catalog_injector {
+                tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    loop {
+                        if let crate::MarmotAppEvent::AccountError(error) =
+                            catalog_errors.recv().await.unwrap()
+                            && error.message.starts_with("runtime receive failed")
+                        {
+                            assert_eq!(
+                                error.message,
+                                "runtime receive failed: invalid_app_message_payload"
+                            );
+                            break;
+                        }
+                    }
+                })
+                .await
+                .expect("actual encrypted catalog must reach the injected SQL refusal");
+                assert!(
+                    apps[2]
+                        .account_storage("test")
+                        .unwrap()
+                        .mirrored_chat_catalog_storage()
+                        .unwrap()
+                        .mirrored_chat_catalog_page(&mirror, None, 128)
+                        .unwrap()
+                        .is_empty(),
+                    "failed recipient transaction must commit no mirrored catalog entry"
+                );
+                connection
+                    .execute_batch("DROP TRIGGER hold_automatic_catalog;")
+                    .unwrap();
+            }
             let later = managers[0]
                 .create_group("test", "Automatically discovered later chat", &[], None)
                 .await
@@ -885,6 +948,7 @@ mod actual {
             ApprovalScenario::ExistingShare
                 | ApprovalScenario::AutomaticRace
                 | ApprovalScenario::AutomaticRenewal
+                | ApprovalScenario::AutomaticCatalogRetry
         ) && index == 0
             || app.load_state("test").unwrap().groups.is_empty()));
         if matches!(
@@ -892,6 +956,7 @@ mod actual {
             ApprovalScenario::ExistingShare
                 | ApprovalScenario::AutomaticRace
                 | ApprovalScenario::AutomaticRenewal
+                | ApprovalScenario::AutomaticCatalogRetry
         ) {
             let old = managers[0]
                 .account_chat_sharing_targets("test")
@@ -914,7 +979,26 @@ mod actual {
                 .unwrap();
             let review = action.snapshot().await.unwrap();
             assert!(review.ordinary_groups.is_empty());
-            action.approve(review.revision).await.unwrap();
+            if matches!(scenario, ApprovalScenario::AutomaticRenewal) {
+                // This fixture deliberately fills the real relay's publication
+                // bucket. A transient refusal must retain the exact reviewed
+                // original, including its prepared Commit and fixed deadline.
+                tokio::time::timeout(std::time::Duration::from_secs(30), async {
+                    loop {
+                        match action.approve(review.revision).await {
+                            Ok(()) => break,
+                            Err(crate::device_revocation::GroupDeviceRevocationError::RuntimeUnavailable) => {
+                                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            }
+                            Err(error) => panic!("same-original revocation retry failed: {error:?}"),
+                        }
+                    }
+                })
+                .await
+                .expect("same original revocation must recover after publication refusal");
+            } else {
+                action.approve(review.revision).await.unwrap();
+            }
             wait_actual_roster(&apps[..2], 2).await;
             let fresh = managers[0]
                 .account_chat_sharing_targets("test")

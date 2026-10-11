@@ -25,9 +25,24 @@ struct CatalogFragment {
 }
 struct Assembly {
     digest: [u8; 32],
-    count: u32,
+    fragments: Vec<Option<Vec<u8>>>,
+}
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct CatalogReceipt {
+    version: u8,
+    group: crate::GroupId,
+    sequence: u64,
+    source_digest: [u8; 32],
+    encoded_digest: [u8; 32],
+}
+struct PendingBody {
+    kind: AccountSharedBodyKind,
     bytes: Vec<u8>,
-    next: u32,
+}
+struct PendingCatalog {
+    receipt: CatalogReceipt,
+    published_at: Option<std::time::Instant>,
 }
 struct CatalogProgress {
     generation: u64,
@@ -42,13 +57,13 @@ pub(crate) struct AutomaticChannel {
     recipient: bool,
     ready: bool,
     handshake_published: bool,
-    pending: VecDeque<Vec<u8>>,
+    pending: VecDeque<PendingBody>,
     next_body: u64,
     cursor: Option<crate::GroupId>,
     inventory_digest: Option<[u8; 32]>,
     sent: BTreeMap<Vec<u8>, [u8; 32]>,
     assembly: Option<Assembly>,
-    pending_catalog: Option<(crate::GroupId, [u8; 32])>,
+    pending_catalog: Option<PendingCatalog>,
     renew: bool,
 }
 impl AutomaticChannel {
@@ -89,7 +104,7 @@ impl AppClient {
         )
         .map_err(|_| AccountSharingError::NotReady)
     }
-    fn automatic_policy_current(
+    pub(super) fn automatic_policy_current(
         &self,
         policy: &ApprovedAccountSharingPolicy,
     ) -> Result<(), AccountSharingError> {
@@ -245,8 +260,14 @@ impl AppClient {
                     .session()
                     .open_account_shared_body(&entry.channel, wire)
                     .map_err(|_| AccountSharingError::NotReady)?;
-                if kind == AccountSharedBodyKind::Catalog {
-                    self.accept_automatic_catalog(&mut entry, &body)?;
+                match kind {
+                    AccountSharedBodyKind::Catalog => {
+                        self.accept_automatic_catalog(&mut entry, &body)?
+                    }
+                    AccountSharedBodyKind::CatalogReceipt => {
+                        self.accept_automatic_catalog_receipt(&mut entry, &body)?
+                    }
+                    _ => return Err(AccountSharingError::NotReady),
                 }
             }
             Ok(true)
@@ -278,31 +299,36 @@ impl AppClient {
         {
             return Err(AccountSharingError::NotReady);
         }
-        if fragment.ordinal == 0 {
+        if entry
+            .assembly
+            .as_ref()
+            .is_none_or(|assembly| assembly.digest != fragment.digest)
+        {
             entry.assembly = Some(Assembly {
                 digest: fragment.digest,
-                count: fragment.count,
-                bytes: Vec::new(),
-                next: 0,
+                fragments: vec![None; fragment.count as usize],
             });
         }
-        let assembly = entry
-            .assembly
-            .as_mut()
-            .ok_or(AccountSharingError::NotReady)?;
-        if assembly.digest != fragment.digest
-            || assembly.count != fragment.count
-            || assembly.next != fragment.ordinal
-            || assembly.bytes.len() + bytes.len() > MAX_ENTRY_BYTES
-        {
+        let assembly = entry.assembly.as_mut().expect("bounded assembly");
+        if assembly.fragments.len() != fragment.count as usize {
             return Err(AccountSharingError::NotReady);
         }
-        assembly.bytes.extend(bytes);
-        assembly.next += 1;
-        if assembly.next != assembly.count {
+        let slot = &mut assembly.fragments[fragment.ordinal as usize];
+        if slot.as_ref().is_some_and(|old| old != &bytes) {
+            return Err(AccountSharingError::NotReady);
+        }
+        *slot = Some(bytes);
+        if assembly.fragments.iter().any(Option::is_none) {
             return Ok(());
         }
-        let bytes = entry.assembly.take().expect("complete assembly").bytes;
+        let bytes: Vec<u8> = assembly
+            .fragments
+            .iter()
+            .flat_map(|part| part.as_ref().expect("complete fragment").iter().copied())
+            .collect();
+        if bytes.len() > MAX_ENTRY_BYTES {
+            return Err(AccountSharingError::NotReady);
+        }
         if <[u8; 32]>::from(Sha256::digest(&bytes)) != fragment.digest {
             return Err(AccountSharingError::NotReady);
         }
@@ -341,8 +367,51 @@ impl AppClient {
         storage
             .mirrored_chat_catalog_storage()
             .ok_or(AccountSharingError::NotReady)?
-            .apply_mirrored_chat_catalog(&mirror, &[record], &validate)
+            .apply_mirrored_chat_catalog(&mirror, std::slice::from_ref(&record), &validate)
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        // Keep the complete authenticated body until its SQL transaction succeeds.
+        // Only a committed recipient import creates this encrypted receipt.
+        entry.assembly = None;
+        let receipt = CatalogReceipt {
+            version: 1,
+            group: record.group_id,
+            sequence: record.source_sequence,
+            source_digest: record.source_digest,
+            encoded_digest: fragment.digest,
+        };
+        let bytes = serde_json::to_vec(&receipt).map_err(|_| AccountSharingError::NotReady)?;
+        if entry.pending.len() >= CHANNEL_BODY_BUDGET as usize {
+            return Err(AccountSharingError::NotReady);
+        }
+        entry.pending.push_back(PendingBody {
+            kind: AccountSharedBodyKind::CatalogReceipt,
+            bytes,
+        });
+        Ok(())
+    }
+    fn accept_automatic_catalog_receipt(
+        &self,
+        entry: &mut AutomaticChannel,
+        body: &[u8],
+    ) -> Result<(), AccountSharingError> {
+        let receipt: CatalogReceipt =
+            serde_json::from_slice(body).map_err(|_| AccountSharingError::NotReady)?;
+        if receipt.version != 1
+            || serde_json::to_vec(&receipt).map_err(|_| AccountSharingError::NotReady)? != body
+        {
+            return Err(AccountSharingError::NotReady);
+        }
+        let Some(pending) = entry.pending_catalog.as_ref() else {
+            return Ok(());
+        };
+        if pending.receipt != receipt {
+            return Err(AccountSharingError::NotReady);
+        }
+        entry.cursor = Some(receipt.group.clone());
+        entry
+            .sent
+            .insert(receipt.group.as_slice().to_vec(), receipt.source_digest);
+        entry.pending_catalog = None;
         Ok(())
     }
 }
@@ -598,30 +667,36 @@ impl AppClient {
         if !entry.ready {
             return Ok(());
         }
-        if entry.pending.is_empty() {
+        if entry.pending.is_empty() && entry.pending_catalog.is_none() {
             self.prepare_automatic_catalog(entry)?;
+        }
+        if entry
+            .pending_catalog
+            .as_ref()
+            .and_then(|pending| pending.published_at)
+            .is_some_and(|published| published.elapsed() >= std::time::Duration::from_secs(10))
+        {
+            // Relay publication does not prove recipient commit. Retry the same
+            // durable source sequence through fresh owned cryptographic context.
+            entry.renew = true;
+            return Ok(());
         }
         let Some(body) = entry.pending.front() else {
             return Ok(());
         };
         self.runtime
             .session()
-            .seal_account_shared_body(
-                &mut entry.channel,
-                AccountSharedBodyKind::Catalog,
-                entry.next_body,
-                body,
-            )
+            .seal_account_shared_body(&mut entry.channel, body.kind, entry.next_body, &body.bytes)
             .map_err(|_| AccountSharingError::NotReady)?;
         self.publish_automatic_control(entry, AccountSharingControl::Body(entry.next_body))
             .await?;
         entry.pending.pop_front();
         entry.next_body += 1;
         if entry.pending.is_empty()
-            && let Some((group, digest)) = entry.pending_catalog.take()
+            && let Some(pending) = entry.pending_catalog.as_mut()
+            && pending.published_at.is_none()
         {
-            entry.cursor = Some(group.clone());
-            entry.sent.insert(group.as_slice().to_vec(), digest);
+            pending.published_at = Some(std::time::Instant::now());
         }
         Ok(())
     }
@@ -705,8 +780,9 @@ impl AppClient {
             return Ok(());
         }
         for (ordinal, body) in bytes.chunks(FRAGMENT_BYTES).enumerate() {
-            entry.pending.push_back(
-                serde_json::to_vec(&CatalogFragment {
+            entry.pending.push_back(PendingBody {
+                kind: AccountSharedBodyKind::Catalog,
+                bytes: serde_json::to_vec(&CatalogFragment {
                     version: 1,
                     digest: whole,
                     ordinal: ordinal as u32,
@@ -714,9 +790,18 @@ impl AppClient {
                     body: base64::engine::general_purpose::STANDARD.encode(body),
                 })
                 .map_err(|_| AccountSharingError::NotReady)?,
-            );
+            });
         }
-        entry.pending_catalog = Some((record.group_id, digest));
+        entry.pending_catalog = Some(PendingCatalog {
+            receipt: CatalogReceipt {
+                version: 1,
+                group: record.group_id,
+                sequence: record.source_sequence,
+                source_digest: digest,
+                encoded_digest: whole,
+            },
+            published_at: None,
+        });
         Ok(())
     }
     async fn publish_automatic_control(

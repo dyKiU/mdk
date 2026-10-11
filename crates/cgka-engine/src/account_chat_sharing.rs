@@ -101,6 +101,8 @@ pub trait TrustedAccountSharingLease: Send + Sync {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AccountSharedBodyKind {
     Catalog,
+    CatalogReceipt,
+    PairPolicyCommitted,
     Records,
     SendIntent,
     SendReceipt,
