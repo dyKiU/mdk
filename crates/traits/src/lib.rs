@@ -144,6 +144,7 @@ pub mod reporting;
 pub mod approved_account_sharing_policy;
 pub mod device_linking_key_package;
 pub mod mirrored_chat_catalog;
+pub mod mirrored_chat_messages;
 pub mod selected_chat_key_package;
 
 pub mod roster_ack_capture;

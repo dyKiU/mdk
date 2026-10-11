@@ -20,7 +20,7 @@ fn group_valid(group: &GroupId) -> bool {
     (1..=255).contains(&group.as_slice().len())
 }
 
-fn scope_bytes(scope: &MirroredChatScope) -> StorageResult<Vec<u8>> {
+pub(crate) fn scope_bytes(scope: &MirroredChatScope) -> StorageResult<Vec<u8>> {
     if scope.account == [0; 32]
         || scope.local_device == [0; 32]
         || scope.source_device == [0; 32]
@@ -68,7 +68,7 @@ fn state_value(state: MirroredChatState) -> i64 {
     }
 }
 
-fn check_owner(conn: &Connection, scope: &MirroredChatScope) -> StorageResult<()> {
+pub(crate) fn check_owner(conn: &Connection, scope: &MirroredChatScope) -> StorageResult<()> {
     crate::approved_account_sharing_policy::check_configured_owner(
         conn,
         &scope.account,

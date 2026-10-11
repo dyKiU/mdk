@@ -100,3 +100,9 @@ original authenticated transition and actual indexed successor tree.
 optional private persistence. No Debug, stored keys/deadline or permission restore.
 Original before/tail callbacks guard writes; the retained protected epoch is only
 negative revocation metadata. Source sequences retry only the current exact digest.
+
+`mirrored_chat_messages.rs` adds optional bounded logical observation persistence,
+not Group membership or native send permission. No Debug. Unknown content hashes
+are allowed only for empty terminal records; never invent a hash from an event ID.
+Expiry only tightens; purge retains source sequence and identity. Read retention
+views are not original attestations and must never be exported as a new source.

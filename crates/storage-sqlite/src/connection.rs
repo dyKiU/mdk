@@ -1440,6 +1440,13 @@ impl StorageProvider for SqliteAccountStorage {
         Some(self)
     }
 
+    #[cfg(feature = "experimental-device-sync")]
+    fn mirrored_chat_message_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::mirrored_chat_messages::MirroredChatMessageStorage> {
+        Some(self)
+    }
+
     fn group_replay_state_fingerprint(
         &self,
         group_id: &cgka_traits::types::GroupId,

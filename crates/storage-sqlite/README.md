@@ -515,7 +515,7 @@ empty ordinary schemas continue to open normally.
 
 Experimental anchored roster settlement is a separate optional persistence capability
 (`private_roster_settlement.rs`), not generic ACK capture or authorization. It stores
-one checked-generation owner-bound round, at most128 occupied leaf facts, exact
+one checked-generation owner-bound round, at most 128 occupied leaf facts, exact
 prepared ciphertext/outbound retries and atomic last-slot completion. Completed
 metadata never mints live admission; Engine must independently validate protected
 origin/current tree and a fixed monotonic live round. No deadline or SDK permission
@@ -570,9 +570,18 @@ and subsequent Add while preserving old denial fences. No persisted consent, lea
 or original guard is supplied. Core integration and full workspace qualification
 are required separately from the synthetic storage contracts.
 
-Private revision18 persists immutable explicit account/device pairing approvals
+Private revision 18 persists immutable explicit account/device pairing approvals
 and monotonic local-source chat observations. Approval revocation is permanent;
 renewed recipient-only channels do not reset the policy's source sequences.
 Original-owner callbacks run before work and before the same transaction commits.
 The protected epoch is retained for revocation checks, never to restore a live
 permission. These tables remain separate from ordinary MLS and Group state.
+
+Private revision 19 adds source-attested logical message storage for automatic
+paired-device catch-up. Payloads are separate raw bounded blobs; no ordinary
+`app_events`, MLS ratchets or Group rows are manufactured. Active catalog
+observations and original-owner transaction checks guard imports. Immutable event
+identity/body checks span sources; deletions and expiry cannot be undone by a
+renewed policy. Chronological pages never return expired contents. Bounded purge
+retains identity/digest/source sequence while releasing payload bytes. The account
+payload budget is 64 MiB; lifetime references are bounded at 100,000 rows.

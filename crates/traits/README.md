@@ -114,7 +114,7 @@ buffering; the complete batch and actual MLS tree remain independently validated
 
 Experimental anchored roster settlement is a separate optional persistence capability
 (`private_roster_settlement.rs`), not generic ACK capture or authorization. It stores
-one checked-generation owner-bound round, at most128 occupied leaf facts, exact
+one checked-generation owner-bound round, at most 128 occupied leaf facts, exact
 prepared ciphertext/outbound retries and atomic last-slot completion. Completed
 metadata never mints live admission; Engine must independently validate protected
 origin/current tree and a fixed monotonic live round. No deadline or SDK permission
@@ -130,3 +130,8 @@ restore original consent, a deadline, or settlement admission.
 permanent revocations and a bounded local-source sequence journal. Stable policy
 identity is symmetric and independent of ephemeral encryption channels. Retained
 facts only schedule fresh authenticated Core checks; they never restore a grant.
+
+`mirrored_chat_messages` carries bounded source-attested logical content/tags and
+chronological cursors. Active bodies retain a verified SHA256 content digest;
+empty terminal records may have an unknown digest and permanently fence the
+ordinary event ID. These records remain separate from confirmed MLS events.

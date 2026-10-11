@@ -190,10 +190,19 @@ Core/Session/App integration, full workspace and native qualification remain
 separate from the synthetic storage proof in
 `docs/revoked-device-anchor-storage-verification.json`. Preserve core102/private1–15.
 
-Private revision18 (`approved_account_sharing_policy.rs`) retains at most128
-immutable approvals including revoked references, plus8192 latest group-digest
+Private revision 18 (`approved_account_sharing_policy.rs`) retains at most 128
+immutable approvals including revoked references, plus 8192 latest group-digest
 observations. Counters, observations and original before/tail checks share SQL;
 exact current retries retain sequence, historical bodies after changes get fresh
 sequence. Never reconstruct positive original ownership or channel crypto from
 facts. Preserve core102/private1–17 and configured identity/signer fences. Closed
 storage is terminal; encrypted restart retains revocation and replay state.
+
+Private revision 19 (`mirrored_chat_messages.rs`) imports already-authenticated
+logical messages only under active source catalog/account/signer scope with
+original before/tail checks. Payloads are separate bounded blobs; 64 MiB checked in
+the same batch transaction and 100,000 lifetime references enforced on insert.
+Immutable author/time/kind/content digest and global event-ID terminal fences span
+source/policy renewal. Expiry only tightens. Local purge changes no source sequence
+and retains identity; expired read views must never be re-exported as original
+source attestations. Preserve core102/private1–18 and all receipt/cohort fences.
