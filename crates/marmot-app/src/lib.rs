@@ -101,6 +101,12 @@ pub use device_revocation::{
     DeviceRevocation, DeviceRevocationSnapshot, GroupDeviceRevocation, GroupDeviceRevocationError,
     GroupDeviceRevocationSnapshot,
 };
+mod account_chat_presentation;
+pub use account_chat_presentation::{
+    AccountChatReadError, AccountConversationPage, AccountConversationRow, PairedChatContent,
+    PairedChatListPage, PairedChatMessage, PairedChatMessageCursor, PairedChatMessagePage,
+    PairedChatSource, PairedChatSummary,
+};
 mod account_chat_sharing;
 pub use account_chat_sharing::{
     AccountSharingApproval, AccountSharingError, AccountSharingSnapshot, AccountSharingTarget,
@@ -188,6 +194,14 @@ pub use runtime::{
     RuntimeSharedServices, RuntimeTimelineMessageUpdate, RuntimeTimelineMessagesSubscription,
     SignOutOptions, SignOutOutcome, StreamStartView, TimelineWindowHandle, WipeOutcome,
     default_directory_discovery_relays,
+};
+pub use runtime::{
+    AccountChatListWindowHandle, AccountChatListWindowSnapshot, AccountChatRow,
+    RuntimeAccountChatListWindowSubscription,
+};
+pub use runtime::{
+    AccountConversationHeader, AccountConversationWindowHandle, AccountConversationWindowSnapshot,
+    LocalAccountConversationHeader, RuntimeAccountConversationWindowSubscription,
 };
 pub use runtime::{
     CHAT_LIST_WINDOW_INITIAL_ROWS, CHAT_LIST_WINDOW_MAX_ROWS, ChatListAnchorOutcome,

@@ -17,6 +17,9 @@ pub(crate) struct PresentationSignals {
     wakeups: watch::Sender<()>,
     catalog: watch::Sender<()>,
     pub(crate) updates: broadcast::Sender<PresentationInvalidation>,
+    /// Observational mirror changes; each receiver freshly revalidates eligibility.
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) mirrored: broadcast::Sender<String>,
 }
 impl Default for PresentationSignals {
     fn default() -> Self {
@@ -28,6 +31,8 @@ impl Default for PresentationSignals {
             wakeups: watch::channel(()).0,
             catalog: watch::channel(()).0,
             updates: broadcast::channel(64).0,
+            #[cfg(feature = "experimental-device-sync")]
+            mirrored: broadcast::channel(64).0,
         }
     }
 }

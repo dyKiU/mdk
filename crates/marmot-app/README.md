@@ -827,3 +827,24 @@ Account workers now negotiate fresh encrypted channels under the original pair-w
 This checkpoint does not populate normal conversation views or forward messages. Catalog delivery receipts, loss/reordering, withdrawals, large-catalog renewal and retired-request replay controls remain pending. See [acceptance and limits](../../docs/automatic-approved-policy-catalog-actor-verification.json).
 
 Catalog scheduling now reserves a whole entry before exhausting a channel and resumes the scan under a newly validated channel. The real 22-chat renewal regression and earlier policy SQL-race/default controls pass. Recipient committed catalog acknowledgements and loss/reorder recovery remain separate; see `docs/automatic-catalog-renewal-verification.json`.
+
+### Source-qualified automatic chat observations
+
+Experimental `paired_chat_list_page`, `paired_chat_message_page`, and
+`account_conversation_page` read already-authenticated mirror storage through the
+serial account worker. Current durable approvals and fresh protected roster state
+are checked before and after each read. `LocalMls` and `PairedSource` remain
+distinct; mirror rows create no MLS membership or media download permission.
+
+`open_account_chat_list_window` combines bounded ordinary and mirror lanes; its
+ordinary metadata/anchors and separate mirror cursor do not imply global activity
+ordering. `open_account_conversation_window` merges canonical event time/ID with
+ordinary precedence and a total 128-row SQL bound. Captured sequence, cancellation,
+account reset, runtime shutdown, committed catalog wakes and retention refresh
+keep owners current. Unsupported logical kinds remain visible placeholders.
+Local-to-paired membership changes require reopening the conversation window.
+
+The focused proof in `docs/account-chat-presentation-app-windows-verification.json`
+covers real original approval/catalog/window custody and separate storage privacy
+controls. Records-actor message delivery, native bindings/views, normal forwarding
+and full integration acceptance require their own qualification.

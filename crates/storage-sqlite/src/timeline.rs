@@ -1512,6 +1512,70 @@ impl SqliteAccountStorage {
         self.message_timeline_ordered(query, false, false)
     }
 
+    /// Bounded canonical-event-time observations for a source-qualified union.
+    /// Keeps the materialized ordinary edit/deletion/reply policy and personal
+    /// block filtering; this does not assert membership for mirrored rows.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn message_timeline_for_paired_presentation(
+        &self,
+        query: TimelineMessageQuery,
+        now: u64,
+    ) -> StorageResult<TimelinePage> {
+        if query.group_id_hex.is_none()
+            || now > i64::MAX as u64
+            || !query
+                .pagination
+                .limit
+                .is_some_and(|limit| (1..=128).contains(&limit))
+        {
+            return Err(StorageError::Serialization(
+                "invalid paired ordinary timeline read".into(),
+            ));
+        }
+        cgka_traits::StorageProvider::with_read_snapshot(self, |store| {
+            let mut page = store.message_timeline_ordered(query, false, true)?;
+            page.messages = page
+                .messages
+                .into_iter()
+                .map(|message| store.scrub_paired_timeline_record(message, now))
+                .collect::<StorageResult<_>>()?;
+            Ok(page)
+        })
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) fn scrub_paired_timeline_record(
+        &self,
+        mut message: TimelineMessageRecord,
+        now: u64,
+    ) -> StorageResult<TimelineMessageRecord> {
+        if message
+            .retention_expires_at
+            .is_some_and(|expiry| expiry <= now)
+        {
+            message.deleted = true;
+            message.plaintext.clear();
+            message.tags.clear();
+            message.media = None;
+            message.agent_text_stream = None;
+            message.reply_preview = None;
+            message.poll = None;
+            message.group_system = None;
+            message.edit = None;
+            message.reactions = TimelineReactionSummary::default();
+        } else if let Some(preview) = &message.reply_preview {
+            let target = self.timeline_message(&message.group_id_hex, &preview.message_id_hex)?;
+            if target.is_none_or(|target| {
+                target
+                    .retention_expires_at
+                    .is_some_and(|expiry| expiry <= now)
+            }) {
+                message.reply_preview = None;
+            }
+        }
+        Ok(message)
+    }
+
     fn message_timeline_ordered(
         &self,
         query: TimelineMessageQuery,

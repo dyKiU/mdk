@@ -1933,6 +1933,7 @@ impl AppClient {
             }
             #[cfg(feature = "experimental-device-sync")]
             if !event_progress.completed && self.private_event_must_remain_hidden(event)? {
+                self.notify_private_presentation_transition(event);
                 progress.routes_dirty |= self.refresh_private_transport_route()?;
                 summary.events.push(event.clone());
                 self.prepare_pending_application_event_ack(event);
@@ -6467,6 +6468,7 @@ impl AppClient {
             }
             #[cfg(feature = "experimental-device-sync")]
             if !event_progress.completed && self.private_event_must_remain_hidden(event)? {
+                self.notify_private_presentation_transition(event);
                 progress.routes_dirty |= self.refresh_private_transport_route()?;
                 summary.events.push(event.clone());
                 self.prepare_pending_application_event_ack(event);

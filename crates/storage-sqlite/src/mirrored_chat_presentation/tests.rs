@@ -295,3 +295,119 @@ fn mirrored_presentation_blocked_author_is_filtered_before_total_limit() {
     assert_eq!(page.len(), 1);
     assert_eq!(page[0].record.event_id, [2; 32]);
 }
+
+#[test]
+fn mirrored_presentation_latest_window_uses_canonical_exclusive_cursor() {
+    let storage = stored();
+    let a = scope(3);
+    let group = GroupId::new(vec![1]);
+    catalog(&storage, &a, &[1], MirroredChatState::Active);
+    storage
+        .apply_mirrored_chat_messages(
+            &a,
+            &group,
+            &[record(1, 10), record(2, 20), record(3, 20)],
+            0,
+            &|| Ok(()),
+        )
+        .unwrap();
+    let latest = storage
+        .mirrored_message_observation_window(std::slice::from_ref(&a), &group, None, 2, 0)
+        .unwrap();
+    assert_eq!(
+        latest.iter().map(|r| r.record.event_id).collect::<Vec<_>>(),
+        [[2; 32], [3; 32]]
+    );
+    let earlier = storage
+        .mirrored_message_observation_window(
+            std::slice::from_ref(&a),
+            &group,
+            Some(&MirroredChatCursor {
+                created_at: 20,
+                event_id: [2; 32],
+            }),
+            2,
+            0,
+        )
+        .unwrap();
+    assert_eq!(
+        earlier
+            .iter()
+            .map(|r| r.record.event_id)
+            .collect::<Vec<_>>(),
+        [[1; 32]]
+    );
+}
+
+#[test]
+fn mirrored_presentation_conversation_union_has_one_limit_and_real_ordinary_precedence() {
+    let storage = stored();
+    let scope = scope(3);
+    let group = GroupId::new(vec![1]);
+    catalog(&storage, &scope, &[1], MirroredChatState::Active);
+    storage
+        .apply_mirrored_chat_messages(
+            &scope,
+            &group,
+            &[record(1, 10), record(2, 20), record(3, 30)],
+            0,
+            &|| Ok(()),
+        )
+        .unwrap();
+    let event = crate::StoredAppEvent {
+        group_id_hex: hex::encode(group.as_slice()),
+        message_id_hex: hex::encode([2; 32]),
+        direction: "received".into(),
+        sender: hex::encode([8; 32]),
+        plaintext: "ordinary".into(),
+        kind: 9,
+        tags: Vec::new(),
+        recorded_at: 25,
+        received_at: 26,
+        source_message_id_hex: Some(hex::encode([2; 32])),
+        source_epoch: Some(1),
+        origin_commit_id: None,
+        moderation_grant: false,
+    };
+    storage.record_app_event(&event).unwrap();
+    let rows = storage
+        .account_conversation_observation_window(std::slice::from_ref(&scope), &group, None, 2, 0)
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(
+        matches!(&rows[0],AccountConversationObservation::LocalMls(row) if row.message_id_hex==hex::encode([2;32]) && row.plaintext=="ordinary")
+    );
+    assert!(
+        matches!(&rows[1],AccountConversationObservation::PairedSource(row) if row.record.event_id==[3;32])
+    );
+    let cursor = MirroredChatCursor {
+        created_at: 25,
+        event_id: [2; 32],
+    };
+    let earlier = storage
+        .account_conversation_observation_window(
+            std::slice::from_ref(&scope),
+            &group,
+            Some(&cursor),
+            2,
+            0,
+        )
+        .unwrap();
+    assert_eq!(earlier.len(), 1);
+    assert!(
+        matches!(&earlier[0],AccountConversationObservation::PairedSource(row) if row.record.event_id==[1;32])
+    );
+    storage.lock().unwrap().execute("UPDATE app_events SET retention_seconds=1,retention_expires_at=26 WHERE message_id_hex=?1",[hex::encode([2;32])]).unwrap();
+    let expired = storage
+        .account_conversation_observation_window(std::slice::from_ref(&scope), &group, None, 2, 26)
+        .unwrap();
+    assert!(
+        matches!(&expired[0],AccountConversationObservation::LocalMls(row) if row.deleted && row.plaintext.is_empty() && row.tags.is_empty())
+    );
+    assert!(
+        storage
+            .mirrored_catalog_observation(&[scope], &group)
+            .unwrap()
+            .is_some()
+    );
+}

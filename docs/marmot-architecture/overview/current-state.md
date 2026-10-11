@@ -476,3 +476,11 @@ Device-wide original removal now qualifies actual protected three-to-two and two
 Approved pair-wide policy now schedules actual encrypted initial/later catalog exchange into separate source-attested mirror storage. The retained-request/source-policy SQL race is qualified with unchanged original custody and a capped deadline. Normal chat-list/timeline/message/send integration and reliable renewal/replay/withdrawal delivery remain separate work; see [scoped proof](../../automatic-approved-policy-catalog-actor-verification.json).
 
 The approved-policy catalog actor preserves observational scan progress across fresh same-generation channels and reserves each complete entry within the body budget. An unchanged real 22-chat relay regression fails before the repair and passes after it; combined signed private21 dependency checks also pass. This does not qualify recipient acknowledgements, message streaming, forwarding or installed automatic chat presentation.
+
+Experimental App source-qualified chat pages and list/conversation owners now
+qualify real original approval/catalog wakes, cancellation and shutdown, with
+separate total-bound chronology/precedence/privacy storage controls. Mirror rows
+remain distinct from actual MLS membership. Initial list lanes retain separate
+ordering/cursors. Records-actor message delivery, native normal-view adoption and
+normal forwarding require subsequent integrated acceptance; see
+[focused proof](../../account-chat-presentation-app-windows-verification.json).
