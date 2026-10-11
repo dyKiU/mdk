@@ -9,6 +9,14 @@
 
 ### Breaking changes
 
+- `MarmotKitError` adds `ModerationReportingNotConfigured`,
+  `InvalidModerationReportConfig`, `InvalidReportedPublicKey`, `CannotReportSelf`
+  and `ModerationReportRateLimited`. Regenerate bindings with the matching
+  library and update exhaustive Swift `switch` / Kotlin `when` handling.
+
+- `OnboardingRepairProposalFfi.relay_repair` is a new optional field without
+  a binding default. Regenerate matching Swift/Kotlin bindings and pass `nil`
+  (Swift) or `null` (Kotlin) in host record initializers without a typed preview.
 - Native lifecycle events add `LocalGroupCopyTerminated`, `LocalGroupCopyRestored`,
   and `GroupMemberLeavesRemoved`. Update exhaustive Swift/Kotlin event handling
   and regenerate bindings with the matching native library. Restoration describes
@@ -31,6 +39,23 @@
 
 ### Added
 
+- `submit_moderation_report`, `moderation_reporting_available` and
+  `configure_moderation_reporting` add private, NIP-59 gift-wrapped NIP-56
+  reports to the deployment's moderation team (`ModerationReportOriginFfi`,
+  `ModerationReportOutcomeFfi`). `MarmotOptions.moderation_report_config` is
+  optional, defaults to unset, and is set per build flavor. This is additive:
+  `report_message`, `content_reports` and `dismiss_reports` are unchanged.
+
+- `create_identity_with_initial_profile` creates a generated identity whose
+  first public kind-0 is the onboarding-selected profile. Prefer it over
+  `create_identity_with_profile` followed by `publish_user_profile`, which
+  exposes the generated default to contacts first.
+
+- `Marmot::propose_onboarding_relay_repair` previews a lossless relay-list repair
+  without signing or publishing. `OnboardingRepairProposalFfi.relay_repair` carries
+  the typed before/after tags, exact diff, restored capabilities and ManualReview
+  mode. Optional passed-step previews retain readiness when dismissed
+  before approval.
 - Markdown tokens expose local-time timestamps through
   `MarkdownInlineFfi::Timestamp { unix_seconds, style }` and all nine typed
   `MarkdownTimestampStyleFfi` variants. Seconds remain signed and unformatted;
@@ -42,6 +67,13 @@
   retention-pruned targets return no participants; blocked reactors are excluded.
   The read performs no network work or conversation-history scan.
   Regenerate matching Swift/Kotlin bindings to call `messageReactions`.
+- `Marmot::upload_media_files` and `upload_media_files_with_client_token`
+  take `MediaFileUploadRequestFfi` (`source_path`, optional `expected_size`)
+  and a `MediaFileTransferControlFfi` for cancellation and monotonic
+  progress, so large attachments no longer cross the FFI as byte arrays.
+  `max_file_media_ciphertext_bytes()` reports the batch bound. Existing
+  `upload_media` APIs are unchanged. File-backed download is not yet
+  exposed. (#2175)
 
 ### Changed
 
@@ -49,6 +81,11 @@
   `classify_relay_endpoints` now reports it as `Allowed`.
 
 ### Fixed
+
+- File-transfer cancellation documentation identifies admission start as the
+  last interruptible boundary, not the later durable acceptance.
+- Android build preflight drains `rustup` output before accepting an installed
+  target, avoiding false missing-target errors from a broken pipe.
 
 - Group activity uses shared per-commit reaction targets for authors and peers,
   including commits preceding a disband. See `marmot-app`'s Unreleased fixes

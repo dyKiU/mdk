@@ -19,6 +19,7 @@ the generic account, session, and engine crates. Read this if you are building a
 - [History may be incomplete notices](#history-may-be-incomplete-notices)
 - [User blocking](#user-blocking)
 - [Group reports and admin deletion](#group-reports-and-admin-deletion)
+- [Moderation reports to the operator](#moderation-reports-to-the-operator)
 - [Audit v5 Welcome evidence](#audit-v5-welcome-evidence)
 - [Run the tests](#run-the-tests)
 
@@ -219,6 +220,20 @@ the MLS add.
   usable package returned after an incomplete metadata hop does not make previously cached routes fresh.
 - Directory diagnostics (such as `wn keys check` / `keys fetch`) may still describe cached public packages. Their availability
   result is advisory and does not guarantee a fresh relay lookup or acceptance by the create/invite admission policy.
+
+When advertised outboxes have no usable invitation package, lookup makes one supplementary pass over up to eight
+safe configured discovery endpoints that were not already searched. Explicit bootstrap endpoints supply this set for
+direct directory lookups. Successful advertised lookups skip the supplementary pass. Recovery keeps observed
+replacement barriers and requires complete package coverage and completed deletion queries for each usable candidate
+across the searched routes. Separate exact-event and timestamp-scoped coordinate filters ask for one signed deletion;
+unrelated deleted posts cannot fill their limits. Any verified matching deletion rejects the candidate, even when
+another route is incomplete. Accepting a candidate requires complete empty queries on every required route; unknown
+coverage and the twelve-candidate budget remain retryable. Signed deletions cannot revive an older slot version.
+For direct diagnostics, the existing future-record cache fallback also requires this proof for its cached public
+metadata. Incomplete recovery refuses that fallback; a revoked or superseded cache entry is never returned.
+Cached entries without a usable public event identifier are ineligible for this fallback.
+Member resolution and direct lookup each have a 50-second overall deadline. Relay visibility still cannot prove that
+the recipient retains the private package, or that every relay disclosed all replacements and deletions.
 
 **Routing.** New Nostr-routed groups generate `marmot.transport.nostr.routing.v1` at creation, store the component bytes
 in signed MLS app data, and project the decoded `nostr_group_id` plus relay list into group subscriptions and publish
@@ -439,6 +454,23 @@ deletion while retained.
 
 See [the implementation contract](../../docs/marmot-architecture/overview/content-moderation.md) for source-state
 authorization, durable recovery, retention, and client compatibility.
+
+## Moderation reports to the operator
+
+`MarmotAppRuntime::submit_moderation_report` privately reports an account to the deployment's moderation team. It
+sends a kind-1984 NIP-56 rumor, sealed by the account key and gift-wrapped per NIP-59 to the configured reports key.
+The rumor carries the reported key, its report type, a `chat.whitenoise.report` origin label (`report` or `block`) and
+the optional explanation. It never carries conversation identifiers. This channel is additive: `report_message` and
+the rest of group moderation are unchanged.
+
+The destination is `MarmotAppConfig::moderation_report_config` or `MarmotApp::set_moderation_report_config`. An
+invalid key or any unsafe relay rejects it whole. Wraps go only to the configured relays, through a publisher that
+never authenticates as the account. The signed wrap is staged in the account database first. `AcceptedPending` and
+`CompletionUnknown` outcomes are retried in the background after `catch_up_accounts`, or on demand with
+`retry_pending_moderation_reports`. Repeats within 10 minutes return the existing outcome. Each account may send 20
+reports per hour. Sign-out and wipe delete the account's queued reports.
+
+See [moderation reports](../../docs/marmot-architecture/moderation-reports.md) for the wire format and reader steps.
 
 ## Audit v5 Welcome evidence
 

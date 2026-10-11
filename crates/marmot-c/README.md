@@ -14,12 +14,14 @@ per feature.
 - [Using the ABI](#using-the-abi)
 - [Integration documentation](#integration-documentation)
 - [Lifecycle and teardown](#lifecycle-and-teardown)
+- [Onboarding relay repair](#onboarding-relay-repair)
 - [NIP-46 accounts](#nip-46-accounts)
 - [Device verification](#device-verification)
 - [Selected-chat copies](#selected-chat-copies)
 - [Original history transfers](#original-history-transfers)
 - [Committed synchronized history](#committed-synchronized-history)
 - Feature notes: [runtime construction](#runtime-construction), [local sends](#local-sends),
+  [file-backed media upload](#file-backed-media-upload),
   [public event verification](#public-event-verification), [host performance stages](#host-performance-stages),
   [Markdown rendering](#markdown-rendering), [identity references and pseudonyms](#identity-references-and-pseudonyms),
   [KeyPackage inventory](#keypackage-inventory), [selected chat-list presentation](#selected-chat-list-presentation),
@@ -55,6 +57,10 @@ union tag or function requires regenerating `marmot.h`, recompiling consumers an
 
 See [the changelog](CHANGELOG.md) for record-layout changes and upgrade requirements
 for each release.
+
+This private integration retains upstream moderation statuses 96–100 and moves
+experimental sync statuses from 96–120 to 121–145. Older private C clients must
+recompile with this candidate's matching header and library; 101–120 are unused.
 
 ## Rules of the road
 
@@ -145,6 +151,32 @@ Release subscriptions before clients, and never free an object while another cal
 destructors from racing process exit (since 0.10.3). Run final free off the UI thread. Calls from a Tokio runtime
 context retain nonblocking cleanup to avoid deadlock and are not a process-teardown barrier.
 
+## Onboarding relay repair
+
+For a general or inbox onboarding relay failure, call
+`marmot_propose_onboarding_relay_repair` and inspect the optional
+`proposal->relay_repair` in the returned snapshot. Its ordered before/after
+tags and occurrence changes preserve duplicate entries, direction markers,
+unrelated fields, and content. `ManualReview` has no approval action; do not
+publish it or treat it as a full reset. Free the snapshot with
+`marmot_onboarding_snapshot_free` after presenting the exact diff. Approval
+remains a separate revision- and recovery-epoch-bound call.
+
+Explicit `marmot_propose_onboarding_relays` selections also return the typed
+preview. See the shared [manual-edit preservation and checkpoint compatibility
+contract](../marmot-uniffi/README.md#explicit-recovery-and-checkpoint-compatibility).
+The C signatures and snapshot ownership rules are unchanged.
+
+C relay-repair previews encode `original_content`, `proposed_content`, every
+`fields` element in tags and changes, and each non-NULL `endpoint` as a JSON
+string literal. Decode exactly once with a parser that preserves embedded zero
+bytes and decoded UTF-8 lengths before displaying or prefilling an editor.
+For example, `"a\u0000b"` represents three bytes: `61 00 62`; `""` is an empty
+string, distinct from a NULL optional endpoint. Do not use `strlen` on decoded
+content or discard control bytes. The encoded C strings contain no embedded
+NULs; their snapshot ownership and deep-free rules are unchanged. Swift/Kotlin
+records retain ordinary strings and do not use this C-only encoding.
+
 ## Runtime construction
 
 `marmot_client_new_with_configuration` takes a `MarmotClientOptions` struct combining relay policy, cursor
@@ -158,6 +190,20 @@ an explicit loopback relay policy and an optional host secret-store vtable.
 Existing constructors keep their public-only policy. Loopback broker access
 requires a separate publisher trust opt-in; neither permits private or
 link-local endpoints. Local insecure trust is intended only for tests.
+
+## File-backed media upload
+
+`marmot_upload_media_files` and its token-aware twin take borrowed
+`MarmotMediaFileUploadRequest` inputs with private regular-file paths instead of
+plaintext arrays. See the [shared contract](../marmot-uniffi/README.md#file-backed-media-upload).
+Calls block; run them off the UI thread. Strings and request arrays must remain
+valid until return. Create one `MarmotMediaFileTransferControl` per call, query or
+cancel it from another thread, and free it only after all calls on the handle
+have returned. Results use the existing upload/submission deep-free functions.
+No host path is included in published attachment metadata.
+File-backed calls have no fixed worker-response timeout; per-endpoint network
+deadlines still apply. Cancellation observed before message admission starts
+prevents publication; admission is not interruptible once started.
 
 ## Local sends
 
@@ -444,7 +490,7 @@ Session operations block through the callback-safe runtime bridge.
 `marmot_device_linking_subscription_next` uses milliseconds: zero waits, a timeout
 returns TIMEOUT with NULL output and consumes no update. Explicit close wakes the
 wait with DEVICE_LINKING_CLOSED; close does not free the stream. The C statuses
-96–101 map the six typed device-linking errors, including Unsupported, NotReady
+121–126 map the six typed device-linking errors, including Unsupported, NotReady
 and StaleRevision; existing numeric statuses remain unchanged. Feature builds
 accept revision-bound singleton continuation after genuine verification, using
 the original actor-owned actions. Enrollment capability remains false until the
@@ -476,7 +522,7 @@ The [shared selected-chat contract](../marmot-uniffi/SELECTED-CHAT-COPY.md)
 describes original selection, explicit sibling consent, private packets and
 source confirmation. C forwards the UniFFI opaque actions without constructing
 authority. Default factories return `MARMOT_STATUS_SELECTED_CHAT_COPY_UNSUPPORTED`;
-selected-chat statuses append values 102–111. Existing values are unchanged.
+selected-chat statuses append values 127–136. Existing values are unchanged.
 
 `MarmotSelectedChatCopy` and `MarmotSelectedChatConsent` are independent opaque
 handles. Use their explicit clone functions when another host scope must retain
@@ -511,7 +557,7 @@ with their corresponding `marmot_history_transfer_free` or
 `marmot_history_consent_free`. Frees accept NULL; never free a handle concurrently
 with a call. Explicit cancellation affects the shared original action.
 
-History status values append 112–116. Review records carry source/recipient device
+History status values append 137–141. Review records carry source/recipient device
 bytes, opaque MLS chat ID, snapshot bounds and committed-completion observations;
 they contain no private key or resumable consent. They do not replace the
 read-only provenance query or establish installed chat-history presentation.
@@ -524,5 +570,5 @@ local source-attested pages, retention, media verdicts and message-ID cursors.
 from the UI thread. The caller owns the returned `MarmotArchivedHistoryPage` and
 releases it with `marmot_archived_history_page_free`; embedded records are owned
 by that page. Required outputs are cleared before input reads or effects. NULL
-cursor starts the first page. Query statuses append117–120; page/cursor records
+cursor starts the first page. Query statuses append142–145; page/cursor records
 never authorize a history transfer or media acquisition.

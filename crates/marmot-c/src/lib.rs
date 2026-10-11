@@ -26,6 +26,7 @@ pub mod attachment_access;
 pub mod attachment_history;
 pub mod commands;
 pub mod device_linking;
+pub mod file_media;
 pub mod history_transfer;
 pub(crate) mod macros;
 pub mod memory;
@@ -481,6 +482,7 @@ pub unsafe extern "C" fn marmot_client_new_with_configuration(
                             cursor_persistence: Some(cursor.into()),
                             client_name: name,
                             secret_store: store,
+                            moderation_report_config: None,
                         },
                     )
                 }

@@ -7,6 +7,11 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ## [Unreleased]
 
+- Upstream moderation keeps C statuses 96–100. The private experimental sync
+  statuses formerly 96–120 move to 121–145 in this integration candidate;
+  101–120 stay unused. Earlier private C clients must regenerate and recompile
+  with the matching header and library. Published upstream statuses are unchanged.
+
 ### Added
 
 - Bounded committed-history query and owned source-attested pages, logical tags,
@@ -48,6 +53,26 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
   Use matching generated headers/libraries and deep-free all returned records.
   Verification does not establish enrollment or synchronized chat/history.
 
+- `marmot_submit_moderation_report`, `marmot_moderation_reporting_available`,
+  `marmot_configure_moderation_reporting` and
+  `marmot_moderation_report_outcome_free` mirror the private moderation-report
+  calls. `MarmotModerationReportOrigin` and `MarmotModerationReportOutcome` are new
+  types, and statuses 96–100 cover the new errors. `MarmotClientOptions` is
+  unchanged; configure the destination with the new call. These are new symbols,
+  so use the matching header and library.
+
+- `marmot_create_identity_with_initial_profile` creates a generated identity
+  whose first public kind-0 is the borrowed onboarding profile. New symbol;
+  use the matching header and library.
+
+- File-backed media upload inputs, token-aware upload calls and operation
+  cancellation/progress handles. New symbols and borrowed input records require
+  matching headers/libraries; existing byte-array APIs retain their bounds.
+- Add `marmot_propose_onboarding_relay_repair` and nested typed relay-repair
+  preview records. `MarmotOnboardingRepairProposal` gains an optional
+  `relay_repair` pointer; regenerate and recompile with the matching header
+  and library. The preview is non-publishing, and `ManualReview` has no
+  approvable action.
 - The C event surface appends local-copy termination/restoration and removed-device-leaf
   events; existing discriminants remain unchanged. Recompile with the matching
   header and native library and handle the new event kinds. Restoration describes
@@ -76,6 +101,11 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
   Local-key accounts and separate remote signers can run in the same client.
 
 ### Changed
+
+- Relay-repair C preview content, tag fields and optional endpoints use JSON
+  string literals to preserve embedded NULs and all UTF-8 bytes. Decode once
+  with a length-aware parser before consent or editing. Pointer layouts and
+  snapshot frees are unchanged, but consumers must adopt the new encoding.
 
 - `MarmotAttachmentEntry` adds `role: MarmotAttachmentRole` (`Shared` or
   `InlineEmoji`) for gallery filtering without changing slot or acquisition identity.

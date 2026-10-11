@@ -14,6 +14,7 @@
 
 mod error;
 mod event;
+mod nip59;
 mod peeler;
 #[cfg(feature = "experimental-device-sync")]
 mod private_welcome;
@@ -21,6 +22,7 @@ mod signer;
 
 pub use error::NostrPeelerError;
 pub use event::NostrTransportEvent;
+pub use nip59::gift_wrap_rumor;
 pub use peeler::{NostrMlsPeeler, WelcomePeelProvenance};
 #[cfg(feature = "experimental-device-sync")]
 pub use private_welcome::PrivateWelcomeObservation;

@@ -136,31 +136,40 @@ pub enum MarmotStatus {
     /// A signed-out account cannot grant automatic network permission.
     AttachmentAccountSignedOut = 94,
     InvalidAppComponent = 95,
-    DeviceLinkingUnsupported = 96,
-    DeviceLinkingClosed = 97,
-    DeviceLinkingInvalidPacket = 98,
-    DeviceLinkingNotReady = 99,
-    DeviceLinkingStaleRevision = 100,
-    DeviceLinkingRuntimeUnavailable = 101,
-    SelectedChatCopyUnsupported = 102,
-    SelectedChatCopyNotReady = 103,
-    SelectedChatCopyInvalidSelection = 104,
-    SelectedChatCopyUnsupportedGroup = 105,
-    SelectedChatCopyNotAdmin = 106,
-    SelectedChatCopyBusy = 107,
-    SelectedChatCopyRuntimeUnavailable = 108,
-    SelectedChatCopyInvalidPacket = 109,
-    SelectedChatCopyStaleRevision = 110,
-    SelectedChatCopyClosed = 111,
-    HistoryTransferUnsupported = 112,
-    HistoryTransferNotReady = 113,
-    HistoryTransferClosed = 114,
-    HistoryTransferStaleRevision = 115,
-    HistoryTransferRuntimeUnavailable = 116,
-    SynchronizedHistoryUnsupported = 117,
-    SynchronizedHistoryInvalidQuery = 118,
-    SynchronizedHistoryUnavailable = 119,
-    SynchronizedHistoryInvalidRecord = 120,
+    /// No valid moderation-report destination is installed; nothing was published.
+    ModerationReportingNotConfigured = 96,
+    /// The moderation-report destination was rejected as a whole.
+    InvalidModerationReportConfig = 97,
+    InvalidReportedPublicKey = 98,
+    CannotReportSelf = 99,
+    /// Local per-account moderation-report cap; retry later.
+    ModerationReportRateLimited = 100,
+    // Private experimental ABI: upstream moderation owns 96–100.
+    DeviceLinkingUnsupported = 121,
+    DeviceLinkingClosed = 122,
+    DeviceLinkingInvalidPacket = 123,
+    DeviceLinkingNotReady = 124,
+    DeviceLinkingStaleRevision = 125,
+    DeviceLinkingRuntimeUnavailable = 126,
+    SelectedChatCopyUnsupported = 127,
+    SelectedChatCopyNotReady = 128,
+    SelectedChatCopyInvalidSelection = 129,
+    SelectedChatCopyUnsupportedGroup = 130,
+    SelectedChatCopyNotAdmin = 131,
+    SelectedChatCopyBusy = 132,
+    SelectedChatCopyRuntimeUnavailable = 133,
+    SelectedChatCopyInvalidPacket = 134,
+    SelectedChatCopyStaleRevision = 135,
+    SelectedChatCopyClosed = 136,
+    HistoryTransferUnsupported = 137,
+    HistoryTransferNotReady = 138,
+    HistoryTransferClosed = 139,
+    HistoryTransferStaleRevision = 140,
+    HistoryTransferRuntimeUnavailable = 141,
+    SynchronizedHistoryUnsupported = 142,
+    SynchronizedHistoryInvalidQuery = 143,
+    SynchronizedHistoryUnavailable = 144,
+    SynchronizedHistoryInvalidRecord = 145,
 }
 
 thread_local! {
@@ -208,6 +217,15 @@ pub(crate) fn status_from_error(err: &MarmotKitError) -> MarmotStatus {
         MarmotKitError::UserBlocked => MarmotStatus::UserBlocked,
         MarmotKitError::BlockListUnavailable => MarmotStatus::BlockListUnavailable,
         MarmotKitError::BlockPublicationUncertain => MarmotStatus::BlockPublicationUncertain,
+        MarmotKitError::ModerationReportingNotConfigured => {
+            MarmotStatus::ModerationReportingNotConfigured
+        }
+        MarmotKitError::InvalidModerationReportConfig { .. } => {
+            MarmotStatus::InvalidModerationReportConfig
+        }
+        MarmotKitError::InvalidReportedPublicKey => MarmotStatus::InvalidReportedPublicKey,
+        MarmotKitError::CannotReportSelf => MarmotStatus::CannotReportSelf,
+        MarmotKitError::ModerationReportRateLimited => MarmotStatus::ModerationReportRateLimited,
         MarmotKitError::ChatWindowInvalidLimit => MarmotStatus::ChatWindowInvalidLimit,
         MarmotKitError::ChatWindowStale => MarmotStatus::ChatWindowStale,
         MarmotKitError::ChatWindowAnchorOutside => MarmotStatus::ChatWindowAnchorOutside,
@@ -372,6 +390,55 @@ mod tests {
     }
 
     #[test]
+    fn upstream_moderation_and_private_sync_errors_keep_separate_abi_ranges() {
+        let moderation = [
+            (MarmotKitError::ModerationReportingNotConfigured, 96),
+            (
+                MarmotKitError::InvalidModerationReportConfig {
+                    details: "synthetic".into(),
+                },
+                97,
+            ),
+            (MarmotKitError::InvalidReportedPublicKey, 98),
+            (MarmotKitError::CannotReportSelf, 99),
+            (MarmotKitError::ModerationReportRateLimited, 100),
+        ];
+        let private = [
+            MarmotKitError::DeviceLinkingUnsupported,
+            MarmotKitError::DeviceLinkingClosed,
+            MarmotKitError::DeviceLinkingInvalidPacket,
+            MarmotKitError::DeviceLinkingNotReady,
+            MarmotKitError::DeviceLinkingStaleRevision,
+            MarmotKitError::DeviceLinkingRuntimeUnavailable,
+            MarmotKitError::SelectedChatCopyUnsupported,
+            MarmotKitError::SelectedChatCopyNotReady,
+            MarmotKitError::SelectedChatCopyInvalidSelection,
+            MarmotKitError::SelectedChatCopyUnsupportedGroup,
+            MarmotKitError::SelectedChatCopyNotAdmin,
+            MarmotKitError::SelectedChatCopyBusy,
+            MarmotKitError::SelectedChatCopyRuntimeUnavailable,
+            MarmotKitError::SelectedChatCopyInvalidPacket,
+            MarmotKitError::SelectedChatCopyStaleRevision,
+            MarmotKitError::SelectedChatCopyClosed,
+            MarmotKitError::HistoryTransferUnsupported,
+            MarmotKitError::HistoryTransferNotReady,
+            MarmotKitError::HistoryTransferClosed,
+            MarmotKitError::HistoryTransferStaleRevision,
+            MarmotKitError::HistoryTransferRuntimeUnavailable,
+            MarmotKitError::SynchronizedHistoryUnsupported,
+            MarmotKitError::SynchronizedHistoryInvalidQuery,
+            MarmotKitError::SynchronizedHistoryUnavailable,
+            MarmotKitError::SynchronizedHistoryInvalidRecord,
+        ];
+        for (error, expected) in moderation {
+            assert_eq!(status_from_error(&error) as i32, expected);
+        }
+        for (index, error) in private.iter().enumerate() {
+            assert_eq!(status_from_error(error) as i32, 121 + index as i32);
+        }
+    }
+
+    #[test]
     fn every_runtime_error_variant_maps_to_a_distinct_status() {
         let _guard = crate::memory::audit::test_lock();
         // Every `MarmotKitError` variant, in declaration order. `status_from_error`'s
@@ -402,6 +469,13 @@ mod tests {
             MarmotKitError::UserBlocked,
             MarmotKitError::BlockListUnavailable,
             MarmotKitError::BlockPublicationUncertain,
+            MarmotKitError::ModerationReportingNotConfigured,
+            MarmotKitError::InvalidModerationReportConfig {
+                details: "relay 0 is unsafe".into(),
+            },
+            MarmotKitError::InvalidReportedPublicKey,
+            MarmotKitError::CannotReportSelf,
+            MarmotKitError::ModerationReportRateLimited,
             MarmotKitError::ChatWindowInvalidLimit,
             MarmotKitError::ChatWindowStale,
             MarmotKitError::ChatWindowAnchorOutside,
@@ -558,10 +632,18 @@ mod tests {
         ];
         assert_eq!(
             variants.len(),
-            86,
+            91,
             "list every MarmotKitError variant exactly once (update this count with the enum)"
         );
         assert_eq!(status_from_error(&MarmotKitError::UserBlocked) as i32, 78);
+        assert_eq!(
+            status_from_error(&MarmotKitError::ModerationReportingNotConfigured) as i32,
+            96
+        );
+        assert_eq!(
+            status_from_error(&MarmotKitError::ModerationReportRateLimited) as i32,
+            100
+        );
         assert_eq!(
             status_from_error(&MarmotKitError::BlockListUnavailable) as i32,
             79

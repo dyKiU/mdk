@@ -1,5 +1,5 @@
 fn legacy_prefix(connection: &mut Connection, last: usize) {
-    run(connection, MIGRATIONS).unwrap();
+    run(connection, &MIGRATIONS[..102]).unwrap();
     for migration in PRIVATE_MIGRATIONS.iter().take(last - 102) {
         let legacy = Migration {
             version: migration.version + 102,
@@ -65,7 +65,7 @@ fn private_ledger_encrypted_prefix_preserves_original_receipts_and_denial() {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(core_private, 0);
+        assert_eq!(core_private, (MIGRATIONS.len() - 102) as i64);
         let audit: i64 = connection.query_row("SELECT count(*) FROM cgka_experimental_device_sync_migration_bridge_audit WHERE original_applied_at_unix_seconds=17", [], |row| row.get(0)).unwrap();
         assert_eq!(audit, last as i64 - 102);
         let retained: i64 = connection
@@ -236,7 +236,7 @@ fn private_ledger_mixed_old_and_private_receipts_never_adopted() {
     run_all(&mut connection).unwrap();
     connection
         .execute(
-            "INSERT INTO cgka_schema_migrations VALUES(103,'0103_synchronized_history',17)",
+            "UPDATE cgka_schema_migrations SET name='0103_synchronized_history' WHERE version=103",
             [],
         )
         .unwrap();
@@ -282,6 +282,41 @@ fn private_ledger_default_ordinary_encrypted_reopen_remains_supported() {
     storage.close().unwrap();
     let reopened = crate::SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     reopened.close().unwrap();
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[test]
+fn private_ledger_preserves_each_upstream_prefix_without_reclassifying_receipts() {
+    for end in 103..=MIGRATIONS.len() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        run(&mut connection, &MIGRATIONS[..end]).unwrap();
+        connection
+            .execute(
+                "UPDATE cgka_schema_migrations SET applied_at_unix_seconds=17 WHERE version>102",
+                [],
+            )
+            .unwrap();
+        run_all(&mut connection).unwrap();
+        run_all(&mut connection).unwrap();
+        for migration in &MIGRATIONS[102..end] {
+            let receipt: (String, i64) = connection.query_row(
+                "SELECT name,applied_at_unix_seconds FROM cgka_schema_migrations WHERE version=?1",
+                [migration.version], |row| Ok((row.get(0)?, row.get(1)?))
+            ).unwrap();
+            assert_eq!(receipt, (migration.name.into(), 17));
+        }
+        let bridged: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM cgka_experimental_device_sync_migration_bridge_audit",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            bridged, 0,
+            "upstream receipts never establish a private legacy cohort"
+        );
+    }
 }
 
 #[cfg(not(feature = "experimental-device-sync"))]
@@ -510,7 +545,7 @@ fn private_privacy_revision9_backfills_negative_identifiers_without_changing_leg
             .query_row("SELECT max(version) FROM cgka_schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        102
+        MIGRATIONS.last().unwrap().version
     );
     run_all(&mut connection).unwrap();
     drop(connection);
@@ -563,7 +598,7 @@ fn private_settlement_revision10_preserves_constructed_encrypted_revision9_prefi
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("revision9.sqlite");
     let mut conn = encrypted(&path);
-    run(&mut conn, MIGRATIONS).unwrap();
+    run(&mut conn, &MIGRATIONS[..102]).unwrap();
     conn.execute_batch(super::private_migration_ledger::NAMESPACE_SQL)
         .unwrap();
     for migration in PRIVATE_MIGRATIONS.iter().take(9) {
@@ -576,7 +611,10 @@ fn private_settlement_revision10_preserves_constructed_encrypted_revision9_prefi
     let before:Vec<(i64,String,i64)>=conn.prepare("SELECT version,name,applied_at_unix_seconds FROM cgka_experimental_device_sync_schema_migrations ORDER BY version").unwrap().query_map([],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap().map(|r|r.unwrap()).collect();
     drop(conn);
     let mut conn = encrypted(&path);
-    assert_eq!(run_all(&mut conn).unwrap(), PRIVATE_MIGRATIONS.len() - 9);
+    assert_eq!(
+        run_all(&mut conn).unwrap(),
+        PRIVATE_MIGRATIONS.len() - 9 + MIGRATIONS.len() - 102
+    );
     assert_eq!(run_all(&mut conn).unwrap(), 0);
     let after:Vec<(i64,String,i64)>=conn.prepare("SELECT version,name,applied_at_unix_seconds FROM cgka_experimental_device_sync_schema_migrations WHERE version<=9 ORDER BY version").unwrap().query_map([],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap().map(|r|r.unwrap()).collect();
     assert_eq!(before, after);
@@ -584,7 +622,7 @@ fn private_settlement_revision10_preserves_constructed_encrypted_revision9_prefi
         conn.query_row("SELECT max(version) FROM cgka_schema_migrations", [], |r| r
             .get::<_, i64>(0))
             .unwrap(),
-        102
+        MIGRATIONS.last().unwrap().version
     );
     assert_eq!(
         conn.query_row(
@@ -656,7 +694,7 @@ fn private_history_request_revision15_preserves_encrypted_revision14_prefix() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("revision14.sqlite");
     let mut conn = encrypted(&path);
-    run(&mut conn, MIGRATIONS).unwrap();
+    run(&mut conn, &MIGRATIONS[..102]).unwrap();
     conn.execute_batch(super::private_migration_ledger::NAMESPACE_SQL)
         .unwrap();
     for migration in PRIVATE_MIGRATIONS.iter().take(14) {
@@ -678,7 +716,7 @@ fn private_history_request_revision15_preserves_encrypted_revision14_prefix() {
         .unwrap();
     drop(conn);
     let mut conn = encrypted(&path);
-    assert_eq!(run_all(&mut conn).unwrap(), 1);
+    assert_eq!(run_all(&mut conn).unwrap(), 1 + MIGRATIONS.len() - 102);
     assert_eq!(run_all(&mut conn).unwrap(), 0);
     assert_eq!(conn.query_row("SELECT count(*) FROM cgka_experimental_device_sync_schema_migrations WHERE version<=14 AND applied_at_unix_seconds=17",[],|r|r.get::<_,i64>(0)).unwrap(),14);
     assert_eq!(
@@ -691,7 +729,7 @@ fn private_history_request_revision15_preserves_encrypted_revision14_prefix() {
         conn.query_row("SELECT max(version) FROM cgka_schema_migrations", [], |r| r
             .get::<_, i64>(0))
             .unwrap(),
-        102
+        MIGRATIONS.last().unwrap().version
     );
     conn.execute(
         "INSERT INTO history_request_observations VALUES(?1,?2,?3,?4)",

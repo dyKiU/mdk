@@ -58,6 +58,10 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
   (`blossom.rs`, `crypto.rs`, `group_image.rs`, `host_safety.rs`, `avatar.rs` for downloaded avatar admission).
   `media/attachment_resume.rs` adapts attempt-fenced storage checkpoints to the shared safe HTTP path;
   keep Range validation, protected partials and complete-body authentication separate from native progress/access.
+  `media/file_transfer.rs` owns file-backed upload preparation: private owner-only snapshots under the account's
+  `media-staging/`, streaming EVP ChaCha20-Poly1305 that reproduces the in-memory wire bytes, and the
+  `MediaFileTransferControl` cancellation/progress handle. Prepare every snapshot before the first PUT, keep chunks
+  at 64 KiB, and stage retention through `stage_attachment_upload_files` (never a whole-file `Vec`).
 - Never discard the shared `imeta` parser's verdict in a projection (mdk#1787). `parse_media_attachment` returns a
   typed `MediaAttachmentRejection` whose `kind` is judged version-first so it does not depend on field order, and
   `media_attachment_outcomes_from_tags` / `media_attachment_outcomes_from_media_json` yield ordered per-attachment
@@ -267,7 +271,9 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
   `conversation_presentation/` (C5 header, capability, and window selectors; they never subscribe, acknowledge
   reads, or fetch media), `local_submissions.rs` + `local_submissions/` (durable device-local send admission and host
   correlation; no relay I/O),
-  `user_blocks.rs` (block policy and NIP-51 sync), `history_notices.rs` (public notice DTOs and opaque id codec),
+  `user_blocks.rs` (block policy and NIP-51 sync), `moderation_reports.rs` (private NIP-59-wrapped NIP-56 reports
+  to the deployment operator: config validation, staged outbox, retry, purge; tests in
+  `moderation_reports/tests.rs`), `history_notices.rs` (public notice DTOs and opaque id codec),
   `notifications.rs` (push platform, triggers, settings), `external_signer.rs` (`ExternalAccountSigner` and the
   internal `AccountSigner`), `nostr_secret.rs` (secret-key shape classification shared with CLI/UniFFI),
   `nostr_verification.rs` (stateless public-event verification), `profile_pseudonyms.rs` (cosmetic display names; not a
@@ -280,7 +286,8 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
 - `src/runtime/`: `worker_startup.rs` (per-account startup admission and retry backoff),
   `account_worker/recovery_credits.rs` (process-wide recovery credit pool), `conversation_window.rs`, `chat_list_window.rs`,
   `presentation.rs`, `presented_chat_list.rs`, `account_attention.rs` (presentation windows and account-switcher
-  attention), `user_blocks.rs`, `moderation.rs` (reports and admin labels), `local_submissions.rs`,
+  attention), `user_blocks.rs`, `moderation.rs` (reports, admin labels and operator moderation reports),
+  `local_submissions.rs`,
   `agent_publisher.rs` (host-driven agent publishing), `attachment_controls.rs`, `attachment_permission.rs`
   (runtime-only network approval; never restore it from disk).
 - `src/client/`: `recovery.rs` (recovery grant authorization), `invite_recovery.rs` (durable invitation recovery),

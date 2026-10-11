@@ -93,7 +93,10 @@ pub(super) fn run_all(connection: &mut Connection) -> StorageResult<usize> {
     )?;
     reconcile_legacy_name_in_transaction(&tx)?;
     if !old.is_empty() {
-        for migration in MIGRATIONS {
+        for migration in MIGRATIONS
+            .iter()
+            .take_while(|migration| migration.version <= 102)
+        {
             if applied_name(&tx, migration.version)?.as_deref() != Some(migration.name) {
                 return Err(denied());
             }
@@ -167,18 +170,30 @@ pub(super) fn run_all(connection: &mut Connection) -> StorageResult<usize> {
     Ok(applied)
 }
 
-// This recognition is valid only for the selected upstream core-102 baseline.
-// Adopting upstream revision 103 requires a separately reviewed baseline/bridge.
+// Recognize the frozen experimental core-102 prefix by exact names. New upstream
+// receipts share these numbers, but belong to the ordinary ledger, never the bridge.
 fn legacy_receipts(connection: &Connection) -> StorageResult<Vec<(i64, String, i64)>> {
     let mut statement = connection.prepare("SELECT version,name,applied_at_unix_seconds FROM cgka_schema_migrations WHERE version>102 ORDER BY version").storage()?;
     let rows = statement
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .storage()?;
     let mut result = Vec::new();
+    let mut upstream = false;
     for row in rows {
         let value: (i64, String, i64) = row.storage()?;
+        if MIGRATIONS
+            .iter()
+            .any(|migration| migration.version == value.0 && migration.name == value.1)
+        {
+            if !result.is_empty() {
+                return Err(denied());
+            }
+            upstream = true;
+            continue;
+        }
         let index = result.len();
-        if index >= LEGACY_NAMES.len()
+        if upstream
+            || index >= LEGACY_NAMES.len()
             || value.0 != 103 + index as i64
             || value.1 != LEGACY_NAMES[index]
         {
@@ -345,7 +360,9 @@ fn validate_legacy_core_schema(connection: &Connection) -> StorageResult<()> {
         .get_or_init(|| {
             (|| -> StorageResult<Schema> {
                 let mut reference = Connection::open_in_memory().storage()?;
-                run_with_summary(&mut reference, MIGRATIONS)?;
+                let frozen_core =
+                    &MIGRATIONS[..MIGRATIONS.partition_point(|migration| migration.version <= 102)];
+                run_with_summary(&mut reference, frozen_core)?;
                 schema(&reference)
             })()
             .map_err(|_| ())
