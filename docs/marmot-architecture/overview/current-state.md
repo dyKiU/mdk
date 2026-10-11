@@ -478,3 +478,11 @@ Approved pair-wide policy now schedules actual encrypted initial/later catalog e
 The approved-policy catalog actor preserves observational scan progress across fresh same-generation channels and reserves each complete entry within the body budget. An unchanged real 22-chat relay regression fails before the repair and passes after it; combined signed private21 dependency checks also pass. This does not qualify recipient acknowledgements, message streaming, forwarding or installed automatic chat presentation.
 
 The experimental approved-pair actor now transfers preapproval and later logical records with committed batch receipts. A mirrored-only device can submit plain text through the existing client-token runtime path: admission retains a fixed ordinary inner-event identity, queues authenticated delegation, and reports completion only after a genuine actual-member publication receipt. Retries preserve that identity; conflicting content under the same token is refused. Mirror rows remain source-attested and create no ordinary MLS membership. Reply/offline recovery, draft/media routing, publication lifecycle and installed unified presentation remain separate qualification; see [forwarding checkpoint](../../automatic-account-chat-forwarding-verification.json).
+
+Experimental App source-qualified chat pages and list/conversation owners now
+qualify real original approval/catalog wakes, cancellation and shutdown, with
+separate total-bound chronology/precedence/privacy storage controls. Mirror rows
+remain distinct from actual MLS membership. Initial list lanes retain separate
+ordering/cursors. Records-actor message delivery, native normal-view adoption and
+normal forwarding require subsequent integrated acceptance; see
+[focused proof](../../account-chat-presentation-app-windows-verification.json).

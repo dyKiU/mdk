@@ -390,6 +390,7 @@ impl AppClient {
             .ok_or(AccountSharingError::NotReady)?
             .apply_mirrored_chat_catalog(&mirror, std::slice::from_ref(&record), &validate)
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        self.notify_mirrored_presentation_changed();
         // Keep the complete authenticated body until its SQL transaction succeeds.
         // Only a committed recipient import creates this encrypted receipt.
         entry.assembly = None;
@@ -624,7 +625,9 @@ impl AppClient {
         for policy in policies {
             let id = Self::automatic_policy_id(&policy)?;
             if self.automatic_policy_current(&policy).is_err() {
-                self.account_sharing_owner.automatic.remove(&id);
+                if self.account_sharing_owner.automatic.remove(&id).is_some() {
+                    self.notify_mirrored_presentation_changed();
+                }
                 continue;
             }
             let retired = self

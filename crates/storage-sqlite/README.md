@@ -632,3 +632,11 @@ Cross-source terminal and restrictive expiry fences still hide mirrored payloads
 These read-only scopes and cursors carry no membership, consent or media grant.
 See `docs/account-chat-presentation-storage-verification.json` for the synthetic
 storage controls; App worker and native presentation require separate qualification.
+
+The experimental account conversation observation window selects at most128
+rows total across actual ordinary timeline and eligible mirrored scopes in one
+canonical event-time/ID query. Local event identity wins; block filtering occurs
+before LIMIT. Materialized edits/deletions, retention and reply/media privacy
+remain observational, with no canonical schema change or synthesized group.
+App window and synthetic storage proof boundaries are recorded in
+`docs/account-chat-presentation-app-windows-verification.json`.

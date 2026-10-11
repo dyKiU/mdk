@@ -109,6 +109,17 @@ pub use attachment_history::{
 };
 mod avatar_access;
 pub use avatar_access::{LocalAvatarRead, MAX_AVATAR_BATCH_BYTES, MAX_AVATAR_BATCH_ITEMS};
+mod account_chat_presentation;
+mod account_conversation_windows;
+pub use account_conversation_windows::{
+    AccountConversationHeader, AccountConversationWindowHandle, AccountConversationWindowSnapshot,
+    LocalAccountConversationHeader, RuntimeAccountConversationWindowSubscription,
+};
+mod account_chat_windows;
+pub use account_chat_windows::{
+    AccountChatListWindowHandle, AccountChatListWindowSnapshot, AccountChatRow,
+    RuntimeAccountChatListWindowSubscription,
+};
 #[cfg(feature = "experimental-device-sync")]
 mod account_chat_sharing;
 mod commands;

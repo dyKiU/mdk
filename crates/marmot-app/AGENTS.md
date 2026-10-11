@@ -790,3 +790,18 @@ Capture explicit sharing intent before taking the genuine verified SDK original.
 ### Existing-pair broad approval originals
 
 `account_chat_sharing` owns the fresh source/recipient action; the worker and client children retain actual Core channels. Authenticate the real protected source proof before constructing recipient review. Bind immutable metadata, fixed600-second original and displayedrevision; do not manufacture approval from stored policy or old SDK context. Durable writes validate the same channel before/tail SQL. Observe private controls identically on direct/replay paths, and keep them hidden from ordinary projection. Retain process-lifetime negative request IDs at the128-owner bound; this checkpoint does not claim restart denial or automatic channel renewal.
+
+Source-qualified automatic chat presentation lives in
+`account_chat_presentation.rs`, `client/account_chat_sharing/presentation.rs`, and
+`runtime/account_chat_{presentation,windows}.rs` /
+`runtime/account_conversation_windows.rs`. Accept cursors, never caller approval
+scopes. Keep current-policy/Completed checks before and at the worker read tail,
+explicit LocalMls/PairedSource headers, total SQL bounds, ordinary precedence,
+canonical event chronology, unsupported-kind placeholders and ordered media
+outcomes without download authority. Subscribe to wake/reset/shutdown before
+initial reads; exact sequence and owner cancellation fence later replies. Mirror
+wakes follow SQL commit only; protected lifecycle wakes remain observations in
+the hidden-event path. Expired payloads refresh immediately, hidden rows do not
+spin, failed reads retry at a bounded interval. List metadata rows are not another
+visible lane. Keep real fixture tests separate from synthetic storage/scheduling
+controls; native/Records/send integration is not proved by catalog-only success.

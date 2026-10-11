@@ -833,3 +833,24 @@ Catalog scheduling now reserves a whole entry before exhausting a channel and re
 With `experimental-device-sync`, an approved mirrored-only chat can use the existing runtime `submit_text` client-token API. Admission verifies the fresh pair policy and active mirrored catalog inside the queue transaction. The queued intent retains its exact ordinary inner event; an actual member publishes it through the ordinary send pipeline. `local_send_status` stays `Queued` until an authenticated publication receipt confirms that canonical event ID. Mirror rows never become ordinary MLS membership, and ordinary member sends retain their existing path.
 
 The scoped relay acceptance covers plain text, same-token retry, conflicting-body refusal, genuine publication receipts and automatic record import. Mirrored `submit_message_draft`, media and edits explicitly remain unavailable; reply, offline/restart recovery and blocked publication require their next controls. No installed automatic feature or SDK adoption is implied. See [checkpoint and limits](../../docs/automatic-account-chat-forwarding-verification.json).
+
+### Source-qualified automatic chat observations
+
+Experimental `paired_chat_list_page`, `paired_chat_message_page`, and
+`account_conversation_page` read already-authenticated mirror storage through the
+serial account worker. Current durable approvals and fresh protected roster state
+are checked before and after each read. `LocalMls` and `PairedSource` remain
+distinct; mirror rows create no MLS membership or media download permission.
+
+`open_account_chat_list_window` combines bounded ordinary and mirror lanes; its
+ordinary metadata/anchors and separate mirror cursor do not imply global activity
+ordering. `open_account_conversation_window` merges canonical event time/ID with
+ordinary precedence and a total 128-row SQL bound. Captured sequence, cancellation,
+account reset, runtime shutdown, committed catalog wakes and retention refresh
+keep owners current. Unsupported logical kinds remain visible placeholders.
+Local-to-paired membership changes require reopening the conversation window.
+
+The focused proof in `docs/account-chat-presentation-app-windows-verification.json`
+covers real original approval/catalog/window custody and separate storage privacy
+controls. Records-actor message delivery, native bindings/views, normal forwarding
+and full integration acceptance require their own qualification.

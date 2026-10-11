@@ -222,7 +222,9 @@ mod mirrored_chat_messages;
 #[cfg(feature = "experimental-device-sync")]
 mod mirrored_chat_presentation;
 #[cfg(feature = "experimental-device-sync")]
-pub use mirrored_chat_presentation::{MirroredCatalogObservation, MirroredMessageObservation};
+pub use mirrored_chat_presentation::{
+    AccountConversationObservation, MirroredCatalogObservation, MirroredMessageObservation,
+};
 
 #[cfg(feature = "experimental-device-sync")]
 mod private_roster_settlement;

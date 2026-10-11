@@ -1,6 +1,7 @@
 //! Real protected-source intake and original pair-wide policy custody.
 use super::AppClient;
 pub(crate) mod automatic;
+mod presentation;
 use crate::{
     AccountSharingError,
     account_chat_sharing::enabled::{Entry, MAX_OWNERS, OriginalLease, State},
