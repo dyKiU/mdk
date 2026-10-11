@@ -106,3 +106,9 @@ not Group membership or native send permission. No Debug. Unknown content hashes
 are allowed only for empty terminal records; never invent a hash from an event ID.
 Expiry only tightens; purge retains source sequence and identity. Read retention
 views are not original attestations and must never be exported as a new source.
+
+`account_chat_send_queue` retains exact original inner events, independent approved
+routes and genuine ordinary-ID receipts. No Debug, live permission or queue-ID
+alias. Retry observations retain original time/digest after terminal payload erase.
+Fair intent/route and receipt-digest cursors are separate from message chronology.
+Optional storage defaults unavailable; Core still validates original authority.

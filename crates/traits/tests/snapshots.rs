@@ -1269,3 +1269,49 @@ fn mirrored_chat_logical_record_and_cursor() {
         }
     ));
 }
+
+#[test]
+fn account_chat_send_intent_route_receipt_and_retry_cursor() {
+    use cgka_traits::account_chat_send_queue::*;
+    let route = AccountChatSendRoute {
+        policy_id: [4; 32],
+        local_device: [2; 32],
+        peer_device: [3; 32],
+    };
+    let intent = AccountChatSendIntent {
+        intent_id: [5; 32],
+        account: [1; 32],
+        originating_device: [2; 32],
+        group: GroupId::new(vec![8; 16]),
+        ordinary_event_id: [6; 32],
+        event_payload: vec![7, 8],
+        payload_digest: [9; 32],
+        created_at: 100,
+    };
+    let receipt = AccountChatSendReceipt {
+        intent_id: intent.intent_id,
+        route: route.clone(),
+        actual_member_device: [3; 32],
+        state: AccountChatSendState::Published {
+            event_id: intent.ordinary_event_id,
+        },
+    };
+    insta::assert_json_snapshot!((
+        AccountChatQueuedSend {
+            intent: intent.clone(),
+            route: route.clone(),
+            state: AccountChatSendState::Queued
+        },
+        receipt,
+        AccountChatSendCursor {
+            intent_id: [5; 32],
+            policy_id: route.policy_id
+        },
+        AccountChatSendState::Received,
+        AccountChatSendState::Denied,
+        AccountChatSendIntentObservation {
+            intent,
+            state: AccountChatSendState::Queued
+        }
+    ));
+}

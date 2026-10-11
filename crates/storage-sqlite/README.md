@@ -585,3 +585,14 @@ identity/body checks span sources; deletions and expiry cannot be undone by a
 renewed policy. Chronological pages never return expired contents. Bounded purge
 retains identity/digest/source sequence while releasing payload bytes. The account
 payload budget is 64 MiB; lifetime references are bounded at 100,000 rows.
+
+Private revision20 (`account_chat_send_queue.rs`) retains4096 lifetime logical
+intent identities,8192 route references and32768 exact receipt outbox references,
+including terminal/acknowledged rows. Active payload budget16MiB, body64KiB and
+page128. Immutable canonical event/account/origin/time/digest survives clearing;
+genuine Published ID must equal the ordinary event ID, never intent ID. Route
+Denied is local; original-origin cancellation is global and permanent. A revoked
+old route cannot be rebound under a new approval. Existing preapproved alternatives
+remain independently valid. Transition+outbox and original before/tail checks share
+SQL. Cursor reads are observations only; no persisted deadline/keys/permissions.
+Preserve core102/private1–19 and configured account/signer/terminal-close fences.

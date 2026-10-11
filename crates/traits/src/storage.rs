@@ -1143,6 +1143,13 @@ pub trait StorageProvider:
         None
     }
 
+    /// Optional durable paired-member sends; never a live permission or MLS ID.
+    fn account_chat_send_queue_storage(
+        &self,
+    ) -> Option<&dyn crate::account_chat_send_queue::AccountChatSendQueueStorage> {
+        None
+    }
+
     /// Run a storage operation inside one backend transaction when the backend
     /// supports it. Backends without transactional support use the closure
     /// directly; SQLite overrides this so multi-write OpenMLS transitions are

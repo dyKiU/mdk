@@ -1,0 +1,118 @@
+{
+  "scope": "Durable forwarding intents, independent exact approved routes and transactional receipt outbox; no automatic actor or native/UI/deployment completion claim",
+  "base": "2c6c497847f67648d543d63b83d2243d61fd07b2",
+  "inputs": {
+    "count": 755,
+    "manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-chat-send-queue-v3-inputs.json",
+    "sha256": "e3f91d32b20fbd14e682bb8c080c28b709a820846d8957ecd60c457971631ed9",
+    "M1_M5_hash_match": true,
+    "scope": "traits/storage-sqlite/fs-private/OpenMLS Rust/Cargo/snapshot inputs",
+    "qualified_git_stash": "2baaaff69c9a766763f01349b42f0af523d76881"
+  },
+  "runner": {
+    "host": "macbook.m5",
+    "worktree": "/Users/pj/project/mdk-automatic-mirror-message-storage",
+    "toolchain": "1.97.1-aarch64-apple-darwin",
+    "target": "/Users/pj/project/build/Mdk986ConformanceTargetM5",
+    "incremental": false,
+    "cargo_jobs": 2
+  },
+  "gates": {
+    "focused": {
+      "passed": 49,
+      "failed": 0,
+      "filtered_or_existing_ignore_skipped": 1089,
+      "seconds": 14.391,
+      "command": "cargo nextest run -p storage-sqlite --features experimental-device-sync --locked --retries 0 --no-fail-fast -j8 -E \"test(account_chat_queue) | test(sharing_) | test(mirrored_messages) | test(mirrored_catalog) | test(private_ledger) | test(private_history_request_revision15)\"",
+      "log": "automatic-chat-send-queue-storage-v3.log"
+    },
+    "full_backend": {
+      "passed": 1131,
+      "failed": 0,
+      "skipped": 7,
+      "seconds": 214.168,
+      "command": "cargo nextest run -p storage-sqlite --features experimental-device-sync --locked --retries 0 --no-fail-fast -j8",
+      "log": "automatic-chat-send-queue-backend-v3.log"
+    },
+    "traits": {
+      "passed": 173,
+      "failed": 0,
+      "ignored": 0,
+      "suite_counts": [
+        126,
+        1,
+        4,
+        6,
+        36,
+        0
+      ],
+      "command": "cargo test -p cgka-traits --locked",
+      "log": "automatic-chat-send-queue-traits-v3.log"
+    },
+    "strict_clippy": {
+      "result": "Passed",
+      "command": "cargo clippy -p storage-sqlite -p cgka-traits --all-targets --features storage-sqlite/experimental-device-sync --locked -- -D warnings",
+      "log": "automatic-chat-send-queue-clippy-v3.log"
+    },
+    "default_all_targets": {
+      "result": "Passed",
+      "command": "cargo check -p storage-sqlite --all-targets --locked",
+      "log": "automatic-chat-send-queue-default-v3.log"
+    },
+    "format_diff": {
+      "result": "Passed",
+      "commands": [
+        "cargo fmt --all -- --check",
+        "git diff --check"
+      ],
+      "log": "automatic-chat-send-queue-format-v3.log"
+    }
+  },
+  "coverage": [
+    "Ten new acceptance cases cover exact original event and time retry, two actual-member route observations and canonical confirmed ID, lost/late ACK, original before/tail rollback across state and outbox, route-local denial versus global origin cancellation, owner/policy/body/member fences, encrypted reopen and terminal close, SQL immutability/replace/terminal guards, fair cursor traversal past128 and revoked-route rebinding refusal.",
+    "Actually filled16MiB using256 maximum64KiB logical event bodies; overflowing admission rolled back without new route; terminal cancellation reclaimed only payload, retained identity/digest/time, then accepted a new bounded body.",
+    "Actually filled4096 intent identities and8192 routes in one original transaction; terminal cleanup did not reset capacities. All retained outbox acknowledgments and terminal references are immutable; no GC implicitly restores permission.",
+    "No Group membership or app_events created by the queue. Ordinary Published ID must equal exact canonical inner event ID; never the intent ID. Incoming/outgoing receipts have distinct authenticated member provenance and no automatic ACK loop.",
+    "Role-symmetric versioned receipt digest binds policy, intent, devices, member, status and ordinary event ID. Snapshot updated with actual INSTA generation, inspected synthetic shapes and rerun normally.",
+    "All126 prior core/private migration source files are unchanged from signed base; core102/private1\u201319 retained."
+  ],
+  "preserved_attempts": [
+    {
+      "version": 1,
+      "passed": 44,
+      "failed": 1,
+      "skipped": 1089,
+      "seconds": 13.28,
+      "qualified_git_stash": "889d61432de8341aead4861923d7a66997062555",
+      "kind": "Acceptance fixture queried nonexistent SQL table groups; replaced with real GroupStorage list. No product regression or compiler RED claim.",
+      "log": "automatic-chat-send-queue-storage-v1.log"
+    },
+    {
+      "version": 2,
+      "passed": 48,
+      "failed": 0,
+      "skipped": 1089,
+      "seconds": 13.993,
+      "qualified_git_stash": "76d1a5ab1eebac1d64ff8cb47c7d7450634f4f91",
+      "kind": "Passing before added exact retained intent lookup acceptance",
+      "log": "automatic-chat-send-queue-storage-v2.log"
+    }
+  ],
+  "raw_logs": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-chat-send-queue",
+  "raw_sha256": {
+    "automatic-chat-send-queue-backend-v3.log": "a9fd9174e0e5542341da07a031c89bb4989ef3c0516462035fa80e41e67ffaf4",
+    "automatic-chat-send-queue-clippy-v3.log": "901f4dea05d0c61da3748c94d1f630ced95b10dd8f5ba93fc0f43635ac7cf819",
+    "automatic-chat-send-queue-default-v3.log": "ef634e5fe147c56a67f11eb4b185fd1eb18bb0f8b4ef771e11e548cbf4741ee9",
+    "automatic-chat-send-queue-format-v3.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "automatic-chat-send-queue-storage-v1.log": "c5d0be95e3f39dbc4f111dcc3fef167b5da920b13946c9925b8d014f8641aa73",
+    "automatic-chat-send-queue-storage-v2.log": "70889fe4cafb790ab68c9a1e1fa033ec52a834dbf09a820678948def7f95770b",
+    "automatic-chat-send-queue-storage-v3.log": "87c79bd31738381b20780ec4ddaf3260c43b7773e86b6d023bd15ddfb438ff28",
+    "automatic-chat-send-queue-traits-update-v3.log": "04d0145cfcf61db069cfcf3aeddd2b0fab49de7f0921d05595b2aca4ec255d0f",
+    "automatic-chat-send-queue-traits-v3.log": "9ce46af14d699d000c825572cb91d113cb958ebdbaa85d99aa2fcaaf00fc2688"
+  },
+  "limits": [
+    "Storage callbacks are synthetic. Actual member authentication, normal publication and no-button automatic dispatch need Core/App independent-relay acceptance.",
+    "Experimental bounded lifetime budgets do not include authenticated compaction; capacities must surface a refusal, never a false Sent state. Current logical-budget SQL refusal is generic backend error; typed Capacity follow-up remains open.",
+    "Source stream cursor/fragment import acknowledgment, SDK forwarders, normal UI presentation and matched app deployment remain unfinished."
+  ]
+}

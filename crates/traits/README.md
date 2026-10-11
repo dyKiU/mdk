@@ -135,3 +135,9 @@ facts only schedule fresh authenticated Core checks; they never restore a grant.
 chronological cursors. Active bodies retain a verified SHA256 content digest;
 empty terminal records may have an unknown digest and permanently fence the
 ordinary event ID. These records remain separate from confirmed MLS events.
+
+`account_chat_send_queue` retains exact original inner events, independent approved
+routes and genuine ordinary-ID receipts. No Debug, live permission or queue-ID
+alias. Retry observations retain original time/digest after terminal payload erase.
+Fair intent/route and receipt-digest cursors are separate from message chronology.
+Optional storage defaults unavailable; Core still validates original authority.
