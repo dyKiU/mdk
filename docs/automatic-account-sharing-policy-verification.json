@@ -1,0 +1,57 @@
+{
+  "base": "2dfaf57fa336db79e58083870aa84126271fb6cc",
+  "candidate_stash": "1b48caae472b642005b6e44e02d8c94113fca37f",
+  "manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-account-sharing-policy/automatic-account-sharing-policy-v1-inputs.json",
+  "manifest_sha256": "057e3f9cfd703dbdbf031133062a2497f5ba26c8d5e3a6652bd00474a306c1e6",
+  "input_count": 2528,
+  "results": [
+    {
+      "gate": "catalog",
+      "exit": 0,
+      "seconds": 24.143258810043335,
+      "log": "/Users/pj/project/build/automatic-account-sharing-policy-v1-catalog.log",
+      "log_sha256": "179e3e674dde9810505fb2ba996c26818b73d8a0747dd5b6ea4003f9628a9294"
+    },
+    {
+      "gate": "clippy",
+      "exit": 0,
+      "seconds": 21.067782878875732,
+      "log": "/Users/pj/project/build/automatic-account-sharing-policy-v1-clippy.log",
+      "log_sha256": "11f90738afcd7dde81c11e581968efdda2b671ccce2a60aebb7b49ca770c8c30"
+    },
+    {
+      "gate": "default",
+      "exit": 0,
+      "seconds": 14.204970121383667,
+      "log": "/Users/pj/project/build/automatic-account-sharing-policy-v1-default.log",
+      "log_sha256": "e90f52aa33ada4b525240a957600c82152e767cb1aea9ace23b7342e5fe9e496"
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.7408628463745117,
+      "log": "/Users/pj/project/build/automatic-account-sharing-policy-v1-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "actual_tests": {
+    "policy": {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "baseline": "New feature acceptance; no artificial denying baseline or behavioral RED claimed.",
+  "postfreeze_documentation": [
+    "crates/cgka-engine/AGENTS.md",
+    "docs/automatic-account-chat-sharing.md",
+    "docs/marmot-architecture/runtime-state-bounds.md"
+  ],
+  "limits": [
+    "No protected MLS carrier or real relay qualification yet",
+    "No third protected member outer-decrypt negative yet",
+    "No automatic actor, visible mirror projection or send queue yet",
+    "1536B body requires larger-entry fragmentation; no truncation permission"
+  ],
+  "storage_inputs": "Root-owned unsigned migration17/storage candidate included in source freeze; owned Core paths preserved in candidate stash."
+}

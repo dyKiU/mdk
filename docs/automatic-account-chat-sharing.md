@@ -81,3 +81,23 @@ controls remain available until actual backend replacement is qualified.
 
 No wire kind or protocol identifier is assigned by this design. Framing and
 resource bounds require focused actual transport acceptance before adoption.
+
+## Qualified Core policy foundation
+
+The experimental Core channel now authenticates an exact two-device request and
+consent against the current Completed protected tree. Each side captures its own
+settlement generation, fixed actor deadline and Engine lifetime. Catalog, record,
+send-intent and send-receipt bodies use recipient-only HPKE and the signed policy
+transcript; retries retain exact ciphertext. Cancellation, expiry, retirement and
+Engine destruction refuse access. The private keys use upstream zeroizing secret
+storage. This is not a persisted approval or an ordinary membership grant.
+
+Three independent-store crypto controls pass, including both directions, exact
+retry/conflict, every fixed-context substitution on its own unbound original,
+and lifetime refusal. Source-leaf/outer MLS transport, actual third-member
+exclusion, runtime negotiation, mirror projection and durable send queues remain
+next implementation work. The 1536-byte body bound is framing only: catalog and
+logical records need bounded transcript-bound fragmentation/reassembly, with no
+truncation of larger names, descriptions or messages. A fresh owned channel may
+later be automatically negotiated under approved durable policy and fresh roster
+checks; an expired opaque original itself is never restored or renewed.

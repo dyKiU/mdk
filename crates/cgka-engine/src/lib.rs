@@ -133,6 +133,8 @@ pub mod private_enrollment_endorsement;
 #[cfg(feature = "experimental-device-sync")]
 pub mod account_chat_catalog;
 #[cfg(feature = "experimental-device-sync")]
+pub mod account_chat_sharing;
+#[cfg(feature = "experimental-device-sync")]
 pub mod history_transfer;
 #[cfg(feature = "experimental-device-sync")]
 pub mod selected_chat_consent;

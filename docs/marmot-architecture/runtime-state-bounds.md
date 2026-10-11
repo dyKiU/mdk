@@ -24,6 +24,19 @@ Tracking issue: marmot-protocol/mdk#381.
 
 ## Inventory
 
+### Experimental Core automatic-sharing originals
+
+Each `OwnedAccountSharingChannel` retains one signed request, one signed consent,
+one recipient-only HPKE key pair and at most 128 immutable sealed bodies. Plain
+bodies are at most 1536 bytes and canonical signed wire frames at most 16 KiB.
+Same-sequence different-kind/body retries refuse; capacity exhaustion refuses
+before adding another entry. These are original action resources, not convergence
+policy or a persisted ongoing journal. Fixed actor expiry, cancellation and Engine
+destruction deny access; explicit retirement and final drop release the keys and
+retry buffers. HPKE private keys use upstream `SecretVLBytes` zeroization on drop.
+No channel registry, automatic actor renewal, MLS wrapper cache or durable send
+queue is introduced by this Core foundation.
+
 ### Experimental native device enrollment (`marmot-app`)
 
 These are account-owned UI/transport resources, not convergence policy or
