@@ -2434,6 +2434,7 @@ pub(crate) fn classify_engine_error(error: &EngineError) -> (SubjectFailureCateg
         // A private exact-Welcome policy denial is an expected refusal, not
         // a new protocol/conformance outcome or a failure of MLS processing.
         | EngineError::LinkingWelcomeDenied(_)
+        | EngineError::SelectedChatWelcomeDenied
         | EngineError::InvalidWelcome
         | EngineError::MissingWelcomeKeyPackage
         | EngineError::WelcomeAlreadyProcessed
@@ -2505,7 +2506,9 @@ fn observe_engine_error(error: &EngineError) -> String {
         EngineError::Serialize(_) => "serialize",
         // Reuse the existing Welcome diagnostic; private verifier details must
         // not become normative trace values or escape into simulator reports.
-        EngineError::InvalidWelcome | EngineError::LinkingWelcomeDenied(_) => "invalid_welcome",
+        EngineError::InvalidWelcome
+        | EngineError::LinkingWelcomeDenied(_)
+        | EngineError::SelectedChatWelcomeDenied => "invalid_welcome",
         EngineError::MissingWelcomeKeyPackage => "missing_welcome_key_package",
         EngineError::WelcomeAlreadyProcessed => "welcome_already_processed",
         EngineError::InvalidTransition(_) => "invalid_transition",
@@ -2749,6 +2752,13 @@ mod tests {
             classify_engine_error(&EngineError::Serialize("malformed internal state".into()));
         assert_eq!(category, SubjectFailureCategory::Protocol);
         assert_eq!(code, "serialize");
+    }
+
+    #[test]
+    fn selected_chat_welcome_denial_is_a_private_expected_refusal() {
+        let (category, code) = classify_engine_error(&EngineError::SelectedChatWelcomeDenied);
+        assert_eq!(category, SubjectFailureCategory::ExpectedRefusal);
+        assert_eq!(code, "invalid_welcome");
     }
 
     #[test]
