@@ -848,3 +848,8 @@ The focused proof in `docs/account-chat-presentation-app-windows-verification.js
 covers real original approval/catalog/window custody and separate storage privacy
 controls. Records-actor message delivery, native bindings/views, normal forwarding
 and full integration acceptance require their own qualification.
+
+Merged ordinary rows do not carry the original conversation page
+`authenticated_system_content` proof. Native conversion must keep their system
+content untrusted; authenticated system/reference/action presentation still uses
+the genuine ordinary conversation owner. Stored fields and tags are not proof.

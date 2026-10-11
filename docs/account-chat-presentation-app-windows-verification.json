@@ -568,7 +568,8 @@
     "Local-to-paired membership transitions close the conversation window and require reopen.",
     "Actual protected lifecycle wake hunks are present; open-before-automatic-map removal is not separately demonstrated in the real fixture.",
     "The Records actor is not in this frozen dependency. Real mirrored message stream/window notifications, forwarding sends, native bindings/Swift normal view adoption, installed acceptance and full integration matrix remain separate.",
-    "Legacy ordinary rows with noncanonical event IDs fail closed in the unified cursor. No payload or media download grant is derived from mirror observations."
+    "Legacy ordinary rows with noncanonical event IDs fail closed in the unified cursor. No payload or media download grant is derived from mirror observations.",
+    "Merged LocalMls(TimelineMessageRecord) does not carry ConversationWindowPage.authenticated_system_content proof. Native conversion must use the existing prepared presentation mapper with trusted=false. Ordinary authenticated system content, references and actions require the genuine ordinary conversation window; persistence or tags do not restore that authority."
   ],
   "resource_policy": {
     "final_runner": "CARGO_INCREMENTAL=0; jobs1; 2GiB free before each gate",
