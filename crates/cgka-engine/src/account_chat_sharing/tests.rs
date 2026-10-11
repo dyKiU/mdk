@@ -1,5 +1,6 @@
 //! Actual independently stored paired MLS trees; injected actor leases are not UI consent.
 use super::*;
+use cgka_traits::engine::{CgkaEngine, GroupEvent};
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
@@ -19,6 +20,17 @@ impl Lease {
     }
 }
 impl TrustedAccountSharingLease for Lease {
+    fn approved_policy_id(&self, scope: &AccountSharingScope) -> Result<[u8; 32], EngineError> {
+        // Fixture's explicit approval ID is fixed independently of new channel
+        // nonces/keys. Production actors must check their durable approval.
+        let mut digest = Sha256::new();
+        digest.update(b"fixture explicit approval");
+        digest.update(scope.protected.account.as_slice());
+        digest.update(scope.protected.group_id.as_slice());
+        digest.update(&scope.source);
+        digest.update(&scope.recipient);
+        Ok(digest.finalize().into())
+    }
     fn validate(&self, _: &AccountSharingScope) -> Result<Instant, EngineError> {
         if !self.live.load(Ordering::SeqCst) {
             return Err(refused());
@@ -64,6 +76,15 @@ async fn account_sharing_original_policy_encrypts_both_directions_without_ordina
         source.policy_digest().unwrap(),
         recipient.policy_digest().unwrap()
     );
+    let (renewed_source, renewed_recipient, _, _) = channels(&a, &b, &protected);
+    assert_eq!(
+        source.scope.approved_policy_identity,
+        renewed_source.scope.approved_policy_identity
+    );
+    assert_ne!(
+        source.policy_digest().unwrap(),
+        renewed_source.policy_digest().unwrap()
+    );
     let body = vec![0x61; MAX_ACCOUNT_SHARED_BODY_BYTES];
     let wire = a
         .seal_account_shared_body(&mut source, AccountSharedBodyKind::Catalog, 0, &body)
@@ -100,6 +121,10 @@ async fn account_sharing_original_policy_encrypts_both_directions_without_ordina
     );
     assert!(a.open_account_shared_body(&source, &wire).is_err());
     assert!(
+        b.open_account_shared_body(&renewed_recipient, &wire)
+            .is_err()
+    );
+    assert!(
         b.seal_account_shared_body(
             &mut recipient,
             AccountSharedBodyKind::SendIntent,
@@ -118,7 +143,7 @@ async fn account_sharing_exact_unbound_consent_rejects_signed_context_substituti
     .await;
     // Every mutation uses its own unbound original and its exact valid consent.
     // A different nonce/transfer cannot mask the specific context assertion.
-    for field in 0..9 {
+    for field in 0..11 {
         let mut source = a
             .begin_account_sharing_policy(&protected, b.identity.signer.public(), Lease::new())
             .unwrap();
@@ -141,6 +166,8 @@ async fn account_sharing_exact_unbound_consent_rejects_signed_context_substituti
             6 => altered.recipient[0] ^= 1,
             7 => altered.nonce[0] ^= 1,
             8 => altered.binding[0] ^= 1,
+            9 => altered.approved_policy_identity[0] ^= 1,
+            10 => altered.approval_id[0] ^= 1,
             _ => unreachable!(),
         }
         let wrong = b.sharing_sign(altered).unwrap();
@@ -187,4 +214,97 @@ async fn account_sharing_original_cancel_expiry_retirement_and_engine_custody_re
     drop(a);
     assert!(source.request_packet().is_err());
     assert!(b.authenticate_account_sharing_request(&wire).is_err());
+}
+
+fn received(engine: &mut TestEngine, protected: &GroupId) -> Vec<u8> {
+    let (payload, proof) = engine
+        .drain_events()
+        .into_iter()
+        .find_map(|event| match event {
+            GroupEvent::MessageReceived {
+                group_id,
+                source_leaf: Some(proof),
+                payload,
+                ..
+            } if &group_id == protected => Some((payload, proof)),
+            _ => None,
+        })
+        .expect("actual protected MLS application and indexed sender proof");
+    let event = cgka_traits::app_event::MarmotAppEvent::decode(&payload).unwrap();
+    assert_eq!(event.kind, ACCOUNT_SHARING_CONTROL_KIND);
+    let metadata = engine
+        .authenticate_received_account_sharing_control(protected, &proof, event.content.as_bytes())
+        .unwrap();
+    assert_eq!(metadata.signer, proof.signature_public_key);
+    let mut wrong = proof.clone();
+    wrong.leaf_index += 1;
+    assert!(
+        engine
+            .authenticate_received_account_sharing_control(
+                protected,
+                &wrong,
+                event.content.as_bytes()
+            )
+            .is_err()
+    );
+    event.content.into_bytes()
+}
+
+#[tokio::test]
+async fn account_sharing_carrier_reaches_actual_protected_leaf_and_retains_ciphertext() {
+    let (mut a, mut b, protected) = crate::private_roster_settlement::tests::complete_pair(
+        SqliteAccountStorage::in_memory().unwrap(),
+    )
+    .await;
+    a.drain_events();
+    b.drain_events();
+    let mut source = a
+        .begin_account_sharing_policy(&protected, b.identity.signer.public(), Lease::new())
+        .unwrap();
+    let message = a
+        .wrap_account_sharing_control(&mut source, AccountSharingControl::Request)
+        .await
+        .unwrap();
+    let retry = a
+        .wrap_account_sharing_control(&mut source, AccountSharingControl::Request)
+        .await
+        .unwrap();
+    assert_eq!(message.id, retry.id);
+    assert_eq!(message.payload, retry.payload);
+    b.ingest(message).await.unwrap();
+    let request_wire = received(&mut b, &protected);
+    let request = b
+        .authenticate_account_sharing_request(&request_wire)
+        .unwrap();
+    let mut recipient = b
+        .approve_account_sharing_policy(&request, Lease::new())
+        .unwrap();
+    let message = b
+        .wrap_account_sharing_control(&mut recipient, AccountSharingControl::Consent)
+        .await
+        .unwrap();
+    a.ingest(message).await.unwrap();
+    let consent = received(&mut a, &protected);
+    a.bind_account_sharing_consent(&mut source, &consent)
+        .unwrap();
+    let body = vec![0x61; MAX_ACCOUNT_SHARED_BODY_BYTES];
+    a.seal_account_shared_body(&mut source, AccountSharedBodyKind::Catalog, 0, &body)
+        .unwrap();
+    let message = a
+        .wrap_account_sharing_control(&mut source, AccountSharingControl::Body(0))
+        .await
+        .unwrap();
+    assert!(message.payload.len() <= MAX_WIRE_BYTES); // Passthrough fixture only; production Nostr bound still pending.
+    b.ingest(message).await.unwrap();
+    let wire = received(&mut b, &protected);
+    assert_eq!(
+        b.open_account_shared_body(&recipient, &wire).unwrap(),
+        (AccountSharedBodyKind::Catalog, 0, body)
+    );
+    a.select_private_roster_settlement(&protected).unwrap();
+    assert!(
+        a.wrap_account_sharing_control(&mut source, AccountSharingControl::Body(0))
+            .await
+            .is_err()
+    );
 }

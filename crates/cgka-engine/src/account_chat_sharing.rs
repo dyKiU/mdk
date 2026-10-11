@@ -21,6 +21,21 @@ const HPKE_INFO: &[u8] = b"WN-original-account-chat-sharing-v1";
 pub const MAX_ACCOUNT_SHARED_BODY_BYTES: usize = 1536;
 const MAX_WIRE_BYTES: usize = 16384;
 const MAX_ORIGINAL_BODIES: usize = 128;
+/// Private experimental protected-group control, never an ordinary chat event.
+pub const ACCOUNT_SHARING_CONTROL_KIND: u64 = 38178;
+mod transport;
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum AccountSharingControl {
+    Request,
+    Consent,
+    Body(u64),
+}
+/// Authenticated observation from the actual protected MLS source leaf.
+pub struct ReceivedAccountSharingControl {
+    pub nonce: [u8; 32],
+    pub control: AccountSharingControl,
+    pub signer: Vec<u8>,
+}
 fn refused() -> EngineError {
     EngineError::Other("original account sharing policy unavailable".into())
 }
@@ -36,9 +51,36 @@ pub struct AccountSharingScope {
     pub source: Vec<u8>,
     pub recipient: Vec<u8>,
     pub nonce: [u8; 32],
+    /// Stable explicit approval identity; unlike the ephemeral transcript hash,
+    /// this survives fresh keys, clocks and ordinary channel renewal.
+    pub approved_policy_identity: [u8; 32],
+    pub approval_id: [u8; 32],
 }
+// Stable persistence identity is independent of local role, keys, nonce and clock.
+fn approved_policy_identity(scope: &AccountSharingScope) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(b"WN-approved-account-chat-sharing-v1");
+    hash.update(scope.protected.account.as_slice());
+    hash.update((scope.protected.group_id.as_slice().len() as u16).to_be_bytes());
+    hash.update(scope.protected.group_id.as_slice());
+    let (first, second) = if scope.source < scope.recipient {
+        (&scope.source, &scope.recipient)
+    } else {
+        (&scope.recipient, &scope.source)
+    };
+    hash.update(first);
+    hash.update(second);
+    hash.update(scope.approval_id);
+    hash.update(1u16.to_be_bytes());
+    hash.update([15u8]);
+    hash.finalize().into()
+}
+
 /// Installed by the account actor after explicit existing/future-chat approval.
 pub trait TrustedAccountSharingLease: Send + Sync {
+    fn approved_policy_id(&self, _scope: &AccountSharingScope) -> Result<[u8; 32], EngineError> {
+        Err(refused())
+    }
     fn validate(&self, _scope: &AccountSharingScope) -> Result<Instant, EngineError> {
         Err(refused())
     }
@@ -63,6 +105,8 @@ struct Frame {
     source: Vec<u8>,
     recipient: Vec<u8>,
     nonce: [u8; 32],
+    approved_policy_identity: [u8; 32],
+    approval_id: [u8; 32],
     signer: Vec<u8>,
     generation: u64,
     binding: [u8; 32],
@@ -122,6 +166,7 @@ pub struct OwnedAccountSharingChannel {
     peer_key: Option<Vec<u8>>,
     recipient_role: bool,
     sealed: BTreeMap<u64, (AccountSharedBodyKind, [u8; 32], Vec<u8>)>,
+    outbound: Vec<transport::FrozenSharingControl>,
 }
 impl OwnedAccountSharingChannel {
     pub fn scope(&self) -> &AccountSharingScope {
@@ -151,12 +196,14 @@ impl OwnedAccountSharingChannel {
         self.keys = None;
         self.peer_key = None;
         self.sealed.clear();
+        self.outbound.clear();
     }
     fn live(&self) -> Result<(), EngineError> {
         if self.keys.is_none()
             || !self.owner.upgrade().is_some_and(|owner| owner.is_open())
             || Instant::now() >= self.deadline
             || self.lease.validate(&self.scope)? != self.deadline
+            || self.lease.approved_policy_id(&self.scope)? != self.scope.approval_id
         {
             return Err(refused());
         }
@@ -164,6 +211,46 @@ impl OwnedAccountSharingChannel {
     }
 }
 impl<S: StorageProvider> Engine<S> {
+    /// Trusted actor intake must retain the genuine MessageReceived source proof.
+    /// A signed packet alone cannot substitute for protected MLS delivery.
+    pub fn authenticate_received_account_sharing_control(
+        &self,
+        protected: &GroupId,
+        source: &cgka_traits::source_leaf::SourceLeafProof,
+        wire: &[u8],
+    ) -> Result<ReceivedAccountSharingControl, EngineError> {
+        self.storage.with_read_snapshot(|_| {
+            let frame = self.sharing_verify(wire)?;
+            if frame.protected != protected.as_slice()
+                || frame.epoch != source.epoch.0
+                || frame.authenticator != source.epoch_authenticator_digest
+                || frame.signer != source.signature_public_key
+                || !self
+                    .validated_settled_device_roster(protected)?
+                    .ok_or_else(refused)?
+                    .candidate()
+                    .leaves
+                    .iter()
+                    .any(|leaf| {
+                        leaf.leaf_index == source.leaf_index
+                            && leaf.signature_public_key == frame.signer
+                    })
+            {
+                return Err(refused());
+            }
+            let control = match frame.phase.as_str() {
+                "request" if frame.signer == frame.source => AccountSharingControl::Request,
+                "consent" if frame.signer == frame.recipient => AccountSharingControl::Consent,
+                "body" => AccountSharingControl::Body(frame.sequence),
+                _ => return Err(refused()),
+            };
+            Ok(ReceivedAccountSharingControl {
+                nonce: frame.nonce,
+                control,
+                signer: frame.signer,
+            })
+        })
+    }
     fn sharing_scope_fresh(&self, scope: &AccountSharingScope) -> Result<(), EngineError> {
         let current = self
             .validated_settled_device_roster(&scope.protected.group_id)?
@@ -202,6 +289,8 @@ impl<S: StorageProvider> Engine<S> {
             source: scope.source.clone(),
             recipient: scope.recipient.clone(),
             nonce: scope.nonce,
+            approved_policy_identity: scope.approved_policy_identity,
+            approval_id: scope.approval_id,
             signer: self.identity.signer.public().to_vec(),
             generation: scope.local_generation,
             binding: [0; 32],
@@ -234,6 +323,8 @@ impl<S: StorageProvider> Engine<S> {
             || frame.source != scope.source
             || frame.recipient != scope.recipient
             || frame.nonce != scope.nonce
+            || frame.approved_policy_identity != scope.approved_policy_identity
+            || frame.approval_id != scope.approval_id
         {
             return Err(refused());
         }
@@ -249,6 +340,8 @@ impl<S: StorageProvider> Engine<S> {
             || frame.source == frame.recipient
             || frame.nonce == [0; 32]
             || frame.generation == 0
+            || frame.approved_policy_identity == [0; 32]
+            || frame.approval_id == [0; 32]
             || frame.protected.is_empty()
             || frame.protected.len() > 255
         {
@@ -263,7 +356,12 @@ impl<S: StorageProvider> Engine<S> {
             source: frame.source.clone(),
             recipient: frame.recipient.clone(),
             nonce: frame.nonce,
+            approved_policy_identity: frame.approved_policy_identity,
+            approval_id: frame.approval_id,
         };
+        if scope.approved_policy_identity != approved_policy_identity(&scope) {
+            return Err(refused());
+        }
         Self::sharing_fixed_context(&frame, &scope)?;
         if ![&frame.source, &frame.recipient, &frame.signer]
             .iter()
@@ -317,13 +415,20 @@ impl<S: StorageProvider> Engine<S> {
             }
             let mut nonce = [0; 32];
             rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut nonce);
-            let scope = AccountSharingScope {
+            let mut scope = AccountSharingScope {
                 protected: settled.candidate().clone(),
                 local_generation: settled.settlement_generation(),
                 source: self.identity.signer.public().to_vec(),
                 recipient: recipient.to_vec(),
                 nonce,
+                approved_policy_identity: [0; 32],
+                approval_id: [0; 32],
             };
+            scope.approval_id = lease.approved_policy_id(&scope)?;
+            scope.approved_policy_identity = approved_policy_identity(&scope);
+            if scope.approval_id == [0; 32] {
+                return Err(refused());
+            }
             let deadline = lease.validate(&scope)?;
             let keys = self.sharing_keys()?;
             let mut frame = self.sharing_frame(&scope, "request");
@@ -339,6 +444,7 @@ impl<S: StorageProvider> Engine<S> {
                 peer_key: None,
                 recipient_role: false,
                 sealed: BTreeMap::new(),
+                outbound: vec![],
             };
             self.sharing_channel_fresh(&channel)?;
             Ok(channel)
@@ -372,6 +478,8 @@ impl<S: StorageProvider> Engine<S> {
                 source: frame.source.clone(),
                 recipient: frame.recipient.clone(),
                 nonce: frame.nonce,
+                approved_policy_identity: frame.approved_policy_identity,
+                approval_id: frame.approval_id,
             };
             Ok(AuthenticatedAccountSharingRequest {
                 frame,
@@ -406,6 +514,7 @@ impl<S: StorageProvider> Engine<S> {
                 peer_key: Some(request.frame.public_key.clone()),
                 recipient_role: true,
                 sealed: BTreeMap::new(),
+                outbound: vec![],
             };
             self.sharing_channel_fresh(&channel)?;
             Ok(channel)

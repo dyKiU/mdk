@@ -34,8 +34,11 @@ before adding another entry. These are original action resources, not convergenc
 policy or a persisted ongoing journal. Fixed actor expiry, cancellation and Engine
 destruction deny access; explicit retirement and final drop release the keys and
 retry buffers. HPKE private keys use upstream `SecretVLBytes` zeroization on drop.
-No channel registry, automatic actor renewal, MLS wrapper cache or durable send
-queue is introduced by this Core foundation.
+The protected carrier additionally retains at most 130 frozen encrypted controls
+and their successful wrappers per original (the 128 body budget plus handshake
+allowance); expiry/cancellation deny retries and retirement/drop reclaim them.
+No channel registry, automatic actor renewal or durable send queue is introduced
+by this Core foundation.
 
 ### Experimental native device enrollment (`marmot-app`)
 

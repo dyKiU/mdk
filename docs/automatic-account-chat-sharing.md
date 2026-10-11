@@ -101,3 +101,20 @@ logical records need bounded transcript-bound fragmentation/reassembly, with no
 truncation of larger names, descriptions or messages. A fresh owned channel may
 later be automatically negotiated under approved durable policy and fresh roster
 checks; an expired opaque original itself is never restored or renewed.
+
+## Qualified protected carrier
+
+The original request, consent and sealed bodies now use the actual protected MLS
+send ratchet and indexed source-leaf proof. Private experimental kind 38178 is
+internal only. Retries preserve the exact encrypted MLS bytes and successful
+wrapper. The signed transcript includes the same original approval ID and a
+symmetric stable policy identity; ephemeral keys, nonce and deadline do not
+change that persistence identity. Every renewed channel still has new original
+keys and transcript, and old channel ciphertext fails in the new channel.
+
+Four actual paired-store controls pass with strict/default/format gates. The
+1536-byte maximum is tested with the passthrough fixture, not the full production
+Nostr wrapper. Actual third-member exclusion, fragment reassembly, durable policy
+approval, automatic actor negotiation and normal list/timeline/send integration
+remain unqualified. The storage identity helper will be shared with the approved
+policy store; this checkpoint uses the exact agreed domain/encoding locally.
