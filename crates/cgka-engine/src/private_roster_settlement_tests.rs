@@ -2917,3 +2917,6 @@ async fn private_enrollment_local_proposal_handoff_preserves_original_lease_and_
  {
     exercise_local_enrollment_proposal(LocalProposalOwnerControl::HandoffClocks).await;
 }
+
+#[path = "private_enrollment_sharing_tests.rs"]
+mod sharing_endorsement;

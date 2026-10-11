@@ -706,6 +706,23 @@ impl AccountDeviceSession {
             .endorse_private_enrollment_request(request, artifact, package, context_digest)
     }
     #[cfg(feature = "experimental-device-sync")]
+    pub fn endorse_private_enrollment_request_and_share_chats(
+        &self,
+        request: &cgka_engine::private_enrollment_request::AuthenticatedEnrollmentRequest,
+        artifact: &[u8],
+        package: &KeyPackage,
+        context_digest: &[u8; 32],
+    ) -> Result<cgka_engine::private_enrollment_endorsement::OwnedEnrollmentEndorsement, EngineError>
+    {
+        self.engine
+            .endorse_private_enrollment_request_and_share_chats(
+                request,
+                artifact,
+                package,
+                context_digest,
+            )
+    }
+    #[cfg(feature = "experimental-device-sync")]
     pub fn validate_owned_private_enrollment_endorsement(
         &self,
         owned: &cgka_engine::private_enrollment_endorsement::OwnedEnrollmentEndorsement,

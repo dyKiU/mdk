@@ -675,3 +675,14 @@ Device-wide exact-leaf removal captures fresh protected Completed generation and
 `device_leaf_revocation/transition.rs` stages Revoked metadata and the actual live settlement admission atomically with the authenticated sole Remove. Source admission retains the explicitly approved original admin action; recipient admission requires its exact live transport receipt and canonical MLS digest after durable content dedup. Stored canonical replay after Engine/encrypted reopen can apply negative membership but cannot allocate a new positive deadline/guard. Every old origin remains permanently denied. The actual public survivor history import and restart refusal pass; same-client transient storage retry and post-revocation new-device enrollment remain separate. See `docs/device-sync-revocation-successor-settlement-verification.json`.
 
 Same-client protected Remove storage retry is now qualified: a negative observer requires the already captured live received intent plus its exact retained receipt/deadline, unresolved input, and actual Completed predecessor/tree/generation. It creates no permission. The worker preserves this originating Engine across typed Storage rollback; encrypted reopen still cannot reconstruct its original receipt. See `docs/device-sync-revocation-storage-retry-verification.json`.
+
+### Original enrollment sharing terms
+
+`private_enrollment_endorsement` keeps ordinary v1 byte shape and a distinct
+signed sharing protocol/domain for the named broader received-request action.
+Bind fixed policy version/capabilities, exact request and indexed signer; preserve
+the same original owner/deadline/cancellation. Changing terms requires a new
+protocol/domain, not reinterpretation of old signatures. All-leaf and original
+recipient `sharing_devices()` are authenticated observations only, never policy
+or admission. `private_enrollment_sharing_tests.rs` reuses genuine received B
+fixtures and real private carrier; portable A signatures are explicitly metadata.
