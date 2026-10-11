@@ -232,6 +232,16 @@ backend clears the whole proposal queue for that group and returns it empty. It 
 commit must start from current MLS group state and require proposals to be re-enqueued. Only deserialize failures are
 treated as recoverable; SQLite/lock failures propagate so a transient fault is never mistaken for corruption.
 
+**Bounded raw-event paging.** `app_messages_page(query, after)` reads forward in
+the local `(recorded_at, message_id_hex, insert_order)` replay order. Supply
+`Some(1..=128)` as the limit and continue with the last record's `replay_cursor()`.
+Group/kind filters apply before the limit; at most 128 kind filters are accepted.
+Unlike the existing newest-window query, this can traverse older retained history
+without an unbounded read. Invalidated and expired rows remain available for
+authenticated source export. This cursor is local durable observation, not peer
+ordering, complete coverage or authority. Callers must re-scan changed retention
+and late older inserts, validate source authority, and bound encoded payload bytes.
+
 **Replay-state validation.** `group_replay_state_fingerprint` takes a consistent read of live canonical/OpenMLS state
 (as a state-scoped snapshot) plus all retained snapshot/checkpoint bytes and epochs. It excludes live message,
 outbound, and app-projection rows, which the engine validates separately. The fingerprint stays in engine memory and

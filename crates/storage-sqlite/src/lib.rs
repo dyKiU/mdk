@@ -74,8 +74,8 @@ pub use account_projection::{
     AccountChatNotificationSettings, AccountDeliveryRecovery, AccountGroupPushToken,
     AccountNotificationSettings, AccountPendingPushRegistrationRemoval, AccountPushRegistration,
     AccountStoredPushRegistration, AppEventReplayCursor, DeleteLocalGroupDataResult,
-    SelfMembership, StoredAccountGroup, StoredAccountGroupComponent, StoredAccountState,
-    StoredAppMessageQuery, StoredAppMessageRecord, StoredEpochBackfillIntent,
+    MAX_APP_MESSAGE_REPLAY_PAGE, SelfMembership, StoredAccountGroup, StoredAccountGroupComponent,
+    StoredAccountState, StoredAppMessageQuery, StoredAppMessageRecord, StoredEpochBackfillIntent,
     StoredEpochStallEvidence, StoredNostrRoute, clamp_to_max_future_skew,
 };
 pub use attachment_acquisition::{

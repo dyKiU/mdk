@@ -64,6 +64,10 @@ not "fix" it into the per-account database.
 - Accept raw SQLCipher keys only. Key derivation and recovery live above this crate.
 - Apply privacy/durability defaults unless callers opt out with `SqliteStorageOptions`.
 - Keep invalidated message records. Applications decide whether to show them.
+- `app_messages_page` is raw local replay paging, not presentation or permission.
+  Require a limit in 1..=128 and use the complete `AppEventReplayCursor` order.
+  Keep invalidated/expired rows for authenticated retention export. Cursors do
+  not prove coverage; older inserts and changed retention require a fresh scan.
 - Build every long-lived connection on `CloseableConnection` so a host can release the database's file locks at a known
   instant. Closing is terminal: surviving clones return `StorageError::Closed`, and nothing reopens implicitly. See
   `docs/marmot-architecture/overview/local-artifact-safety.md`.
