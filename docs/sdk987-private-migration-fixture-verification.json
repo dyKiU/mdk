@@ -1,0 +1,126 @@
+{
+  "base": "d219a550412d788b87259fad583409430958ca88",
+  "candidate_stash": "67491c54db15db71bf4e2939483c933aeaa6d576",
+  "source_count": 2521,
+  "source_manifest_sha256": "1f9ea384dc583f0e8fc5c62eabbff37e40d2d7420f87669519f346268e4e1860",
+  "failure_replay": {
+    "head": "d219a550412d788b87259fad583409430958ca88",
+    "binary": "/Users/pj/project/build/Mdk986ConformanceTargetM5/debug/deps/storage_sqlite-b8c3c3418de85bfc",
+    "binary_sha256": "cffc0b7717b7a662dd651145213bdbe214d1a0439b37ed38d1aa190c459f2a2d",
+    "origin_full_log": "/Users/pj/project/build/results/sdk987-backend-full-v4-experimental-full.log",
+    "exit": 101,
+    "seconds": 1.1403648853302002,
+    "log": "/Users/pj/project/build/results/sdk987-migration15-original-replay-v1.log",
+    "log_sha256": "2af3507e90b3667bb5d3425dcd0187b8a51e135bc610b405423c966f380748b7",
+    "cache_writes": false
+  },
+  "gates": [
+    {
+      "gate": "exact",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "--features",
+        "experimental-device-sync",
+        "migrations::private_migration_ledger_tests::private_history_request_revision15_preserves_encrypted_revision14_prefix",
+        "--",
+        "--exact",
+        "--test-threads=2"
+      ],
+      "exit": 0,
+      "seconds": 13.90355110168457,
+      "log": "/Users/pj/project/build/results/sdk987-migration-fixture-green-v1-exact.log",
+      "log_sha256": "741ee42ffe7181a51ecd3524222746c40ab2084a9d916bca83aa29d2e55f897e",
+      "summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1095 filtered out; finished in 1.10s"
+      ]
+    },
+    {
+      "gate": "ledger-feature",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "--features",
+        "experimental-device-sync",
+        "migrations::private_migration_ledger_tests",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit": 0,
+      "seconds": 25.048138856887817,
+      "log": "/Users/pj/project/build/results/sdk987-migration-fixture-green-v1-ledger-feature.log",
+      "log_sha256": "66e04536bc261d9ab116e8b97981daf43f45590b38ddcfcb2ef52dfb85b2a393",
+      "summaries": [
+        "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 1079 filtered out; finished in 24.74s"
+      ]
+    },
+    {
+      "gate": "ledger-default",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "migrations::private_migration_ledger_tests",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit": 0,
+      "seconds": 17.791606187820435,
+      "log": "/Users/pj/project/build/results/sdk987-migration-fixture-green-v1-ledger-default.log",
+      "log_sha256": "23e0431ed510ef63c521999c65d88107e1df750232d9ef8371b8fc3f982aff91",
+      "summaries": [
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 976 filtered out; finished in 10.21s"
+      ]
+    },
+    {
+      "gate": "strict",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "storage-sqlite",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 8.34565806388855,
+      "log": "/Users/pj/project/build/results/sdk987-migration-fixture-green-v1-strict.log",
+      "log_sha256": "37ab06f3e9bc8db14f8c581b8355b49184fff299df28aed3705714726c2fd956",
+      "summaries": []
+    },
+    {
+      "gate": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 3.613355875015259,
+      "log": "/Users/pj/project/build/results/sdk987-migration-fixture-green-v1-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "summaries": []
+    }
+  ],
+  "correction": "Expected applied count follows registered private revisions beyond the immutable revision14 prefix. Retained prefix receipts/timestamps, denied staging row, idempotent second open, core102 and revision15 negative cohort activation remain asserted. No migration body, registry, production or SDK change.",
+  "prior_full_scope": {
+    "default": "4184 passed,0failed,33ignored including nested processes",
+    "experimental": "4671passed,1failed,33ignored; genuine registry-count fixture failure preserved. Not retroactively green."
+  },
+  "limits": "Focused ledger qualification only; no fresh full-matrix pass or new native adoption. ExistingSDK artifacts remain exactd8/987.",
+  "postfreeze_delta": "This proof is authored after the final frozen test cohort."
+}
