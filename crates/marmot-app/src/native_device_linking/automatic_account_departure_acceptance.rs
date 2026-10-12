@@ -143,13 +143,16 @@ pub(super) async fn verify(
     ));
     // Reopen B's exact synthetic root through the ordinary public runtime. No
     // store is copied; the authenticated durable outbox must catch it up.
-    let reopened_app = MarmotApp::with_relay(apps[1].account_home().root(), relay_url);
-    let reopened = MarmotAppRuntime::new(reopened_app.clone());
+    let mut reopened_app = MarmotApp::with_relay(apps[1].account_home().root(), relay_url);
+    let mut reopened = MarmotAppRuntime::new(reopened_app.clone());
     let result =
         std::panic::AssertUnwindSafe(async {
             reopened.reconcile_accounts().await.unwrap();
             let mut published_branch = None;
             let mut canonical_probe = None;
+            let mut leave_reproposal_hold = None;
+            let mut reopened_after_branch_switch = false;
+            let mut requested_before_reanchor = None;
             if ordered {
                 tokio::time::timeout(std::time::Duration::from_secs(20), async {
                     loop {
@@ -180,6 +183,8 @@ pub(super) async fn verify(
                     let wire = payload.as_openmls_wire().unwrap();
                     canonical_probe = Some(cgka_engine::canonical_probe_observer::Probe::arm(peer.group.clone(),peer.b_index,cgka_traits::MessageId::new(Sha256::digest(&wire.payload).to_vec())));
                 }
+                requested_before_reanchor = Some(reopened_app.account_storage("test").unwrap().leave_request(&peer.group).unwrap().unwrap().requested_at_ms);
+                leave_reproposal_hold = Some(canonical_probe.as_ref().unwrap().hold_leave_reproposal());
                 drop(publication_gate.take());
             }
             let mut observed_losing_branch = false;
@@ -188,6 +193,22 @@ pub(super) async fn verify(
                     if let Some(published) = &published_branch {
                         let current = current_branch_observation(&reopened_app.account_storage("test").unwrap(), &peer.group).unwrap();
                         observed_losing_branch |= current.epoch == published.epoch && current.authenticator_digest != published.authenticator_digest && current.selected_head_digest != published.selected_head_digest;
+                    }
+                    if ordered && observed_losing_branch && !reopened_after_branch_switch {
+                        let store = reopened_app.account_storage("test").unwrap();
+                        let request = store.leave_request(&peer.group).unwrap().unwrap();
+                        assert_eq!(request.group_id, peer.group);
+                        assert_eq!(Some(request.requested_at_ms), requested_before_reanchor);
+                        drop(store);
+                        assert_eq!(request.last_proposed_epoch, None, "actual same-epoch branch replacement must durably reanchor the existing leave intent");
+                        reopened.shutdown_and_close().await.unwrap();
+                        assert!(reopened.storage_is_closed());
+                        drop(leave_reproposal_hold.take());
+                        reopened_app = MarmotApp::with_relay(apps[1].account_home().root(), relay_url);
+                        reopened = MarmotAppRuntime::new(reopened_app.clone());
+                        reopened.reconcile_accounts().await.unwrap();
+                        reopened_after_branch_switch = true;
+                        eprintln!("account_departure_ordering_losing_branch_closed_before_reproposal=true");
                     }
                     let indices = stored_indices(&peer.app, &peer.group);
                     let state = runtimes[2]
@@ -201,6 +222,7 @@ pub(super) async fn verify(
                     {
                         assert_eq!(state.operation_id.as_deref(), Some(operation.as_str()));
                         if ordered {
+                            assert!(reopened_after_branch_switch, "actual losing branch must survive fresh same-root reopening before departure completes");
                             assert!(observed_losing_branch, "real competing D branch must replace B published proposal branch before qualifying this case");
                             eprintln!("account_departure_ordering_same_epoch_published_branch_replaced=true");
                         }

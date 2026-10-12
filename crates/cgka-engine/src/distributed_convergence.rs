@@ -1543,6 +1543,23 @@ impl<S: StorageProvider> Engine<S> {
         } else {
             None
         };
+        // A proposal is tied to the actual MLS branch, not only its numeric
+        // epoch. Preserve the user's durable leave intent while remembering
+        // the branch it was proposed on before canonical apply rewinds it.
+        let previous_leave_anchor = if result.selected_tip == Some(previous_tip.0) {
+            self.storage
+                .leave_request(group_id)?
+                .filter(|request| request.last_proposed_epoch == Some(previous_tip))
+                .map(|request| {
+                    self.with_mls_group(group_id, |group| {
+                        Ok((request, group.epoch_authenticator().as_slice().to_vec()))
+                    })
+                })
+                .transpose()
+                .map_err(|error| OpenMlsProjectionError::Replay(error.to_string()))?
+        } else {
+            None
+        };
         #[cfg(feature = "experimental-device-sync")]
         let settlement_admission =
             self.settlement_admission_for(group_id)
@@ -1584,6 +1601,7 @@ impl<S: StorageProvider> Engine<S> {
             )?;
             #[cfg(feature = "experimental-device-sync")]
             let mut output = output;
+            let mut reanchored_leave_request = None;
             // Membership cleanup belongs to canonical apply: a failed queue or
             // leave-request write must roll back MLS and the completed pass too.
             let membership_effects = if let Some(before) = previous_membership.as_ref() {
@@ -1593,6 +1611,19 @@ impl<S: StorageProvider> Engine<S> {
                 )
                 .map_err(|error| OpenMlsProjectionError::Storage(format!("{error:?}")))?
                 .ok_or_else(|| OpenMlsProjectionError::Replay("selected group missing".into()))?;
+                if let Some((request, authenticator)) = previous_leave_anchor.as_ref()
+                    && group.epoch().as_u64() == previous_tip.0
+                    && group.epoch_authenticator().as_slice() != authenticator.as_slice()
+                    && crate::identity::local_leaf_is_active(&group, self.identity.self_id())
+                    && crate::app_components::lifecycle_of_group(&group)
+                        .map_err(|error| OpenMlsProjectionError::Replay(error.to_string()))?
+                        != Some(cgka_traits::app_components::GroupLifecycleV1::Disbanded)
+                {
+                    let mut request = request.clone();
+                    request.last_proposed_epoch = None;
+                    storage.put_leave_request(&request)?;
+                    reanchored_leave_request = Some(request);
+                }
                 // Disband owns its terminal cleanup and must not announce an
                 // intermediate local restoration from its replayed source tree.
                 if crate::app_components::lifecycle_of_group(&group)
@@ -1662,6 +1693,7 @@ impl<S: StorageProvider> Engine<S> {
                 application_events,
                 membership_effects,
                 output.handled_private_ids,
+                reanchored_leave_request,
                 #[cfg(feature = "experimental-device-sync")]
                 output.enrollment_effects,
                 #[cfg(feature = "experimental-device-sync")]
@@ -1674,12 +1706,22 @@ impl<S: StorageProvider> Engine<S> {
             application_events,
             membership_effects,
             handled_private_ids,
+            reanchored_leave_request,
             enrollment_effects,
             staged_settlement_admission,
         ) = committed;
         #[cfg(not(feature = "experimental-device-sync"))]
-        let (group_changes, application_events, membership_effects, handled_private_ids) =
-            committed;
+        let (
+            group_changes,
+            application_events,
+            membership_effects,
+            handled_private_ids,
+            reanchored_leave_request,
+        ) = committed;
+        if let Some(request) = reanchored_leave_request {
+            self.leave_requests.insert(group_id.clone(), request);
+            self.leaving_groups.insert(group_id.clone());
+        }
         #[cfg(feature = "experimental-device-sync")]
         {
             if let Some(admission) = staged_settlement_admission {

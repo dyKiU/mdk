@@ -2,7 +2,10 @@
 //! This module is absent unless the explicit test-policy feature is enabled.
 use crate::canonicalization::{CanonicalizationResult, DroppedMessageReason};
 use cgka_traits::{GroupId, MessageId};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{
+    Arc, Mutex, OnceLock, Weak,
+    atomic::{AtomicBool, Ordering},
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct Observation {
@@ -27,6 +30,7 @@ pub struct Probe {
     own_leaf: u32,
     content: MessageId,
     observed: Mutex<Observation>,
+    hold_leave_reproposal: AtomicBool,
 }
 static PROBES: OnceLock<Mutex<Vec<Weak<Probe>>>> = OnceLock::new();
 impl Probe {
@@ -36,6 +40,7 @@ impl Probe {
             own_leaf,
             content,
             observed: Mutex::new(Observation::default()),
+            hold_leave_reproposal: AtomicBool::new(false),
         });
         let mut probes = PROBES
             .get_or_init(Mutex::default)
@@ -45,6 +50,11 @@ impl Probe {
         assert!(probes.len() < 4, "bounded convergence observer capacity");
         probes.push(Arc::downgrade(&probe));
         probe
+    }
+    /// Explicit negative test gate; never changes a durable intent or grant.
+    pub fn hold_leave_reproposal(self: &Arc<Self>) -> LeaveReproposalHold {
+        assert!(!self.hold_leave_reproposal.swap(true, Ordering::SeqCst));
+        LeaveReproposalHold(Arc::downgrade(self))
     }
     pub fn snapshot(&self) -> Observation {
         self.observed
@@ -120,4 +130,21 @@ pub(crate) fn superseded(group: &GroupId, own_leaf: u32, content: &MessageId) {
             o.superseded_processed = true;
         }
     });
+}
+
+/// Releasing this scoped test gate allows the normal public proposal owner.
+pub struct LeaveReproposalHold(Weak<Probe>);
+impl Drop for LeaveReproposalHold {
+    fn drop(&mut self) {
+        if let Some(probe) = self.0.upgrade() {
+            probe.hold_leave_reproposal.store(false, Ordering::SeqCst);
+        }
+    }
+}
+pub(crate) fn leave_reproposal_held(group: &GroupId, own_leaf: u32) -> bool {
+    let mut held = false;
+    visit(group, own_leaf, |probe, _| {
+        held |= probe.hold_leave_reproposal.load(Ordering::SeqCst);
+    });
+    held
 }
