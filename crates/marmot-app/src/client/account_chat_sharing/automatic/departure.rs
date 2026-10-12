@@ -530,6 +530,8 @@ impl AppClient {
                     intent.action_id,
                     body,
                 );
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_automatic_progress("departure_intent_applied", entry, "committed");
                 entry.renew = true;
                 self.invalidate_after_account_departure();
                 self.notify_mirrored_presentation_changed();
@@ -735,6 +737,16 @@ impl AppClient {
                 &fragments,
             );
         }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_trace_automatic_progress(
+            "departure_prepared",
+            entry,
+            if kind == AccountSharedBodyKind::DepartureIntent {
+                "intent"
+            } else {
+                "receipt"
+            },
+        );
         entry.departures.pending = Some(Publication {
             action_id: row.intent.action_id,
             is_reply,
@@ -751,6 +763,16 @@ impl AppClient {
             return Ok(());
         }
         if let Some(publication) = entry.departures.pending.take() {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_automatic_progress(
+                "departure_published",
+                entry,
+                if publication.is_reply {
+                    "reply"
+                } else {
+                    "intent_or_completion"
+                },
+            );
             if publication.is_reply {
                 self.app
                     .account_storage(&self.state.label)

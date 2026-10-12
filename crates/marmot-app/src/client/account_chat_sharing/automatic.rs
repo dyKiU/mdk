@@ -215,9 +215,12 @@ impl AppClient {
         outcome: &str,
     ) {
         let summary = format!(
-            "{outcome}, ready={}, recipient_channel={}, pending_bodies={}, pending_catalog={}, pending_records={}, sent_groups={}, catalog_cursor={}, renew={}, {}",
+            "{outcome}, ready={}, handshake_published={}, recipient_channel={}, local_is_lower={}, departure_pending={}, pending_bodies={}, pending_catalog={}, pending_records={}, sent_groups={}, catalog_cursor={}, renew={}, {}",
             entry.ready,
+            entry.handshake_published,
             entry.recipient,
+            entry.policy.local_device < entry.policy.peer_device,
+            entry.departures.pending.is_some(),
             entry.pending.len(),
             entry.pending_catalog.is_some(),
             entry.records.has_pending(),

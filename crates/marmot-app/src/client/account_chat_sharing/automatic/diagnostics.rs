@@ -103,7 +103,10 @@ impl Drop for TraceRoot {
     }
 }
 pub(super) fn trace_root(root: &std::path::Path, owner: &'static str) -> TraceRoot {
-    assert!(matches!(owner, "source" | "recipient"));
+    assert!(matches!(
+        owner,
+        "source" | "source_a" | "source_b" | "recipient"
+    ));
     let mut roots = traced_roots().lock().unwrap();
     assert!(roots.len() < 8 && roots.insert(root.to_owned(), owner).is_none());
     TraceRoot(root.to_owned())

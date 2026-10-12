@@ -64,6 +64,14 @@ pub(super) async fn verify_or_depart(
     relay_database: &dyn nostr_relay_builder::prelude::NostrDatabase,
     ordered: bool,
 ) {
+    let trace_roots: [std::path::PathBuf; 3] =
+        std::array::from_fn(|index| apps[index].account_home().root().to_path_buf());
+    let _a_trace =
+        crate::AppClient::test_capture_account_chat_progress(&trace_roots[0], "source_a");
+    let _b_trace =
+        crate::AppClient::test_capture_account_chat_progress(&trace_roots[1], "source_b");
+    let _c_trace =
+        crate::AppClient::test_capture_account_chat_progress(&trace_roots[2], "recipient");
     let prior = fresh_rejoin.then(|| {
         std::array::from_fn::<_, 2, _>(|index| {
             let (device, origin) = source_observation(&apps[index], &peer.group);
@@ -116,12 +124,6 @@ async fn verify_fresh_sources(
     prior: [PriorSource; 2],
     replay: std::sync::Arc<crate::client::DepartureReplayProbe>,
 ) {
-    let trace_roots: [std::path::PathBuf; 3] =
-        std::array::from_fn(|index| apps[index].account_home().root().to_path_buf());
-    let _a_trace = crate::AppClient::test_capture_account_chat_progress(&trace_roots[0], "source");
-    let _b_trace = crate::AppClient::test_capture_account_chat_progress(&trace_roots[1], "source");
-    let _c_trace =
-        crate::AppClient::test_capture_account_chat_progress(&trace_roots[2], "recipient");
     assert_eq!(stored_indices(&peer.app, &peer.group).len(), 1);
     let old = runtimes[2]
         .account_chat_departure_state("test", &peer.group)
