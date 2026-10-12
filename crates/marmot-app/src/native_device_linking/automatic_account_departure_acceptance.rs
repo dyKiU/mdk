@@ -77,6 +77,7 @@ pub(super) async fn verify(
                 .is_none()
         );
     }
+    let mut held_commit_id = None;
     let mut publication_gate = if ordered {
         let account = peer.app.account_home().account("test").unwrap();
         Some(
@@ -102,10 +103,11 @@ pub(super) async fn verify(
         .operation_id
         .expect("paired negative intent must be durable");
     if let Some((held, _release)) = publication_gate.as_mut() {
-        let _held_message = tokio::time::timeout(std::time::Duration::from_secs(20), held)
+        let held_message = tokio::time::timeout(std::time::Duration::from_secs(20), held)
             .await
             .expect("actual D original commit must reach publication gate")
             .unwrap();
+        held_commit_id = Some(held_message.id);
         assert_administrator_holds_only_a(peer, epoch_before);
         assert!(runtimes[1].storage_is_closed());
         eprintln!("account_departure_ordering_a_only_commit_held=true b_not_yet_published=true");
@@ -204,6 +206,13 @@ pub(super) async fn verify(
                 std::time::Duration::from_secs(5),
                 std::panic::AssertUnwindSafe(async {
             let indices = stored_indices(&peer.app, &peer.group);
+            if let Some(id) = &held_commit_id {
+                use cgka_traits::storage::MessageStorage;
+                let event = nostr_relay_builder::prelude::EventId::from_slice(id.as_slice()).unwrap();
+                let retained = relay_database.event_by_id(&event).await.map(|row|row.is_some()).map_err(|_|"Unknown");
+                let received = match reopened_app.account_storage("test").unwrap().get_message(id) { Ok(row)=>Ok(Some((row.epoch.0,row.state))), Err(cgka_traits::StorageError::NotFound)=>Ok(None), Err(_)=>Err("Unknown") };
+                eprintln!("account_departure_timeout_exact_d_commit_relay={retained:?} b_received={received:?}");
+            }
             if let Some(published) = &published_branch {
                 let observed = current_branch_observation(&reopened_app.account_storage("test").unwrap(),&peer.group).map(|current| (current.epoch==published.epoch,current.authenticator_digest==published.authenticator_digest,current.selected_head_digest==published.selected_head_digest)).map_err(|_|"Unknown");
                 eprintln!("account_departure_timeout_b_current_matches_published_branch={observed:?}");
