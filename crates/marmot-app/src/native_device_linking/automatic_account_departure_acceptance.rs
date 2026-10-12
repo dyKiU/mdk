@@ -265,7 +265,7 @@ pub(super) async fn verify(
                 let observed = current_branch_observation(&reopened_app.account_storage("test").unwrap(),&peer.group).map(|current| (current.epoch==published.epoch,current.authenticator_digest==published.authenticator_digest,current.selected_head_digest==published.selected_head_digest)).map_err(|_|"Unknown");
                 eprintln!("account_departure_timeout_b_current_matches_published_branch={observed:?}");
             }
-            eprintln!("account_departure_public_leave_observation={:?}", observe_public_leave_failure(&reopened_app, peer, relay_database).await.map(|o| (o.administrator_epoch,o.administrator_pending_proposals,o.source_sent_proposals,o.administrator_received_proposals,o.administrator_processed_proposals,o.source_pending_fanouts,o.relay_retained_proposals,o.same_epoch,o.same_epoch_authenticator,o.same_selected_head,o.source_proposal_states,o.sent_commits,o.received_commit_states,o.relay_commits)).map_err(|_| "Unknown"));
+            eprintln!("account_departure_public_leave_observation={:?}", observe_public_leave_failure(&reopened_app, peer, relay_database).await.map_err(|_| "Unknown"));
             eprintln!(
                 "account_departure_timeout_d_leaves={} a_present={} b_present={}",
                 indices.len(),
