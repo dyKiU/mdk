@@ -14,6 +14,13 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- Account-wide chat departure state/leave methods support ordinary and paired-only
+  callers with pending, administrator and source-readiness reasons. State results
+  own their optional operation strings and use the matching deep-free. Appends
+  typed send-denial status133, preserving121–132; ordinary device-local leave and
+  standard public SelfRemove wire remain available.
+
+
 - Add bounded paired chat pages and cancellable account chat/conversation windows.
   Snapshot tagged unions keep ordinary MLS authority distinct from paired-source
   observations. Root snapshots/pages deep-free all owned union payloads; cursors

@@ -215,6 +215,7 @@ enum MarmotStatus
   MARMOT_STATUS_DEVICE_REVOCATION_BUSY = 130,
   MARMOT_STATUS_DEVICE_REVOCATION_STALE_REVISION = 131,
   MARMOT_STATUS_DEVICE_REVOCATION_RUNTIME_UNAVAILABLE = 132,
+  MARMOT_STATUS_ACCOUNT_CHAT_DEPARTURE_DENIED = 133,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -505,6 +506,22 @@ typedef enum MarmotSendMaintenanceDisposition {
   MARMOT_SEND_MAINTENANCE_DISPOSITION_READY,
   MARMOT_SEND_MAINTENANCE_DISPOSITION_POST_JOIN_ROTATION_PENDING_RETRYABLE,
 } MarmotSendMaintenanceDisposition;
+
+typedef enum MarmotAccountChatDepartureStatus {
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_STATUS_AVAILABLE,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_STATUS_PENDING,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_STATUS_NEEDS_ADMINISTRATOR,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_STATUS_COMPLETED,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_STATUS_UNAVAILABLE,
+} MarmotAccountChatDepartureStatus;
+
+typedef enum MarmotAccountChatDepartureReason {
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_REASON_NONE,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_REASON_AWAITING_SOURCES,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_REASON_AWAITING_ADMINISTRATOR,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_REASON_SHARING_UNAVAILABLE,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_REASON_NO_ACCEPTED_CHAT,
+} MarmotAccountChatDepartureReason;
 
 /**
  * Why recovery parked. Current policy parks only the first five;
@@ -2638,6 +2655,12 @@ typedef struct MarmotSendSummary {
   enum MarmotSendAcceptDisposition accept_disposition;
   enum MarmotSendMaintenanceDisposition maintenance_disposition;
 } MarmotSendSummary;
+
+typedef struct MarmotAccountChatDepartureState {
+  enum MarmotAccountChatDepartureStatus status;
+  enum MarmotAccountChatDepartureReason reason;
+  char *operation_id;
+} MarmotAccountChatDepartureState;
 
 /**
  * Opaque application-owned group state. Empty data is distinct from absence.
@@ -6976,6 +6999,36 @@ MarmotStatus marmot_leave_group(const struct MarmotClient *client,
                                 const char *account_ref,
                                 const char *group_id_hex,
                                 struct MarmotSendSummary **out);
+
+/**
+ * Account-wide local/paired departure readiness; no synthetic MLS management.
+ * Free with marmot_account_chat_departure_state_free.
+ *
+ * # Safety
+ * `client` must be a live handle; string arguments must be valid
+ * NUL-terminated strings (nullable ones may be NULL); array
+ * arguments must hold their stated length (or be NULL with
+ * length 0); out-pointers must be valid.
+ */
+MarmotStatus marmot_account_chat_departure_state(const struct MarmotClient *client,
+                                                 const char *account_ref,
+                                                 const char *group_id_hex,
+                                                 struct MarmotAccountChatDepartureState **out);
+
+/**
+ * Explicit account-wide negative intent. Pending does not mean remote MLS removal.
+ * Free with marmot_account_chat_departure_state_free.
+ *
+ * # Safety
+ * `client` must be a live handle; string arguments must be valid
+ * NUL-terminated strings (nullable ones may be NULL); array
+ * arguments must hold their stated length (or be NULL with
+ * length 0); out-pointers must be valid.
+ */
+MarmotStatus marmot_leave_account_chat(const struct MarmotClient *client,
+                                       const char *account_ref,
+                                       const char *group_id_hex,
+                                       struct MarmotAccountChatDepartureState **out);
 
 /**
  * Delete this group's local app data without an MLS leave. Cancel
@@ -13198,6 +13251,16 @@ void marmot_account_conversation_window_snapshot_free(struct MarmotAccountConver
  * this library.
  */
 void marmot_device_revocation_snapshot_free(struct MarmotDeviceRevocationSnapshot *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_account_chat_departure_state_free(struct MarmotAccountChatDepartureState *ptr);
 
 /**
  * Free a value of this type returned by this library. NULL

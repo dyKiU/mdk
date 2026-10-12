@@ -5082,3 +5082,28 @@ pub async fn begin_device_revocation( &self, account_ref: String, target_device:
 Create a fresh authenticated original review for an exact 32-byte device selector. Default builds refuse before account effects; explicit approval is separate. See [exact-device revocation](DEVICE-REVOCATION.md).
 
 [Source](src/commands/device_revocation.rs#L13)
+
+<details>
+<summary>New exports — complete and organize before merging</summary>
+
+### `Marmot::account_chat_departure_state`
+
+```rust
+pub async fn account_chat_departure_state( &self, account_ref: String, group_id_hex: String, ) -> Result<AccountChatDepartureStateFfi, MarmotKitError>
+```
+
+Read the account-wide departure state for this canonical chat, including a paired-only chat. Use this dedicated state rather than treating a mirrored row as local MLS membership. `Available` requires current authenticated source coverage; `Pending`, `NeedsAdministrator` and `Unavailable` retain their reason. Only `Completed` confirms actual ordinary removals and peer receipts. Treat the optional operation ID as an opaque observation; the runtime owns retries and durable progress. Without approved sharing this returns `Unavailable` with no device-only leave effect.
+
+[Source](src/commands/account_chat_departure.rs#L8)
+
+### `Marmot::leave_account_chat`
+
+```rust
+pub async fn leave_account_chat( &self, account_ref: String, group_id_hex: String, ) -> Result<AccountChatDepartureStateFfi, MarmotKitError>
+```
+
+Request account-wide departure using authenticated current source origins. Actual ordinary source devices publish standard SelfRemove; a paired-only caller never acquires ordinary membership. Present `Pending` honestly while sources are offline or removals await an administrator. Preserve actual-member management/last-administrator checks and explicit demotion journeys. Poll `account_chat_departure_state` for completion; normal sends are refused by `AccountChatDepartureDenied` after the negative intent. Use `leave_group` only for an explicitly device-local departure. Missing sharing/source coverage returns `Unavailable` without silently performing that alternative.
+
+[Source](src/commands/account_chat_departure.rs#L22)
+
+</details>

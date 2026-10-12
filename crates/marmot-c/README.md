@@ -549,6 +549,18 @@ Approval calls are blocking and callback-safe. Status values 121–125 append
 account-sharing errors without renumbering existing values. No observation DTO
 or list entry grants approval.
 
+### Account-wide chat departure
+
+Use `marmot_account_chat_departure_state` and `marmot_leave_account_chat` for
+ordinary or paired-only chats, following the shared method contract. Pending
+sources or administrator requirements do not mean remote MLS leaves were
+removed. Results own their optional operation string and have a matching
+state deep-free; inputs remain borrowed. Required outputs are cleared before
+effects. `marmot_leave_group` retains explicitly device-local semantics.
+Status133 appends the typed account-departure send denial without changing
+121–132. Missing sharing/coverage returns an unavailable business state with
+no fallback device leave.
+
 ## Account chat views
 
 See the shared [account chat view contract](../marmot-uniffi/ACCOUNT-CHAT-VIEWS.md).
