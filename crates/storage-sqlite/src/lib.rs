@@ -214,6 +214,8 @@ pub mod account_chat_departure;
 #[cfg(feature = "experimental-device-sync")]
 mod account_chat_legacy_acceptance;
 #[cfg(feature = "experimental-device-sync")]
+mod account_chat_origin_observation;
+#[cfg(feature = "experimental-device-sync")]
 mod account_chat_record_stream;
 #[cfg(feature = "experimental-device-sync")]
 mod account_chat_send_queue;
