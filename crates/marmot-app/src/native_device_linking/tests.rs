@@ -303,7 +303,9 @@ pub(super) mod actual {
         // Establish the exact ordinary A/B leaves before managed workers own any engines.
         let two_source_peer = if matches!(
             scenario,
-            ApprovalScenario::AutomaticTwoLegitimateSources
+            ApprovalScenario::AutomaticDelayedRequestCollision
+                | ApprovalScenario::AutomaticPendingRequestRestart
+                | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
                 | ApprovalScenario::AutomaticAccountDeparture
                 | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
@@ -326,6 +328,16 @@ pub(super) mod actual {
         };
         let legacy_encoding = (scenario == ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin)
             .then(|| crate::AppClient::test_legacy_account_chat_encoding(dirs[0].path()));
+        if matches!(
+            scenario,
+            ApprovalScenario::AutomaticDelayedRequestCollision
+                | ApprovalScenario::AutomaticPendingRequestRestart
+        ) {
+            assert!(
+                two_source_peer.is_some(),
+                "restart/collision fixture must establish the real ordinary two-source chat"
+            );
+        }
         let runtimes = apps.clone().map(MarmotAppRuntime::new);
         runtimes[0].reconcile_accounts().await.unwrap();
         // Establish the real incoming chat while A is the sole active public
