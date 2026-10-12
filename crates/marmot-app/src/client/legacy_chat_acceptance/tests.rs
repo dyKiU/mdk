@@ -3,6 +3,8 @@
 use super::*;
 use crate::{DeviceLinkingPhase, DeviceLinkingSession, MarmotApp, MarmotAppRuntime};
 use cgka_traits::{
+    agent_text_stream::AgentTextStreamQuicPolicyV1,
+    app_components::{AppComponentData, NOSTR_ROUTING_COMPONENT_ID, encode_nostr_routing_v1},
     engine::{CreateGroupRequest, SendIntent},
     storage::MessageStorage,
 };
@@ -69,6 +71,7 @@ async fn seed_actual_pruned_legacy(app: &MarmotApp) -> (GroupId, [u8; 32], [u8; 
     // ordinary App projection, before an acceptance ledger existed. There is
     // no deletion of an existing ledger or manual MLS/projection SQL.
     let mut client = app.client("test").await.unwrap();
+    let routing = app.new_nostr_routing(None).unwrap();
     let (group, _effects) = client
         .runtime
         .create_group(CreateGroupRequest {
@@ -76,7 +79,18 @@ async fn seed_actual_pruned_legacy(app: &MarmotApp) -> (GroupId, [u8; 32], [u8; 
             description: String::new(),
             members: vec![],
             required_features: vec![],
-            app_components: vec![],
+            // The exact standard App components, with optional image and
+            // disappearing-message settings left at their ordinary defaults.
+            app_components: vec![
+                AppComponentData {
+                    component_id: NOSTR_ROUTING_COMPONENT_ID,
+                    data: encode_nostr_routing_v1(&routing).unwrap(),
+                },
+                AgentTextStreamQuicPolicyV1::user_to_agent_default()
+                    .to_app_component_data()
+                    .unwrap(),
+                client.encrypted_media_component_for_new_group().unwrap(),
+            ],
             initial_admins: vec![],
         })
         .await
