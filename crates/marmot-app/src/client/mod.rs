@@ -7328,3 +7328,10 @@ mod poll_send_validation_tests {
         ));
     }
 }
+
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+pub(crate) use account_chat_sharing::DepartureReplayProbe;

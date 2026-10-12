@@ -2,7 +2,7 @@
 use super::*;
 mod departure;
 #[cfg(all(test, feature = "test-policy-overrides"))]
-mod departure_replay_probe;
+pub(super) mod departure_replay_probe;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) mod diagnostics;
 mod records;

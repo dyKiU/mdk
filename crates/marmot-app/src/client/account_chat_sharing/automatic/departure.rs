@@ -523,6 +523,13 @@ impl AppClient {
                         },
                     )
                     .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                super::departure_replay_probe::observe_received(
+                    &entry.policy,
+                    entry.channel.scope().nonce,
+                    intent.action_id,
+                    body,
+                );
                 entry.renew = true;
                 self.invalidate_after_account_departure();
                 self.notify_mirrored_presentation_changed();
@@ -610,6 +617,32 @@ impl AppClient {
             return Ok(());
         }
         self.departure_original(entry).map_err(|_| failure())?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Some(fragments) = super::departure_replay_probe::prepared_replay(
+            self.app.account_home().root(),
+            &entry.policy,
+            entry.channel.scope().nonce,
+        ) {
+            if entry.next_body + fragments.len() as u64 > CHANNEL_BODY_BUDGET {
+                entry.renew = true;
+                return Ok(());
+            }
+            // Exact retained old negative bytes pass through ordinary fresh
+            // sealing/publication; this helper grants no channel or intent.
+            self.departure_original(entry).map_err(|_| failure())?;
+            for bytes in fragments {
+                entry.pending.push_back(PendingBody {
+                    kind: AccountSharedBodyKind::DepartureIntent,
+                    bytes,
+                });
+            }
+            super::departure_replay_probe::mark_queued(
+                self.app.account_home().root(),
+                &entry.policy,
+                entry.channel.scope().nonce,
+            );
+            return Ok(());
+        }
         let storage = self
             .app
             .account_storage(&self.state.label)
@@ -685,6 +718,22 @@ impl AppClient {
                 })
                 .map_err(|_| failure())?,
             });
+        }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if kind == AccountSharedBodyKind::DepartureIntent {
+            let fragments: Vec<_> = entry
+                .pending
+                .iter()
+                .map(|pending| pending.bytes.clone())
+                .collect();
+            super::departure_replay_probe::capture(
+                self.app.account_home().root(),
+                &entry.policy,
+                &row.intent,
+                entry.channel.scope().nonce,
+                &bytes,
+                &fragments,
+            );
         }
         entry.departures.pending = Some(Publication {
             action_id: row.intent.action_id,

@@ -1,7 +1,7 @@
 //! Source-only regression fixture: delay a genuine higher-device Request past
 //! the lower-device Request's actual Consent. No permission DTO is constructed.
 use super::*;
-use futures_util::FutureExt;
+use futures::FutureExt;
 use std::{
     panic::AssertUnwindSafe,
     path::PathBuf,

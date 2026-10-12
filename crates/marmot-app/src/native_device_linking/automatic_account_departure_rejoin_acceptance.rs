@@ -79,6 +79,13 @@ pub(super) async fn verify_or_depart(
             }
         })
     });
+    let replay = prior.as_ref().map(|prior| {
+        crate::AppClient::test_capture_departure_replay(
+            apps[2].account_home().root(),
+            &peer.group,
+            &[prior[0].device, prior[1].device],
+        )
+    });
     Box::pin(super::automatic_account_departure_acceptance::verify(
         apps,
         runtimes,
@@ -89,7 +96,15 @@ pub(super) async fn verify_or_depart(
     ))
     .await;
     if let Some(prior) = prior {
-        Box::pin(verify_fresh_sources(apps, runtimes, peer, url, prior)).await;
+        Box::pin(verify_fresh_sources(
+            apps,
+            runtimes,
+            peer,
+            url,
+            prior,
+            replay.unwrap(),
+        ))
+        .await;
     }
 }
 
@@ -99,6 +114,7 @@ async fn verify_fresh_sources(
     peer: &TwoSourcePeer,
     url: &str,
     prior: [PriorSource; 2],
+    replay: std::sync::Arc<crate::client::DepartureReplayProbe>,
 ) {
     let trace_roots: [std::path::PathBuf; 3] =
         std::array::from_fn(|index| apps[index].account_home().root().to_path_buf());
@@ -289,6 +305,17 @@ async fn verify_fresh_sources(
             )
             .await;
         }
+        assert_eq!(replay.captured_peer_count(), 2);
+        replay.request_replay();
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while replay.received_peer_count() != 2 { tokio::time::sleep(Duration::from_millis(20)).await; }
+        }).await.expect("both real source peers must authenticate the exact old intent under fresh queued channel nonces");
+        // The old authenticated negative cannot erase new source lineages.
+        let after_replay = managed[0].send_message("test", &peer.group, b"fresh lineage survives genuine old negative replay".to_vec()).await.unwrap();
+        assert!(after_replay.published == 1 && after_replay.message_ids.len() == 1);
+        wait_for_paired_records(&runtimes[2], &peer.group, &after_replay.message_ids, None).await;
+        let (_, origin) = source_observation(&reopened[0], &peer.group);
+        wait_for_exact_source_record(&apps[2], &peer.group, &after_replay.message_ids[0], &prior[0].device, origin).await;
         let still_available = runtimes[2]
             .account_chat_departure_state("test", &peer.group)
             .await

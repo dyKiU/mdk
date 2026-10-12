@@ -156,6 +156,15 @@ impl TwoSourcePeer {
         })
         .await
         .expect("D must confirm only A device departure while B actual leaf survives");
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                let source = apps[1].account_storage("test").unwrap();
+                let recipient = self.app.account_storage("test").unwrap();
+                let (source_epoch, recipient_epoch, authenticator_equal, head_equal) = super::automatic_account_departure_acceptance::compare_actual_branches_for_test(&source, &recipient, &self.group).expect("ordinary surviving-source convergence observation must not hide storage failure");
+                if source_epoch == recipient_epoch && authenticator_equal && head_equal { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        }).await.expect("B and D must reach the same actual canonical branch before the surviving-source steady-state send");
         let future = runtimes[1]
             .send_message(
                 "test",
