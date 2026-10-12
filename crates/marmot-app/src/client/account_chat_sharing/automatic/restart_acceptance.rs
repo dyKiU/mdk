@@ -216,24 +216,32 @@ impl AppClient {
                     }
                     let low = &clients[lower].account_sharing_owner.automatic[&ids[lower]];
                     let high = &clients[higher].account_sharing_owner.automatic[&ids[higher]];
-                    let record = ready_rows(clients[1].current_mirrored_message_page(
-                        ordinary_group,
-                        None,
-                        128,
-                        now,
-                    ))
-                    .iter()
-                    .any(|row| {
-                        hex::encode(row.record.event_id) == *witness
-                            && !row.record.deleted
-                            && !row.record.payload.is_empty()
-                    });
-                    let catalog = ready_rows(clients[1].current_mirrored_catalog_page(None, 128))
+                    clients[1].automatic_policy_current(&pair[1]).unwrap();
+                    let scope = clients[1].presentation_scope(&pair[1]).unwrap();
+                    let storage = apps[1].account_storage("test").unwrap();
+                    let record = storage
+                        .mirrored_chat_message_storage()
+                        .unwrap()
+                        .mirrored_chat_message_page(&scope, ordinary_group, None, 128, now)
+                        .unwrap()
                         .iter()
                         .any(|row| {
-                            row.entry.group_id == *ordinary_group
-                                && row.entry.state == MirroredChatState::Active
+                            hex::encode(row.event_id) == *witness
+                                && !row.deleted
+                                && !row.payload.is_empty()
                         });
+                    let catalog = storage
+                        .mirrored_chat_catalog_storage()
+                        .unwrap()
+                        .mirrored_chat_catalog_page(&scope, None, 128)
+                        .unwrap()
+                        .iter()
+                        .any(|row| {
+                            row.group_id == *ordinary_group
+                                && row.state == MirroredChatState::Active
+                        });
+                    clients[1].automatic_policy_current(&pair[1]).unwrap();
+                    assert_eq!(clients[1].presentation_scope(&pair[1]).unwrap(), scope);
                     if low.ready
                         && high.ready
                         && !low.recipient
@@ -278,14 +286,6 @@ async fn tick(client: &mut AppClient, id: [u8; 32]) {
     let result = client.automatic_sharing_tick(&mut entry).await;
     client.account_sharing_owner.automatic.insert(id, entry);
     result.unwrap();
-}
-
-fn ready_rows<T>(result: Result<Vec<T>, AccountSharingError>) -> Vec<T> {
-    match result {
-        Ok(rows) => rows,
-        Err(AccountSharingError::NotReady) => Vec::new(),
-        Err(_) => panic!("unexpected typed sharing query failure"),
-    }
 }
 
 fn current_policy_ready(client: &mut AppClient, policy: &ApprovedAccountSharingPolicy) -> bool {
