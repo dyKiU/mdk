@@ -153,11 +153,8 @@ impl AppClient {
         let Some(owner) = diagnostics::owner(self.app.account_home().root()) else {
             return;
         };
-        static SEEN: std::sync::OnceLock<
-            std::sync::Mutex<
-                std::collections::BTreeSet<(std::path::PathBuf, &'static str, String)>,
-            >,
-        > = std::sync::OnceLock::new();
+        type SeenStages = std::collections::BTreeSet<(std::path::PathBuf, &'static str, String)>;
+        static SEEN: std::sync::OnceLock<std::sync::Mutex<SeenStages>> = std::sync::OnceLock::new();
         let mut seen = SEEN.get_or_init(Default::default).lock().unwrap();
         let key = (
             self.app.account_home().root().to_owned(),

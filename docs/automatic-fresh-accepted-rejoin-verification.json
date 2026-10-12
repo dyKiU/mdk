@@ -1,0 +1,769 @@
+{
+  "schema_version": 1,
+  "status": "scoped development checkpoint; fork publication and promotion deferred",
+  "dependency_source_capture": "4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21",
+  "qualified_legacy_base": "160f34641df79c660022cc86bad7caaef273e05e",
+  "final_tested_capture": "c6acad1ea4387d73a8005c1a31bf49bd75bae81f",
+  "implementation": [
+    "Authenticated catalog and record envelopes bind exact actual accepted-origin ID/order; optional None retains old canonical wire bytes.",
+    "Private25 retains negative origins, monotone current lineage and replace-safe guards; stale Active frames cannot advance lineage.",
+    "Old unbound Left requires fresh accepted origin and strictly newer actual source epoch; Deleted never reopens. Old/same/missing-origin records cannot attach to a new lineage.",
+    "Persisted record optional origin is strictly decoded from both SQL columns; encrypted reopen and exact idempotent reimport retain origin.",
+    "Migration activation triggers apply only to actual tables; views remain schema-fingerprint validated."
+  ],
+  "actual_acceptance": [
+    "Actual public source SelfRemove, recipient terminal/reopen, genuine new Welcome or recovery offer and explicit public acceptance, actual canonical D-to-A decryption and C projection, strict positive runtime/storage closures.",
+    "Separate actual old-format initial catalog/records/withdrawal omits optional metadata only before existing digest/authenticated sealing, then genuine fresh Welcome/public acceptance restores canonical record."
+  ],
+  "red_evidence": {
+    "actual_rejoin": "red-v2 reaches fresh actual accepted source and canonical decryption but C restoration times out; no stack/resource abort",
+    "persisted_origin": "record-origin-red-v9 has two genuine SQL failures: encrypted read drops origin and exact reimport rejects it"
+  },
+  "cohort_reuse": {
+    "v10_to_v12": "Only one traits snapshot macro comma changes; all App/storage products and fixtures identical.",
+    "v13_to_final": "Diagnostic SeenStages type alias and boxed actual Welcome enum payload are TEST-only. Actual new/old-format journeys rerun on final boxed fixture; source2/privacy1 preserve the same actions and authority.",
+    "v12_to_v13": "Only map_err identity becomes inspect_err for a diagnostic observation; original call, error and guard order unchanged. Source2/privacy1 executed on final capture.",
+    "filter_empty": "v12 app-source-privacy selected zero tests and is explicitly unqualified; corrected v13 requires exact2 plus actual privacy1 with zero ignored tests."
+  },
+  "limits": [
+    "Established composed App fixture uses 8MiB current-thread harness; global runner stack remains 4MiB. No production-stack/native app claim.",
+    "Scoped crate strict/default/fmt checks only; repository full just fast-ci is required once on combined25/26 before fork publication.",
+    "SDK de38 fifteen artifacts unchanged. No SDK rebuild, platform build, app/phone deployment or full backend qualification.",
+    "Synthetic SQL replay/shape/migration controls prove persistence invariants, not permission; only genuine App journeys establish acceptance.",
+    "Diagnostic hooks compile only under tests and test-policy-overrides, emit bounded static categories/counts/booleans with no identifiers/payloads."
+  ],
+  "cohorts": [
+    {
+      "prefix": "automatic-fresh-accepted-rejoin-red-v1",
+      "capture": "4ecd377e86d754f196c3d067c296c21d799c0d89",
+      "source_commit": "dd69ac04e5c70e0e33129a4a5c11a8ee3246155f",
+      "input_count": 2648,
+      "manifest": "build/results/automatic-fresh-accepted-rejoin-red-v1-inputs.json",
+      "manifest_sha256": "708b0f6a8d186afe9d492027801a75126c632c95f7f8d49975165efb35e836fb",
+      "result": "build/results/automatic-fresh-accepted-rejoin-red-v1-results.json",
+      "result_sha256": "efb4bacdb2db4996868f591ee81584631c7cd7ee657d76cea496a61a335a58b3",
+      "gates": [
+        {
+          "gate": "baseline",
+          "exit": 101,
+          "actual_counts": {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-fresh-accepted-rejoin-red-v1-baseline.log",
+          "log_sha256": "a8312257839c81f9823548356a4f9cb20f251eb96d673b4d4a79cb258803dfbd",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-fresh-accepted-rejoin-red-v2",
+      "capture": "06ae744acb2dd530b93ad7ef1ce6c9400f0c5916",
+      "source_commit": "dd69ac04e5c70e0e33129a4a5c11a8ee3246155f",
+      "input_count": 2648,
+      "manifest": "build/results/automatic-fresh-accepted-rejoin-red-v2-inputs.json",
+      "manifest_sha256": "88c9e8e742c3dd97feddbf8c92f89e809e2e5b1d6536e64ede7145470dbc90fa",
+      "result": "build/results/automatic-fresh-accepted-rejoin-red-v2-results.json",
+      "result_sha256": "7cff29b3fbb135aca6e791d7cab301f514ca0595186edc7a482a7682d32ec853",
+      "gates": [
+        {
+          "gate": "baseline",
+          "exit": 101,
+          "actual_counts": {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-fresh-accepted-rejoin-red-v2-baseline.log",
+          "log_sha256": "24f9da26d247acca83e093ae4c6b1165aa4cffaecea83b2b02e7ff31a7bc566c",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-rejoin-origin-green-v2",
+      "capture": "2cff2db001f737df34aead16a272dca5fb2e380d",
+      "source_commit": "4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21",
+      "input_count": 2655,
+      "manifest": "build/results/automatic-rejoin-origin-green-v2-inputs.json",
+      "manifest_sha256": "c186ef2c2acbef73da1a1aa8112100b7ead2bce2643bddc4bd8b5ea82bc975d5",
+      "result": "build/results/automatic-rejoin-origin-green-v2-results.json",
+      "result_sha256": "e62777acf6b6b8f51207af0358c64ca68140da5e7b42295d21ea4e1559c471aa",
+      "gates": [
+        {
+          "gate": "storage-catalog",
+          "exit": 101,
+          "actual_counts": {
+            "passed": 0,
+            "failed": 10,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-green-v2-storage-catalog.log",
+          "log_sha256": "a7c33e81482218dc9438a605d4e059be62f2ccc461db82a34a54c440d3e61d93",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-rejoin-origin-green-v3",
+      "capture": "e4de39da4e9b5a06e5347f67d1e4a02f2e47e0bf",
+      "source_commit": "4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21",
+      "input_count": 2655,
+      "manifest": "build/results/automatic-rejoin-origin-green-v3-inputs.json",
+      "manifest_sha256": "b6489e95d32adb2b347c9f6c0a8ba81f12e3db08dd302f24baa42fff951222be",
+      "result": "build/results/automatic-rejoin-origin-green-v3-results.json",
+      "result_sha256": "335314d9d12274f8e33fe7dd7b3985640f1b4ff155dd15d48afb79c71a6faea5",
+      "gates": [
+        {
+          "gate": "storage-catalog",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 10,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-green-v3-storage-catalog.log",
+          "log_sha256": "bca8db78d7c997c6f19de3280045e93575617ae4b085518322667a81052b574e",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "storage-records",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-green-v3-storage-records.log",
+          "log_sha256": "41e8229506a0983640f49b265ac6652cdd7ea3df4f20fa851e63829fa3c066fa",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "migration",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-green-v3-migration.log",
+          "log_sha256": "fb125fdeea1575591ca83a0d8327105cdb506cc6c1d054371aa2114e7cc8bc09",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "source-reader",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-green-v3-source-reader.log",
+          "log_sha256": "02cf2be8fb5f328f86045c51db47181fc427154cd4c4f7e85aae3b8b398bca32",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "actual-rejoin",
+          "exit": 101,
+          "actual_counts": null,
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-green-v3-actual-rejoin.log",
+          "log_sha256": "0bd827a24f19b284955cd61ea885415b3bf2407f9de7224ed35568f7509fad82",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-rejoin-origin-green-v4",
+      "capture": "2292914f35231b2d28a12fd0c5b2b2253c5b9cff",
+      "source_commit": "4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21",
+      "input_count": 2655,
+      "manifest": "build/results/automatic-rejoin-origin-green-v4-inputs.json",
+      "manifest_sha256": "ca76abdefd2fad96c6de84c473c65f9ec678338d4ed471d5b310fb4d9679db40",
+      "result": "build/results/automatic-rejoin-origin-green-v4-results.json",
+      "result_sha256": "1d2cbf5a94a62a53ccb3a2c2df74af6e7f3f329c43d1ae8ebe33f4652535ba62",
+      "gates": [
+        {
+          "gate": "actual-rejoin",
+          "exit": 101,
+          "actual_counts": {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-green-v4-actual-rejoin.log",
+          "log_sha256": "e1868d14be8921658916b8be2be1faf5cfa4bd0ffbd141cfd6442dbc835f7956",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-rejoin-origin-diagnostic-v5b",
+      "capture": "35b3c2fb40a0f13e51071df3d63b4a3351e27c9d",
+      "source_commit": "4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21",
+      "input_count": 2655,
+      "manifest": "build/results/automatic-rejoin-origin-diagnostic-v5b-inputs.json",
+      "manifest_sha256": "ee8f380e9495a517346471d8e077eee751af71d0d0c9343ea2e187653b109889",
+      "result": "build/results/automatic-rejoin-origin-diagnostic-v5b-results.json",
+      "result_sha256": "b66aa47234e006c875849874b7dc8310121a05ac078c8647e73e614bcff58e10",
+      "gates": [
+        {
+          "gate": "actual-rejoin",
+          "exit": 101,
+          "actual_counts": {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-diagnostic-v5b-actual-rejoin.log",
+          "log_sha256": "ba4603a2498080233464fc463d1f517dee7d312816b22628a382a69696847e1f",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-rejoin-origin-diagnostic-v6b",
+      "capture": "ff5613d9b073f31de5e227fa9f69d09250499842",
+      "source_commit": "4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21",
+      "input_count": 2655,
+      "manifest": "build/results/automatic-rejoin-origin-diagnostic-v6b-inputs.json",
+      "manifest_sha256": "3499f4c75d9544015a9254af6c38c1c6a9379efd126d8fa1bcad9493628b95a7",
+      "result": "build/results/automatic-rejoin-origin-diagnostic-v6b-results.json",
+      "result_sha256": "50b2a3ed8610e7d02cd3e727d929dab79a41f85ad1c27497ee1d2622d43dc746",
+      "gates": [
+        {
+          "gate": "actual-rejoin",
+          "exit": 101,
+          "actual_counts": {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-diagnostic-v6b-actual-rejoin.log",
+          "log_sha256": "75046bc09a4dc137478bf085f2a1cc69313d438a8f61bbeaf15f609f37c33fc4",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-rejoin-origin-diagnostic-v7",
+      "capture": "4b23abe4b0ec41d258be6d7914a590768b0d6907",
+      "source_commit": "4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21",
+      "input_count": 2656,
+      "manifest": "build/results/automatic-rejoin-origin-diagnostic-v7-inputs.json",
+      "manifest_sha256": "e0da85efdaf9348e75e652af7892193d9cd06f098823e52d958d7342cb9c7e7c",
+      "result": "build/results/automatic-rejoin-origin-diagnostic-v7-results.json",
+      "result_sha256": "ac89986bc794955f096caf1e7137f0e9e66887cf6afe3c16fe338b0738e62fb9",
+      "gates": [
+        {
+          "gate": "diagnostic-control",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-diagnostic-v7-diagnostic-control.log",
+          "log_sha256": "f4957fa28f454b426fe8c7bb2c12ca7601e7e284d1e163f7a26375c9da33f2fd",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "actual-rejoin",
+          "exit": 101,
+          "actual_counts": {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-diagnostic-v7-actual-rejoin.log",
+          "log_sha256": "755a1c4a6316921e58d2afa0c07f38bebe9333f73ac7a86ae83a253dd79fec64",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-rejoin-origin-diagnostic-v8",
+      "capture": "63a7d1504020a16e3283f6469e091c68cb440f9c",
+      "source_commit": "4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21",
+      "input_count": 2656,
+      "manifest": "build/results/automatic-rejoin-origin-diagnostic-v8-inputs.json",
+      "manifest_sha256": "024a2236f0886fb29f98741b9649437d086dfa623c606f347369551b418f110f",
+      "result": "build/results/automatic-rejoin-origin-diagnostic-v8-results.json",
+      "result_sha256": "55394aa8304677aaf710bdd26c8e11053a000a1100204c56dad57dee37004ebb",
+      "gates": [
+        {
+          "gate": "diagnostic-control",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-diagnostic-v8-diagnostic-control.log",
+          "log_sha256": "9ae5ffb473ba7613104e7d6baf8845c393d43ef41135f6ef95e1396150c6a380",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "actual-rejoin",
+          "exit": 101,
+          "actual_counts": {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-diagnostic-v8-actual-rejoin.log",
+          "log_sha256": "ca9875035299ea790c28e279dd0c4f2763718db9ba5ba4cd6637273aa76b2735",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-rejoin-origin-record-origin-red-v9",
+      "capture": "380ea1baaa929a31fc8586be585c55cafcdf1df0",
+      "source_commit": "4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21",
+      "input_count": 2656,
+      "manifest": "build/results/automatic-rejoin-origin-record-origin-red-v9-inputs.json",
+      "manifest_sha256": "99d7b5c3af1098e349424df7021a687cd40958e6f89ba8d54020bffd8cbe0f48",
+      "result": "build/results/automatic-rejoin-origin-record-origin-red-v9-results.json",
+      "result_sha256": "daac1ae9433015ae13a6967f85a43873c3374cd176d5d53298cd93adbd4a68be",
+      "gates": [
+        {
+          "gate": "record-origin-red",
+          "exit": 101,
+          "actual_counts": {
+            "passed": 0,
+            "failed": 2,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-record-origin-red-v9-record-origin-red.log",
+          "log_sha256": "e30743d7288e0b73d1855043860dcd0560168fc3e8390472c1f457b18658a1fb",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-rejoin-origin-record-origin-green-v10",
+      "capture": "eae759e966a3050e98689d9afeb6ec5122ee7a06",
+      "source_commit": "4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21",
+      "input_count": 2656,
+      "manifest": "build/results/automatic-rejoin-origin-record-origin-green-v10-inputs.json",
+      "manifest_sha256": "bd23c85d195e0aaacb6d6be1b7f165d1104eb3010ca6016737e46d85e25ebddc",
+      "result": "build/results/automatic-rejoin-origin-record-origin-green-v10-results.json",
+      "result_sha256": "5117feac0a0d4ef85fa581d9816b08f03a3cdd3d5397577c05a9553be17a32d9",
+      "gates": [
+        {
+          "gate": "record-origin-green",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 3,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-record-origin-green-v10-record-origin-green.log",
+          "log_sha256": "9e5a6d7d69af862a9786c8cf23c69fadaf6377986d3e5c1abc49c652bb310227",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "actual-rejoin",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-record-origin-green-v10-actual-rejoin.log",
+          "log_sha256": "952e3b18b4ae5a1f09f274c567e60a1e813a21cbdf70eb6b9c3c1449ae6b86b0",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "actual-old-format",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-record-origin-green-v10-actual-old-format.log",
+          "log_sha256": "c101bf2ccbad6a8872614dc06755111882bb14da7962f02da1681ae2ae929631",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-rejoin-origin-affected-static-v11",
+      "capture": "eae759e966a3050e98689d9afeb6ec5122ee7a06",
+      "source_commit": "4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21",
+      "input_count": 2656,
+      "manifest": "build/results/automatic-rejoin-origin-affected-static-v11-inputs.json",
+      "manifest_sha256": "bd23c85d195e0aaacb6d6be1b7f165d1104eb3010ca6016737e46d85e25ebddc",
+      "result": "build/results/automatic-rejoin-origin-affected-static-v11-results.json",
+      "result_sha256": "3100ef235b16e5c08c853a2bf2edb5fc7a0e04c7ce62e754d8282f7bf5dc4709",
+      "gates": [
+        {
+          "gate": "storage-mirrored",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 32,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v11-storage-mirrored.log",
+          "log_sha256": "89c91e84be1f9bab2f9108f2eb0db0a922edf380b93b5dac4e8db5abb94e9545",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "storage-record-stream",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 16,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v11-storage-record-stream.log",
+          "log_sha256": "22f7179bd6fbd9478a79b2026631b6107e8c30bbda94949da36fb50bdd347dc3",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "private-ledger-feature",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 14,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v11-private-ledger-feature.log",
+          "log_sha256": "17772df2c80d11a1975966027eb0140ffb14251191d12e7c067c9ed462efddbe",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "private-ledger-default",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v11-private-ledger-default.log",
+          "log_sha256": "6a0c86c56fb3164fad8fc91cfd0533698334dbdefebd307d9d58da903d70eaed",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "traits-canonical",
+          "exit": 101,
+          "actual_counts": null,
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v11-traits-canonical.log",
+          "log_sha256": "a32715495ec7c28baef51ffdbe33657b613887571c0c7337787e777c791e1b96",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-rejoin-origin-affected-static-v12",
+      "capture": "401ffa62b23ef96e4ac959df4cd48d76fea1106a",
+      "source_commit": "4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21",
+      "input_count": 2656,
+      "manifest": "build/results/automatic-rejoin-origin-affected-static-v12-inputs.json",
+      "manifest_sha256": "c45c2c52452320b688abc2c6861e4dd4016a2e13db6793c7bd981edc66f02181",
+      "result": "build/results/automatic-rejoin-origin-affected-static-v12-results.json",
+      "result_sha256": "cf09a6bd8e67a2f61613fda8d486017fffa33ee78172488d96f90c5b8ab35fd9",
+      "gates": [
+        {
+          "gate": "traits-canonical",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 36,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v12-traits-canonical.log",
+          "log_sha256": "441492576c4dd2905cab85928c09ab364982affe69f0794258e3c112d634d19d",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "app-records",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 3,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v12-app-records.log",
+          "log_sha256": "23f0d710a26d31de45c58d05584e3aaf12a0a7e02e3f4894d661bdb2868c7346",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "app-source-privacy",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v12-app-source-privacy.log",
+          "log_sha256": "051ba45b6579330b63a99c7351db303b4202680496c415013aa0e6b60d8dbbe2",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "app-two-source",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v12-app-two-source.log",
+          "log_sha256": "0f95170737f809846ecb31e473827e99422e4c1bdcc306a6a1785906387dfe1d",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        },
+        {
+          "gate": "app-test-strict",
+          "exit": 101,
+          "actual_counts": null,
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v12-app-test-strict.log",
+          "log_sha256": "e76e8f3854619a96199968b51be63d0e4a262458b8537d8ff5c6d22cd9eaba43",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": null
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-rejoin-origin-affected-static-v13",
+      "capture": "764b5ba25822bd0a42e1b7a867303b84792f0612",
+      "source_commit": "4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21",
+      "input_count": 2656,
+      "manifest": "build/results/automatic-rejoin-origin-affected-static-v13-inputs.json",
+      "manifest_sha256": "132e768a7a0450d16a97692fdbe67f98869a7acaf862cf0f7ca64f65aca285a7",
+      "result": "build/results/automatic-rejoin-origin-affected-static-v13-results.json",
+      "result_sha256": "06116d5d5c7c6ee8d4140f005e5aec8871d555df913b1a0db3ec6b13a31cd4b7",
+      "gates": [
+        {
+          "gate": "app-source-acceptance",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v13-app-source-acceptance.log",
+          "log_sha256": "ab0666b21bf4013cd10fb2e6466aa7b5b7e2543c2612beaa4739cf2816106f14",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": true
+        },
+        {
+          "gate": "app-pending-stranger-privacy",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v13-app-pending-stranger-privacy.log",
+          "log_sha256": "ced072fc61f8f31e88ede425aae972c0b52f6d9c90f55b69e8840395839be1b8",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": true
+        },
+        {
+          "gate": "app-test-strict",
+          "exit": 101,
+          "actual_counts": null,
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v13-app-test-strict.log",
+          "log_sha256": "de928f54a1d996b4a13f25dbe08594eb71d42b670ec18470d64dedb98405ad65",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": true
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-rejoin-origin-affected-static-v14",
+      "capture": "c6acad1ea4387d73a8005c1a31bf49bd75bae81f",
+      "source_commit": "4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21",
+      "input_count": 2656,
+      "manifest": "build/results/automatic-rejoin-origin-affected-static-v14-inputs.json",
+      "manifest_sha256": "f8dda7c258ba476d7bac3b84b6a0f90cf4c5d598203bd9cf5245deb8157baeb4",
+      "result": "build/results/automatic-rejoin-origin-affected-static-v14-results.json",
+      "result_sha256": "c609151451c69a4f701747a44dee04d8088aaa586a24f689a2c4b89447a22dff",
+      "gates": [
+        {
+          "gate": "app-test-strict",
+          "exit": 0,
+          "actual_counts": null,
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v14-app-test-strict.log",
+          "log_sha256": "e9f6e5bcf68816631ee141a9a3f39a44b91553bf54073c17ff0010dc0f412958",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": true
+        },
+        {
+          "gate": "storage-test-strict",
+          "exit": 0,
+          "actual_counts": null,
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v14-storage-test-strict.log",
+          "log_sha256": "42fce74da6d6e544bd9759f042dcc105701425ccc2610538e2c1110f71b47b48",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": true
+        },
+        {
+          "gate": "production-strict",
+          "exit": 0,
+          "actual_counts": null,
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v14-production-strict.log",
+          "log_sha256": "774bf3bfb1ed167cec11185f2c20b74b0ba02573d7ab3a08052079c2e122e861",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": true
+        },
+        {
+          "gate": "default-check",
+          "exit": 0,
+          "actual_counts": null,
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v14-default-check.log",
+          "log_sha256": "606e2669483830c20544911d0cbd986e2ed28e7dd59bc199dbb75a111f01e3b7",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": true
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "actual_counts": null,
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-affected-static-v14-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": true
+        }
+      ]
+    },
+    {
+      "prefix": "automatic-rejoin-origin-final-actual-v15",
+      "capture": "c6acad1ea4387d73a8005c1a31bf49bd75bae81f",
+      "source_commit": "4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21",
+      "input_count": 2656,
+      "manifest": "build/results/automatic-rejoin-origin-final-actual-v15-inputs.json",
+      "manifest_sha256": "f8dda7c258ba476d7bac3b84b6a0f90cf4c5d598203bd9cf5245deb8157baeb4",
+      "result": "build/results/automatic-rejoin-origin-final-actual-v15-results.json",
+      "result_sha256": "943c79964a46825a476c5c69412c1a77170a80aa23010b9f1503df3c9fcf6c47",
+      "gates": [
+        {
+          "gate": "actual-rejoin",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-final-actual-v15-actual-rejoin.log",
+          "log_sha256": "c22939b9818a2d00458e15531601e85787b8890b03f3364b11a77709b636b2be",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": true
+        },
+        {
+          "gate": "actual-old-format",
+          "exit": 0,
+          "actual_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "log": "/Users/pj/project/build/results/automatic-rejoin-origin-final-actual-v15-actual-old-format.log",
+          "log_sha256": "b98014c2571318d2ba9c295fd0a6407637eb71cf96207c2504d1624672f88176",
+          "inputs_unchanged": true,
+          "resource_abort": false,
+          "test_count_guard": true
+        }
+      ]
+    }
+  ],
+  "final_changed_source_hashes": {
+    "crates/marmot-app/src/account_chat_presentation/tests.rs": "9987b9063d647fa9975b854cf4a2d1a4d1d43d9ac74e96a4e609969a4b6ab367",
+    "crates/marmot-app/src/client/account_chat_sharing.rs": "ed94c294cb579c72941d3c938c13c797e8feb60c8650ea68033c4329a69201fd",
+    "crates/marmot-app/src/client/account_chat_sharing/automatic.rs": "f55273e7beaf3205502b5635f80b9742c3402df40fa1b59ec22f74e43f391c5d",
+    "crates/marmot-app/src/client/account_chat_sharing/automatic/diagnostics.rs": "85cf85402cd3b2dfdb670f1c826e8d165bf86ef87bf2b2c1c3a8282cb8437d95",
+    "crates/marmot-app/src/client/account_chat_sharing/automatic/records.rs": "add4567bfaac0fe8fb20a4ece704e57bf41179b03fe33333dfba844b8fdd3943",
+    "crates/marmot-app/src/native_device_linking/automatic_fresh_rejoin_acceptance.rs": "1a65a8d2a47c34596c9962f9d91b3d3612580f5814ee372debd2c104946080bc",
+    "crates/marmot-app/src/native_device_linking/tests.rs": "709f6da00ed46064002a3ab10dcf2090472a0efa4bf416e58c505c7ab234fe56",
+    "crates/storage-sqlite/src/account_chat_record_stream/tests.rs": "d9964f302659e2b9c5457f4aecb1c0682becf1994192cde64d7f8d30f98920d5",
+    "crates/storage-sqlite/src/account_chat_source.rs": "b375ec2aeec9e5de716cc1443581dd61348111e3f813553d0b3de97ea254be6a",
+    "crates/storage-sqlite/src/migrations.rs": "beceff3db1f7196c241775576bd8332a36946083ba3c8d4651eb50f36fe7f457",
+    "crates/storage-sqlite/src/mirrored_chat_catalog.rs": "ef4c8f4144f2824af30f0cb260902441d68c4a41515de7ccaff55a101c38d13a",
+    "crates/storage-sqlite/src/mirrored_chat_catalog/tests.rs": "a31c76059ffeedd38c415ac687beb35348e2db98582310186d85abbb2ab2c814",
+    "crates/storage-sqlite/src/mirrored_chat_messages.rs": "8267d66daf890b6e58f9b699d5364b85fdefa3459645b53b7af78cb18489b5eb",
+    "crates/storage-sqlite/src/mirrored_chat_messages/tests.rs": "73b0b6a8ee33160f18f48bf873aba32b45e118488a35a23cbe0295d12af0c6d9",
+    "crates/storage-sqlite/src/mirrored_chat_presentation.rs": "dd90d9c2b16a7cd5d4f1034341425db405e5883ab4c731879d759641803431e5",
+    "crates/storage-sqlite/src/mirrored_chat_presentation/tests.rs": "7e1d0cfe0cfd2ba81b437321c78a081a17b6befedfc05e6588662dd837c18ac8",
+    "crates/storage-sqlite/src/private_migration_ledger.rs": "4723d90c077347019f750bbc54c5a2e1cda00282a38e24e82655c82e2bd8d43f",
+    "crates/storage-sqlite/src/private_migration_ledger_tests.rs": "f5086a1d7237bee9533366ddf762af293d9c4e7fe79d9299b507cd7009af43e6",
+    "crates/storage-sqlite/src/private_migrations/0025_mirrored_chat_origins.rs": "ef71215563d83d82d504bdd93e778fb2b8246f96571e9db3f4842edaa99f75f2",
+    "crates/traits/src/mirrored_chat_catalog.rs": "0051a5447b2eb38e6d0a4287494cb3d656c032b21911bae7750afc88ce5460e5",
+    "crates/traits/src/mirrored_chat_messages.rs": "d194650ca9d9d3eaeb250b903abf3382a5a7c3e6e64a3269490f7585ca078287",
+    "crates/traits/tests/snapshots.rs": "414a14d33ad4e85e2d62d70ed0bb34432c6d2dbd2d0f8423e1a4715610ae165c"
+  },
+  "guarded_runners": {
+    "run-automatic-rejoin-affected-static-v13.py": "8ce39329639335e82bcc5cc885c4711f5e74dc62376642b6ce6a2951c5862688",
+    "run-automatic-rejoin-affected-static-v14.py": "ac77a619966126701827936234d6de664b861ee98efe19c94324efdc1857c7a4",
+    "run-automatic-rejoin-final-actual-v15.py": "d192a23f9d23b5fef116f5d32c3c787b9966673bd36b75d1217e1a0d029d845e"
+  },
+  "postfreeze_delta": "One proof document only; all production/test source bytes match final tested capture."
+}

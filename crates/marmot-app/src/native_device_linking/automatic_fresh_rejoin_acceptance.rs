@@ -25,7 +25,7 @@ fn automatic_old_format_terminal_allows_only_fresh_explicit_accepted_rejoin() {
 }
 
 enum ActualWelcomeDecision {
-    Pending(crate::AppGroupRecord),
+    Pending(Box<crate::AppGroupRecord>),
     Recovery(crate::GroupRejoinInvitation),
 }
 
@@ -85,7 +85,7 @@ pub(super) async fn verify_fresh_rejoin(
                         .is_some_and(|id| id != &old_welcome)
                     && row.welcomer_account_id_hex.as_ref() == Some(&actual_creator)
                 {
-                    break ActualWelcomeDecision::Pending(row);
+                    break ActualWelcomeDecision::Pending(Box::new(row));
                 }
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
