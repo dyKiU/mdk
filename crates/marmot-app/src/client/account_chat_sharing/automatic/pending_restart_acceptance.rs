@@ -100,14 +100,14 @@ impl AppClient {
                     recipient.automatic_policy_current(&pair[1]).unwrap();
                     let scope = recipient.presentation_scope(&pair[1]).unwrap();
                     let storage = apps[1].account_storage("test").unwrap();
-                    let record = storage.mirrored_chat_message_storage().unwrap()
-                        .mirrored_chat_message_page(&scope, ordinary_group, None, 128, now).unwrap()
-                        .iter().any(|row| hex::encode(row.event_id) == *witness && !row.deleted && !row.payload.is_empty());
                     let catalog = storage.mirrored_chat_catalog_storage().unwrap()
                         .mirrored_chat_catalog_page(&scope, None, 128).unwrap().iter()
                         .any(|row| row.group_id == *ordinary_group && row.state == MirroredChatState::Active);
+                    let record = catalog && storage.mirrored_chat_message_storage().unwrap()
+                        .mirrored_chat_message_page(&scope, ordinary_group, None, 128, now).unwrap()
+                        .iter().any(|row| hex::encode(row.event_id) == *witness && !row.deleted && !row.payload.is_empty());
                     recipient.automatic_policy_current(&pair[1]).unwrap();
-                    assert_eq!(recipient.presentation_scope(&pair[1]).unwrap(), scope);
+                    assert!(recipient.presentation_scope(&pair[1]).unwrap() == scope);
                     if catalog && record {
                         eprintln!("pending_restart_source_scoped_catalog_and_exact_record=true local_ordinary_present={}", storage.timeline_message(&hex::encode(ordinary_group.as_slice()), witness).unwrap().is_some());
                         break;
