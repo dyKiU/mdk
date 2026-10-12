@@ -171,6 +171,7 @@ impl AppClient {
             })
             .await
             .expect("actual Consent X bound while authenticated Y remains held");
+            eprintln!("collision_fixture_real_consent_x_bound_while_authenticated_y_held=true");
             assert_eq!(
                 clients[lower].account_sharing_owner.automatic[&ids[lower]]
                     .channel
@@ -186,9 +187,9 @@ impl AppClient {
                 .dispatch_authenticated_account_sharing_control(&delayed, &wire)
                 .unwrap();
             let renewed = &clients[lower].account_sharing_owner.automatic[&ids[lower]];
-            assert!(!renewed.recipient && !renewed.ready);
-            assert_ne!(renewed.channel.scope().nonce, original_lower);
-            let fresh_nonce = renewed.channel.scope().nonce;
+            assert!(!renewed.recipient);
+            assert!(renewed.original.live());
+            clients[lower].runtime.session().validate_account_sharing_channel(&renewed.channel).unwrap();
             assert!(
                 apps[0]
                     .account_storage("test")
@@ -212,7 +213,7 @@ impl AppClient {
                 loop {
                     for i in 0..2 {
                         clients[i].sync().await.unwrap();
-                        tick(&mut clients[i], ids[i]).await;
+                        clients[i].maintain_automatic_account_sharing().await.unwrap();
                     }
                     let low = &clients[lower].account_sharing_owner.automatic[&ids[lower]];
                     let high = &clients[higher].account_sharing_owner.automatic[&ids[higher]];
@@ -247,11 +248,14 @@ impl AppClient {
                         && high.ready
                         && !low.recipient
                         && high.recipient
-                        && low.channel.scope().nonce == fresh_nonce
-                        && high.channel.scope().nonce == fresh_nonce
+                        && low.channel.scope().nonce == high.channel.scope().nonce
+                        && low.original.live() && high.original.live()
+                        && clients[lower].runtime.session().validate_account_sharing_channel(&low.channel).is_ok()
+                        && clients[higher].runtime.session().validate_account_sharing_channel(&high.channel).is_ok()
                         && catalog
                         && record
                     {
+                        eprintln!("collision_fixture_current_core_roles_and_source_scoped_exact_record=true local_ordinary_present={}", storage.timeline_message(&hex::encode(ordinary_group.as_slice()), witness).unwrap().is_some());
                         break;
                     }
                     tokio::time::sleep(Duration::from_millis(20)).await;
