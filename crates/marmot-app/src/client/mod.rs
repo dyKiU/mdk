@@ -72,6 +72,8 @@ mod audit;
 mod audit_recovery;
 mod audit_v5_app_update;
 pub(crate) mod audit_v5_probe;
+#[cfg(feature = "experimental-device-sync")]
+mod chat_source_acceptance;
 mod delivery_spill;
 #[cfg(feature = "experimental-device-sync")]
 #[allow(
@@ -551,6 +553,9 @@ pub struct AppClient {
     /// Live saves replace only these groups; full snapshot replacement is
     /// reserved for import/rebuild paths outside the account worker.
     pub(crate) pending_group_projection_updates: HashSet<String>,
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) pending_chat_source_changes:
+        Vec<storage_sqlite::account_chat_source::AccountChatSourceChange>,
     /// Recovery status has its own notification queue; saving a projection must not consume it.
     pub(crate) pending_recovery_status_updates: HashSet<GroupId>,
     /// The parked recovery set as last announced to hosts ("history may be
@@ -2086,6 +2091,8 @@ impl AppClient {
             welcome_index_started_at.elapsed(),
             welcome_index_prepared,
         );
+        #[cfg(feature = "experimental-device-sync")]
+        let source_origin_events = prepared.effects.events.clone();
         self.unpublished_welcome_delivery = Some(UnpublishedWelcomeDelivery {
             group_id: group_id.clone(),
             audit_context: audit_context.clone(),
@@ -2108,8 +2115,14 @@ impl AppClient {
                 "injected create local projection failure".into(),
             ))
         } else {
-            self.add_group(&group_id)
-                .and_then(|()| self.save_state_with_created_chat_list_row(&group_id))
+            (|| {
+                #[cfg(feature = "experimental-device-sync")]
+                for event in &source_origin_events {
+                    self.observe_chat_source_origin(event)?;
+                }
+                self.add_group(&group_id)
+                    .and_then(|()| self.save_state_with_created_chat_list_row(&group_id))
+            })()
         };
         record_app_performance(
             telemetry,
@@ -3416,6 +3429,8 @@ impl AppClient {
             .audit_v5_probe
             .as_mut()
             .and_then(|probe| probe.begin_confirmation(group));
+        #[cfg(feature = "experimental-device-sync")]
+        self.stage_chat_source_confirmation(group_id, false)?;
         let result = self.set_group_invite_confirmation(group_id, false, archived);
         if result.is_err()
             && let (Some(probe), Some(origin)) = (&mut self.audit_v5_probe, audit_origin)
@@ -3449,6 +3464,8 @@ impl AppClient {
         &mut self,
         group_id: &GroupId,
     ) -> Result<GroupInviteDeclineResult, AppError> {
+        #[cfg(feature = "experimental-device-sync")]
+        self.stage_chat_source_confirmation(group_id, true)?;
         let audit_context = Self::local_human_action_context(
             "decline_group_invite",
             vec!["membership"],

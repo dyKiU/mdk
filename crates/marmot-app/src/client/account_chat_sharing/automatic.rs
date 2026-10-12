@@ -722,13 +722,16 @@ impl AppClient {
         }
         if let Some(pending) = &entry.pending_catalog
             && pending.state == MirroredChatState::Active
-            && self
+            && (self
                 .app
                 .account_storage(&self.state.label)
                 .map_err(|_| AccountSharingError::RuntimeUnavailable)?
                 .get_group(&pending.receipt.group)
                 .map_err(|_| AccountSharingError::RuntimeUnavailable)?
                 .is_terminal()
+                || !self
+                    .automatic_chat_source_accepted(&pending.receipt.group)
+                    .map_err(|_| AccountSharingError::RuntimeUnavailable)?)
         {
             // An old sealed body cannot be replaced at the same channel ordinal.
             // Retire the original context, retaining only durable journal progress;
@@ -814,7 +817,7 @@ impl AppClient {
             .account_storage(&self.state.label)
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
         use cgka_engine::account_chat_catalog::AccountChatCatalogObservation;
-        let (group_id, epoch, profile, state) = match source {
+        let (group_id, epoch, profile, mut state) = match source {
             AccountChatCatalogObservation::Active(source) => (
                 source.group_id.clone(),
                 source.epoch,
@@ -837,7 +840,24 @@ impl AppClient {
                 },
             ),
         };
+        if state == MirroredChatState::Active
+            && self
+                .automatic_chat_source_denied(&group_id)
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?
+        {
+            // The actual explicit decline is a source-scoped negative intent.
+            // It need not wait for an offline ordinary administrator to commit
+            // the SelfRemove, and never removes another genuine member source.
+            state = MirroredChatState::Left;
+        }
         let (name, description) = if state == MirroredChatState::Active {
+            if !self
+                .automatic_chat_source_accepted(&group_id)
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?
+            {
+                entry.cursor = Some(group_id);
+                return Ok(());
+            }
             let group = storage
                 .get_group(&group_id)
                 .map_err(|_| AccountSharingError::RuntimeUnavailable)?;

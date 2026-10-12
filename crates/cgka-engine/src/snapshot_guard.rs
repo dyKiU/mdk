@@ -72,10 +72,12 @@ pub(crate) enum RewindSite {
     /// The deferred-peel sweep rewinds onto the retained anchor to enumerate
     /// candidate branches.
     CandidateBranchSweep,
+    /// Observe the actual local founding leaf without retaining a restored state.
+    LocalCreationOrigin,
 }
 
 impl RewindSite {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::PastPeelContext,
         Self::RetentionSource,
         Self::EncryptedMediaSource,
@@ -84,6 +86,7 @@ impl RewindSite {
         Self::Replay,
         Self::RetainedAnchorPass,
         Self::CandidateBranchSweep,
+        Self::LocalCreationOrigin,
     ];
 
     /// Durable snapshot-name prefix. No prefix is a prefix of another, so
@@ -98,6 +101,7 @@ impl RewindSite {
             Self::Replay => "openmls-probe-",
             Self::RetainedAnchorPass => "openmls-retained-probe-",
             Self::CandidateBranchSweep => "openmls-branch-probe-",
+            Self::LocalCreationOrigin => "local-creation-origin-restore-",
         }
     }
 

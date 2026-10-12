@@ -1878,6 +1878,11 @@ impl AccountDeviceSession {
         Ok(self.engine.group_authority(group_id)?)
     }
 
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn retained_local_group_creation(&self, group_id: &GroupId) -> SessionResult<bool> {
+        Ok(self.engine.retained_local_group_creation(group_id)?)
+    }
+
     /// Canonical leaf membership for device-scoped projection and token reconciliation.
     pub fn canonical_group_membership(
         &self,

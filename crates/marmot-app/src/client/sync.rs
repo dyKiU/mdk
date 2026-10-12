@@ -6044,29 +6044,50 @@ impl AppClient {
                     .cloned()
                     .collect(),
             };
-            let created_chat_list_row = if let Some(group_id_hex) = created_group_id_hex {
-                Some(
+            let persist_projection = || -> Result<Option<crate::ChatListRow>, AppError> {
+                Ok(if let Some(group_id_hex) = created_group_id_hex {
+                    Some(
+                        self.app
+                            .save_state_delta_and_refresh_created_chat_list_row(
+                                &delta,
+                                &frontiers_to_clear,
+                                &application_event_ids_to_ack,
+                                group_id_hex,
+                            )?,
+                    )
+                } else {
                     self.app
-                        .save_state_delta_and_refresh_created_chat_list_row(
-                            &delta,
-                            &frontiers_to_clear,
-                            &application_event_ids_to_ack,
-                            group_id_hex,
-                        )?,
-                )
-            } else {
-                self.app
                 .save_state_delta_clearing_local_group_deletion_frontiers_and_acking_application_events(
                     &delta,
                     &frontiers_to_clear,
                     &application_event_ids_to_ack,
                 )?;
-                None
+                    None
+                })
             };
+            #[cfg(feature = "experimental-device-sync")]
+            let created_chat_list_row = {
+                let storage = self.app.account_storage(&self.state.label)?;
+                cgka_traits::StorageProvider::with_transaction(&storage, |_| {
+                    storage.apply_account_chat_source_changes(
+                        &self.pending_chat_source_changes,
+                        &|change| self.validate_chat_source_change(change),
+                    )?;
+                    let row = persist_projection()?;
+                    for change in &self.pending_chat_source_changes {
+                        self.validate_chat_source_change(change)?;
+                    }
+                    Ok::<_, AppError>(row)
+                })?
+            };
+            #[cfg(not(feature = "experimental-device-sync"))]
+            let created_chat_list_row = persist_projection()?;
             self.pending_seen_event_count = 0;
             self.pending_group_projection_updates.clear();
             self.pending_local_group_deletion_frontier_clears.clear();
             self.pending_application_event_acks.clear();
+            #[cfg(feature = "experimental-device-sync")]
+            self.pending_chat_source_changes.clear();
             Ok(created_chat_list_row)
         })();
         if let Some(observation) = observation {
@@ -6187,6 +6208,8 @@ impl AppClient {
         cleanup: &mut Option<Option<storage_sqlite::TimelineProjectionUpdate>>,
     ) -> Result<bool, AppError> {
         let mut routes_dirty = false;
+        #[cfg(feature = "experimental-device-sync")]
+        self.observe_chat_source_origin(event)?;
         #[cfg(feature = "experimental-device-sync")]
         if let cgka_traits::engine::GroupEvent::LocalGroupCopyTerminated { group_id, .. }
         | cgka_traits::engine::GroupEvent::GroupStateChanged {

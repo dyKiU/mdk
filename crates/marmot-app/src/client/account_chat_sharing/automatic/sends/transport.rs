@@ -104,6 +104,12 @@ impl AppClient {
         entry: &AutomaticChannel,
         group: &crate::GroupId,
     ) -> Result<bool, AccountSharingError> {
+        if !self
+            .automatic_chat_source_accepted(group)
+            .map_err(|_| AccountSharingError::RuntimeUnavailable)?
+        {
+            return Ok(false);
+        }
         let mut after = None;
         loop {
             let page = self

@@ -908,6 +908,9 @@ mod private_migration_0021_record_stream;
 #[path = "private_migrations/0022_account_chat_record_generation_receipts.rs"]
 mod private_migration_0022_record_generation_receipts;
 
+#[path = "private_migrations/0023_account_chat_source_acceptance.rs"]
+mod private_migration_0023_chat_source_acceptance;
+
 const PRIVATE_MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -1018,6 +1021,11 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
         version: 22,
         name: "0022_account_chat_record_generation_receipts",
         apply: private_migration_0022_record_generation_receipts::apply,
+    },
+    Migration {
+        version: 23,
+        name: "0023_account_chat_source_acceptance",
+        apply: private_migration_0023_chat_source_acceptance::apply,
     },
 ];
 
