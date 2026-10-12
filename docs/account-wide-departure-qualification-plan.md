@@ -54,16 +54,25 @@ cannot qualify authenticated intent/receipt behavior.
 
 The FFI fixture requires a matching App producer and C consumer compiled from
 identical frozen source/feature inputs with compile-time
-MARMOT_ACCEPTANCE_SOURCE_COMMIT=<full40hexSHA>. First build the App producer with
-`cargo test --locked -p marmot-app --lib --features experimental-device-sync,test-policy-overrides --no-run --message-format=json` and derive the actual App
-lib-test executable from Cargo's artifact record; retain its SHA256.
-
-Build/run C with `experimental-device-sync,alloc-audit,marmot-app/test-policy-overrides`.
-The C consumer is deliberately ignored outside this explicit pinned invocation:
+MARMOT_ACCEPTANCE_SOURCE_COMMIT=<full40hexSHA>. Build both lib-test artifacts together so Cargo selects the actual App test
+policy feature through its package (it is not a direct C dependency):
 
 ```sh
-cargo test --locked -p marmot-c --lib --features experimental-device-sync,alloc-audit,marmot-app/test-policy-overrides account_chat_departure_acceptance_tests::genuine_two_source_departure_crosses_real_c_and_uniffi_boundaries -- --exact --ignored --nocapture --test-threads=1
+cargo test --locked -p marmot-app -p marmot-c --lib --features marmot-c/experimental-device-sync,marmot-c/alloc-audit,marmot-app/test-policy-overrides --no-run --message-format=json
 ```
+
+Derive the unique App and C lib-test executables from Cargo's actual artifact
+records and retain both SHA256 hashes. This is compile-only, not runtime
+acceptance. Execute the exact C artifact directly:
+
+```sh
+<actual-C-lib-test-executable> account_chat_departure_acceptance_tests::genuine_two_source_departure_crosses_real_c_and_uniffi_boundaries --exact --ignored --nocapture --test-threads=1
+```
+
+The consumer is deliberately ignored outside this explicit pinned invocation.
+Its producer subprocess must execute the exact ignored App test and exit
+successfully. Neither a no-run build nor a zero-selected package harness counts
+as native acceptance.
 
 Set MARMOT_ACCOUNT_DEPARTURE_FIXTURE_EXE to that absolute App executable,
 MARMOT_ACCOUNT_DEPARTURE_FIXTURE_SHA256 to its actual64hex hash, and

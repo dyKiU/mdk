@@ -582,7 +582,7 @@ fn genuine_two_source_departure_crosses_real_c_and_uniffi_boundaries() {
     let listener = fs_private::bind_unix_listener_private(&socket_path, 0o600)
         .expect("private fixture listener");
     listener.set_nonblocking(true).unwrap();
-    let nonce = Zeroizing::new(nostr::Keys::generate().secret_key().to_secret_hex());
+    let nonce = Zeroizing::new(::nostr::Keys::generate().secret_key().to_secret_hex());
     let log = std::env::var("MARMOT_ACCOUNT_DEPARTURE_FIXTURE_LOG")
         .expect("retained private producer log");
     assert!(Path::new(&log).is_absolute(), "absolute producer log");
