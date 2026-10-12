@@ -344,6 +344,15 @@ pub(crate) struct AccountWorkerRuntime {
 
 pub(crate) enum AccountWorkerCommand {
     AccountDeparture(Box<super::account_chat_departure::Command>),
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    AccountDepartureLocalLeafProbe {
+        group: GroupId,
+        respond: oneshot::Sender<Result<bool, AppError>>,
+    },
     #[cfg(feature = "experimental-device-sync")]
     DeviceRevocation(Box<super::device_revocation::Command>),
     #[cfg(feature = "experimental-device-sync")]
@@ -4754,6 +4763,24 @@ fn account_worker_command_future<'a>(
             super::account_chat_presentation::handle(client, *command);
             false
         }),
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        AccountWorkerCommand::AccountDepartureLocalLeafProbe { group, respond } => {
+            Box::pin(async move {
+                let result = client
+                    .runtime
+                    .session()
+                    .canonical_group_membership(&group)
+                    .map(|membership| membership.local_leaf_active)
+                    .map_err(cgka_session::SessionError::from)
+                    .map_err(AppError::from);
+                let _ = respond.send(result);
+                false
+            })
+        }
         AccountWorkerCommand::AccountDeparture(command) => Box::pin(async move {
             let group = super::account_chat_departure::handle(client, *command).await;
             publish_client_pending_projection_updates(
