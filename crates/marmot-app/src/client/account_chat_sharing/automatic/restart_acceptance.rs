@@ -211,9 +211,9 @@ impl AppClient {
                 .as_secs();
             tokio::time::timeout(Duration::from_secs(60), async {
                 loop {
-                    for i in 0..2 {
-                        clients[i].sync().await.unwrap();
-                        clients[i].maintain_automatic_account_sharing().await.unwrap();
+                    for client in &mut clients {
+                        client.sync().await.unwrap();
+                        client.maintain_automatic_account_sharing().await.unwrap();
                     }
                     let low = &clients[lower].account_sharing_owner.automatic[&ids[lower]];
                     let high = &clients[higher].account_sharing_owner.automatic[&ids[higher]];
