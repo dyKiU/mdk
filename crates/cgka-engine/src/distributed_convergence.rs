@@ -1383,6 +1383,10 @@ impl<S: StorageProvider> Engine<S> {
                 .conformance_replay_probe_count
                 .saturating_add(result.replay_probe_count);
         }
+        #[cfg(feature = "test-policy-overrides")]
+        if let Ok(own_leaf) = self.do_own_leaf_index(group_id) {
+            crate::canonical_probe_observer::result(group_id, own_leaf, &result);
+        }
         let evaluated_status = result.convergence_status;
         // Missing dependencies stay retained for the next generation. Once a
         // pass is frozen, later arrivals cannot extend or alter this batch.
@@ -2274,6 +2278,10 @@ impl<S: StorageProvider> Engine<S> {
                     .any(|dropped| dropped.message_id == record_id_hex)
             {
                 continue;
+            }
+            #[cfg(feature = "test-policy-overrides")]
+            if let Ok(own_leaf) = self.do_own_leaf_index(group_id) {
+                crate::canonical_probe_observer::superseded(group_id, own_leaf, &record.id);
             }
             self.storage
                 .update_message_state(&record.id, MessageState::EpochInvalidated)

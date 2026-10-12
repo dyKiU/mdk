@@ -4532,6 +4532,8 @@ fn process_openmls_messages_inner<S: StorageProvider>(
             });
             continue;
         }
+        #[cfg(feature = "test-policy-overrides")]
+        let candidate_epoch_for_observation = mls_group.epoch().as_u64();
         let processed = match if projection.kind == OpenMlsContentKind::Commit {
             process_commit_with_app_data_updates(&mut mls_group, &provider, protocol)
         } else {
@@ -4553,6 +4555,32 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                 return Err(replay_error("process_message", err));
             }
             Err(err) if projection.kind == OpenMlsContentKind::Proposal => {
+                #[cfg(feature = "test-policy-overrides")]
+                crate::canonical_probe_observer::replay_failure(
+                    group_id,
+                    mls_group.own_leaf_index().u32(),
+                    messages,
+                    "proposal",
+                    source_epoch,
+                    candidate_epoch_for_observation,
+                    match &err {
+                        ProcessMessageError::ValidationError(
+                            ValidationError::InvalidMembershipTag,
+                        ) => "invalid_membership_tag",
+                        ProcessMessageError::ValidationError(ValidationError::UnableToDecrypt(
+                            _,
+                        )) => "unable_to_decrypt",
+                        ProcessMessageError::ValidationError(ValidationError::WrongEpoch) => {
+                            "wrong_epoch"
+                        }
+                        ProcessMessageError::ValidationError(ValidationError::UnknownMember) => {
+                            "unknown_member"
+                        }
+                        ProcessMessageError::ValidationError(_) => "other_validation",
+                        ProcessMessageError::GroupStateError(_) => "group_state",
+                        _ => "other",
+                    },
+                );
                 if let Some(category) = crate::app_components::classify_process_message_rejection(
                     &err,
                     ContentType::Proposal,

@@ -149,6 +149,7 @@ pub(super) async fn verify(
         std::panic::AssertUnwindSafe(async {
             reopened.reconcile_accounts().await.unwrap();
             let mut published_branch = None;
+            let mut canonical_probe = None;
             if ordered {
                 tokio::time::timeout(std::time::Duration::from_secs(20), async {
                     loop {
@@ -171,6 +172,14 @@ pub(super) async fn verify(
                 }).await.expect("B must independently commit A and actually publish SelfRemove before the competing D commit");
                 assert_administrator_holds_only_a(peer,epoch_before);
                 eprintln!("account_departure_ordering_b_independent_next_epoch_proposal_retained=true");
+                {
+                    use cgka_traits::storage::MessageStorage;
+                    use sha2::{Digest, Sha256};
+                    let source = peer.app.account_storage("test").unwrap().get_message(held_commit_id.as_ref().unwrap()).unwrap();
+                    let payload = cgka_traits::message::StoredMessagePayload::decode(&source.payload).unwrap();
+                    let wire = payload.as_openmls_wire().unwrap();
+                    canonical_probe = Some(cgka_engine::canonical_probe_observer::Probe::arm(peer.group.clone(),peer.b_index,cgka_traits::MessageId::new(Sha256::digest(&wire.payload).to_vec())));
+                }
                 drop(publication_gate.take());
             }
             let mut observed_losing_branch = false;
@@ -206,6 +215,7 @@ pub(super) async fn verify(
                 std::time::Duration::from_secs(5),
                 std::panic::AssertUnwindSafe(async {
             let indices = stored_indices(&peer.app, &peer.group);
+            if let Some(probe) = &canonical_probe { eprintln!("account_departure_timeout_canonical_probe={:?}",probe.snapshot()); }
             if let Some(id) = &held_commit_id {
                 use cgka_traits::storage::MessageStorage;
                 let event = nostr_relay_builder::prelude::EventId::from_slice(id.as_slice()).unwrap();
