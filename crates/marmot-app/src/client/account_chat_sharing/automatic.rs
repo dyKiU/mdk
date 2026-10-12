@@ -70,6 +70,7 @@ pub(crate) struct AutomaticChannel {
     recipient: bool,
     ready: bool,
     handshake_published: bool,
+    handshake_published_at: Option<std::time::Instant>,
     pending: VecDeque<PendingBody>,
     next_body: u64,
     cursor: Option<crate::GroupId>,
@@ -83,6 +84,15 @@ pub(crate) struct AutomaticChannel {
     renew: bool,
 }
 impl AutomaticChannel {
+    fn pending_canonical_request_expired(&self) -> bool {
+        !self.recipient
+            && !self.ready
+            && self.policy.local_device < self.policy.peer_device
+            && self
+                .handshake_published_at
+                .is_some_and(|published| published.elapsed() >= std::time::Duration::from_secs(10))
+    }
+
     fn take_catalog_progress(&mut self) -> CatalogProgress {
         CatalogProgress {
             generation: self.channel.scope().local_generation,
@@ -388,6 +398,7 @@ impl AppClient {
                     recipient: true,
                     ready: false,
                     handshake_published: false,
+                    handshake_published_at: None,
                     pending: VecDeque::new(),
                     next_body: 0,
                     cursor: None,
@@ -803,6 +814,7 @@ impl AppClient {
                     recipient: true,
                     ready: false,
                     handshake_published: false,
+                    handshake_published_at: None,
                     pending: VecDeque::new(),
                     next_body: 0,
                     cursor: None,
@@ -832,6 +844,8 @@ impl AppClient {
             .is_some_and(|entry| {
                 !entry.recipient
                     && !entry.ready
+                    && !entry.renew
+                    && !entry.pending_canonical_request_expired()
                     && entry.original.live()
                     && self
                         .runtime
@@ -902,6 +916,7 @@ impl AppClient {
                 recipient: false,
                 ready: false,
                 handshake_published: false,
+                handshake_published_at: None,
                 pending: VecDeque::new(),
                 next_body: 0,
                 cursor: None,
@@ -1013,6 +1028,27 @@ impl AppClient {
                 }
                 continue;
             }
+            let retry_canonical =
+                self.account_sharing_owner
+                    .automatic
+                    .get(&id)
+                    .is_some_and(|entry| {
+                        entry.policy.local_device < entry.policy.peer_device
+                            && (entry.renew || entry.pending_canonical_request_expired())
+                            && entry.original.live()
+                            && self
+                                .runtime
+                                .session()
+                                .validate_account_sharing_channel(&entry.channel)
+                                .is_ok()
+                    });
+            if retry_canonical {
+                // An acknowledged publication is not a peer Consent. Re-enter
+                // normal fresh Core begin after a bounded unanswered request,
+                // keeping the old owner alive until new begin succeeds. Its
+                // lease/deadline and any observed permission remain unchanged.
+                self.ensure_canonical_automatic_initiator(policy.clone())?;
+            }
             let retired = self
                 .account_sharing_owner
                 .automatic
@@ -1078,6 +1114,7 @@ impl AppClient {
             };
             self.publish_automatic_control(entry, kind).await?;
             entry.handshake_published = true;
+            entry.handshake_published_at = Some(std::time::Instant::now());
             if entry.recipient {
                 entry.ready = true;
             }
