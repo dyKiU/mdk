@@ -4,6 +4,7 @@ use super::automatic_two_source_leave_acceptance::{
     TwoSourcePeer, stored_indices, wait_for_paired_records,
 };
 use super::*;
+use cgka_traits::StorageProvider;
 use futures::FutureExt;
 
 #[test]
