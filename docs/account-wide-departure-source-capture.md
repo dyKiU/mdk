@@ -1,5 +1,70 @@
 # Account-wide departure source checkpoint
 
+## Current scoped qualification (2026-10-12)
+
+The preparation sections below are historical. Private25 is now the signed
+qualified source78a8b58d43407299c9913ae87fb1253ebe736cfb and the retained-origin
+reader is integrated. Current diagnostic source is
+05b707e61a24be7317cfc8ea8161addfffa1b301; its production inputs match
+388b6735fe1c100ca3095ca3f5fa5b59fb9136f9. This remains an unfinished departure
+slice, with native C/UniFFI, strict/static, fresh-origin lifecycle and final
+integration qualification pending. No SDK, installed host or fork-promotion
+claim is made.
+
+Actual scoped evidence uses the exclusive M5 target986, Rust1.97.1, jobs1,
+debug0, incremental0, minimum20GiB free and test-thread stack4MiB. These are
+fixture-profile results, not shipping default-stack qualification.
+
+- SQL18 passed on e92c19629139eb623e89b6b19cfba91a31e04133; the relevant
+  SQL/migration inputs are unchanged. This includes raw replacement controls,
+  exact retained-origin reads and strict25→26 migration/fingerprint checks.
+- Core real branch/dependency controls2 and targeted transaction rollback1
+  passed on388b. Actual consumed proposal references remain required;
+  mismatching evidence never supplies a proposal or permission. Failed journal
+  writes preserve actual MLS state, group projection and original leave intent;
+  fresh hydration preserves the reanchored intent before public reproposal.
+- Genuine ordered account-wide departure passed on388b: actual same-epoch
+  losing-branch switch, checked B close/reopen before retry, actual independent
+  D removal of both A/B leaves, all three completion receipts and typed send
+  refusal. Default ordinary wire and standard SelfRemove are retained.
+- Unchanged device-only survivor and original offline account-wide journey
+  passed on05b. A preceding survivor run on identical production388b timed out
+  waiting for D to decrypt B's next ordinary send. That intermittent delivery
+  concern remains unresolved; a successful diagnostic rerun does not fix it.
+- Affected Core replay suites passed14 default and14 experimental (the two
+  opt-in measurements were explicitly excluded). Full default atomicity suite
+  passed23, zero ignored; the runner's expected25 count was incorrect and its
+  count-mismatch result is preserved. Experimental atomicity passed26, zero ignored. Total affected Core tests77.
+  Strict lint first found a collapsible test-observer conditional; its equivalent
+  let-chain correction is being qualified. Native binding acceptance is pending.
+
+Causal failures are retained: exact D competing commit was rejected by an
+unrelated B proposal's InvalidMembershipTag before materialization; after the
+first repair selected D branch, the durable same-epoch leave marker suppressed
+reproposal; after reanchor/reopen, another unrelated proposal vetoed the actual
+referenced removal commit. Real Core regression and final ordered journey cover
+these repairs. Only branch-relative InvalidMembershipTag is ignored after an
+actual replayed commit established the proposal epoch. Proposal-only replay,
+missing/wrong consumed references, malformed input, authorization, other
+validation and storage errors remain strict.
+
+Raw immutable inputs/results/logs are under `/Users/pj/project/build/results/`:
+`account-wide-departure-e92c1962-sql-v2`,
+`account-wide-departure-01c9a118-ordered-v8`,
+`account-wide-departure-abff34d2-ordered-v9`,
+`account-wide-departure-2dc70186-core-reference-red`,
+`account-wide-departure-388b6735-core-guards-green-v1`,
+`account-wide-departure-388b6735-ordered-v11`,
+`account-wide-departure-05b707e6-survivor-diagnostic-v1`, and
+`account-wide-departure-05b707e6-core-affected-v1`, and
+`account-wide-departure-05b707e6-core-atomicity-exp-v2`.
+Each prefix has its source/blob manifest and results with exact command, count,
+duration and raw log hash. Preserve the real failures and fixture-prerequisite
+failures separately. Outer Nostr wrapper retirement is not missing intake;
+canonical-content lookup corrected that earlier diagnostic inference.
+
+## Historical source preparation
+
 This is an unqualified source capture on the qualified legacy source parent
 160f34641df79c660022cc86bad7caaef273e05e and shared origin-reader capture
 4032c748fe1c1a13c652cb1c5a5ccce1f8af4a21. It is not a passing delivery,

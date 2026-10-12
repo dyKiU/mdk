@@ -102,25 +102,24 @@ pub(crate) fn result(group: &GroupId, own_leaf: u32, result: &CanonicalizationRe
         {
             o.drop_reason = Some(dropped.reason);
         }
-        if let Some(trace) = &result.selection_trace {
-            if let Some(target) = trace
+        if let Some(trace) = &result.selection_trace
+            && let Some(target) = trace
                 .candidates
                 .iter()
                 .find(|c| c.tip_digest.as_slice() == probe.content.as_slice())
-            {
-                o.target_present = true;
-                o.target_eligible = target.eligible;
-                o.target_selected |= trace.selected_branch_id.as_ref() == Some(&target.branch_id);
-                o.target_depth = Some(target.score.effective_commit_depth);
-                o.target_witnesses = Some(target.score.app_witness_score);
-                o.candidates = result.candidate_count;
-                o.eligible = result.eligible_count;
-                o.decisive_rule = trace
-                    .rule_trace
-                    .iter()
-                    .find(|r| r.decisive)
-                    .map(|r| r.rule_name);
-            }
+        {
+            o.target_present = true;
+            o.target_eligible = target.eligible;
+            o.target_selected |= trace.selected_branch_id.as_ref() == Some(&target.branch_id);
+            o.target_depth = Some(target.score.effective_commit_depth);
+            o.target_witnesses = Some(target.score.app_witness_score);
+            o.candidates = result.candidate_count;
+            o.eligible = result.eligible_count;
+            o.decisive_rule = trace
+                .rule_trace
+                .iter()
+                .find(|r| r.decisive)
+                .map(|r| r.rule_name);
         }
     });
 }
