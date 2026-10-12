@@ -517,7 +517,7 @@ impl AppClient {
                 }) {
                     return Err(failure());
                 }
-                let _inserted = storage
+                let inserted = storage
                     .apply_account_chat_departure(
                         &entry.policy.local_device,
                         &intent,
@@ -532,7 +532,7 @@ impl AppClient {
                     )
                     .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
                 #[cfg(all(test, feature = "test-policy-overrides"))]
-                if !_inserted {
+                if !inserted {
                     super::duplicate_departure_probe::observe_duplicate(
                         self.app.account_home().root(),
                         &entry.policy,
@@ -549,9 +549,14 @@ impl AppClient {
                 );
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 self.test_trace_automatic_progress("departure_intent_applied", entry, "committed");
-                entry.renew = true;
-                self.invalidate_after_account_departure();
-                self.notify_mirrored_presentation_changed();
+                // An authenticated identical retry already has its negative
+                // cut. SQL requeues the current receipt; keep its live owner
+                // so that retry cannot repeatedly retire receipt publication.
+                if inserted {
+                    entry.renew = true;
+                    self.invalidate_after_account_departure();
+                    self.notify_mirrored_presentation_changed();
+                }
             }
             AccountSharedBodyKind::DepartureReceipt => {
                 let receipt: Receipt = serde_json::from_slice(body).map_err(|_| failure())?;
