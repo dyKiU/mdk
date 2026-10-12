@@ -4775,7 +4775,6 @@ fn account_worker_command_future<'a>(
                     .session()
                     .canonical_group_membership(&group)
                     .map(|membership| membership.local_leaf_active)
-                    .map_err(cgka_session::SessionError::from)
                     .map_err(AppError::from);
                 let _ = respond.send(result);
                 false
