@@ -4,7 +4,9 @@ use super::*;
 use crate::account_chat_source::AccountChatSourceVerdict;
 use cgka_traits::{
     GroupId, MemberId, MessageId,
-    approved_account_sharing_policy::ApprovedAccountSharingPolicy,
+    approved_account_sharing_policy::{
+        ApprovedAccountSharingPolicy, ApprovedAccountSharingPolicyStorage,
+    },
     storage::{AccountDeviceSignerBinding, AccountDeviceSignerStorage},
 };
 use std::cell::Cell;
@@ -173,7 +175,7 @@ fn original_tail_failure_rolls_back_policy_and_all_legacy_evidence() {
     let calls = Cell::new(0);
     assert!(
         store
-            .with_transaction(|| {
+            .with_transaction(|_| {
                 store.put_approved_account_sharing_policy(&p, &|| Ok(()))?;
                 store.record_explicit_legacy_chat_acceptance(&id, std::slice::from_ref(&c), &|_| {
                     calls.set(calls.get() + 1);

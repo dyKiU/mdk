@@ -95,9 +95,15 @@ impl AppClient {
             {
                 continue;
             }
-            if self
-                .automatic_chat_source_accepted(&group)
-                .map_err(|_| denied())?
+            // Reliable existing lineage remains the ordinary Source23 path.
+            // Capture is observational: do not bootstrap a ledger write while
+            // the fresh broad original has not committed its policy.
+            if fresh.via_welcome_message_id_hex.is_some()
+                || self
+                    .runtime
+                    .session()
+                    .retained_local_group_creation(&group)
+                    .map_err(|_| denied())?
             {
                 continue;
             }
@@ -216,7 +222,7 @@ impl AppClient {
             .app
             .account_storage(&self.state.label)
             .map_err(|_| denied())?;
-        storage.with_transaction(|| {
+        storage.with_transaction(|_| {
             validate_original()?;
             storage
                 .approved_account_sharing_policy_storage()
