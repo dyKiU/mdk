@@ -28,6 +28,16 @@ fn account_departure_reproposes_public_leave_after_same_epoch_branch_race() {
     });
 }
 
+#[test]
+fn account_departure_completes_when_source_branch_wins_same_epoch_race() {
+    crate::tests::run_composed_app_runtime_test("account-wide-departure-source-wins", || async {
+        Box::pin(actual::run_native_public_three_device_enrollment(
+            actual::ApprovalScenario::AutomaticAccountDepartureSourceWins,
+        ))
+        .await;
+    });
+}
+
 pub(super) async fn verify(
     apps: &[MarmotApp; 3],
     runtimes: &[MarmotAppRuntime; 3],
@@ -77,6 +87,17 @@ pub(super) async fn verify(
                 .is_none()
         );
     }
+    let expect_b_branch_switch = peer
+        .app
+        .account_home()
+        .account("test")
+        .unwrap()
+        .account_id_hex
+        < apps[0]
+            .account_home()
+            .account("test")
+            .unwrap()
+            .account_id_hex;
     let mut held_commit_id = None;
     let mut publication_gate = if ordered {
         let account = peer.app.account_home().account("test").unwrap();
@@ -150,6 +171,7 @@ pub(super) async fn verify(
             reopened.reconcile_accounts().await.unwrap();
             let mut published_branch = None;
             let mut canonical_probe = None;
+            let mut administrator_canonical_probe = None;
             let mut leave_reproposal_hold = None;
             let mut reopened_after_branch_switch = false;
             let mut requested_before_reanchor = None;
@@ -184,7 +206,18 @@ pub(super) async fn verify(
                     canonical_probe = Some(cgka_engine::canonical_probe_observer::Probe::arm(peer.group.clone(),peer.b_index,cgka_traits::MessageId::new(Sha256::digest(&wire.payload).to_vec())));
                 }
                 requested_before_reanchor = Some(reopened_app.account_storage("test").unwrap().leave_request(&peer.group).unwrap().unwrap().requested_at_ms);
-                leave_reproposal_hold = Some(canonical_probe.as_ref().unwrap().hold_leave_reproposal());
+                if expect_b_branch_switch {
+                    leave_reproposal_hold = Some(canonical_probe.as_ref().unwrap().hold_leave_reproposal());
+                } else {
+                    let administrator = peer.app.account_storage("test").unwrap();
+                    let own_leaf = administrator.with_read_snapshot(|storage| -> Result<_, cgka_traits::StorageError> {
+                        let group = openmls::group::MlsGroup::load(storage.mls_storage(), &openmls::group::GroupId::from_slice(peer.group.as_slice())).map_err(|_|cgka_traits::StorageError::Backend("fixture MLS read failed".into()))?.ok_or(cgka_traits::StorageError::NotFound)?;
+                        Ok(group.own_leaf_index().u32())
+                    }).unwrap();
+                    let source = reopened_app.account_storage("test").unwrap();
+                    let content = actual_sent_commit_content(&source,&peer.group,epoch_before);
+                    administrator_canonical_probe = Some(cgka_engine::canonical_probe_observer::Probe::arm(peer.group.clone(),own_leaf,content));
+                }
                 drop(publication_gate.take());
             }
             let mut observed_losing_branch = false;
@@ -194,7 +227,7 @@ pub(super) async fn verify(
                         let current = current_branch_observation(&reopened_app.account_storage("test").unwrap(), &peer.group).unwrap();
                         observed_losing_branch |= current.epoch == published.epoch && current.authenticator_digest != published.authenticator_digest && current.selected_head_digest != published.selected_head_digest;
                     }
-                    if ordered && observed_losing_branch && !reopened_after_branch_switch {
+                    if ordered && expect_b_branch_switch && observed_losing_branch && !reopened_after_branch_switch {
                         let store = reopened_app.account_storage("test").unwrap();
                         let request = store.leave_request(&peer.group).unwrap().unwrap();
                         assert_eq!(request.group_id, peer.group);
@@ -221,10 +254,17 @@ pub(super) async fn verify(
                         && state.status == crate::AccountChatDepartureStatus::Completed
                     {
                         assert_eq!(state.operation_id.as_deref(), Some(operation.as_str()));
-                        if ordered {
+                        if ordered && expect_b_branch_switch {
                             assert!(reopened_after_branch_switch, "actual losing branch must survive fresh same-root reopening before departure completes");
                             assert!(observed_losing_branch, "real competing D branch must replace B published proposal branch before qualifying this case");
                             eprintln!("account_departure_ordering_same_epoch_published_branch_replaced=true");
+                        }
+                        if ordered && !expect_b_branch_switch {
+                            let b = canonical_probe.as_ref().unwrap().snapshot();
+                            let d = administrator_canonical_probe.as_ref().unwrap().snapshot();
+                            assert!(b.target_present && b.target_eligible && !b.target_selected && b.decisive_rule==Some("tip_committer"), "real equal-prior-score source winner must be observed on B");
+                            assert!(d.target_present && d.target_eligible && d.target_selected && d.decisive_rule==Some("tip_committer"), "D must actually select the authenticated source branch");
+                            eprintln!("account_departure_ordering_real_source_branch_selected_by_committer=true");
                         }
                         break;
                     }
@@ -238,6 +278,7 @@ pub(super) async fn verify(
                 std::panic::AssertUnwindSafe(async {
             let indices = stored_indices(&peer.app, &peer.group);
             if let Some(probe) = &canonical_probe { eprintln!("account_departure_timeout_canonical_probe={:?}",probe.snapshot()); }
+            if let Some(probe) = &administrator_canonical_probe { eprintln!("account_departure_timeout_administrator_canonical_probe={:?}",probe.snapshot()); }
             if let Some(id) = &held_commit_id {
                 use cgka_traits::storage::MessageStorage;
                 let event = nostr_relay_builder::prelude::EventId::from_slice(id.as_slice()).unwrap();
@@ -420,6 +461,54 @@ pub(super) async fn verify(
         std::panic::resume_unwind(original);
     }
     assert!(closed, "reopened B owner must positively close");
+}
+
+fn actual_sent_commit_content(
+    storage: &storage_sqlite::SqliteAccountStorage,
+    group: &cgka_traits::GroupId,
+    epoch: cgka_traits::EpochId,
+) -> cgka_traits::MessageId {
+    use cgka_traits::{
+        message::{MessageState, StoredMessagePayload},
+        storage::MessageStorage,
+    };
+    use openmls::prelude::{ContentType, MlsMessageBodyIn, MlsMessageIn, ProtocolMessage};
+    use sha2::{Digest, Sha256};
+    use tls_codec::Deserialize;
+    let mut commits = Vec::new();
+    for row in storage
+        .list_messages(group, epoch)
+        .unwrap()
+        .iter()
+        .take(128)
+    {
+        if row.state != MessageState::Sent {
+            continue;
+        }
+        let payload = StoredMessagePayload::decode(&row.payload).unwrap();
+        let Some(wire) = payload.as_openmls_wire() else {
+            continue;
+        };
+        let Ok(message) = MlsMessageIn::tls_deserialize_exact(&wire.payload) else {
+            continue;
+        };
+        let protocol: ProtocolMessage = match message.extract() {
+            MlsMessageBodyIn::PublicMessage(message) => message.into(),
+            MlsMessageBodyIn::PrivateMessage(message) => message.into(),
+            _ => continue,
+        };
+        if protocol.content_type() == ContentType::Commit {
+            commits.push(cgka_traits::MessageId::new(
+                Sha256::digest(&wire.payload).to_vec(),
+            ));
+        }
+    }
+    assert_eq!(
+        commits.len(),
+        1,
+        "exact actual source commit must precede release"
+    );
+    commits.pop().unwrap()
 }
 
 #[derive(Debug)]

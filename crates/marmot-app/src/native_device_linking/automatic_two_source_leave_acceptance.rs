@@ -32,17 +32,21 @@ pub(super) struct TwoSourcePeer {
 
 impl TwoSourcePeer {
     pub(super) async fn prepare(apps: &[MarmotApp; 3], url: &str) -> Self {
-        Self::prepare_with_committer_order(apps, url, false).await
+        Self::prepare_with_committer_order(apps, url, None).await
     }
 
     pub(super) async fn prepare_preferred_administrator(apps: &[MarmotApp; 3], url: &str) -> Self {
-        Self::prepare_with_committer_order(apps, url, true).await
+        Self::prepare_with_committer_order(apps, url, Some(true)).await
+    }
+
+    pub(super) async fn prepare_preferred_source(apps: &[MarmotApp; 3], url: &str) -> Self {
+        Self::prepare_with_committer_order(apps, url, Some(false)).await
     }
 
     async fn prepare_with_committer_order(
         apps: &[MarmotApp; 3],
         url: &str,
-        prefer_administrator: bool,
+        prefer_administrator: Option<bool>,
     ) -> Self {
         eprintln!("two_source_fixture_stage=ordinary_setup_entered");
         let root = tempfile::tempdir().unwrap();
@@ -51,8 +55,10 @@ impl TwoSourcePeer {
         // commit. Equal ordinary forks prefer the lower authenticated committer.
         let keys = (0..1024)
             .map(|_| nostr::prelude::Keys::generate())
-            .find(|keys| {
-                !prefer_administrator || keys.public_key().to_hex() < source_account.account_id_hex
+            .find(|keys| match prefer_administrator {
+                None => true,
+                Some(true) => keys.public_key().to_hex() < source_account.account_id_hex,
+                Some(false) => keys.public_key().to_hex() > source_account.account_id_hex,
             })
             .expect("bounded genuine principal selection must find preferred administrator");
         let peer_account = AccountHome::open(root.path())
@@ -60,9 +66,13 @@ impl TwoSourcePeer {
             .unwrap();
         let app = MarmotApp::with_relay(root.path(), url);
         assert!(source_account.account_id_hex != peer_account.account_id_hex);
-        if prefer_administrator {
+        if prefer_administrator == Some(true) {
             assert!(peer_account.account_id_hex < source_account.account_id_hex);
             eprintln!("two_source_fixture_preferred_real_administrator_committer=true");
+        }
+        if prefer_administrator == Some(false) {
+            assert!(peer_account.account_id_hex > source_account.account_id_hex);
+            eprintln!("two_source_fixture_preferred_real_source_committer=true");
         }
         crate::tests::remember_test_member_inbox(&app, &source_account.account_id_hex, url);
         // B has no engine/public package yet: the public first invitation has only A.

@@ -247,6 +247,7 @@ pub(super) mod actual {
         AutomaticDepartureFfiFixture,
         AutomaticAccountDeparture,
         AutomaticAccountDepartureOrdering,
+        AutomaticAccountDepartureSourceWins,
         AutomaticAccountDepartureFreshRejoin,
         AutomaticRecordGenerationRenewal,
         AutomaticHeldThreeBInitiates,
@@ -310,12 +311,15 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticAccountDeparture
                 | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
                 | ApprovalScenario::AutomaticAccountDepartureOrdering
+                | ApprovalScenario::AutomaticAccountDepartureSourceWins
         ) {
             Some(
                 Box::pin(
                     async {
                         if scenario == ApprovalScenario::AutomaticAccountDepartureOrdering {
                             super::automatic_two_source_leave_acceptance::TwoSourcePeer::prepare_preferred_administrator(&apps, &url).await
+                        } else if scenario == ApprovalScenario::AutomaticAccountDepartureSourceWins {
+                            super::automatic_two_source_leave_acceptance::TwoSourcePeer::prepare_preferred_source(&apps, &url).await
                         } else {
                             super::automatic_two_source_leave_acceptance::TwoSourcePeer::prepare(&apps, &url).await
                         }
@@ -447,6 +451,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticAccountDeparture
                 | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
                 | ApprovalScenario::AutomaticAccountDepartureOrdering
+                | ApprovalScenario::AutomaticAccountDepartureSourceWins
                 | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
                 | ApprovalScenario::BroadProjectionHeadFailure
@@ -794,6 +799,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticAccountDeparture
                 | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
                 | ApprovalScenario::AutomaticAccountDepartureOrdering
+                | ApprovalScenario::AutomaticAccountDepartureSourceWins
                 | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
                 | ApprovalScenario::BroadProjectionHeadFailure
@@ -912,6 +918,7 @@ pub(super) mod actual {
                         | ApprovalScenario::AutomaticAccountDeparture
                         | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
                         | ApprovalScenario::AutomaticAccountDepartureOrdering
+                        | ApprovalScenario::AutomaticAccountDepartureSourceWins
                         | ApprovalScenario::BroadEnrollment
                         | ApprovalScenario::BroadPreAuthFailure
                         | ApprovalScenario::BroadProjectionHeadFailure
@@ -1047,6 +1054,7 @@ pub(super) mod actual {
                     | ApprovalScenario::AutomaticAccountDeparture
                     | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
                     | ApprovalScenario::AutomaticAccountDepartureOrdering
+                    | ApprovalScenario::AutomaticAccountDepartureSourceWins
             );
             if departure_scenario {
                 for app in &apps {
@@ -1169,6 +1177,7 @@ pub(super) mod actual {
                 ApprovalScenario::AutomaticAccountDeparture
                     | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
                     | ApprovalScenario::AutomaticAccountDepartureOrdering
+                    | ApprovalScenario::AutomaticAccountDepartureSourceWins
             ) {
                 use futures::FutureExt;
                 Some(
@@ -1180,7 +1189,11 @@ pub(super) mod actual {
                             &peer,
                             &url,
                             relay_database.as_ref(),
-                            scenario == ApprovalScenario::AutomaticAccountDepartureOrdering,
+                            matches!(
+                                scenario,
+                                ApprovalScenario::AutomaticAccountDepartureOrdering
+                                    | ApprovalScenario::AutomaticAccountDepartureSourceWins
+                            ),
                         ),
                     ))
                     .catch_unwind()
