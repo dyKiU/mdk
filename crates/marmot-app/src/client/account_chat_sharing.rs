@@ -120,11 +120,21 @@ impl AppClient {
             return Ok(());
         }
         let wire = app.content.as_bytes();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_trace_catalog_stage("outer_intake", "private_control", None);
         let received = self.authenticate_sharing_control_intake(group_id, source, wire);
         let received = match received {
             Ok(received) => received,
             Err(error) => {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_catalog_stage(
+                    "outer_authentication",
+                    automatic::diagnostics::sharing_category(&error),
+                    None,
+                );
                 if self.retain_pending_sibling_control(group_id, source, wire) {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    self.test_trace_catalog_stage("outer_retention", "auth_failure_retained", None);
                     return Ok(());
                 }
                 return Err(error);
@@ -132,6 +142,8 @@ impl AppClient {
         };
         let result = self.dispatch_authenticated_account_sharing_control(&received, wire);
         if result.is_err() && self.retain_pending_sibling_control(group_id, source, wire) {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_catalog_stage("outer_retention", "dispatch_failure_retained", None);
             return Ok(());
         }
         result
@@ -142,10 +154,32 @@ impl AppClient {
         received: &cgka_engine::account_chat_sharing::ReceivedAccountSharingControl,
         wire: &[u8],
     ) -> Result<(), AccountSharingError> {
-        if self.observe_sibling_sharing_control(received, wire)? {
+        let sibling = self.observe_sibling_sharing_control(received, wire);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_trace_catalog_stage(
+            "sibling_dispatch",
+            match &sibling {
+                Ok(true) => "consumed",
+                Ok(false) => "not_consumed",
+                Err(error) => automatic::diagnostics::sharing_category(error),
+            },
+            None,
+        );
+        if sibling? {
             return Ok(());
         }
-        if self.observe_automatic_sharing_control(received, wire)? {
+        let automatic = self.observe_automatic_sharing_control(received, wire);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_trace_catalog_stage(
+            "automatic_dispatch_result",
+            match &automatic {
+                Ok(true) => "consumed",
+                Ok(false) => "not_consumed",
+                Err(error) => automatic::diagnostics::sharing_category(error),
+            },
+            None,
+        );
+        if automatic? {
             return Ok(());
         }
         match received.control {

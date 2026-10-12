@@ -239,6 +239,8 @@ pub(super) mod actual {
         AutomaticForwardingOffline,
         AutomaticForwardingNonAdmin,
         AutomaticWithdrawal,
+        AutomaticFreshAcceptedRejoin,
+        AutomaticLegacyFormatAcceptedRejoin,
         AutomaticTwoLegitimateSources,
         AutomaticDepartureFfiFixture,
         AutomaticAccountDeparture,
@@ -312,6 +314,8 @@ pub(super) mod actual {
         } else {
             None
         };
+        let legacy_encoding = (scenario == ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin)
+            .then(|| crate::AppClient::test_legacy_account_chat_encoding(dirs[0].path()));
         let runtimes = apps.clone().map(MarmotAppRuntime::new);
         runtimes[0].reconcile_accounts().await.unwrap();
         // Establish the real incoming chat while A is the sole active public
@@ -320,6 +324,8 @@ pub(super) mod actual {
             scenario,
             ApprovalScenario::AutomaticForwardingNonAdmin
                 | ApprovalScenario::AutomaticWithdrawal
+                | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
                 | ApprovalScenario::AutomaticRecordGenerationRenewal
                 | ApprovalScenario::AutomaticHeldThreeBInitiates
                 | ApprovalScenario::AutomaticHeldThreeCInitiates
@@ -335,6 +341,26 @@ pub(super) mod actual {
                 )
                 .await,
             )
+        } else {
+            None
+        };
+        // Retain comparison-only provenance from the actual accepted incoming
+        // Welcome before withdrawal retires its ordinary App projection.
+        let rejoin_provenance = if matches!(
+            scenario,
+            ApprovalScenario::AutomaticFreshAcceptedRejoin
+                | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
+        ) {
+            let peer = incoming_peer.as_ref().unwrap();
+            let row = apps[0]
+                .group("test", &hex::encode(peer.group.as_slice()))
+                .unwrap()
+                .unwrap();
+            assert!(!row.pending_confirmation);
+            Some((
+                row.via_welcome_message_id_hex.unwrap(),
+                row.welcomer_account_id_hex.unwrap(),
+            ))
         } else {
             None
         };
@@ -1067,12 +1093,16 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticForwardingOffline
                 | ApprovalScenario::AutomaticForwardingNonAdmin
                 | ApprovalScenario::AutomaticWithdrawal
+                | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
                 | ApprovalScenario::AutomaticForwardingReceiptRetry
         ) {
             if matches!(
                 scenario,
                 ApprovalScenario::AutomaticForwardingNonAdmin
                     | ApprovalScenario::AutomaticWithdrawal
+                    | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                    | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
             ) {
                 Some(incoming_peer.as_ref().unwrap().group.clone())
             } else {
@@ -1100,6 +1130,8 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticForwardingOffline
                 | ApprovalScenario::AutomaticForwardingNonAdmin
                 | ApprovalScenario::AutomaticWithdrawal
+                | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
                 | ApprovalScenario::AutomaticForwardingReceiptRetry
         ) {
             let mut ids = super::automatic_records_acceptance::seed(
@@ -1143,6 +1175,8 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticForwardingOffline
                 | ApprovalScenario::AutomaticForwardingNonAdmin
                 | ApprovalScenario::AutomaticWithdrawal
+                | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
                 | ApprovalScenario::AutomaticForwardingReceiptRetry
         ) {
             // Select C from actual settled protected tree, never invent a target.
@@ -1492,6 +1526,8 @@ pub(super) mod actual {
                     | ApprovalScenario::AutomaticForwardingOffline
                     | ApprovalScenario::AutomaticForwardingNonAdmin
                     | ApprovalScenario::AutomaticWithdrawal
+                    | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                    | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
                     | ApprovalScenario::AutomaticForwardingReceiptRetry
             ) {
                 super::automatic_records_acceptance::verify(
@@ -1509,6 +1545,8 @@ pub(super) mod actual {
                 ApprovalScenario::AutomaticForwarding
                     | ApprovalScenario::AutomaticForwardingNonAdmin
                     | ApprovalScenario::AutomaticWithdrawal
+                    | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                    | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
             ) {
                 super::automatic_forwarding_acceptance::verify(
                     &apps,
@@ -1521,7 +1559,12 @@ pub(super) mod actual {
             if let Some(peer) = &incoming_peer {
                 peer.verify_forwarded_receipt(&runtimes[2]).await;
             }
-            if scenario == ApprovalScenario::AutomaticWithdrawal {
+            if matches!(
+                scenario,
+                ApprovalScenario::AutomaticWithdrawal
+                    | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                    | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
+            ) {
                 let peer = incoming_peer.as_ref().unwrap();
                 peer.verify_withdrawal(&apps, &runtimes, &mirror).await;
                 source.cancel();
@@ -1529,6 +1572,21 @@ pub(super) mod actual {
                 a.cancel().await.unwrap();
                 c.cancel().await.unwrap();
                 approval.cancel().await.unwrap();
+                if scenario == ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin {
+                    let old = apps[2]
+                        .account_storage("test")
+                        .unwrap()
+                        .mirrored_chat_catalog_storage()
+                        .unwrap()
+                        .mirrored_chat_catalog_page(&mirror, None, 128)
+                        .unwrap();
+                    let terminal = old.iter().find(|row| row.group_id == peer.group).unwrap();
+                    assert!(
+                        terminal.state
+                            == cgka_traits::mirrored_chat_catalog::MirroredChatState::Left
+                    );
+                    assert!(terminal.accepted_origin.is_none());
+                }
                 peer.verify_withdrawal_reopen(
                     &runtimes,
                     [dirs[0].path(), dirs[2].path()],
@@ -1536,6 +1594,31 @@ pub(super) mod actual {
                     &later,
                 )
                 .await;
+                // Initial Active/Records and the actual committed withdrawal
+                // used old-format bytes under the original authenticated channel.
+                // Retire that encoder before opening the fresh acceptance owner.
+                drop(legacy_encoding);
+                let rejoin_result = if matches!(
+                    scenario,
+                    ApprovalScenario::AutomaticFreshAcceptedRejoin
+                        | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
+                ) {
+                    use futures::FutureExt;
+                    Some(
+                        std::panic::AssertUnwindSafe(
+                            super::automatic_fresh_rejoin_acceptance::verify_fresh_rejoin(
+                                peer,
+                                [dirs[0].path(), dirs[2].path()],
+                                &url,
+                                rejoin_provenance.as_ref().unwrap(),
+                            ),
+                        )
+                        .catch_unwind()
+                        .await,
+                    )
+                } else {
+                    None
+                };
                 peer.runtime.shutdown_and_close().await.unwrap();
                 assert!(peer.runtime.storage_is_closed());
                 for runtime in runtimes {
@@ -1543,6 +1626,9 @@ pub(super) mod actual {
                     assert!(runtime.storage_is_closed());
                 }
                 relay.shutdown();
+                if let Some(Err(error)) = rejoin_result {
+                    std::panic::resume_unwind(error);
+                }
                 return;
             }
             if scenario == ApprovalScenario::AutomaticForwardingReply {
@@ -1644,6 +1730,8 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticForwardingOffline
                 | ApprovalScenario::AutomaticForwardingNonAdmin
                 | ApprovalScenario::AutomaticWithdrawal
+                | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
                 | ApprovalScenario::AutomaticForwardingReceiptRetry
         ) && index == 0
             || app.load_state("test").unwrap().groups.is_empty()));
@@ -1660,6 +1748,8 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticForwardingOffline
                 | ApprovalScenario::AutomaticForwardingNonAdmin
                 | ApprovalScenario::AutomaticWithdrawal
+                | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
                 | ApprovalScenario::AutomaticForwardingReceiptRetry
         ) {
             let old = managers[0]
@@ -2316,8 +2406,19 @@ mod automatic_held_three_original_acceptance;
 #[path = "automatic_two_source_leave_acceptance.rs"]
 mod automatic_two_source_leave_acceptance;
 
+
+#[cfg(all(feature = "experimental-device-sync",feature = "test-policy-overrides"))]
 #[path = "account_departure_ffi_fixture.rs"]
 mod account_departure_ffi_fixture;
 
+#[cfg(all(feature = "experimental-device-sync",feature = "test-policy-overrides"))]
 #[path = "automatic_account_departure_acceptance.rs"]
 mod automatic_account_departure_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_fresh_rejoin_acceptance.rs"]
+mod automatic_fresh_rejoin_acceptance;
+

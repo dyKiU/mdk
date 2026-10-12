@@ -21,6 +21,15 @@ pub(super) struct RecordSourceCursor {
     cursor: Option<storage_sqlite::AppEventReplayCursor>,
 }
 impl RecordProgress {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn test_progress(&self) -> String {
+        format!(
+            "record_group={}, record_cursor={}, record_assembly={}",
+            self.group.is_some(),
+            self.cursor.is_some(),
+            self.assembly.is_some()
+        )
+    }
     pub(super) fn has_pending(&self) -> bool {
         self.pending.is_some()
     }
@@ -58,6 +67,8 @@ struct CompactRecord {
     source_epoch: u64,
     source_sequence: u64,
     source_digest: [u8; 32],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    accepted_origin: Option<cgka_traits::mirrored_chat_catalog::AcceptedChatOrigin>,
 }
 impl CompactRecord {
     fn from_record(record: &MirroredChatRecord) -> Self {
@@ -73,6 +84,7 @@ impl CompactRecord {
             source_epoch: record.source_epoch,
             source_sequence: record.source_sequence,
             source_digest: record.source_digest,
+            accepted_origin: record.accepted_origin,
         }
     }
     fn into_record(self) -> Result<MirroredChatRecord, AccountSharingError> {
@@ -94,6 +106,8 @@ impl CompactRecord {
             source_epoch: self.source_epoch,
             source_sequence: self.source_sequence,
             source_digest: self.source_digest,
+
+            accepted_origin: self.accepted_origin,
         })
     }
 }
@@ -232,7 +246,16 @@ impl AppClient {
                 crate::unix_now_seconds(),
                 &|| self.automatic_record_original(entry),
             )
-            .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+            .map_err(|error| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_catalog_stage(
+                    "record_sql",
+                    diagnostics::storage_category(&error),
+                    None,
+                );
+                let _ = error;
+                AccountSharingError::RuntimeUnavailable
+            })?;
         // Wake observation owners only after the original-checked SQL commit.
         // Their worker reads still revalidate current policy at publication.
         self.notify_mirrored_presentation_changed();
@@ -435,6 +458,8 @@ impl AppClient {
         batch: &AccountChatRecordBatch,
     ) -> Result<bool, AccountSharingError> {
         let Some(epoch) = self.automatic_record_source_epoch(entry, group)? else {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_catalog_stage("record_source_current", "no_actual_source_epoch", None);
             return Ok(false);
         };
         let records: Vec<MirroredChatRecord> = serde_json::from_slice(&batch.encoded_records)
@@ -453,16 +478,25 @@ impl AppClient {
             else {
                 return Ok(false);
             };
-            let current =
-                self.automatic_record_from_source(group, epoch, &row, crate::unix_now_seconds())?;
+            let current = self.automatic_record_from_source(
+                entry,
+                group,
+                epoch,
+                &row,
+                crate::unix_now_seconds(),
+            )?;
             let digest: [u8; 32] = Sha256::digest(
                 serde_json::to_vec(&current).map_err(|_| AccountSharingError::NotReady)?,
             )
             .into();
             if digest != record.source_digest {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_catalog_stage("record_source_current", &format!("attestation_changed, origin_same={}, current_origin_present={}, retained_origin_present={}", current.accepted_origin == record.accepted_origin, current.accepted_origin.is_some(), record.accepted_origin.is_some()), None);
                 return Ok(false);
             }
         }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_trace_catalog_stage("record_source_current", "current", None);
         Ok(true)
     }
 
@@ -544,8 +578,13 @@ impl AppClient {
                 entry.records.cursor = None;
                 return Ok(());
             };
-            let mut record =
-                self.automatic_record_from_source(&group, epoch, row, crate::unix_now_seconds())?;
+            let mut record = self.automatic_record_from_source(
+                entry,
+                &group,
+                epoch,
+                row,
+                crate::unix_now_seconds(),
+            )?;
             let attestation: [u8; 32] = Sha256::digest(
                 serde_json::to_vec(&record).map_err(|_| AccountSharingError::NotReady)?,
             )
@@ -650,6 +689,7 @@ impl AppClient {
 
     fn automatic_record_from_source(
         &self,
+        entry: &AutomaticChannel,
         group: &crate::GroupId,
         epoch: u64,
         row: &storage_sqlite::StoredAppMessageRecord,
@@ -690,6 +730,19 @@ impl AppClient {
             return Err(AccountSharingError::NotReady);
         }
         let content_digest = (!deleted).then(|| Sha256::digest(&payload).into());
+        let accepted_origin = storage
+            .current_account_chat_source_origin(
+                &entry.policy.account,
+                &entry.policy.local_device,
+                group,
+            )
+            .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let accepted_origin = if self.test_uses_legacy_account_chat_encoding() {
+            None
+        } else {
+            accepted_origin
+        };
         Ok(MirroredChatRecord {
             event_id: hex::decode(&row.message_id_hex)
                 .map_err(|_| AccountSharingError::NotReady)?
@@ -710,6 +763,8 @@ impl AppClient {
             source_epoch: epoch,
             source_sequence: 0,
             source_digest: [0; 32],
+
+            accepted_origin,
         })
     }
 }

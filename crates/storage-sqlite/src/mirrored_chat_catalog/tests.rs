@@ -45,6 +45,10 @@ fn entry(id: u8, sequence: u64) -> MirroredChatEntry {
         name: "same title".into(),
         description: String::new(),
         state: MirroredChatState::Active,
+
+        accepted_origin: None,
+
+        same_account_source_count: None,
     }
 }
 
@@ -407,5 +411,168 @@ fn mirrored_catalog_terminal_fence_survives_policy_and_roster_renewal() {
             .mirrored_chat_catalog_page(&fresh_scope, None, 128)
             .unwrap()
             == vec![entry(7, 3)]
+    );
+}
+
+#[test]
+fn mirrored_catalog_fresh_origin_rejoin_preserves_retired_and_unbound_fences() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    configure(&storage);
+    let old_origin = AcceptedChatOrigin {
+        id: [21; 32],
+        order: 1,
+    };
+    let new_origin = AcceptedChatOrigin {
+        id: [22; 32],
+        order: 2,
+    };
+    let mut old = entry(7, 1);
+    old.accepted_origin = Some(old_origin);
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[old.clone()], &|| Ok(()))
+        .unwrap();
+    let mut left = old.clone();
+    left.source_sequence = 2;
+    left.source_epoch = 1;
+    left.state = MirroredChatState::Left;
+    left.name.clear();
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[left.clone()], &|| Ok(()))
+        .unwrap();
+    let mut same = old.clone();
+    same.source_sequence = 99;
+    same.source_epoch = 4;
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[same], &|| Ok(()))
+            .is_err()
+    );
+    let mut missing = entry(7, 100);
+    missing.source_epoch = 4;
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[missing], &|| Ok(()))
+            .is_err()
+    );
+    let mut renewed = scope();
+    renewed.protected_generation = 2;
+    renewed.policy_digest = [9; 32];
+    let mut fresh = entry(7, 3);
+    fresh.source_epoch = 2;
+    fresh.accepted_origin = Some(new_origin);
+    storage
+        .apply_mirrored_chat_catalog(&renewed, &[fresh.clone()], &|| Ok(()))
+        .unwrap();
+    // A delayed old terminal cannot deny the genuinely new accepted lineage.
+    left.source_sequence = 200;
+    assert_eq!(
+        storage
+            .apply_mirrored_chat_catalog(&renewed, &[left], &|| Ok(()))
+            .unwrap(),
+        0
+    );
+    let mut unbound = entry(7, 201);
+    unbound.state = MirroredChatState::Left;
+    unbound.name.clear();
+    assert_eq!(
+        storage
+            .apply_mirrored_chat_catalog(&renewed, &[unbound], &|| Ok(()))
+            .unwrap(),
+        0
+    );
+    assert!(
+        storage
+            .mirrored_chat_catalog_page(&renewed, None, 128)
+            .unwrap()
+            == vec![fresh]
+    );
+    let mut other = scope();
+    other.source_device = [8; 32];
+    storage
+        .apply_mirrored_chat_catalog(&other, &[old], &|| Ok(()))
+        .unwrap();
+    assert_eq!(
+        storage
+            .mirrored_chat_catalog_page(&other, None, 128)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn mirrored_catalog_new_origin_cannot_reopen_legacy_or_deleted_terminal() {
+    for state in [MirroredChatState::Left, MirroredChatState::Deleted] {
+        let storage = SqliteAccountStorage::in_memory().unwrap();
+        configure(&storage);
+        let mut dead = entry(7, 1);
+        dead.state = state;
+        dead.name.clear();
+        if state == MirroredChatState::Deleted {
+            dead.accepted_origin = Some(AcceptedChatOrigin {
+                id: [21; 32],
+                order: 1,
+            });
+        }
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[dead], &|| Ok(()))
+            .unwrap();
+        let mut fresh = entry(7, 2);
+        fresh.accepted_origin = Some(AcceptedChatOrigin {
+            id: [22; 32],
+            order: 2,
+        });
+        assert!(
+            storage
+                .apply_mirrored_chat_catalog(&scope(), &[fresh], &|| Ok(()))
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn mirrored_catalog_stale_active_cannot_advance_current_origin_and_replace_cannot_erase_fences() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    configure(&storage);
+    let mut active = entry(7, 10);
+    active.accepted_origin = Some(AcceptedChatOrigin {
+        id: [21; 32],
+        order: 1,
+    });
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[active.clone()], &|| Ok(()))
+        .unwrap();
+    let mut stale = active.clone();
+    stale.source_sequence = 9;
+    stale.accepted_origin = Some(AcceptedChatOrigin {
+        id: [22; 32],
+        order: 2,
+    });
+    assert_eq!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[stale], &|| Ok(()))
+            .unwrap(),
+        0
+    );
+    assert!(
+        storage
+            .mirrored_chat_catalog_page(&scope(), None, 128)
+            .unwrap()
+            == vec![active.clone()]
+    );
+    let conn = storage.lock().unwrap();
+    assert!(conn.execute("INSERT OR REPLACE INTO mirrored_chat_origin_current SELECT account,local_device,source_device,group_id,zeroblob(32),origin_order+1,epoch FROM mirrored_chat_origin_current",[]).is_err());
+    drop(conn);
+    active.source_sequence = 11;
+    active.state = MirroredChatState::Left;
+    active.name.clear();
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[active], &|| Ok(()))
+        .unwrap();
+    let conn = storage.lock().unwrap();
+    assert!(conn.execute("INSERT OR REPLACE INTO mirrored_chat_origin_fences SELECT account,local_device,source_device,group_id,origin_id,origin_order,epoch,1 FROM mirrored_chat_origin_fences",[]).is_err());
+    assert!(
+        conn.execute("DELETE FROM mirrored_chat_origin_fences", [])
+            .is_err()
     );
 }

@@ -62,6 +62,10 @@ fn catalog(
             },
             description: String::new(),
             state,
+
+            accepted_origin: None,
+
+            same_account_source_count: None,
         })
         .collect::<Vec<_>>();
     storage
@@ -82,6 +86,8 @@ fn record(id: u8, time: u64) -> MirroredChatRecord {
         source_epoch: 1,
         source_sequence: 1,
         source_digest: [id; 32],
+
+        accepted_origin: None,
     }
 }
 #[test]

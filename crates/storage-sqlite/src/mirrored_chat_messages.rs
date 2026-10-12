@@ -37,6 +37,7 @@ pub(crate) fn validate(record: &MirroredChatRecord) -> StorageResult<()> {
     {
         return Err(invalid());
     }
+    crate::mirrored_chat_catalog::validate_origin(record.accepted_origin)?;
     Ok(())
 }
 pub(crate) fn check_catalog(
@@ -49,10 +50,7 @@ pub(crate) fn check_catalog(
         return Err(invalid());
     }
     check_owner(conn, scope)?;
-    let active:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM mirrored_chat_catalog c WHERE c.scope=?1 AND c.group_id=?2 AND c.state=0 AND NOT EXISTS(
-      SELECT 1 FROM mirrored_chat_catalog terminal JOIN mirrored_chat_scopes s ON s.scope=terminal.scope
-      WHERE terminal.group_id=c.group_id AND terminal.state!=0 AND s.source_device=?3))",
-      params![key,group.as_slice(),scope.source_device.as_slice()],|r|r.get(0)).storage()?;
+    let active:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM mirrored_chat_live_catalog WHERE scope=?1 AND group_id=?2 AND ?3 IS NOT NULL)",params![key,group.as_slice(),scope.source_device.as_slice()],|r|r.get(0)).storage()?;
     if !active {
         return Err(invalid());
     }
@@ -64,6 +62,24 @@ pub(crate) fn read_record(row: &Row<'_>) -> rusqlite::Result<MirroredChatRecord>
         bytes.try_into().map_err(|_| rusqlite::Error::InvalidQuery)
     }
     let digest: Option<Vec<u8>> = row.get(6)?;
+    let origin_id: Option<Vec<u8>> = row.get(11)?;
+    let origin_order: Option<i64> = row.get(12)?;
+    let accepted_origin = match (origin_id, origin_order) {
+        (None, None) => None,
+        (Some(bytes), Some(order)) if (1..=8192).contains(&order) => {
+            let id: [u8; 32] = bytes
+                .try_into()
+                .map_err(|_| rusqlite::Error::InvalidQuery)?;
+            if id == [0; 32] {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+            Some(cgka_traits::mirrored_chat_catalog::AcceptedChatOrigin {
+                id,
+                order: order as u64,
+            })
+        }
+        _ => return Err(rusqlite::Error::InvalidQuery),
+    };
     Ok(MirroredChatRecord {
         event_id: fixed(row, 0)?,
         author: fixed(row, 1)?,
@@ -78,9 +94,11 @@ pub(crate) fn read_record(row: &Row<'_>) -> rusqlite::Result<MirroredChatRecord>
         source_epoch: row.get::<_, i64>(8)? as u64,
         source_sequence: row.get::<_, i64>(9)? as u64,
         source_digest: fixed(row, 10)?,
+
+        accepted_origin,
     })
 }
-const COLUMNS: &str = "event_id,author,created_at,kind,payload,expires_at,content_digest,deleted,source_epoch,source_sequence,source_digest";
+const COLUMNS: &str = "event_id,author,created_at,kind,payload,expires_at,content_digest,deleted,source_epoch,source_sequence,source_digest,origin_id,origin_order";
 fn load(
     conn: &Connection,
     key: &[u8],
@@ -118,9 +136,9 @@ fn write(
     exists: bool,
 ) -> StorageResult<()> {
     let sql = if exists {
-        "UPDATE mirrored_chat_messages SET author=?4,created_at=?5,kind=?6,payload=?7,content_digest=?8,expires_at=?9,deleted=?10,source_epoch=?11,source_sequence=?12,source_digest=?13 WHERE scope=?1 AND group_id=?2 AND event_id=?3"
+        "UPDATE mirrored_chat_messages SET author=?4,created_at=?5,kind=?6,payload=?7,content_digest=?8,expires_at=?9,deleted=?10,source_epoch=?11,source_sequence=?12,source_digest=?13,origin_id=?14,origin_order=?15 WHERE scope=?1 AND group_id=?2 AND event_id=?3"
     } else {
-        "INSERT INTO mirrored_chat_messages(scope,group_id,event_id,author,created_at,kind,payload,content_digest,expires_at,deleted,source_epoch,source_sequence,source_digest) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)"
+        "INSERT INTO mirrored_chat_messages(scope,group_id,event_id,author,created_at,kind,payload,content_digest,expires_at,deleted,source_epoch,source_sequence,source_digest,origin_id,origin_order) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)"
     };
     conn.execute(
         sql,
@@ -137,7 +155,9 @@ fn write(
             record.deleted,
             record.source_epoch as i64,
             record.source_sequence as i64,
-            record.source_digest.as_slice()
+            record.source_digest.as_slice(),
+            record.accepted_origin.map(|o| o.id.to_vec()),
+            record.accepted_origin.map(|o| o.order as i64),
         ],
     )
     .storage()?;
@@ -170,6 +190,8 @@ impl MirroredChatMessageStorage for SqliteAccountStorage {
             check_catalog(&conn, scope, &key, group)?;
             let mut changed = 0;
             for original in records {
+                let matches: bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM mirrored_chat_live_catalog WHERE scope=?1 AND group_id=?2 AND origin_id IS ?3 AND origin_order IS ?4)",params![key,group.as_slice(),original.accepted_origin.map(|o|o.id.to_vec()),original.accepted_origin.map(|o|o.order as i64)],|r|r.get(0)).storage()?;
+                if !matches {return Err(invalid());}
                 let old = load(&conn, &key, group, &original.event_id)?;
                 if old
                     .as_ref()
@@ -247,6 +269,7 @@ impl MirroredChatMessageStorage for SqliteAccountStorage {
         check_catalog(&conn, scope, &key, group)?;
         let mut statement=conn.prepare(&format!("SELECT {COLUMNS} FROM mirrored_chat_messages own WHERE scope=?1 AND group_id=?2
           AND (?3=0 OR (created_at,event_id)>(?4,?5))
+          AND EXISTS(SELECT 1 FROM mirrored_chat_live_catalog c WHERE c.scope=own.scope AND c.group_id=own.group_id AND c.origin_id IS own.origin_id AND c.origin_order IS own.origin_order)
           AND (deleted=1 OR NOT EXISTS(SELECT 1 FROM mirrored_chat_messages terminal WHERE terminal.group_id=own.group_id AND terminal.event_id=own.event_id AND terminal.deleted=1))
           ORDER BY created_at,event_id LIMIT ?6")).storage()?;
         let rows = statement
