@@ -2118,14 +2118,21 @@ impl AppClient {
                 "injected create local projection failure".into(),
             ))
         } else {
-            (|| {
-                #[cfg(feature = "experimental-device-sync")]
-                for event in &source_origin_events {
-                    self.observe_chat_source_origin(event)?;
-                }
+            #[cfg(feature = "experimental-device-sync")]
+            {
+                (|| {
+                    for event in &source_origin_events {
+                        self.observe_chat_source_origin(event)?;
+                    }
+                    self.add_group(&group_id)
+                        .and_then(|()| self.save_state_with_created_chat_list_row(&group_id))
+                })()
+            }
+            #[cfg(not(feature = "experimental-device-sync"))]
+            {
                 self.add_group(&group_id)
                     .and_then(|()| self.save_state_with_created_chat_list_row(&group_id))
-            })()
+            }
         };
         record_app_performance(
             telemetry,
