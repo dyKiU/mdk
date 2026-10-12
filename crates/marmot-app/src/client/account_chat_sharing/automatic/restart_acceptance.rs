@@ -219,17 +219,6 @@ impl AppClient {
                     clients[1].automatic_policy_current(&pair[1]).unwrap();
                     let scope = clients[1].presentation_scope(&pair[1]).unwrap();
                     let storage = apps[1].account_storage("test").unwrap();
-                    let record = storage
-                        .mirrored_chat_message_storage()
-                        .unwrap()
-                        .mirrored_chat_message_page(&scope, ordinary_group, None, 128, now)
-                        .unwrap()
-                        .iter()
-                        .any(|row| {
-                            hex::encode(row.event_id) == *witness
-                                && !row.deleted
-                                && !row.payload.is_empty()
-                        });
                     let catalog = storage
                         .mirrored_chat_catalog_storage()
                         .unwrap()
@@ -240,8 +229,20 @@ impl AppClient {
                             row.group_id == *ordinary_group
                                 && row.state == MirroredChatState::Active
                         });
+                    let record = catalog
+                        && storage
+                            .mirrored_chat_message_storage()
+                            .unwrap()
+                            .mirrored_chat_message_page(&scope, ordinary_group, None, 128, now)
+                            .unwrap()
+                            .iter()
+                            .any(|row| {
+                                hex::encode(row.event_id) == *witness
+                                    && !row.deleted
+                                    && !row.payload.is_empty()
+                            });
                     clients[1].automatic_policy_current(&pair[1]).unwrap();
-                    assert_eq!(clients[1].presentation_scope(&pair[1]).unwrap(), scope);
+                    assert!(clients[1].presentation_scope(&pair[1]).unwrap() == scope);
                     if low.ready
                         && high.ready
                         && !low.recipient
