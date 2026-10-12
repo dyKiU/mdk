@@ -524,3 +524,13 @@ recipients. The unchanged regression and affected sibling/catalog/Records plus
 scoped strict/default checks pass; see
 [completed recipient proof](../../automatic-completed-recipient-routing-verification.json).
 Native retained-handle and installed-device journeys still require the new SDK.
+
+Experimental fresh broad-sharing originals now capture bounded existing
+nonpending Member chats whose retained founding/incoming lineage is unavailable.
+The actual original and current account/group checks surround an atomic policy
+and distinct ExplicitLegacyAcceptance write; stored policy and renewal do not
+mint acceptance. Genuine primary, existing-pair and B-owned endorsement relay
+controls, hidden encrypted reopen, SQL lifetime/rollback guards and affected
+original/catalog/Records checks pass. This source-only private24 checkpoint does
+not qualify positive rejoin, principal-wide leave or a new installed SDK/app; see
+[legacy acceptance proof](../../automatic-original-legacy-chat-acceptance-verification.json).
