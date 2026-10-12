@@ -1033,6 +1033,34 @@ pub(super) mod actual {
                     None,
                 )
                 .await;
+                let c_round = apps[2]
+                    .account_storage("test")
+                    .unwrap()
+                    .private_roster_settlement_storage()
+                    .unwrap()
+                    .read_round()
+                    .unwrap()
+                    .unwrap();
+                let source_devices: [_; 2] = std::array::from_fn(|index| {
+                    apps[index]
+                        .account_storage("test")
+                        .unwrap()
+                        .private_roster_settlement_storage()
+                        .unwrap()
+                        .read_round()
+                        .unwrap()
+                        .unwrap()
+                        .anchor
+                        .local_device
+                });
+                tokio::time::timeout(std::time::Duration::from_secs(40),async {
+                    loop {
+                        let store=apps[2].account_storage("test").unwrap();
+                        let witnessed=source_devices.iter().filter(|source|store.current_mirrored_chat_origin_observation(&c_round.anchor.account,&c_round.anchor.local_device,source,&peer.group).unwrap().is_some()).count();
+                        if witnessed==2 {eprintln!("account_departure_precheck_broad_policies=2 source_origin_witnesses=2 committed_history=true");break;}
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }).await.expect("both genuine source catalog origin observations must precede departure readiness");
                 // These genuine ceremonies have completed. Cancel their held
                 // originals before the departure fixture closes/reopens workers;
                 // cancellation does not revoke an already committed policy.
