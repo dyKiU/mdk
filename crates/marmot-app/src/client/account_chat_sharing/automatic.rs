@@ -5,6 +5,8 @@ mod departure;
 pub(super) mod departure_replay_probe;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) mod diagnostics;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+mod pending_restart_acceptance;
 mod records;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 mod restart_acceptance;

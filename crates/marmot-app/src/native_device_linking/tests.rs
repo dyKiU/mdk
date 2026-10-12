@@ -243,6 +243,7 @@ pub(super) mod actual {
         AutomaticLegacyFormatAcceptedRejoin,
         AutomaticTwoLegitimateSources,
         AutomaticDelayedRequestCollision,
+        AutomaticPendingRequestRestart,
         AutomaticDepartureFfiFixture,
         AutomaticAccountDeparture,
         AutomaticAccountDepartureOrdering,
@@ -428,6 +429,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticHeldSponsorInitiates
                 | ApprovalScenario::AutomaticHeldRecipientInitiates
                 | ApprovalScenario::AutomaticDelayedRequestCollision
+                | ApprovalScenario::AutomaticPendingRequestRestart
                 | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
                 | ApprovalScenario::AutomaticAccountDeparture
@@ -774,6 +776,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticHeldThreeBInitiates
                 | ApprovalScenario::AutomaticHeldThreeCInitiates
                 | ApprovalScenario::AutomaticDelayedRequestCollision
+                | ApprovalScenario::AutomaticPendingRequestRestart
                 | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
                 | ApprovalScenario::AutomaticAccountDeparture
@@ -891,6 +894,7 @@ pub(super) mod actual {
                         | ApprovalScenario::AutomaticHeldThreeBInitiates
                         | ApprovalScenario::AutomaticHeldThreeCInitiates
                         | ApprovalScenario::AutomaticDelayedRequestCollision
+                        | ApprovalScenario::AutomaticPendingRequestRestart
                         | ApprovalScenario::AutomaticTwoLegitimateSources
                         | ApprovalScenario::AutomaticDepartureFfiFixture
                         | ApprovalScenario::AutomaticAccountDeparture
@@ -1089,7 +1093,11 @@ pub(super) mod actual {
                 }
                 approval.cancel().await.unwrap();
             }
-            if scenario == ApprovalScenario::AutomaticDelayedRequestCollision {
+            if matches!(
+                scenario,
+                ApprovalScenario::AutomaticDelayedRequestCollision
+                    | ApprovalScenario::AutomaticPendingRequestRestart
+            ) {
                 use futures::FutureExt;
                 let result = std::panic::AssertUnwindSafe(async {
                     for session in [&a, &c] {
@@ -1100,13 +1108,25 @@ pub(super) mod actual {
                         runtime.shutdown_and_close().await.unwrap();
                         assert!(runtime.storage_is_closed());
                     }
-                    Box::pin(crate::AppClient::test_delayed_higher_request_collision(
-                        [dirs[0].path(), dirs[1].path()],
-                        &url,
-                        &peer.group,
-                        &peer.initial_ids[0],
-                    ))
-                    .await;
+                    if scenario == ApprovalScenario::AutomaticPendingRequestRestart {
+                        Box::pin(
+                            crate::AppClient::test_pending_lower_request_survives_higher_restart(
+                                [dirs[0].path(), dirs[1].path()],
+                                &url,
+                                &peer.group,
+                                &peer.initial_ids[0],
+                            ),
+                        )
+                        .await;
+                    } else {
+                        Box::pin(crate::AppClient::test_delayed_higher_request_collision(
+                            [dirs[0].path(), dirs[1].path()],
+                            &url,
+                            &peer.group,
+                            &peer.initial_ids[0],
+                        ))
+                        .await;
+                    }
                 })
                 .catch_unwind()
                 .await;
@@ -2565,6 +2585,20 @@ fn delayed_higher_request_after_real_consent_renews_the_lower_original() {
     crate::tests::run_composed_app_runtime_test("delayed-real-higher-request", || async {
         Box::pin(actual::run_native_public_three_device_enrollment(
             actual::ApprovalScenario::AutomaticDelayedRequestCollision,
+        ))
+        .await;
+    });
+}
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[test]
+fn pending_lower_request_recovers_after_higher_restarts_before_consent() {
+    crate::tests::run_composed_app_runtime_test("pending-real-lower-request", || async {
+        Box::pin(actual::run_native_public_three_device_enrollment(
+            actual::ApprovalScenario::AutomaticPendingRequestRestart,
         ))
         .await;
     });
