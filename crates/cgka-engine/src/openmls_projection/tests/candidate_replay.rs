@@ -1554,3 +1554,6 @@ async fn uncontested_peel_skips_replay_state_fingerprint() {
         0
     );
 }
+
+#[path = "unconsumed_tip_proposals.rs"]
+mod unconsumed_tip_proposals;

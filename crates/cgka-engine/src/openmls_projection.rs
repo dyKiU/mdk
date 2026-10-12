@@ -4472,6 +4472,8 @@ fn process_openmls_messages_inner<S: StorageProvider>(
     // at its source epoch, so on a diverging prefix its anchor state would
     // not be the state the commit actually produces there.
     let mut prefix_canonical = true;
+    // One immutable tail proof suffices for every proposal at this tip.
+    let mut unmatched_proposal_tip = None;
     for (message_index, message) in messages.iter().enumerate() {
         let (projection, protocol) = project_protocol_message(&message.payload)?;
         let message_id = hex::encode(message.id.as_slice());
@@ -4616,13 +4618,15 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                     &err,
                     ProcessMessageError::ValidationError(ValidationError::InvalidMembershipTag)
                 ) && source_epoch == mls_group.epoch().as_u64()
-                    && is_unconsumed_replayed_tip_proposal(
-                        messages,
-                        message_index,
-                        source_epoch,
-                        &observations,
-                    )?
+                    && (unmatched_proposal_tip == Some(source_epoch)
+                        || is_unconsumed_replayed_tip_proposal(
+                            messages,
+                            message_index,
+                            source_epoch,
+                            &observations,
+                        )?)
                 {
+                    unmatched_proposal_tip = Some(source_epoch);
                     observations.push(OpenMlsReplayObservation::Ignored {
                         message_id,
                         kind: projection.kind,
