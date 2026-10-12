@@ -81,7 +81,7 @@ pub(super) async fn verify_or_depart(
                 .read_round()
                 .unwrap()
                 .unwrap();
-            let receiver = apps[0]
+            let receiver = apps[1]
                 .account_storage("test")
                 .unwrap()
                 .private_roster_settlement_storage()
@@ -92,7 +92,7 @@ pub(super) async fn verify_or_depart(
             assert!(sender.anchor.account == receiver.anchor.account);
             crate::AppClient::test_capture_duplicate_departure(
                 apps[2].account_home().root(),
-                apps[0].account_home().root(),
+                apps[1].account_home().root(),
                 &peer.group,
                 crate::client::DuplicateDepartureBinding {
                     account: sender.anchor.account,
