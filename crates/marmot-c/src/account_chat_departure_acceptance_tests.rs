@@ -651,7 +651,7 @@ fn genuine_two_source_departure_crosses_real_c_and_uniffi_boundaries() {
         assert!(
             fixture.group.len() >= 2
                 && fixture.group.len() <= 510
-                && fixture.group.len() % 2 == 0
+                && fixture.group.len().is_multiple_of(2)
                 && fixture.group.bytes().all(|byte| byte.is_ascii_hexdigit())
         );
         assert!(fixture.label.len() <= 128 && !fixture.label.contains('\0'));
