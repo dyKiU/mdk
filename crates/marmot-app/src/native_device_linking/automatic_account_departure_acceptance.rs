@@ -324,6 +324,31 @@ pub(super) async fn verify(
                         p.global_complete
                     ))
                 );
+                for policy in policies.iter().take(128) {
+                    let actual_peer_index = [(0,&apps[0]),(1,&reopened_app),(2,&apps[2])].into_iter().find_map(|(candidate,app)| {
+                        let storage = app.account_storage("test").ok()?;
+                        let round = storage.private_roster_settlement_storage()?.read_round().ok()??;
+                        (round.anchor.local_device==policy.peer_device).then_some(candidate)
+                    });
+                    let outbox = store.account_chat_departure_outbox(&round.anchor.account,&round.anchor.local_device,&policy.peer_device,None,16);
+                    eprintln!("account_departure_timeout_peer={index} target_peer={actual_peer_index:?} outbox={:?}",outbox.map(|rows| {
+                        let mut kinds=[0usize;4];
+                        let(mut complete,mut needs_administrator,mut awaiting_sources)=(0,0,0);
+                        for row in rows.iter().filter(|row|row.intent.group==peer.group) {
+                            let kind=match row.kind {
+                                storage_sqlite::account_chat_departure::AccountChatDepartureDeliveryKind::Intent=>0,
+                                storage_sqlite::account_chat_departure::AccountChatDepartureDeliveryKind::StatusReceipt=>1,
+                                storage_sqlite::account_chat_departure::AccountChatDepartureDeliveryKind::CompletionNotice=>2,
+                                storage_sqlite::account_chat_departure::AccountChatDepartureDeliveryKind::CompletionAcknowledgement=>3,
+                            };
+                            kinds[kind]+=1;
+                            complete+=usize::from(row.complete);
+                            needs_administrator+=usize::from(row.needs_administrator);
+                            awaiting_sources+=usize::from(row.awaiting_sources);
+                        }
+                        (kinds,complete,needs_administrator,awaiting_sources)
+                    }).map_err(|_|"Unknown"));
+                }
                 let pending = store
                     .pending_local_account_chat_departures(
                         &round.anchor.account,

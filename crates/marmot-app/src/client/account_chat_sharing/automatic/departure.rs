@@ -593,6 +593,17 @@ impl AppClient {
                     }
                 }
                 .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_automatic_progress(
+                    "departure_receipt_applied",
+                    entry,
+                    match receipt.phase {
+                        ReceiptPhase::PeerStatus if receipt.complete => "peer_status_complete",
+                        ReceiptPhase::PeerStatus => "peer_status_pending",
+                        ReceiptPhase::CoordinatorComplete => "coordinator_complete",
+                        ReceiptPhase::CompletionAcknowledgement => "completion_acknowledgement",
+                    },
+                );
             }
             _ => return Err(failure()),
         }
