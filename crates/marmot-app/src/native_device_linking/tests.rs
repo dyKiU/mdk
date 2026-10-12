@@ -419,6 +419,8 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticHeldSponsorInitiates
                 | ApprovalScenario::AutomaticHeldRecipientInitiates
                 | ApprovalScenario::AutomaticTwoLegitimateSources
+                | ApprovalScenario::AutomaticDepartureFfiFixture
+                | ApprovalScenario::AutomaticAccountDeparture
                 | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
                 | ApprovalScenario::BroadProjectionHeadFailure
@@ -760,6 +762,8 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticHeldThreeBInitiates
                 | ApprovalScenario::AutomaticHeldThreeCInitiates
                 | ApprovalScenario::AutomaticTwoLegitimateSources
+                | ApprovalScenario::AutomaticDepartureFfiFixture
+                | ApprovalScenario::AutomaticAccountDeparture
                 | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
                 | ApprovalScenario::BroadProjectionHeadFailure
@@ -872,6 +876,8 @@ pub(super) mod actual {
                         | ApprovalScenario::AutomaticHeldThreeBInitiates
                         | ApprovalScenario::AutomaticHeldThreeCInitiates
                         | ApprovalScenario::AutomaticTwoLegitimateSources
+                        | ApprovalScenario::AutomaticDepartureFfiFixture
+                        | ApprovalScenario::AutomaticAccountDeparture
                         | ApprovalScenario::BroadEnrollment
                         | ApprovalScenario::BroadPreAuthFailure
                         | ApprovalScenario::BroadProjectionHeadFailure
@@ -1007,6 +1013,26 @@ pub(super) mod actual {
                     | ApprovalScenario::AutomaticAccountDeparture
             );
             if departure_scenario {
+                for app in &apps {
+                    assert_eq!(
+                        app.account_storage("test")
+                            .unwrap()
+                            .approved_account_sharing_policy_storage()
+                            .unwrap()
+                            .approved_account_sharing_policies()
+                            .unwrap()
+                            .len(),
+                        2,
+                        "departure fixture must actually use all three broader SDK choices"
+                    );
+                }
+                super::automatic_two_source_leave_acceptance::wait_for_paired_records(
+                    &runtimes[2],
+                    &peer.group,
+                    &peer.initial_ids,
+                    None,
+                )
+                .await;
                 // These genuine ceremonies have completed. Cancel their held
                 // originals before the departure fixture closes/reopens workers;
                 // cancellation does not revoke an already committed policy.
