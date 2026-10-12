@@ -111,6 +111,8 @@ pub enum AccountSharedBodyKind {
     RecordReceipt,
     SendIntent,
     SendReceipt,
+    DepartureIntent,
+    DepartureReceipt,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

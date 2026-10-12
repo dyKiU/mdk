@@ -107,6 +107,10 @@ pub use account_chat_presentation::{
     PairedChatListPage, PairedChatMessage, PairedChatMessageCursor, PairedChatMessagePage,
     PairedChatSource, PairedChatSummary,
 };
+mod account_chat_departure;
+pub use account_chat_departure::{
+    AccountChatDepartureReason, AccountChatDepartureState, AccountChatDepartureStatus,
+};
 mod account_chat_sharing;
 pub use account_chat_sharing::{
     AccountSharingApproval, AccountSharingError, AccountSharingSnapshot, AccountSharingTarget,

@@ -329,6 +329,21 @@ impl AppClient {
         if verdict != Some(AccountChatSourceVerdict::Accepted) {
             return Ok(false);
         }
+
+        let accepted_origin = storage.current_account_chat_source_origin(
+            &scope.account,
+            &scope.local_device,
+            group,
+        )?;
+        if storage.account_chat_departure_denies_source(
+            &scope.account,
+            &scope.local_device,
+            group,
+            &scope.local_device,
+            accepted_origin,
+        )? {
+            return Ok(false);
+        }
         let authority = self.runtime.session().group_authority(group)?;
         Ok(authority.facts.is_member
             && !authority.facts.removed
@@ -344,10 +359,24 @@ impl AppClient {
                 explicitly_accepted: true,
             },
         )?;
-        Ok(self
-            .app
-            .account_storage(&self.state.label)?
-            .current_account_chat_source(&scope.account, &scope.local_device, group)?
-            == Some(AccountChatSourceVerdict::Denied))
+        let storage = self.app.account_storage(&self.state.label)?;
+        let origin = storage
+            .current_account_chat_source_origin(&scope.account, &scope.local_device, group)?
+            .or(storage.current_account_chat_source_terminal_origin(
+                &scope.account,
+                &scope.local_device,
+                group,
+            )?);
+        Ok(
+            storage.current_account_chat_source(&scope.account, &scope.local_device, group)?
+                == Some(AccountChatSourceVerdict::Denied)
+                || storage.account_chat_departure_denies_source(
+                    &scope.account,
+                    &scope.local_device,
+                    group,
+                    &scope.local_device,
+                    origin,
+                )?,
+        )
     }
 }

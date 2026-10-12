@@ -810,3 +810,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, feature = "experimental-device-sync"))]
+mod account_chat_departure_acceptance_tests;

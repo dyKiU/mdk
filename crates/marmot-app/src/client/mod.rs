@@ -66,6 +66,7 @@ use crate::{
     SelfMembership, SendSummary, unix_now_seconds,
 };
 
+mod account_chat_departure;
 #[cfg(feature = "experimental-device-sync")]
 pub(crate) mod account_chat_sharing;
 mod audit;
@@ -5668,6 +5669,10 @@ impl AppClient {
         &self,
         group_id: &GroupId,
     ) -> Result<(), AppError> {
+        #[cfg(feature = "experimental-device-sync")]
+        self.app
+            .ensure_local_chat_not_account_departed(&self.state.label, group_id)?;
+
         self.ensure_group(group_id)?;
         if self
             .app

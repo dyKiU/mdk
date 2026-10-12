@@ -367,6 +367,8 @@ pub enum AppError {
     ReactionNotFound,
     #[error("transport event stream closed")]
     TransportClosed,
+    #[error("account-wide chat departure prevents sends")]
+    AccountChatDepartureDenied,
 }
 
 impl From<TransportAdapterError> for AppError {
@@ -479,6 +481,7 @@ impl AppError {
             Self::BlobStore(_) => "blob_store",
             Self::MediaUploadTimedOut => "media_upload_timed_out",
             Self::UnsafeMediaFetch(_) => "unsafe_media_fetch",
+            Self::AccountChatDepartureDenied => "account_chat_departure_denied",
             Self::InvalidAppMessagePayload(_) => "invalid_app_message_payload",
             Self::InvalidPushToken(_) => "invalid_push_token",
             Self::InvalidPushServer(_) => "invalid_push_server",

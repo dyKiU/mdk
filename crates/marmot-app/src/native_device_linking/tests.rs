@@ -240,6 +240,8 @@ pub(super) mod actual {
         AutomaticForwardingNonAdmin,
         AutomaticWithdrawal,
         AutomaticTwoLegitimateSources,
+        AutomaticDepartureFfiFixture,
+        AutomaticAccountDeparture,
         AutomaticRecordGenerationRenewal,
         AutomaticHeldThreeBInitiates,
         AutomaticHeldThreeCInitiates,
@@ -293,7 +295,12 @@ pub(super) mod actual {
             .await;
         }
         // Establish the exact ordinary A/B leaves before managed workers own any engines.
-        let two_source_peer = if scenario == ApprovalScenario::AutomaticTwoLegitimateSources {
+        let two_source_peer = if matches!(
+            scenario,
+            ApprovalScenario::AutomaticTwoLegitimateSources
+                | ApprovalScenario::AutomaticDepartureFfiFixture
+                | ApprovalScenario::AutomaticAccountDeparture
+        ) {
             Some(
                 Box::pin(
                     super::automatic_two_source_leave_acceptance::TwoSourcePeer::prepare(
@@ -968,7 +975,22 @@ pub(super) mod actual {
             return;
         }
         if let Some(peer) = two_source_peer {
-            Box::pin(peer.verify_device_only_leave(&apps, &runtimes)).await;
+            if scenario == ApprovalScenario::AutomaticDepartureFfiFixture {
+                super::account_departure_ffi_fixture::serve_fixture(&apps, &runtimes, &peer, &url)
+                    .await;
+                for session in [&a, &c] {
+                    session.cancel().await.unwrap();
+                }
+                approval.cancel().await.unwrap();
+                relay.shutdown();
+                return;
+            }
+            if scenario == ApprovalScenario::AutomaticAccountDeparture {
+                super::automatic_account_departure_acceptance::verify(&apps, &runtimes, &peer)
+                    .await;
+            } else {
+                Box::pin(peer.verify_device_only_leave(&apps, &runtimes)).await;
+            }
             // The broad AB ceremony already cancelled initial_a and b before
             // starting the third-device ceremony. Only its current originals
             // remain owned here; every cancellation must succeed.
@@ -979,7 +1001,13 @@ pub(super) mod actual {
             peer.runtime.shutdown_and_close().await.unwrap();
             assert!(peer.runtime.storage_is_closed());
             for runtime in runtimes {
-                runtime.shutdown_and_close().await.unwrap();
+                // The account-wide offline control positively closed B before
+                // reopening its same root; do not close that obsolete owner twice.
+                if scenario != ApprovalScenario::AutomaticAccountDeparture
+                    || !runtime.storage_is_closed()
+                {
+                    runtime.shutdown_and_close().await.unwrap();
+                }
                 assert!(runtime.storage_is_closed());
             }
             relay.shutdown();
@@ -2246,3 +2274,9 @@ mod automatic_held_three_original_acceptance;
 ))]
 #[path = "automatic_two_source_leave_acceptance.rs"]
 mod automatic_two_source_leave_acceptance;
+
+#[path = "account_departure_ffi_fixture.rs"]
+mod account_departure_ffi_fixture;
+
+#[path = "automatic_account_departure_acceptance.rs"]
+mod automatic_account_departure_acceptance;

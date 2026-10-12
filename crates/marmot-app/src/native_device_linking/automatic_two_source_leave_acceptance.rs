@@ -22,12 +22,12 @@ fn automatic_two_legitimate_sources_keep_surviving_device_history_after_self_rem
 
 pub(super) struct TwoSourcePeer {
     _root: tempfile::TempDir,
-    app: MarmotApp,
+    pub(super) app: MarmotApp,
     pub(super) runtime: MarmotAppRuntime,
-    group: crate::GroupId,
-    a_index: u32,
-    b_index: u32,
-    initial_ids: Vec<String>,
+    pub(super) group: crate::GroupId,
+    pub(super) a_index: u32,
+    pub(super) b_index: u32,
+    pub(super) initial_ids: Vec<String>,
 }
 
 impl TwoSourcePeer {
@@ -451,7 +451,7 @@ async fn wait_for_peer_messages(
     .expect("independent D must decrypt both real ordinary sender events");
 }
 
-fn stored_indices(app: &MarmotApp, group: &crate::GroupId) -> BTreeSet<u32> {
+pub(super) fn stored_indices(app: &MarmotApp, group: &crate::GroupId) -> BTreeSet<u32> {
     let storage = app.account_storage("test").unwrap();
     storage
         .with_read_snapshot(|storage| -> Result<_, cgka_traits::StorageError> {
@@ -466,7 +466,7 @@ fn stored_indices(app: &MarmotApp, group: &crate::GroupId) -> BTreeSet<u32> {
         .unwrap()
 }
 
-async fn wait_for_paired_records(
+pub(super) async fn wait_for_paired_records(
     runtime: &MarmotAppRuntime,
     group: &crate::GroupId,
     ids: &[String],

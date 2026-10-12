@@ -343,6 +343,7 @@ pub(crate) struct AccountWorkerRuntime {
 }
 
 pub(crate) enum AccountWorkerCommand {
+    AccountDeparture(Box<super::account_chat_departure::Command>),
     #[cfg(feature = "experimental-device-sync")]
     DeviceRevocation(Box<super::device_revocation::Command>),
     #[cfg(feature = "experimental-device-sync")]
@@ -4752,6 +4753,17 @@ fn account_worker_command_future<'a>(
         AccountWorkerCommand::AccountChatPresentation(command) => Box::pin(async move {
             super::account_chat_presentation::handle(client, *command);
             false
+        }),
+        AccountWorkerCommand::AccountDeparture(command) => Box::pin(async move {
+            let group = super::account_chat_departure::handle(client, *command).await;
+            publish_client_pending_projection_updates(
+                client,
+                events,
+                account_id_hex,
+                account_label,
+            );
+            publish_app_runtime_group_state_updated(events, account_id_hex, account_label, &group);
+            true
         }),
         #[cfg(feature = "experimental-device-sync")]
         AccountWorkerCommand::AccountSharing(command) => Box::pin(async move {

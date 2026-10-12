@@ -1,5 +1,6 @@
 //! Fresh scheduling from durable explicit policy. Stored facts do not restore keys.
 use super::*;
+mod departure;
 mod records;
 mod sends;
 use crate::account_chat_sharing::enabled::OriginalLease;
@@ -70,6 +71,7 @@ pub(crate) struct AutomaticChannel {
     pending_catalog: Option<PendingCatalog>,
     records: records::RecordProgress,
     sends: sends::SendProgress,
+    departures: departure::DepartureProgress,
     renew: bool,
 }
 impl AutomaticChannel {
@@ -234,6 +236,7 @@ impl AppClient {
                     pending_catalog: None,
                     records: records::RecordProgress::default(),
                     sends: sends::SendProgress::default(),
+                    departures: departure::DepartureProgress::default(),
                     renew: false,
                 },
             );
@@ -288,6 +291,10 @@ impl AppClient {
                     }
                     AccountSharedBodyKind::SendReceipt => {
                         self.accept_automatic_send_receipt(&mut entry, &body)?
+                    }
+                    AccountSharedBodyKind::DepartureIntent
+                    | AccountSharedBodyKind::DepartureReceipt => {
+                        self.accept_automatic_departure(&mut entry, kind, &body)?;
                     }
                     _ => return Err(AccountSharingError::NotReady),
                 }
@@ -538,6 +545,7 @@ impl AppClient {
                     pending_catalog: None,
                     records: records::RecordProgress::default(),
                     sends: sends::SendProgress::default(),
+                    departures: departure::DepartureProgress::default(),
                     renew: false,
                 },
             );
@@ -582,6 +590,7 @@ impl AppClient {
                 pending_catalog: None,
                 records: records::RecordProgress::default(),
                 sends: sends::SendProgress::default(),
+                departures: departure::DepartureProgress::default(),
                 renew: false,
             },
         );
@@ -647,6 +656,13 @@ impl AppClient {
             .approved_account_sharing_policies()
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
         self.promote_approved_automatic_requests(&policies)?;
+        let current: Vec<_> = policies
+            .iter()
+            .filter(|policy| self.automatic_policy_current(policy).is_ok())
+            .cloned()
+            .collect();
+        self.maintain_local_account_chat_departures(&current)
+            .await?;
         for policy in policies {
             let id = Self::automatic_policy_id(&policy)?;
             if self.automatic_policy_current(&policy).is_err() {
@@ -720,6 +736,10 @@ impl AppClient {
         if !entry.ready {
             return Ok(());
         }
+        self.retry_automatic_departure(entry)?;
+        if entry.renew {
+            return Ok(());
+        }
         if let Some(pending) = &entry.pending_catalog
             && pending.state == MirroredChatState::Active
             && (self
@@ -744,6 +764,9 @@ impl AppClient {
             entry.inventory_digest = None;
             entry.renew = true;
             return Ok(());
+        }
+        if entry.pending.is_empty() {
+            self.prepare_automatic_departure(entry)?;
         }
         if entry.pending.is_empty() {
             self.prepare_automatic_sends(entry).await?;
@@ -790,6 +813,7 @@ impl AppClient {
         }
         self.automatic_record_mark_published(entry);
         self.automatic_send_mark_published(entry);
+        self.automatic_departure_mark_published(entry)?;
         Ok(())
     }
     fn prepare_automatic_catalog(

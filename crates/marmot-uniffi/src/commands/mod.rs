@@ -74,3 +74,5 @@ mod account_chat_windows;
 
 mod device_revocation;
 pub use device_revocation::DeviceRevocation;
+
+mod account_chat_departure;

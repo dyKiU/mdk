@@ -173,6 +173,7 @@ pub enum MarmotStatus {
     DeviceRevocationBusy = 130,
     DeviceRevocationStaleRevision = 131,
     DeviceRevocationRuntimeUnavailable = 132,
+    AccountChatDepartureDenied = 133,
 }
 
 thread_local! {
@@ -193,6 +194,7 @@ pub(crate) fn take_last_error() -> Option<String> {
 pub(crate) fn status_from_error(err: &MarmotKitError) -> MarmotStatus {
     set_last_error(err.to_string());
     match err {
+        MarmotKitError::AccountChatDepartureDenied => MarmotStatus::AccountChatDepartureDenied,
         MarmotKitError::ConversationWindowMessageNotRetained => {
             MarmotStatus::ConversationWindowMessageNotRetained
         }
@@ -587,6 +589,7 @@ mod tests {
             },
             MarmotKitError::AccountWorkerBusy,
             MarmotKitError::AccountWorkerResponseTimedOut,
+            MarmotKitError::AccountChatDepartureDenied,
             MarmotKitError::AccountSharingUnsupported,
             MarmotKitError::AccountSharingNotReady,
             MarmotKitError::AccountSharingClosed,
@@ -627,9 +630,15 @@ mod tests {
         ];
         assert_eq!(
             variants.len(),
-            123,
+            124,
             "list every MarmotKitError variant exactly once (update this count with the enum)"
         );
+        assert_eq!(
+            status_from_error(&MarmotKitError::AccountChatDepartureDenied) as i32,
+            133
+        );
+        assert_eq!(MarmotStatus::AccountSharingUnsupported as i32, 121);
+        assert_eq!(MarmotStatus::DeviceRevocationRuntimeUnavailable as i32, 132);
         assert_eq!(status_from_error(&MarmotKitError::UserBlocked) as i32, 78);
         assert_eq!(
             status_from_error(&MarmotKitError::BlockListUnavailable) as i32,

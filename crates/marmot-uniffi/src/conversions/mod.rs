@@ -849,3 +849,6 @@ pub use account_chat_windows::*;
 
 mod device_revocation;
 pub use device_revocation::*;
+
+mod account_chat_departure;
+pub use account_chat_departure::*;

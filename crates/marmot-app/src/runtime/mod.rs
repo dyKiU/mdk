@@ -120,6 +120,7 @@ pub use account_chat_windows::{
     AccountChatListWindowHandle, AccountChatListWindowSnapshot, AccountChatRow,
     RuntimeAccountChatListWindowSubscription,
 };
+mod account_chat_departure;
 #[cfg(feature = "experimental-device-sync")]
 mod account_chat_sharing;
 mod commands;

@@ -97,7 +97,15 @@ impl AppClient {
             loop {
                 let page = catalog.mirrored_chat_catalog_page(&scope, after.as_ref(), 128)?;
                 if let Some(row) = page.iter().find(|row| &row.group_id == group) {
-                    if row.state == MirroredChatState::Active {
+                    if row.state == MirroredChatState::Active
+                        && !storage.account_chat_departure_denies_source(
+                            &scope.account,
+                            &scope.local_device,
+                            group,
+                            &scope.source_device,
+                            row.accepted_origin,
+                        )?
+                    {
                         routes.push((policy, scope));
                     }
                     break;
@@ -110,6 +118,22 @@ impl AppClient {
                     break;
                 }
                 after = page.last().map(|row| row.group_id.clone());
+            }
+        }
+        if routes.is_empty() {
+            let identity = self.runtime.session().self_id();
+            use cgka_traits::storage::AccountDeviceSignerStorage;
+            if let Some(signer) = storage.account_device_signer(&identity)? {
+                let account: [u8; 32] =
+                    identity.as_slice().try_into().map_err(|_| unavailable())?;
+                let local: [u8; 32] = signer
+                    .mls_signature_public_key
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| unavailable())?;
+                if storage.has_account_chat_departure(&account, &local, group)? {
+                    return Err(crate::AppError::AccountChatDepartureDenied);
+                }
             }
         }
         let (first, _) = routes.first().ok_or_else(unavailable)?;

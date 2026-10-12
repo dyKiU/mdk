@@ -16,6 +16,7 @@
 //! block.
 
 use crate::attachment_access::MarmotAttachmentLocalBytes;
+use crate::types::account_chat_departure::MarmotAccountChatDepartureState;
 use crate::types::avatar::{MarmotAvatarAssetList, MarmotAvatarBytesList};
 use crate::types::presentation::{MarmotPresentedChatListSnapshot, MarmotPresentedChatRow};
 use std::ffi::c_char;
@@ -701,6 +702,14 @@ c_cmd! {
     /// Leave the group as the active account. Admins must self-demote
     /// first. Free with `marmot_send_summary_free`.
     async fn marmot_leave_group(account_ref: str, group_id_hex: str) -> rec(MarmotSendSummary) = leave_group;
+
+    /// Account-wide local/paired departure readiness; no synthetic MLS management.
+    /// Free with marmot_account_chat_departure_state_free.
+    async fn marmot_account_chat_departure_state(account_ref: str, group_id_hex: str) -> rec(MarmotAccountChatDepartureState) = account_chat_departure_state;
+
+    /// Explicit account-wide negative intent. Pending does not mean remote MLS removal.
+    /// Free with marmot_account_chat_departure_state_free.
+    async fn marmot_leave_account_chat(account_ref: str, group_id_hex: str) -> rec(MarmotAccountChatDepartureState) = leave_account_chat;
 
     /// Delete this group's local app data without an MLS leave. Cancel
     /// active UI subscriptions for the group first. MLS state stays
