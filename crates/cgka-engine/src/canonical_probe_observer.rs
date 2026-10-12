@@ -19,6 +19,10 @@ pub struct Observation {
     pub target_present: bool,
     pub target_selected: bool,
     pub target_eligible: bool,
+    /// Same-pass facts: both eligible sibling tips had identical score terms
+    /// before the authenticated committer comparison. These never grant state.
+    pub target_won_by_committer: bool,
+    pub target_lost_by_committer: bool,
     pub target_depth: Option<u64>,
     pub target_witnesses: Option<usize>,
     pub decisive_rule: Option<&'static str>,
@@ -120,6 +124,31 @@ pub(crate) fn result(group: &GroupId, own_leaf: u32, result: &CanonicalizationRe
                 .iter()
                 .find(|r| r.decisive)
                 .map(|r| r.rule_name);
+            let mut rivals = trace.candidates.iter().filter(|candidate| {
+                candidate.eligible
+                    && candidate.branch_id != target.branch_id
+                    && candidate.fork_epoch == target.fork_epoch
+                    && candidate.tip_epoch == target.tip_epoch
+            });
+            if target.eligible
+                && let Some(rival) = rivals.next()
+                && rivals.next().is_none()
+            {
+                let a = &target.score;
+                let b = &rival.score;
+                let equal_prior = a.effective_commit_depth == b.effective_commit_depth
+                    && a.witness_quorum_met == b.witness_quorum_met
+                    && a.app_witness_score == b.app_witness_score
+                    && a.tip_priority == b.tip_priority;
+                if equal_prior && a.tip_committer != b.tip_committer {
+                    o.target_won_by_committer |= trace.selected_branch_id.as_ref()
+                        == Some(&target.branch_id)
+                        && a.tip_committer < b.tip_committer;
+                    o.target_lost_by_committer |= trace.selected_branch_id.as_ref()
+                        == Some(&rival.branch_id)
+                        && a.tip_committer > b.tip_committer;
+                }
+            }
         }
     });
 }

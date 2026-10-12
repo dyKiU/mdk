@@ -215,7 +215,7 @@ pub(super) async fn verify(
                         Ok(group.own_leaf_index().u32())
                     }).unwrap();
                     let source = reopened_app.account_storage("test").unwrap();
-                    let content = actual_sent_commit_content(&source,&peer.group,epoch_before);
+                    let content = actual_confirmed_commit_content(&source,&peer.group,epoch_before,&cgka_traits::MemberId::new(hex::decode(reopened_app.account_home().account("test").unwrap().account_id_hex).unwrap()));
                     administrator_canonical_probe = Some(cgka_engine::canonical_probe_observer::Probe::arm(peer.group.clone(),own_leaf,content));
                 }
                 drop(publication_gate.take());
@@ -262,8 +262,8 @@ pub(super) async fn verify(
                         if ordered && !expect_b_branch_switch {
                             let b = canonical_probe.as_ref().unwrap().snapshot();
                             let d = administrator_canonical_probe.as_ref().unwrap().snapshot();
-                            assert!(b.target_present && b.target_eligible && !b.target_selected && b.decisive_rule==Some("tip_committer"), "real equal-prior-score source winner must be observed on B");
-                            assert!(d.target_present && d.target_eligible && d.target_selected && d.decisive_rule==Some("tip_committer"), "D must actually select the authenticated source branch");
+                            assert!(b.target_lost_by_committer, "real equal-prior-score source winner must be observed on B");
+                            assert!(d.target_won_by_committer, "D must actually select the authenticated source branch");
                             eprintln!("account_departure_ordering_real_source_branch_selected_by_committer=true");
                         }
                         break;
@@ -463,15 +463,13 @@ pub(super) async fn verify(
     assert!(closed, "reopened B owner must positively close");
 }
 
-fn actual_sent_commit_content(
+fn actual_confirmed_commit_content(
     storage: &storage_sqlite::SqliteAccountStorage,
     group: &cgka_traits::GroupId,
     epoch: cgka_traits::EpochId,
+    identity: &cgka_traits::MemberId,
 ) -> cgka_traits::MessageId {
-    use cgka_traits::{
-        message::{MessageState, StoredMessagePayload},
-        storage::MessageStorage,
-    };
+    use cgka_traits::{message::StoredMessagePayload, storage::MessageStorage};
     use openmls::prelude::{ContentType, MlsMessageBodyIn, MlsMessageIn, ProtocolMessage};
     use sha2::{Digest, Sha256};
     use tls_codec::Deserialize;
@@ -482,10 +480,16 @@ fn actual_sent_commit_content(
         .iter()
         .take(128)
     {
-        if row.state != MessageState::Sent {
+        let payload = StoredMessagePayload::decode(&row.payload).unwrap();
+        let Some(stamp) = payload.own_commit_stamp() else {
+            continue;
+        };
+        if stamp.committer != *identity
+            || stamp.checkpoint_id.is_none()
+            || stamp.resulting_epoch_authenticator.is_none()
+        {
             continue;
         }
-        let payload = StoredMessagePayload::decode(&row.payload).unwrap();
         let Some(wire) = payload.as_openmls_wire() else {
             continue;
         };
@@ -497,7 +501,7 @@ fn actual_sent_commit_content(
             MlsMessageBodyIn::PrivateMessage(message) => message.into(),
             _ => continue,
         };
-        if protocol.content_type() == ContentType::Commit {
+        if protocol.content_type() == ContentType::Commit && protocol.epoch().as_u64() == epoch.0 {
             commits.push(cgka_traits::MessageId::new(
                 Sha256::digest(&wire.payload).to_vec(),
             ));
@@ -525,7 +529,7 @@ struct PublicLeaveObservation {
     same_selected_head: bool,
     source_proposal_states: [usize; 8],
     // Direction0 is B→D, direction1 is D→B. The ninth state is NotFound.
-    sent_commits: [usize; 2],
+    confirmed_own_commits: [usize; 2],
     received_commit_states: [[usize; 9]; 2],
     relay_commits: [usize; 2],
 }
@@ -540,6 +544,16 @@ async fn observe_public_leave_failure(
     use cgka_traits::storage::{MessageStorage, OutboundFanoutStorage};
     use openmls::prelude::{ContentType, MlsMessageBodyIn, MlsMessageIn, ProtocolMessage};
     use tls_codec::Deserialize;
+    let source_identity = cgka_traits::MemberId::new(
+        hex::decode(source.account_home().account("test")?.account_id_hex).map_err(|_| {
+            cgka_traits::StorageError::Serialization("diagnostic owner unavailable".into())
+        })?,
+    );
+    let administrator_identity = cgka_traits::MemberId::new(
+        hex::decode(peer.app.account_home().account("test")?.account_id_hex).map_err(|_| {
+            cgka_traits::StorageError::Serialization("diagnostic owner unavailable".into())
+        })?,
+    );
     let source = source.account_storage("test")?;
     let administrator = peer.app.account_storage("test")?;
     let (epoch, pending) =
@@ -620,26 +634,34 @@ async fn observe_public_leave_failure(
             Err(error) => return Err(error.into()),
         }
     }
-    let mut sent_commits = [0; 2];
+    let mut confirmed_own_commits = [0; 2];
     let mut received_commit_states = [[0; 9]; 2];
     let mut relay_commits = [0; 2];
     if current.0 > 0 {
-        for (direction, (sender, receiver)) in
-            [(&source, &administrator), (&administrator, &source)]
-                .into_iter()
-                .enumerate()
+        for (direction, (sender, receiver, identity)) in [
+            (&source, &administrator, &source_identity),
+            (&administrator, &source, &administrator_identity),
+        ]
+        .into_iter()
+        .enumerate()
         {
             for record in sender
                 .list_messages(&peer.group, cgka_traits::EpochId(current.0 - 1))?
                 .iter()
                 .take(128)
             {
-                if record.state != MessageState::Sent {
-                    continue;
-                }
                 let Ok(payload) = StoredMessagePayload::decode(&record.payload) else {
                     continue;
                 };
+                let Some(stamp) = payload.own_commit_stamp() else {
+                    continue;
+                };
+                if stamp.committer != *identity
+                    || stamp.checkpoint_id.is_none()
+                    || stamp.resulting_epoch_authenticator.is_none()
+                {
+                    continue;
+                }
                 let (Some(exact), Some(wire)) =
                     (payload.as_exact_transport(), payload.as_openmls_wire())
                 else {
@@ -653,10 +675,12 @@ async fn observe_public_leave_failure(
                     MlsMessageBodyIn::PrivateMessage(message) => message.into(),
                     _ => continue,
                 };
-                if protocol.content_type() != ContentType::Commit {
+                if protocol.content_type() != ContentType::Commit
+                    || protocol.epoch().as_u64() != current.0 - 1
+                {
                     continue;
                 }
-                sent_commits[direction] += 1;
+                confirmed_own_commits[direction] += 1;
                 let id = nostr_relay_builder::prelude::EventId::from_slice(exact.id.as_slice())
                     .map_err(|_| {
                         cgka_traits::StorageError::Serialization(
@@ -704,7 +728,7 @@ async fn observe_public_leave_failure(
         source_pending_fanouts: fanouts,
         relay_retained_proposals: relay_retained,
         source_proposal_states,
-        sent_commits,
+        confirmed_own_commits,
         received_commit_states,
         relay_commits,
         same_epoch: source_branch.epoch == administrator_branch.epoch,
