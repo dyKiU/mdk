@@ -1105,3 +1105,27 @@ fn immutable_departure_rows_refuse_raw_replace_and_upsert_without_recursive_trig
         );
     }
 }
+
+#[test]
+fn stale_reply_publication_preserves_newer_completion_receipt() {
+    for coordinator_completed in [false, true] {
+        let storage = configured();
+        let mut intent = fixture_intent();
+        intent.initiator = [3; 32];
+        intent.action_id = intent.identity();
+        storage.apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(())).unwrap();
+        let old = storage.account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16).unwrap();
+        assert_eq!(old.len(), 1);
+        assert!(old[0].kind == AccountChatDepartureDeliveryKind::StatusReceipt);
+        assert!(!old[0].complete);
+        storage.mark_account_chat_departure_local_state(&[1; 32], &[2; 32], &intent.action_id, AccountChatDepartureLocalState::Complete, &|| Ok(())).unwrap();
+        if coordinator_completed {
+            storage.account_chat_departure_completion(&[1; 32], &[2; 32], &intent.action_id, &[3; 32], false, &|| Ok(())).unwrap();
+        }
+        storage.account_chat_departure_reply_published(&[1; 32], &[2; 32], &intent.action_id, &|| Ok(())).unwrap();
+        let pending = storage.account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16).unwrap();
+        assert_eq!(pending.len(), 1, "an older published receipt must not consume newer progress");
+        assert!(pending[0].complete);
+        assert!(pending[0].kind == if coordinator_completed { AccountChatDepartureDeliveryKind::CompletionAcknowledgement } else { AccountChatDepartureDeliveryKind::StatusReceipt });
+    }
+}
