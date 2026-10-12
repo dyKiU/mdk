@@ -76,6 +76,10 @@ fn configure(s: &SqliteAccountStorage) {
             name: "shared".into(),
             description: String::new(),
             state: MirroredChatState::Active,
+
+            accepted_origin: None,
+
+            same_account_source_count: None,
         }],
         &|| Ok(()),
     )
@@ -100,6 +104,8 @@ fn record(event: u8, seq: u64) -> MirroredChatRecord {
         source_epoch: 1,
         source_sequence: seq,
         source_digest: [event; 32],
+
+        accepted_origin: None,
     }
 }
 fn batch(records: &[MirroredChatRecord]) -> AccountChatRecordBatch {
@@ -305,6 +311,10 @@ fn record_stream_apply_receipt_and_progress_are_atomic_and_out_of_order_safe() {
             name: "shared".into(),
             description: String::new(),
             state: MirroredChatState::Active,
+
+            accepted_origin: None,
+
+            same_account_source_count: None,
         }],
         &|| Ok(()),
     )

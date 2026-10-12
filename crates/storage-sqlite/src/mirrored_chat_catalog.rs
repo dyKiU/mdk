@@ -39,6 +39,92 @@ pub(crate) fn scope_bytes(scope: &MirroredChatScope) -> StorageResult<Vec<u8>> {
     Ok(bytes)
 }
 
+pub(crate) fn validate_origin(origin: Option<AcceptedChatOrigin>) -> StorageResult<()> {
+    if origin.is_some_and(|o| o.id == [0; 32] || !(1..=8192).contains(&o.order)) {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+// Metadata only; the outer transaction still revalidates the real original.
+fn prepare_lineage(
+    conn: &Connection,
+    scope: &MirroredChatScope,
+    entry: &MirroredChatEntry,
+) -> StorageResult<bool> {
+    validate_origin(entry.accepted_origin)?;
+    let current: Option<(Vec<u8>,i64,i64)> = conn.query_row("SELECT origin_id,origin_order,epoch FROM mirrored_chat_origin_current WHERE account=?1 AND local_device=?2 AND source_device=?3 AND group_id=?4",params![scope.account.as_slice(),scope.local_device.as_slice(),scope.source_device.as_slice(),entry.group_id.as_slice()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().storage()?;
+    if entry.state != MirroredChatState::Active {
+        if entry.accepted_origin.is_none() && current.is_some() {
+            return Ok(false);
+        }
+        let (id, order) = entry
+            .accepted_origin
+            .map(|o| (o.id, o.order))
+            .unwrap_or(([0; 32], 0));
+        let prior: Option<(i64,i64,i64)>=conn.query_row("SELECT origin_order,epoch,state FROM mirrored_chat_origin_fences WHERE account=?1 AND local_device=?2 AND source_device=?3 AND group_id=?4 AND origin_id=?5",params![scope.account.as_slice(),scope.local_device.as_slice(),scope.source_device.as_slice(),entry.group_id.as_slice(),id.as_slice()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().storage()?;
+        if let Some((old_order, epoch, state)) = prior {
+            if old_order != order as i64 {
+                return Err(conflict());
+            }
+            conn.execute("UPDATE mirrored_chat_origin_fences SET epoch=?6,state=?7 WHERE account=?1 AND local_device=?2 AND source_device=?3 AND group_id=?4 AND origin_id=?5",params![scope.account.as_slice(),scope.local_device.as_slice(),scope.source_device.as_slice(),entry.group_id.as_slice(),id.as_slice(),epoch.max(entry.source_epoch as i64),state.max(state_value(entry.state))]).storage()?;
+        } else {
+            conn.execute(
+                "INSERT INTO mirrored_chat_origin_fences VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+                params![
+                    scope.account.as_slice(),
+                    scope.local_device.as_slice(),
+                    scope.source_device.as_slice(),
+                    entry.group_id.as_slice(),
+                    id.as_slice(),
+                    order as i64,
+                    entry.source_epoch as i64,
+                    state_value(entry.state)
+                ],
+            )
+            .storage()?;
+        }
+        return Ok(
+            current.is_none_or(|(old_id, old_order, _)| old_id == id && old_order == order as i64)
+        );
+    }
+    let blocked:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM mirrored_chat_origin_fences WHERE account=?1 AND local_device=?2 AND source_device=?3 AND group_id=?4 AND (state=2 OR origin_id=?5 OR (origin_order=0 AND (?6=0 OR epoch>=?7)) OR (origin_order>0 AND (origin_order>=?6 OR epoch>?7))))",params![scope.account.as_slice(),scope.local_device.as_slice(),scope.source_device.as_slice(),entry.group_id.as_slice(),entry.accepted_origin.map(|o|o.id.to_vec()).unwrap_or_default(),entry.accepted_origin.map(|o|o.order as i64).unwrap_or(0),entry.source_epoch as i64],|r|r.get(0)).storage()?;
+    if blocked {
+        return Err(conflict());
+    }
+    let Some(origin) = entry.accepted_origin else {
+        return if current.is_none() {
+            Ok(true)
+        } else {
+            Err(conflict())
+        };
+    };
+    if let Some((id, order, epoch)) = current {
+        if origin.order < (order as u64)
+            || (origin.order == order as u64 && id != origin.id)
+            || entry.source_epoch < (epoch as u64)
+        {
+            return Err(conflict());
+        }
+        conn.execute("UPDATE mirrored_chat_origin_current SET origin_id=?5,origin_order=?6,epoch=?7 WHERE account=?1 AND local_device=?2 AND source_device=?3 AND group_id=?4",params![scope.account.as_slice(),scope.local_device.as_slice(),scope.source_device.as_slice(),entry.group_id.as_slice(),origin.id.as_slice(),origin.order as i64,entry.source_epoch as i64]).storage()?;
+    } else {
+        conn.execute(
+            "INSERT INTO mirrored_chat_origin_current VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            params![
+                scope.account.as_slice(),
+                scope.local_device.as_slice(),
+                scope.source_device.as_slice(),
+                entry.group_id.as_slice(),
+                origin.id.as_slice(),
+                origin.order as i64,
+                entry.source_epoch as i64
+            ],
+        )
+        .storage()?;
+    }
+    Ok(true)
+}
+
 fn entry_bytes(scope: &MirroredChatScope, entry: &MirroredChatEntry) -> StorageResult<Vec<u8>> {
     if !group_valid(&entry.group_id)
         || entry.group_id == scope.protected_group
@@ -50,6 +136,13 @@ fn entry_bytes(scope: &MirroredChatScope, entry: &MirroredChatEntry) -> StorageR
         || entry.description.len() > 8192
         || (entry.state != MirroredChatState::Active
             && (!entry.name.is_empty() || !entry.description.is_empty()))
+    {
+        return Err(invalid());
+    }
+    validate_origin(entry.accepted_origin)?;
+    if entry
+        .same_account_source_count
+        .is_some_and(|n| !(1..=128).contains(&n))
     {
         return Err(invalid());
     }
@@ -134,18 +227,22 @@ impl MirroredChatCatalogStorage for SqliteAccountStorage {
             let mut changed=0;
             for (entry,body) in entries.iter().zip(&bodies) {
                 let previous:Option<(Vec<u8>,i64,i64,Vec<u8>)>=conn.query_row("SELECT group_id,source_sequence,state,record FROM mirrored_chat_catalog WHERE scope=?1 AND group_id=?2",params![scope_key,entry.group_id.as_slice()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().storage()?;
-                if let Some((group,sequence,state,bytes))=previous {
-                    let old=decode_entry(scope,group,sequence,state,bytes)?;
-                    if entry.source_sequence<old.source_sequence { continue; }
+                let previous=previous.map(|(group,sequence,state,bytes)|decode_entry(scope,group,sequence,state,bytes)).transpose()?;
+                if let Some(old)=&previous {
+                    if entry.source_sequence<old.source_sequence && entry.state==MirroredChatState::Active {continue;}
                     if entry.source_sequence==old.source_sequence {
-                        if *entry!=old { return Err(conflict()); }
+                        if *entry!=*old {return Err(conflict());}
                         continue;
                     }
-                    if old.state!=MirroredChatState::Active && entry.state!=old.state { return Err(conflict()); }
+                }
+                if !prepare_lineage(&conn,scope,entry)? {continue;}
+                if let Some(old)=previous {
+                    if entry.source_sequence<old.source_sequence {continue;}
+                    if old.state!=MirroredChatState::Active && entry.state!=old.state && !(old.state==MirroredChatState::Left && entry.state==MirroredChatState::Active && entry.accepted_origin.is_some_and(|b| old.accepted_origin.map_or(entry.source_epoch>old.source_epoch, |a| a.id!=b.id && b.order>a.order))) { return Err(conflict()); }
                     if entry.source_epoch<old.source_epoch { return Err(conflict()); }
-                    conn.execute("UPDATE mirrored_chat_catalog SET source_sequence=?3,state=?4,record=?5 WHERE scope=?1 AND group_id=?2",params![scope_key,entry.group_id.as_slice(),entry.source_sequence as i64,state_value(entry.state),body]).storage()?;
+                    conn.execute("UPDATE mirrored_chat_catalog SET source_sequence=?3,state=?4,record=?5,origin_id=?6,origin_order=?7 WHERE scope=?1 AND group_id=?2",params![scope_key,entry.group_id.as_slice(),entry.source_sequence as i64,state_value(entry.state),body,entry.accepted_origin.map(|o|o.id.to_vec()),entry.accepted_origin.map(|o|o.order as i64)]).storage()?;
                 } else {
-                    conn.execute("INSERT INTO mirrored_chat_catalog(scope,group_id,source_sequence,state,record) VALUES(?1,?2,?3,?4,?5)",params![scope_key,entry.group_id.as_slice(),entry.source_sequence as i64,state_value(entry.state),body]).storage()?;
+                    conn.execute("INSERT INTO mirrored_chat_catalog(scope,group_id,source_sequence,state,record,origin_id,origin_order) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![scope_key,entry.group_id.as_slice(),entry.source_sequence as i64,state_value(entry.state),body,entry.accepted_origin.map(|o|o.id.to_vec()),entry.accepted_origin.map(|o|o.order as i64)]).storage()?;
                 }
                 changed+=1;
             }
@@ -174,10 +271,7 @@ impl MirroredChatCatalogStorage for SqliteAccountStorage {
         let mut statement = conn
             .prepare(
                 "SELECT c.group_id,c.source_sequence,c.state,c.record FROM mirrored_chat_catalog c
-            WHERE c.scope=?1 AND c.group_id>?2 AND (c.state!=0 OR NOT EXISTS(
-              SELECT 1 FROM mirrored_chat_catalog terminal
-              JOIN mirrored_chat_scopes s ON s.scope=terminal.scope
-              WHERE terminal.group_id=c.group_id AND terminal.state!=0 AND s.source_device=?4))
+            WHERE c.scope=?1 AND c.group_id>?2 AND (c.state!=0 OR EXISTS(SELECT 1 FROM mirrored_chat_live_catalog live WHERE live.scope=c.scope AND live.group_id=c.group_id)) AND ?4 IS NOT NULL
             ORDER BY c.group_id LIMIT ?3",
             )
             .storage()?;

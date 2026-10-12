@@ -22,6 +22,9 @@ pub struct MirroredChatRecord {
     pub source_epoch: u64,
     pub source_sequence: u64,
     pub source_digest: [u8; 32],
+    /// Immutable accepted source lineage; absence preserves the legacy strict fence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accepted_origin: Option<crate::mirrored_chat_catalog::AcceptedChatOrigin>,
 }
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MirroredChatCursor {

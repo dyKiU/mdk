@@ -1,5 +1,7 @@
 //! Fresh scheduling from durable explicit policy. Stored facts do not restore keys.
 use super::*;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(super) mod diagnostics;
 mod records;
 mod sends;
 use crate::account_chat_sharing::enabled::OriginalLease;
@@ -99,7 +101,130 @@ impl Drop for AutomaticChannel {
         self.channel.retire();
     }
 }
+// Test-only compatibility encoding keeps the actual eligibility, digest and
+// channel-authentication path. It never constructs a grant or a storage row.
+#[cfg(all(test, feature = "test-policy-overrides"))]
+mod legacy_encoding {
+    use std::{
+        collections::BTreeSet,
+        path::{Path, PathBuf},
+        sync::{Mutex, OnceLock},
+    };
+    fn roots() -> &'static Mutex<BTreeSet<PathBuf>> {
+        static ROOTS: OnceLock<Mutex<BTreeSet<PathBuf>>> = OnceLock::new();
+        ROOTS.get_or_init(|| Mutex::new(BTreeSet::new()))
+    }
+    pub(super) struct Guard(PathBuf);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            assert!(roots().lock().unwrap().remove(&self.0));
+        }
+    }
+    pub(super) fn hold(root: &Path) -> Guard {
+        assert!(roots().lock().unwrap().insert(root.to_owned()));
+        Guard(root.to_owned())
+    }
+    pub(super) fn active(root: &Path) -> bool {
+        roots().lock().unwrap().contains(root)
+    }
+}
 impl AppClient {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn test_legacy_account_chat_encoding(root: &std::path::Path) -> impl Drop {
+        legacy_encoding::hold(root)
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    fn test_uses_legacy_account_chat_encoding(&self) -> bool {
+        legacy_encoding::active(self.app.account_home().root())
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn test_trace_catalog_stage(
+        &self,
+        stage: &'static str,
+        category: &str,
+        comparison: Option<(
+            &storage_sqlite::SqliteAccountStorage,
+            &MirroredChatScope,
+            &MirroredChatEntry,
+        )>,
+    ) {
+        let Some(owner) = diagnostics::owner(self.app.account_home().root()) else {
+            return;
+        };
+        static SEEN: std::sync::OnceLock<
+            std::sync::Mutex<
+                std::collections::BTreeSet<(std::path::PathBuf, &'static str, String)>,
+            >,
+        > = std::sync::OnceLock::new();
+        let mut seen = SEEN.get_or_init(Default::default).lock().unwrap();
+        let key = (
+            self.app.account_home().root().to_owned(),
+            stage,
+            category.to_owned(),
+        );
+        if seen.contains(&key) || seen.len() >= 1024 {
+            return;
+        }
+        diagnostics::report(
+            stage,
+            category,
+            || {
+                let Some((storage, scope, incoming)) = comparison else {
+                    return Ok(None);
+                };
+                let rows = storage
+                    .mirrored_chat_catalog_storage()
+                    .unwrap()
+                    .mirrored_chat_catalog_page(scope, None, 128)
+                    .map_err(|error| diagnostics::storage_category(&error))?;
+                let old = rows.iter().find(|old| old.group_id == incoming.group_id);
+                let higher = incoming.accepted_origin.is_some_and(|new| {
+                    old.is_some_and(|old| {
+                        old.accepted_origin.is_none_or(|old| new.order > old.order)
+                    })
+                });
+                Ok(Some(format!(
+                    "old_present={}, old_left={}, origin_present={}, same_origin={}, higher_origin_order={higher}, newer_sequence={}, epoch_nonregression={}",
+                    old.is_some(),
+                    old.is_some_and(|old| old.state == MirroredChatState::Left),
+                    incoming.accepted_origin.is_some(),
+                    old.is_some_and(|old| incoming.accepted_origin == old.accepted_origin),
+                    old.is_some_and(|old| incoming.source_sequence > old.source_sequence),
+                    old.is_some_and(|old| incoming.source_epoch >= old.source_epoch)
+                )))
+            },
+            |line| eprintln!("{line}, owner={owner}"),
+        );
+        seen.insert(key);
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn test_capture_account_chat_progress(
+        root: &std::path::Path,
+        owner: &'static str,
+    ) -> impl Drop {
+        diagnostics::trace_root(root, owner)
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    fn test_trace_automatic_progress(
+        &self,
+        stage: &'static str,
+        entry: &AutomaticChannel,
+        outcome: &str,
+    ) {
+        let summary = format!(
+            "{outcome}, ready={}, recipient_channel={}, pending_bodies={}, pending_catalog={}, pending_records={}, sent_groups={}, catalog_cursor={}, renew={}, {}",
+            entry.ready,
+            entry.recipient,
+            entry.pending.len(),
+            entry.pending_catalog.is_some(),
+            entry.records.has_pending(),
+            entry.sent.len(),
+            entry.cursor.is_some(),
+            entry.renew,
+            entry.records.test_progress()
+        );
+        self.test_trace_catalog_stage(stage, &summary, None);
+    }
     fn automatic_policy_id(
         policy: &ApprovedAccountSharingPolicy,
     ) -> Result<[u8; 32], AccountSharingError> {
@@ -250,12 +375,18 @@ impl AppClient {
             .iter()
             .find(|(_, entry)| entry.channel.scope().nonce == received.nonce)
             .map(|(id, _)| *id);
-        let Some(id) = id else { return Ok(false) };
+        let Some(id) = id else {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_catalog_stage("automatic_dispatch", "no_nonce_match", None);
+            return Ok(false);
+        };
         let mut entry = self
             .account_sharing_owner
             .automatic
             .remove(&id)
             .expect("found automatic channel");
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_trace_automatic_progress("dispatch_before", &entry, "matched");
         let result = (|| {
             self.automatic_policy_current(&entry.policy)?;
             if received.control == AccountSharingControl::Consent && !entry.recipient {
@@ -269,7 +400,16 @@ impl AppClient {
                     .runtime
                     .session()
                     .open_account_shared_body(&entry.channel, wire)
-                    .map_err(|_| AccountSharingError::NotReady)?;
+                    .map_err(|error| {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        self.test_trace_catalog_stage(
+                            "authenticated_body_open",
+                            "core_refused",
+                            None,
+                        );
+                        let _ = error;
+                        AccountSharingError::NotReady
+                    })?;
                 match kind {
                     AccountSharedBodyKind::Catalog => {
                         self.accept_automatic_catalog(&mut entry, &body)?
@@ -302,23 +442,40 @@ impl AppClient {
         entry: &mut AutomaticChannel,
         body: &[u8],
     ) -> Result<(), AccountSharingError> {
-        let fragment: CatalogFragment =
-            serde_json::from_slice(body).map_err(|_| AccountSharingError::NotReady)?;
+        let fragment: CatalogFragment = serde_json::from_slice(body).map_err(|error| {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_catalog_stage(
+                "fragment_decode",
+                diagnostics::json_category(&error),
+                None,
+            );
+            let _ = error;
+            AccountSharingError::NotReady
+        })?;
         if fragment.version != 1
             || fragment.count == 0
             || fragment.count as usize > MAX_ENTRY_BYTES.div_ceil(FRAGMENT_BYTES)
             || fragment.ordinal >= fragment.count
             || serde_json::to_vec(&fragment).map_err(|_| AccountSharingError::NotReady)? != body
         {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_catalog_stage("fragment_bounds_or_canonical", "refused", None);
             return Err(AccountSharingError::NotReady);
         }
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(&fragment.body)
-            .map_err(|_| AccountSharingError::NotReady)?;
+            .map_err(|error| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_catalog_stage("fragment_base64", "refused", None);
+                let _ = error;
+                AccountSharingError::NotReady
+            })?;
         if bytes.is_empty()
             || bytes.len() > FRAGMENT_BYTES
             || base64::engine::general_purpose::STANDARD.encode(&bytes) != fragment.body
         {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_catalog_stage("fragment_bytes", "refused", None);
             return Err(AccountSharingError::NotReady);
         }
         if entry
@@ -333,10 +490,14 @@ impl AppClient {
         }
         let assembly = entry.assembly.as_mut().expect("bounded assembly");
         if assembly.fragments.len() != fragment.count as usize {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_catalog_stage("assembly_count", "refused", None);
             return Err(AccountSharingError::NotReady);
         }
         let slot = &mut assembly.fragments[fragment.ordinal as usize];
         if slot.as_ref().is_some_and(|old| old != &bytes) {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_catalog_stage("assembly_conflict", "refused", None);
             return Err(AccountSharingError::NotReady);
         }
         *slot = Some(bytes);
@@ -349,14 +510,28 @@ impl AppClient {
             .flat_map(|part| part.as_ref().expect("complete fragment").iter().copied())
             .collect();
         if bytes.len() > MAX_ENTRY_BYTES {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_catalog_stage("catalog_bound", "refused", None);
             return Err(AccountSharingError::NotReady);
         }
         if <[u8; 32]>::from(Sha256::digest(&bytes)) != fragment.digest {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_catalog_stage("catalog_digest", "refused", None);
             return Err(AccountSharingError::NotReady);
         }
-        let record: MirroredChatEntry =
-            serde_json::from_slice(&bytes).map_err(|_| AccountSharingError::NotReady)?;
+        let record: MirroredChatEntry = serde_json::from_slice(&bytes).map_err(|error| {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_catalog_stage(
+                "catalog_decode",
+                diagnostics::json_category(&error),
+                None,
+            );
+            let _ = error;
+            AccountSharingError::NotReady
+        })?;
         if serde_json::to_vec(&record).map_err(|_| AccountSharingError::NotReady)? != bytes {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_catalog_stage("catalog_canonical", "refused", None);
             return Err(AccountSharingError::NotReady);
         }
         let scope = entry.channel.scope();
@@ -386,11 +561,46 @@ impl AppClient {
                     )
                 })
         };
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if record.state == MirroredChatState::Active {
+            match storage
+                .mirrored_chat_catalog_storage()
+                .unwrap()
+                .mirrored_chat_catalog_page(&mirror, None, 128)
+            {
+                Ok(rows)
+                    if rows.iter().any(|old| {
+                        old.group_id == record.group_id && old.state == MirroredChatState::Left
+                    }) =>
+                {
+                    self.test_trace_catalog_stage(
+                        "catalog_before_sql",
+                        "retained_left",
+                        Some((&storage, &mirror, &record)),
+                    )
+                }
+                Err(error) => self.test_trace_catalog_stage(
+                    "catalog_diagnostic_read",
+                    diagnostics::storage_category(&error),
+                    None,
+                ),
+                _ => {}
+            }
+        }
         storage
             .mirrored_chat_catalog_storage()
             .ok_or(AccountSharingError::NotReady)?
             .apply_mirrored_chat_catalog(&mirror, std::slice::from_ref(&record), &validate)
-            .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+            .map_err(|error| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_catalog_stage(
+                    "catalog_sql",
+                    diagnostics::storage_category(&error),
+                    Some((&storage, &mirror, &record)),
+                );
+                let _ = error;
+                AccountSharingError::RuntimeUnavailable
+            })?;
         self.notify_mirrored_presentation_changed();
         // Keep the complete authenticated body until its SQL transaction succeeds.
         // Only a committed recipient import creates this encrypted receipt.
@@ -495,7 +705,16 @@ impl AppClient {
                 self.account_sharing_owner.entries.insert(nonce, entry);
                 continue;
             }
-            if self.automatic_policy_current(&policy).is_err() {
+            let current = self.automatic_policy_current(&policy);
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Err(error) = &current {
+                self.test_trace_catalog_stage(
+                    "maintain_policy_refusal",
+                    diagnostics::sharing_category(error),
+                    None,
+                );
+            }
+            if current.is_err() {
                 self.account_sharing_owner.entries.insert(nonce, entry);
                 continue;
             }
@@ -646,7 +865,26 @@ impl AppClient {
         let policies = store
             .approved_account_sharing_policies()
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
-        self.promote_approved_automatic_requests(&policies)?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_trace_catalog_stage(
+            "maintain_begin",
+            &format!(
+                "approved_policy_count={}, current_channel_count={}",
+                policies.len(),
+                self.account_sharing_owner.automatic.len()
+            ),
+            None,
+        );
+        self.promote_approved_automatic_requests(&policies)
+            .map_err(|error| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_catalog_stage(
+                    "maintain_promote",
+                    diagnostics::sharing_category(&error),
+                    None,
+                );
+                error
+            })?;
         for policy in policies {
             let id = Self::automatic_policy_id(&policy)?;
             if self.automatic_policy_current(&policy).is_err() {
@@ -691,7 +929,19 @@ impl AppClient {
             let Some(mut entry) = self.account_sharing_owner.automatic.remove(&id) else {
                 continue;
             };
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_automatic_progress("tick_before", &entry, "observed");
             let result = self.automatic_sharing_tick(&mut entry).await;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_automatic_progress(
+                "tick_after",
+                &entry,
+                result
+                    .as_ref()
+                    .err()
+                    .map(diagnostics::sharing_category)
+                    .unwrap_or("ok"),
+            );
             if entry.original.live() {
                 self.account_sharing_owner.automatic.insert(id, entry);
             }
@@ -865,6 +1115,48 @@ impl AppClient {
         } else {
             (String::new(), String::new())
         };
+        let accepted_origin = if state == MirroredChatState::Active {
+            storage.current_account_chat_source_origin(
+                &entry.policy.account,
+                &entry.policy.local_device,
+                &group_id,
+            )
+        } else {
+            storage
+                .current_account_chat_source_terminal_origin(
+                    &entry.policy.account,
+                    &entry.policy.local_device,
+                    &group_id,
+                )
+                .and_then(|origin| match origin {
+                    Some(_) => Ok(origin),
+                    None => storage.current_account_chat_source_origin(
+                        &entry.policy.account,
+                        &entry.policy.local_device,
+                        &group_id,
+                    ),
+                })
+        }
+        .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        // No origin is manufactured for old packets/observations.
+        let same_account_source_count = if state == MirroredChatState::Active {
+            let membership = self
+                .runtime
+                .session()
+                .canonical_group_membership(&group_id)
+                .map_err(|_| AccountSharingError::NotReady)?;
+            let count = membership
+                .member_leaves
+                .iter()
+                .filter(|leaf| leaf.member.as_slice() == entry.policy.account)
+                .count();
+            if !(1..=128).contains(&count) {
+                return Err(AccountSharingError::NotReady);
+            }
+            Some(count as u32)
+        } else {
+            None
+        };
         let mut record = MirroredChatEntry {
             group_id,
             source_epoch: epoch,
@@ -874,7 +1166,31 @@ impl AppClient {
             name,
             description,
             state,
+
+            accepted_origin,
+
+            same_account_source_count,
         };
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if self.test_uses_legacy_account_chat_encoding() {
+            record.accepted_origin = None;
+            record.same_account_source_count = None;
+        }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_trace_catalog_stage(
+            "catalog_prepared",
+            &format!(
+                "state={}, origin_present={}, catalog_ack_present={}",
+                match record.state {
+                    MirroredChatState::Active => "Active",
+                    MirroredChatState::Left => "Left",
+                    MirroredChatState::Deleted => "Deleted",
+                },
+                record.accepted_origin.is_some(),
+                entry.sent.contains_key(record.group_id.as_slice())
+            ),
+            None,
+        );
         let digest: [u8; 32] =
             Sha256::digest(serde_json::to_vec(&record).map_err(|_| AccountSharingError::NotReady)?)
                 .into();

@@ -71,6 +71,8 @@ fn paired_presentation_canonical_decode_keeps_ordered_rejections_and_tombstone_p
         source_epoch: 1,
         source_sequence: 2,
         source_digest: [9; 32],
+
+        accepted_origin: None,
     };
     let row = storage_sqlite::MirroredMessageObservation { scope, record };
     let presented = present_message(row.clone(), false).unwrap();
