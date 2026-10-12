@@ -23,6 +23,7 @@ pub(super) async fn verify(
     runtimes: &[MarmotAppRuntime; 3],
     peer: &TwoSourcePeer,
     relay_url: &str,
+    relay_database: &dyn nostr_relay_builder::prelude::NostrDatabase,
 ) {
     wait_for_paired_records(&runtimes[2], &peer.group, &peer.initial_ids, None).await;
     assert_eq!(stored_indices(&peer.app, &peer.group).len(), 3);
@@ -118,6 +119,7 @@ pub(super) async fn verify(
                 std::time::Duration::from_secs(5),
                 std::panic::AssertUnwindSafe(async {
             let indices = stored_indices(&peer.app, &peer.group);
+            eprintln!("account_departure_public_leave_observation={:?}", observe_public_leave_failure(&reopened_app, peer, relay_database).await.map_err(|_| "Unknown"));
             eprintln!(
                 "account_departure_timeout_d_leaves={} a_present={} b_present={}",
                 indices.len(),
@@ -243,4 +245,87 @@ pub(super) async fn verify(
         std::panic::resume_unwind(original);
     }
     assert!(closed, "reopened B owner must positively close");
+}
+
+/// Observe the actual durable proposal and administrator queue, never a grant.
+async fn observe_public_leave_failure(
+    source: &MarmotApp,
+    peer: &TwoSourcePeer,
+    relay_database: &dyn nostr_relay_builder::prelude::NostrDatabase,
+) -> Result<(u64, usize, usize, usize, usize, usize, usize), cgka_traits::StorageError> {
+    use cgka_traits::message::{MessageState, StoredMessagePayload};
+    use cgka_traits::storage::{MessageStorage, OutboundFanoutStorage};
+    use openmls::prelude::{ContentType, MlsMessageBodyIn, MlsMessageIn, ProtocolMessage};
+    use tls_codec::Deserialize;
+    let source = source.account_storage("test")?;
+    let administrator = peer.app.account_storage("test")?;
+    let (epoch, pending) = administrator.with_read_snapshot(|storage| {
+        let group = openmls::group::MlsGroup::load(
+            storage.mls_storage(),
+            &openmls::group::GroupId::from_slice(peer.group.as_slice()),
+        )
+        .map_err(|_| cgka_traits::StorageError::Backend("diagnostic MLS read failed".into()))?
+        .ok_or(cgka_traits::StorageError::NotFound)?;
+        Ok((group.epoch().as_u64(), group.pending_proposals().count()))
+    })?;
+    let current = source.get_group(&peer.group)?.epoch;
+    let records = source.list_messages(&peer.group, current)?;
+    let (mut sent, mut received, mut processed, mut relay_retained) = (0, 0, 0, 0);
+    for record in records
+        .iter()
+        .take(128)
+        .filter(|row| row.state == MessageState::Sent)
+    {
+        let Ok(payload) = StoredMessagePayload::decode(&record.payload) else {
+            continue;
+        };
+        let Some(wire) = payload.as_openmls_wire() else {
+            continue;
+        };
+        let Ok(message) = MlsMessageIn::tls_deserialize_exact(&wire.payload) else {
+            continue;
+        };
+        let protocol: ProtocolMessage = match message.extract() {
+            MlsMessageBodyIn::PublicMessage(message) => message.into(),
+            MlsMessageBodyIn::PrivateMessage(message) => message.into(),
+            _ => continue,
+        };
+        if protocol.content_type() != ContentType::Proposal {
+            continue;
+        }
+        sent += 1;
+        if let Some(exact) = payload.as_exact_transport() {
+            let id = nostr_relay_builder::prelude::EventId::from_slice(exact.id.as_slice())
+                .map_err(|_| {
+                    cgka_traits::StorageError::Serialization("diagnostic event unavailable".into())
+                })?;
+            relay_retained += usize::from(
+                relay_database
+                    .event_by_id(&id)
+                    .await
+                    .map_err(|_| {
+                        cgka_traits::StorageError::Backend("diagnostic relay read failed".into())
+                    })?
+                    .is_some(),
+            );
+        }
+        match administrator.get_message(&record.id) {
+            Ok(row) => {
+                received += 1;
+                processed += usize::from(row.state == MessageState::Processed);
+            }
+            Err(cgka_traits::StorageError::NotFound) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    let fanouts = source.list_outbound_fanouts_for_group(&peer.group)?.len();
+    Ok((
+        epoch,
+        pending,
+        sent,
+        received,
+        processed,
+        fanouts,
+        relay_retained,
+    ))
 }
