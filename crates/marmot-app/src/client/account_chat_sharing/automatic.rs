@@ -6,6 +6,8 @@ pub(super) mod departure_replay_probe;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) mod diagnostics;
 #[cfg(all(test, feature = "test-policy-overrides"))]
+pub(super) mod duplicate_departure_probe;
+#[cfg(all(test, feature = "test-policy-overrides"))]
 mod pending_restart_acceptance;
 mod records;
 #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -1179,6 +1181,10 @@ impl AppClient {
             // Relay publication does not prove recipient commit. Retry the same
             // durable source sequence through fresh owned cryptographic context.
             entry.renew = true;
+            return Ok(());
+        }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if self.automatic_departure_reply_held(entry)? {
             return Ok(());
         }
         let Some(body) = entry.pending.front() else {

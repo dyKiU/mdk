@@ -56,14 +56,51 @@ fn source_observation(app: &MarmotApp, group: &crate::GroupId) -> ([u8; 32], Acc
 }
 
 pub(super) async fn verify_or_depart(
-    fresh_rejoin: bool,
+    scenario: actual::ApprovalScenario,
     apps: &[MarmotApp; 3],
     runtimes: &[MarmotAppRuntime; 3],
     peer: &TwoSourcePeer,
     url: &str,
     relay_database: &dyn nostr_relay_builder::prelude::NostrDatabase,
-    ordered: bool,
 ) {
+    let fresh_rejoin = scenario == actual::ApprovalScenario::AutomaticAccountDepartureFreshRejoin;
+    let ordered = matches!(
+        scenario,
+        actual::ApprovalScenario::AutomaticAccountDepartureOrdering
+            | actual::ApprovalScenario::AutomaticAccountDepartureSourceWins
+            | actual::ApprovalScenario::AutomaticAccountDepartureDuplicateReceipt
+    );
+    let duplicate_probe = (scenario
+        == actual::ApprovalScenario::AutomaticAccountDepartureDuplicateReceipt)
+        .then(|| {
+            let sender = apps[2]
+                .account_storage("test")
+                .unwrap()
+                .private_roster_settlement_storage()
+                .unwrap()
+                .read_round()
+                .unwrap()
+                .unwrap();
+            let receiver = apps[0]
+                .account_storage("test")
+                .unwrap()
+                .private_roster_settlement_storage()
+                .unwrap()
+                .read_round()
+                .unwrap()
+                .unwrap();
+            assert!(sender.anchor.account == receiver.anchor.account);
+            crate::AppClient::test_capture_duplicate_departure(
+                apps[2].account_home().root(),
+                apps[0].account_home().root(),
+                &peer.group,
+                crate::client::DuplicateDepartureBinding {
+                    account: sender.anchor.account,
+                    sender_device: sender.anchor.local_device,
+                    receiver_device: receiver.anchor.local_device,
+                },
+            )
+        });
     let trace_roots: [std::path::PathBuf; 3] =
         std::array::from_fn(|index| apps[index].account_home().root().to_path_buf());
     let _a_trace =
@@ -101,6 +138,7 @@ pub(super) async fn verify_or_depart(
         url,
         relay_database,
         ordered,
+        duplicate_probe.as_ref(),
     ))
     .await;
     if let Some(prior) = prior {

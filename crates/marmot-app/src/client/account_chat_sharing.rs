@@ -397,3 +397,8 @@ impl AppClient {
 
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(crate) use automatic::departure_replay_probe::DepartureReplayProbe;
+
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) use automatic::duplicate_departure_probe::{
+    DuplicateDepartureBinding, DuplicateDepartureProbe,
+};

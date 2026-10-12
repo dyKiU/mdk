@@ -38,6 +38,19 @@ fn account_departure_completes_when_source_branch_wins_same_epoch_race() {
     });
 }
 
+#[test]
+fn authenticated_identical_departure_retry_preserves_completion_receipt_delivery() {
+    crate::tests::run_composed_app_runtime_test(
+        "account-wide-departure-duplicate-receipt",
+        || async {
+            Box::pin(actual::run_native_public_three_device_enrollment(
+                actual::ApprovalScenario::AutomaticAccountDepartureDuplicateReceipt,
+            ))
+            .await;
+        },
+    );
+}
+
 pub(super) async fn verify(
     apps: &[MarmotApp; 3],
     runtimes: &[MarmotAppRuntime; 3],
@@ -45,6 +58,7 @@ pub(super) async fn verify(
     relay_url: &str,
     relay_database: &dyn nostr_relay_builder::prelude::NostrDatabase,
     ordered: bool,
+    duplicate_probe: Option<&std::sync::Arc<crate::client::DuplicateDepartureProbe>>,
 ) {
     wait_for_paired_records(&runtimes[2], &peer.group, &peer.initial_ids, None).await;
     assert_eq!(stored_indices(&peer.app, &peer.group).len(), 3);
@@ -221,6 +235,7 @@ pub(super) async fn verify(
                 drop(publication_gate.take());
             }
             let mut observed_losing_branch = false;
+            let mut duplicate_deadline_expired=false;
             let completion = tokio::time::timeout(std::time::Duration::from_secs(50), async {
                 loop {
                     if let Some(published) = &published_branch {
@@ -242,6 +257,10 @@ pub(super) async fn verify(
                         reopened.reconcile_accounts().await.unwrap();
                         reopened_after_branch_switch = true;
                         eprintln!("account_departure_ordering_losing_branch_closed_before_reproposal=true");
+                    }
+                    if let Some(probe)=duplicate_probe && probe.first_held().is_some_and(|held|held.elapsed()>=std::time::Duration::from_secs(30)) {
+                        duplicate_deadline_expired=true;
+                        break;
                     }
                     let indices = stored_indices(&peer.app, &peer.group);
                     let state = runtimes[2]
@@ -272,7 +291,7 @@ pub(super) async fn verify(
                 }
             })
             .await;
-            if completion.is_err() {
+            if completion.is_err() || duplicate_deadline_expired {
                 let diagnostics = tokio::time::timeout(
                 std::time::Duration::from_secs(5),
                 std::panic::AssertUnwindSafe(async {
@@ -416,6 +435,14 @@ pub(super) async fn verify(
                     matches!(diagnostics, Ok(Ok(()))),
                     !matches!(diagnostics, Ok(Ok(())))
                 );
+            }
+            if let Some(probe)=duplicate_probe {
+                let counters=probe.counters();
+                eprintln!("account_departure_duplicate_receipt captured={} first_hold={} counters={counters:?}",probe.captured(),probe.first_held().is_some());
+                assert!(probe.captured() && probe.first_held().is_some() && counters.1>0 && counters.2>0,"real queued complete receipt and authenticated identical intent must execute");
+                let indices=stored_indices(&peer.app,&peer.group);
+                assert!(indices.len()==1 && !indices.contains(&peer.a_index) && !indices.contains(&peer.b_index),"real public removals must precede the completion receipt assertion");
+                assert!(!duplicate_deadline_expired,"authenticated duplicate cut must not prevent actual completion receipt delivery within 30s");
             }
             completion
                 .expect("both genuine ordinary removals and peer receipts must precede completion");

@@ -517,7 +517,7 @@ impl AppClient {
                 }) {
                     return Err(failure());
                 }
-                storage
+                let _inserted = storage
                     .apply_account_chat_departure(
                         &entry.policy.local_device,
                         &intent,
@@ -531,6 +531,15 @@ impl AppClient {
                         },
                     )
                     .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                if !_inserted {
+                    super::duplicate_departure_probe::observe_duplicate(
+                        self.app.account_home().root(),
+                        &entry.policy,
+                        entry.channel.scope().nonce,
+                        &intent,
+                    );
+                }
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 super::departure_replay_probe::observe_received(
                     &entry.policy,
@@ -638,6 +647,30 @@ impl AppClient {
             return Ok(());
         }
         self.departure_original(entry).map_err(|_| failure())?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Some(fragments) = super::duplicate_departure_probe::prepared_duplicate(
+            self.app.account_home().root(),
+            &entry.policy,
+            entry.channel.scope().nonce,
+        ) {
+            if entry.next_body + fragments.len() as u64 > CHANNEL_BODY_BUDGET {
+                entry.renew = true;
+                return Ok(());
+            }
+            self.departure_original(entry).map_err(|_| failure())?;
+            for bytes in fragments {
+                entry.pending.push_back(PendingBody {
+                    kind: AccountSharedBodyKind::DepartureIntent,
+                    bytes,
+                });
+            }
+            super::duplicate_departure_probe::mark_queued(
+                self.app.account_home().root(),
+                &entry.policy,
+                entry.channel.scope().nonce,
+            );
+            return Ok(());
+        }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if let Some(fragments) = super::departure_replay_probe::prepared_replay(
             self.app.account_home().root(),
@@ -747,6 +780,14 @@ impl AppClient {
                 .iter()
                 .map(|pending| pending.bytes.clone())
                 .collect();
+            super::duplicate_departure_probe::capture(
+                self.app.account_home().root(),
+                &entry.policy,
+                &row.intent,
+                entry.channel.scope().nonce,
+                &bytes,
+                &fragments,
+            );
             super::departure_replay_probe::capture(
                 self.app.account_home().root(),
                 &entry.policy,
@@ -779,6 +820,32 @@ impl AppClient {
         });
         entry.departures.last = Some((row.intent.action_id, digest, std::time::Instant::now()));
         Ok(())
+    }
+
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn automatic_departure_reply_held(
+        &self,
+        entry: &AutomaticChannel,
+    ) -> Result<bool, AccountSharingError> {
+        let Some(publication) = entry.departures.pending.as_ref() else {
+            return Ok(false);
+        };
+        let Some((DeliveryKind::StatusReceipt, status)) = publication.reply else {
+            return Ok(false);
+        };
+        if !status.complete {
+            return Ok(false);
+        }
+        self.departure_original(entry).map_err(|_| failure())?;
+        let held = super::duplicate_departure_probe::should_hold_reply(
+            self.app.account_home().root(),
+            &entry.policy,
+            entry.channel.scope().nonce,
+            publication.action_id,
+            status.complete,
+        );
+        self.departure_original(entry).map_err(|_| failure())?;
+        Ok(held)
     }
 
     pub(super) fn automatic_departure_mark_published(

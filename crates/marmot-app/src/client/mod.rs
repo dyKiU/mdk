@@ -7335,3 +7335,10 @@ mod poll_send_validation_tests {
     feature = "test-policy-overrides"
 ))]
 pub(crate) use account_chat_sharing::DepartureReplayProbe;
+
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+pub(crate) use account_chat_sharing::{DuplicateDepartureBinding, DuplicateDepartureProbe};
