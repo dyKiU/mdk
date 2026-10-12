@@ -182,13 +182,20 @@ pub(super) async fn verify(
     let mut reopened = MarmotAppRuntime::new(reopened_app.clone());
     let result =
         std::panic::AssertUnwindSafe(async {
-            reopened.reconcile_accounts().await.unwrap();
             let mut published_branch = None;
             let mut canonical_probe = None;
             let mut administrator_canonical_probe = None;
             let mut leave_reproposal_hold = None;
             let mut reopened_after_branch_switch = false;
             let mut requested_before_reanchor = None;
+            if duplicate_probe.is_some() {
+                let administrator = peer.app.account_storage("test").unwrap();
+                let identity = cgka_traits::MemberId::new(hex::decode(peer.app.account_home().account("test").unwrap().account_id_hex).unwrap());
+                let content = actual_confirmed_commit_content(&administrator,&peer.group,epoch_before,&identity);
+                canonical_probe = Some(cgka_engine::canonical_probe_observer::Probe::arm(peer.group.clone(),peer.b_index,content));
+                eprintln!("account_departure_duplicate_actual_administrator_commit_observer_armed=true");
+            }
+            reopened.reconcile_accounts().await.unwrap();
             if ordered {
                 tokio::time::timeout(std::time::Duration::from_secs(20), async {
                     loop {
