@@ -18,12 +18,23 @@ fn mirrored_account_departure_waits_for_offline_actual_source_and_public_removal
     });
 }
 
+#[test]
+fn account_departure_reproposes_public_leave_after_other_source_epoch_change() {
+    crate::tests::run_composed_app_runtime_test("account-wide-departure-ordered", || async {
+        Box::pin(actual::run_native_public_three_device_enrollment(
+            actual::ApprovalScenario::AutomaticAccountDepartureOrdering,
+        ))
+        .await;
+    });
+}
+
 pub(super) async fn verify(
     apps: &[MarmotApp; 3],
     runtimes: &[MarmotAppRuntime; 3],
     peer: &TwoSourcePeer,
     relay_url: &str,
     relay_database: &dyn nostr_relay_builder::prelude::NostrDatabase,
+    ordered: bool,
 ) {
     wait_for_paired_records(&runtimes[2], &peer.group, &peer.initial_ids, None).await;
     assert_eq!(stored_indices(&peer.app, &peer.group).len(), 3);
@@ -50,6 +61,36 @@ pub(super) async fn verify(
     })
     .await
     .expect("actual two-source origin coverage must make mirrored departure available");
+    let epoch_before = apps[1]
+        .account_storage("test")
+        .unwrap()
+        .get_group(&peer.group)
+        .unwrap()
+        .epoch;
+    if ordered {
+        assert!(
+            apps[1]
+                .account_storage("test")
+                .unwrap()
+                .leave_request(&peer.group)
+                .unwrap()
+                .is_none()
+        );
+    }
+    let mut publication_gate = if ordered {
+        let account = peer.app.account_home().account("test").unwrap();
+        Some(
+            peer.runtime
+                .relay_plane_for_test()
+                .hold_next_ordinary_group_commit(
+                    cgka_traits::MemberId::new(hex::decode(account.account_id_hex).unwrap()),
+                    peer.group.clone(),
+                    peer.app.account_storage("test").unwrap(),
+                ),
+        )
+    } else {
+        None
+    };
     runtimes[1].shutdown_and_close().await.unwrap();
     assert!(runtimes[1].storage_is_closed());
     let admitted = runtimes[2]
@@ -60,17 +101,27 @@ pub(super) async fn verify(
     let operation = admitted
         .operation_id
         .expect("paired negative intent must be durable");
-    tokio::time::timeout(std::time::Duration::from_secs(40), async {
-        loop {
-            let indices = stored_indices(&peer.app, &peer.group);
-            if !indices.contains(&peer.a_index) && indices.contains(&peer.b_index) {
-                break;
+    if let Some((held, _release)) = publication_gate.as_mut() {
+        let _held_message = tokio::time::timeout(std::time::Duration::from_secs(20), held)
+            .await
+            .expect("actual D original commit must reach publication gate")
+            .unwrap();
+        assert_administrator_holds_only_a(peer, epoch_before);
+        assert!(runtimes[1].storage_is_closed());
+        eprintln!("account_departure_ordering_a_only_commit_held=true b_not_yet_published=true");
+    } else {
+        tokio::time::timeout(std::time::Duration::from_secs(40), async {
+            loop {
+                let indices = stored_indices(&peer.app, &peer.group);
+                if !indices.contains(&peer.a_index) && indices.contains(&peer.b_index) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("D must actually remove A while offline B ordinary leaf remains");
+        })
+        .await
+        .expect("D must actually remove A while offline B ordinary leaf remains");
+    }
     let state = runtimes[2]
         .account_chat_departure_state("test", &peer.group)
         .await
@@ -95,6 +146,24 @@ pub(super) async fn verify(
     let result =
         std::panic::AssertUnwindSafe(async {
             reopened.reconcile_accounts().await.unwrap();
+            if ordered {
+                tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    loop {
+                        let store = reopened_app.account_storage("test").unwrap();
+                        let round = store.private_roster_settlement_storage().unwrap().read_round().unwrap().unwrap();
+                        let work = store.pending_local_account_chat_departures(&round.anchor.account,&round.anchor.local_device,None,16).unwrap();
+                        if work.iter().any(|(_,state)|*state==storage_sqlite::account_chat_departure::AccountChatDepartureLocalState::Published) {
+                            assert_eq!(store.get_group(&peer.group).unwrap().epoch,epoch_before);
+                            assert_eq!(store.leave_request(&peer.group).unwrap().unwrap().last_proposed_epoch,Some(epoch_before));
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }).await.expect("B must genuinely publish SelfRemove at the held prior epoch");
+                assert_administrator_holds_only_a(peer,epoch_before);
+                eprintln!("account_departure_ordering_b_prior_epoch_published=true");
+                drop(publication_gate.take());
+            }
             let completion = tokio::time::timeout(std::time::Duration::from_secs(50), async {
                 loop {
                     let indices = stored_indices(&peer.app, &peer.group);
@@ -239,6 +308,7 @@ pub(super) async fn verify(
         })
         .catch_unwind()
         .await;
+    drop(publication_gate.take());
     let closed = reopened.shutdown_and_close().await.is_ok() && reopened.storage_is_closed();
     eprintln!("account_departure_reopened_b_closed={closed}");
     if let Err(original) = result {
@@ -340,4 +410,38 @@ async fn observe_public_leave_failure(
         source_pending_fanouts: fanouts,
         relay_retained_proposals: relay_retained,
     })
+}
+
+fn assert_administrator_holds_only_a(peer: &TwoSourcePeer, epoch: cgka_traits::EpochId) {
+    use openmls::prelude::{Proposal, Sender};
+    let store = peer.app.account_storage("test").unwrap();
+    let observed = store
+        .with_read_snapshot(|storage| -> Result<_, cgka_traits::StorageError> {
+            let group = openmls::group::MlsGroup::load(
+                storage.mls_storage(),
+                &openmls::group::GroupId::from_slice(peer.group.as_slice()),
+            )
+            .unwrap()
+            .unwrap();
+            let staged = group
+                .pending_commit()
+                .expect("D actual Core pending commit must precede publication");
+            let leaves: Vec<_> = staged
+                .queued_proposals()
+                .filter(|proposal| matches!(proposal.proposal(), Proposal::SelfRemove))
+                .filter_map(|proposal| match proposal.sender() {
+                    Sender::Member(index) => Some(index.u32()),
+                    _ => None,
+                })
+                .collect();
+            Ok((group.epoch().as_u64(), leaves))
+        })
+        .unwrap();
+    assert_eq!(observed.0, epoch.0);
+    assert_eq!(
+        observed.1,
+        vec![peer.a_index],
+        "held genuine pending commit must remove A only, not B"
+    );
+    assert_eq!(stored_indices(&peer.app, &peer.group).len(), 3);
 }

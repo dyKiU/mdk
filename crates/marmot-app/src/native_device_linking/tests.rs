@@ -244,6 +244,7 @@ pub(super) mod actual {
         AutomaticTwoLegitimateSources,
         AutomaticDepartureFfiFixture,
         AutomaticAccountDeparture,
+        AutomaticAccountDepartureOrdering,
         AutomaticRecordGenerationRenewal,
         AutomaticHeldThreeBInitiates,
         AutomaticHeldThreeCInitiates,
@@ -302,6 +303,7 @@ pub(super) mod actual {
             ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
                 | ApprovalScenario::AutomaticAccountDeparture
+                | ApprovalScenario::AutomaticAccountDepartureOrdering
         ) {
             Some(
                 Box::pin(
@@ -421,6 +423,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
                 | ApprovalScenario::AutomaticAccountDeparture
+                | ApprovalScenario::AutomaticAccountDepartureOrdering
                 | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
                 | ApprovalScenario::BroadProjectionHeadFailure
@@ -764,6 +767,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
                 | ApprovalScenario::AutomaticAccountDeparture
+                | ApprovalScenario::AutomaticAccountDepartureOrdering
                 | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
                 | ApprovalScenario::BroadProjectionHeadFailure
@@ -878,6 +882,7 @@ pub(super) mod actual {
                         | ApprovalScenario::AutomaticTwoLegitimateSources
                         | ApprovalScenario::AutomaticDepartureFfiFixture
                         | ApprovalScenario::AutomaticAccountDeparture
+                        | ApprovalScenario::AutomaticAccountDepartureOrdering
                         | ApprovalScenario::BroadEnrollment
                         | ApprovalScenario::BroadPreAuthFailure
                         | ApprovalScenario::BroadProjectionHeadFailure
@@ -1011,6 +1016,7 @@ pub(super) mod actual {
                 scenario,
                 ApprovalScenario::AutomaticDepartureFfiFixture
                     | ApprovalScenario::AutomaticAccountDeparture
+                    | ApprovalScenario::AutomaticAccountDepartureOrdering
             );
             if departure_scenario {
                 for app in &apps {
@@ -1075,7 +1081,11 @@ pub(super) mod actual {
                 relay.shutdown();
                 return;
             }
-            let departure_result = if scenario == ApprovalScenario::AutomaticAccountDeparture {
+            let departure_result = if matches!(
+                scenario,
+                ApprovalScenario::AutomaticAccountDeparture
+                    | ApprovalScenario::AutomaticAccountDepartureOrdering
+            ) {
                 use futures::FutureExt;
                 Some(
                     std::panic::AssertUnwindSafe(
@@ -1085,6 +1095,7 @@ pub(super) mod actual {
                             &peer,
                             &url,
                             relay_database.as_ref(),
+                            scenario == ApprovalScenario::AutomaticAccountDepartureOrdering,
                         ),
                     )
                     .catch_unwind()
