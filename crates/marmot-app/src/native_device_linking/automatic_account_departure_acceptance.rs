@@ -557,7 +557,6 @@ fn actual_confirmed_commit_content(
     commits.pop().unwrap()
 }
 
-#[derive(Debug)]
 struct PublicLeaveObservation {
     administrator_epoch: u64,
     administrator_pending_proposals: usize,
@@ -574,6 +573,37 @@ struct PublicLeaveObservation {
     confirmed_own_commits: [usize; 2],
     received_commit_states: [[usize; 9]; 2],
     relay_commits: [usize; 2],
+}
+
+impl std::fmt::Debug for PublicLeaveObservation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PublicLeaveObservation")
+            .field("administrator_epoch", &self.administrator_epoch)
+            .field(
+                "administrator_pending_proposals",
+                &self.administrator_pending_proposals,
+            )
+            .field("source_sent_proposals", &self.source_sent_proposals)
+            .field(
+                "administrator_received_proposals",
+                &self.administrator_received_proposals,
+            )
+            .field(
+                "administrator_processed_proposals",
+                &self.administrator_processed_proposals,
+            )
+            .field("source_pending_fanouts", &self.source_pending_fanouts)
+            .field("relay_retained_proposals", &self.relay_retained_proposals)
+            .field("same_epoch", &self.same_epoch)
+            .field("same_epoch_authenticator", &self.same_epoch_authenticator)
+            .field("same_selected_head", &self.same_selected_head)
+            .field("source_proposal_states", &self.source_proposal_states)
+            .field("confirmed_own_commits", &self.confirmed_own_commits)
+            .field("received_commit_states", &self.received_commit_states)
+            .field("relay_commits", &self.relay_commits)
+            .finish()
+    }
 }
 
 /// Observe the actual durable proposal and administrator queue, never a grant.
