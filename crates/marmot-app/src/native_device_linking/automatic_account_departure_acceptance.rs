@@ -209,7 +209,15 @@ pub(super) async fn verify(
             if let Some(id) = &held_commit_id {
                 use cgka_traits::storage::MessageStorage;
                 let event = nostr_relay_builder::prelude::EventId::from_slice(id.as_slice()).unwrap();
-                let retained = relay_database.event_by_id(&event).await.map(|row|row.is_some()).map_err(|_|"Unknown");
+                let retained_event = relay_database.event_by_id(&event).await;
+                let retained = retained_event.as_ref().map(|row|row.is_some()).map_err(|_|"Unknown");
+                if let Ok(Some(event)) = &retained_event {
+                    let account = reopened_app.account_home().account("test").unwrap();
+                    let account = cgka_traits::MemberId::new(hex::decode(account.account_id_hex).unwrap());
+                    let plane = reopened.relay_plane_for_test();
+                    eprintln!("account_departure_timeout_d_commit_notification_dispositions={:?}",plane.account_notification_disposition_for_test(&account,&event.id.to_string()));
+                    eprintln!("account_departure_timeout_d_commit_sdk_cached_filter_untimed={:?}",plane.account_sdk_event_observation_for_test(&account,&serde_json::to_string(event).unwrap()).await);
+                }
                 let received = match reopened_app.account_storage("test").unwrap().get_message(id) { Ok(row)=>Ok(Some((row.epoch.0,row.state))), Err(cgka_traits::StorageError::NotFound)=>Ok(None), Err(_)=>Err("Unknown") };
                 eprintln!("account_departure_timeout_exact_d_commit_relay={retained:?} b_received={received:?}");
             }
