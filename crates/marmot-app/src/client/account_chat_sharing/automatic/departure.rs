@@ -142,43 +142,49 @@ impl AppClient {
             Err(StorageError::NotFound) => {}
             Err(error) => return Err(error.into()),
         }
-        let mut after = None;
-        loop {
-            let page = self
-                .current_mirrored_catalog_page(after.as_ref(), 128)
-                .map_err(app_failure)?;
-            for row in page.iter().filter(|row| {
-                &row.entry.group_id == group && row.entry.state == MirroredChatState::Active
-            }) {
-                if row.scope.account != first.account
-                    || row.scope.local_device != first.local_device
-                    || row.scope.protected_group != first.protected_group
+        let catalog = storage
+            .mirrored_chat_catalog_storage()
+            .ok_or_else(|| app_failure(failure()))?;
+        // Sidebar presentation intentionally selects one row per canonical
+        // group. Departure coverage must retain every actual approved source.
+        for policy in policies {
+            self.automatic_policy_current(policy).map_err(app_failure)?;
+            let scope = self.presentation_scope(policy).map_err(app_failure)?;
+            let mut after = None;
+            loop {
+                let page = catalog.mirrored_chat_catalog_page(&scope, after.as_ref(), 128)?;
+                for row in page
+                    .iter()
+                    .filter(|row| &row.group_id == group && row.state == MirroredChatState::Active)
                 {
-                    return Err(app_failure(failure()));
-                }
-                if let Some(count) = row.entry.same_account_source_count {
-                    if !(1..=128).contains(&count) {
-                        return Err(app_failure(failure()));
+                    if let Some(count) = row.same_account_source_count {
+                        if !(1..=128).contains(&count) {
+                            return Err(app_failure(failure()));
+                        }
+                        expected = expected.max(count as usize);
+                    } else {
+                        missing = true;
                     }
-                    expected = expected.max(count as usize);
-                } else {
-                    missing = true;
-                }
-                if let Some(origin) = row.entry.accepted_origin {
-                    if targets
-                        .insert(row.scope.source_device, origin)
-                        .is_some_and(|old| old != origin)
-                    {
-                        return Err(app_failure(failure()));
+                    if let Some(origin) = row.accepted_origin {
+                        if targets
+                            .insert(scope.source_device, origin)
+                            .is_some_and(|old| old != origin)
+                        {
+                            return Err(app_failure(failure()));
+                        }
+                    } else {
+                        missing = true;
                     }
-                } else {
-                    missing = true;
                 }
+                if page.len() < 128 {
+                    break;
+                }
+                after = page.last().map(|row| row.group_id.clone());
             }
-            if page.len() < 128 {
-                break;
+            self.automatic_policy_current(policy).map_err(app_failure)?;
+            if self.presentation_scope(policy).map_err(app_failure)? != scope {
+                return Err(app_failure(AccountSharingError::Closed));
             }
-            after = page.last().map(|row| row.entry.group_id.clone());
         }
         self.departure_policy_tail(policies)?;
         if expected == 0 || targets.is_empty() || targets.len() < expected || targets.len() > 128 {
