@@ -240,6 +240,8 @@ pub(super) mod actual {
         AutomaticForwardingNonAdmin,
         AutomaticWithdrawal,
         AutomaticRecordGenerationRenewal,
+        AutomaticHeldSponsorInitiates,
+        AutomaticHeldRecipientInitiates,
         AutomaticForwardingReceiptRetry,
     }
     pub(super) async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
@@ -257,12 +259,24 @@ pub(super) mod actual {
         let url = relay.url().await.to_string();
         let keys = nostr::prelude::Keys::generate();
         let dirs: [tempfile::TempDir; 3] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
-        let apps = std::array::from_fn::<_, 3, _>(|i| {
+        let mut apps = std::array::from_fn::<_, 3, _>(|i| {
             AccountHome::open(dirs[i].path())
                 .import_account("test", &keys.secret_key().to_secret_hex())
                 .unwrap();
             MarmotApp::with_relay(dirs[i].path(), &url)
         });
+        if matches!(
+            scenario,
+            ApprovalScenario::AutomaticHeldSponsorInitiates
+                | ApprovalScenario::AutomaticHeldRecipientInitiates
+        ) {
+            super::automatic_held_original_acceptance::order_actual_signers(
+                &mut apps,
+                &keys,
+                scenario == ApprovalScenario::AutomaticHeldSponsorInitiates,
+            )
+            .await;
+        }
         let runtimes = apps.clone().map(MarmotAppRuntime::new);
         runtimes[0].reconcile_accounts().await.unwrap();
         // Establish the real incoming chat while A is the sole active public
@@ -272,6 +286,8 @@ pub(super) mod actual {
             ApprovalScenario::AutomaticForwardingNonAdmin
                 | ApprovalScenario::AutomaticWithdrawal
                 | ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldSponsorInitiates
+                | ApprovalScenario::AutomaticHeldRecipientInitiates
         ) {
             Some(
                 super::automatic_forwarding_non_admin_acceptance::IncomingPeer::create(
@@ -331,6 +347,8 @@ pub(super) mod actual {
         let broad_enrollment = matches!(
             scenario,
             ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldSponsorInitiates
+                | ApprovalScenario::AutomaticHeldRecipientInitiates
                 | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
                 | ApprovalScenario::BroadProjectionHeadFailure
@@ -411,6 +429,45 @@ pub(super) mod actual {
             assert_eq!(policies[1][0].local_device, policies[0][0].peer_device);
         } else {
             assert!(policies.iter().all(Vec::is_empty));
+        }
+        if matches!(
+            scenario,
+            ApprovalScenario::AutomaticHeldSponsorInitiates
+                | ApprovalScenario::AutomaticHeldRecipientInitiates
+        ) {
+            let delivered = super::automatic_held_original_acceptance::wait_record(
+                &apps[0],
+                &runtimes[1],
+                incoming_peer.as_ref().unwrap(),
+            )
+            .await;
+            let owners_completed = initial_a.snapshot().await.unwrap().phase
+                == DeviceLinkingPhase::EnrollmentComplete
+                && b.snapshot().await.unwrap().phase == DeviceLinkingPhase::EnrollmentComplete;
+            initial_a.cancel().await.unwrap();
+            b.cancel().await.unwrap();
+            incoming_peer
+                .as_ref()
+                .unwrap()
+                .runtime
+                .shutdown_and_close()
+                .await
+                .unwrap();
+            assert!(incoming_peer.as_ref().unwrap().runtime.storage_is_closed());
+            for runtime in runtimes {
+                runtime.shutdown_and_close().await.unwrap();
+                assert!(runtime.storage_is_closed());
+            }
+            relay.shutdown();
+            assert!(
+                owners_completed,
+                "held completed originals must remain observable"
+            );
+            assert!(
+                delivered,
+                "actual paired canonical record must arrive while completed sponsor/recipient originals remain held"
+            );
+            return;
         }
         if scenario == ApprovalScenario::AutomaticRecordGenerationRenewal {
             // Match the supported native journey: completed explicit owners
@@ -2041,3 +2098,10 @@ mod sibling_sharing_projection_acceptance;
 ))]
 #[path = "automatic_record_renewal_acceptance.rs"]
 mod automatic_record_renewal_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_held_original_acceptance.rs"]
+mod automatic_held_original_acceptance;

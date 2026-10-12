@@ -1192,6 +1192,12 @@ impl AppClient {
             let Some(choice) = self.linking_owner.sharing_approval.as_ref().cloned() else {
                 return Ok(false);
             };
+            // Only the original recipient can collect sibling B/C requests.
+            // A retained sponsor original must let the independent automatic
+            // policy authenticate an addressed peer request instead.
+            if choice.scope.local_device != choice.context.recipient {
+                return Ok(false);
+            }
             // The approver's primary pair uses its own original permission or
             // durable automatic policy; it is never a sibling B/C approval.
             if received.source.as_slice() == choice.context.approver {

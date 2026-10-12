@@ -503,5 +503,14 @@ history remains visible in B's renewed ABC scope, while terminal outbox receipts
 and erased payloads remain immutable. Core role/expiry/revocation/custody controls,
 affected catalog/Records tests and scoped default/strict checks pass; see
 [replay proof](../../automatic-record-generation-replay-verification.json).
-Pending-invitation acceptance lineage, held-completed-original routing, principal-wide
-leave and positive rejoin remain open. This source checkpoint updates no SDK or app.
+Pending-invitation acceptance lineage, principal-wide leave and positive rejoin
+remain open. This source checkpoint updates no SDK or app.
+
+Experimental automatic discovery now excludes retained sponsor originals from
+recipient-only sibling request collection. Real public opaque AB originals
+remain completed and held while both genuine request directions discover an
+accepted incoming chat and its canonical history. The regression changes from
+one pass/one failure to two passes; existing three-device sibling, catalog,
+Records and scoped default/strict checks pass. Source eligibility and installed
+SDK/app journeys remain separate; see
+[routing proof](../../automatic-held-original-routing-verification.json).
