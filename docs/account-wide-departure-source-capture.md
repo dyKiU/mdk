@@ -1,8 +1,65 @@
 # Account-wide departure source checkpoint
 
-## Current scoped qualification (2026-10-12)
+## Current component checkpoint (2026-10-12)
 
-Current signed local candidate:
+Runtime source: `76f7e9e60ef25195521e45acc980808022e9d22f`; its only change from
+`8e108b30460f0fdb1c13cfb2f5ca1723c68aba2e` is borrowing existing SQL test scopes
+instead of cloning them. Full final integration CI, SDK generation and shipping
+native/installed-app qualification remain required. No deployment or fork
+publication is implied by these component results.
+
+All evidence prefixes below are under `/Users/pj/project/build/results/`.
+
+| Scope | Actual result | Immutable source / prefix |
+|---|---|---|
+| Published receipt snapshot regression |0 passed,1 failed: stale incomplete publication erased newer completion receipt|7240b815 / `account-wide-departure-7240b815-stale-receipt-red-v17`|
+| Receipt flags/phase fencing, guard rollback, negative journal and25→26 migration controls |20 passed,0 failed/ignored|76f7e9e6 / `account-wide-departure-76f7e9e6-receipt-sql-v22`|
+| Latest real C→UniFFI→App departure |consumer1+producer1 passed,0 failed/ignored; actual two removals, completion receipts, durable same-root reopen and all checked closures|8e108b30 / `account-wide-departure-8e108b30-native-ffi-v19`|
+| Storage/App strict default and experimental |4 passed, no warning exemptions|76f7e9e6 / `account-wide-departure-76f7e9e6-receipt-strict-v23`|
+| Initial departure before fresh-rejoin/replay |0 passed,1 failed: B still active, same epoch but different B/D branch, real B proposal retained/received|76f7e9e6 / `account-wide-departure-76f7e9e6-receipt-affected-v24`|
+| Ordered branch/reopen |0 passed,1 failed after real branch switch/reopen and both removals: coordinator still awaited one peer receipt|76f7e9e6 / `account-wide-departure-76f7e9e6-receipt-controls-v25`|
+| No-policy refusal default/experimental |2 passed,0 failed/ignored|76f7e9e6 / `account-wide-departure-76f7e9e6-no-policy-v27`|
+| Genuine pending-handshake restart functional regression |matched0/1→1/0; identical source-scoped exact-record predicate, only37 actor lines differ|a5005561→4935e208 / `pending-scoped-baseline-v9` and `pending-scoped-green-v10` (account-wide-departure prefixes)|
+| Actual delayed higher Request after real Consent, original broad/plain/cancel/authentication retry, fresh-rejoin/replay and branch-equal device-only survivor |7 passed,0 failed/ignored; required body markers independently audited|26214d0b / `account-wide-departure-26214d0b-required-residual-v11`|
+
+Publication now retains the actually serialized reply kind and progress flags.
+The owner-checked before/tail SQL transaction clears pending work only if those
+flags and the coordinator phase are still current. A stale snapshot is a
+successful no-op; it does not erase newer work or assert remote commitment.
+This fences changed payload/phase, not arbitrary ABA revisions. The earlier
+nativec102 completion timeout and all invalid fixture-oracle/compiler attempts
+remain retained; the SQL regression proves the receipt race independently,
+while the latest native journey establishes the repaired source's boundary.
+
+Earlier setup-only collision/restart passes did not execute their intended bodies.
+Nonce-change requirements and unified-view private-arrival requirements were
+invalid oracles; their failures do not establish private-delivery regressions.
+Current tests require actual authenticated current Core channels and exact
+source-scoped private catalog/record delivery. The device-only survivor requires
+bounded actual branch convergence before its ordinary send; this establishes
+that steady-state case, not a fix for every historical convergence timeout.
+
+Binding parity400, UniFFI413/C618 callable references and all17 binding-doc
+regressions pass on unchanged exported API/header inputs. Native v19 used the
+existing4MiB test-thread and8MiB composed-producer profiles; shipping default
+thread stacks remain a final SDK/host gate. Jobs1/debug0/incremental0 and the
+20GiB pre-gate disk floor were preserved. Final formatting is pending.
+
+The component is not ready for promotion: the native receipt journey passed,
+but the current composed App failures above remain unresolved. The natural
+21cd diagnostic run passed1/0 and establishes no causal repair. Diagnostic
+captureae22 failed compilation (tuple Debug limit,0 tests); the real source-
+preferred fixture6f failed its own Sent-only commit lookup before branch
+selection. Confirmed own commits intentionally become Processed, so that lookup
+and Sent-only absence observations are invalid ownership oracles. Both attempts
+and positive cleanup evidence remain retained. No shipping behavior changed in
+these diagnostic/fixture captures. A removed leaf's epoch authenticator cannot
+establish post-removal disagreement with the administrator; v25 is a receipt
+failure, not proof of a new post-removal convergence defect.
+
+## Historical scoped qualification (c7b0150a)
+
+At this checkpoint, signed local candidate:
 c7b0150a (signed source-only diagnostic follow-up to 8a597c57). Passing private25 parent is
 78a8b58d43407299c9913ae87fb1253ebe736cfb. This is an unfinished departure
 slice: genuine account-wide departure→fresh accepted rejoin/late-negative
@@ -68,7 +125,7 @@ are not SDK behavioral REDs or acceptance. The former device-only survivor
 failure waiting for D decryption remains a specific intermittent concern even
 though the later diagnostic and genuine native ordinary-send controls passed.
 
-## Both-source departure/rejoin lifecycle still failing
+## Historical both-source departure/rejoin failures
 
 The new genuine fixture selects each actual A/B lifecycle-owned acknowledged
 package through its exact authored relay event and normal parser, uses D's
