@@ -18,7 +18,10 @@ pub(crate) struct Release {
 impl Drop for Release {
     fn drop(&mut self) {
         if let Some(plane) = self.plane.upgrade() {
-            let mut gate = plane.ordinary_commit_gate.lock().unwrap();
+            let mut gate = plane
+                .ordinary_commit_gate
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             if gate
                 .as_ref()
                 .is_some_and(|gate| Arc::ptr_eq(&gate.release, &self.release))
@@ -76,7 +79,12 @@ pub(super) async fn hold(
             .lock()
             .unwrap();
         let matches = if let Some(gate) = slot.as_ref() {
-            if gate.account != request.account_id {
+            if gate.account != request.account_id
+                || !matches!(
+                    request.target,
+                    cgka_traits::TransportPublishTarget::Group { .. }
+                )
+            {
                 false
             } else {
                 let fanout = gate

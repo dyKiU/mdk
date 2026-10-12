@@ -19,7 +19,7 @@ fn mirrored_account_departure_waits_for_offline_actual_source_and_public_removal
 }
 
 #[test]
-fn account_departure_reproposes_public_leave_after_other_source_epoch_change() {
+fn account_departure_reproposes_public_leave_after_same_epoch_branch_race() {
     crate::tests::run_composed_app_runtime_test("account-wide-departure-ordered", || async {
         Box::pin(actual::run_native_public_three_device_enrollment(
             actual::ApprovalScenario::AutomaticAccountDepartureOrdering,
@@ -146,6 +146,7 @@ pub(super) async fn verify(
     let result =
         std::panic::AssertUnwindSafe(async {
             reopened.reconcile_accounts().await.unwrap();
+            let mut published_branch = None;
             if ordered {
                 tokio::time::timeout(std::time::Duration::from_secs(20), async {
                     loop {
@@ -153,15 +154,21 @@ pub(super) async fn verify(
                         let round = store.private_roster_settlement_storage().unwrap().read_round().unwrap().unwrap();
                         let work = store.pending_local_account_chat_departures(&round.anchor.account,&round.anchor.local_device,None,16).unwrap();
                         if work.iter().any(|(_,state)|*state==storage_sqlite::account_chat_departure::AccountChatDepartureLocalState::Published) {
-                            assert_eq!(store.get_group(&peer.group).unwrap().epoch,epoch_before);
-                            assert_eq!(store.leave_request(&peer.group).unwrap().unwrap().last_proposed_epoch,Some(epoch_before));
-                            break;
+                            let current = store.get_group(&peer.group).unwrap().epoch;
+                            let proposed = store.leave_request(&peer.group).unwrap().unwrap().last_proposed_epoch;
+                            if current.0 == epoch_before.0 + 1 && proposed == Some(current) {
+                                let observation = observe_public_leave_failure(&reopened_app,peer,relay_database).await.unwrap();
+                                if observation.source_sent_proposals > 0 && observation.relay_retained_proposals == observation.source_sent_proposals {
+                                    published_branch = Some(current_branch_observation(&store,&peer.group).unwrap());
+                                    break;
+                                }
+                            }
                         }
                         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                     }
-                }).await.expect("B must genuinely publish SelfRemove at the held prior epoch");
+                }).await.expect("B must independently commit A and actually publish SelfRemove before the competing D commit");
                 assert_administrator_holds_only_a(peer,epoch_before);
-                eprintln!("account_departure_ordering_b_prior_epoch_published=true");
+                eprintln!("account_departure_ordering_b_independent_next_epoch_proposal_retained=true");
                 drop(publication_gate.take());
             }
             let completion = tokio::time::timeout(std::time::Duration::from_secs(50), async {
@@ -188,7 +195,11 @@ pub(super) async fn verify(
                 std::time::Duration::from_secs(5),
                 std::panic::AssertUnwindSafe(async {
             let indices = stored_indices(&peer.app, &peer.group);
-            eprintln!("account_departure_public_leave_observation={:?}", observe_public_leave_failure(&reopened_app, peer, relay_database).await.map(|o| (o.administrator_epoch,o.administrator_pending_proposals,o.source_sent_proposals,o.administrator_received_proposals,o.administrator_processed_proposals,o.source_pending_fanouts,o.relay_retained_proposals)).map_err(|_| "Unknown"));
+            if let Some(published) = &published_branch {
+                let observed = current_branch_observation(&reopened_app.account_storage("test").unwrap(),&peer.group).map(|current| (current.epoch==published.epoch,current.authenticator_digest==published.authenticator_digest,current.selected_head_digest==published.selected_head_digest)).map_err(|_|"Unknown");
+                eprintln!("account_departure_timeout_b_current_matches_published_branch={observed:?}");
+            }
+            eprintln!("account_departure_public_leave_observation={:?}", observe_public_leave_failure(&reopened_app, peer, relay_database).await.map(|o| (o.administrator_epoch,o.administrator_pending_proposals,o.source_sent_proposals,o.administrator_received_proposals,o.administrator_processed_proposals,o.source_pending_fanouts,o.relay_retained_proposals,o.same_epoch,o.same_epoch_authenticator,o.same_selected_head)).map_err(|_| "Unknown"));
             eprintln!(
                 "account_departure_timeout_d_leaves={} a_present={} b_present={}",
                 indices.len(),
@@ -326,6 +337,9 @@ struct PublicLeaveObservation {
     administrator_processed_proposals: usize,
     source_pending_fanouts: usize,
     relay_retained_proposals: usize,
+    same_epoch: bool,
+    same_epoch_authenticator: bool,
+    same_selected_head: bool,
 }
 
 /// Observe the actual durable proposal and administrator queue, never a grant.
@@ -350,6 +364,8 @@ async fn observe_public_leave_failure(
             .ok_or(cgka_traits::StorageError::NotFound)?;
             Ok((group.epoch().as_u64(), group.pending_proposals().count()))
         })?;
+    let source_branch = current_branch_observation(&source, &peer.group)?;
+    let administrator_branch = current_branch_observation(&administrator, &peer.group)?;
     let current = source.get_group(&peer.group)?.epoch;
     let records = source.list_messages(&peer.group, current)?;
     let (mut sent, mut received, mut processed, mut relay_retained) = (0, 0, 0, 0);
@@ -409,6 +425,11 @@ async fn observe_public_leave_failure(
         administrator_processed_proposals: processed,
         source_pending_fanouts: fanouts,
         relay_retained_proposals: relay_retained,
+        same_epoch: source_branch.epoch == administrator_branch.epoch,
+        same_epoch_authenticator: source_branch.authenticator_digest
+            == administrator_branch.authenticator_digest,
+        same_selected_head: source_branch.selected_head_digest
+            == administrator_branch.selected_head_digest,
     })
 }
 
@@ -444,4 +465,29 @@ fn assert_administrator_holds_only_a(peer: &TwoSourcePeer, epoch: cgka_traits::E
         "held genuine pending commit must remove A only, not B"
     );
     assert_eq!(stored_indices(&peer.app, &peer.group).len(), 3);
+}
+
+struct CurrentBranchObservation {
+    epoch: u64,
+    authenticator_digest: [u8; 32],
+    selected_head_digest: [u8; 32],
+}
+fn current_branch_observation(
+    storage: &storage_sqlite::SqliteAccountStorage,
+    group: &cgka_traits::GroupId,
+) -> Result<CurrentBranchObservation, cgka_traits::StorageError> {
+    use openmls_traits::storage::{CURRENT_VERSION, StorageProvider as OpenMlsStorageProvider};
+    use sha2::{Digest, Sha256};
+    use tls_codec::Serialize;
+    storage.with_read_snapshot(|storage| -> Result<_,cgka_traits::StorageError> {
+        let id = openmls::group::GroupId::from_slice(group.as_slice());
+        let group = openmls::group::MlsGroup::load(storage.mls_storage(),&id)
+            .map_err(|_|cgka_traits::StorageError::Backend("diagnostic MLS branch unavailable".into()))?
+            .ok_or(cgka_traits::StorageError::NotFound)?;
+        let context: openmls::group::GroupContext = <<storage_sqlite::SqliteAccountStorage as cgka_traits::StorageProvider>::Mls as OpenMlsStorageProvider<CURRENT_VERSION>>::group_context(storage.mls_storage(), &id)
+            .map_err(|_|cgka_traits::StorageError::Backend("diagnostic selected head unavailable".into()))?
+            .ok_or(cgka_traits::StorageError::NotFound)?;
+        let context = context.tls_serialize_detached().map_err(|_|cgka_traits::StorageError::Serialization("diagnostic selected head unavailable".into()))?;
+        Ok(CurrentBranchObservation {epoch:group.epoch().as_u64(), authenticator_digest:Sha256::digest(group.epoch_authenticator().as_slice()).into(), selected_head_digest:Sha256::digest(context).into()})
+    })
 }
