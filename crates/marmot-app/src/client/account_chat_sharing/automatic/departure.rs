@@ -72,15 +72,14 @@ impl AppClient {
             }
         }
         result.sort_by_key(|policy| policy.peer_device);
-        if let Some(first) = result.first() {
-            if result.iter().any(|policy| {
+        if let Some(first) = result.first()
+            && (result.iter().any(|policy| {
                 policy.account != first.account
                     || policy.local_device != first.local_device
                     || policy.protected_group != first.protected_group
-            }) || result.len() > 128
-            {
-                return Err(app_failure(failure()));
-            }
+            }) || result.len() > 128)
+        {
+            return Err(app_failure(failure()));
         }
         Ok(result)
     }
@@ -113,11 +112,7 @@ impl AppClient {
         let mut missing = false;
         match storage.get_group(group) {
             Ok(_) => {
-                let membership = self
-                    .runtime
-                    .session()
-                    .canonical_group_membership(group)
-                    .map_err(cgka_session::SessionError::from)?;
+                let membership = self.runtime.session().canonical_group_membership(group)?;
                 if membership.local_leaf_active {
                     // Removed local leaves cannot decrypt later ordinary
                     // commits. Their remaining tree is not a current census.
@@ -234,8 +229,7 @@ impl AppClient {
                 Ok(_) => {
                     self.runtime
                         .session()
-                        .group_authority(group)
-                        .map_err(cgka_session::SessionError::from)?
+                        .group_authority(group)?
                         .facts
                         .is_admin
                 }
