@@ -468,6 +468,10 @@ async fn diagnose_delivery(
         .unwrap()
         .as_secs();
     for (index, source) in prior.iter().enumerate() {
+        eprintln!(
+            "account_departure_rejoin_source={index} live_recipient_is_default_initiator={}",
+            round.anchor.local_device < source.device
+        );
         let origin = storage
             .current_mirrored_chat_origin_observation(
                 &round.anchor.account,
