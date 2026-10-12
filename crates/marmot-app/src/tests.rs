@@ -23441,3 +23441,5 @@ fn group_create_relay_options_preserve_defaults_and_enforce_host_safety() {
         ));
     }
 }
+
+mod account_chat_departure_defaults;
