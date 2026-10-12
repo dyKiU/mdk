@@ -2,6 +2,44 @@
 
 ## Current component checkpoint (2026-10-12)
 
+Signed component source `430be45ea43045f7115fac9c52d657d04cda2255` includes
+`9158365351319d8c0f0e672cf933e6af5f89ec98`: an authenticated, byte-identical
+already-committed departure retries its durable receipt without retiring the
+receipt channel again. Fresh cuts still invalidate/renew; the existing Core,
+policy, roster and SQL before/tail checks remain unchanged. No wire, schema or
+binding declaration changed.
+
+All prefixes below are under `/Users/pj/project/build/results/`.
+
+| Scope | Actual result | Immutable source / prefix |
+|---|---|---|
+| Authenticated identical intent while actual complete receipt is held |0 passed,1 failed; actual removals complete,8 held contexts/6 queued retries/5 authenticated duplicate SQL applies, completion misses fixed30s|e9b6c208 / `account-wide-departure-e9b6c208-duplicate-receipt-commit-diagnostic-v36`|
+| Same fixture and deadlines after inserted-only renewal guard |1 passed,0 failed/ignored; actual held/queued/applied counts1/1/1, actual ordinary removals and all participant completion/denials/closures|42aaa99c / `account-wide-departure-42aaa99c-commit-rejection-diagnostic-v41`|
+| Ordinary offline departure, both fresh accepted sources and old intent replay, actual administrator/source winning branches |4 passed,0 failed/ignored|42aaa99c / `account-wide-departure-42aaa99c-duplicate-receipt-affected-v38`|
+| App default strict |exit0, no exemptions|42aaa99c / `account-wide-departure-42aaa99c-duplicate-receipt-strict-v39`|
+| App experimental strict |exit0, no exemptions; manual aggregate Debug only corrects diagnostic dead-code lint|430be45e / `account-wide-departure-430be45e-duplicate-receipt-strict-v42`|
+| Actual C→UniFFI→App boundary |consumer1+producer1 passed,0 failed/ignored; real two-source removals/receipts, same-root durable completion and positive owner closures|430be45e / `account-wide-departure-430be45e-native-ffi-v43`|
+
+Receipt SQL20, storage strict2, no-policy default/experimental2, original SDK
+approval/cancellation controls and delayed Request evidence in the historical
+records below are retained
+against unchanged relevant inputs. The current guard does not fix public MLS
+convergence: attempts35/37 failed before the receipt body (no held or applied
+duplicate), with an active B leaf and an exact rival commit rejected against
+candidate state. They remain unresolved prerequisite failures, not receipt REDs
+or GREENs. Earlier33/34 similarly failed forced-fork prerequisites. The
+experimental strict attempt39 failed diagnostic dead-code checks and is retained;
+42 fixes only the aggregate formatter. Source430 otherwise preserves the tested
+42 runtime and fixture predicates.
+
+Native43 uses the existing4MiB test-thread/8MiB composed-producer profiles;
+shipping default-stack, full final CI, generated SDK and installed-app acceptance
+remain required. Whole-workspace `cargo fmt --all -- --check` passed at430
+(empty log SHA256e3b0c442…). Component results authorize no SDK or app promotion by
+themselves. The docs-only205 integration ancestry is preserved.
+
+## Historical receipt-snapshot checkpoint (76f7e9e6)
+
 Runtime source: `76f7e9e60ef25195521e45acc980808022e9d22f`; its only change from
 `8e108b30460f0fdb1c13cfb2f5ca1723c68aba2e` is borrowing existing SQL test scopes
 instead of cloning them. Full final integration CI, SDK generation and shipping
