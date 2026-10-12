@@ -66,10 +66,11 @@ fn hex(value: &str, bytes: usize) -> bool {
 }
 fn read_frame<T: serde::de::DeserializeOwned>(stream: &mut UnixStream) -> T {
     let mut size = [0; 4];
-    assert!(
-        stream.read_exact(&mut size).is_ok(),
-        "private fixture response read"
-    );
+    let read = stream.read_exact(&mut size);
+    if let Err(error) = &read {
+        eprintln!("ffi_fixture_response_read_error_kind={:?}", error.kind());
+    }
+    assert!(read.is_ok(), "private fixture response read");
     let size = u32::from_be_bytes(size) as usize;
     assert!(
         size > 0 && size <= FRAME_LIMIT,
@@ -612,7 +613,14 @@ fn genuine_two_source_departure_crosses_real_c_and_uniffi_boundaries() {
         let deadline = Instant::now() + Duration::from_secs(120);
         let mut stream = loop {
             match listener.accept() {
-                Ok((stream, _)) => break stream,
+                Ok((stream, _)) => {
+                    // macOS can inherit the listener's nonblocking mode.
+                    // This consumer uses bounded blocking frame reads.
+                    stream
+                        .set_nonblocking(false)
+                        .expect("blocking accepted fixture stream");
+                    break stream;
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     assert!(
                         producer.0.try_wait().unwrap().is_none(),
@@ -659,12 +667,14 @@ fn genuine_two_source_departure_crosses_real_c_and_uniffi_boundaries() {
                 && fixture.roots[0] != fixture.roots[2]
                 && fixture.roots[1] != fixture.roots[2]
         );
+        eprintln!("ffi_fixture_private_handoff_valid=true");
         let secret = Zeroizing::new(std::mem::take(&mut fixture.secret));
         let label = CString::new(fixture.label.as_str()).unwrap();
         let group = CString::new(fixture.group.as_str()).unwrap();
         for root in &fixture.roots {
             clients.push(Client::open(root, &fixture, &secret));
         }
+        eprintln!("ffi_fixture_native_clients_open={}", clients.len());
         let before = ask(&mut stream, &nonce, "canonical", &[]);
         assert!(before.a_active && before.b_active && before.leaves == 3);
         wait(
@@ -686,6 +696,7 @@ fn genuine_two_source_departure_crosses_real_c_and_uniffi_boundaries() {
             "independent ordinary sources produce distinct actual events"
         );
         assert!(ask(&mut stream, &nonce, "delivered", &[from_a, from_b]).delivered);
+        eprintln!("ffi_fixture_real_native_ordinary_sends_decrypted=true");
         wait(
             || paired_visible(&clients[2], &label, &group),
             "actual C mirrored chat must be present before departure",
@@ -697,6 +708,7 @@ fn genuine_two_source_departure_crosses_real_c_and_uniffi_boundaries() {
             },
             "fresh mirrored initiator not ready",
         );
+        eprintln!("ffi_fixture_mirrored_initiator_available=true");
         clients[1].close();
         let (status, operation) = state(&clients[2], &label, &group, true);
         assert!(
@@ -704,6 +716,7 @@ fn genuine_two_source_departure_crosses_real_c_and_uniffi_boundaries() {
                 && operation.as_ref().is_some_and(|value| !value.is_empty())
         );
         let operation = operation.unwrap();
+        eprintln!("ffi_fixture_offline_pending=true");
         wait(
             || {
                 let observation = ask(&mut stream.try_clone().unwrap(), &nonce, "canonical", &[]);
@@ -730,6 +743,7 @@ fn genuine_two_source_departure_crosses_real_c_and_uniffi_boundaries() {
             },
             "D must authenticate both actual leaf removals",
         );
+        eprintln!("ffi_fixture_actual_ordinary_removals=true");
         wait(
             || {
                 let value = state(&clients[2], &label, &group, false);
@@ -738,6 +752,7 @@ fn genuine_two_source_departure_crosses_real_c_and_uniffi_boundaries() {
             },
             "completion must follow actual independent removals and peer receipts",
         );
+        eprintln!("ffi_fixture_receipt_complete=true");
         for (client, token) in [
             (&clients[0], "done-a"),
             (&clients[1], "done-b"),
@@ -760,7 +775,9 @@ fn genuine_two_source_departure_crosses_real_c_and_uniffi_boundaries() {
             "reopened C must retain authenticated departure fence"
         );
         clients[2].close();
+        eprintln!("ffi_fixture_same_root_reopen_completed=true");
     }));
+    eprintln!("ffi_fixture_cleanup_client_count={}", clients.len());
     let mut clients_closed = true;
     for client in &mut clients {
         clients_closed &= client.close_checked();
