@@ -3,7 +3,7 @@
 ## Current scoped qualification (2026-10-12)
 
 Current signed local candidate:
-8a597c5756bb65122834dd4bdf4ba6a2acb53d1a. Passing private25 parent is
+c7b0150a (signed source-only diagnostic follow-up to 8a597c57). Passing private25 parent is
 78a8b58d43407299c9913ae87fb1253ebe736cfb. This is an unfinished departure
 slice: genuine account-wide departure→fresh accepted rejoin/late-negative
 lifecycle controls, final required full CI, SDK/language/host promotion and the
@@ -67,6 +67,47 @@ feature-selection/nonce-export/private-mode/nonblocking fixture prerequisites
 are not SDK behavioral REDs or acceptance. The former device-only survivor
 failure waiting for D decryption remains a specific intermittent concern even
 though the later diagnostic and genuine native ordinary-send controls passed.
+
+## Both-source departure/rejoin lifecycle still failing
+
+The new genuine fixture selects each actual A/B lifecycle-owned acknowledged
+package through its exact authored relay event and normal parser, uses D's
+ordinary Invite, holds both new Welcomes before explicit acceptance/recovery
+confirmation, and checks each local accepted origin has a distinct ID and a
+higher source-local order. Managed owners close before standalone same-root
+owners; all owners positively close on failure. No database or original is
+copied or synthesized.
+
+Actual lifecycle sources2ce46164 and3b08094a failed0/1 after the original
+account departure completed, D removed both old leaves, both fresh Welcomes
+were genuinely accepted, and D decrypted a fresh ordinary send. C still
+retained both old origins and had no live mirrored event. This rules out a
+mere unified-timeline source choice as the current cause. Raw prefixes are
+`account-wide-departure-2ce46164-fresh-both-rejoin-v1` (SHA256
+b1ceaed101162f972c5909bb49fcfbf4804ebdc6a703a2ddaec0ed3cab46526a) and
+`account-wide-departure-3b08094a-fresh-both-rejoin-v2` (SHA256
+5aa63ea579e7cf0a356170f5287c61813b610557b02ac320aff93ced94d65c03).
+
+Existing bounded catalog traces at921dd763 also failed0/1. A/B established
+fresh automatic channels and exchanged new Active catalogs between themselves;
+C retained its old channels and received no new catalog. This is a restart
+handoff diagnosis, not yet a proven initiator-order defect or repaired runtime.
+Raw `account-wide-departure-921dd763-fresh-both-rejoin-v4` hash is
+da3661cc57d9e861a94bf1dfbf05c76b38f2461bbf318607038add0a6d81f025.
+All checked closures succeeded. Sourcec7b0150a adds only a failure-observation
+boolean for actual automatic initiator ordering; its run is pending.
+
+The intermediate35df563e capture failed compilation with a temporary-path
+lifetime error in the test trace guard (0 tests);921dd763 keeps those owned
+paths alive. Neither is a product behavioral RED. The pinned full formatting
+check on2ce46164 passed. Runtime test linking emits the Apple unwind-table-size
+warning; no warning exemption is used by the earlier strict compile gates.
+
+Fresh C visibility, current Available/no old operation, a distinct new departure,
+and retained authenticated old-intent replay remain unqualified. The latter must
+requeue exact captured original outgoing fragments on a genuinely fresh validated
+automatic channel; repeating an old Nostr wrapper or rebuilding an Intent from
+SQL is not equivalent. No production behavior changed in these lifecycle captures.
 
 ## Historical source preparation
 
