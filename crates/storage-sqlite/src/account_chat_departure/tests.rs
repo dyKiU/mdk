@@ -177,10 +177,12 @@ fn only_exact_authenticated_peer_route_can_acknowledge_and_refusal_is_honest() {
                 &[2; 32],
                 &intent.action_id,
                 &[9; 32],
-                true,
-                false,
-                false,
-                &|| Ok(())
+                AccountChatDepartureReceiptStatus {
+                    complete: true,
+                    needs_administrator: false,
+                    awaiting_sources: false
+                },
+                &|| Ok(()),
             )
             .is_err()
     );
@@ -190,9 +192,11 @@ fn only_exact_authenticated_peer_route_can_acknowledge_and_refusal_is_honest() {
             &[2; 32],
             &intent.action_id,
             &[3; 32],
-            false,
-            true,
-            false,
+            AccountChatDepartureReceiptStatus {
+                complete: false,
+                needs_administrator: true,
+                awaiting_sources: false,
+            },
             &|| Ok(()),
         )
         .unwrap();
@@ -208,9 +212,11 @@ fn only_exact_authenticated_peer_route_can_acknowledge_and_refusal_is_honest() {
             &[2; 32],
             &intent.action_id,
             &[3; 32],
-            true,
-            false,
-            false,
+            AccountChatDepartureReceiptStatus {
+                complete: true,
+                needs_administrator: false,
+                awaiting_sources: false,
+            },
             &|| Ok(()),
         )
         .unwrap();
@@ -271,9 +277,11 @@ fn offline_receipts_and_awaiting_sources_do_not_claim_completion() {
             &[2; 32],
             &intent.action_id,
             &[3; 32],
-            false,
-            false,
-            true,
+            AccountChatDepartureReceiptStatus {
+                complete: false,
+                needs_administrator: false,
+                awaiting_sources: true,
+            },
             &|| Ok(()),
         )
         .unwrap();
@@ -291,10 +299,12 @@ fn offline_receipts_and_awaiting_sources_do_not_claim_completion() {
                 &[2; 32],
                 &intent.action_id,
                 &[3; 32],
-                true,
-                false,
-                true,
-                &|| Ok(())
+                AccountChatDepartureReceiptStatus {
+                    complete: true,
+                    needs_administrator: false,
+                    awaiting_sources: true
+                },
+                &|| Ok(()),
             )
             .is_err()
     );
@@ -304,9 +314,11 @@ fn offline_receipts_and_awaiting_sources_do_not_claim_completion() {
             &[2; 32],
             &intent.action_id,
             &[3; 32],
-            true,
-            false,
-            false,
+            AccountChatDepartureReceiptStatus {
+                complete: true,
+                needs_administrator: false,
+                awaiting_sources: false,
+            },
             &|| Ok(()),
         )
         .unwrap();
@@ -417,9 +429,11 @@ fn published_leave_clears_local_actionable_refusal_but_waits_for_actual_removal(
             &[2; 32],
             &intent.action_id,
             &[3; 32],
-            true,
-            false,
-            false,
+            AccountChatDepartureReceiptStatus {
+                complete: true,
+                needs_administrator: false,
+                awaiting_sources: false,
+            },
             &|| Ok(()),
         )
         .unwrap();
@@ -457,9 +471,11 @@ fn fresh_accepted_lineage_admits_distinct_negative_operation_without_old_cut() {
             &[2; 32],
             &first.action_id,
             &[3; 32],
-            true,
-            false,
-            false,
+            AccountChatDepartureReceiptStatus {
+                complete: true,
+                needs_administrator: false,
+                awaiting_sources: false,
+            },
             &|| Ok(()),
         )
         .unwrap();
@@ -527,9 +543,11 @@ fn local_publication_does_not_clear_authenticated_peer_awaiting_source_receipt()
             &[2; 32],
             &intent.action_id,
             &[3; 32],
-            false,
-            false,
-            true,
+            AccountChatDepartureReceiptStatus {
+                complete: false,
+                needs_administrator: false,
+                awaiting_sources: true,
+            },
             &|| Ok(()),
         )
         .unwrap();
@@ -539,9 +557,11 @@ fn local_publication_does_not_clear_authenticated_peer_awaiting_source_receipt()
             &[2; 32],
             &intent.action_id,
             &[6; 32],
-            true,
-            false,
-            false,
+            AccountChatDepartureReceiptStatus {
+                complete: true,
+                needs_administrator: false,
+                awaiting_sources: false,
+            },
             &|| Ok(()),
         )
         .unwrap();
@@ -945,9 +965,11 @@ fn immutable_departure_rows_refuse_raw_replace_and_upsert_without_recursive_trig
                 &[2; 32],
                 &intent.action_id,
                 &[3; 32],
-                true,
-                false,
-                false,
+                AccountChatDepartureReceiptStatus {
+                    complete: true,
+                    needs_administrator: false,
+                    awaiting_sources: false,
+                },
                 &|| Ok(()),
             )
             .unwrap();

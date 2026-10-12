@@ -50,6 +50,14 @@ pub enum AccountChatDepartureDeliveryKind {
     CompletionAcknowledgement,
 }
 
+/// Authenticated peer progress flags; these supply no membership authority.
+#[derive(Clone, Copy)]
+pub struct AccountChatDepartureReceiptStatus {
+    pub complete: bool,
+    pub needs_administrator: bool,
+    pub awaiting_sources: bool,
+}
+
 #[derive(Clone)]
 pub struct AccountChatDepartureProgress {
     pub action_id: [u8; 32],
@@ -359,11 +367,14 @@ impl SqliteAccountStorage {
         local: &[u8; 32],
         id: &[u8; 32],
         peer: &[u8; 32],
-        complete: bool,
-        needs_administrator: bool,
-        awaiting_sources: bool,
+        status: AccountChatDepartureReceiptStatus,
         validate: &dyn Fn() -> StorageResult<()>,
     ) -> StorageResult<()> {
+        let AccountChatDepartureReceiptStatus {
+            complete,
+            needs_administrator,
+            awaiting_sources,
+        } = status;
         if complete && (needs_administrator || awaiting_sources) {
             return Err(invalid());
         }

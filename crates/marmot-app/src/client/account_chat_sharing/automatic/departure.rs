@@ -547,9 +547,11 @@ impl AppClient {
                         &entry.policy.local_device,
                         &receipt.action_id,
                         &entry.policy.peer_device,
-                        receipt.complete,
-                        receipt.needs_administrator,
-                        receipt.awaiting_sources,
+                        storage_sqlite::account_chat_departure::AccountChatDepartureReceiptStatus {
+                            complete: receipt.complete,
+                            needs_administrator: receipt.needs_administrator,
+                            awaiting_sources: receipt.awaiting_sources,
+                        },
                         &|| self.departure_original(entry),
                     ),
                     ReceiptPhase::CoordinatorComplete => {
