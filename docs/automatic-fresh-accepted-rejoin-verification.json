@@ -22,7 +22,7 @@
   "cohort_reuse": {
     "v10_to_v12": "Only one traits snapshot macro comma changes; all App/storage products and fixtures identical.",
     "v13_to_final": "Diagnostic SeenStages type alias and boxed actual Welcome enum payload are TEST-only. Actual new/old-format journeys rerun on final boxed fixture; source2/privacy1 preserve the same actions and authority.",
-    "v12_to_v13": "Only map_err identity becomes inspect_err for a diagnostic observation; original call, error and guard order unchanged. Source2/privacy1 executed on final capture.",
+    "v12_to_v13": "Only map_err identity becomes inspect_err for a diagnostic observation; original call, error and guard order unchanged. Source2/privacy1 executed on corrected v13 capture 764b5ba25822bd0a42e1b7a867303b84792f0612; retained after unchanged relevant action/authority inputs in final c6acad1ea4387d73a8005c1a31bf49bd75bae81f.",
     "filter_empty": "v12 app-source-privacy selected zero tests and is explicitly unqualified; corrected v13 requires exact2 plus actual privacy1 with zero ignored tests."
   },
   "limits": [
