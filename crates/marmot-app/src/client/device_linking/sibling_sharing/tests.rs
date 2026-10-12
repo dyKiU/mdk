@@ -71,6 +71,7 @@ fn choice() -> Arc<OriginalEnrollmentSharingChoice> {
         context,
         deadline: Instant::now() + std::time::Duration::from_secs(30),
         created_at: 1,
+        legacy_capture: Mutex::new(None),
         lifetime: Arc::new(AtomicBool::new(true)),
         children: Mutex::new(Vec::new()),
         pending_controls: Mutex::new(Vec::new()),

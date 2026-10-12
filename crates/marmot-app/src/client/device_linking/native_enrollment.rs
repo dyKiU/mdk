@@ -104,7 +104,8 @@ impl AppClient {
                     "original pairing sharing approval unavailable".into(),
                 )
             };
-            if Instant::now() >= original.deadline
+            if !original.live()
+                || Instant::now() >= original.deadline
                 || !guard.matches_original_context(&original.context)
             {
                 return Err(denied());
@@ -128,12 +129,15 @@ impl AppClient {
             }
             Ok(())
         };
-        storage
-            .approved_account_sharing_policy_storage()
+        let capture = original
+            .legacy_capture
+            .lock()
+            .expect("legacy capture")
+            .clone()
             .ok_or(ClientLinkingError::Gate(
                 LinkingWelcomeDenied::UnsupportedStorage,
-            ))?
-            .put_approved_account_sharing_policy(&policy, &validator)
+            ))?;
+        self.commit_policy_with_legacy_chats(&policy, &capture, &validator)
             .map_err(|error| ClientLinkingError::Engine(error.into()))?;
         self.mark_primary_sharing_committed();
         Ok(())

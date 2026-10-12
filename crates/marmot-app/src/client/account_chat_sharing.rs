@@ -210,6 +210,13 @@ impl AppClient {
  entry.channel=Some(self.runtime.session().approve_account_sharing_policy(entry.request.as_ref().ok_or(AccountSharingError::NotReady)?,Arc::new(OriginalLease(Arc::downgrade(original)))).map_err(|_|AccountSharingError::NotReady)?);
  }
  let channel=entry.channel.as_mut().ok_or(AccountSharingError::NotReady)?;
+ if original.legacy_capture.lock().expect("legacy capture").is_none(){
+ let capture=self.capture_legacy_chats(&||{
+ original.check(revision).map_err(|_|cgka_traits::storage::StorageError::Serialization("sharing original unavailable".into()))?;
+ self.runtime.session().validate_account_sharing_channel(channel).map_err(|_|cgka_traits::storage::StorageError::Serialization("sharing original changed".into()))
+ }).map_err(|_|AccountSharingError::RuntimeUnavailable)?;
+ *original.legacy_capture.lock().expect("legacy capture")=Some(capture);
+ }
  {let mut p=original.progress.lock().expect("sharing progress");if !p.approved {p.approved=true;p.revision+=1;}}
  let kind=if entry.recipient{AccountSharingControl::Consent}else{AccountSharingControl::Request};
  let message=self.runtime.session_mut().wrap_account_sharing_control(channel,kind).await.map_err(|_|AccountSharingError::NotReady)?;
@@ -290,12 +297,14 @@ impl AppClient {
                     )
                 })
         };
-        self.app
-            .account_storage(&self.state.label)
-            .map_err(|_| AccountSharingError::RuntimeUnavailable)?
-            .approved_account_sharing_policy_storage()
-            .ok_or(AccountSharingError::NotReady)?
-            .put_approved_account_sharing_policy(&policy, &validate)
+        let capture = original
+            .legacy_capture
+            .lock()
+            .expect("legacy capture")
+            .as_ref()
+            .cloned()
+            .ok_or(AccountSharingError::NotReady)?;
+        self.commit_policy_with_legacy_chats(&policy, &capture, &validate)
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
         let mut p = original.progress.lock().expect("sharing progress");
         if !p.complete {

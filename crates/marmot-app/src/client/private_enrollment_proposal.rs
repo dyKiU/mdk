@@ -306,16 +306,41 @@ impl AppClient {
             .validate_owned_private_enrollment_endorsement(&owned)
             .map_err(ClientLinkingError::Engine)?;
         owned.wire().map_err(ClientLinkingError::Engine)?;
-        let sharing = share_chats.then(|| {
-            Arc::new(OriginalSiblingSharingApproval {
+        let sharing = if share_chats {
+            let original = Arc::new(OriginalSiblingSharingApproval {
                 state: crate::account_chat_sharing::enabled::State::new_until(
                     &self.account_sharing_owner.lifetime,
                     parts.context_digest,
                     deadline,
                 ),
                 cancellation: owned.cancellation_handle(),
-            })
-        });
+            });
+            let capture = self
+                .capture_legacy_chats(&|| {
+                    if !original.state.live() {
+                        return Err(cgka_traits::storage::StorageError::Serialization(
+                            "sibling approval original unavailable".into(),
+                        ));
+                    }
+                    self.runtime
+                        .session()
+                        .validate_owned_private_enrollment_endorsement(&owned)
+                        .map_err(|_| {
+                            cgka_traits::storage::StorageError::Serialization(
+                                "sibling endorsement original changed".into(),
+                            )
+                        })
+                })
+                .map_err(|error| ClientLinkingError::Engine(error.into()))?;
+            *original
+                .state
+                .legacy_capture
+                .lock()
+                .expect("legacy capture") = Some(capture);
+            Some(original)
+        } else {
+            None
+        };
         self.linking_owner.received_endorsement = Some(OwnedReceivedEndorsement {
             binding: *binding,
             deadline,

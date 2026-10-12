@@ -310,6 +310,11 @@ impl AppClient {
                                     ));
                                 }
                             }
+                            AccountChatSourceOrigin::ExplicitLegacyAcceptance { .. } => {
+                                return Err(StorageError::Serialization(
+                                    "fresh original legacy approval required".into(),
+                                ));
+                            }
                         }
                         Ok(())
                     },

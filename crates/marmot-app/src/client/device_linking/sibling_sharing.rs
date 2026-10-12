@@ -16,6 +16,8 @@ pub(crate) struct OriginalEnrollmentSharingChoice {
     pub(super) context: LinkingContext,
     pub(super) deadline: Instant,
     pub(super) created_at: u64,
+    pub(super) legacy_capture:
+        Mutex<Option<Arc<crate::client::legacy_chat_acceptance::CapturedLegacyChats>>>,
     lifetime: Arc<AtomicBool>,
     children: Mutex<Vec<Arc<State>>>,
     progress: Mutex<ChoiceProgress>,
@@ -917,6 +919,7 @@ impl AppClient {
             context,
             deadline,
             created_at: crate::unix_now_seconds(),
+            legacy_capture: Mutex::new(None),
             lifetime: Arc::new(AtomicBool::new(true)),
             children: Mutex::new(Vec::new()),
             progress: Mutex::new(ChoiceProgress {
@@ -937,6 +940,17 @@ impl AppClient {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             projection_head_probe: Mutex::new(None),
         });
+        let capture = self
+            .capture_legacy_chats(&|| {
+                if !original.live() {
+                    return Err(cgka_traits::storage::StorageError::Serialization(
+                        "pairing original unavailable".into(),
+                    ));
+                }
+                Ok(())
+            })
+            .map_err(|error| ClientLinkingError::Engine(error.into()))?;
+        *original.legacy_capture.lock().expect("legacy capture") = Some(capture);
         self.linking_owner.sharing_approval = Some(original.clone());
         Ok(original)
     }
@@ -1609,10 +1623,6 @@ impl AppClient {
             approved_protected_epoch: scope.protected.epoch.0,
             revoked: false,
         };
-        let storage = self
-            .app
-            .account_storage(&self.state.label)
-            .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
         let validate = || {
             if !entry.original.live() || !entry.state.live() {
                 return Err(cgka_traits::storage::StorageError::Serialization(
@@ -1631,10 +1641,21 @@ impl AppClient {
                     )
                 })
         };
-        storage
-            .approved_account_sharing_policy_storage()
-            .ok_or_else(denied)?
-            .put_approved_account_sharing_policy(&policy, &validate)
+        let capture = match &entry.original {
+            SiblingOriginal::Existing { original, .. } => original
+                .state
+                .legacy_capture
+                .lock()
+                .expect("legacy capture")
+                .clone(),
+            SiblingOriginal::Recipient { choice, .. } => choice
+                .legacy_capture
+                .lock()
+                .expect("legacy capture")
+                .clone(),
+        }
+        .ok_or_else(denied)?;
+        self.commit_policy_with_legacy_chats(&policy, &capture, &validate)
             .map_err(|error| ClientLinkingError::Engine(error.into()))
     }
     async fn publish_sibling_control(

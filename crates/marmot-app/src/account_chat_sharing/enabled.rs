@@ -20,6 +20,8 @@ pub(crate) struct State {
     pub(crate) created_at: u64,
     pub(crate) scope: Mutex<Option<AccountSharingScope>>,
     pub(crate) progress: Mutex<Progress>,
+    pub(crate) legacy_capture:
+        Mutex<Option<Arc<crate::client::legacy_chat_acceptance::CapturedLegacyChats>>>,
     cancelled: AtomicBool,
     pub(crate) revoked: tokio::sync::Notify,
     aliases: AtomicUsize,
@@ -53,6 +55,7 @@ impl State {
                 revision: 1,
                 ..Default::default()
             }),
+            legacy_capture: Mutex::new(None),
             cancelled: AtomicBool::new(false),
             revoked: tokio::sync::Notify::new(),
             aliases: AtomicUsize::new(0),

@@ -17,7 +17,14 @@ pub const MAX_ACCOUNT_CHAT_SOURCE_ORIGINS: usize = 8192;
 #[derive(Clone, PartialEq, Eq)]
 pub enum AccountChatSourceOrigin {
     Created,
-    Joined { via_welcome: MessageId },
+    Joined {
+        via_welcome: MessageId,
+    },
+    /// A fresh human broad-sharing original accepts an ambiguous existing
+    /// ordinary Member chat. This never asserts historical creation.
+    ExplicitLegacyAcceptance {
+        approval_id: [u8; 32],
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -58,11 +65,18 @@ fn origin_bytes(origin: &AccountChatSourceOrigin) -> StorageResult<Vec<u8>> {
             value.extend_from_slice(via_welcome.as_slice());
             Ok(value)
         }
+        AccountChatSourceOrigin::ExplicitLegacyAcceptance { approval_id }
+            if *approval_id != [0; 32] =>
+        {
+            let mut value = vec![2];
+            value.extend_from_slice(approval_id);
+            Ok(value)
+        }
         _ => Err(invalid()),
     }
 }
 
-fn identity(change: &AccountChatSourceChange) -> StorageResult<([u8; 32], Vec<u8>)> {
+pub(super) fn identity(change: &AccountChatSourceChange) -> StorageResult<([u8; 32], Vec<u8>)> {
     if change.account == [0; 32]
         || change.local_device == [0; 32]
         || !(1..=255).contains(&change.group.as_slice().len())
@@ -86,6 +100,24 @@ impl SqliteAccountStorage {
     /// The callback revalidates the actual event/action and fresh Core state;
     /// retained facts alone cannot authorize acceptance.
     pub fn apply_account_chat_source_changes(
+        &self,
+        changes: &[AccountChatSourceChange],
+        validate_original: &dyn Fn(&AccountChatSourceChange) -> StorageResult<()>,
+    ) -> StorageResult<()> {
+        // Ordinary reducers cannot manufacture the fresh broad-approval
+        // lineage. Its dedicated path also commits immutable approval evidence.
+        if changes.iter().any(|change| {
+            matches!(
+                change.origin,
+                AccountChatSourceOrigin::ExplicitLegacyAcceptance { .. }
+            )
+        }) {
+            return Err(invalid());
+        }
+        self.apply_account_chat_source_changes_original(changes, validate_original)
+    }
+
+    pub(super) fn apply_account_chat_source_changes_original(
         &self,
         changes: &[AccountChatSourceChange],
         validate_original: &dyn Fn(&AccountChatSourceChange) -> StorageResult<()>,
@@ -185,7 +217,10 @@ impl SqliteAccountStorage {
             local_device,
         )?;
         let value: Option<u8> = conn.query_row(
-            "SELECT o.verdict FROM account_chat_source_current c JOIN account_chat_source_origins o USING(origin_id) WHERE c.group_id=?1 AND o.account=?2 AND o.local_device=?3",
+            "SELECT o.verdict FROM account_chat_source_current c JOIN account_chat_source_origins o USING(origin_id)
+             WHERE c.group_id=?1 AND o.account=?2 AND o.local_device=?3
+               AND (substr(o.origin,1,1)!=X'02' OR EXISTS(
+                 SELECT 1 FROM account_chat_legacy_acceptance_evidence e WHERE e.origin_id=o.origin_id))",
             params![group.as_slice(),account.as_slice(),local_device.as_slice()], |row| row.get(0)).optional().storage()?;
         value
             .map(|value| match value {
@@ -195,6 +230,29 @@ impl SqliteAccountStorage {
                 _ => Err(invalid()),
             })
             .transpose()
+    }
+
+    /// Metadata identity comparison for the same live original's transaction
+    /// retry. It does not supply membership or an approval owner.
+    pub fn account_chat_source_is_current(
+        &self,
+        change: &AccountChatSourceChange,
+    ) -> StorageResult<bool> {
+        let (id, _) = identity(change)?;
+        let conn = self.lock()?;
+        crate::approved_account_sharing_policy::check_configured_owner(
+            &conn,
+            &change.account,
+            &change.local_device,
+        )?;
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM account_chat_source_current c
+             JOIN account_chat_source_origins o USING(origin_id)
+             WHERE c.group_id=?1 AND o.origin_id=?2 AND o.verdict=1)",
+            params![change.group.as_slice(), id.as_slice()],
+            |row| row.get(0),
+        )
+        .storage()
     }
 }
 

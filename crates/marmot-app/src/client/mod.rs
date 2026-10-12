@@ -89,6 +89,8 @@ pub(crate) mod history_notices;
 mod history_transfer;
 mod invite_recovery;
 #[cfg(feature = "experimental-device-sync")]
+pub(crate) mod legacy_chat_acceptance;
+#[cfg(feature = "experimental-device-sync")]
 pub(crate) mod private_echo;
 #[cfg(feature = "experimental-device-sync")]
 pub(crate) mod private_enrollment_proposal;

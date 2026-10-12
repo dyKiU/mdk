@@ -210,6 +210,8 @@ mod revoked_device_group_anchor;
 mod selected_chat_key_package;
 
 #[cfg(feature = "experimental-device-sync")]
+mod account_chat_legacy_acceptance;
+#[cfg(feature = "experimental-device-sync")]
 mod account_chat_record_stream;
 #[cfg(feature = "experimental-device-sync")]
 mod account_chat_send_queue;
