@@ -307,9 +307,13 @@ pub(super) mod actual {
         ) {
             Some(
                 Box::pin(
-                    super::automatic_two_source_leave_acceptance::TwoSourcePeer::prepare(
-                        &apps, &url,
-                    ),
+                    async {
+                        if scenario == ApprovalScenario::AutomaticAccountDepartureOrdering {
+                            super::automatic_two_source_leave_acceptance::TwoSourcePeer::prepare_preferred_administrator(&apps, &url).await
+                        } else {
+                            super::automatic_two_source_leave_acceptance::TwoSourcePeer::prepare(&apps, &url).await
+                        }
+                    },
                 )
                 .await,
             )

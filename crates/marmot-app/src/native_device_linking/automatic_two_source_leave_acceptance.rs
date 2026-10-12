@@ -32,15 +32,38 @@ pub(super) struct TwoSourcePeer {
 
 impl TwoSourcePeer {
     pub(super) async fn prepare(apps: &[MarmotApp; 3], url: &str) -> Self {
+        Self::prepare_with_committer_order(apps, url, false).await
+    }
+
+    pub(super) async fn prepare_preferred_administrator(apps: &[MarmotApp; 3], url: &str) -> Self {
+        Self::prepare_with_committer_order(apps, url, true).await
+    }
+
+    async fn prepare_with_committer_order(
+        apps: &[MarmotApp; 3],
+        url: &str,
+        prefer_administrator: bool,
+    ) -> Self {
         eprintln!("two_source_fixture_stage=ordinary_setup_entered");
         let root = tempfile::tempdir().unwrap();
-        let keys = nostr::prelude::Keys::generate();
+        let source_account = apps[0].account_home().account("test").unwrap();
+        // Real independent principals are selected before any invitation or
+        // commit. Equal ordinary forks prefer the lower authenticated committer.
+        let keys = (0..1024)
+            .map(|_| nostr::prelude::Keys::generate())
+            .find(|keys| {
+                !prefer_administrator || keys.public_key().to_hex() < source_account.account_id_hex
+            })
+            .expect("bounded genuine principal selection must find preferred administrator");
         let peer_account = AccountHome::open(root.path())
             .import_account("test", &keys.secret_key().to_secret_hex())
             .unwrap();
         let app = MarmotApp::with_relay(root.path(), url);
-        let source_account = apps[0].account_home().account("test").unwrap();
         assert!(source_account.account_id_hex != peer_account.account_id_hex);
+        if prefer_administrator {
+            assert!(peer_account.account_id_hex < source_account.account_id_hex);
+            eprintln!("two_source_fixture_preferred_real_administrator_committer=true");
+        }
         crate::tests::remember_test_member_inbox(&app, &source_account.account_id_hex, url);
         // B has no engine/public package yet: the public first invitation has only A.
         let (mut a, mut d, group, a_index, a_metadata) = Box::pin(prepare_first_source(

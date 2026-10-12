@@ -171,8 +171,13 @@ pub(super) async fn verify(
                 eprintln!("account_departure_ordering_b_independent_next_epoch_proposal_retained=true");
                 drop(publication_gate.take());
             }
+            let mut observed_losing_branch = false;
             let completion = tokio::time::timeout(std::time::Duration::from_secs(50), async {
                 loop {
+                    if let Some(published) = &published_branch {
+                        let current = current_branch_observation(&reopened_app.account_storage("test").unwrap(), &peer.group).unwrap();
+                        observed_losing_branch |= current.epoch == published.epoch && current.authenticator_digest != published.authenticator_digest && current.selected_head_digest != published.selected_head_digest;
+                    }
                     let indices = stored_indices(&peer.app, &peer.group);
                     let state = runtimes[2]
                         .account_chat_departure_state("test", &peer.group)
@@ -184,6 +189,10 @@ pub(super) async fn verify(
                         && state.status == crate::AccountChatDepartureStatus::Completed
                     {
                         assert_eq!(state.operation_id.as_deref(), Some(operation.as_str()));
+                        if ordered {
+                            assert!(observed_losing_branch, "real competing D branch must replace B published proposal branch before qualifying this case");
+                            eprintln!("account_departure_ordering_same_epoch_published_branch_replaced=true");
+                        }
                         break;
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
