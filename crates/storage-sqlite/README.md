@@ -624,6 +624,19 @@ applying observations to that scope. Retained approvals do not supply original
 authority, keys or a deadline. The journal has 100,000 lifetime references and
 incoming receipts/progress each have 8,192. Core102 and private1–20 remain frozen.
 
+Private revision22 separately retains at most8,192 immutable acknowledgments
+keyed by stable policy, group, canonical batch digest and authenticated peer
+projection generation. An older global acknowledgment is not coverage of a new
+projection generation. Generation acknowledgment and the original global receipt
+commit atomically under original before/tail checks; global terminal payload is
+never reopened. The read returns receipt metadata only, including absence for an
+unacknowledged generation. That absence grants no replay authority: App must
+freshly encode current source records through a freshly authorized channel.
+Denied batches, revoked policies, owner mismatch and conflicting receipts are
+refused. The lifetime budget survives encrypted reopen. Core102 and private1–21
+are unchanged; no keys, deadlines, plaintext duplicates or original owners are
+retained by this table.
+
 Experimental paired-chat presentation reads accept at most128 caller-validated
 source scopes and return at most128 total observations across them. Catalog
 pages use canonical group order; message pages use canonical event time/ID.

@@ -1,4 +1,6 @@
 //! Synthetic SQL acceptance; original channel authentication remains Core-owned.
+#[path = "generation_receipts.rs"]
+mod generation_receipts;
 use super::*;
 use cgka_traits::{
     MemberId,

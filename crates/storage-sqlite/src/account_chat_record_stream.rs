@@ -121,6 +121,77 @@ digest=?3",
     })
     .transpose()
 }
+fn acknowledge_global_batch(
+    conn: &Connection,
+    id: &[u8; 32],
+    group: &GroupId,
+    receipt: &AccountChatRecordReceipt,
+) -> StorageResult<()> {
+    let (batch, previous, state) =
+        stored_batch(conn, id, group, &receipt.batch_digest)?.ok_or_else(invalid)?;
+    if state == 2 || !matches(receipt, &batch) {
+        return Err(invalid());
+    }
+    if let Some(old) = previous {
+        if old != *receipt {
+            return Err(invalid());
+        }
+    } else {
+        conn.execute(
+            "UPDATE account_chat_record_outbox SET payload=X'',receipt=?4,state=1 WHERE
+policy_id=?1 AND group_id=?2 AND digest=?3",
+            params![
+                id.as_slice(),
+                group.as_slice(),
+                receipt.batch_digest.as_slice(),
+                serde_json::to_vec(receipt).map_err(|_| invalid())?
+            ],
+        )
+        .storage()?;
+    }
+    Ok(())
+}
+
+fn generation_receipt(
+    conn: &Connection,
+    id: &[u8; 32],
+    group: &GroupId,
+    digest: &[u8; 32],
+    generation: u64,
+) -> StorageResult<Option<AccountChatRecordReceipt>> {
+    if generation > i64::MAX as u64 {
+        return Err(invalid());
+    }
+    let (batch, global, state) = stored_batch(conn, id, group, digest)?.ok_or_else(invalid)?;
+    if state == 2 {
+        return Err(invalid());
+    }
+    let bytes: Option<Vec<u8>> = conn
+        .query_row(
+            "SELECT record FROM account_chat_record_generation_receipts
+WHERE policy_id=?1 AND group_id=?2 AND digest=?3 AND peer_generation=?4",
+            params![
+                id.as_slice(),
+                group.as_slice(),
+                digest.as_slice(),
+                generation as i64
+            ],
+            |row| row.get(0),
+        )
+        .optional()
+        .storage()?;
+    bytes
+        .map(|bytes| {
+            let receipt: AccountChatRecordReceipt =
+                serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+            if state != 1 || global.as_ref() != Some(&receipt) || !matches(&receipt, &batch) {
+                return Err(invalid());
+            }
+            Ok(receipt)
+        })
+        .transpose()
+}
+
 impl AccountChatRecordStreamStorage for SqliteAccountStorage {
     fn reserve_account_chat_record_sequence(
         &self,
@@ -313,23 +384,69 @@ LIMIT ?4",
             validator()?;
             let conn = self.lock()?;
             policy(&conn, id, group)?;
-            let (batch, previous, state) =
-                stored_batch(&conn, id, group, &receipt.batch_digest)?.ok_or_else(invalid)?;
-            if state == 2 || !matches(receipt, &batch) {
-                return Err(invalid());
-            }
-            if let Some(old) = previous {
-                if old != *receipt {
+            acknowledge_global_batch(&conn, id, group, receipt)?;
+            drop(conn);
+            validator()
+        })
+    }
+    fn account_chat_record_generation_receipt(
+        &self,
+        id: &[u8; 32],
+        group: &GroupId,
+        digest: &[u8; 32],
+        peer_generation: u64,
+        validator: &dyn Fn() -> StorageResult<()>,
+    ) -> StorageResult<Option<AccountChatRecordReceipt>> {
+        self.connection.with_transaction(|| {
+            validator()?;
+            let conn = self.lock()?;
+            policy(&conn, id, group)?;
+            let result = generation_receipt(&conn, id, group, digest, peer_generation)?;
+            drop(conn);
+            validator()?;
+            Ok(result)
+        })
+    }
+    fn acknowledge_account_chat_record_batch_for_generation(
+        &self,
+        id: &[u8; 32],
+        group: &GroupId,
+        receipt: &AccountChatRecordReceipt,
+        peer_generation: u64,
+        validator: &dyn Fn() -> StorageResult<()>,
+    ) -> StorageResult<()> {
+        if peer_generation > i64::MAX as u64 {
+            return Err(invalid());
+        }
+        self.connection.with_transaction(|| {
+            validator()?;
+            let conn = self.lock()?;
+            policy(&conn, id, group)?;
+            acknowledge_global_batch(&conn, id, group, receipt)?;
+            if let Some(previous) =
+                generation_receipt(&conn, id, group, &receipt.batch_digest, peer_generation)?
+            {
+                if previous != *receipt {
                     return Err(invalid());
                 }
             } else {
+                let count: i64 = conn
+                    .query_row(
+                        "SELECT count(*) FROM account_chat_record_generation_receipts",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .storage()?;
+                if count >= MAX_ACCOUNT_CHAT_RECORD_GENERATION_RECEIPTS as i64 {
+                    return Err(capacity());
+                }
                 conn.execute(
-                    "UPDATE account_chat_record_outbox SET payload=X'',receipt=?4,state=1 WHERE
-policy_id=?1 AND group_id=?2 AND digest=?3",
+                    "INSERT INTO account_chat_record_generation_receipts VALUES(?1,?2,?3,?4,?5)",
                     params![
                         id.as_slice(),
                         group.as_slice(),
                         receipt.batch_digest.as_slice(),
+                        peer_generation as i64,
                         serde_json::to_vec(receipt).map_err(|_| invalid())?
                     ],
                 )

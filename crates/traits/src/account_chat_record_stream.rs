@@ -7,6 +7,7 @@ pub const MAX_ACCOUNT_CHAT_RECORD_OUTBOX_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_ACCOUNT_CHAT_RECORD_OUTBOX: usize = 4096;
 pub const MAX_ACCOUNT_CHAT_RECORD_RECEIPTS: usize = 8192;
 pub const MAX_ACCOUNT_CHAT_RECORD_JOURNAL: usize = 100000;
+pub const MAX_ACCOUNT_CHAT_RECORD_GENERATION_RECEIPTS: usize = 8192;
 
 /// Canonical JSON Vec<MirroredChatRecord>, ordered by distinct source sequence.
 /// Group and stable policy are supplied separately and checked on every operation.
@@ -66,6 +67,50 @@ pub trait AccountChatRecordStreamStorage: Send + Sync {
         receipt: &AccountChatRecordReceipt,
         validate_original: &dyn Fn() -> StorageResult<()>,
     ) -> StorageResult<()>;
+    /// Read only an exact authenticated peer-generation acknowledgment. Absence
+    /// is not permission to replay: the caller must freshly encode current source
+    /// records and own a current channel. No payload or original owner is restored.
+    fn account_chat_record_generation_receipt(
+        &self,
+        policy_id: &[u8; 32],
+        group: &GroupId,
+        batch_digest: &[u8; 32],
+        peer_generation: u64,
+        validate_original: &dyn Fn() -> StorageResult<()>,
+    ) -> StorageResult<Option<AccountChatRecordReceipt>> {
+        let _ = (
+            policy_id,
+            group,
+            batch_digest,
+            peer_generation,
+            validate_original,
+        );
+        Err(crate::storage::StorageError::Serialization(
+            "paired record generation receipts unavailable".into(),
+        ))
+    }
+    /// Atomically keep the immutable global receipt and retain acknowledgment
+    /// for the peer generation authenticated by the caller's original channel.
+    /// Original before/tail validation is mandatory; terminal payload stays erased.
+    fn acknowledge_account_chat_record_batch_for_generation(
+        &self,
+        policy_id: &[u8; 32],
+        group: &GroupId,
+        receipt: &AccountChatRecordReceipt,
+        peer_generation: u64,
+        validate_original: &dyn Fn() -> StorageResult<()>,
+    ) -> StorageResult<()> {
+        let _ = (
+            policy_id,
+            group,
+            receipt,
+            peer_generation,
+            validate_original,
+        );
+        Err(crate::storage::StorageError::Serialization(
+            "paired record generation receipts unavailable".into(),
+        ))
+    }
     /// Permanent negative retirement, distinct from acknowledgment. Clear retained
     /// bytes on source deletion/expiry/revocation; the same batch cannot reopen.
     /// The exact configured owner may retire a revoked policy's pending outbox.

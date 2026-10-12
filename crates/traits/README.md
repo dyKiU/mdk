@@ -147,3 +147,9 @@ authenticated peer receipt. Record sequences, outbox digest cursors and message
 chronology are separate. Source expiry/deletion can permanently deny a queued
 batch and erase bytes without claiming delivery. Metadata carries no restored
 keys, deadlines or original authority; the storage capability defaults unavailable.
+
+Generation-specific record acknowledgment separates stable batch identity from
+coverage of the actual peer projection generation authenticated by Core. Its
+bounded metadata read and atomic acknowledgment require original before/tail
+validation. Global terminal receipts remain immutable; missing coverage never
+restores payload, channel keys or authority to replay.

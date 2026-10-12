@@ -905,6 +905,9 @@ mod private_migration_0020_chat_send_queue;
 #[path = "private_migrations/0021_account_chat_record_stream.rs"]
 mod private_migration_0021_record_stream;
 
+#[path = "private_migrations/0022_account_chat_record_generation_receipts.rs"]
+mod private_migration_0022_record_generation_receipts;
+
 const PRIVATE_MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -1010,6 +1013,11 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
         version: 21,
         name: "0021_account_chat_record_stream",
         apply: private_migration_0021_record_stream::apply,
+    },
+    Migration {
+        version: 22,
+        name: "0022_account_chat_record_generation_receipts",
+        apply: private_migration_0022_record_generation_receipts::apply,
     },
 ];
 
