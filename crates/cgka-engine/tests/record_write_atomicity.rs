@@ -858,6 +858,9 @@ impl cgka_traits::storage::DeferredPeelGenerationStorage for FaultStorage {
 }
 
 impl StorageProvider for FaultStorage {
+    fn maintenance_storage(&self) -> Option<&dyn cgka_traits::storage::MaintenanceStorage> {
+        self.inner.maintenance_storage()
+    }
     #[cfg(feature = "experimental-device-sync")]
     fn accepted_welcome_storage(
         &self,

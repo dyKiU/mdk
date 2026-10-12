@@ -4411,30 +4411,20 @@ impl PrivateReplayEffects<'_> {
 /// Authenticate messages against successive source trees for probe or canonical apply.
 /// `retain_replayed_anchors` enables durable apply and per-commit presentation deltas;
 /// probes omit both while still validating the complete candidate branch.
-// Require an actual validated commit into this tip; a proposal-only replay or
-// a dependency before any subsequent commit cannot use the branch-relative
-// exception. Parsing failures remain fatal rather than hiding malformed input.
-fn is_unconsumed_replayed_tip_proposal(
-    messages: &[TransportMessage],
-    message_index: usize,
+// Require an actual authenticated commit into this candidate epoch. Ignoring
+// off-branch evidence never resolves a proposal reference: a subsequent commit
+// still fails normally if any of its genuine dependencies is unavailable.
+fn replayed_commit_establishes_proposal_epoch(
     source_epoch: u64,
     observations: &[OpenMlsReplayObservation],
-) -> Result<bool, OpenMlsProjectionError> {
-    if !observations.iter().any(|observation| {
+) -> bool {
+    observations.iter().any(|observation| {
         matches!(
             observation,
             OpenMlsReplayObservation::CommitStaged { resulting_epoch, .. }
                 if *resulting_epoch == source_epoch
         )
-    }) {
-        return Ok(false);
-    }
-    for message in &messages[message_index + 1..] {
-        if project_mls_message(&message.payload)?.kind == OpenMlsContentKind::Commit {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+    })
 }
 
 fn process_openmls_messages_inner<S: StorageProvider>(
@@ -4472,9 +4462,9 @@ fn process_openmls_messages_inner<S: StorageProvider>(
     // at its source epoch, so on a diverging prefix its anchor state would
     // not be the state the commit actually produces there.
     let mut prefix_canonical = true;
-    // One immutable tail proof suffices for every proposal at this tip.
-    let mut unmatched_proposal_tip = None;
-    for (message_index, message) in messages.iter().enumerate() {
+    // Reuse the authenticated candidate-epoch proof within this replay.
+    let mut validated_proposal_epoch = None;
+    for message in messages {
         let (projection, protocol) = project_protocol_message(&message.payload)?;
         let message_id = hex::encode(message.id.as_slice());
         let Some(protocol) = protocol else {
@@ -4609,24 +4599,20 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                         _ => "other",
                     },
                 );
-                // A standalone proposal at this candidate's final tip can
-                // belong to a competing same-epoch branch. Its membership tag
-                // must not veto an already validated commit on this branch.
-                // Dependencies preceding another commit remain strict, as do
-                // every other authentication, authorization and storage error.
+                // Replay supplies proposals from all candidate branches. A
+                // proposal whose membership tag belongs to a rival cannot
+                // veto this already authenticated branch. It is never stored
+                // or accepted here; later commits still authenticate and must
+                // resolve every actually consumed proposal reference. Other
+                // validation, authorization and storage errors remain strict.
                 if matches!(
                     &err,
                     ProcessMessageError::ValidationError(ValidationError::InvalidMembershipTag)
                 ) && source_epoch == mls_group.epoch().as_u64()
-                    && (unmatched_proposal_tip == Some(source_epoch)
-                        || is_unconsumed_replayed_tip_proposal(
-                            messages,
-                            message_index,
-                            source_epoch,
-                            &observations,
-                        )?)
+                    && (validated_proposal_epoch == Some(source_epoch)
+                        || replayed_commit_establishes_proposal_epoch(source_epoch, &observations))
                 {
-                    unmatched_proposal_tip = Some(source_epoch);
+                    validated_proposal_epoch = Some(source_epoch);
                     observations.push(OpenMlsReplayObservation::Ignored {
                         message_id,
                         kind: projection.kind,

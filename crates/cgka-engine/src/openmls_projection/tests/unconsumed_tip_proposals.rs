@@ -78,14 +78,15 @@ async fn real_unmatched_tip_proposal_cannot_veto_a_rival_but_dependencies_remain
     assert_eq!(replay_state(&observer_store, &group), initial);
 
     let successor = rival_commit_inner(&alice_store, &alice.self_id(), &group, true);
-    assert!(matches!(
+    assert!(
         materialize(
             &observer_store,
             &group,
-            vec![a.clone(), proposal.clone(), successor]
-        ),
-        Err(OpenMlsProjectionError::Replay(_))
-    ));
+            vec![a.clone(), proposal.clone(), successor],
+        )
+        .is_ok(),
+        "a later commit with no reference to this rival proposal cannot be vetoed"
+    );
     assert_eq!(replay_state(&observer_store, &group), initial);
 
     let malformed = transport_message(&[0xff, 0x00], proposal.envelope.clone());
