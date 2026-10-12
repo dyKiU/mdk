@@ -200,6 +200,21 @@ async fn verify_fresh_sources(
         })
         .await
         .expect("D must retain both genuine fresh ordinary source leaves");
+        tokio::time::timeout(Duration::from_secs(40), async {
+            loop {
+                let state = runtimes[2]
+                    .account_chat_departure_state("test", &peer.group)
+                    .await
+                    .unwrap();
+                if state.status == crate::AccountChatDepartureStatus::Available {
+                    assert!(state.operation_id.is_none());
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("both fresh accepted origins must supersede the old operation");
         for index in 0..2 {
             let sent = managed[index]
                 .send_message(
@@ -227,7 +242,7 @@ async fn verify_fresh_sources(
                 &runtimes[2],
                 &peer.group,
                 &sent.message_ids,
-                Some(prior[index].device),
+                None,
             ))
             .catch_unwind()
             .await;
@@ -250,22 +265,27 @@ async fn verify_fresh_sources(
                 );
                 std::panic::resume_unwind(original);
             }
+            // The unified window selects one attesting copy per logical event.
+            // Independently require the actual source-scoped copy and lineage;
+            // its chosen presentation source is not the original sending leaf.
+            let (_, accepted_origin) = source_observation(&reopened[index], &peer.group);
+            wait_for_exact_source_record(
+                &apps[2],
+                &peer.group,
+                &sent.message_ids[0],
+                &prior[index].device,
+                accepted_origin,
+            )
+            .await;
         }
-        tokio::time::timeout(Duration::from_secs(40), async {
-            loop {
-                let state = runtimes[2]
-                    .account_chat_departure_state("test", &peer.group)
-                    .await
-                    .unwrap();
-                if state.status == crate::AccountChatDepartureStatus::Available {
-                    assert!(state.operation_id.is_none());
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .expect("both fresh accepted origins must supersede the old operation");
+        let still_available = runtimes[2]
+            .account_chat_departure_state("test", &peer.group)
+            .await
+            .unwrap();
+        assert!(
+            still_available.status == crate::AccountChatDepartureStatus::Available
+                && still_available.operation_id.is_none()
+        );
         let next = runtimes[2]
             .leave_account_chat("test", &peer.group)
             .await
@@ -517,4 +537,57 @@ async fn diagnose_delivery(
             );
         }
     }
+}
+
+async fn wait_for_exact_source_record(
+    app: &MarmotApp,
+    group: &crate::GroupId,
+    event: &str,
+    source: &[u8; 32],
+    origin: AcceptedChatOrigin,
+) {
+    use cgka_traits::{
+        approved_account_sharing_policy::approved_account_sharing_identity,
+        mirrored_chat_catalog::MirroredChatScope,
+    };
+    let event: [u8; 32] = hex::decode(event).unwrap().try_into().unwrap();
+    let storage = app.account_storage("test").unwrap();
+    let round = storage
+        .private_roster_settlement_storage()
+        .unwrap()
+        .read_round()
+        .unwrap()
+        .unwrap();
+    let policies = storage
+        .approved_account_sharing_policy_storage()
+        .unwrap()
+        .approved_account_sharing_policies()
+        .unwrap();
+    let policy = policies
+        .iter()
+        .find(|policy| !policy.revoked && &policy.peer_device == source)
+        .expect("genuine source approved policy must remain present");
+    let scope = MirroredChatScope {
+        account: policy.account,
+        local_device: policy.local_device,
+        source_device: policy.peer_device,
+        policy_digest: approved_account_sharing_identity(
+            &policy.account,
+            &policy.protected_group,
+            &policy.local_device,
+            &policy.peer_device,
+            &policy.approval_id,
+        )
+        .unwrap(),
+        protected_group: policy.protected_group.clone(),
+        protected_generation: round.generation,
+    };
+    tokio::time::timeout(Duration::from_secs(40), async {
+        loop {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+            let records = storage.mirrored_chat_message_storage().unwrap().mirrored_chat_message_page(&scope, group, None, 128, now).expect("after fresh public source readiness, storage failures must not masquerade as absent delivery");
+            if records.iter().any(|record| record.event_id == event && record.accepted_origin == Some(origin)) { break; }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }).await.expect("C must retain the actual source-attested record under its genuine fresh accepted lineage");
 }
