@@ -61,6 +61,7 @@ impl AppClient {
             assert!(higher_closed);
             apps[higher] = crate::MarmotApp::with_relay(roots[higher], url);
             clients[higher] = Some(apps[higher].client("test").await.unwrap());
+            clients[higher].as_mut().unwrap().sync().await.unwrap();
             assert!(current_policy_ready(clients[higher].as_mut().unwrap(), &pair[higher]), "same-root restarted higher must retain actual current Core-qualified policy");
             clients[higher].as_mut().unwrap().begin_automatic_channel(pair[higher].clone(), None).unwrap();
             tick(clients[higher].as_mut().unwrap(), ids[higher]).await;
