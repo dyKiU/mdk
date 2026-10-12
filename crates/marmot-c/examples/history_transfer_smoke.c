@@ -48,6 +48,26 @@ int main(int argc, char **argv) {
     marmot_history_transfer_recipient_list_free(NULL);
     MarmotHistoryTransferRecipient choice = {.leaf_index = UINT32_MAX, .device = recipient, .device_len = 32};
     assert(choice.leaf_index == UINT32_MAX && choice.device == recipient && choice.device_len == 32);
+    _Static_assert(MARMOT_STATUS_ACCOUNT_SHARING_UNSUPPORTED == 121, "account sharing unsupported ABI");
+    _Static_assert(MARMOT_STATUS_DEVICE_REVOCATION_UNSUPPORTED == 126, "revocation unsupported ABI");
+    _Static_assert(MARMOT_STATUS_DEVICE_REVOCATION_RUNTIME_UNAVAILABLE == 132, "revocation runtime ABI");
+    MarmotDeviceRevocation *revocation = (MarmotDeviceRevocation *)(uintptr_t)1;
+    assert(marmot_begin_device_revocation(NULL, NULL, NULL, SIZE_MAX, NULL) == MARMOT_STATUS_NULL_POINTER);
+    status = marmot_begin_device_revocation(NULL, NULL, NULL, SIZE_MAX, &revocation);
+    assert(revocation == NULL);
+    assert(status == (experimental ? MARMOT_STATUS_DEVICE_REVOCATION_INVALID_SELECTION
+                                  : MARMOT_STATUS_DEVICE_REVOCATION_UNSUPPORTED));
+    status = marmot_begin_device_revocation(client, "missing", recipient, sizeof recipient, &revocation);
+    assert(revocation == NULL);
+    assert(status == (experimental ? MARMOT_STATUS_DEVICE_REVOCATION_RUNTIME_UNAVAILABLE
+                                  : MARMOT_STATUS_DEVICE_REVOCATION_UNSUPPORTED));
+    MarmotDeviceRevocationSnapshot review = {.revision = UINT64_MAX, .complete = true,
+        .protected_group_id_hex = NULL, .ordinary_group_ids_hex = NULL, .ordinary_group_ids_hex_len = 0,
+        .completed_group_ids_hex = NULL, .completed_group_ids_hex_len = 0, .target_device = recipient, .target_device_len = 32};
+    assert(review.revision == UINT64_MAX && review.complete && review.target_device_len == 32
+        && review.ordinary_group_ids_hex_len == 0 && review.completed_group_ids_hex_len == 0);
+    marmot_device_revocation_free(NULL);
+    marmot_device_revocation_snapshot_free(NULL);
     MarmotAccountSummaryList *accounts = NULL;
     assert(marmot_list_accounts(client, &accounts) == MARMOT_STATUS_OK);
     assert(accounts != NULL && accounts->len == 0);

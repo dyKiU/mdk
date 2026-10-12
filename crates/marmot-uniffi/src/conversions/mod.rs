@@ -846,3 +846,6 @@ mod account_chat_presentation;
 pub use account_chat_presentation::*;
 mod account_chat_windows;
 pub use account_chat_windows::*;
+
+mod device_revocation;
+pub use device_revocation::*;

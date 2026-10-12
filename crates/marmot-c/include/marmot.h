@@ -208,6 +208,13 @@ enum MarmotStatus
   MARMOT_STATUS_ACCOUNT_SHARING_CLOSED = 123,
   MARMOT_STATUS_ACCOUNT_SHARING_STALE_REVISION = 124,
   MARMOT_STATUS_ACCOUNT_SHARING_RUNTIME_UNAVAILABLE = 125,
+  MARMOT_STATUS_DEVICE_REVOCATION_UNSUPPORTED = 126,
+  MARMOT_STATUS_DEVICE_REVOCATION_NOT_READY = 127,
+  MARMOT_STATUS_DEVICE_REVOCATION_CLOSED = 128,
+  MARMOT_STATUS_DEVICE_REVOCATION_INVALID_SELECTION = 129,
+  MARMOT_STATUS_DEVICE_REVOCATION_BUSY = 130,
+  MARMOT_STATUS_DEVICE_REVOCATION_STALE_REVISION = 131,
+  MARMOT_STATUS_DEVICE_REVOCATION_RUNTIME_UNAVAILABLE = 132,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -1279,6 +1286,8 @@ typedef struct MarmotDeviceLinkingSession MarmotDeviceLinkingSession;
  * Independent closeable observation stream; free before its client.
  */
 typedef struct MarmotDeviceLinkingSubscription MarmotDeviceLinkingSubscription;
+
+typedef struct MarmotDeviceRevocation MarmotDeviceRevocation;
 
 /**
  * Opaque handle to the top-level event firehose: one subscription,
@@ -4716,6 +4725,18 @@ typedef struct MarmotDeviceLinkingApprovalReviewMetadata {
   uintptr_t joining_device_public_key_len;
   uint32_t existing_device_count;
 } MarmotDeviceLinkingApprovalReviewMetadata;
+
+typedef struct MarmotDeviceRevocationSnapshot {
+  uint64_t revision;
+  bool complete;
+  char *protected_group_id_hex;
+  char **ordinary_group_ids_hex;
+  uintptr_t ordinary_group_ids_hex_len;
+  char **completed_group_ids_hex;
+  uintptr_t completed_group_ids_hex_len;
+  uint8_t *target_device;
+  uintptr_t target_device_len;
+} MarmotDeviceRevocationSnapshot;
 
 typedef struct MarmotHistoryTransferRecipient {
   uint32_t leaf_index;
@@ -10077,6 +10098,55 @@ void marmot_device_linking_approval_free(struct MarmotDeviceLinkingApproval *han
 void marmot_device_linking_approval_list_free(struct MarmotDeviceLinkingApprovalList *list);
 
 /**
+ * Capture an exact device's fresh groups. No removal occurs before explicit approval.
+ * # Safety
+ * Live client, borrowed account, target readable for len and writable out; no concurrent free.
+ */
+MarmotStatus marmot_begin_device_revocation(const struct MarmotClient *client,
+                                            const char *account,
+                                            const uint8_t *target,
+                                            uintptr_t target_len,
+                                            struct MarmotDeviceRevocation **out);
+
+/**
+ * Retain an alias of the exact original; dropping one alias does not cancel the others.
+ * # Safety
+ * Live original and writable out; no concurrent free.
+ */
+MarmotStatus marmot_device_revocation_clone(const struct MarmotDeviceRevocation *handle,
+                                            struct MarmotDeviceRevocation **out);
+
+/**
+ * Release one alias; the last alias retires the original App action.
+ * # Safety
+ * NULL or owned handle; no concurrent use/free.
+ */
+void marmot_device_revocation_free(struct MarmotDeviceRevocation *handle);
+
+/**
+ * Observe the exact original captured groups and confirmed progress.
+ * # Safety
+ * Live handle and writable out; no concurrent free.
+ */
+MarmotStatus marmot_device_revocation_snapshot(const struct MarmotDeviceRevocation *handle,
+                                               struct MarmotDeviceRevocationSnapshot **out);
+
+/**
+ * Approve only this original action at the exact displayed revision.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_device_revocation_approve(const struct MarmotDeviceRevocation *handle,
+                                              uint64_t revision);
+
+/**
+ * Permanently cancel the exact original across all aliases.
+ * # Safety
+ * Live handle; no concurrent free.
+ */
+MarmotStatus marmot_device_revocation_cancel(const struct MarmotDeviceRevocation *handle);
+
+/**
  * Observe current linked-recipient choices; creates no transfer or consent.
  * # Safety
  * Live client, borrowed NUL-terminated strings and writable out; no concurrent free.
@@ -13118,6 +13188,16 @@ void marmot_account_chat_list_window_snapshot_free(struct MarmotAccountChatListW
  * this library.
  */
 void marmot_account_conversation_window_snapshot_free(struct MarmotAccountConversationWindowSnapshot *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_device_revocation_snapshot_free(struct MarmotDeviceRevocationSnapshot *ptr);
 
 /**
  * Free a value of this type returned by this library. NULL

@@ -514,6 +514,9 @@ pub use commands::{HistoryConsent, HistoryTransfer};
 pub use conversions::{
     AccountSharingSnapshotFfi, AccountSharingTargetFfi, AccountSharingTargetsFfi,
 };
+
+pub use commands::DeviceRevocation;
+pub use conversions::DeviceRevocationSnapshotFfi;
 pub use conversions::{HistoryTransferRecipientFfi, HistoryTransferSnapshotFfi};
 
 pub use conversions::{ArchivedHistoryPageFfi, ArchivedHistoryRecordFfi};
