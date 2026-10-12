@@ -3,6 +3,8 @@ use crate::{AccountSharingError, account_chat_sharing::enabled::State};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 type Reply<T> = oneshot::Sender<Result<T, AccountSharingError>>;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+use crate::account_chat_sharing::enabled::RecordReceiptProbe;
 pub(crate) enum Command {
     SubmitChat {
         group: crate::GroupId,
@@ -13,6 +15,10 @@ pub(crate) enum Command {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     AutomaticKick {
         respond: Reply<()>,
+    },
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    ObserveRecordReceipts {
+        respond: Reply<Arc<RecordReceiptProbe>>,
     },
     Targets {
         respond: Reply<crate::AccountSharingTargets>,
@@ -62,6 +68,16 @@ impl AccountManager {
     ) -> Result<(), AccountSharingError> {
         self.send_account_sharing(account, |respond| Command::AutomaticKick { respond })
             .await
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) async fn observe_automatic_record_receipts_for_test(
+        &self,
+        account: &str,
+    ) -> Result<Arc<RecordReceiptProbe>, AccountSharingError> {
+        self.send_account_sharing(account, |respond| Command::ObserveRecordReceipts {
+            respond,
+        })
+        .await
     }
     pub(crate) async fn query_account_sharing_targets(
         &self,
@@ -133,6 +149,12 @@ pub(crate) async fn handle(client: &mut crate::AppClient, command: Command) {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         Command::AutomaticKick { respond } => {
             let _ = respond.send(client.kick_approved_automatic_channel().await);
+        }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        Command::ObserveRecordReceipts { respond } => {
+            let probe = Arc::new(RecordReceiptProbe::default());
+            client.account_sharing_owner.record_receipt_probe = Some(Arc::clone(&probe));
+            let _ = respond.send(Ok(probe));
         }
         Command::Targets { respond } => {
             let _ = respond.send(client.account_sharing_targets());

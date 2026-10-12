@@ -40,6 +40,7 @@ impl RecordProgress {
 struct PendingRecord {
     group: crate::GroupId,
     batch: AccountChatRecordBatch,
+    peer_generation: u64,
     published_at: Option<std::time::Instant>,
 }
 
@@ -288,13 +289,20 @@ impl AppClient {
         storage
             .account_chat_record_stream_storage()
             .ok_or(AccountSharingError::NotReady)?
-            .acknowledge_account_chat_record_batch(
+            .acknowledge_account_chat_record_batch_for_generation(
                 &Self::automatic_policy_id(&entry.policy)?,
                 &group,
                 &wire.receipt,
+                pending.peer_generation,
                 &|| self.automatic_record_original(entry),
             )
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Some(probe) = &self.account_sharing_owner.record_receipt_probe {
+            probe
+                .committed
+                .fetch_add(1, std::sync::atomic::Ordering::Release);
+        }
         entry.records.pending = None;
         Ok(())
     }
@@ -495,6 +503,10 @@ impl AppClient {
             .account_chat_record_stream_storage()
             .ok_or(AccountSharingError::NotReady)?;
         let policy = Self::automatic_policy_id(&entry.policy)?;
+        let peer_generation = entry
+            .channel
+            .authenticated_peer_generation()
+            .map_err(|_| AccountSharingError::Closed)?;
         let mut pending = store
             .pending_account_chat_record_batches(&policy, &group, None, 1)
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
@@ -544,12 +556,25 @@ impl AppClient {
             store
                 .stage_account_chat_record_batch(&policy, &group, &batch, &validate)
                 .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
-            // This advances only after a durable outbox exists (or its exact
-            // receipt already exists). It is never proof of recipient import.
+            // A global ACK erases the old payload, but does not cover a new
+            // authenticated peer projection. Only this freshly encoded, still
+            // authorized source batch may replay; no receipt restores a body.
+            let replay = store
+                .account_chat_record_generation_receipt(
+                    &policy,
+                    &group,
+                    &batch.batch_digest,
+                    peer_generation,
+                    &validate,
+                )
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?
+                .is_none();
+            // Advance only after guarded durable admission or an exact
+            // generation ACK; this cursor is never proof of recipient import.
             entry.records.cursor = Some(row.replay_cursor());
-            pending = store
-                .pending_account_chat_record_batches(&policy, &group, None, 1)
-                .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+            if replay {
+                pending.push(batch);
+            }
         }
         let Some(batch) = pending.into_iter().next() else {
             return Ok(());
@@ -600,6 +625,7 @@ impl AppClient {
         entry.records.pending = Some(PendingRecord {
             group,
             batch,
+            peer_generation,
             published_at: None,
         });
         Ok(())

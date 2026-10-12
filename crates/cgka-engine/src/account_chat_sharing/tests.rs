@@ -308,3 +308,101 @@ async fn account_sharing_carrier_reaches_actual_protected_leaf_and_retains_ciphe
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn account_sharing_peer_generation_uses_authenticated_role_and_live_original() {
+    use cgka_traits::engine::SendResult;
+    let (mut a, mut b, protected) = crate::private_roster_settlement::tests::complete_pair(
+        SqliteAccountStorage::in_memory().unwrap(),
+    )
+    .await;
+    // Genuine independent reselections deliberately produce different local
+    // counters, then a real encrypted Challenge/ACK completes both rosters.
+    a.select_private_roster_settlement(&protected).unwrap();
+    a.select_private_roster_settlement(&protected).unwrap();
+    b.select_private_roster_settlement(&protected).unwrap();
+    let SendResult::ApplicationMessage { msg: challenge, .. } =
+        a.start_private_roster_settlement(&protected).await.unwrap()
+    else {
+        panic!("real encrypted challenge required")
+    };
+    b.ingest(challenge).await.unwrap();
+    let SendResult::ApplicationMessage { msg: ack, .. } =
+        b.prepare_private_roster_ack(&protected).await.unwrap()
+    else {
+        panic!("real encrypted ACK required")
+    };
+    a.ingest(ack).await.unwrap();
+    let a_generation = a
+        .validated_settled_device_roster(&protected)
+        .unwrap()
+        .unwrap()
+        .settlement_generation();
+    let b_generation = b
+        .validated_settled_device_roster(&protected)
+        .unwrap()
+        .unwrap()
+        .settlement_generation();
+    assert_ne!(a_generation, b_generation);
+
+    let al = Lease::new();
+    let bl = Lease::new();
+    let mut source = a
+        .begin_account_sharing_policy(&protected, b.identity.signer.public(), al)
+        .unwrap();
+    assert!(source.authenticated_peer_generation().is_err());
+    let request = b
+        .authenticate_account_sharing_request(&source.request_packet().unwrap())
+        .unwrap();
+    let recipient = b
+        .approve_account_sharing_policy(&request, bl.clone())
+        .unwrap();
+    assert_eq!(
+        recipient.authenticated_peer_generation().unwrap(),
+        a_generation
+    );
+    assert_ne!(
+        recipient.authenticated_peer_generation().unwrap(),
+        recipient.scope().local_generation
+    );
+    a.bind_account_sharing_consent(&mut source, &recipient.consent_packet().unwrap())
+        .unwrap();
+    assert_eq!(
+        source.authenticated_peer_generation().unwrap(),
+        b_generation
+    );
+    assert_ne!(
+        source.authenticated_peer_generation().unwrap(),
+        source.scope().local_generation
+    );
+    bl.live.store(false, Ordering::SeqCst);
+    assert!(recipient.authenticated_peer_generation().is_err());
+    source.retire();
+    assert!(source.authenticated_peer_generation().is_err());
+
+    let expiry = Arc::new(Lease {
+        deadline: Instant::now() + Duration::from_millis(200),
+        live: AtomicBool::new(true),
+    });
+    let mut expiring = a
+        .begin_account_sharing_policy(&protected, b.identity.signer.public(), expiry)
+        .unwrap();
+    let request = b
+        .authenticate_account_sharing_request(&expiring.request_packet().unwrap())
+        .unwrap();
+    let consent = b
+        .approve_account_sharing_policy(&request, Lease::new())
+        .unwrap();
+    a.bind_account_sharing_consent(&mut expiring, &consent.consent_packet().unwrap())
+        .unwrap();
+    assert_eq!(
+        expiring.authenticated_peer_generation().unwrap(),
+        b_generation
+    );
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    assert!(expiring.authenticated_peer_generation().is_err());
+
+    let (owned, _, _, _) = channels(&a, &b, &protected);
+    drop(a);
+    assert!(owned.authenticated_peer_generation().is_err());
+}

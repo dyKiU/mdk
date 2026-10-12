@@ -495,3 +495,13 @@ and scoped static checks. This is not principal-wide leave across several actual
 member devices; pending-stranger eligibility and positive rejoin lineage remain
 open. No updated SDK or installed-app qualification is claimed; see
 [source withdrawal proof](../../automatic-source-chat-withdrawal-verification.json).
+
+Experimental automatic Records now freshly re-encode acknowledged canonical
+history into a new authenticated recipient projection, then suppress identical
+acknowledged rescans. Real acknowledged AB
+history remains visible in B's renewed ABC scope, while terminal outbox receipts
+and erased payloads remain immutable. Core role/expiry/revocation/custody controls,
+affected catalog/Records tests and scoped default/strict checks pass; see
+[replay proof](../../automatic-record-generation-replay-verification.json).
+Pending-invitation acceptance lineage, held-completed-original routing, principal-wide
+leave and positive rejoin remain open. This source checkpoint updates no SDK or app.

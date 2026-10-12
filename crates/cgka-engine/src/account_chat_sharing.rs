@@ -200,6 +200,17 @@ impl OwnedAccountSharingChannel {
         self.live()?;
         self.consent.clone().ok_or_else(refused)
     }
+    /// The peer's signed projection generation is an observation of this
+    /// authenticated original transcript, never a local settlement grant.
+    pub fn authenticated_peer_generation(&self) -> Result<u64, EngineError> {
+        self.live()?;
+        let frame = decode(if self.recipient_role {
+            &self.request
+        } else {
+            self.consent.as_ref().ok_or_else(refused)?
+        })?;
+        Ok(frame.generation)
+    }
     pub fn original_deadline(&self) -> Instant {
         self.deadline
     }

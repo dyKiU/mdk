@@ -239,6 +239,7 @@ pub(super) mod actual {
         AutomaticForwardingOffline,
         AutomaticForwardingNonAdmin,
         AutomaticWithdrawal,
+        AutomaticRecordGenerationRenewal,
         AutomaticForwardingReceiptRetry,
     }
     pub(super) async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
@@ -268,7 +269,9 @@ pub(super) mod actual {
         // installation. Account-level invitations may select any later sibling.
         let incoming_peer = if matches!(
             scenario,
-            ApprovalScenario::AutomaticForwardingNonAdmin | ApprovalScenario::AutomaticWithdrawal
+            ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticWithdrawal
+                | ApprovalScenario::AutomaticRecordGenerationRenewal
         ) {
             Some(
                 super::automatic_forwarding_non_admin_acceptance::IncomingPeer::create(
@@ -286,6 +289,36 @@ pub(super) mod actual {
             r.reconcile_accounts().await.unwrap();
         }
         let managers = runtimes.each_ref().map(|r| r.accounts());
+        let record_receipt_probe = if scenario == ApprovalScenario::AutomaticRecordGenerationRenewal
+        {
+            let peer = incoming_peer.as_ref().unwrap();
+            let storage = apps[0].account_storage("test").unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    if storage
+                        .timeline_message(
+                            &hex::encode(peer.group.as_slice()),
+                            &peer.preapproval_message,
+                        )
+                        .unwrap()
+                        .is_some()
+                    {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .expect("real source timeline must materialize before sharing approval");
+            Some(
+                managers[0]
+                    .observe_automatic_record_receipts_for_test("test")
+                    .await
+                    .unwrap(),
+            )
+        } else {
+            None
+        };
         let b = managers[1]
             .begin_device_linking_session("test")
             .await
@@ -297,7 +330,8 @@ pub(super) mod actual {
         verify_public_pair(&initial_a, &b).await;
         let broad_enrollment = matches!(
             scenario,
-            ApprovalScenario::BroadEnrollment
+            ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
                 | ApprovalScenario::BroadProjectionHeadFailure
                 | ApprovalScenario::BroadWrongRecipientRouting
@@ -378,8 +412,29 @@ pub(super) mod actual {
         } else {
             assert!(policies.iter().all(Vec::is_empty));
         }
-        initial_a.cancel().await.unwrap();
-        b.cancel().await.unwrap();
+        if scenario == ApprovalScenario::AutomaticRecordGenerationRenewal {
+            // Match the supported native journey: completed explicit owners
+            // close immediately after the durable handoff, before discovery.
+            initial_a.cancel().await.unwrap();
+            b.cancel().await.unwrap();
+        }
+        let record_renewal = if scenario == ApprovalScenario::AutomaticRecordGenerationRenewal {
+            Some(
+                super::automatic_record_renewal_acceptance::RenewalWitness::before_abc(
+                    &apps,
+                    &runtimes,
+                    incoming_peer.as_ref().expect("real incoming peer"),
+                    record_receipt_probe.unwrap(),
+                )
+                .await,
+            )
+        } else {
+            None
+        };
+        if scenario != ApprovalScenario::AutomaticRecordGenerationRenewal {
+            initial_a.cancel().await.unwrap();
+            b.cancel().await.unwrap();
+        }
         let targets = managers[0]
             .device_linking_targets("test")
             .await
@@ -559,7 +614,8 @@ pub(super) mod actual {
         let mut pre_auth_probe = None;
         if matches!(
             scenario,
-            ApprovalScenario::BroadEnrollment
+            ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
                 | ApprovalScenario::BroadProjectionHeadFailure
         ) {
@@ -667,7 +723,8 @@ pub(super) mod actual {
                 &approval,
                 matches!(
                     scenario,
-                    ApprovalScenario::BroadEnrollment
+                    ApprovalScenario::AutomaticRecordGenerationRenewal
+                        | ApprovalScenario::BroadEnrollment
                         | ApprovalScenario::BroadPreAuthFailure
                         | ApprovalScenario::BroadProjectionHeadFailure
                 ),
@@ -724,6 +781,25 @@ pub(super) mod actual {
                     usize::from(scenario == ApprovalScenario::ShareChats && index < 2)
                 );
             }
+        }
+        if let Some(witness) = record_renewal {
+            a.cancel().await.unwrap();
+            c.cancel().await.unwrap();
+            approval.cancel().await.unwrap();
+            witness.after_abc(&apps, &runtimes).await;
+            for runtime in &runtimes {
+                runtime.shutdown_and_close().await.unwrap();
+                assert!(runtime.storage_is_closed());
+            }
+            incoming_peer
+                .as_ref()
+                .unwrap()
+                .runtime
+                .shutdown_and_close()
+                .await
+                .unwrap();
+            assert!(incoming_peer.as_ref().unwrap().runtime.storage_is_closed());
+            return;
         }
         let initial_shared_chat = if matches!(
             scenario,
@@ -1958,3 +2034,10 @@ mod automatic_forwarding_non_admin_acceptance;
 ))]
 #[path = "sibling_sharing_projection_acceptance.rs"]
 mod sibling_sharing_projection_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_record_renewal_acceptance.rs"]
+mod automatic_record_renewal_acceptance;

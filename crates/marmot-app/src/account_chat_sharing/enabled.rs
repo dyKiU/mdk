@@ -139,10 +139,18 @@ pub(crate) struct Entry {
     pub(crate) recipient: bool,
     pub(crate) consent_ready: bool,
 }
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Default)]
+pub(crate) struct RecordReceiptProbe {
+    pub(crate) committed: std::sync::atomic::AtomicUsize,
+}
+
 pub(crate) struct AccountSharingOwner {
     pub(crate) lifetime: Arc<AtomicBool>,
     pub(crate) entries: BTreeMap<[u8; 32], Entry>,
     pub(crate) seen: BTreeSet<[u8; 32]>,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) record_receipt_probe: Option<Arc<RecordReceiptProbe>>,
     pub(crate) automatic:
         BTreeMap<[u8; 32], crate::client::account_chat_sharing::automatic::AutomaticChannel>,
 }
@@ -152,6 +160,8 @@ impl Default for AccountSharingOwner {
             lifetime: Arc::new(AtomicBool::new(true)),
             entries: BTreeMap::new(),
             seen: BTreeSet::new(),
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            record_receipt_probe: None,
             automatic: BTreeMap::new(),
         }
     }
