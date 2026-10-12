@@ -103,9 +103,9 @@ impl AppClient {
         &self,
         group: &crate::GroupId,
         policies: &[ApprovedAccountSharingPolicy],
-    ) -> Result<(Vec<Target>, bool), AppError> {
+    ) -> Result<(Vec<Target>, bool, bool), AppError> {
         let Some(first) = policies.first() else {
-            return Ok((Vec::new(), false));
+            return Ok((Vec::new(), false, false));
         };
         let storage = self.app.account_storage(&self.state.label)?;
         let mut targets = BTreeMap::new();
@@ -119,6 +119,10 @@ impl AppClient {
                     .canonical_group_membership(group)
                     .map_err(cgka_session::SessionError::from)?;
                 if membership.local_leaf_active {
+                    // Removed local leaves cannot decrypt later ordinary
+                    // commits. Their remaining tree is not a current census.
+                    // Current source counts come from our active canonical
+                    // leaf or fresh authenticated eligible source metadata.
                     expected = membership
                         .member_leaves
                         .iter()
@@ -189,6 +193,7 @@ impl AppClient {
                 })
                 .collect(),
             missing,
+            expected > 0,
         ))
     }
 
@@ -201,7 +206,7 @@ impl AppClient {
             return Ok(None);
         };
         let storage = self.app.account_storage(&self.state.label)?;
-        let (targets, missing) = self.departure_targets(group, &policies)?;
+        let (targets, missing, has_current_sources) = self.departure_targets(group, &policies)?;
         let any_cut = targets
             .iter()
             .map(|target| {
@@ -255,9 +260,20 @@ impl AppClient {
         if let Some(progress) =
             storage.account_chat_departure_progress(&first.account, &first.local_device, group)?
         {
+            if progress.global_complete && progress.local_complete && missing && has_current_sources
+            {
+                return Ok(Some(View {
+                    status: Status::Unavailable,
+                    reason: Reason::AwaitingSources,
+                    operation_id: None,
+                }));
+            }
             let status = if progress.needs_administrator {
                 Status::NeedsAdministrator
-            } else if progress.global_complete && progress.local_complete {
+            } else if progress.global_complete
+                && progress.local_complete
+                && !progress.awaiting_sources
+            {
                 Status::Completed
             } else {
                 Status::Pending
@@ -295,7 +311,7 @@ impl AppClient {
         if current.status != Status::Available {
             return Ok(Some(current));
         }
-        let (targets, missing) = self.departure_targets(group, &policies)?;
+        let (targets, missing, _) = self.departure_targets(group, &policies)?;
         if missing {
             return Ok(Some(View {
                 status: Status::Unavailable,

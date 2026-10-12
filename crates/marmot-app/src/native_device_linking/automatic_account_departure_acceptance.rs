@@ -4,6 +4,7 @@ use super::automatic_two_source_leave_acceptance::{
     TwoSourcePeer, stored_indices, wait_for_paired_records,
 };
 use super::*;
+use futures::FutureExt;
 
 #[test]
 fn mirrored_account_departure_waits_for_offline_actual_source_and_public_removal() {
@@ -86,40 +87,67 @@ pub(super) async fn verify(
     // Reopen B's exact synthetic root through the ordinary public runtime. No
     // store is copied; the authenticated durable outbox must catch it up.
     let reopened = MarmotAppRuntime::new(apps[1].clone());
-    reopened.reconcile_accounts().await.unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(50), async {
-        loop {
-            let indices = stored_indices(&peer.app, &peer.group);
-            let state = runtimes[2]
-                .account_chat_departure_state("test", &peer.group)
-                .await
-                .unwrap();
-            if indices.len() == 1
-                && !indices.contains(&peer.a_index)
-                && !indices.contains(&peer.b_index)
-                && state.status == crate::AccountChatDepartureStatus::Completed
-            {
-                assert_eq!(state.operation_id.as_deref(), Some(operation.as_str()));
-                break;
+    let result = std::panic::AssertUnwindSafe(async {
+        reopened.reconcile_accounts().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(50), async {
+            loop {
+                let indices = stored_indices(&peer.app, &peer.group);
+                let state = runtimes[2]
+                    .account_chat_departure_state("test", &peer.group)
+                    .await
+                    .unwrap();
+                if indices.len() == 1
+                    && !indices.contains(&peer.a_index)
+                    && !indices.contains(&peer.b_index)
+                    && state.status == crate::AccountChatDepartureStatus::Completed
+                {
+                    assert_eq!(state.operation_id.as_deref(), Some(operation.as_str()));
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        })
+        .await
+        .expect("both genuine ordinary removals and peer receipts must precede completion");
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                let mut complete = true;
+                for runtime in [&runtimes[0], &reopened, &runtimes[2]] {
+                    let state = runtime
+                        .account_chat_departure_state("test", &peer.group)
+                        .await
+                        .unwrap();
+                    complete &= state.status == crate::AccountChatDepartureStatus::Completed;
+                    assert_eq!(state.operation_id.as_deref(), Some(operation.as_str()));
+                }
+                if complete {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("authenticated completion notices must reach all real original participants");
+        for (index, runtime) in [(0, &runtimes[0]), (1, &reopened), (2, &runtimes[2])] {
+            assert!(matches!(
+                runtime
+                    .submit_text(
+                        "test",
+                        &peer.group,
+                        "blocked after completion".into(),
+                        format!("account-wide-denied-{index}")
+                    )
+                    .await,
+                Err(crate::AppError::AccountChatDepartureDenied)
+            ));
         }
     })
-    .await
-    .expect("both genuine ordinary removals and peer receipts must precede completion");
-    for (index, runtime) in [(0, &runtimes[0]), (1, &reopened), (2, &runtimes[2])] {
-        assert!(matches!(
-            runtime
-                .submit_text(
-                    "test",
-                    &peer.group,
-                    "blocked after completion".into(),
-                    format!("account-wide-denied-{index}")
-                )
-                .await,
-            Err(crate::AppError::AccountChatDepartureDenied)
-        ));
+    .catch_unwind()
+    .await;
+    let closed = reopened.shutdown_and_close().await.is_ok() && reopened.storage_is_closed();
+    eprintln!("account_departure_reopened_b_closed={closed}");
+    if let Err(original) = result {
+        std::panic::resume_unwind(original);
     }
-    reopened.shutdown_and_close().await.unwrap();
-    assert!(reopened.storage_is_closed());
+    assert!(closed, "reopened B owner must positively close");
 }

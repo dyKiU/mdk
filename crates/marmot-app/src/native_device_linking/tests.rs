@@ -975,39 +975,80 @@ pub(super) mod actual {
             return;
         }
         if let Some(peer) = two_source_peer {
-            if scenario == ApprovalScenario::AutomaticDepartureFfiFixture {
-                super::account_departure_ffi_fixture::serve_fixture(&apps, &runtimes, &peer, &url)
-                    .await;
+            let departure_scenario = matches!(
+                scenario,
+                ApprovalScenario::AutomaticDepartureFfiFixture
+                    | ApprovalScenario::AutomaticAccountDeparture
+            );
+            if departure_scenario {
+                // These genuine ceremonies have completed. Cancel their held
+                // originals before the departure fixture closes/reopens workers;
+                // cancellation does not revoke an already committed policy.
                 for session in [&a, &c] {
                     session.cancel().await.unwrap();
                 }
                 approval.cancel().await.unwrap();
+            }
+            if scenario == ApprovalScenario::AutomaticDepartureFfiFixture {
+                super::account_departure_ffi_fixture::serve_fixture(&apps, &runtimes, &peer, &url)
+                    .await;
                 relay.shutdown();
                 return;
             }
-            if scenario == ApprovalScenario::AutomaticAccountDeparture {
-                super::automatic_account_departure_acceptance::verify(&apps, &runtimes, &peer)
-                    .await;
+            let departure_result = if scenario == ApprovalScenario::AutomaticAccountDeparture {
+                use futures::FutureExt;
+                Some(
+                    std::panic::AssertUnwindSafe(
+                        super::automatic_account_departure_acceptance::verify(
+                            &apps, &runtimes, &peer,
+                        ),
+                    )
+                    .catch_unwind()
+                    .await,
+                )
             } else {
                 Box::pin(peer.verify_device_only_leave(&apps, &runtimes)).await;
+                None
+            };
+            if let Some(result) = departure_result {
+                // Every owner gets a checked close even if the assertion or a
+                // separate close failed. Report cleanup separately, then retain
+                // the original behavioral failure rather than masking it.
+                let d_close = peer.runtime.shutdown_and_close().await.is_ok()
+                    && peer.runtime.storage_is_closed();
+                let mut abc_close = true;
+                for runtime in &runtimes {
+                    let closed = if runtime.storage_is_closed() {
+                        true
+                    } else {
+                        runtime.shutdown_and_close().await.is_ok() && runtime.storage_is_closed()
+                    };
+                    abc_close &= closed;
+                }
+                relay.shutdown();
+                eprintln!("account_departure_cleanup_d_closed={d_close} abc_closed={abc_close}");
+                if let Err(original) = result {
+                    std::panic::resume_unwind(original);
+                }
+                assert!(
+                    d_close && abc_close,
+                    "all departure fixture owners must close positively"
+                );
+                return;
             }
             // The broad AB ceremony already cancelled initial_a and b before
             // starting the third-device ceremony. Only its current originals
             // remain owned here; every cancellation must succeed.
-            for session in [&a, &c] {
-                session.cancel().await.unwrap();
+            if !departure_scenario {
+                for session in [&a, &c] {
+                    session.cancel().await.unwrap();
+                }
+                approval.cancel().await.unwrap();
             }
-            approval.cancel().await.unwrap();
             peer.runtime.shutdown_and_close().await.unwrap();
             assert!(peer.runtime.storage_is_closed());
             for runtime in runtimes {
-                // The account-wide offline control positively closed B before
-                // reopening its same root; do not close that obsolete owner twice.
-                if scenario != ApprovalScenario::AutomaticAccountDeparture
-                    || !runtime.storage_is_closed()
-                {
-                    runtime.shutdown_and_close().await.unwrap();
-                }
+                runtime.shutdown_and_close().await.unwrap();
                 assert!(runtime.storage_is_closed());
             }
             relay.shutdown();

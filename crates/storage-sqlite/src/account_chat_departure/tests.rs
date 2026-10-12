@@ -344,3 +344,223 @@ fn original_negative_operation_and_offline_outbox_survive_encrypted_reopen() {
             .unwrap()
     );
 }
+
+#[test]
+fn published_leave_clears_local_actionable_refusal_but_waits_for_actual_removal() {
+    let storage = configured();
+    let intent = fixture_intent();
+    storage
+        .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+        .unwrap();
+    storage
+        .mark_account_chat_departure_needs_administrator(
+            &[1; 32],
+            &[2; 32],
+            &intent.action_id,
+            true,
+            &|| Ok(()),
+        )
+        .unwrap();
+    assert!(
+        storage
+            .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+            .unwrap()
+            .unwrap()
+            .needs_administrator
+    );
+    storage
+        .mark_account_chat_departure_local_state(
+            &[1; 32],
+            &[2; 32],
+            &intent.action_id,
+            AccountChatDepartureLocalState::Published,
+            &|| Ok(()),
+        )
+        .unwrap();
+    let pending = storage
+        .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+        .unwrap()
+        .unwrap();
+    assert!(!pending.needs_administrator && !pending.local_complete && !pending.global_complete);
+    storage
+        .acknowledge_account_chat_departure(
+            &[1; 32],
+            &[2; 32],
+            &intent.action_id,
+            &[3; 32],
+            true,
+            false,
+            false,
+            &|| Ok(()),
+        )
+        .unwrap();
+    storage
+        .finalize_account_chat_departure_coordinator(&[1; 32], &[2; 32], &|| Ok(()))
+        .unwrap();
+    assert!(
+        !storage
+            .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+            .unwrap()
+            .unwrap()
+            .global_complete
+    );
+}
+
+#[test]
+fn fresh_accepted_lineage_admits_distinct_negative_operation_without_old_cut() {
+    let storage = configured();
+    let first = fixture_intent();
+    storage
+        .apply_account_chat_departure(&[2; 32], &first, &[[3; 32]], &|| Ok(()))
+        .unwrap();
+    storage
+        .mark_account_chat_departure_local_state(
+            &[1; 32],
+            &[2; 32],
+            &first.action_id,
+            AccountChatDepartureLocalState::Complete,
+            &|| Ok(()),
+        )
+        .unwrap();
+    storage
+        .acknowledge_account_chat_departure(
+            &[1; 32],
+            &[2; 32],
+            &first.action_id,
+            &[3; 32],
+            true,
+            false,
+            false,
+            &|| Ok(()),
+        )
+        .unwrap();
+    storage
+        .finalize_account_chat_departure_coordinator(&[1; 32], &[2; 32], &|| Ok(()))
+        .unwrap();
+    let mut fresh = first.clone();
+    fresh.targets[0].accepted_origin = AcceptedChatOrigin {
+        id: [5; 32],
+        order: 3,
+    };
+    fresh.action_id = fresh.identity();
+    assert!(fresh.action_id != first.action_id);
+    assert!(
+        !storage
+            .account_chat_departure_denies_source(
+                &[1; 32],
+                &[2; 32],
+                &fresh.group,
+                &[3; 32],
+                Some(fresh.targets[0].accepted_origin)
+            )
+            .unwrap()
+    );
+    storage
+        .apply_account_chat_departure(&[2; 32], &fresh, &[[3; 32]], &|| Ok(()))
+        .unwrap();
+    let current = storage
+        .account_chat_departure_progress(&[1; 32], &[2; 32], &fresh.group)
+        .unwrap()
+        .unwrap();
+    assert_eq!(current.action_id, fresh.action_id);
+    assert!(!current.local_complete && !current.global_complete);
+}
+
+#[test]
+fn local_publication_does_not_clear_authenticated_peer_awaiting_source_receipt() {
+    let storage = configured();
+    let intent = fixture_intent();
+    storage
+        .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32], [6; 32]], &|| Ok(()))
+        .unwrap();
+    storage
+        .mark_account_chat_departure_needs_administrator(
+            &[1; 32],
+            &[2; 32],
+            &intent.action_id,
+            true,
+            &|| Ok(()),
+        )
+        .unwrap();
+    storage
+        .mark_account_chat_departure_awaiting_sources(
+            &[1; 32],
+            &[2; 32],
+            &intent.action_id,
+            true,
+            &|| Ok(()),
+        )
+        .unwrap();
+    storage
+        .acknowledge_account_chat_departure(
+            &[1; 32],
+            &[2; 32],
+            &intent.action_id,
+            &[3; 32],
+            false,
+            false,
+            true,
+            &|| Ok(()),
+        )
+        .unwrap();
+    storage
+        .acknowledge_account_chat_departure(
+            &[1; 32],
+            &[2; 32],
+            &intent.action_id,
+            &[6; 32],
+            true,
+            false,
+            false,
+            &|| Ok(()),
+        )
+        .unwrap();
+    storage
+        .mark_account_chat_departure_local_state(
+            &[1; 32],
+            &[2; 32],
+            &intent.action_id,
+            AccountChatDepartureLocalState::Published,
+            &|| Ok(()),
+        )
+        .unwrap();
+    let pending = storage
+        .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+        .unwrap()
+        .unwrap();
+    assert!(!pending.needs_administrator);
+    assert!(pending.awaiting_sources);
+    assert!(!pending.local_complete && !pending.global_complete);
+    assert_eq!(pending.pending_peers, 1);
+    // Even our later genuine removal does not complete the coordinator while
+    // that independently authenticated peer still reports unknown sources.
+    storage
+        .mark_account_chat_departure_local_state(
+            &[1; 32],
+            &[2; 32],
+            &intent.action_id,
+            AccountChatDepartureLocalState::Complete,
+            &|| Ok(()),
+        )
+        .unwrap();
+    storage
+        .finalize_account_chat_departure_coordinator(&[1; 32], &[2; 32], &|| Ok(()))
+        .unwrap();
+    let pending = storage
+        .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+        .unwrap()
+        .unwrap();
+    assert!(pending.local_complete && pending.awaiting_sources);
+    assert!(!pending.global_complete);
+    assert_eq!(pending.pending_peers, 1);
+    let conn = storage.lock().unwrap();
+    let local_awaiting: bool = conn
+        .query_row(
+            "SELECT awaiting_sources FROM account_chat_departures WHERE action_id=?1",
+            [intent.action_id.as_slice()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let peer_awaiting:bool=conn.query_row("SELECT awaiting_sources FROM account_chat_departure_routes WHERE action_id=?1 AND peer_device=?2",params![intent.action_id.as_slice(),[3u8;32].as_slice()],|row|row.get(0)).unwrap();
+    assert!(!local_awaiting && peer_awaiting);
+}

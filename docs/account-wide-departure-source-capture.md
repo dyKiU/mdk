@@ -35,3 +35,31 @@ Remaining qualification: genuine runtime RED/GREEN, authenticated replay and
 rollback controls, affected default/experimental tests and strict checks,
 native bindings tests, authored API guidance/parity and generated C header.
 No compiler/cache lane was used; private25 diagnostics currently own 986.
+
+## Subsequent source-only audit
+
+The retained-origin metadata reader was added as separate signed source capture
+ca6078800afbfe8d8c952c8bb998dc6a8762adbd after the private25 owner supplied
+its exact schema and explicitly loaned the new module. It remains uncompiled
+until the real private25 migration is adopted.
+
+The follow-up state audit prevents an active ordinary leaf with incomplete
+origin discovery from inheriting an old Completed API state. Fresh observed
+origins already take precedence over old group-ID-only operation progress. A
+removed local leaf's old tree is deliberately not treated as a current census
+of other ordinary sources: it cannot decrypt their subsequent removals.
+
+Publishing a leave clears actionable local administrator/source-discovery
+refusals without marking local removal complete. Added storage test source
+requires actual local-complete progress before global finalization and checks
+that a fresh accepted lineage can create a distinct operation after an older
+one completed. The genuine two-source fixture now waits for all participant
+completion notices as well as independent D's canonical A/B leaf absence.
+
+New fixture originals are cancelled before workers are closed/reopened;
+behavioral assertions unwind through checked closure of every registered owner,
+including reopened B, before the original failure is resumed. The C fixture
+uses the existing fs-private workspace dependency only in dev dependencies.
+
+All these are source-only corrections. No compiler or test lane was used;
+formatting and whitespace checks do not establish behavioral qualification.

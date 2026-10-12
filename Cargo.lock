@@ -4087,6 +4087,7 @@ dependencies = [
 name = "marmot-c"
 version = "0.12.0"
 dependencies = [
+ "fs-private",
  "futures",
  "keyring-core",
  "libc",

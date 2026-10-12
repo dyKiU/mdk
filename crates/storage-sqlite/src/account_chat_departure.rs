@@ -346,7 +346,7 @@ impl SqliteAccountStorage {
                 let conn = self.lock()?;
                 crate::approved_account_sharing_policy::check_configured_owner(&conn,account,local)?;
                 let value = match state { AccountChatDepartureLocalState::Queued => 0, AccountChatDepartureLocalState::Published => 1, AccountChatDepartureLocalState::Complete => 2 };
-                let changed = conn.execute("UPDATE account_chat_departures SET local_state=max(local_state,?4),reply_pending=1,needs_administrator=CASE WHEN ?4=2 THEN 0 ELSE needs_administrator END,awaiting_sources=CASE WHEN ?4=2 THEN 0 ELSE awaiting_sources END WHERE account=?1 AND local_device=?2 AND action_id=?3", params![account.as_slice(),local.as_slice(),id.as_slice(),value]).storage()?;
+                let changed = conn.execute("UPDATE account_chat_departures SET local_state=max(local_state,?4),reply_pending=1,needs_administrator=CASE WHEN ?4>=1 THEN 0 ELSE needs_administrator END,awaiting_sources=CASE WHEN ?4>=1 THEN 0 ELSE awaiting_sources END WHERE account=?1 AND local_device=?2 AND action_id=?3", params![account.as_slice(),local.as_slice(),id.as_slice(),value]).storage()?;
                 if changed != 1 { return Err(invalid()); }
             }
             validate()
@@ -494,7 +494,7 @@ impl SqliteAccountStorage {
             {
                 let conn = self.lock()?;
                 crate::approved_account_sharing_policy::check_configured_owner(&conn,account,local)?;
-                conn.execute("UPDATE account_chat_departures SET global_complete=1 WHERE account=?1 AND local_device=?2 AND initiator=?2 AND local_state=2 AND global_complete=0 AND NOT EXISTS(SELECT 1 FROM account_chat_departure_routes r WHERE r.action_id=account_chat_departures.action_id AND r.complete=0)", params![account.as_slice(),local.as_slice()]).storage()?;
+                conn.execute("UPDATE account_chat_departures SET global_complete=1 WHERE account=?1 AND local_device=?2 AND initiator=?2 AND local_state=2 AND needs_administrator=0 AND awaiting_sources=0 AND global_complete=0 AND NOT EXISTS(SELECT 1 FROM account_chat_departure_routes r WHERE r.action_id=account_chat_departures.action_id AND r.complete=0)", params![account.as_slice(),local.as_slice()]).storage()?;
             }
             validate()
         })
