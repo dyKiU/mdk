@@ -864,7 +864,13 @@ fn departure_cut_removes_live_disclosure_and_blocks_late_records_but_not_fresh_l
         .unwrap();
     assert_eq!(
         storage
-            .account_conversation_observation_window(&[scope.clone()], &intent.group, None, 128, 1)
+            .account_conversation_observation_window(
+                std::slice::from_ref(&scope),
+                &intent.group,
+                None,
+                128,
+                1
+            )
             .unwrap()
             .len(),
         1
@@ -874,13 +880,19 @@ fn departure_cut_removes_live_disclosure_and_blocks_late_records_but_not_fresh_l
         .unwrap();
     assert!(
         storage
-            .mirrored_catalog_observation_page(&[scope.clone()], None, 128)
+            .mirrored_catalog_observation_page(std::slice::from_ref(&scope), None, 128)
             .unwrap()
             .is_empty()
     );
     assert!(
         storage
-            .account_conversation_observation_window(&[scope.clone()], &intent.group, None, 128, 1)
+            .account_conversation_observation_window(
+                std::slice::from_ref(&scope),
+                &intent.group,
+                None,
+                128,
+                1
+            )
             .unwrap()
             .is_empty()
     );
@@ -914,14 +926,20 @@ fn departure_cut_removes_live_disclosure_and_blocks_late_records_but_not_fresh_l
         .unwrap();
     assert_eq!(
         storage
-            .mirrored_catalog_observation_page(&[scope.clone()], None, 128)
+            .mirrored_catalog_observation_page(std::slice::from_ref(&scope), None, 128)
             .unwrap()
             .len(),
         1
     );
     assert!(
         storage
-            .account_conversation_observation_window(&[scope.clone()], &intent.group, None, 128, 1)
+            .account_conversation_observation_window(
+                std::slice::from_ref(&scope),
+                &intent.group,
+                None,
+                128,
+                1
+            )
             .unwrap()
             .is_empty()
     );
