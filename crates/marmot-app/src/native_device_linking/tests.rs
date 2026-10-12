@@ -1080,7 +1080,7 @@ pub(super) mod actual {
                 Some(
                     std::panic::AssertUnwindSafe(
                         super::automatic_account_departure_acceptance::verify(
-                            &apps, &runtimes, &peer,
+                            &apps, &runtimes, &peer, &url,
                         ),
                     )
                     .catch_unwind()

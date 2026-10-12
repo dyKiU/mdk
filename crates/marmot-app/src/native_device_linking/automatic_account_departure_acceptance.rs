@@ -20,6 +20,7 @@ pub(super) async fn verify(
     apps: &[MarmotApp; 3],
     runtimes: &[MarmotAppRuntime; 3],
     peer: &TwoSourcePeer,
+    relay_url: &str,
 ) {
     wait_for_paired_records(&runtimes[2], &peer.group, &peer.initial_ids, None).await;
     assert_eq!(stored_indices(&peer.app, &peer.group).len(), 3);
@@ -86,7 +87,10 @@ pub(super) async fn verify(
     ));
     // Reopen B's exact synthetic root through the ordinary public runtime. No
     // store is copied; the authenticated durable outbox must catch it up.
-    let reopened = MarmotAppRuntime::new(apps[1].clone());
+    let reopened = MarmotAppRuntime::new(MarmotApp::with_relay(
+        apps[1].account_home().root(),
+        relay_url,
+    ));
     let result = std::panic::AssertUnwindSafe(async {
         reopened.reconcile_accounts().await.unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(50), async {
