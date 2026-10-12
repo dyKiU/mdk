@@ -44,6 +44,13 @@ pub(super) struct DepartureProgress {
     last: Option<([u8; 32], [u8; 32], std::time::Instant)>,
 }
 
+#[cfg(all(test, feature = "test-policy-overrides"))]
+impl DepartureProgress {
+    pub(super) fn test_has_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+}
+
 fn failure() -> AccountSharingError {
     AccountSharingError::NotReady
 }

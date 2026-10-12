@@ -220,7 +220,7 @@ impl AppClient {
             entry.handshake_published,
             entry.recipient,
             entry.policy.local_device < entry.policy.peer_device,
-            entry.departures.pending.is_some(),
+            entry.departures.test_has_pending(),
             entry.pending.len(),
             entry.pending_catalog.is_some(),
             entry.records.has_pending(),
