@@ -653,3 +653,16 @@ before LIMIT. Materialized edits/deletions, retention and reply/media privacy
 remain observational, with no canonical schema change or synthesized group.
 App window and synthetic storage proof boundaries are recorded in
 `docs/account-chat-presentation-app-windows-verification.json`.
+
+Private revision23 retains ordinary-chat user-acceptance lineage separately from
+MLS and presentation rows. At most8,192 lifetime origin references bind configured
+account, local signer, canonical group and Created or actual Welcome origin. Each
+origin progresses Pending→Accepted→Denied; denied origins cannot reaccept. Fresh
+Welcome origins begin Pending, and stale observations cannot move the current
+origin pointer backward. Atomic batches of at most128 changes validate their
+original before mutation and again at transaction tail, allowing App projections
+and acceptance to roll back together. SQL guards reject identity replacement,
+regression and deletion. Local hiding does not remove lineage. These rows contain
+no channel owner, consent capability, key or membership; positive source admission
+still requires fresh Core and original-channel validation. Core102 and private1–22
+remain unchanged.

@@ -1973,6 +1973,8 @@ impl MarmotApp {
             seen_events_index,
             pending_seen_event_count: 0,
             pending_group_projection_updates: std::collections::HashSet::new(),
+            #[cfg(feature = "experimental-device-sync")]
+            pending_chat_source_changes: Vec::new(),
             pending_recovery_status_updates: std::collections::HashSet::new(),
             history_notice_baseline: None,
             cursor_audit_placements,

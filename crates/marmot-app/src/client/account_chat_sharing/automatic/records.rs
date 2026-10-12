@@ -406,6 +406,12 @@ impl AppClient {
         entry: &AutomaticChannel,
         group: &crate::GroupId,
     ) -> Result<Option<u64>, AccountSharingError> {
+        if !self
+            .automatic_chat_source_accepted(group)
+            .map_err(|_| AccountSharingError::RuntimeUnavailable)?
+        {
+            return Ok(None);
+        }
         let page = self
             .runtime
             .session()
@@ -483,6 +489,17 @@ impl AppClient {
                 entry.records.group_after = None;
                 return Ok(());
             };
+            // Pending or declined ordinary Welcomes are deliberately absent
+            // from the shared catalog. Do not let one pin the raw Core scan
+            // ahead of an accepted source; a fresh scan revisits later accepts.
+            if !self
+                .automatic_chat_source_accepted(&source.group_id)
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?
+            {
+                entry.records.group_after = Some(source.group_id.clone());
+                return Ok(());
+            }
+            // Accepted sources still wait for their actual catalog delivery.
             if !entry.sent.contains_key(source.group_id.as_slice()) {
                 return Ok(());
             }

@@ -63,6 +63,8 @@ pub mod epoch_manager;
 pub mod feature_registry;
 pub mod group_authority;
 pub mod group_context_view;
+#[cfg(feature = "experimental-device-sync")]
+mod group_creation_origin;
 pub mod group_lifecycle;
 pub mod group_state_changes;
 pub mod identity;

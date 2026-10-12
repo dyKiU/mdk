@@ -859,3 +859,24 @@ Merged ordinary rows do not carry the original conversation page
 `authenticated_system_content` proof. Native conversion must keep their system
 content untrusted; authenticated system/reference/action presentation still uses
 the genuine ordinary conversation owner. Stored fields and tags are not proof.
+
+### Ordinary-chat acceptance before automatic disclosure
+
+Experimental automatic catalog, history and member-forwarding admission share a
+fresh source-eligibility check. Actual public creation and explicit incoming
+invitation acceptance persist their origin with the App checkpoint; an unaccepted
+Welcome remains ineligible even when its MLS membership and message projection
+are already present. Explicit decline retains a negative origin and withdraws that
+source's advertised catalog. Local hide preserves accepted lineage without
+authorizing pending invitations. Stored lineage still requires current Core
+membership and the genuine approved sharing channel.
+
+Existing incoming chats can bootstrap only from their retained nonpending Member
+projection and actual Welcome identity. Existing created chats require the actual
+local signer's retained epoch-zero founding leaf; the observational rewind restores
+and checks live state before any positive checkpoint. Missing projections,
+messages, administrator status and default installation epochs are not acceptance.
+Pruned ambiguous legacy chats need a separate fresh original human approval path.
+The current source-terminal mirror fence does not yet allow a fresh accepted
+rejoin after decline; account-wide principal leave remains separate from device
+SelfRemove. No new SDK or installed-app qualification follows from these APIs.

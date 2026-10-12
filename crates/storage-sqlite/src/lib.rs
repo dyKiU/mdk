@@ -214,6 +214,8 @@ mod account_chat_record_stream;
 #[cfg(feature = "experimental-device-sync")]
 mod account_chat_send_queue;
 #[cfg(feature = "experimental-device-sync")]
+pub mod account_chat_source;
+#[cfg(feature = "experimental-device-sync")]
 mod approved_account_sharing_policy;
 #[cfg(feature = "experimental-device-sync")]
 mod mirrored_chat_catalog;
