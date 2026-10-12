@@ -63,3 +63,21 @@ uses the existing fs-private workspace dependency only in dev dependencies.
 
 All these are source-only corrections. No compiler or test lane was used;
 formatting and whitespace checks do not establish behavioral qualification.
+
+## Origin-correlated progress audit
+
+Progress no longer selects the newest row merely by canonical group ID. The
+bounded journal scan compares each exact source's retained private25/local23
+current id/order with the operation's negative targets, independently of
+cut-filtered live rows. Entirely superseded operations are excluded; missing
+or inconsistent observations return unavailable progress. Pending operations
+for a current lineage take precedence over completed concurrent operations,
+with stable action identity only as a tie-break. Counters from different
+sources are never compared to determine freshness. Pending/denied local
+metadata is used only to exclude stale progress, never as positive permission.
+
+Added storage regression source covers a delayed old completed intent arriving
+after fresh pending work, concurrent same-lineage pending/completed operations,
+missing metadata, fresh origins without an operation, and unrelated sources
+with different local origin counters. These checks remain uncompiled and
+unrun pending the actual private25 schema and a coordinated compiler loan.

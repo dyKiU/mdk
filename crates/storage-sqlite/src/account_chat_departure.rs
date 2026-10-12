@@ -425,33 +425,114 @@ impl SqliteAccountStorage {
     ) -> StorageResult<Option<AccountChatDepartureProgress>> {
         let conn = self.lock()?;
         crate::approved_account_sharing_policy::check_configured_owner(&conn, account, local)?;
-        let row: Option<(Vec<u8>,bool,bool,bool,bool,bool)> = conn.query_row(
-            "SELECT action_id,local_state=2,needs_administrator,initiator=local_device,global_complete,awaiting_sources FROM account_chat_departures WHERE account=?1 AND local_device=?2 AND group_id=?3 ORDER BY rowid DESC LIMIT 1",
-            params![account.as_slice(),local.as_slice(),group.as_slice()], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?)),
-        ).optional().storage()?;
-        let Some((
-            id,
+        if !(1..=255).contains(&group.as_slice().len()) {
+            return Err(invalid());
+        }
+        let mut statement=conn.prepare(
+            "SELECT record,local_state=2,needs_administrator,initiator=local_device,global_complete,awaiting_sources
+             FROM account_chat_departures WHERE account=?1 AND local_device=?2 AND group_id=?3
+             ORDER BY action_id LIMIT ?4",
+        ).storage()?;
+        let rows = statement
+            .query_map(
+                params![
+                    account.as_slice(),
+                    local.as_slice(),
+                    group.as_slice(),
+                    (MAX_ACCOUNT_CHAT_DEPARTURES + 1) as i64
+                ],
+                |row| {
+                    Ok((
+                        row.get::<_, Vec<u8>>(0)?,
+                        row.get::<_, bool>(1)?,
+                        row.get::<_, bool>(2)?,
+                        row.get::<_, bool>(3)?,
+                        row.get::<_, bool>(4)?,
+                        row.get::<_, bool>(5)?,
+                    ))
+                },
+            )
+            .storage()?;
+        let rows = rows.collect::<rusqlite::Result<Vec<_>>>().storage()?;
+        if rows.len() > MAX_ACCOUNT_CHAT_DEPARTURES {
+            return Err(capacity());
+        }
+        let mut observations = std::collections::BTreeMap::new();
+        let mut current = Vec::new();
+        for (
+            record,
             local_complete,
             local_blocked,
             is_initiator,
             global_complete,
             local_awaiting,
-        )) = row
-        else {
-            return Ok(None);
-        };
-        let (pending,peer_blocked,peer_awaiting): (i64,bool,bool) = conn.query_row(
-            "SELECT coalesce(sum(complete=0),0),coalesce(max(needs_administrator),0),coalesce(max(awaiting_sources),0) FROM account_chat_departure_routes WHERE action_id=?1",
-            [id.as_slice()], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?)),
-        ).storage()?;
-        Ok(Some(AccountChatDepartureProgress {
-            action_id: id.try_into().map_err(|_| invalid())?,
-            local_complete,
-            pending_peers: if is_initiator { pending as usize } else { 0 },
-            needs_administrator: local_blocked || (is_initiator && peer_blocked),
-            awaiting_sources: local_awaiting || (is_initiator && peer_awaiting),
-            global_complete: global_complete || (is_initiator && local_complete && pending == 0),
-        }))
+        ) in rows
+        {
+            let intent: AccountChatDepartureIntent =
+                serde_json::from_slice(&record).map_err(|_| invalid())?;
+            intent.validate()?;
+            if intent.account != *account || intent.group != *group {
+                return Err(invalid());
+            }
+            let mut same_lineage = false;
+            for target in &intent.targets {
+                let observed = if let Some(value) = observations.get(&target.source_device) {
+                    *value
+                } else {
+                    let value = if target.source_device == *local {
+                        crate::account_chat_origin_observation::current_local_chat_origin_observation_on_connection(&conn,account,local,group)?
+                    } else {
+                        crate::account_chat_origin_observation::current_mirrored_chat_origin_observation_on_connection(&conn,account,local,&target.source_device,group)?
+                    };
+                    observations.insert(target.source_device, value);
+                    value
+                };
+                let Some(observed) = observed else {
+                    return Ok(None);
+                };
+                if observed == target.accepted_origin {
+                    same_lineage = true;
+                } else if observed.id == target.accepted_origin.id
+                    || observed.order <= target.accepted_origin.order
+                {
+                    // Missing/future/inconsistent evidence is not a current
+                    // operation. Compare orders only for this exact source.
+                    return Ok(None);
+                }
+            }
+            if !same_lineage {
+                continue;
+            }
+            let (pending,peer_blocked,peer_awaiting):(i64,bool,bool)=conn.query_row(
+                "SELECT coalesce(sum(complete=0),0),coalesce(max(needs_administrator),0),coalesce(max(awaiting_sources),0) FROM account_chat_departure_routes WHERE action_id=?1",
+                [intent.action_id.as_slice()],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?)),
+            ).storage()?;
+            let needs_administrator = local_blocked || (is_initiator && peer_blocked);
+            let awaiting_sources = local_awaiting || (is_initiator && peer_awaiting);
+            current.push(AccountChatDepartureProgress {
+                action_id: intent.action_id,
+                local_complete,
+                pending_peers: if is_initiator { pending as usize } else { 0 },
+                needs_administrator,
+                awaiting_sources,
+                global_complete: (global_complete
+                    || (is_initiator && local_complete && pending == 0))
+                    && !needs_administrator
+                    && !awaiting_sources,
+            });
+        }
+        // Every current-lineage operation must be settled before showing
+        // Completed. Stable action identity breaks ties; insertion order and
+        // counters from different sources never establish lineage recency.
+        current.sort_by_key(|progress| {
+            (
+                progress.global_complete && progress.local_complete,
+                !progress.needs_administrator,
+                !progress.awaiting_sources,
+                progress.action_id,
+            )
+        });
+        Ok(current.into_iter().next())
     }
 
     /// Final receipt metadata is accepted only for an existing exact negative

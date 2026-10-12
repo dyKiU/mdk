@@ -49,6 +49,39 @@ pub(crate) fn current_mirrored_chat_origin_observation_on_connection(
     }))
 }
 
+/// Local immutable current lineage, including pending/denied metadata. This
+/// reader is exclusively for excluding stale negative-operation progress;
+/// neither a pending row nor any observation grants accepted-source eligibility.
+pub(crate) fn current_local_chat_origin_observation_on_connection(
+    conn: &rusqlite::Connection,
+    account: &[u8; 32],
+    local_device: &[u8; 32],
+    group: &GroupId,
+) -> StorageResult<Option<AcceptedChatOrigin>> {
+    if !(1..=255).contains(&group.as_slice().len()) {
+        return Err(invalid());
+    }
+    crate::approved_account_sharing_policy::check_configured_owner(conn, account, local_device)?;
+    let value:Option<(Vec<u8>,i64)>=conn.query_row(
+        "SELECT o.origin_id,o.origin_order FROM account_chat_source_current c
+         JOIN account_chat_source_origins o USING(origin_id)
+         WHERE c.group_id=?1 AND o.account=?2 AND o.local_device=?3
+           AND (substr(o.origin,1,1)!=X'02' OR EXISTS(
+             SELECT 1 FROM account_chat_legacy_acceptance_evidence e WHERE e.origin_id=o.origin_id))",
+        params![group.as_slice(),account.as_slice(),local_device.as_slice()],|row|Ok((row.get(0)?,row.get(1)?)),
+    ).optional().storage()?;
+    let Some((id, order)) = value else {
+        return Ok(None);
+    };
+    if !(1..=8192).contains(&order) {
+        return Err(invalid());
+    }
+    Ok(Some(AcceptedChatOrigin {
+        id: id.try_into().map_err(|_| invalid())?,
+        order: order as u64,
+    }))
+}
+
 fn invalid() -> StorageError {
     StorageError::Serialization("invalid account chat origin observation".into())
 }

@@ -25,6 +25,21 @@ fn configure(storage: &SqliteAccountStorage) {
             mls_signature_public_key: vec![2; 32],
         })
         .unwrap();
+    set_source_origin(
+        storage,
+        [3; 32],
+        AcceptedChatOrigin {
+            id: [4; 32],
+            order: 2,
+        },
+    );
+}
+fn set_source_origin(storage: &SqliteAccountStorage, source: [u8; 32], origin: AcceptedChatOrigin) {
+    storage.lock().unwrap().execute(
+        "INSERT INTO mirrored_chat_origin_current(account,local_device,source_device,group_id,origin_id,origin_order,epoch) VALUES(?1,?2,?3,?4,?5,?6,?6)
+         ON CONFLICT(account,local_device,source_device,group_id) DO UPDATE SET origin_id=excluded.origin_id,origin_order=excluded.origin_order,epoch=excluded.epoch",
+        params![[1u8;32].as_slice(),[2u8;32].as_slice(),source.as_slice(),[8u8;16].as_slice(),origin.id.as_slice(),origin.order as i64],
+    ).unwrap();
 }
 fn fixture_intent() -> AccountChatDepartureIntent {
     let mut intent = AccountChatDepartureIntent {
@@ -444,6 +459,7 @@ fn fresh_accepted_lineage_admits_distinct_negative_operation_without_old_cut() {
     };
     fresh.action_id = fresh.identity();
     assert!(fresh.action_id != first.action_id);
+    set_source_origin(&storage, [3; 32], fresh.targets[0].accepted_origin);
     assert!(
         !storage
             .account_chat_departure_denies_source(
@@ -563,4 +579,199 @@ fn local_publication_does_not_clear_authenticated_peer_awaiting_source_receipt()
         .unwrap();
     let peer_awaiting:bool=conn.query_row("SELECT awaiting_sources FROM account_chat_departure_routes WHERE action_id=?1 AND peer_device=?2",params![intent.action_id.as_slice(),[3u8;32].as_slice()],|row|row.get(0)).unwrap();
     assert!(!local_awaiting && peer_awaiting);
+}
+
+#[test]
+fn delayed_old_completed_intent_does_not_replace_fresh_pending_progress() {
+    let storage = configured();
+    let mut fresh = fixture_intent();
+    fresh.targets[0].accepted_origin = AcceptedChatOrigin {
+        id: [5; 32],
+        order: 3,
+    };
+    fresh.action_id = fresh.identity();
+    set_source_origin(&storage, [3; 32], fresh.targets[0].accepted_origin);
+    storage
+        .apply_account_chat_departure(&[2; 32], &fresh, &[[3; 32]], &|| Ok(()))
+        .unwrap();
+    let mut old = fixture_intent();
+    old.initiator = [3; 32];
+    old.action_id = old.identity();
+    storage
+        .apply_account_chat_departure(&[2; 32], &old, &[[3; 32]], &|| Ok(()))
+        .unwrap();
+    storage
+        .mark_account_chat_departure_local_state(
+            &[1; 32],
+            &[2; 32],
+            &old.action_id,
+            AccountChatDepartureLocalState::Complete,
+            &|| Ok(()),
+        )
+        .unwrap();
+    storage
+        .account_chat_departure_completion(
+            &[1; 32],
+            &[2; 32],
+            &old.action_id,
+            &[3; 32],
+            false,
+            &|| Ok(()),
+        )
+        .unwrap();
+    let progress = storage
+        .account_chat_departure_progress(&[1; 32], &[2; 32], &fresh.group)
+        .unwrap()
+        .unwrap();
+    assert_eq!(progress.action_id, fresh.action_id);
+    assert!(!progress.global_complete && !progress.local_complete);
+}
+
+#[test]
+fn concurrent_current_lineage_pending_operation_takes_precedence_over_completed() {
+    let storage = configured();
+    let pending = fixture_intent();
+    storage
+        .apply_account_chat_departure(&[2; 32], &pending, &[[3; 32]], &|| Ok(()))
+        .unwrap();
+    let mut complete = pending.clone();
+    complete.initiator = [3; 32];
+    complete.action_id = complete.identity();
+    storage
+        .apply_account_chat_departure(&[2; 32], &complete, &[[3; 32]], &|| Ok(()))
+        .unwrap();
+    storage
+        .mark_account_chat_departure_local_state(
+            &[1; 32],
+            &[2; 32],
+            &complete.action_id,
+            AccountChatDepartureLocalState::Complete,
+            &|| Ok(()),
+        )
+        .unwrap();
+    storage
+        .account_chat_departure_completion(
+            &[1; 32],
+            &[2; 32],
+            &complete.action_id,
+            &[3; 32],
+            false,
+            &|| Ok(()),
+        )
+        .unwrap();
+    let progress = storage
+        .account_chat_departure_progress(&[1; 32], &[2; 32], &pending.group)
+        .unwrap()
+        .unwrap();
+    assert_eq!(progress.action_id, pending.action_id);
+    assert!(!progress.global_complete);
+}
+
+#[test]
+fn missing_current_origin_and_fresh_origin_without_an_operation_supply_no_old_progress() {
+    let storage = configured();
+    let old = fixture_intent();
+    storage
+        .apply_account_chat_departure(&[2; 32], &old, &[[3; 32]], &|| Ok(()))
+        .unwrap();
+    // A separate bounded negative row whose source observation was never
+    // recorded models missing metadata without deleting retained lineage.
+    let mut unknown = old.clone();
+    unknown.group = GroupId::new(vec![9; 16]);
+    unknown.targets[0].source_device = [9; 32];
+    unknown.action_id = unknown.identity();
+    storage
+        .apply_account_chat_departure(&[2; 32], &unknown, &[[3; 32]], &|| Ok(()))
+        .unwrap();
+    assert!(
+        storage
+            .account_chat_departure_progress(&[1; 32], &[2; 32], &unknown.group)
+            .unwrap()
+            .is_none()
+    );
+    set_source_origin(
+        &storage,
+        [3; 32],
+        AcceptedChatOrigin {
+            id: [5; 32],
+            order: 3,
+        },
+    );
+    assert!(
+        storage
+            .account_chat_departure_progress(&[1; 32], &[2; 32], &old.group)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        !storage
+            .account_chat_departure_denies_source(
+                &[1; 32],
+                &[2; 32],
+                &old.group,
+                &[3; 32],
+                Some(AcceptedChatOrigin {
+                    id: [5; 32],
+                    order: 3
+                })
+            )
+            .unwrap()
+    );
+}
+
+#[test]
+fn source_local_origin_orders_do_not_globally_supersede_other_sources() {
+    let storage = configured();
+    let mut intent = fixture_intent();
+    intent.targets.push(AccountChatDepartureTarget {
+        source_device: [6; 32],
+        accepted_origin: AcceptedChatOrigin {
+            id: [6; 32],
+            order: 7,
+        },
+    });
+    intent.action_id = intent.identity();
+    set_source_origin(&storage, [6; 32], intent.targets[1].accepted_origin);
+    storage
+        .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32], [6; 32]], &|| Ok(()))
+        .unwrap();
+    set_source_origin(
+        &storage,
+        [3; 32],
+        AcceptedChatOrigin {
+            id: [5; 32],
+            order: 500,
+        },
+    );
+    let progress = storage
+        .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+        .unwrap()
+        .unwrap();
+    assert_eq!(progress.action_id, intent.action_id);
+    assert!(!progress.global_complete);
+    assert!(
+        storage
+            .account_chat_departure_denies_source(
+                &[1; 32],
+                &[2; 32],
+                &intent.group,
+                &[6; 32],
+                Some(intent.targets[1].accepted_origin)
+            )
+            .unwrap()
+    );
+    assert!(
+        !storage
+            .account_chat_departure_denies_source(
+                &[1; 32],
+                &[2; 32],
+                &intent.group,
+                &[3; 32],
+                Some(AcceptedChatOrigin {
+                    id: [5; 32],
+                    order: 500
+                })
+            )
+            .unwrap()
+    );
 }
