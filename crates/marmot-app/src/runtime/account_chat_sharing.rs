@@ -6,6 +6,11 @@ type Reply<T> = oneshot::Sender<Result<T, AccountSharingError>>;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 use crate::account_chat_sharing::enabled::RecordReceiptProbe;
 pub(crate) enum Command {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    NextOriginalLifetime {
+        lifetime: std::time::Duration,
+        respond: Reply<()>,
+    },
     SubmitChat {
         group: crate::GroupId,
         token: String,
@@ -37,6 +42,20 @@ pub(crate) enum Command {
     },
 }
 impl AccountManager {
+    /// Set only the NEXT genuinely constructed original's fixed deadline.
+    /// Never changes an existing owner, grant, policy, or authenticated channel.
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) async fn next_original_account_sharing_lifetime_for_test(
+        &self,
+        account: &str,
+        lifetime: std::time::Duration,
+    ) -> Result<(), AccountSharingError> {
+        self.send_account_sharing(account, |respond| Command::NextOriginalLifetime {
+            lifetime,
+            respond,
+        })
+        .await
+    }
     pub(crate) async fn admit_forwarded_chat(
         &self,
         account: &str,
@@ -138,6 +157,12 @@ impl AccountManager {
 }
 pub(crate) async fn handle(client: &mut crate::AppClient, command: Command) {
     match command {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        Command::NextOriginalLifetime { lifetime, respond } => {
+            assert!(!lifetime.is_zero() && lifetime <= std::time::Duration::from_secs(600));
+            client.account_sharing_owner.next_original_lifetime_for_test = Some(lifetime);
+            let _ = respond.send(Ok(()));
+        }
         Command::SubmitChat {
             group,
             token,

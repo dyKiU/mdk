@@ -57,6 +57,22 @@ impl AppClient {
             .clone();
         let mut approval_id = [0; 32];
         rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut approval_id);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let original = self
+            .account_sharing_owner
+            .next_original_lifetime_for_test
+            .take()
+            .map_or_else(
+                || State::new(&self.account_sharing_owner.lifetime, approval_id),
+                |lifetime| {
+                    State::new_until(
+                        &self.account_sharing_owner.lifetime,
+                        approval_id,
+                        std::time::Instant::now() + lifetime,
+                    )
+                },
+            );
+        #[cfg(not(all(test, feature = "test-policy-overrides")))]
         let original = State::new(&self.account_sharing_owner.lifetime, approval_id);
         let channel = self
             .runtime

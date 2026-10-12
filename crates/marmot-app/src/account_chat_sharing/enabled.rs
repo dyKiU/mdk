@@ -154,6 +154,8 @@ pub(crate) struct AccountSharingOwner {
     pub(crate) seen: BTreeSet<[u8; 32]>,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) record_receipt_probe: Option<Arc<RecordReceiptProbe>>,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) next_original_lifetime_for_test: Option<Duration>,
     pub(crate) automatic:
         BTreeMap<[u8; 32], crate::client::account_chat_sharing::automatic::AutomaticChannel>,
 }
@@ -165,6 +167,8 @@ impl Default for AccountSharingOwner {
             seen: BTreeSet::new(),
             #[cfg(all(test, feature = "test-policy-overrides"))]
             record_receipt_probe: None,
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            next_original_lifetime_for_test: None,
             automatic: BTreeMap::new(),
         }
     }
