@@ -5,6 +5,7 @@ use super::automatic_two_source_leave_acceptance::{
 };
 use super::*;
 use cgka_traits::StorageProvider;
+use cgka_traits::storage::{GroupStorage, LeaveRequestStorage};
 use futures::FutureExt;
 
 #[test]
@@ -183,6 +184,12 @@ pub(super) async fn verify(
                 eprintln!(
                     "account_departure_timeout_peer={index} pending_local_count={}",
                     pending.len()
+                );
+                eprintln!("account_departure_timeout_peer={index} queued={} published={} stored_epoch={:?} leave_proposed_epoch={:?}",
+                    pending.iter().filter(|(_, state)| *state == storage_sqlite::account_chat_departure::AccountChatDepartureLocalState::Queued).count(),
+                    pending.iter().filter(|(_, state)| *state == storage_sqlite::account_chat_departure::AccountChatDepartureLocalState::Published).count(),
+                    store.get_group(&peer.group).map(|row| row.epoch.0).map_err(|_| "Unknown"),
+                    store.leave_request(&peer.group).map(|row| row.and_then(|request|request.last_proposed_epoch.map(|epoch|epoch.0))).map_err(|_| "Unknown")
                 );
             }
                 }).catch_unwind(),
