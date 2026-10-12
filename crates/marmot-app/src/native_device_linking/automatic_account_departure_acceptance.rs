@@ -119,7 +119,7 @@ pub(super) async fn verify(
                 std::time::Duration::from_secs(5),
                 std::panic::AssertUnwindSafe(async {
             let indices = stored_indices(&peer.app, &peer.group);
-            eprintln!("account_departure_public_leave_observation={:?}", observe_public_leave_failure(&reopened_app, peer, relay_database).await.map_err(|_| "Unknown"));
+            eprintln!("account_departure_public_leave_observation={:?}", observe_public_leave_failure(&reopened_app, peer, relay_database).await.map(|o| (o.administrator_epoch,o.administrator_pending_proposals,o.source_sent_proposals,o.administrator_received_proposals,o.administrator_processed_proposals,o.source_pending_fanouts,o.relay_retained_proposals)).map_err(|_| "Unknown"));
             eprintln!(
                 "account_departure_timeout_d_leaves={} a_present={} b_present={}",
                 indices.len(),
@@ -247,12 +247,23 @@ pub(super) async fn verify(
     assert!(closed, "reopened B owner must positively close");
 }
 
+#[derive(Debug)]
+struct PublicLeaveObservation {
+    administrator_epoch: u64,
+    administrator_pending_proposals: usize,
+    source_sent_proposals: usize,
+    administrator_received_proposals: usize,
+    administrator_processed_proposals: usize,
+    source_pending_fanouts: usize,
+    relay_retained_proposals: usize,
+}
+
 /// Observe the actual durable proposal and administrator queue, never a grant.
 async fn observe_public_leave_failure(
     source: &MarmotApp,
     peer: &TwoSourcePeer,
     relay_database: &dyn nostr_relay_builder::prelude::NostrDatabase,
-) -> Result<(u64, usize, usize, usize, usize, usize, usize), crate::AppError> {
+) -> Result<PublicLeaveObservation, crate::AppError> {
     use cgka_traits::message::{MessageState, StoredMessagePayload};
     use cgka_traits::storage::{MessageStorage, OutboundFanoutStorage};
     use openmls::prelude::{ContentType, MlsMessageBodyIn, MlsMessageIn, ProtocolMessage};
@@ -319,13 +330,13 @@ async fn observe_public_leave_failure(
         }
     }
     let fanouts = source.list_outbound_fanouts_for_group(&peer.group)?.len();
-    Ok((
-        epoch,
-        pending,
-        sent,
-        received,
-        processed,
-        fanouts,
-        relay_retained,
-    ))
+    Ok(PublicLeaveObservation {
+        administrator_epoch: epoch,
+        administrator_pending_proposals: pending,
+        source_sent_proposals: sent,
+        administrator_received_proposals: received,
+        administrator_processed_proposals: processed,
+        source_pending_fanouts: fanouts,
+        relay_retained_proposals: relay_retained,
+    })
 }
