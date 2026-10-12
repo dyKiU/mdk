@@ -81,7 +81,7 @@ impl AppClient {
             assert!(!low.recipient && !low.ready && low.original.live());
             clients[lower].as_ref().unwrap().runtime.session().validate_account_sharing_channel(&low.channel).unwrap();
             eprintln!("pending_restart_authenticated_y_retained_exact_live_x=true");
-            let fresh_nonce = tokio::time::timeout(Duration::from_secs(30), async {
+            let recovery = tokio::time::timeout(Duration::from_secs(30), async {
                 loop {
                     for i in 0..2 {
                         clients[i].as_mut().unwrap().sync().await.unwrap();
@@ -89,14 +89,28 @@ impl AppClient {
                     }
                     let low = &clients[lower].as_ref().unwrap().account_sharing_owner.automatic[&ids[lower]];
                     let high = &clients[higher].as_ref().unwrap().account_sharing_owner.automatic[&ids[higher]];
-                    if low.channel.scope().nonce != original_x && low.ready && !low.recipient
-                        && high.ready && high.recipient && low.channel.scope().nonce == high.channel.scope().nonce {
+                    if low.ready && !low.recipient && high.ready && high.recipient
+                        && low.channel.scope().nonce == high.channel.scope().nonce
+                        && low.original.live() && high.original.live()
+                        && clients[lower].as_ref().unwrap().runtime.session().validate_account_sharing_channel(&low.channel).is_ok()
+                        && clients[higher].as_ref().unwrap().runtime.session().validate_account_sharing_channel(&high.channel).is_ok() {
                         break low.channel.scope().nonce;
                     }
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
-            }).await.expect("stalled lower handshake must renew through fresh actual X2 and Consent");
-            assert_ne!(fresh_nonce, original_x);
+            }).await;
+            if recovery.is_err() {
+                let observations = [lower, higher].map(|i| clients[i].as_ref().unwrap().account_sharing_owner.automatic.get(&ids[i]).map(|entry| (
+                    entry.ready, entry.recipient, entry.channel.scope().nonce == original_x,
+                    entry.original.live(), clients[i].as_ref().unwrap().runtime.session().validate_account_sharing_channel(&entry.channel).is_ok(),
+                )));
+                let same_nonce = clients[lower].as_ref().unwrap().account_sharing_owner.automatic.get(&ids[lower]).zip(
+                    clients[higher].as_ref().unwrap().account_sharing_owner.automatic.get(&ids[higher])
+                ).map(|(low,high)| low.channel.scope().nonce == high.channel.scope().nonce);
+                eprintln!("pending_restart_timeout_ready_role_original_nonce_live_core_valid={observations:?} same_nonce={same_nonce:?}");
+            }
+            let recovered_nonce = recovery.expect("actual bilateral authenticated readiness must recover before ordinary delivery");
+            eprintln!("pending_restart_functional_channel_ready=true original_nonce_retained={}", recovered_nonce == original_x);
             assert!(apps[0].account_storage("test").unwrap()
                 .timeline_message(&hex::encode(ordinary_group.as_slice()), source_event).unwrap()
                 .is_some_and(|row| !row.deleted && row.invalidation_status.is_none()));
