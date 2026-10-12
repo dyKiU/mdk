@@ -13,6 +13,8 @@ impl AppClient {
         if let Some(state) = self.approved_account_chat_departure_state(group)? {
             return Ok(state);
         }
+        #[cfg(not(feature = "experimental-device-sync"))]
+        let _ = group;
         // Account-wide departure requires genuine approved linked-device
         // coverage. Local MLS membership cannot prove an account-wide action.
         Ok(AccountChatDepartureState {
