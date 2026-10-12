@@ -318,11 +318,27 @@ impl AppClient {
             };
             self.automatic_policy_current(&policy)?;
             let id = Self::automatic_policy_id(&policy)?;
+            if policy.local_device < policy.peer_device {
+                // An authenticated higher-device request is a restart signal,
+                // never consent for its noncanonical direction. A live lower
+                // pending request wins; otherwise begin a fresh lower original.
+                // This also handles a delayed losing request after Consent.
+                self.ensure_canonical_automatic_initiator(policy)?;
+                return Ok(true);
+            }
             if self
                 .account_sharing_owner
                 .automatic
                 .get(&id)
-                .is_some_and(|entry| entry.channel.scope().nonce == received.nonce)
+                .is_some_and(|entry| {
+                    entry.channel.scope().nonce == received.nonce
+                        && entry.original.live()
+                        && self
+                            .runtime
+                            .session()
+                            .validate_account_sharing_channel(&entry.channel)
+                            .is_ok()
+                })
             {
                 return Ok(true);
             }
@@ -722,6 +738,18 @@ impl AppClient {
                 self.account_sharing_owner.entries.insert(nonce, entry);
                 continue;
             }
+            if policy.local_device < policy.peer_device {
+                // The early request was authenticated under its still-live
+                // original, but actual policy completion does not make its
+                // noncanonical direction the automatic channel owner.
+                match self.ensure_canonical_automatic_initiator(policy) {
+                    Ok(()) => old.cancel(),
+                    Err(_) => {
+                        self.account_sharing_owner.entries.insert(nonce, entry);
+                    }
+                }
+                continue;
+            }
             let original = State::new_until(
                 &self.account_sharing_owner.lifetime,
                 policy.approval_id,
@@ -767,6 +795,52 @@ impl AppClient {
             );
         }
         Ok(())
+    }
+    fn ensure_canonical_automatic_initiator(
+        &mut self,
+        policy: ApprovedAccountSharingPolicy,
+    ) -> Result<(), AccountSharingError> {
+        self.automatic_policy_current(&policy)?;
+        let id = Self::automatic_policy_id(&policy)?;
+        if self
+            .account_sharing_owner
+            .automatic
+            .get(&id)
+            .is_some_and(|entry| {
+                !entry.recipient
+                    && !entry.ready
+                    && entry.original.live()
+                    && self
+                        .runtime
+                        .session()
+                        .validate_account_sharing_channel(&entry.channel)
+                        .is_ok()
+            })
+        {
+            return Ok(());
+        }
+        let mut previous = self.account_sharing_owner.automatic.remove(&id);
+        let progress = previous
+            .as_mut()
+            .map(AutomaticChannel::take_catalog_progress);
+        match self.begin_automatic_channel(policy, progress) {
+            Ok(()) => {
+                // Fresh begin owns an independent actual Core lease before the
+                // previous one is retired. No old lease/deadline is extended.
+                drop(previous);
+                Ok(())
+            }
+            Err(error) => {
+                if let Some(mut previous) = previous {
+                    // A transient failure must not consume the only restart
+                    // observation. Usual maintenance retries the same negative
+                    // renewal; the original's lifetime remains unchanged.
+                    previous.renew = true;
+                    self.account_sharing_owner.automatic.insert(id, previous);
+                }
+                Err(error)
+            }
+        }
     }
     fn begin_automatic_channel(
         &mut self,
@@ -923,14 +997,10 @@ impl AppClient {
                         || entry.renew
                 });
             let mut progress = None;
-            let mut budget_renewal = false;
             if retired && let Some(mut old) = self.account_sharing_owner.automatic.remove(&id) {
-                budget_renewal = old.renew || old.next_body >= CHANNEL_BODY_BUDGET;
                 progress = Some(old.take_catalog_progress());
             }
-            if !self.account_sharing_owner.automatic.contains_key(&id)
-                && (policy.local_device < policy.peer_device || budget_renewal)
-            {
+            if !self.account_sharing_owner.automatic.contains_key(&id) {
                 self.begin_automatic_channel(policy, progress)?;
             }
         }
