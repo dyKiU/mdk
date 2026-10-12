@@ -556,6 +556,7 @@ fn actual_c_three_device_enrollment_retains_approval_after_list_free() {
             CString::new(account.account_id_hex).unwrap()
         })
         .collect::<Vec<_>>();
+    let retained_revocation;
     unsafe {
         let (initial_a, b) = c_pair(&clients[0], &accounts[0], &clients[1], &accounts[1], None);
         c_verify(initial_a, b);
@@ -757,7 +758,7 @@ fn actual_c_three_device_enrollment_retains_approval_after_list_free() {
             assert_eq!((*(*targets).items).device_count, 3);
             marmot_device_linking_target_list_free(targets);
         }
-        c_selected_chat_after_actual_abc(&clients, &accounts, &url);
+        retained_revocation = c_selected_chat_after_actual_abc(&clients, &accounts, &url);
         assert_eq!(marmot_device_linking_session_cancel(a), MarmotStatus::Ok);
         assert_eq!(marmot_device_linking_session_cancel(c), MarmotStatus::Ok);
         assert_eq!(
@@ -770,6 +771,22 @@ fn actual_c_three_device_enrollment_retains_approval_after_list_free() {
     }
     for client in clients {
         client.block_on(client.marmot.shutdown_and_close()).unwrap();
+    }
+    unsafe {
+        let mut observed = std::ptr::null_mut();
+        assert!(matches!(
+            crate::device_revocation::marmot_device_revocation_snapshot(
+                retained_revocation,
+                &mut observed
+            ),
+            MarmotStatus::DeviceRevocationClosed | MarmotStatus::DeviceRevocationRuntimeUnavailable
+        ));
+        assert!(observed.is_null());
+        assert!(matches!(
+            crate::device_revocation::marmot_device_revocation_approve(retained_revocation, 2),
+            MarmotStatus::DeviceRevocationClosed | MarmotStatus::DeviceRevocationRuntimeUnavailable
+        ));
+        crate::device_revocation::marmot_device_revocation_free(retained_revocation);
     }
     relay.shutdown();
     #[cfg(feature = "alloc-audit")]
@@ -906,7 +923,7 @@ unsafe fn c_selected_chat_after_actual_abc(
     clients: &[MarmotClient],
     accounts: &[CString],
     url: &str,
-) {
+) -> *mut crate::device_revocation::MarmotDeviceRevocation {
     use crate::selected_chat_copy::*;
     use nostr::prelude::ToBech32;
     use std::time::{Duration, Instant};
@@ -951,6 +968,7 @@ unsafe fn c_selected_chat_after_actual_abc(
         std::thread::sleep(Duration::from_millis(20));
     }
     let chat = CString::new(chat).unwrap();
+    let retained_revocation;
     unsafe {
         let mut targets = std::ptr::null_mut();
         assert_eq!(
@@ -1224,8 +1242,10 @@ unsafe fn c_selected_chat_after_actual_abc(
             marmot_selected_chat_consent_free(consent);
         }
         marmot_selected_chat_copy_free(request);
+        retained_revocation = c_revoke_actual_selected_device(clients, accounts, &chat);
     }
     d.block_on(d.marmot.shutdown_and_close()).unwrap();
+    retained_revocation
 }
 
 #[test]
@@ -1355,4 +1375,186 @@ fn selected_chat_c_deep_frees_preserve_exact_binary_and_phase_layouts() {
     assert_eq!(MarmotSelectedChatCopyPhase::InviteConfirmed as u32, 4);
     #[cfg(feature = "alloc-audit")]
     assert_eq!(before, audit::live_allocations());
+}
+
+#[cfg(feature = "experimental-device-sync")]
+unsafe fn c_revoke_actual_selected_device(
+    clients: &[MarmotClient],
+    accounts: &[CString],
+    chat: &CString,
+) -> *mut crate::device_revocation::MarmotDeviceRevocation {
+    use crate::device_revocation::*;
+    use crate::types::device_revocation::marmot_device_revocation_snapshot_free;
+    use std::ptr;
+    use std::time::{Duration, Instant};
+    let choices = clients[0]
+        .block_on(clients[0].marmot.history_transfer_recipients(
+            accounts[0].to_str().unwrap().into(),
+            chat.to_str().unwrap().into(),
+        ))
+        .unwrap();
+    let own_excluded = clients[2]
+        .block_on(clients[2].marmot.history_transfer_recipients(
+            accounts[2].to_str().unwrap().into(),
+            chat.to_str().unwrap().into(),
+        ))
+        .unwrap();
+    let target = &choices
+        .iter()
+        .find(|item| !own_excluded.iter().any(|other| item.device == other.device))
+        .unwrap()
+        .device;
+    let mut original = ptr::null_mut();
+    unsafe {
+        assert_eq!(
+            marmot_begin_device_revocation(
+                &clients[0],
+                accounts[0].as_ptr(),
+                target.as_ptr(),
+                target.len(),
+                &mut original
+            ),
+            MarmotStatus::Ok
+        );
+        let mut alias = ptr::null_mut();
+        assert_eq!(
+            marmot_device_revocation_clone(original, &mut alias),
+            MarmotStatus::Ok
+        );
+        marmot_device_revocation_free(original);
+        let mut observed = ptr::null_mut();
+        assert_eq!(
+            marmot_device_revocation_snapshot(alias, &mut observed),
+            MarmotStatus::Ok
+        );
+        assert_eq!((*observed).ordinary_group_ids_hex_len, 1);
+        assert_eq!((*observed).completed_group_ids_hex_len, 0);
+        assert_eq!(
+            std::slice::from_raw_parts((*observed).target_device, (*observed).target_device_len),
+            target.as_slice()
+        );
+        let revision = (*observed).revision;
+        assert_eq!(
+            marmot_device_revocation_approve(alias, revision + 1),
+            MarmotStatus::DeviceRevocationStaleRevision
+        );
+        marmot_device_revocation_snapshot_free(observed);
+        assert_eq!(marmot_device_revocation_cancel(alias), MarmotStatus::Ok);
+        assert_eq!(
+            marmot_device_revocation_approve(alias, revision),
+            MarmotStatus::DeviceRevocationClosed
+        );
+        marmot_device_revocation_free(alias);
+        assert_eq!(
+            marmot_begin_device_revocation(
+                &clients[0],
+                accounts[0].as_ptr(),
+                target.as_ptr(),
+                target.len(),
+                &mut original
+            ),
+            MarmotStatus::Ok
+        );
+        assert_eq!(
+            marmot_device_revocation_snapshot(original, &mut observed),
+            MarmotStatus::Ok
+        );
+        let revision = (*observed).revision;
+        marmot_device_revocation_snapshot_free(observed);
+        assert_eq!(
+            marmot_device_revocation_approve(original, revision),
+            MarmotStatus::Ok
+        );
+        assert_eq!(
+            marmot_device_revocation_snapshot(original, &mut observed),
+            MarmotStatus::Ok
+        );
+        assert!((*observed).complete);
+        assert_eq!((*observed).completed_group_ids_hex_len, 2);
+        marmot_device_revocation_snapshot_free(observed);
+    }
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let survivors = [0, 1].into_iter().all(|i| {
+            clients[i]
+                .block_on(clients[i].marmot.group_mls_state(
+                    accounts[i].to_str().unwrap().into(),
+                    chat.to_str().unwrap().into(),
+                ))
+                .is_ok_and(|state| state.member_count == 3)
+        });
+        let removed = clients[2]
+            .block_on(clients[2].marmot.group_roster(
+                accounts[2].to_str().unwrap().into(),
+                chat.to_str().unwrap().into(),
+            ))
+            .is_ok_and(|state| {
+                matches!(
+                    state.self_membership,
+                    marmot_uniffi::conversions::SelfMembershipFfi::Removed
+                )
+            });
+        if survivors && removed {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "C original exact-device Remove must reach authenticated runtimes"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        clients[2]
+            .block_on(clients[2].marmot.send_text(
+                accounts[2].to_str().unwrap().into(),
+                chat.to_str().unwrap().into(),
+                "removed must refuse".into()
+            ))
+            .is_err()
+    );
+    let sent = clients[1]
+        .block_on(clients[1].marmot.send_text(
+            accounts[1].to_str().unwrap().into(),
+            chat.to_str().unwrap().into(),
+            "survivor future epoch".into(),
+        ))
+        .unwrap();
+    let id = &sent.message_ids[0];
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        if [0, 1].into_iter().all(|i| {
+            clients[i]
+                .marmot
+                .messages(
+                    accounts[i].to_str().unwrap().into(),
+                    Some(chat.to_str().unwrap().into()),
+                    None,
+                    None,
+                )
+                .unwrap()
+                .iter()
+                .any(|message| &message.message_id_hex == id)
+        }) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "survivor message must reach intended runtimes"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        clients[2]
+            .marmot
+            .messages(
+                accounts[2].to_str().unwrap().into(),
+                Some(chat.to_str().unwrap().into()),
+                None,
+                None
+            )
+            .unwrap()
+            .iter()
+            .all(|message| &message.message_id_hex != id)
+    );
+    original
 }

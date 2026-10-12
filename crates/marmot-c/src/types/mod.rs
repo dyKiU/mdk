@@ -51,3 +51,5 @@ pub mod account_chat_sharing;
 
 pub mod account_chat_presentation;
 pub mod account_chat_windows;
+
+pub mod device_revocation;

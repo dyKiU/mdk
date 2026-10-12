@@ -170,6 +170,17 @@ async fn drain(from: &DeviceLinkingSession, to: &DeviceLinkingSession) {
 #[cfg(feature = "experimental-device-sync")]
 #[tokio::test(flavor = "multi_thread")]
 async fn opaque_binding_three_device_enrollment_reports_actual_completion() {
+    native_three_device_fixture(false).await;
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test(flavor = "multi_thread")]
+async fn opaque_device_revocation_retains_original_scope_revision_and_cancellation() {
+    native_three_device_fixture(true).await;
+}
+
+#[cfg(feature = "experimental-device-sync")]
+async fn native_three_device_fixture(revoke: bool) {
     use crate::DeviceLinkingApprovalPhaseFfi;
     use std::time::Duration;
     let relay = nostr_relay_builder::LocalRelay::new(nostr_relay_builder::RelayBuilder::default());
@@ -334,13 +345,20 @@ async fn opaque_binding_three_device_enrollment_reports_actual_completion() {
             .await,
         Err(MarmotKitError::DeviceLinkingNotReady | MarmotKitError::DeviceLinkingClosed)
     ));
-    selected_chat_binding_request_after_actual_abc(&kits, &url).await;
+    let revocation = selected_chat_binding_request_after_actual_abc(&kits, &url, revoke).await;
     a.cancel().await.unwrap();
     c.cancel().await.unwrap();
     approval.cancel().await.unwrap();
     drop((a, c, approval, initial_a, b));
     for kit in kits {
         kit.runtime.shutdown_and_close().await.unwrap();
+    }
+    if let Some(original) = revocation {
+        assert!(matches!(
+            original.snapshot().await,
+            Err(MarmotKitError::DeviceRevocationClosed
+                | MarmotKitError::DeviceRevocationRuntimeUnavailable)
+        ));
     }
     relay.shutdown();
 }
@@ -388,7 +406,11 @@ async fn wait_binding_complete(session: &DeviceLinkingSession) {
 }
 
 #[cfg(feature = "experimental-device-sync")]
-async fn selected_chat_binding_request_after_actual_abc(kits: &[Marmot], url: &str) {
+async fn selected_chat_binding_request_after_actual_abc(
+    kits: &[Marmot],
+    url: &str,
+    revoke: bool,
+) -> Option<std::sync::Arc<crate::DeviceRevocation>> {
     use std::time::Duration;
     let dir = tempfile::tempdir().unwrap();
     let keys = nostr::prelude::Keys::generate();
@@ -578,5 +600,158 @@ async fn selected_chat_binding_request_after_actual_abc(kits: &[Marmot], url: &s
         Err(MarmotKitError::SelectedChatCopyClosed)
     ));
     drop((request, consents));
+    let revocation = if revoke {
+        Some(revoke_actual_selected_device(kits, &d, &chat).await)
+    } else {
+        None
+    };
     d.runtime.shutdown_and_close().await.unwrap();
+    revocation
+}
+
+#[cfg(feature = "experimental-device-sync")]
+async fn revoke_actual_selected_device(
+    kits: &[Marmot],
+    d: &Marmot,
+    chat: &str,
+) -> std::sync::Arc<crate::DeviceRevocation> {
+    use std::time::Duration;
+    let a_choices = kits[0]
+        .history_transfer_recipients("test".into(), chat.into())
+        .await
+        .unwrap();
+    let c_choices = kits[2]
+        .history_transfer_recipients("test".into(), chat.into())
+        .await
+        .unwrap();
+    assert_eq!(a_choices.len(), 2);
+    let target = a_choices
+        .iter()
+        .find(|item| !c_choices.iter().any(|other| item.device == other.device))
+        .expect("actual C is excluded from its own authenticated recipient choices")
+        .device
+        .clone();
+    assert!(matches!(
+        kits[0]
+            .begin_device_revocation("missing".into(), target.clone())
+            .await,
+        Err(MarmotKitError::DeviceRevocationRuntimeUnavailable)
+    ));
+    let first = kits[0]
+        .begin_device_revocation("test".into(), target.clone())
+        .await
+        .unwrap();
+    let alias = first.clone();
+    drop(first);
+    let captured = alias.snapshot().await.unwrap();
+    assert_eq!(captured.target_device, target);
+    assert_eq!(captured.ordinary_group_ids_hex, vec![chat.to_owned()]);
+    assert!(captured.completed_group_ids_hex.is_empty());
+    assert!(!captured.complete);
+    assert!(matches!(
+        alias.approve(captured.revision + 1).await,
+        Err(MarmotKitError::DeviceRevocationStaleRevision)
+    ));
+    assert_eq!(alias.snapshot().await.unwrap(), captured);
+    assert!(matches!(
+        kits[0]
+            .begin_device_revocation("test".into(), target.clone())
+            .await,
+        Err(MarmotKitError::DeviceRevocationBusy)
+    ));
+    alias.cancel();
+    assert!(matches!(
+        alias.snapshot().await,
+        Err(MarmotKitError::DeviceRevocationClosed)
+    ));
+    assert!(matches!(
+        alias.approve(captured.revision).await,
+        Err(MarmotKitError::DeviceRevocationClosed)
+    ));
+    assert!(
+        kits[2]
+            .group_mls_state("test".into(), chat.into())
+            .await
+            .is_ok()
+    );
+    let original = kits[0]
+        .begin_device_revocation("test".into(), target)
+        .await
+        .unwrap();
+    let reviewed = original.snapshot().await.unwrap();
+    original.approve(reviewed.revision).await.unwrap();
+    let complete = original.snapshot().await.unwrap();
+    assert!(complete.complete);
+    assert!(complete.completed_group_ids_hex.contains(&chat.to_owned()));
+    assert!(
+        complete
+            .completed_group_ids_hex
+            .contains(&complete.protected_group_id_hex)
+    );
+    assert_eq!(complete.completed_group_ids_hex.len(), 2);
+    tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            let mut ready = true;
+            for kit in [&kits[0], &kits[1], d] {
+                ready &= kit
+                    .group_mls_state("test".into(), chat.into())
+                    .await
+                    .is_ok_and(|state| state.member_count == 3);
+            }
+            ready &= kits[2]
+                .group_roster("test".into(), chat.into())
+                .await
+                .is_ok_and(|state| {
+                    matches!(
+                        state.self_membership,
+                        crate::conversions::SelfMembershipFfi::Removed
+                    )
+                });
+            if ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("actual Remove must reach surviving and removed independent runtimes");
+    assert!(
+        kits[2]
+            .send_text(
+                "test".into(),
+                chat.into(),
+                "removed sender must refuse".into()
+            )
+            .await
+            .is_err()
+    );
+    let sent = kits[1]
+        .send_text("test".into(), chat.into(), "survivor future epoch".into())
+        .await
+        .unwrap();
+    let id = &sent.message_ids[0];
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let ready = [&kits[0], &kits[1], d].into_iter().all(|kit| {
+                kit.messages("test".into(), Some(chat.into()), None, None)
+                    .unwrap()
+                    .iter()
+                    .any(|message| &message.message_id_hex == id)
+            });
+            if ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("actual survivor epoch message must reach every intended runtime");
+    assert!(
+        kits[2]
+            .messages("test".into(), Some(chat.into()), None, None)
+            .unwrap()
+            .iter()
+            .all(|message| &message.message_id_hex != id)
+    );
+    original
 }

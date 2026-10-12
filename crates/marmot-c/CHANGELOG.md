@@ -5,6 +5,11 @@ All notable changes to the Marmot C bindings.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
+## Unreleased exact-device revocation
+
+- Adds opaque original device-revocation factory, clone, snapshot, approve, cancel and free functions; review records contain captured and completed group IDs.
+- Appends status values 126–132. New symbols/layout require the matching generated header and library; default builds refuse before input/account effects.
+
 ## [Unreleased]
 
 ### Added

@@ -5042,3 +5042,43 @@ pub async fn approve_and_share_chats( &self, displayed_revision: u64, ) -> Resul
 Approve this exact original existing-device enrollment while authorizing existing and future chat sharing with the joining device. Use the revision actually displayed by this handle; ordinary approval cannot be upgraded retrospectively. Retain the same handle through packet admission and settlement. Cancellation immediately retires pending original work, and `Settled` is reported only after the durable bilateral handoff completes. This does not confer ordinary MLS membership or recreate an approval after restart.
 
 [Source](src/commands/device_linking.rs#L191)
+
+### `DeviceRevocation::approve`
+
+```rust
+pub async fn approve(&self, revision: u64) -> Result<(), MarmotKitError>
+```
+
+Approve this held original at the displayed revision; Core revalidates its exact device and captured group lineage. See [exact-device revocation](DEVICE-REVOCATION.md).
+
+[Source](src/commands/device_revocation.rs#L45)
+
+### `DeviceRevocation::cancel`
+
+```rust
+pub fn cancel(&self)
+```
+
+Permanently cancel this original across all shared aliases; confirmed removals are retained. See [exact-device revocation](DEVICE-REVOCATION.md).
+
+[Source](src/commands/device_revocation.rs#L52)
+
+### `DeviceRevocation::snapshot`
+
+```rust
+pub async fn snapshot(&self) -> Result<DeviceRevocationSnapshotFfi, MarmotKitError>
+```
+
+Read captured target/groups, displayed revision and per-group confirmed progress. This record cannot reconstruct a Remove action. See [exact-device revocation](DEVICE-REVOCATION.md).
+
+[Source](src/commands/device_revocation.rs#L41)
+
+### `Marmot::begin_device_revocation`
+
+```rust
+pub async fn begin_device_revocation( &self, account_ref: String, target_device: Vec<u8>, ) -> Result<Arc<DeviceRevocation>, MarmotKitError>
+```
+
+Create a fresh authenticated original review for an exact 32-byte device selector. Default builds refuse before account effects; explicit approval is separate. See [exact-device revocation](DEVICE-REVOCATION.md).
+
+[Source](src/commands/device_revocation.rs#L13)

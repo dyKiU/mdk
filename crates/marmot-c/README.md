@@ -18,6 +18,7 @@ per feature.
 - [Device verification](#device-verification)
 - [Account-wide sharing approval](#account-wide-sharing-approval)
 - [Selected-chat copies](#selected-chat-copies)
+- [Exact-device revocation](#exact-device-revocation)
 - [Original history transfers](#original-history-transfers)
 - [Committed synchronized history](#committed-synchronized-history)
 - [Account chat views](#account-chat-views)
@@ -557,3 +558,7 @@ initial snapshot, bounded paging and synchronous cancellation. Cancel before
 teardown; free each handle before its client and while no other call uses it.
 These windows do not install callbacks. Inputs and cursors are borrowed for the
 call; default builds refuse before inspecting them.
+
+## Exact-device revocation
+
+The [shared exact-device contract](../marmot-uniffi/DEVICE-REVOCATION.md) applies to the blocking `marmot_begin_device_revocation` factory and opaque original handle. Retain aliases with `marmot_device_revocation_clone`; deep-free review snapshots and free each handle separately. Required outputs precede effects, and default builds refuse before input reads. Status values 126–132 append typed revocation outcomes after account-sharing statuses121–125.

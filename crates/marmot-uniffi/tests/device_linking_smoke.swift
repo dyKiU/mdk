@@ -70,6 +70,12 @@ struct DeviceLinkingSmoke {
                 FfiConverterTypeSelectedChatConsentSnapshotFfi.lower(value))
             precondition(copy == value)
         }
+        let revocation = DeviceRevocationSnapshotFfi(revision: UInt64.max, complete: false,
+            protectedGroupIdHex: "00ff", ordinaryGroupIdsHex: ["01", "aabb"],
+            completedGroupIdsHex: ["01"], targetDevice: Data([0, 255, 0, 1]))
+        let revocationCopy = try FfiConverterTypeDeviceRevocationSnapshotFfi.lift(
+            FfiConverterTypeDeviceRevocationSnapshotFfi.lower(revocation))
+        precondition(revocationCopy == revocation)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let kit = try Marmot.newWithConfiguration(rootPath: root.path,
@@ -134,6 +140,14 @@ struct DeviceLinkingSmoke {
         } catch MarmotKitError.SelectedChatCopyUnsupported {
             precondition(!caps.verificationSupported)
         } catch MarmotKitError.SelectedChatCopyRuntimeUnavailable {
+            precondition(caps.verificationSupported)
+        }
+        do {
+            _ = try await kit.beginDeviceRevocation(accountRef: "missing", targetDevice: Data(repeating: 1, count: 32))
+            preconditionFailure("missing account must not create an original revocation")
+        } catch MarmotKitError.DeviceRevocationUnsupported {
+            precondition(!caps.verificationSupported)
+        } catch MarmotKitError.DeviceRevocationRuntimeUnavailable {
             precondition(caps.verificationSupported)
         }
         precondition(accounts.isEmpty)
