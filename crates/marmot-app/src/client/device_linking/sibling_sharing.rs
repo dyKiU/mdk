@@ -1641,7 +1641,7 @@ impl AppClient {
                     )
                 })
         };
-        let capture = match &entry.original {
+        let capture = match entry.original.as_ref() {
             SiblingOriginal::Existing { original, .. } => original
                 .state
                 .legacy_capture
