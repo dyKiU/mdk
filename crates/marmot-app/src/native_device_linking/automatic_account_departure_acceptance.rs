@@ -252,7 +252,7 @@ async fn observe_public_leave_failure(
     source: &MarmotApp,
     peer: &TwoSourcePeer,
     relay_database: &dyn nostr_relay_builder::prelude::NostrDatabase,
-) -> Result<(u64, usize, usize, usize, usize, usize, usize), cgka_traits::StorageError> {
+) -> Result<(u64, usize, usize, usize, usize, usize, usize), crate::AppError> {
     use cgka_traits::message::{MessageState, StoredMessagePayload};
     use cgka_traits::storage::{MessageStorage, OutboundFanoutStorage};
     use openmls::prelude::{ContentType, MlsMessageBodyIn, MlsMessageIn, ProtocolMessage};
@@ -315,7 +315,7 @@ async fn observe_public_leave_failure(
                 processed += usize::from(row.state == MessageState::Processed);
             }
             Err(cgka_traits::StorageError::NotFound) => {}
-            Err(error) => return Err(error),
+            Err(error) => return Err(error.into()),
         }
     }
     let fanouts = source.list_outbound_fanouts_for_group(&peer.group)?.len();
