@@ -514,3 +514,13 @@ one pass/one failure to two passes; existing three-device sibling, catalog,
 Records and scoped default/strict checks pass. Source eligibility and installed
 SDK/app journeys remain separate; see
 [routing proof](../../automatic-held-original-routing-verification.json).
+
+Experimental completed-recipient routing now preserves exact original-nonce
+retries while passing new Requests to the independently authenticated automatic
+policy after full handoff. Real fully broad held ABC originals deliver a newly
+B-owned ordinary chat and canonical message to C in both actual BC request
+directions; the old B-initiated case failed while A history still reached both
+recipients. The unchanged regression and affected sibling/catalog/Records plus
+scoped strict/default checks pass; see
+[completed recipient proof](../../automatic-completed-recipient-routing-verification.json).
+Native retained-handle and installed-device journeys still require the new SDK.

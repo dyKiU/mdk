@@ -240,6 +240,8 @@ pub(super) mod actual {
         AutomaticForwardingNonAdmin,
         AutomaticWithdrawal,
         AutomaticRecordGenerationRenewal,
+        AutomaticHeldThreeBInitiates,
+        AutomaticHeldThreeCInitiates,
         AutomaticHeldSponsorInitiates,
         AutomaticHeldRecipientInitiates,
         AutomaticForwardingReceiptRetry,
@@ -277,6 +279,18 @@ pub(super) mod actual {
             )
             .await;
         }
+        if matches!(
+            scenario,
+            ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
+        ) {
+            super::automatic_held_three_original_acceptance::order_actual_signers(
+                &mut apps,
+                &keys,
+                scenario == ApprovalScenario::AutomaticHeldThreeBInitiates,
+            )
+            .await;
+        }
         let runtimes = apps.clone().map(MarmotAppRuntime::new);
         runtimes[0].reconcile_accounts().await.unwrap();
         // Establish the real incoming chat while A is the sole active public
@@ -286,6 +300,8 @@ pub(super) mod actual {
             ApprovalScenario::AutomaticForwardingNonAdmin
                 | ApprovalScenario::AutomaticWithdrawal
                 | ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
                 | ApprovalScenario::AutomaticHeldSponsorInitiates
                 | ApprovalScenario::AutomaticHeldRecipientInitiates
         ) {
@@ -305,8 +321,12 @@ pub(super) mod actual {
             r.reconcile_accounts().await.unwrap();
         }
         let managers = runtimes.each_ref().map(|r| r.accounts());
-        let record_receipt_probe = if scenario == ApprovalScenario::AutomaticRecordGenerationRenewal
-        {
+        let record_receipt_probe = if matches!(
+            scenario,
+            ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
+        ) {
             let peer = incoming_peer.as_ref().unwrap();
             let storage = apps[0].account_storage("test").unwrap();
             tokio::time::timeout(std::time::Duration::from_secs(10), async {
@@ -347,6 +367,8 @@ pub(super) mod actual {
         let broad_enrollment = matches!(
             scenario,
             ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
                 | ApprovalScenario::AutomaticHeldSponsorInitiates
                 | ApprovalScenario::AutomaticHeldRecipientInitiates
                 | ApprovalScenario::BroadEnrollment
@@ -469,13 +491,23 @@ pub(super) mod actual {
             );
             return;
         }
-        if scenario == ApprovalScenario::AutomaticRecordGenerationRenewal {
+        if matches!(
+            scenario,
+            ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
+        ) {
             // Match the supported native journey: completed explicit owners
             // close immediately after the durable handoff, before discovery.
             initial_a.cancel().await.unwrap();
             b.cancel().await.unwrap();
         }
-        let record_renewal = if scenario == ApprovalScenario::AutomaticRecordGenerationRenewal {
+        let record_renewal = if matches!(
+            scenario,
+            ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
+        ) {
             Some(
                 super::automatic_record_renewal_acceptance::RenewalWitness::before_abc(
                     &apps,
@@ -488,7 +520,12 @@ pub(super) mod actual {
         } else {
             None
         };
-        if scenario != ApprovalScenario::AutomaticRecordGenerationRenewal {
+        if !matches!(
+            scenario,
+            ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
+        ) {
             initial_a.cancel().await.unwrap();
             b.cancel().await.unwrap();
         }
@@ -672,6 +709,8 @@ pub(super) mod actual {
         if matches!(
             scenario,
             ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
                 | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
                 | ApprovalScenario::BroadProjectionHeadFailure
@@ -781,6 +820,8 @@ pub(super) mod actual {
                 matches!(
                     scenario,
                     ApprovalScenario::AutomaticRecordGenerationRenewal
+                        | ApprovalScenario::AutomaticHeldThreeBInitiates
+                        | ApprovalScenario::AutomaticHeldThreeCInitiates
                         | ApprovalScenario::BroadEnrollment
                         | ApprovalScenario::BroadPreAuthFailure
                         | ApprovalScenario::BroadProjectionHeadFailure
@@ -840,6 +881,57 @@ pub(super) mod actual {
             }
         }
         if let Some(witness) = record_renewal {
+            if matches!(
+                scenario,
+                ApprovalScenario::AutomaticHeldThreeBInitiates
+                    | ApprovalScenario::AutomaticHeldThreeCInitiates
+            ) {
+                let incoming = incoming_peer.as_ref().unwrap();
+                let delivered_b = super::automatic_held_original_acceptance::wait_record(
+                    &apps[0],
+                    &runtimes[1],
+                    incoming,
+                )
+                .await;
+                let delivered_c = super::automatic_held_original_acceptance::wait_record(
+                    &apps[0],
+                    &runtimes[2],
+                    incoming,
+                )
+                .await;
+                let delivered_bc =
+                    super::automatic_held_three_original_acceptance::create_real_b_source_and_wait(
+                        &runtimes, &apps[1],
+                    )
+                    .await;
+                let completed = a.snapshot().await.unwrap().phase
+                    == DeviceLinkingPhase::EnrollmentComplete
+                    && c.snapshot().await.unwrap().phase == DeviceLinkingPhase::EnrollmentComplete
+                    && approval.snapshot().await.unwrap().phase
+                        == DeviceLinkingApprovalPhase::Settled;
+                a.cancel().await.unwrap();
+                c.cancel().await.unwrap();
+                approval.cancel().await.unwrap();
+                for runtime in &runtimes {
+                    runtime.shutdown_and_close().await.unwrap();
+                    assert!(runtime.storage_is_closed());
+                }
+                incoming.runtime.shutdown_and_close().await.unwrap();
+                assert!(incoming.runtime.storage_is_closed());
+                relay.shutdown();
+                assert!(
+                    completed,
+                    "all three completed original observations must remain held through discovery"
+                );
+                assert!(
+                    delivered_b && delivered_c && delivered_bc,
+                    "held ABC canonical discovery failed: A-to-B={} A-to-C={} B-to-C={}",
+                    delivered_b,
+                    delivered_c,
+                    delivered_bc
+                );
+                return;
+            }
             a.cancel().await.unwrap();
             c.cancel().await.unwrap();
             approval.cancel().await.unwrap();
@@ -2105,3 +2197,10 @@ mod automatic_record_renewal_acceptance;
 ))]
 #[path = "automatic_held_original_acceptance.rs"]
 mod automatic_held_original_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_held_three_original_acceptance.rs"]
+mod automatic_held_three_original_acceptance;

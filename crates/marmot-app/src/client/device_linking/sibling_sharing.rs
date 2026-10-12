@@ -1273,6 +1273,12 @@ impl AppClient {
             {
                 return Ok(true);
             }
+            // Exact original nonce retries remain on their retained channel.
+            // Once its full handoff completes, a fresh Request belongs to the
+            // independent automatic policy, which performs its own live checks.
+            if choice.complete() {
+                return Ok(false);
+            }
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if let Some(probe) = &routing_probe {
                 probe.local_auth_attempts.fetch_add(1, Ordering::AcqRel);
