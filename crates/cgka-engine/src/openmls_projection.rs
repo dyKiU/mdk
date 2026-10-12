@@ -4411,6 +4411,32 @@ impl PrivateReplayEffects<'_> {
 /// Authenticate messages against successive source trees for probe or canonical apply.
 /// `retain_replayed_anchors` enables durable apply and per-commit presentation deltas;
 /// probes omit both while still validating the complete candidate branch.
+// Require an actual validated commit into this tip; a proposal-only replay or
+// a dependency before any subsequent commit cannot use the branch-relative
+// exception. Parsing failures remain fatal rather than hiding malformed input.
+fn is_unconsumed_replayed_tip_proposal(
+    messages: &[TransportMessage],
+    message_index: usize,
+    source_epoch: u64,
+    observations: &[OpenMlsReplayObservation],
+) -> Result<bool, OpenMlsProjectionError> {
+    if !observations.iter().any(|observation| {
+        matches!(
+            observation,
+            OpenMlsReplayObservation::CommitStaged { resulting_epoch, .. }
+                if *resulting_epoch == source_epoch
+        )
+    }) {
+        return Ok(false);
+    }
+    for message in &messages[message_index + 1..] {
+        if project_mls_message(&message.payload)?.kind == OpenMlsContentKind::Commit {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 fn process_openmls_messages_inner<S: StorageProvider>(
     storage: &S,
     group_id: &GroupId,
@@ -4446,7 +4472,7 @@ fn process_openmls_messages_inner<S: StorageProvider>(
     // at its source epoch, so on a diverging prefix its anchor state would
     // not be the state the commit actually produces there.
     let mut prefix_canonical = true;
-    for message in messages {
+    for (message_index, message) in messages.iter().enumerate() {
         let (projection, protocol) = project_protocol_message(&message.payload)?;
         let message_id = hex::encode(message.id.as_slice());
         let Some(protocol) = protocol else {
@@ -4581,6 +4607,28 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                         _ => "other",
                     },
                 );
+                // A standalone proposal at this candidate's final tip can
+                // belong to a competing same-epoch branch. Its membership tag
+                // must not veto an already validated commit on this branch.
+                // Dependencies preceding another commit remain strict, as do
+                // every other authentication, authorization and storage error.
+                if matches!(
+                    &err,
+                    ProcessMessageError::ValidationError(ValidationError::InvalidMembershipTag)
+                ) && source_epoch == mls_group.epoch().as_u64()
+                    && is_unconsumed_replayed_tip_proposal(
+                        messages,
+                        message_index,
+                        source_epoch,
+                        &observations,
+                    )?
+                {
+                    observations.push(OpenMlsReplayObservation::Ignored {
+                        message_id,
+                        kind: projection.kind,
+                    });
+                    continue;
+                }
                 if let Some(category) = crate::app_components::classify_process_message_rejection(
                     &err,
                     ContentType::Proposal,
