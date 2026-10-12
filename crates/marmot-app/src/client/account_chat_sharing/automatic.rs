@@ -298,6 +298,8 @@ impl AppClient {
                 .session()
                 .authenticate_account_sharing_request(wire)
             else {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_catalog_stage("automatic_request_authentication", "refused", None);
                 return Ok(false);
             };
             let storage = self
@@ -321,9 +323,21 @@ impl AppClient {
                             == Some(request.scope().approved_policy_identity)
                 });
             let Some(policy) = matching else {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_catalog_stage("automatic_request_policy", "no_match", None);
                 return Ok(false);
             };
             self.automatic_policy_current(&policy)?;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_catalog_stage(
+                "automatic_request_policy",
+                if policy.local_device < policy.peer_device {
+                    "higher_request_authenticated"
+                } else {
+                    "lower_request_authenticated"
+                },
+                None,
+            );
             let id = Self::automatic_policy_id(&policy)?;
             if policy.local_device < policy.peer_device {
                 // An authenticated higher-device request is a restart signal,
@@ -824,8 +838,16 @@ impl AppClient {
                         .is_ok()
             })
         {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_automatic_progress(
+                "canonical_restart_signal",
+                self.account_sharing_owner.automatic.get(&id).unwrap(),
+                "retained_live_pending_lower",
+            );
             return Ok(());
         }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_trace_catalog_stage("canonical_restart_signal", "begin_fresh_lower", None);
         let mut previous = self.account_sharing_owner.automatic.remove(&id);
         let progress = previous
             .as_mut()
