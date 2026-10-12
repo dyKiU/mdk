@@ -1222,6 +1222,10 @@ fn snapshot_mirrored_chat_observations_are_not_membership() {
         name: "Test chat".into(),
         description: String::new(),
         state: MirroredChatState::Active,
+
+        accepted_origin: None,
+
+        same_account_source_count: None,
     };
     insta::assert_json_snapshot!(
         "mirrored_chat_observations",
@@ -1261,7 +1265,9 @@ fn mirrored_chat_logical_record_and_cursor() {
             deleted: true,
             source_epoch: 1,
             source_sequence: 2,
-            source_digest: [8; 32]
+            source_digest: [8; 32],
+
+            accepted_origin: None,
         },
         MirroredChatCursor {
             created_at: 10,

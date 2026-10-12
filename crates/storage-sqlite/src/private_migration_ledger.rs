@@ -389,6 +389,11 @@ fn activation_trigger(table: &str) -> (String, String) {
 fn install_activation_triggers(connection: &Connection, complete: &Schema) -> StorageResult<()> {
     let objects = schema(connection)?;
     for table in private_tables(complete) {
+        // Read-only views remain exactly schema-validated; activation belongs
+        // to their underlying private tables, never an AFTER trigger on a view.
+        if !table_exists(connection, table)? {
+            continue;
+        }
         let (name, sql) = activation_trigger(table);
         match objects.get(&name) {
             Some((parent, actual)) if parent == table && actual == &sql => {}

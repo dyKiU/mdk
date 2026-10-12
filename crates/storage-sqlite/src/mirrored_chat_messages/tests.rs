@@ -49,6 +49,10 @@ fn catalog(storage: &SqliteAccountStorage, s: &MirroredChatScope) {
                 name: "shared".into(),
                 description: String::new(),
                 state: MirroredChatState::Active,
+
+                accepted_origin: None,
+
+                same_account_source_count: None,
             }],
             &|| Ok(()),
         )
@@ -74,6 +78,8 @@ fn record(id: u8, sequence: u64) -> MirroredChatRecord {
         source_epoch: 1,
         source_sequence: sequence,
         source_digest: [id; 32],
+
+        accepted_origin: None,
     }
 }
 fn fail_at_tail() -> impl Fn() -> StorageResult<()> {
@@ -443,4 +449,197 @@ fn mirrored_messages_payload_budget_is_atomic_and_purge_reclaims_bytes_not_ident
         1152
     );
     assert!(apply(&storage, &records(1)).is_err());
+}
+
+#[test]
+fn mirrored_records_require_current_catalog_origin_and_hide_prior_lineage() {
+    use cgka_traits::mirrored_chat_catalog::AcceptedChatOrigin;
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    configure(&storage);
+    let a = AcceptedChatOrigin {
+        id: [21; 32],
+        order: 1,
+    };
+    let b = AcceptedChatOrigin {
+        id: [22; 32],
+        order: 2,
+    };
+    let mut active = MirroredChatEntry {
+        group_id: group(),
+        source_epoch: 1,
+        source_sequence: 1,
+        source_digest: [8; 32],
+        profile: ProtocolProfile::Current,
+        name: "shared".into(),
+        description: String::new(),
+        state: MirroredChatState::Active,
+        accepted_origin: Some(a),
+        same_account_source_count: Some(1),
+    };
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[active.clone()], &|| Ok(()))
+        .unwrap();
+    let mut first = record(1, 1);
+    first.accepted_origin = Some(a);
+    storage
+        .apply_mirrored_chat_messages(&scope(), &group(), &[first.clone()], 0, &|| Ok(()))
+        .unwrap();
+    let mut left = active.clone();
+    left.source_sequence = 2;
+    left.state = MirroredChatState::Left;
+    left.name.clear();
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[left], &|| Ok(()))
+        .unwrap();
+    active.source_sequence = 3;
+    active.source_epoch = 2;
+    active.accepted_origin = Some(b);
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[active], &|| Ok(()))
+        .unwrap();
+    assert!(
+        storage
+            .mirrored_chat_message_page(&scope(), &group(), None, 128, 0)
+            .unwrap()
+            .is_empty()
+    );
+    first.source_sequence = 2;
+    first.source_epoch = 2;
+    assert!(
+        storage
+            .apply_mirrored_chat_messages(&scope(), &group(), &[first.clone()], 0, &|| Ok(()))
+            .is_err()
+    );
+    first.accepted_origin = None;
+    assert!(
+        storage
+            .apply_mirrored_chat_messages(&scope(), &group(), &[first.clone()], 0, &|| Ok(()))
+            .is_err()
+    );
+    first.accepted_origin = Some(b);
+    storage
+        .apply_mirrored_chat_messages(&scope(), &group(), &[first], 0, &|| Ok(()))
+        .unwrap();
+    assert_eq!(
+        storage
+            .mirrored_chat_message_page(&scope(), &group(), None, 128, 0)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+fn origin_bound_record(storage: &SqliteAccountStorage) -> MirroredChatRecord {
+    use cgka_traits::mirrored_chat_catalog::AcceptedChatOrigin;
+    configure(storage);
+    let origin = AcceptedChatOrigin {
+        id: [31; 32],
+        order: 1,
+    };
+    storage
+        .apply_mirrored_chat_catalog(
+            &scope(),
+            &[MirroredChatEntry {
+                group_id: group(),
+                source_epoch: 1,
+                source_sequence: 1,
+                source_digest: [8; 32],
+                profile: ProtocolProfile::Current,
+                name: "shared".into(),
+                description: String::new(),
+                state: MirroredChatState::Active,
+                accepted_origin: Some(origin),
+                same_account_source_count: Some(1),
+            }],
+            &|| Ok(()),
+        )
+        .unwrap();
+    let mut value = record(1, 1);
+    value.accepted_origin = Some(origin);
+    storage
+        .apply_mirrored_chat_messages(&scope(), &group(), &[value.clone()], 0, &|| Ok(()))
+        .unwrap();
+    value
+}
+
+#[test]
+fn mirrored_record_origin_roundtrip_survives_actual_encrypted_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("bound-record.sqlite");
+    let key = crate::SqlCipherKey::new("42".repeat(32)).unwrap();
+    let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let expected = origin_bound_record(&storage);
+    storage.close().unwrap();
+    let reopened = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let rows = reopened
+        .mirrored_chat_message_page(&scope(), &group(), None, 128, 0)
+        .unwrap();
+    assert!(
+        rows.len() == 1 && rows[0] == expected,
+        "an encrypted read must retain exact source-origin metadata"
+    );
+    reopened.close().unwrap();
+}
+
+#[test]
+fn mirrored_record_origin_roundtrip_exact_reimport_is_idempotent() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    let expected = origin_bound_record(&storage);
+    let duplicate =
+        storage.apply_mirrored_chat_messages(&scope(), &group(), &[expected], 0, &|| Ok(()));
+    assert!(
+        matches!(duplicate, Ok(0)),
+        "same-source exact replay must remain an unchanged import"
+    );
+}
+
+#[test]
+fn mirrored_record_origin_decoder_refuses_partial_or_malformed_pairs() {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    let original = record(1, 1);
+    let decode = |id: Option<Vec<u8>>, order: Option<i64>| {
+        conn.query_row(
+            "SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13",
+            params![
+                original.event_id.as_slice(),
+                original.author.as_slice(),
+                original.created_at as i64,
+                original.kind,
+                original.payload,
+                original.expires_at.map(|v| v as i64),
+                original.content_digest.map(|v| v.to_vec()),
+                original.deleted,
+                original.source_epoch as i64,
+                original.source_sequence as i64,
+                original.source_digest.as_slice(),
+                id,
+                order
+            ],
+            read_record,
+        )
+    };
+    assert!(
+        decode(None, None).unwrap().accepted_origin.is_none(),
+        "old paired NULL columns remain readable"
+    );
+    let valid = decode(Some(vec![31; 32]), Some(8192)).unwrap();
+    assert!(
+        valid
+            .accepted_origin
+            .is_some_and(|origin| origin.id == [31; 32] && origin.order == 8192)
+    );
+    for (id, order) in [
+        (None, Some(1)),
+        (Some(vec![31; 32]), None),
+        (Some(vec![31; 31]), Some(1)),
+        (Some(vec![0; 32]), Some(1)),
+        (Some(vec![31; 32]), Some(0)),
+        (Some(vec![31; 32]), Some(-1)),
+        (Some(vec![31; 32]), Some(8193)),
+    ] {
+        assert!(
+            decode(id, order).is_err(),
+            "malformed origin pairs must fail closed"
+        );
+    }
 }

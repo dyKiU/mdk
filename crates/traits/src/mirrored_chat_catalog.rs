@@ -44,6 +44,12 @@ pub struct MirroredChatEntry {
     pub name: String,
     pub description: String,
     pub state: MirroredChatState,
+    /// Immutable accepted source lineage; absence preserves the legacy strict fence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accepted_origin: Option<crate::mirrored_chat_catalog::AcceptedChatOrigin>,
+    /// Actual same-account ordinary leaf count; observation only, never quorum authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub same_account_source_count: Option<u32>,
 }
 
 /// Optional storage of already authenticated observations. Core owns approval,
