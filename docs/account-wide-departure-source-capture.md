@@ -38,6 +38,16 @@ remain required. Whole-workspace `cargo fmt --all -- --check` passed at430
 (empty log SHA256e3b0c442…). Component results authorize no SDK or app promotion by
 themselves. The docs-only205 integration ancestry is preserved.
 
+Full workspace fast-ci at009b0862 stopped in `check-default` with a missing
+exhaustive simulator error arm (0 Rust tests; retained raw SHA256cf62c5df…).
+Signed4b88bf8b adds only the conformance adapter's permanent ExpectedRefusal,
+nonretryable, static-label mapping for AccountChatDepartureDenied. Its existing
+privacy/error-classification test passed1 default +1 experimental,0 failed or
+ignored, under `automatic-final-4b88bf8b-simulator-classifier-v2`; whole-workspace
+fmt passed. App, Core, native declarations and the component runtime remain
+unchanged. Full CI restarts on this documented source, followed sequentially by
+six-package backend and Apple SDK qualification.
+
 ## Historical receipt-snapshot checkpoint (76f7e9e6)
 
 Runtime source: `76f7e9e60ef25195521e45acc980808022e9d22f`; its only change from
