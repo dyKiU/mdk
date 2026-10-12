@@ -270,15 +270,16 @@ async fn observe_public_leave_failure(
     use tls_codec::Deserialize;
     let source = source.account_storage("test")?;
     let administrator = peer.app.account_storage("test")?;
-    let (epoch, pending) = administrator.with_read_snapshot(|storage| {
-        let group = openmls::group::MlsGroup::load(
-            storage.mls_storage(),
-            &openmls::group::GroupId::from_slice(peer.group.as_slice()),
-        )
-        .map_err(|_| cgka_traits::StorageError::Backend("diagnostic MLS read failed".into()))?
-        .ok_or(cgka_traits::StorageError::NotFound)?;
-        Ok((group.epoch().as_u64(), group.pending_proposals().count()))
-    })?;
+    let (epoch, pending) =
+        administrator.with_read_snapshot(|storage| -> Result<_, cgka_traits::StorageError> {
+            let group = openmls::group::MlsGroup::load(
+                storage.mls_storage(),
+                &openmls::group::GroupId::from_slice(peer.group.as_slice()),
+            )
+            .map_err(|_| cgka_traits::StorageError::Backend("diagnostic MLS read failed".into()))?
+            .ok_or(cgka_traits::StorageError::NotFound)?;
+            Ok((group.epoch().as_u64(), group.pending_proposals().count()))
+        })?;
     let current = source.get_group(&peer.group)?.epoch;
     let records = source.list_messages(&peer.group, current)?;
     let (mut sent, mut received, mut processed, mut relay_retained) = (0, 0, 0, 0);
