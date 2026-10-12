@@ -12,8 +12,9 @@ freezing so reused crate-name artifacts cannot represent another checkout.
 Resource environment: pinned Rust1.97.1; RUST_MIN_STACK=4194304;
 CARGO_BUILD_JOBS=1; CARGO_INCREMENTAL=0; CARGO_PROFILE_DEV_DEBUG=0;
 CARGO_PROFILE_TEST_DEBUG=0; the explicitly loaned target directory only. Require
-at least15GiB free initially, at least2GiB before every gate, and a fresh scan for
-compilers writing that exact target. Do not stop another target's compiler or
+at least20GiB free initially and before every expensive Cargo gate, plus a fresh
+process scan and lsof check of the target lock for compilers writing that exact
+target. Verify the private25 runner is terminal before accepting its lane. Do not stop another target's compiler or
 clean shared caches. Use --locked and --lib to avoid unused integration harnesses.
 Retain raw logs, exact exit/counts/duration and source/artifact hashes.
 
