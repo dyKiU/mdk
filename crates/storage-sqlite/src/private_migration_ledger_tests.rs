@@ -787,3 +787,53 @@ fn private_origin_revision25_preserves_all_old_terminal_scopes() {
         );
     }
 }
+
+#[cfg(feature = "experimental-device-sync")]
+#[test]
+fn private_revision26_replaces_known25_view_and_rejects_old_fingerprint_after_upgrade() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("revision25.sqlite");
+    let mut conn = encrypted(&path);
+    run(&mut conn, MIGRATIONS).unwrap();
+    conn.execute_batch(super::private_migration_ledger::NAMESPACE_SQL)
+        .unwrap();
+    for migration in PRIVATE_MIGRATIONS.iter().take(25) {
+        let tx = conn.transaction().unwrap();
+        (migration.apply)(&tx).unwrap();
+        tx.execute("INSERT INTO cgka_experimental_device_sync_schema_migrations(version,name,applied_at_unix_seconds) VALUES(?1,?2,17)",params![migration.version,migration.name]).unwrap();
+        tx.commit().unwrap();
+    }
+    let prior: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE name='mirrored_chat_live_catalog'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(run_all(&mut conn).unwrap(), PRIVATE_MIGRATIONS.len() - 25);
+    assert_eq!(run_all(&mut conn).unwrap(), 0);
+    let current: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE name='mirrored_chat_live_catalog'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_ne!(prior, current);
+    assert!(current.contains("account_chat_departure_cuts"));
+    assert_eq!(conn.query_row("SELECT count(*) FROM cgka_experimental_device_sync_schema_migrations WHERE version=26 AND name='0026_account_chat_departure'",[],|row|row.get::<_,u64>(0)).unwrap(),1);
+    // The existing per-revision reference schemas accept the intentional view
+    // replacement, but the committed26 ledger requires its exact new SQL.
+    conn.execute_batch(&format!("DROP VIEW mirrored_chat_live_catalog; {prior};"))
+        .unwrap();
+    assert!(run_all(&mut conn).is_err());
+    assert_eq!(
+        conn.query_row(
+            "SELECT count(*) FROM cgka_experimental_device_sync_schema_migrations WHERE version=26",
+            [],
+            |row| row.get::<_, u64>(0)
+        )
+        .unwrap(),
+        1
+    );
+}

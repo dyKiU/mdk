@@ -32,18 +32,42 @@ pub(crate) fn apply(tx: &Transaction<'_>) -> StorageResult<()> {
           awaiting_sources INTEGER NOT NULL DEFAULT 0 CHECK(awaiting_sources IN(0,1)),
           final_acknowledged INTEGER NOT NULL DEFAULT 0 CHECK(final_acknowledged IN(0,1)),
           PRIMARY KEY(action_id,peer_device));
+         CREATE TRIGGER account_departure_insert BEFORE INSERT ON account_chat_departures
+          WHEN EXISTS(SELECT 1 FROM account_chat_departures WHERE action_id=NEW.action_id)
+           OR NEW.local_state!=0 OR NEW.global_complete!=0 OR NEW.needs_administrator!=0
+           OR NEW.awaiting_sources!=0 OR NEW.reply_pending!=1
+          BEGIN SELECT RAISE(ABORT,'account departure intent insertion refused'); END;
          CREATE TRIGGER account_departure_keep BEFORE DELETE ON account_chat_departures
           BEGIN SELECT RAISE(ABORT,'account departure intent retained'); END;
          CREATE TRIGGER account_departure_immutable BEFORE UPDATE ON account_chat_departures
           WHEN NEW.action_id!=OLD.action_id OR NEW.account!=OLD.account
            OR NEW.local_device!=OLD.local_device OR NEW.initiator!=OLD.initiator
            OR NEW.group_id!=OLD.group_id OR NEW.record!=OLD.record
-           OR NEW.local_state<OLD.local_state
+           OR NEW.local_state<OLD.local_state OR NEW.global_complete<OLD.global_complete
           BEGIN SELECT RAISE(ABORT,'account departure intent immutable'); END;
+         CREATE TRIGGER account_departure_cut_insert BEFORE INSERT ON account_chat_departure_cuts
+          WHEN EXISTS(SELECT 1 FROM account_chat_departure_cuts
+            WHERE action_id=NEW.action_id AND source_device=NEW.source_device)
+          BEGIN SELECT RAISE(ABORT,'account departure cut insertion refused'); END;
          CREATE TRIGGER account_departure_cut_keep BEFORE DELETE ON account_chat_departure_cuts
           BEGIN SELECT RAISE(ABORT,'account departure cut retained'); END;
          CREATE TRIGGER account_departure_cut_immutable BEFORE UPDATE ON account_chat_departure_cuts
           BEGIN SELECT RAISE(ABORT,'account departure cut immutable'); END;
+         CREATE TRIGGER account_departure_route_insert BEFORE INSERT ON account_chat_departure_routes
+          WHEN EXISTS(SELECT 1 FROM account_chat_departure_routes
+            WHERE action_id=NEW.action_id AND peer_device=NEW.peer_device)
+           OR NEW.acknowledged!=0 OR NEW.complete!=0 OR NEW.final_acknowledged!=0
+           OR NEW.needs_administrator!=0 OR NEW.awaiting_sources!=0
+          BEGIN SELECT RAISE(ABORT,'account departure route insertion refused'); END;
+         CREATE TRIGGER account_departure_route_keep BEFORE DELETE ON account_chat_departure_routes
+          BEGIN SELECT RAISE(ABORT,'account departure route retained'); END;
+         CREATE TRIGGER account_departure_route_update BEFORE UPDATE ON account_chat_departure_routes
+          WHEN NEW.action_id!=OLD.action_id OR NEW.peer_device!=OLD.peer_device
+           OR NEW.acknowledged<OLD.acknowledged OR NEW.complete<OLD.complete
+           OR NEW.final_acknowledged<OLD.final_acknowledged
+           OR (NEW.complete=1 AND (NEW.acknowledged!=1 OR NEW.needs_administrator!=0 OR NEW.awaiting_sources!=0))
+           OR (NEW.final_acknowledged=1 AND NEW.complete!=1)
+          BEGIN SELECT RAISE(ABORT,'account departure route regressed'); END;
          DROP VIEW mirrored_chat_live_catalog;
          CREATE VIEW mirrored_chat_live_catalog AS SELECT c.* FROM mirrored_chat_catalog c JOIN mirrored_chat_scopes s USING(scope) WHERE c.state=0
  AND NOT EXISTS(SELECT 1 FROM mirrored_chat_origin_fences f WHERE f.account=s.account AND f.local_device=s.local_device AND f.source_device=s.source_device AND f.group_id=c.group_id AND (f.state=2 OR f.origin_id=c.origin_id OR (f.origin_order=0 AND (c.origin_id IS NULL OR f.epoch>=json_extract(c.record,'$.source_epoch')))))

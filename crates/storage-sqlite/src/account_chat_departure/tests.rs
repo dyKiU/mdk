@@ -921,3 +921,165 @@ fn departure_cut_removes_live_disclosure_and_blocks_late_records_but_not_fresh_l
         1
     );
 }
+
+#[test]
+fn immutable_departure_rows_refuse_raw_replace_and_upsert_without_recursive_triggers() {
+    for recursive in [None, Some(false), Some(true)] {
+        let storage = configured();
+        let intent = fixture_intent();
+        storage
+            .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+            .unwrap();
+        storage
+            .mark_account_chat_departure_local_state(
+                &[1; 32],
+                &[2; 32],
+                &intent.action_id,
+                AccountChatDepartureLocalState::Complete,
+                &|| Ok(()),
+            )
+            .unwrap();
+        storage
+            .acknowledge_account_chat_departure(
+                &[1; 32],
+                &[2; 32],
+                &intent.action_id,
+                &[3; 32],
+                true,
+                false,
+                false,
+                &|| Ok(()),
+            )
+            .unwrap();
+        storage
+            .finalize_account_chat_departure_coordinator(&[1; 32], &[2; 32], &|| Ok(()))
+            .unwrap();
+        storage
+            .account_chat_departure_completion(
+                &[1; 32],
+                &[2; 32],
+                &intent.action_id,
+                &[3; 32],
+                true,
+                &|| Ok(()),
+            )
+            .unwrap();
+        {
+            let conn = storage.lock().unwrap();
+            if let Some(recursive) = recursive {
+                conn.pragma_update(None, "recursive_triggers", recursive)
+                    .unwrap();
+            }
+            let original: Vec<u8> = conn
+                .query_row(
+                    "SELECT record FROM account_chat_departures WHERE action_id=?1",
+                    [intent.action_id.as_slice()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            for suffix in [
+                "",
+                " ON CONFLICT(action_id) DO UPDATE SET record=excluded.record,local_state=0,global_complete=0",
+            ] {
+                let sql = format!(
+                    "INSERT OR REPLACE INTO account_chat_departures(action_id,account,local_device,initiator,group_id,record) VALUES(?1,?2,?3,?4,?5,?6){suffix}"
+                );
+                assert!(
+                    conn.execute(
+                        &sql,
+                        params![
+                            intent.action_id.as_slice(),
+                            intent.account.as_slice(),
+                            [2u8; 32].as_slice(),
+                            intent.initiator.as_slice(),
+                            intent.group.as_slice(),
+                            b"different".as_slice()
+                        ]
+                    )
+                    .is_err()
+                );
+            }
+            for suffix in [
+                "",
+                " ON CONFLICT(action_id,source_device) DO UPDATE SET origin_id=excluded.origin_id,origin_order=excluded.origin_order",
+            ] {
+                let sql = format!(
+                    "INSERT OR REPLACE INTO account_chat_departure_cuts VALUES(?1,?2,?3,1){suffix}"
+                );
+                assert!(
+                    conn.execute(
+                        &sql,
+                        params![
+                            intent.action_id.as_slice(),
+                            [3u8; 32].as_slice(),
+                            [9u8; 32].as_slice()
+                        ]
+                    )
+                    .is_err()
+                );
+            }
+            for suffix in [
+                "",
+                " ON CONFLICT(action_id,peer_device) DO UPDATE SET acknowledged=0,complete=0,final_acknowledged=0",
+            ] {
+                let sql = format!(
+                    "INSERT OR REPLACE INTO account_chat_departure_routes(action_id,peer_device) VALUES(?1,?2){suffix}"
+                );
+                assert!(
+                    conn.execute(
+                        &sql,
+                        params![intent.action_id.as_slice(), [3u8; 32].as_slice()]
+                    )
+                    .is_err()
+                );
+            }
+            assert!(conn.execute("INSERT INTO account_chat_departure_routes(action_id,peer_device,acknowledged,complete) VALUES(?1,?2,1,1)",params![intent.action_id.as_slice(),[9u8;32].as_slice()]).is_err());
+            assert!(conn.execute("UPDATE account_chat_departure_routes SET complete=0,acknowledged=0,final_acknowledged=0 WHERE action_id=?1",[intent.action_id.as_slice()]).is_err());
+            assert!(
+                conn.execute(
+                    "DELETE FROM account_chat_departure_routes WHERE action_id=?1",
+                    [intent.action_id.as_slice()]
+                )
+                .is_err()
+            );
+            assert!(
+                conn.execute(
+                    "UPDATE account_chat_departures SET global_complete=0 WHERE action_id=?1",
+                    [intent.action_id.as_slice()]
+                )
+                .is_err()
+            );
+            let after: Vec<u8> = conn
+                .query_row(
+                    "SELECT record FROM account_chat_departures WHERE action_id=?1",
+                    [intent.action_id.as_slice()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(after, original);
+            let cut:(Vec<u8>,u64)=conn.query_row("SELECT origin_id,origin_order FROM account_chat_departure_cuts WHERE action_id=?1",[intent.action_id.as_slice()],|row|Ok((row.get(0)?,row.get(1)?))).unwrap();
+            assert!(
+                cut == (
+                    intent.targets[0].accepted_origin.id.to_vec(),
+                    intent.targets[0].accepted_origin.order
+                )
+            );
+            let route:(bool,bool,bool)=conn.query_row("SELECT acknowledged,complete,final_acknowledged FROM account_chat_departure_routes WHERE action_id=?1",[intent.action_id.as_slice()],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
+            assert_eq!(route, (true, true, true));
+        }
+        // Actual API exact retry reads immutable rows before insertion, so the
+        // stronger raw SQL guards do not break legitimate idempotence.
+        assert!(
+            !storage
+                .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+                .unwrap()
+        );
+        assert!(
+            storage
+                .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+                .unwrap()
+                .unwrap()
+                .global_complete
+        );
+    }
+}

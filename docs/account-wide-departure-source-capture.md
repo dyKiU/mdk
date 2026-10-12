@@ -105,3 +105,28 @@ Catalog origin/count and every canonical record origin use the exact adopted
 optional serde contracts; no private25 live worktree or compiler/cache lane was
 changed. Candidate integration remains unqualified: no compilation, native ABI
 acceptance, SDK generation/promotion or fork passing publication has occurred.
+
+## Immutable SQL replacement audit
+
+Private26 now refuses duplicate identity inserts for intents, cuts and routes
+with BEFORE INSERT guards, including OR REPLACE when recursive triggers are
+disabled. Newly inserted route progress must start unconfirmed; route identity,
+acknowledgement, completion and final acknowledgement cannot regress or be
+deleted. Existing exact App retries read rows before insertion and remain
+idempotent. Intent global completion cannot be downgraded.
+
+Raw SQL regression source exercises OR REPLACE and UPSERT under default, off
+and on recursive-trigger settings, checks exact retained payload/cut/confirmed
+route values, rejects initially forged-complete routes, and retries the real
+journal API. These are unrun storage controls, not authenticated peer evidence.
+
+The private migration fingerprint implementation is unchanged. Its existing
+per-revision reference snapshots validate the old25 view before upgrade and
+the exact26 view afterward. Added upgrade test source requires25→26 success
+then rejects restoration of the old view under a26 ledger, retaining strict
+schema validation without exclusions.
+
+The exact private25 snapshot-test correction was adopted from file blob
+401ffa62b23ef96e4ac959df4cd48d76fea1106a as signed one-file commit
+d534f4c244bf4eeb8d8dc14c95b7f32ec58f5675. No other inputs from that capture
+were imported. No compiler or qualification lane was used for these changes.
