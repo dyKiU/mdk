@@ -1,6 +1,8 @@
 //! Bounded, read-only exact-content observation for genuine convergence tests.
 //! This module is absent unless the explicit test-policy feature is enabled.
-use crate::canonicalization::{CanonicalizationResult, DroppedMessageReason};
+use crate::canonicalization::{
+    CanonicalizationResult, DeferredMessageReason, DroppedMessageReason,
+};
 use cgka_traits::{GroupId, MessageId};
 use std::sync::{
     Arc, Mutex, OnceLock, Weak,
@@ -27,6 +29,7 @@ pub struct Observation {
     pub target_witnesses: Option<usize>,
     pub decisive_rule: Option<&'static str>,
     pub drop_reason: Option<DroppedMessageReason>,
+    pub deferred_reason: Option<DeferredMessageReason>,
     pub superseded_processed: bool,
 }
 pub struct Probe {
@@ -105,6 +108,13 @@ pub(crate) fn result(group: &GroupId, own_leaf: u32, result: &CanonicalizationRe
             .find(|d| d.message_id == content)
         {
             o.drop_reason = Some(dropped.reason);
+        }
+        if let Some(deferred) = result
+            .deferred_messages
+            .iter()
+            .find(|message| message.message_id == content)
+        {
+            o.deferred_reason = Some(deferred.reason);
         }
         if let Some(trace) = &result.selection_trace
             && let Some(target) = trace

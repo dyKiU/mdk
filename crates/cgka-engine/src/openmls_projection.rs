@@ -4559,6 +4559,32 @@ fn process_openmls_messages_inner<S: StorageProvider>(
         } {
             Ok(processed) => processed,
             Err(err) if projection.kind == OpenMlsContentKind::Commit => {
+                #[cfg(feature = "test-policy-overrides")]
+                crate::canonical_probe_observer::replay_failure(
+                    group_id,
+                    mls_group.own_leaf_index().u32(),
+                    messages,
+                    "commit",
+                    source_epoch,
+                    candidate_epoch_for_observation,
+                    match &err {
+                        ProcessMessageError::ValidationError(
+                            ValidationError::InvalidMembershipTag,
+                        ) => "invalid_membership_tag",
+                        ProcessMessageError::ValidationError(ValidationError::UnableToDecrypt(
+                            _,
+                        )) => "unable_to_decrypt",
+                        ProcessMessageError::ValidationError(ValidationError::WrongEpoch) => {
+                            "wrong_epoch"
+                        }
+                        ProcessMessageError::ValidationError(ValidationError::UnknownMember) => {
+                            "unknown_member"
+                        }
+                        ProcessMessageError::ValidationError(_) => "other_validation",
+                        ProcessMessageError::GroupStateError(_) => "group_state",
+                        _ => "other",
+                    },
+                );
                 if let Some(category) = crate::app_components::classify_process_message_rejection(
                     &err,
                     ContentType::Commit,
