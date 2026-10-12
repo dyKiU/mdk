@@ -10,7 +10,7 @@ pub(crate) enum Command {
         request: crate::local_submissions::LocalMessageRequest,
         respond: oneshot::Sender<Result<crate::LocalSendAcceptance, crate::AppError>>,
     },
-    #[cfg(test)]
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     AutomaticKick {
         respond: Reply<()>,
     },
@@ -55,7 +55,7 @@ impl AccountManager {
             .await
             .map_err(|_| crate::AppError::TransportClosed)?
     }
-    #[cfg(test)]
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) async fn kick_approved_automatic_channel(
         &self,
         account: &str,
@@ -130,7 +130,7 @@ pub(crate) async fn handle(client: &mut crate::AppClient, command: Command) {
         } => {
             let _ = respond.send(client.admit_forwarded_chat(&group, token, request));
         }
-        #[cfg(test)]
+        #[cfg(all(test, feature = "test-policy-overrides"))]
         Command::AutomaticKick { respond } => {
             let _ = respond.send(client.kick_approved_automatic_channel().await);
         }

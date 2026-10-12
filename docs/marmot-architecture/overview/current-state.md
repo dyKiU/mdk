@@ -1,7 +1,7 @@
 ---
 title: "Current State — Implementations & Spec"
 created: 2026-04-19
-updated: 2026-10-11
+updated: 2026-10-12
 tags: [marmot, overview, current-state, implementations]
 status: overview
 ---
@@ -486,3 +486,12 @@ remain distinct from actual MLS membership. Initial list lanes retain separate
 ordering/cursors. Records-actor message delivery, native normal-view adoption and
 normal forwarding require subsequent integrated acceptance; see
 [focused proof](../../account-chat-presentation-app-windows-verification.json).
+
+Experimental approved-pair catalog delivery now publishes empty source-device
+withdrawals after actual Core departure, invalidates pending active disclosure,
+and preserves local-only chat hiding. Real non-admin leave, committed recipient
+window removal and encrypted own-store reopen pass alongside catalog/Records
+and scoped static checks. This is not principal-wide leave across several actual
+member devices; pending-stranger eligibility and positive rejoin lineage remain
+open. No updated SDK or installed-app qualification is claimed; see
+[source withdrawal proof](../../automatic-source-chat-withdrawal-verification.json).

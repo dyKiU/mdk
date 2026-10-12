@@ -1,7 +1,7 @@
 //! Forward actual Core originals; Session does not own approval or relay policy.
 use super::AccountDeviceSession;
 use cgka_engine::{
-    account_chat_catalog::AccountChatCatalog,
+    account_chat_catalog::{AccountChatCatalog, AccountChatCatalogJournal},
     account_chat_sharing::{
         AccountSharedBodyKind, AccountSharingControl, AuthenticatedAccountSharingRequest,
         OwnedAccountSharingChannel, ReceivedAccountSharingControl, TrustedAccountSharingLease,
@@ -23,6 +23,15 @@ impl AccountDeviceSession {
         limit: usize,
     ) -> Result<AccountChatCatalog, EngineError> {
         self.engine.account_chat_catalog(protected, after, limit)
+    }
+    pub fn account_chat_catalog_journal(
+        &self,
+        protected: &GroupId,
+        after: Option<&GroupId>,
+        limit: usize,
+    ) -> Result<AccountChatCatalogJournal, EngineError> {
+        self.engine
+            .account_chat_catalog_journal(protected, after, limit)
     }
     pub fn begin_account_sharing_policy(
         &self,

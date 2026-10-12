@@ -163,9 +163,29 @@ async fn account_chat_catalog_discovers_actual_nonadmin_membership_without_grant
             .iter()
             .all(|entry| entry.group_id != incoming)
     );
+    let journal = a
+        .account_chat_catalog_journal(&protected, None, 128)
+        .unwrap();
+    assert!(journal.entries.iter().any(|entry| matches!(entry,
+        crate::account_chat_catalog::AccountChatCatalogObservation::Withdrawn {
+            group_id, disbanded: false, ..
+        } if group_id == &incoming)));
+    assert!(journal.entries.iter().any(|entry| matches!(entry,
+        crate::account_chat_catalog::AccountChatCatalogObservation::Active(entry)
+        if entry.group_id == ordinary)));
+    assert!(a.account_chat_catalog_journal(&protected, None, 0).is_err());
+    assert!(
+        a.account_chat_catalog_journal(&protected, None, 129)
+            .is_err()
+    );
+    assert!(d.account_chat_catalog_journal(&protected, None, 1).is_err());
     // A retained identical tree does not replace a fresh Completed round.
     a.select_private_roster_settlement(&protected).unwrap();
     assert!(a.account_chat_catalog(&protected, None, 128).is_err());
+    assert!(
+        a.account_chat_catalog_journal(&protected, None, 128)
+            .is_err()
+    );
 }
 
 #[tokio::test]

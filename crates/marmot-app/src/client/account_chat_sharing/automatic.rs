@@ -45,6 +45,7 @@ struct PendingBody {
 struct PendingCatalog {
     receipt: CatalogReceipt,
     published_at: Option<std::time::Instant>,
+    state: MirroredChatState,
 }
 struct CatalogProgress {
     generation: u64,
@@ -591,7 +592,7 @@ impl AppClient {
             .restore_catalog_progress(progress);
         Ok(())
     }
-    #[cfg(test)]
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) async fn kick_approved_automatic_channel(
         &mut self,
     ) -> Result<(), AccountSharingError> {
@@ -607,6 +608,30 @@ impl AppClient {
             self.begin_automatic_channel(policy, None)?;
         }
         self.maintain_automatic_account_sharing().await
+    }
+    /// Actual Core termination invalidates source disclosure, even when a local
+    /// hide had already removed its presentation row. It grants no new channel.
+    pub(crate) fn invalidate_automatic_catalog_after_termination(
+        &mut self,
+        group: &crate::GroupId,
+    ) {
+        for entry in self.account_sharing_owner.automatic.values_mut() {
+            if &entry.policy.protected_group == group {
+                continue;
+            }
+            entry.cursor = None;
+            entry.inventory_digest = None;
+            if entry.pending_catalog.as_ref().is_some_and(|pending| {
+                pending.state == MirroredChatState::Active && &pending.receipt.group == group
+            }) {
+                entry.original.cancel();
+                entry
+                    .pending
+                    .retain(|body| body.kind != AccountSharedBodyKind::Catalog);
+                entry.pending_catalog = None;
+                entry.renew = true;
+            }
+        }
     }
     pub(crate) async fn maintain_automatic_account_sharing(
         &mut self,
@@ -695,6 +720,28 @@ impl AppClient {
         if !entry.ready {
             return Ok(());
         }
+        if let Some(pending) = &entry.pending_catalog
+            && pending.state == MirroredChatState::Active
+            && self
+                .app
+                .account_storage(&self.state.label)
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?
+                .get_group(&pending.receipt.group)
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?
+                .is_terminal()
+        {
+            // An old sealed body cannot be replaced at the same channel ordinal.
+            // Retire the original context, retaining only durable journal progress;
+            // a fresh approved-policy channel will publish the empty withdrawal.
+            entry
+                .pending
+                .retain(|body| body.kind != AccountSharedBodyKind::Catalog);
+            entry.pending_catalog = None;
+            entry.cursor = None;
+            entry.inventory_digest = None;
+            entry.renew = true;
+            return Ok(());
+        }
         if entry.pending.is_empty() {
             self.prepare_automatic_sends(entry).await?;
         }
@@ -757,7 +804,7 @@ impl AppClient {
         let page = self
             .runtime
             .session()
-            .account_chat_catalog(&entry.policy.protected_group, entry.cursor.as_ref(), 1)
+            .account_chat_catalog_journal(&entry.policy.protected_group, entry.cursor.as_ref(), 1)
             .map_err(|_| AccountSharingError::Closed)?;
         let Some(source) = page.entries.first() else {
             return Ok(());
@@ -766,18 +813,47 @@ impl AppClient {
             .app
             .account_storage(&self.state.label)
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
-        let group = storage
-            .get_group(&source.group_id)
-            .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        use cgka_engine::account_chat_catalog::AccountChatCatalogObservation;
+        let (group_id, epoch, profile, state) = match source {
+            AccountChatCatalogObservation::Active(source) => (
+                source.group_id.clone(),
+                source.epoch,
+                source.profile,
+                MirroredChatState::Active,
+            ),
+            AccountChatCatalogObservation::Withdrawn {
+                group_id,
+                epoch,
+                profile,
+                disbanded,
+            } => (
+                group_id.clone(),
+                *epoch,
+                *profile,
+                if *disbanded {
+                    MirroredChatState::Deleted
+                } else {
+                    MirroredChatState::Left
+                },
+            ),
+        };
+        let (name, description) = if state == MirroredChatState::Active {
+            let group = storage
+                .get_group(&group_id)
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+            (group.name, group.description)
+        } else {
+            (String::new(), String::new())
+        };
         let mut record = MirroredChatEntry {
-            group_id: source.group_id.clone(),
-            source_epoch: source.epoch,
+            group_id,
+            source_epoch: epoch,
             source_sequence: 0,
             source_digest: [0; 32],
-            profile: source.profile,
-            name: group.name,
-            description: group.description,
-            state: MirroredChatState::Active,
+            profile,
+            name,
+            description,
+            state,
         };
         let digest: [u8; 32] =
             Sha256::digest(serde_json::to_vec(&record).map_err(|_| AccountSharingError::NotReady)?)
@@ -843,6 +919,7 @@ impl AppClient {
                 encoded_digest: whole,
             },
             published_at: None,
+            state: record.state,
         });
         Ok(())
     }

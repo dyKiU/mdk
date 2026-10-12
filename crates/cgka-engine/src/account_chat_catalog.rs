@@ -21,6 +21,23 @@ pub struct AccountChatCatalog {
     pub entries: Vec<AccountChatCatalogEntry>,
 }
 
+/// A source-qualified negative observation, never a usable membership or rejoin.
+pub enum AccountChatCatalogObservation {
+    Active(AccountChatCatalogEntry),
+    Withdrawn {
+        group_id: GroupId,
+        epoch: u64,
+        profile: ProtocolProfile,
+        disbanded: bool,
+    },
+}
+
+pub struct AccountChatCatalogJournal {
+    pub protected: CandidateDeviceGroupSnapshot,
+    pub settlement_generation: u64,
+    pub entries: Vec<AccountChatCatalogObservation>,
+}
+
 impl<S: StorageProvider> Engine<S> {
     /// Initial discovery only. No transport, policy allocation or membership
     /// mutation. Bound the returned page rather than the account's stored groups;
@@ -31,6 +48,39 @@ impl<S: StorageProvider> Engine<S> {
         after: Option<&GroupId>,
         limit: usize,
     ) -> Result<AccountChatCatalog, EngineError> {
+        let journal = self.account_chat_catalog_observations(protected, after, limit, false)?;
+        Ok(AccountChatCatalog {
+            protected: journal.protected,
+            settlement_generation: journal.settlement_generation,
+            entries: journal
+                .entries
+                .into_iter()
+                .filter_map(|entry| match entry {
+                    AccountChatCatalogObservation::Active(entry) => Some(entry),
+                    AccountChatCatalogObservation::Withdrawn { .. } => None,
+                })
+                .collect(),
+        })
+    }
+
+    /// Bounded source journal including only actual canonical terminal copies.
+    /// Hidden local projections do not terminate MLS membership and are not withdrawals.
+    pub fn account_chat_catalog_journal(
+        &self,
+        protected: &GroupId,
+        after: Option<&GroupId>,
+        limit: usize,
+    ) -> Result<AccountChatCatalogJournal, EngineError> {
+        self.account_chat_catalog_observations(protected, after, limit, true)
+    }
+
+    fn account_chat_catalog_observations(
+        &self,
+        protected: &GroupId,
+        after: Option<&GroupId>,
+        limit: usize,
+        include_terminal: bool,
+    ) -> Result<AccountChatCatalogJournal, EngineError> {
         if !(1..=128).contains(&limit)
             || after
                 .is_some_and(|cursor| cursor.as_slice().is_empty() || cursor.as_slice().len() > 255)
@@ -50,9 +100,22 @@ impl<S: StorageProvider> Engine<S> {
             let mut entries = Vec::new();
             for record in records {
                 if record.id == *protected
-                    || record.is_terminal()
                     || after.is_some_and(|cursor| record.id.as_slice() <= cursor.as_slice())
                 {
+                    continue;
+                }
+                if record.is_terminal() {
+                    if include_terminal && !self.exclude_private_group_from_chat(&record.id)? {
+                        entries.push(AccountChatCatalogObservation::Withdrawn {
+                            group_id: record.id,
+                            epoch: record.epoch.0,
+                            profile: record.protocol_profile,
+                            disbanded: record.disbanded.is_some(),
+                        });
+                        if entries.len() == limit {
+                            break;
+                        }
+                    }
                     continue;
                 }
                 let authority = self.group_authority(&record.id)?;
@@ -69,19 +132,21 @@ impl<S: StorageProvider> Engine<S> {
                 if !membership.local_leaf_active {
                     continue;
                 }
-                entries.push(AccountChatCatalogEntry {
-                    local_leaf_index: self
-                        .with_mls_group(&record.id, |group| Ok(group.own_leaf_index().u32()))?,
-                    local_is_admin: authority.facts.is_admin,
-                    group_id: record.id,
-                    epoch: authority.facts.epoch.0,
-                    profile: record.protocol_profile,
-                });
+                entries.push(AccountChatCatalogObservation::Active(
+                    AccountChatCatalogEntry {
+                        local_leaf_index: self
+                            .with_mls_group(&record.id, |group| Ok(group.own_leaf_index().u32()))?,
+                        local_is_admin: authority.facts.is_admin,
+                        group_id: record.id,
+                        epoch: authority.facts.epoch.0,
+                        profile: record.protocol_profile,
+                    },
+                ));
                 if entries.len() == limit {
                     break;
                 }
             }
-            Ok(AccountChatCatalog {
+            Ok(AccountChatCatalogJournal {
                 protected: settled.candidate().clone(),
                 settlement_generation: settled.settlement_generation(),
                 entries,

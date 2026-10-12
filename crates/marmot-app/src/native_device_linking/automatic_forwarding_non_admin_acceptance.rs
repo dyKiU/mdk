@@ -10,6 +10,14 @@ async fn automatic_forwarding_reaches_independent_creator_through_non_admin_memb
     .await;
 }
 
+#[tokio::test]
+async fn automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure() {
+    actual::run_native_public_three_device_enrollment(
+        actual::ApprovalScenario::AutomaticWithdrawal,
+    )
+    .await;
+}
+
 pub(super) struct IncomingPeer {
     _root: tempfile::TempDir,
     app: MarmotApp,
@@ -156,5 +164,174 @@ impl IncomingPeer {
         })
         .await
         .expect("independent creator must receive the same canonical forwarded event");
+    }
+}
+
+impl IncomingPeer {
+    pub(super) async fn verify_withdrawal(
+        &self,
+        apps: &[MarmotApp; 3],
+        runtimes: &[MarmotAppRuntime; 3],
+        scope: &cgka_traits::mirrored_chat_catalog::MirroredChatScope,
+    ) {
+        use cgka_traits::{GroupStorage, StorageProvider};
+        let group_hex = hex::encode(self.group.as_slice());
+        let mut window = runtimes[2]
+            .open_account_chat_list_window("test", 128)
+            .await
+            .unwrap();
+        assert!(window.snapshot.rows.iter().any(|row| matches!(row,
+            crate::AccountChatRow::PairedSource(row) if row.group_id == self.group)));
+        // Local hide is projection-only. Do not replace it with an account-wide tombstone.
+        assert!(
+            runtimes[0]
+                .delete_group_local("test", &self.group)
+                .await
+                .unwrap()
+        );
+        assert!(apps[0].group("test", &group_hex).unwrap().is_none());
+        assert!(
+            !apps[0]
+                .account_storage("test")
+                .unwrap()
+                .get_group(&self.group)
+                .unwrap()
+                .is_terminal()
+        );
+        let rows = apps[2]
+            .account_storage("test")
+            .unwrap()
+            .mirrored_chat_catalog_storage()
+            .unwrap()
+            .mirrored_chat_catalog_page(scope, None, 128)
+            .unwrap();
+        assert!(rows.iter().any(|row| row.group_id == self.group
+            && row.state == cgka_traits::mirrored_chat_catalog::MirroredChatState::Active));
+        let fresh = self
+            .runtime
+            .send_message("test", &self.group, b"fresh after local-only hide".to_vec())
+            .await
+            .unwrap();
+        assert!(fresh.published == 1 && fresh.message_ids.len() == 1);
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            while apps[0]
+                .account_storage("test")
+                .unwrap()
+                .app_message(&group_hex, &fresh.message_ids[0])
+                .unwrap()
+                .is_none()
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("actual fresh ordinary traffic must restore the local hidden projection");
+        assert!(apps[0].group("test", &group_hex).unwrap().is_some());
+        let leave = runtimes[0].leave_group("test", &self.group).await.unwrap();
+        assert!(leave.published == 1);
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                let storage = apps[0].account_storage("test").unwrap();
+                let removed = storage.get_group(&self.group).unwrap().removed;
+                let peer = self
+                    .app
+                    .account_storage("test")
+                    .unwrap()
+                    .get_group(&self.group)
+                    .unwrap();
+                if removed && peer.members.len() == 1 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("real non-admin leave must become canonical at source and independent creator");
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                let receiver = apps[2].account_storage("test").unwrap();
+                let rows = receiver
+                    .mirrored_chat_catalog_storage()
+                    .unwrap()
+                    .mirrored_chat_catalog_page(scope, None, 128)
+                    .unwrap();
+                if let Some(row) = rows.iter().find(|row| row.group_id == self.group)
+                    && row.state == cgka_traits::mirrored_chat_catalog::MirroredChatState::Left
+                {
+                    assert!(row.name.is_empty() && row.description.is_empty());
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("actual approved source must deliver and commit an empty leave withdrawal");
+        tokio::time::timeout(std::time::Duration::from_secs(8), async {
+            loop {
+                let value = window
+                    .recv()
+                    .await
+                    .unwrap()
+                    .expect("original list owner remains live");
+                if !value.rows.iter().any(|row| {
+                    matches!(row,
+                    crate::AccountChatRow::PairedSource(row) if row.group_id == self.group)
+                }) {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("committed withdrawal must wake the held public list and remove the paired row");
+        window.window_handle().cancel();
+    }
+
+    pub(super) async fn verify_withdrawal_reopen(
+        &self,
+        runtimes: &[MarmotAppRuntime; 3],
+        roots: [&std::path::Path; 2],
+        url: &str,
+        still_active: &crate::GroupId,
+    ) {
+        runtimes[0].shutdown_and_close().await.unwrap();
+        runtimes[2].shutdown_and_close().await.unwrap();
+        assert!(runtimes[0].storage_is_closed() && runtimes[2].storage_is_closed());
+        let source = MarmotAppRuntime::new(MarmotApp::with_relay(roots[0], url));
+        let recipient = MarmotAppRuntime::new(MarmotApp::with_relay(roots[1], url));
+        source.reconcile_accounts().await.unwrap();
+        recipient.reconcile_accounts().await.unwrap();
+        let fresh = source
+            .send_message(
+                "test",
+                still_active,
+                b"fresh renewal after genuine leave".to_vec(),
+            )
+            .await
+            .unwrap();
+        assert!(fresh.published == 1 && fresh.message_ids.len() == 1);
+        let expected = &fresh.message_ids[0];
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            loop {
+                let window = recipient.open_account_conversation_window("test", still_active, 128).await.unwrap();
+                let present = window.snapshot.rows.iter().any(|row| matches!(row,
+                    crate::AccountConversationRow::PairedSource(row) if hex::encode(row.event_id) == *expected));
+                window.window_handle().cancel();
+                if present { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        }).await.expect("fresh approved-policy channel must deliver an unrelated ordinary message after encrypted reopen");
+        let window = recipient
+            .open_account_chat_list_window("test", 128)
+            .await
+            .unwrap();
+        assert!(
+            !window.snapshot.rows.iter().any(|row| matches!(row,
+            crate::AccountChatRow::PairedSource(row) if row.group_id == self.group)),
+            "retained old active catalog must not resurrect the left source route after renewal"
+        );
+        window.window_handle().cancel();
+        source.shutdown_and_close().await.unwrap();
+        recipient.shutdown_and_close().await.unwrap();
+        assert!(source.storage_is_closed() && recipient.storage_is_closed());
     }
 }

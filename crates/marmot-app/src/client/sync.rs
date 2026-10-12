@@ -6187,6 +6187,16 @@ impl AppClient {
         cleanup: &mut Option<Option<storage_sqlite::TimelineProjectionUpdate>>,
     ) -> Result<bool, AppError> {
         let mut routes_dirty = false;
+        #[cfg(feature = "experimental-device-sync")]
+        if let cgka_traits::engine::GroupEvent::LocalGroupCopyTerminated { group_id, .. }
+        | cgka_traits::engine::GroupEvent::GroupStateChanged {
+            group_id,
+            change: cgka_traits::engine::GroupStateChange::GroupDisbanded,
+            ..
+        } = event
+        {
+            self.invalidate_automatic_catalog_after_termination(group_id);
+        }
         // Timeline invalidation dispatch: `AppMessageInvalidated` withdraws
         // the delivered source row; `GroupStateInvalidated` withdraws every
         // kind-1210 system row stamped with the superseded commit's

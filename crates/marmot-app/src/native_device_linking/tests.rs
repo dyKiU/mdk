@@ -238,6 +238,7 @@ pub(super) mod actual {
         AutomaticForwardingReply,
         AutomaticForwardingOffline,
         AutomaticForwardingNonAdmin,
+        AutomaticWithdrawal,
         AutomaticForwardingReceiptRetry,
     }
     pub(super) async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
@@ -265,7 +266,10 @@ pub(super) mod actual {
         runtimes[0].reconcile_accounts().await.unwrap();
         // Establish the real incoming chat while A is the sole active public
         // installation. Account-level invitations may select any later sibling.
-        let incoming_peer = if scenario == ApprovalScenario::AutomaticForwardingNonAdmin {
+        let incoming_peer = if matches!(
+            scenario,
+            ApprovalScenario::AutomaticForwardingNonAdmin | ApprovalScenario::AutomaticWithdrawal
+        ) {
             Some(
                 super::automatic_forwarding_non_admin_acceptance::IncomingPeer::create(
                     &url,
@@ -733,9 +737,14 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticForwardingReply
                 | ApprovalScenario::AutomaticForwardingOffline
                 | ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticWithdrawal
                 | ApprovalScenario::AutomaticForwardingReceiptRetry
         ) {
-            if scenario == ApprovalScenario::AutomaticForwardingNonAdmin {
+            if matches!(
+                scenario,
+                ApprovalScenario::AutomaticForwardingNonAdmin
+                    | ApprovalScenario::AutomaticWithdrawal
+            ) {
                 Some(incoming_peer.as_ref().unwrap().group.clone())
             } else {
                 Some(
@@ -761,6 +770,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticForwardingReply
                 | ApprovalScenario::AutomaticForwardingOffline
                 | ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticWithdrawal
                 | ApprovalScenario::AutomaticForwardingReceiptRetry
         ) {
             let mut ids = super::automatic_records_acceptance::seed(
@@ -803,6 +813,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticForwardingReply
                 | ApprovalScenario::AutomaticForwardingOffline
                 | ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticWithdrawal
                 | ApprovalScenario::AutomaticForwardingReceiptRetry
         ) {
             // Select C from actual settled protected tree, never invent a target.
@@ -1151,6 +1162,7 @@ pub(super) mod actual {
                     | ApprovalScenario::AutomaticForwardingReply
                     | ApprovalScenario::AutomaticForwardingOffline
                     | ApprovalScenario::AutomaticForwardingNonAdmin
+                    | ApprovalScenario::AutomaticWithdrawal
                     | ApprovalScenario::AutomaticForwardingReceiptRetry
             ) {
                 super::automatic_records_acceptance::verify(
@@ -1167,6 +1179,7 @@ pub(super) mod actual {
                 scenario,
                 ApprovalScenario::AutomaticForwarding
                     | ApprovalScenario::AutomaticForwardingNonAdmin
+                    | ApprovalScenario::AutomaticWithdrawal
             ) {
                 super::automatic_forwarding_acceptance::verify(
                     &apps,
@@ -1178,6 +1191,30 @@ pub(super) mod actual {
             }
             if let Some(peer) = &incoming_peer {
                 peer.verify_forwarded_receipt(&runtimes[2]).await;
+            }
+            if scenario == ApprovalScenario::AutomaticWithdrawal {
+                let peer = incoming_peer.as_ref().unwrap();
+                peer.verify_withdrawal(&apps, &runtimes, &mirror).await;
+                source.cancel();
+                recipient.cancel();
+                a.cancel().await.unwrap();
+                c.cancel().await.unwrap();
+                approval.cancel().await.unwrap();
+                peer.verify_withdrawal_reopen(
+                    &runtimes,
+                    [dirs[0].path(), dirs[2].path()],
+                    &url,
+                    &later,
+                )
+                .await;
+                peer.runtime.shutdown_and_close().await.unwrap();
+                assert!(peer.runtime.storage_is_closed());
+                for runtime in runtimes {
+                    runtime.shutdown_and_close().await.unwrap();
+                    assert!(runtime.storage_is_closed());
+                }
+                relay.shutdown();
+                return;
             }
             if scenario == ApprovalScenario::AutomaticForwardingReply {
                 super::automatic_forwarding_acceptance::verify_reply(
@@ -1277,6 +1314,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticForwardingReply
                 | ApprovalScenario::AutomaticForwardingOffline
                 | ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticWithdrawal
                 | ApprovalScenario::AutomaticForwardingReceiptRetry
         ) && index == 0
             || app.load_state("test").unwrap().groups.is_empty()));
@@ -1292,6 +1330,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticForwardingReply
                 | ApprovalScenario::AutomaticForwardingOffline
                 | ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticWithdrawal
                 | ApprovalScenario::AutomaticForwardingReceiptRetry
         ) {
             let old = managers[0]
