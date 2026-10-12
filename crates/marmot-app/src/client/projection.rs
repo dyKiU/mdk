@@ -1514,6 +1514,7 @@ fn read_marker_error_code(error: &AppError) -> &'static str {
         AppError::UserBlocked => "read_marker_failed:user_blocked",
         AppError::BlockListUnavailable => "read_marker_failed:block_list_unavailable",
         AppError::BlockPublicationUncertain => "read_marker_failed:block_publication_uncertain",
+        AppError::AccountChatDepartureDenied => "read_marker_failed:account_chat_departure_denied",
     }
 }
 
