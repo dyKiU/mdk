@@ -68,7 +68,6 @@ pub(super) async fn verify_or_depart(
         scenario,
         actual::ApprovalScenario::AutomaticAccountDepartureOrdering
             | actual::ApprovalScenario::AutomaticAccountDepartureSourceWins
-            | actual::ApprovalScenario::AutomaticAccountDepartureDuplicateReceipt
     );
     let duplicate_probe = (scenario
         == actual::ApprovalScenario::AutomaticAccountDepartureDuplicateReceipt)
