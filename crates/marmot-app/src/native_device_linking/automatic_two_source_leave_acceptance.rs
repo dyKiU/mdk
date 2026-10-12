@@ -167,7 +167,7 @@ impl TwoSourcePeer {
         assert_eq!(future.published, 1);
         assert_eq!(future.message_ids.len(), 1);
         let group_hex = hex::encode(self.group.as_slice());
-        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        let delivery = tokio::time::timeout(std::time::Duration::from_secs(30), async {
             loop {
                 let storage = self.app.account_storage("test").unwrap();
                 if future
@@ -180,8 +180,39 @@ impl TwoSourcePeer {
                 tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             }
         })
-        .await
-        .expect("independent D must actually decrypt surviving B ordinary send");
+        .await;
+        if delivery.is_err() {
+            use futures::FutureExt;
+            let diagnostics = tokio::time::timeout(std::time::Duration::from_secs(5),
+                std::panic::AssertUnwindSafe(async {
+                    use cgka_traits::storage::MessageStorage;
+                    use sha2::{Digest, Sha256};
+                    let source = apps[1].account_storage("test").map_err(|_| ())?;
+                    let recipient = self.app.account_storage("test").map_err(|_| ())?;
+                    let branches = super::automatic_account_departure_acceptance::compare_actual_branches_for_test(&source,&recipient,&self.group).map_err(|_| ())?;
+                    eprintln!("two_source_delivery_failure_actual_branch_epochs_and_equal={branches:?}");
+                    for id in &future.message_ids {
+                        let outer = cgka_traits::MessageId::new(hex::decode(id).map_err(|_| ())?);
+                        let row = source.get_message(&outer).map_err(|_| ())?;
+                        let payload = cgka_traits::message::StoredMessagePayload::decode(&row.payload).map_err(|_| ())?;
+                        let wire = payload.as_openmls_wire().ok_or(())?;
+                        let content = cgka_traits::MessageId::new(Sha256::digest(&wire.payload).to_vec());
+                        let canonical = match recipient.get_message(&content) {
+                            Ok(row) => Some((row.epoch.0, row.state)),
+                            Err(cgka_traits::StorageError::NotFound) => None,
+                            Err(_) => return Err(()),
+                        };
+                        let alias = recipient.app_message(&group_hex,&hex::encode(content.as_slice())).map_err(|_| ())?.is_some();
+                        eprintln!("two_source_delivery_failure_source_state={:?} recipient_canonical={canonical:?} canonical_alias_delivered={alias}",row.state);
+                    }
+                    Ok::<(), ()>(())
+                }).catch_unwind()).await;
+            eprintln!(
+                "two_source_delivery_failure_diagnostics_unknown={}",
+                !matches!(diagnostics, Ok(Ok(Ok(()))))
+            );
+        }
+        delivery.expect("independent D must actually decrypt surviving B ordinary send");
         let b_device = apps[1]
             .account_storage("test")
             .unwrap()

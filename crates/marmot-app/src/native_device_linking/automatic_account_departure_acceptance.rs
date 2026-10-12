@@ -559,6 +559,21 @@ struct CurrentBranchObservation {
     authenticator_digest: [u8; 32],
     selected_head_digest: [u8; 32],
 }
+pub(super) fn compare_actual_branches_for_test(
+    source: &storage_sqlite::SqliteAccountStorage,
+    recipient: &storage_sqlite::SqliteAccountStorage,
+    group: &cgka_traits::GroupId,
+) -> Result<(u64, u64, bool, bool), cgka_traits::StorageError> {
+    let source = current_branch_observation(source, group)?;
+    let recipient = current_branch_observation(recipient, group)?;
+    Ok((
+        source.epoch,
+        recipient.epoch,
+        source.authenticator_digest == recipient.authenticator_digest,
+        source.selected_head_digest == recipient.selected_head_digest,
+    ))
+}
+
 fn current_branch_observation(
     storage: &storage_sqlite::SqliteAccountStorage,
     group: &cgka_traits::GroupId,
