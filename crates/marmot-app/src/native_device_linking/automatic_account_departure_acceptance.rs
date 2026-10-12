@@ -219,7 +219,15 @@ pub(super) async fn verify(
                     eprintln!("account_departure_timeout_d_commit_sdk_cached_filter_untimed={:?}",plane.account_sdk_event_observation_for_test(&account,&serde_json::to_string(event).unwrap()).await);
                 }
                 let received = match reopened_app.account_storage("test").unwrap().get_message(id) { Ok(row)=>Ok(Some((row.epoch.0,row.state))), Err(cgka_traits::StorageError::NotFound)=>Ok(None), Err(_)=>Err("Unknown") };
-                eprintln!("account_departure_timeout_exact_d_commit_relay={retained:?} b_received={received:?}");
+                eprintln!("account_departure_timeout_exact_d_commit_relay={retained:?} b_outer_row={received:?}");
+                let source_store = peer.app.account_storage("test").unwrap();
+                let source = source_store.get_message(id).unwrap();
+                let source_payload = cgka_traits::message::StoredMessagePayload::decode(&source.payload).unwrap();
+                let source_wire = source_payload.as_openmls_wire().expect("actual D cached commit wire");
+                use sha2::{Digest,Sha256};
+                let content = cgka_traits::MessageId::new(Sha256::digest(&source_wire.payload).to_vec());
+                let canonical = match reopened_app.account_storage("test").unwrap().get_message(&content) { Ok(row)=>Ok(Some((row.epoch.0,row.state))), Err(cgka_traits::StorageError::NotFound)=>Ok(None), Err(_)=>Err("Unknown") };
+                eprintln!("account_departure_timeout_exact_d_commit_b_canonical_row={canonical:?}");
             }
             if let Some(published) = &published_branch {
                 let observed = current_branch_observation(&reopened_app.account_storage("test").unwrap(),&peer.group).map(|current| (current.epoch==published.epoch,current.authenticator_digest==published.authenticator_digest,current.selected_head_digest==published.selected_head_digest)).map_err(|_|"Unknown");
@@ -451,7 +459,9 @@ async fn observe_public_leave_failure(
                     .is_some(),
             );
         }
-        match administrator.get_message(&record.id) {
+        use sha2::{Digest, Sha256};
+        let canonical_id = cgka_traits::MessageId::new(Sha256::digest(&wire.payload).to_vec());
+        match administrator.get_message(&canonical_id) {
             Ok(row) => {
                 received += 1;
                 processed += usize::from(row.state == MessageState::Processed);
