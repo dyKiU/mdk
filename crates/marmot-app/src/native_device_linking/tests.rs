@@ -245,6 +245,7 @@ pub(super) mod actual {
         AutomaticDepartureFfiFixture,
         AutomaticAccountDeparture,
         AutomaticAccountDepartureOrdering,
+        AutomaticAccountDepartureFreshRejoin,
         AutomaticRecordGenerationRenewal,
         AutomaticHeldThreeBInitiates,
         AutomaticHeldThreeCInitiates,
@@ -303,6 +304,7 @@ pub(super) mod actual {
             ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
                 | ApprovalScenario::AutomaticAccountDeparture
+                | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
                 | ApprovalScenario::AutomaticAccountDepartureOrdering
         ) {
             Some(
@@ -427,6 +429,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
                 | ApprovalScenario::AutomaticAccountDeparture
+                | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
                 | ApprovalScenario::AutomaticAccountDepartureOrdering
                 | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
@@ -771,6 +774,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
                 | ApprovalScenario::AutomaticAccountDeparture
+                | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
                 | ApprovalScenario::AutomaticAccountDepartureOrdering
                 | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
@@ -886,6 +890,7 @@ pub(super) mod actual {
                         | ApprovalScenario::AutomaticTwoLegitimateSources
                         | ApprovalScenario::AutomaticDepartureFfiFixture
                         | ApprovalScenario::AutomaticAccountDeparture
+                        | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
                         | ApprovalScenario::AutomaticAccountDepartureOrdering
                         | ApprovalScenario::BroadEnrollment
                         | ApprovalScenario::BroadPreAuthFailure
@@ -1020,6 +1025,7 @@ pub(super) mod actual {
                 scenario,
                 ApprovalScenario::AutomaticDepartureFfiFixture
                     | ApprovalScenario::AutomaticAccountDeparture
+                    | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
                     | ApprovalScenario::AutomaticAccountDepartureOrdering
             );
             if departure_scenario {
@@ -1088,12 +1094,14 @@ pub(super) mod actual {
             let departure_result = if matches!(
                 scenario,
                 ApprovalScenario::AutomaticAccountDeparture
+                    | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
                     | ApprovalScenario::AutomaticAccountDepartureOrdering
             ) {
                 use futures::FutureExt;
                 Some(
                     std::panic::AssertUnwindSafe(
-                        super::automatic_account_departure_acceptance::verify(
+                        super::automatic_account_departure_rejoin_acceptance::verify_or_depart(
+                            scenario == ApprovalScenario::AutomaticAccountDepartureFreshRejoin,
                             &apps,
                             &runtimes,
                             &peer,
@@ -2499,3 +2507,10 @@ mod automatic_account_departure_acceptance;
 ))]
 #[path = "automatic_fresh_rejoin_acceptance.rs"]
 mod automatic_fresh_rejoin_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_account_departure_rejoin_acceptance.rs"]
+mod automatic_account_departure_rejoin_acceptance;

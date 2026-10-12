@@ -419,7 +419,7 @@ async fn converge_and_send(
 // setup poll frame. Type erasure prevents that frame from retaining its concrete
 // temporary size; the same actual confirmed effects still pass through App.
 #[inline(never)]
-fn observe_confirmed_invite<'a>(
+pub(super) fn observe_confirmed_invite<'a>(
     client: &'a mut crate::AppClient,
     effects: &'a marmot_account::AccountDeviceEffects,
 ) -> std::pin::Pin<
