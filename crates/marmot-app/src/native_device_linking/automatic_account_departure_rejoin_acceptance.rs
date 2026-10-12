@@ -140,14 +140,14 @@ async fn verify_fresh_sources(
         a_owner = Some(Box::pin(owners[0].client("test")).await.unwrap());
         b_owner = Some(Box::pin(owners[1].client("test")).await.unwrap());
         d_owner = Some(Box::pin(owners[2].client("test")).await.unwrap());
-        let mut a = a_owner.as_mut().unwrap();
-        let mut b = b_owner.as_mut().unwrap();
-        let mut d = d_owner.as_mut().unwrap();
+        let a = a_owner.as_mut().unwrap();
+        let b = b_owner.as_mut().unwrap();
+        let d = d_owner.as_mut().unwrap();
         let first = invite_exact_source(
             &owners[2],
             &owners[0],
-            &mut a,
-            &mut d,
+            a,
+            d,
             InvitationContext {
                 group: &peer.group,
                 url,
@@ -159,8 +159,8 @@ async fn verify_fresh_sources(
         let second = invite_exact_source(
             &owners[2],
             &owners[1],
-            &mut b,
-            &mut d,
+            b,
+            d,
             InvitationContext {
                 group: &peer.group,
                 url,
@@ -173,8 +173,8 @@ async fn verify_fresh_sources(
             assert_mirror_absent(&runtimes[2], &peer.group).await;
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
-        accept_welcome(&owners[0], &mut a, &peer.group, first).await;
-        accept_welcome(&owners[1], &mut b, &peer.group, second).await;
+        accept_welcome(&owners[0], a, &peer.group, first).await;
+        accept_welcome(&owners[1], b, &peer.group, second).await;
         for (index, app) in owners[..2].iter().enumerate() {
             let (device, origin) = source_observation(app, &peer.group);
             assert!(
