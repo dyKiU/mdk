@@ -406,7 +406,7 @@ mod tests {
     #[test]
     fn every_runtime_error_variant_maps_to_a_distinct_status() {
         let _guard = crate::memory::audit::test_lock();
-        // Every `MarmotKitError` variant, in declaration order. `status_from_error`'s
+        // Every `MarmotKitError` variant. `status_from_error`'s
         // exhaustive match forces a new arm for a new variant; add the variant
         // here too so a duplicated or renumbered stable status cannot pass.
         let variants: Vec<MarmotKitError> = vec![
@@ -592,6 +592,31 @@ mod tests {
             MarmotKitError::AccountSharingClosed,
             MarmotKitError::AccountSharingStaleRevision,
             MarmotKitError::AccountSharingRuntimeUnavailable,
+            MarmotKitError::DeviceLinkingUnsupported,
+            MarmotKitError::DeviceLinkingClosed,
+            MarmotKitError::DeviceLinkingInvalidPacket,
+            MarmotKitError::DeviceLinkingNotReady,
+            MarmotKitError::DeviceLinkingStaleRevision,
+            MarmotKitError::DeviceLinkingRuntimeUnavailable,
+            MarmotKitError::SelectedChatCopyUnsupported,
+            MarmotKitError::SelectedChatCopyNotReady,
+            MarmotKitError::SelectedChatCopyInvalidSelection,
+            MarmotKitError::SelectedChatCopyUnsupportedGroup,
+            MarmotKitError::SelectedChatCopyNotAdmin,
+            MarmotKitError::SelectedChatCopyBusy,
+            MarmotKitError::SelectedChatCopyRuntimeUnavailable,
+            MarmotKitError::SelectedChatCopyInvalidPacket,
+            MarmotKitError::SelectedChatCopyStaleRevision,
+            MarmotKitError::SelectedChatCopyClosed,
+            MarmotKitError::HistoryTransferUnsupported,
+            MarmotKitError::HistoryTransferNotReady,
+            MarmotKitError::HistoryTransferClosed,
+            MarmotKitError::HistoryTransferStaleRevision,
+            MarmotKitError::HistoryTransferRuntimeUnavailable,
+            MarmotKitError::SynchronizedHistoryUnsupported,
+            MarmotKitError::SynchronizedHistoryInvalidQuery,
+            MarmotKitError::SynchronizedHistoryUnavailable,
+            MarmotKitError::SynchronizedHistoryInvalidRecord,
             MarmotKitError::DeviceRevocationUnsupported,
             MarmotKitError::DeviceRevocationNotReady,
             MarmotKitError::DeviceRevocationClosed,
@@ -602,7 +627,7 @@ mod tests {
         ];
         assert_eq!(
             variants.len(),
-            91,
+            123,
             "list every MarmotKitError variant exactly once (update this count with the enum)"
         );
         assert_eq!(status_from_error(&MarmotKitError::UserBlocked) as i32, 78);
