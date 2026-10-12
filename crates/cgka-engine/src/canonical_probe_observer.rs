@@ -124,30 +124,18 @@ pub(crate) fn result(group: &GroupId, own_leaf: u32, result: &CanonicalizationRe
                 .iter()
                 .find(|r| r.decisive)
                 .map(|r| r.rule_name);
-            let mut rivals = trace.candidates.iter().filter(|candidate| {
-                candidate.eligible
-                    && candidate.branch_id != target.branch_id
-                    && candidate.fork_epoch == target.fork_epoch
-                    && candidate.tip_epoch == target.tip_epoch
-            });
             if target.eligible
-                && let Some(rival) = rivals.next()
-                && rivals.next().is_none()
+                && let Some(rule) = trace
+                    .rule_trace
+                    .iter()
+                    .find(|rule| rule.decisive && rule.rule_name == "tip_committer")
+                && trace.selected_branch_id.as_ref() == Some(&rule.winner_branch_id)
+                && trace.candidates.iter().any(|candidate| {
+                    candidate.branch_id == rule.other_branch_id && candidate.eligible
+                })
             {
-                let a = &target.score;
-                let b = &rival.score;
-                let equal_prior = a.effective_commit_depth == b.effective_commit_depth
-                    && a.witness_quorum_met == b.witness_quorum_met
-                    && a.app_witness_score == b.app_witness_score
-                    && a.tip_priority == b.tip_priority;
-                if equal_prior && a.tip_committer != b.tip_committer {
-                    o.target_won_by_committer |= trace.selected_branch_id.as_ref()
-                        == Some(&target.branch_id)
-                        && a.tip_committer < b.tip_committer;
-                    o.target_lost_by_committer |= trace.selected_branch_id.as_ref()
-                        == Some(&rival.branch_id)
-                        && a.tip_committer > b.tip_committer;
-                }
+                o.target_won_by_committer |= target.branch_id == rule.winner_branch_id;
+                o.target_lost_by_committer |= target.branch_id == rule.other_branch_id;
             }
         }
     });
