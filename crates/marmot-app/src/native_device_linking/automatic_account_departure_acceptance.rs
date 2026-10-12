@@ -208,7 +208,7 @@ pub(super) async fn verify(
                 let observed = current_branch_observation(&reopened_app.account_storage("test").unwrap(),&peer.group).map(|current| (current.epoch==published.epoch,current.authenticator_digest==published.authenticator_digest,current.selected_head_digest==published.selected_head_digest)).map_err(|_|"Unknown");
                 eprintln!("account_departure_timeout_b_current_matches_published_branch={observed:?}");
             }
-            eprintln!("account_departure_public_leave_observation={:?}", observe_public_leave_failure(&reopened_app, peer, relay_database).await.map(|o| (o.administrator_epoch,o.administrator_pending_proposals,o.source_sent_proposals,o.administrator_received_proposals,o.administrator_processed_proposals,o.source_pending_fanouts,o.relay_retained_proposals,o.same_epoch,o.same_epoch_authenticator,o.same_selected_head)).map_err(|_| "Unknown"));
+            eprintln!("account_departure_public_leave_observation={:?}", observe_public_leave_failure(&reopened_app, peer, relay_database).await.map(|o| (o.administrator_epoch,o.administrator_pending_proposals,o.source_sent_proposals,o.administrator_received_proposals,o.administrator_processed_proposals,o.source_pending_fanouts,o.relay_retained_proposals,o.same_epoch,o.same_epoch_authenticator,o.same_selected_head,o.source_proposal_states)).map_err(|_| "Unknown"));
             eprintln!(
                 "account_departure_timeout_d_leaves={} a_present={} b_present={}",
                 indices.len(),
@@ -233,8 +233,11 @@ pub(super) async fn verify(
                     "account_departure_timeout_peer={index} actual_local_leaf={:?}",
                     leaf.map_err(|error| error.privacy_safe_kind())
                 );
+                let mls = runtime.group_mls_state("test", &peer.group).await;
+                eprintln!("account_departure_timeout_peer={index} actual_mls_lifecycle={:?}",mls.map(|state|(state.lifecycle_state,state.epoch,state.unrecoverable,state.member_count)).map_err(|error|error.privacy_safe_kind()));
                 let app = if index == 1 { &reopened_app } else { &apps[index] };
                 let store = app.account_storage("test").unwrap();
+                eprintln!("account_departure_timeout_peer={index} stored_group_flags={:?}",store.get_group(&peer.group).map(|row|(row.removed,row.unrecoverable,row.epoch.0)).map_err(|_|"Unknown"));
                 let policies = store
                     .approved_account_sharing_policy_storage()
                     .unwrap()
@@ -349,6 +352,7 @@ struct PublicLeaveObservation {
     same_epoch: bool,
     same_epoch_authenticator: bool,
     same_selected_head: bool,
+    source_proposal_states: [usize; 8],
 }
 
 /// Observe the actual durable proposal and administrator queue, never a grant.
@@ -378,14 +382,14 @@ async fn observe_public_leave_failure(
     let current = source.get_group(&peer.group)?.epoch;
     let records = source.list_messages(&peer.group, current)?;
     let (mut sent, mut received, mut processed, mut relay_retained) = (0, 0, 0, 0);
-    for record in records
-        .iter()
-        .take(128)
-        .filter(|row| row.state == MessageState::Sent)
-    {
+    let mut source_proposal_states = [0; 8];
+    for record in records.iter().take(128) {
         let Ok(payload) = StoredMessagePayload::decode(&record.payload) else {
             continue;
         };
+        if payload.as_exact_transport().is_none() {
+            continue;
+        }
         let Some(wire) = payload.as_openmls_wire() else {
             continue;
         };
@@ -398,6 +402,20 @@ async fn observe_public_leave_failure(
             _ => continue,
         };
         if protocol.content_type() != ContentType::Proposal {
+            continue;
+        }
+        let state_index = match record.state {
+            MessageState::Sent => 0,
+            MessageState::Created => 1,
+            MessageState::Processed => 2,
+            MessageState::Failed => 3,
+            MessageState::Retryable => 4,
+            MessageState::ConvergenceDeferred => 5,
+            MessageState::PeelDeferred => 6,
+            MessageState::EpochInvalidated => 7,
+        };
+        source_proposal_states[state_index] += 1;
+        if record.state != MessageState::Sent {
             continue;
         }
         sent += 1;
@@ -434,6 +452,7 @@ async fn observe_public_leave_failure(
         administrator_processed_proposals: processed,
         source_pending_fanouts: fanouts,
         relay_retained_proposals: relay_retained,
+        source_proposal_states,
         same_epoch: source_branch.epoch == administrator_branch.epoch,
         same_epoch_authenticator: source_branch.authenticator_digest
             == administrator_branch.authenticator_digest,
