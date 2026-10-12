@@ -886,14 +886,13 @@ impl AppClient {
             None,
         );
         self.promote_approved_automatic_requests(&policies)
-            .map_err(|error| {
+            .inspect_err(|_error| {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 self.test_trace_catalog_stage(
                     "maintain_promote",
-                    diagnostics::sharing_category(&error),
+                    diagnostics::sharing_category(_error),
                     None,
                 );
-                error
             })?;
 
         let current: Vec<_> = policies
