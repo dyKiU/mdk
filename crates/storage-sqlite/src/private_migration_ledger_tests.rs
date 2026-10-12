@@ -821,7 +821,7 @@ fn private_revision26_replaces_known25_view_and_rejects_old_fingerprint_after_up
         .unwrap();
     assert_ne!(prior, current);
     assert!(current.contains("account_chat_departure_cuts"));
-    assert_eq!(conn.query_row("SELECT count(*) FROM cgka_experimental_device_sync_schema_migrations WHERE version=26 AND name='0026_account_chat_departure'",[],|row|row.get::<_,u64>(0)).unwrap(),1);
+    assert_eq!(conn.query_row("SELECT count(*) FROM cgka_experimental_device_sync_schema_migrations WHERE version=26 AND name='0026_account_chat_departure'",[],|row|row.get::<_,i64>(0)).unwrap(),1);
     // The existing per-revision reference schemas accept the intentional view
     // replacement, but the committed26 ledger requires its exact new SQL.
     conn.execute_batch(&format!("DROP VIEW mirrored_chat_live_catalog; {prior};"))
@@ -831,7 +831,7 @@ fn private_revision26_replaces_known25_view_and_rejects_old_fingerprint_after_up
         conn.query_row(
             "SELECT count(*) FROM cgka_experimental_device_sync_schema_migrations WHERE version=26",
             [],
-            |row| row.get::<_, u64>(0)
+            |row| row.get::<_, i64>(0)
         )
         .unwrap(),
         1

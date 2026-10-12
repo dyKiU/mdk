@@ -1057,11 +1057,11 @@ fn immutable_departure_rows_refuse_raw_replace_and_upsert_without_recursive_trig
                 )
                 .unwrap();
             assert_eq!(after, original);
-            let cut:(Vec<u8>,u64)=conn.query_row("SELECT origin_id,origin_order FROM account_chat_departure_cuts WHERE action_id=?1",[intent.action_id.as_slice()],|row|Ok((row.get(0)?,row.get(1)?))).unwrap();
+            let cut:(Vec<u8>,i64)=conn.query_row("SELECT origin_id,origin_order FROM account_chat_departure_cuts WHERE action_id=?1",[intent.action_id.as_slice()],|row|Ok((row.get(0)?,row.get(1)?))).unwrap();
             assert!(
                 cut == (
                     intent.targets[0].accepted_origin.id.to_vec(),
-                    intent.targets[0].accepted_origin.order
+                    intent.targets[0].accepted_origin.order as i64
                 )
             );
             let route:(bool,bool,bool)=conn.query_row("SELECT acknowledged,complete,final_acknowledged FROM account_chat_departure_routes WHERE action_id=?1",[intent.action_id.as_slice()],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
