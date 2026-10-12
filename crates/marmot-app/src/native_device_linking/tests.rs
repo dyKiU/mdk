@@ -2406,12 +2406,17 @@ mod automatic_held_three_original_acceptance;
 #[path = "automatic_two_source_leave_acceptance.rs"]
 mod automatic_two_source_leave_acceptance;
 
-
-#[cfg(all(feature = "experimental-device-sync",feature = "test-policy-overrides"))]
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 #[path = "account_departure_ffi_fixture.rs"]
 mod account_departure_ffi_fixture;
 
-#[cfg(all(feature = "experimental-device-sync",feature = "test-policy-overrides"))]
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 #[path = "automatic_account_departure_acceptance.rs"]
 mod automatic_account_departure_acceptance;
 
@@ -2421,4 +2426,3 @@ mod automatic_account_departure_acceptance;
 ))]
 #[path = "automatic_fresh_rejoin_acceptance.rs"]
 mod automatic_fresh_rejoin_acceptance;
-

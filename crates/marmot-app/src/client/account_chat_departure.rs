@@ -3,6 +3,7 @@ use crate::{
     AccountChatDepartureReason, AccountChatDepartureState, AccountChatDepartureStatus, AppError,
     GroupId,
 };
+use cgka_traits::storage::GroupStorage;
 
 impl AppClient {
     pub(crate) fn account_chat_departure_state(

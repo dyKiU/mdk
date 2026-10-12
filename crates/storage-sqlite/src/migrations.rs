@@ -915,6 +915,8 @@ mod private_migration_0023_chat_source_acceptance;
 mod private_migration_0024_legacy_chat_acceptance;
 #[path = "private_migrations/0025_mirrored_chat_origins.rs"]
 mod private_migration_0025_mirrored_chat_origins;
+#[path = "private_migrations/0026_account_chat_departure.rs"]
+mod private_migration_0026_account_chat_departure;
 
 const PRIVATE_MIGRATIONS: &[Migration] = &[
     Migration {
@@ -1041,6 +1043,11 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
         version: 25,
         name: "0025_mirrored_chat_origins",
         apply: private_migration_0025_mirrored_chat_origins::apply,
+    },
+    Migration {
+        version: 26,
+        name: "0026_account_chat_departure",
+        apply: private_migration_0026_account_chat_departure::apply,
     },
 ];
 

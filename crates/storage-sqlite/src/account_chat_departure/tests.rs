@@ -35,11 +35,25 @@ fn configure(storage: &SqliteAccountStorage) {
     );
 }
 fn set_source_origin(storage: &SqliteAccountStorage, source: [u8; 32], origin: AcceptedChatOrigin) {
-    storage.lock().unwrap().execute(
-        "INSERT INTO mirrored_chat_origin_current(account,local_device,source_device,group_id,origin_id,origin_order,epoch) VALUES(?1,?2,?3,?4,?5,?6,?6)
-         ON CONFLICT(account,local_device,source_device,group_id) DO UPDATE SET origin_id=excluded.origin_id,origin_order=excluded.origin_order,epoch=excluded.epoch",
-        params![[1u8;32].as_slice(),[2u8;32].as_slice(),source.as_slice(),[8u8;16].as_slice(),origin.id.as_slice(),origin.order as i64],
-    ).unwrap();
+    let conn = storage.lock().unwrap();
+    let exists:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM mirrored_chat_origin_current WHERE account=?1 AND local_device=?2 AND source_device=?3 AND group_id=?4)",params![[1u8;32].as_slice(),[2u8;32].as_slice(),source.as_slice(),[8u8;16].as_slice()],|row|row.get(0)).unwrap();
+    let sql = if exists {
+        "UPDATE mirrored_chat_origin_current SET origin_id=?5,origin_order=?6,epoch=?6 WHERE account=?1 AND local_device=?2 AND source_device=?3 AND group_id=?4"
+    } else {
+        "INSERT INTO mirrored_chat_origin_current(account,local_device,source_device,group_id,origin_id,origin_order,epoch) VALUES(?1,?2,?3,?4,?5,?6,?6)"
+    };
+    conn.execute(
+        sql,
+        params![
+            [1u8; 32].as_slice(),
+            [2u8; 32].as_slice(),
+            source.as_slice(),
+            [8u8; 16].as_slice(),
+            origin.id.as_slice(),
+            origin.order as i64
+        ],
+    )
+    .unwrap();
 }
 fn fixture_intent() -> AccountChatDepartureIntent {
     let mut intent = AccountChatDepartureIntent {
@@ -773,5 +787,137 @@ fn source_local_origin_orders_do_not_globally_supersede_other_sources() {
                 })
             )
             .unwrap()
+    );
+}
+
+#[test]
+fn departure_cut_removes_live_disclosure_and_blocks_late_records_but_not_fresh_lineage() {
+    use cgka_traits::{
+        group::ProtocolProfile,
+        mirrored_chat_catalog::{
+            MirroredChatCatalogStorage, MirroredChatEntry, MirroredChatScope, MirroredChatState,
+        },
+        mirrored_chat_messages::{MirroredChatMessageStorage, MirroredChatRecord},
+    };
+    let storage = configured();
+    let intent = fixture_intent();
+    let scope = MirroredChatScope {
+        account: [1; 32],
+        local_device: [2; 32],
+        source_device: [3; 32],
+        policy_digest: [6; 32],
+        protected_group: intent.protected_group.clone(),
+        protected_generation: 1,
+    };
+    let mut catalog = MirroredChatEntry {
+        group_id: intent.group.clone(),
+        source_epoch: 2,
+        source_sequence: 1,
+        source_digest: [8; 32],
+        profile: ProtocolProfile::Current,
+        name: "paired fixture".into(),
+        description: String::new(),
+        state: MirroredChatState::Active,
+        accepted_origin: Some(intent.targets[0].accepted_origin),
+        same_account_source_count: Some(1),
+    };
+    storage
+        .apply_mirrored_chat_catalog(&scope, &[catalog.clone()], &|| Ok(()))
+        .unwrap();
+    let payload = serde_json::to_vec(&("fixture", Vec::<Vec<String>>::new())).unwrap();
+    let mut record = MirroredChatRecord {
+        event_id: [8; 32],
+        author: [7; 32],
+        created_at: 10,
+        kind: 9,
+        content_digest: Some(Sha256::digest(&payload).into()),
+        payload,
+        expires_at: None,
+        deleted: false,
+        source_epoch: 2,
+        source_sequence: 1,
+        source_digest: [8; 32],
+        accepted_origin: catalog.accepted_origin,
+    };
+    storage
+        .apply_mirrored_chat_messages(&scope, &intent.group, &[record.clone()], 1, &|| Ok(()))
+        .unwrap();
+    assert_eq!(
+        storage
+            .account_conversation_observation_window(&[scope.clone()], &intent.group, None, 128, 1)
+            .unwrap()
+            .len(),
+        1
+    );
+    storage
+        .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+        .unwrap();
+    assert!(
+        storage
+            .mirrored_catalog_observation_page(&[scope.clone()], None, 128)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        storage
+            .account_conversation_observation_window(&[scope.clone()], &intent.group, None, 128, 1)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        storage
+            .current_mirrored_chat_origin_observation(&[1; 32], &[2; 32], &[3; 32], &intent.group)
+            .unwrap()
+            == catalog.accepted_origin
+    );
+    catalog.source_sequence = 2;
+    record.source_sequence = 2;
+    assert_eq!(
+        storage
+            .apply_mirrored_chat_catalog(&scope, &[catalog.clone()], &|| Ok(()))
+            .unwrap(),
+        0
+    );
+    assert!(
+        storage
+            .apply_mirrored_chat_messages(&scope, &intent.group, &[record.clone()], 1, &|| Ok(()))
+            .is_err()
+    );
+    catalog.accepted_origin = Some(AcceptedChatOrigin {
+        id: [5; 32],
+        order: 3,
+    });
+    catalog.source_epoch = 3;
+    catalog.source_sequence = 3;
+    storage
+        .apply_mirrored_chat_catalog(&scope, &[catalog.clone()], &|| Ok(()))
+        .unwrap();
+    assert_eq!(
+        storage
+            .mirrored_catalog_observation_page(&[scope.clone()], None, 128)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        storage
+            .account_conversation_observation_window(&[scope.clone()], &intent.group, None, 128, 1)
+            .unwrap()
+            .is_empty()
+    );
+    record.event_id = [9; 32];
+    record.source_digest = [9; 32];
+    record.source_sequence = 3;
+    record.source_epoch = 3;
+    record.accepted_origin = catalog.accepted_origin;
+    storage
+        .apply_mirrored_chat_messages(&scope, &intent.group, &[record], 1, &|| Ok(()))
+        .unwrap();
+    assert_eq!(
+        storage
+            .account_conversation_observation_window(&[scope], &intent.group, None, 128, 1)
+            .unwrap()
+            .len(),
+        1
     );
 }

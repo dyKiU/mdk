@@ -81,3 +81,27 @@ after fresh pending work, concurrent same-lineage pending/completed operations,
 missing metadata, fresh origins without an operation, and unrelated sources
 with different local origin counters. These checks remain uncompiled and
 unrun pending the actual private25 schema and a coordinated compiler loan.
+
+## Separate candidate integration
+
+Branch `codex/account-wide-departure-candidate-eae759` combines exact source
+eae759e966a3050e98689d9afeb6ec5122ee7a06 with the preserved 0da8 departure
+checkpoint. The original departure branch remains unchanged. Merge conflicts
+were confined to additive automatic actor module/maintenance hooks and native
+test child registrations; both rejoin and departure behavior was retained.
+The genuine FFI child source8c953e36086be2459524dd13e98bd4c064137549 is adopted
+as861a5e91 on this candidate.
+
+The real private25 migration now precedes private26. Private26 extends the
+shared live-catalog SQL view with exact account/local/group/source negative
+cuts, so existing locked list/header/history reads and message lineage triggers
+all honor departure. Explicit connection-only checks also refuse cut Active
+catalog writes and message appends, without recursively acquiring a SQL lock.
+Added synthetic storage acceptance source checks existing disclosure removal,
+late-record refusal, retained-origin observations, and fresh-lineage reopening
+without disclosing old records. This is not transport or membership evidence.
+
+Catalog origin/count and every canonical record origin use the exact adopted
+optional serde contracts; no private25 live worktree or compiler/cache lane was
+changed. Candidate integration remains unqualified: no compilation, native ABI
+acceptance, SDK generation/promotion or fork passing publication has occurred.

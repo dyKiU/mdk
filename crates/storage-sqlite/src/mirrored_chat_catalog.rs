@@ -235,6 +235,7 @@ impl MirroredChatCatalogStorage for SqliteAccountStorage {
                         continue;
                     }
                 }
+                if entry.state==MirroredChatState::Active && crate::account_chat_departure::account_chat_departure_denies_source_on_connection(&conn,&scope.account,&scope.local_device,&entry.group_id,&scope.source_device,entry.accepted_origin)? {continue;}
                 if !prepare_lineage(&conn,scope,entry)? {continue;}
                 if let Some(old)=previous {
                     if entry.source_sequence<old.source_sequence {continue;}

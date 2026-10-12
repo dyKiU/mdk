@@ -43,7 +43,16 @@ pub(crate) fn apply(tx: &Transaction<'_>) -> StorageResult<()> {
          CREATE TRIGGER account_departure_cut_keep BEFORE DELETE ON account_chat_departure_cuts
           BEGIN SELECT RAISE(ABORT,'account departure cut retained'); END;
          CREATE TRIGGER account_departure_cut_immutable BEFORE UPDATE ON account_chat_departure_cuts
-          BEGIN SELECT RAISE(ABORT,'account departure cut immutable'); END;",
+          BEGIN SELECT RAISE(ABORT,'account departure cut immutable'); END;
+         DROP VIEW mirrored_chat_live_catalog;
+         CREATE VIEW mirrored_chat_live_catalog AS SELECT c.* FROM mirrored_chat_catalog c JOIN mirrored_chat_scopes s USING(scope) WHERE c.state=0
+ AND NOT EXISTS(SELECT 1 FROM mirrored_chat_origin_fences f WHERE f.account=s.account AND f.local_device=s.local_device AND f.source_device=s.source_device AND f.group_id=c.group_id AND (f.state=2 OR f.origin_id=c.origin_id OR (f.origin_order=0 AND (c.origin_id IS NULL OR f.epoch>=json_extract(c.record,'$.source_epoch')))))
+ AND ((c.origin_id IS NULL AND NOT EXISTS(SELECT 1 FROM mirrored_chat_origin_current o WHERE o.account=s.account AND o.local_device=s.local_device AND o.source_device=s.source_device AND o.group_id=c.group_id)) OR EXISTS(SELECT 1 FROM mirrored_chat_origin_current o WHERE o.account=s.account AND o.local_device=s.local_device AND o.source_device=s.source_device AND o.group_id=c.group_id AND o.origin_id=c.origin_id AND o.origin_order=c.origin_order))
+ AND NOT EXISTS(SELECT 1 FROM account_chat_departures departure
+   JOIN account_chat_departure_cuts cut USING(action_id)
+   WHERE departure.account=s.account AND departure.local_device=s.local_device
+     AND departure.group_id=c.group_id AND cut.source_device=s.source_device
+     AND (c.origin_id IS NULL OR cut.origin_id=c.origin_id OR cut.origin_order>=c.origin_order));",
     )
     .storage()
 }
