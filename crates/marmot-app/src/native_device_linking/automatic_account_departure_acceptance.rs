@@ -482,6 +482,14 @@ pub(super) async fn verify(
         .catch_unwind()
         .await;
     drop(publication_gate.take());
+    if let Some(probe) = duplicate_probe {
+        eprintln!(
+            "account_departure_duplicate_cleanup captured={} first_hold={} counters={:?}",
+            probe.captured(),
+            probe.first_held().is_some(),
+            probe.counters()
+        );
+    }
     let closed = reopened.shutdown_and_close().await.is_ok() && reopened.storage_is_closed();
     eprintln!("account_departure_reopened_b_closed={closed}");
     if let Err(original) = result {
