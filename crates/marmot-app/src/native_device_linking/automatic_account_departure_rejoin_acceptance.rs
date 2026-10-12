@@ -217,13 +217,33 @@ async fn verify_fresh_sources(
             })
             .await
             .expect("D must decrypt each actual fresh source ordinary send");
-            wait_for_paired_records(
+            let delivery = AssertUnwindSafe(wait_for_paired_records(
                 &runtimes[2],
                 &peer.group,
                 &sent.message_ids,
                 Some(prior[index].device),
-            )
+            ))
+            .catch_unwind()
             .await;
+            if let Err(original) = delivery {
+                let diagnostics = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    AssertUnwindSafe(diagnose_delivery(
+                        &apps[2],
+                        &runtimes[2],
+                        &peer.group,
+                        &sent.message_ids[0],
+                        &prior,
+                    ))
+                    .catch_unwind(),
+                )
+                .await;
+                eprintln!(
+                    "account_departure_rejoin_delivery_diagnostics_available={}",
+                    matches!(diagnostics, Ok(Ok(())))
+                );
+                std::panic::resume_unwind(original);
+            }
         }
         tokio::time::timeout(Duration::from_secs(40), async {
             loop {
@@ -388,5 +408,103 @@ async fn assert_mirror_absent(runtime: &MarmotAppRuntime, group: &crate::GroupId
             panic!("an unaccepted Welcome must not restore the departed mirrored chat");
         }
         Err(_) => panic!("absence observation must not swallow an unrelated read failure"),
+    }
+}
+
+// These retained rows are failure observations, never current Core approval or
+// a permission/membership oracle. Only aggregates leave the synthetic fixture.
+async fn diagnose_delivery(
+    app: &MarmotApp,
+    runtime: &MarmotAppRuntime,
+    group: &crate::GroupId,
+    event: &str,
+    prior: &[PriorSource; 2],
+) {
+    use cgka_traits::{
+        approved_account_sharing_policy::approved_account_sharing_identity,
+        mirrored_chat_catalog::MirroredChatScope,
+    };
+    let event_id: [u8; 32] = hex::decode(event).unwrap().try_into().unwrap();
+    if let Ok(window) = runtime
+        .open_account_conversation_window("test", group, 128)
+        .await
+    {
+        let mut matching = [0usize; 3];
+        for row in &window.snapshot.rows {
+            if let crate::AccountConversationRow::PairedSource(row) = row
+                && row.event_id == event_id
+            {
+                matching[0] += 1;
+                for index in 0..2 {
+                    matching[index + 1] += usize::from(row.source.device == prior[index].device);
+                }
+            }
+        }
+        window.window_handle().cancel();
+        eprintln!("account_departure_rejoin_public_event_any_a_b_counts={matching:?}");
+    } else {
+        eprintln!("account_departure_rejoin_public_event_observation_unknown=true");
+    }
+    let storage = app.account_storage("test").unwrap();
+    let round = storage
+        .private_roster_settlement_storage()
+        .unwrap()
+        .read_round()
+        .unwrap()
+        .unwrap();
+    let policies = storage
+        .approved_account_sharing_policy_storage()
+        .unwrap()
+        .approved_account_sharing_policies()
+        .unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    for (index, source) in prior.iter().enumerate() {
+        let origin = storage
+            .current_mirrored_chat_origin_observation(
+                &round.anchor.account,
+                &round.anchor.local_device,
+                &source.device,
+                group,
+            )
+            .unwrap();
+        eprintln!(
+            "account_departure_rejoin_source={index} retained_origin_present={} retained_origin_newer={}",
+            origin.is_some(),
+            origin.is_some_and(
+                |origin| origin.id != source.origin.id && origin.order > source.origin.order
+            )
+        );
+        for policy in policies
+            .iter()
+            .filter(|policy| policy.peer_device == source.device && !policy.revoked)
+        {
+            let scope = MirroredChatScope {
+                account: policy.account,
+                local_device: policy.local_device,
+                source_device: policy.peer_device,
+                policy_digest: approved_account_sharing_identity(
+                    &policy.account,
+                    &policy.protected_group,
+                    &policy.local_device,
+                    &policy.peer_device,
+                    &policy.approval_id,
+                )
+                .unwrap(),
+                protected_group: policy.protected_group.clone(),
+                protected_generation: round.generation,
+            };
+            let rows = storage
+                .mirrored_chat_message_storage()
+                .unwrap()
+                .mirrored_chat_message_page(&scope, group, None, 128, now);
+            eprintln!(
+                "account_departure_rejoin_source={index} scoped_event_present={:?}",
+                rows.map(|rows| rows.iter().any(|row| row.event_id == event_id))
+                    .map_err(|_| "Unknown")
+            );
+        }
     }
 }
