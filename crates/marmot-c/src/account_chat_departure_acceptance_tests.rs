@@ -573,7 +573,10 @@ fn genuine_two_source_departure_crosses_real_c_and_uniffi_boundaries() {
                 .is_ok_and(|value| value.split_whitespace().next() == Some(expected.as_str())),
         "exact producer bytes"
     );
-    let root = tempfile::tempdir().expect("private consumer IPC root");
+    let root = tempfile::Builder::new()
+        .permissions(std::fs::Permissions::from_mode(0o700))
+        .tempdir()
+        .expect("private consumer IPC root");
     assert_eq!(
         std::fs::metadata(root.path()).unwrap().permissions().mode() & 0o077,
         0
