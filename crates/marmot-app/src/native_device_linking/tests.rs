@@ -1099,7 +1099,7 @@ pub(super) mod actual {
             ) {
                 use futures::FutureExt;
                 Some(
-                    std::panic::AssertUnwindSafe(
+                    std::panic::AssertUnwindSafe(Box::pin(
                         super::automatic_account_departure_rejoin_acceptance::verify_or_depart(
                             scenario == ApprovalScenario::AutomaticAccountDepartureFreshRejoin,
                             &apps,
@@ -1109,7 +1109,7 @@ pub(super) mod actual {
                             relay_database.as_ref(),
                             scenario == ApprovalScenario::AutomaticAccountDepartureOrdering,
                         ),
-                    )
+                    ))
                     .catch_unwind()
                     .await,
                 )

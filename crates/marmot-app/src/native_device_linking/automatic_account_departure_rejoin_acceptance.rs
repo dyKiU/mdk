@@ -79,17 +79,17 @@ pub(super) async fn verify_or_depart(
             }
         })
     });
-    super::automatic_account_departure_acceptance::verify(
+    Box::pin(super::automatic_account_departure_acceptance::verify(
         apps,
         runtimes,
         peer,
         url,
         relay_database,
         ordered,
-    )
+    ))
     .await;
     if let Some(prior) = prior {
-        verify_fresh_sources(apps, runtimes, peer, url, prior).await;
+        Box::pin(verify_fresh_sources(apps, runtimes, peer, url, prior)).await;
     }
 }
 
