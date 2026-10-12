@@ -38,9 +38,9 @@ pub(crate) mod app_payload;
 pub(crate) mod audit_helpers;
 pub mod auto_committer;
 pub(crate) mod bounded_id_set;
-pub mod canonicalization;
 #[cfg(feature = "test-policy-overrides")]
 pub mod canonical_probe_observer;
+pub mod canonicalization;
 pub mod capabilities;
 pub mod capability_manager;
 #[cfg(feature = "test-conformance-snapshot")]

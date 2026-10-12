@@ -2,66 +2,71 @@
 
 ## Current scoped qualification (2026-10-12)
 
-The preparation sections below are historical. Private25 is now the signed
-qualified source78a8b58d43407299c9913ae87fb1253ebe736cfb and the retained-origin
-reader is integrated. Current diagnostic source is
-05b707e61a24be7317cfc8ea8161addfffa1b301; its production inputs match
-388b6735fe1c100ca3095ca3f5fa5b59fb9136f9. This remains an unfinished departure
-slice, with native C/UniFFI, strict/static, fresh-origin lifecycle and final
-integration qualification pending. No SDK, installed host or fork-promotion
-claim is made.
+Current signed local candidate:
+8a597c5756bb65122834dd4bdf4ba6a2acb53d1a. Passing private25 parent is
+78a8b58d43407299c9913ae87fb1253ebe736cfb. This is an unfinished departure
+slice: genuine account-wide departure→fresh accepted rejoin/late-negative
+lifecycle controls, final required full CI, SDK/language/host promotion and the
+installed three-device demo remain pending. No fork or SDK passing publication
+is implied. The preparation sections below describe historical captures.
 
-Actual scoped evidence uses the exclusive M5 target986, Rust1.97.1, jobs1,
-debug0, incremental0, minimum20GiB free and test-thread stack4MiB. These are
-fixture-profile results, not shipping default-stack qualification.
+Actual scope and immutable evidence (all prefixes under
+`/Users/pj/project/build/results/`):
 
-- SQL18 passed on e92c19629139eb623e89b6b19cfba91a31e04133; the relevant
-  SQL/migration inputs are unchanged. This includes raw replacement controls,
-  exact retained-origin reads and strict25→26 migration/fingerprint checks.
-- Core real branch/dependency controls2 and targeted transaction rollback1
-  passed on388b. Actual consumed proposal references remain required;
-  mismatching evidence never supplies a proposal or permission. Failed journal
-  writes preserve actual MLS state, group projection and original leave intent;
-  fresh hydration preserves the reanchored intent before public reproposal.
-- Genuine ordered account-wide departure passed on388b: actual same-epoch
-  losing-branch switch, checked B close/reopen before retry, actual independent
-  D removal of both A/B leaves, all three completion receipts and typed send
-  refusal. Default ordinary wire and standard SelfRemove are retained.
-- Unchanged device-only survivor and original offline account-wide journey
-  passed on05b. A preceding survivor run on identical production388b timed out
-  waiting for D to decrypt B's next ordinary send. That intermittent delivery
-  concern remains unresolved; a successful diagnostic rerun does not fix it.
-- Affected Core replay suites passed14 default and14 experimental (the two
-  opt-in measurements were explicitly excluded). Full default atomicity suite
-  passed23, zero ignored; the runner's expected25 count was incorrect and its
-  count-mismatch result is preserved. Experimental atomicity passed26, zero ignored. Total affected Core tests77.
-  Strict lint first found a collapsible test-observer conditional; its equivalent
-  let-chain correction is being qualified. Native binding acceptance is pending.
+| Scope | Actual results | Source / artifact prefix |
+|---|---|---|
+| Source26 SQL, raw OR REPLACE/UPSERT guards, origin observation, strict25→26 fingerprint |18 passed,0 failed/ignored|66dd2720 / `account-wide-departure-66dd2720-sql-v3`|
+| Real proposal dependencies and branch-relative evidence; durable failed reanchor rollback/restart |2+1 passed|388b6735 / `account-wide-departure-388b6735-core-guards-green-v1`|
+| Affected Core replay default/experimental |14+14 passed; two opt-in measurements explicitly excluded|05b707e6 / `account-wide-departure-05b707e6-core-affected-v1`|
+| Full named atomicity default/experimental |23+26 passed,0 ignored|05b707e6 / previous prefix and `account-wide-departure-05b707e6-core-atomicity-exp-v2`|
+| Genuine ordered departure |1 passed: actual losing same-epoch branch, checked B close before retry, fresh same-root reopen, D actual A+B removals, ABC receipts and denial|388b6735 / `account-wide-departure-388b6735-ordered-v11`|
+| Original offline departure and device-only survivor |1+1 passed; prior intermittent survivor timeout remains unresolved|05b707e6 / `account-wide-departure-05b707e6-survivor-diagnostic-v1`|
+| No-policy refusal default/experimental; ordinary creation and separate device-only leave unchanged |1+1 passed|48a78851 / `account-wide-departure-48a78851-no-policy-green-v2`|
+| Genuine C→UniFFI→App boundary on real A/B sources,C mirror,D admin |consumer1+producer1 passed,all owners checked-closed,artifact bytes unchanged|5dbba5a0 / `account-wide-departure-5dbba5a0-native-ffi-v6`|
+| Status mappings default/experimental |3+3 passed;133 appended,older values preserved|8a597c57 / `account-wide-departure-8a597c57-native-status-v1`|
 
-Causal failures are retained: exact D competing commit was rejected by an
-unrelated B proposal's InvalidMembershipTag before materialization; after the
-first repair selected D branch, the durable same-epoch leave marker suppressed
-reproposal; after reanchor/reopen, another unrelated proposal vetoed the actual
-referenced removal commit. Real Core regression and final ordered journey cover
-these repairs. Only branch-relative InvalidMembershipTag is ignored after an
-actual replayed commit established the proposal epoch. Proposal-only replay,
-missing/wrong consumed references, malformed input, authorization, other
-validation and storage errors remain strict.
+The native journey proves real ordinary sends from both reopened native source
+clients, mirrored initiator readiness, offline B Pending, both actual independent
+D removals, completion receipts, typed A/B/C token-send refusal, and durable same
+operation/fence after C closes and reopens its original root. No live databases
+were copied and no native original or ordinary membership was created from
+metadata. The producer and consumer use a bounded private0700/0600 Unix socket.
 
-Raw immutable inputs/results/logs are under `/Users/pj/project/build/results/`:
-`account-wide-departure-e92c1962-sql-v2`,
-`account-wide-departure-01c9a118-ordered-v8`,
-`account-wide-departure-abff34d2-ordered-v9`,
-`account-wide-departure-2dc70186-core-reference-red`,
-`account-wide-departure-388b6735-core-guards-green-v1`,
-`account-wide-departure-388b6735-ordered-v11`,
-`account-wide-departure-05b707e6-survivor-diagnostic-v1`, and
-`account-wide-departure-05b707e6-core-affected-v1`, and
-`account-wide-departure-05b707e6-core-atomicity-exp-v2`.
-Each prefix has its source/blob manifest and results with exact command, count,
-duration and raw log hash. Preserve the real failures and fixture-prerequisite
-failures separately. Outer Nostr wrapper retirement is not missing intake;
-canonical-content lookup corrected that earlier diagnostic inference.
+Strict Core/App and UniFFI/C default+experimental `--all-targets -D warnings`
+gates passed without `dead_code` or `linker_messages` exemptions. Their raw
+source receipts are in `66dd2720-core-app-strict-v3`, `bdb1d400-app-strict-v5`,
+`48a78851-app-strict-v7`, `0b14d649-native-strict-v1` and
+`8a597c57-native-strict-v2` (all with the `account-wide-departure-` prefix).
+Only unchanged relevant inputs retain earlier passing scope; genuine failures
+and intermediate static/fixture failures are preserved separately.
+
+The C header was generated by actual M5 cbindgen, then authored contracts and
+all source/header anchors were refreshed: parity400 exports, UniFFI413/C618
+callables and all17 binding-document regression tests pass. Exact generated
+header/log are `account-wide-departure-5dbba5a0-native-ffi-v6-marmot.generated.h`
+and `account-wide-departure-5dbba5a0-header-generation.log`.
+
+Rust1.97.1, jobs1, debug0, incremental0, minimum20GiB free and test-thread
+stack4MiB were used. Composed App producer tests use their existing8MiB runner.
+These are fixture-profile results, not shipping default-stack qualification.
+
+Causal runtime failures are retained: an unrelated B proposal's membership tag
+rejected D's competing commit before materialization; after selection, a durable
+same-epoch marker suppressed leave reproposal; another unrelated proposal then
+vetoed a commit with its real referenced dependency. Only branch-relative
+InvalidMembershipTag is ignored after an actual authenticated replayed commit
+established this proposal epoch. Ignoring supplies no proposal/reference or
+permission; missing/wrong consumed refs, proposal-only replay, malformed input,
+authorization, all other validation and storage errors remain strict.
+
+The first affected default count prediction25 was wrong: the full harness
+actually ran and passed23. Its count-mismatch driver result remains preserved;
+it is not a Rust/runtime failure. Outer Nostr wrapper retirement is not missing
+intake; exact canonical-content lookup corrected that earlier inference. Native
+feature-selection/nonce-export/private-mode/nonblocking fixture prerequisites
+are not SDK behavioral REDs or acceptance. The former device-only survivor
+failure waiting for D decryption remains a specific intermittent concern even
+though the later diagnostic and genuine native ordinary-send controls passed.
 
 ## Historical source preparation
 
