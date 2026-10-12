@@ -1113,19 +1113,191 @@ fn stale_reply_publication_preserves_newer_completion_receipt() {
         let mut intent = fixture_intent();
         intent.initiator = [3; 32];
         intent.action_id = intent.identity();
-        storage.apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(())).unwrap();
-        let old = storage.account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16).unwrap();
+        storage
+            .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+            .unwrap();
+        let old = storage
+            .account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
+            .unwrap();
         assert_eq!(old.len(), 1);
         assert!(old[0].kind == AccountChatDepartureDeliveryKind::StatusReceipt);
         assert!(!old[0].complete);
-        storage.mark_account_chat_departure_local_state(&[1; 32], &[2; 32], &intent.action_id, AccountChatDepartureLocalState::Complete, &|| Ok(())).unwrap();
+        storage
+            .mark_account_chat_departure_local_state(
+                &[1; 32],
+                &[2; 32],
+                &intent.action_id,
+                AccountChatDepartureLocalState::Complete,
+                &|| Ok(()),
+            )
+            .unwrap();
         if coordinator_completed {
-            storage.account_chat_departure_completion(&[1; 32], &[2; 32], &intent.action_id, &[3; 32], false, &|| Ok(())).unwrap();
+            storage
+                .account_chat_departure_completion(
+                    &[1; 32],
+                    &[2; 32],
+                    &intent.action_id,
+                    &[3; 32],
+                    false,
+                    &|| Ok(()),
+                )
+                .unwrap();
         }
-        storage.account_chat_departure_reply_published(&[1; 32], &[2; 32], &intent.action_id, &|| Ok(())).unwrap();
-        let pending = storage.account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16).unwrap();
-        assert_eq!(pending.len(), 1, "an older published receipt must not consume newer progress");
+        storage
+            .account_chat_departure_reply_published(
+                &[1; 32],
+                &[2; 32],
+                &intent.action_id,
+                old[0].kind,
+                AccountChatDepartureReceiptStatus {
+                    complete: old[0].complete,
+                    needs_administrator: old[0].needs_administrator,
+                    awaiting_sources: old[0].awaiting_sources,
+                },
+                &|| Ok(()),
+            )
+            .unwrap();
+        let pending = storage
+            .account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
+            .unwrap();
+        assert_eq!(
+            pending.len(),
+            1,
+            "an older published receipt must not consume newer progress"
+        );
         assert!(pending[0].complete);
-        assert!(pending[0].kind == if coordinator_completed { AccountChatDepartureDeliveryKind::CompletionAcknowledgement } else { AccountChatDepartureDeliveryKind::StatusReceipt });
+        assert!(
+            pending[0].kind
+                == if coordinator_completed {
+                    AccountChatDepartureDeliveryKind::CompletionAcknowledgement
+                } else {
+                    AccountChatDepartureDeliveryKind::StatusReceipt
+                }
+        );
     }
+}
+
+#[test]
+fn reply_publication_is_snapshot_and_phase_bound_and_tail_failure_rolls_back() {
+    let storage = configured();
+    let mut intent = fixture_intent();
+    intent.initiator = [3; 32];
+    intent.action_id = intent.identity();
+    storage
+        .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+        .unwrap();
+    let status = AccountChatDepartureReceiptStatus {
+        complete: false,
+        needs_administrator: false,
+        awaiting_sources: false,
+    };
+    storage
+        .mark_account_chat_departure_awaiting_sources(
+            &[1; 32],
+            &[2; 32],
+            &intent.action_id,
+            true,
+            &|| Ok(()),
+        )
+        .unwrap();
+    storage
+        .account_chat_departure_reply_published(
+            &[1; 32],
+            &[2; 32],
+            &intent.action_id,
+            AccountChatDepartureDeliveryKind::StatusReceipt,
+            status,
+            &|| Ok(()),
+        )
+        .unwrap();
+    assert_eq!(
+        storage
+            .account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
+            .unwrap()
+            .len(),
+        1
+    );
+    storage
+        .mark_account_chat_departure_local_state(
+            &[1; 32],
+            &[2; 32],
+            &intent.action_id,
+            AccountChatDepartureLocalState::Complete,
+            &|| Ok(()),
+        )
+        .unwrap();
+    let complete = AccountChatDepartureReceiptStatus {
+        complete: true,
+        needs_administrator: false,
+        awaiting_sources: false,
+    };
+    storage
+        .account_chat_departure_completion(
+            &[1; 32],
+            &[2; 32],
+            &intent.action_id,
+            &[3; 32],
+            false,
+            &|| Ok(()),
+        )
+        .unwrap();
+    storage
+        .account_chat_departure_reply_published(
+            &[1; 32],
+            &[2; 32],
+            &intent.action_id,
+            AccountChatDepartureDeliveryKind::StatusReceipt,
+            complete,
+            &|| Ok(()),
+        )
+        .unwrap();
+    let pending = storage
+        .account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
+        .unwrap();
+    assert_eq!(pending.len(), 1);
+    assert!(pending[0].kind == AccountChatDepartureDeliveryKind::CompletionAcknowledgement);
+    let calls = Cell::new(0);
+    assert!(
+        storage
+            .account_chat_departure_reply_published(
+                &[1; 32],
+                &[2; 32],
+                &intent.action_id,
+                AccountChatDepartureDeliveryKind::CompletionAcknowledgement,
+                complete,
+                &|| {
+                    calls.set(calls.get() + 1);
+                    if calls.get() == 2 {
+                        Err(invalid())
+                    } else {
+                        Ok(())
+                    }
+                }
+            )
+            .is_err()
+    );
+    assert_eq!(calls.get(), 2);
+    assert_eq!(
+        storage
+            .account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
+            .unwrap()
+            .len(),
+        1
+    );
+    storage
+        .account_chat_departure_reply_published(
+            &[1; 32],
+            &[2; 32],
+            &intent.action_id,
+            AccountChatDepartureDeliveryKind::CompletionAcknowledgement,
+            complete,
+            &|| Ok(()),
+        )
+        .unwrap();
+    assert!(
+        storage
+            .account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
+            .unwrap()
+            .is_empty()
+    );
 }

@@ -592,21 +592,32 @@ impl SqliteAccountStorage {
         })
     }
 
-    /// Relay ACK only releases this receipt attempt; it does not assert remote
-    /// commit. A new authenticated retry requeues the same negative operation.
+    /// Relay ACK releases only the exact progress snapshot that was published.
+    /// Newer local completion or coordinator phase remains pending. Publication
+    /// does not assert remote commit.
     pub fn account_chat_departure_reply_published(
         &self,
         account: &[u8; 32],
         local: &[u8; 32],
         id: &[u8; 32],
+        kind: AccountChatDepartureDeliveryKind,
+        status: AccountChatDepartureReceiptStatus,
         validate: &dyn Fn() -> StorageResult<()>,
     ) -> StorageResult<()> {
+        let final_acknowledgement = match kind {
+            AccountChatDepartureDeliveryKind::StatusReceipt => false,
+            AccountChatDepartureDeliveryKind::CompletionAcknowledgement => true,
+            _ => return Err(invalid()),
+        };
+        if status.complete && (status.needs_administrator || status.awaiting_sources) {
+            return Err(invalid());
+        }
         self.connection.with_transaction(|| {
             validate()?;
             {
                 let conn = self.lock()?;
                 crate::approved_account_sharing_policy::check_configured_owner(&conn,account,local)?;
-                conn.execute("UPDATE account_chat_departures SET reply_pending=0 WHERE account=?1 AND local_device=?2 AND action_id=?3 AND initiator!=local_device", params![account.as_slice(),local.as_slice(),id.as_slice()]).storage()?;
+                conn.execute("UPDATE account_chat_departures SET reply_pending=0 WHERE account=?1 AND local_device=?2 AND action_id=?3 AND initiator!=local_device AND (local_state=2)=?4 AND needs_administrator=?5 AND awaiting_sources=?6 AND global_complete=?7", params![account.as_slice(),local.as_slice(),id.as_slice(),status.complete,status.needs_administrator,status.awaiting_sources,final_acknowledgement]).storage()?;
             }
             validate()
         })

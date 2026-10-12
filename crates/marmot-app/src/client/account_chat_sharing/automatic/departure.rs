@@ -12,7 +12,8 @@ use cgka_traits::{
 use std::collections::BTreeMap;
 use storage_sqlite::account_chat_departure::{
     AccountChatDepartureDeliveryKind as DeliveryKind, AccountChatDepartureIntent as Intent,
-    AccountChatDepartureLocalState as LocalState, AccountChatDepartureTarget as Target,
+    AccountChatDepartureLocalState as LocalState,
+    AccountChatDepartureReceiptStatus as ReceiptStatus, AccountChatDepartureTarget as Target,
     MAX_ACCOUNT_CHAT_DEPARTURE_BYTES,
 };
 
@@ -34,7 +35,7 @@ struct Receipt {
 }
 struct Publication {
     action_id: [u8; 32],
-    is_reply: bool,
+    reply: Option<(DeliveryKind, ReceiptStatus)>,
 }
 #[derive(Default)]
 pub(super) struct DepartureProgress {
@@ -756,7 +757,14 @@ impl AppClient {
         );
         entry.departures.pending = Some(Publication {
             action_id: row.intent.action_id,
-            is_reply,
+            reply: is_reply.then_some((
+                row.kind,
+                ReceiptStatus {
+                    complete: row.complete,
+                    needs_administrator: row.needs_administrator,
+                    awaiting_sources: row.awaiting_sources,
+                },
+            )),
         });
         entry.departures.last = Some((row.intent.action_id, digest, std::time::Instant::now()));
         Ok(())
@@ -774,13 +782,13 @@ impl AppClient {
             self.test_trace_automatic_progress(
                 "departure_published",
                 entry,
-                if publication.is_reply {
+                if publication.reply.is_some() {
                     "reply"
                 } else {
                     "intent_or_completion"
                 },
             );
-            if publication.is_reply {
+            if let Some((kind, status)) = publication.reply {
                 self.app
                     .account_storage(&self.state.label)
                     .map_err(|_| AccountSharingError::RuntimeUnavailable)?
@@ -788,6 +796,8 @@ impl AppClient {
                         &entry.policy.account,
                         &entry.policy.local_device,
                         &publication.action_id,
+                        kind,
+                        status,
                         &|| self.departure_original(entry),
                     )
                     .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
