@@ -239,6 +239,7 @@ pub(super) mod actual {
         AutomaticForwardingOffline,
         AutomaticForwardingNonAdmin,
         AutomaticWithdrawal,
+        AutomaticTwoLegitimateSources,
         AutomaticRecordGenerationRenewal,
         AutomaticHeldThreeBInitiates,
         AutomaticHeldThreeCInitiates,
@@ -291,6 +292,19 @@ pub(super) mod actual {
             )
             .await;
         }
+        // Establish the exact ordinary A/B leaves before managed workers own any engines.
+        let two_source_peer = if scenario == ApprovalScenario::AutomaticTwoLegitimateSources {
+            Some(
+                Box::pin(
+                    super::automatic_two_source_leave_acceptance::TwoSourcePeer::prepare(
+                        &apps, &url,
+                    ),
+                )
+                .await,
+            )
+        } else {
+            None
+        };
         let runtimes = apps.clone().map(MarmotAppRuntime::new);
         runtimes[0].reconcile_accounts().await.unwrap();
         // Establish the real incoming chat while A is the sole active public
@@ -371,6 +385,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticHeldThreeCInitiates
                 | ApprovalScenario::AutomaticHeldSponsorInitiates
                 | ApprovalScenario::AutomaticHeldRecipientInitiates
+                | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
                 | ApprovalScenario::BroadProjectionHeadFailure
@@ -711,6 +726,7 @@ pub(super) mod actual {
             ApprovalScenario::AutomaticRecordGenerationRenewal
                 | ApprovalScenario::AutomaticHeldThreeBInitiates
                 | ApprovalScenario::AutomaticHeldThreeCInitiates
+                | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
                 | ApprovalScenario::BroadProjectionHeadFailure
@@ -822,6 +838,7 @@ pub(super) mod actual {
                     ApprovalScenario::AutomaticRecordGenerationRenewal
                         | ApprovalScenario::AutomaticHeldThreeBInitiates
                         | ApprovalScenario::AutomaticHeldThreeCInitiates
+                        | ApprovalScenario::AutomaticTwoLegitimateSources
                         | ApprovalScenario::BroadEnrollment
                         | ApprovalScenario::BroadPreAuthFailure
                         | ApprovalScenario::BroadProjectionHeadFailure
@@ -948,6 +965,24 @@ pub(super) mod actual {
                 .await
                 .unwrap();
             assert!(incoming_peer.as_ref().unwrap().runtime.storage_is_closed());
+            return;
+        }
+        if let Some(peer) = two_source_peer {
+            Box::pin(peer.verify_device_only_leave(&apps, &runtimes)).await;
+            // The broad AB ceremony already cancelled initial_a and b before
+            // starting the third-device ceremony. Only its current originals
+            // remain owned here; every cancellation must succeed.
+            for session in [&a, &c] {
+                session.cancel().await.unwrap();
+            }
+            approval.cancel().await.unwrap();
+            peer.runtime.shutdown_and_close().await.unwrap();
+            assert!(peer.runtime.storage_is_closed());
+            for runtime in runtimes {
+                runtime.shutdown_and_close().await.unwrap();
+                assert!(runtime.storage_is_closed());
+            }
+            relay.shutdown();
             return;
         }
         let initial_shared_chat = if matches!(
@@ -2204,3 +2239,10 @@ mod automatic_held_original_acceptance;
 ))]
 #[path = "automatic_held_three_original_acceptance.rs"]
 mod automatic_held_three_original_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_two_source_leave_acceptance.rs"]
+mod automatic_two_source_leave_acceptance;
