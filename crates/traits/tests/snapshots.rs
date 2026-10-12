@@ -1254,26 +1254,26 @@ fn approved_account_sharing_policy_fact() {
 fn mirrored_chat_logical_record_and_cursor() {
     use cgka_traits::mirrored_chat_messages::{MirroredChatCursor, MirroredChatRecord};
     insta::assert_json_snapshot!((
-            MirroredChatRecord {
-                event_id: [8; 32],
-                author: [7; 32],
-                created_at: 10,
-                kind: 9,
-                payload: Vec::new(),
-                content_digest: None,
-                expires_at: Some(20),
-                deleted: true,
-                source_epoch: 1,
-                source_sequence: 2,
-                source_digest: [8; 32]
+        MirroredChatRecord {
+            event_id: [8; 32],
+            author: [7; 32],
+            created_at: 10,
+            kind: 9,
+            payload: Vec::new(),
+            content_digest: None,
+            expires_at: Some(20),
+            deleted: true,
+            source_epoch: 1,
+            source_sequence: 2,
+            source_digest: [8; 32],
 
-    accepted_origin: None,
-    },
-            MirroredChatCursor {
-                created_at: 10,
-                event_id: [8; 32]
-            }
-        ));
+            accepted_origin: None,
+        },
+        MirroredChatCursor {
+            created_at: 10,
+            event_id: [8; 32]
+        }
+    ));
 }
 
 #[test]
