@@ -24,6 +24,13 @@ struct PriorSource {
     welcome: String,
 }
 
+struct InvitationContext<'a> {
+    group: &'a crate::GroupId,
+    url: &'a str,
+    creator: &'a str,
+    old_welcome: &'a str,
+}
+
 enum WelcomeDecision {
     Pending(String),
     Recovery(crate::GroupRejoinInvitation),
@@ -141,10 +148,12 @@ async fn verify_fresh_sources(
             &owners[0],
             &mut a,
             &mut d,
-            &peer.group,
-            url,
-            &creator,
-            &prior[0].welcome,
+            InvitationContext {
+                group: &peer.group,
+                url,
+                creator: &creator,
+                old_welcome: &prior[0].welcome,
+            },
         )
         .await;
         let second = invite_exact_source(
@@ -152,10 +161,12 @@ async fn verify_fresh_sources(
             &owners[1],
             &mut b,
             &mut d,
-            &peer.group,
-            url,
-            &creator,
-            &prior[1].welcome,
+            InvitationContext {
+                group: &peer.group,
+                url,
+                creator: &creator,
+                old_welcome: &prior[1].welcome,
+            },
         )
         .await;
         for _ in 0..20 {
@@ -311,11 +322,14 @@ async fn invite_exact_source(
     source_app: &MarmotApp,
     source: &mut crate::AppClient,
     administrator: &mut crate::AppClient,
-    group: &crate::GroupId,
-    url: &str,
-    creator: &str,
-    old_welcome: &str,
+    context: InvitationContext<'_>,
 ) -> WelcomeDecision {
+    let InvitationContext {
+        group,
+        url,
+        creator,
+        old_welcome,
+    } = context;
     let package = Box::pin(source.publish_key_package()).await.unwrap();
     let publication = source.key_package_maintenance_status().unwrap().unwrap();
     assert!(
