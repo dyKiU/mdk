@@ -16,13 +16,26 @@ impl AppClient {
         let mut clients: [Option<AppClient>; 2] = std::array::from_fn(|_| None);
         let outcome = AssertUnwindSafe(async {
             for i in 0..2 { clients[i] = Some(apps[i].client("test").await.unwrap()); }
+            for client in &mut clients { client.as_mut().unwrap().sync().await.unwrap(); }
             let facts: Vec<_> = apps.iter().map(|app| app.account_storage("test").unwrap()
                 .approved_account_sharing_policy_storage().unwrap()
                 .approved_account_sharing_policies().unwrap()).collect();
-            let pair = facts[0].iter().find_map(|a| facts[1].iter().find(|b|
-                !a.revoked && !b.revoked && a.local_device == b.peer_device
-                && a.peer_device == b.local_device && a.approval_id == b.approval_id)
-                .map(|b| [a.clone(), b.clone()])).expect("actual bilateral approved policy");
+            let mut pair = None;
+            for a in &facts[0] {
+                for b in &facts[1] {
+                    if a.revoked || b.revoked || a.account != b.account
+                        || a.protected_group != b.protected_group
+                        || a.local_device != b.peer_device || a.peer_device != b.local_device
+                        || a.approval_id != b.approval_id { continue; }
+                    if current_policy_ready(clients[0].as_mut().unwrap(), a)
+                        && current_policy_ready(clients[1].as_mut().unwrap(), b) {
+                        pair = Some([a.clone(), b.clone()]);
+                        break;
+                    }
+                }
+                if pair.is_some() { break; }
+            }
+            let pair = pair.expect("actual current bilateral Core-qualified policy required before request creation");
             let lower = usize::from(pair[0].local_device > pair[1].local_device);
             let higher = 1 - lower;
             let ids = pair.each_ref().map(|policy| Self::automatic_policy_id(policy).unwrap());
@@ -48,7 +61,7 @@ impl AppClient {
             assert!(higher_closed);
             apps[higher] = crate::MarmotApp::with_relay(roots[higher], url);
             clients[higher] = Some(apps[higher].client("test").await.unwrap());
-            clients[higher].as_ref().unwrap().automatic_policy_current(&pair[higher]).unwrap();
+            assert!(current_policy_ready(clients[higher].as_mut().unwrap(), &pair[higher]), "same-root restarted higher must retain actual current Core-qualified policy");
             clients[higher].as_mut().unwrap().begin_automatic_channel(pair[higher].clone(), None).unwrap();
             tick(clients[higher].as_mut().unwrap(), ids[higher]).await;
             let actual_y_content = clients[higher].as_ref().unwrap().account_sharing_owner.automatic[&ids[higher]]
@@ -136,5 +149,70 @@ fn ready_rows<T>(result: Result<Vec<T>, AccountSharingError>) -> Vec<T> {
         Ok(rows) => rows,
         Err(AccountSharingError::NotReady) => Vec::new(),
         Err(_) => panic!("unexpected typed sharing query error"),
+    }
+}
+
+// Observation first preserves the actual Core error category that the App
+// eligibility adapter otherwise maps to Closed. Only cheap-open hydration is
+// retried through Core's supported stored-state hydration entry point.
+fn current_policy_ready(client: &mut AppClient, policy: &ApprovedAccountSharingPolicy) -> bool {
+    use cgka_traits::EngineError;
+    let first = client
+        .runtime
+        .session()
+        .account_chat_sharing_targets(&policy.protected_group);
+    if matches!(first, Err(EngineError::GroupNotHydrated(_))) {
+        eprintln!("pending_restart_core_targets_hydration_required=true");
+        match client
+            .runtime
+            .session_mut()
+            .ensure_group_hydrated(&policy.protected_group)
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                eprintln!("pending_restart_core_hydration_quarantined=true");
+                return false;
+            }
+            Err(_) => panic!(
+                "actual protected group hydration backend failed before request construction"
+            ),
+        }
+    } else if let Err(error) = first {
+        eprintln!(
+            "pending_restart_core_targets_refusal={}",
+            error.privacy_safe_kind()
+        );
+        if matches!(error, EngineError::Storage(_) | EngineError::Backend(_)) {
+            panic!("backend failure cannot masquerade as policy ineligibility");
+        }
+        return false;
+    }
+    match client
+        .runtime
+        .session()
+        .account_chat_sharing_targets(&policy.protected_group)
+    {
+        Ok(targets)
+            if targets.protected_epoch >= policy.approved_protected_epoch
+                && targets
+                    .targets
+                    .iter()
+                    .any(|target| target.device == policy.peer_device) => {}
+        Ok(_) => return false,
+        Err(error) => {
+            eprintln!(
+                "pending_restart_fresh_core_targets_refusal={}",
+                error.privacy_safe_kind()
+            );
+            if matches!(error, EngineError::Storage(_) | EngineError::Backend(_)) {
+                panic!("fresh target backend failure cannot become an absent policy");
+            }
+            return false;
+        }
+    }
+    match client.automatic_policy_current(policy) {
+        Ok(()) => true,
+        Err(AccountSharingError::Closed | AccountSharingError::NotReady) => false,
+        Err(_) => panic!("unexpected typed policy query error before request construction"),
     }
 }

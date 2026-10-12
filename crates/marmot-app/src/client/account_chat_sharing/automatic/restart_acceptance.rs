@@ -81,6 +81,9 @@ impl AppClient {
         let outcome = AssertUnwindSafe(async {
             clients.push(apps[0].client("test").await.unwrap());
             clients.push(apps[1].client("test").await.unwrap());
+            for client in &mut clients {
+                client.sync().await.unwrap();
+            }
             let facts: Vec<_> = apps
                 .iter()
                 .map(|app| {
@@ -92,21 +95,33 @@ impl AppClient {
                         .unwrap()
                 })
                 .collect();
-            let pair = facts[0]
-                .iter()
-                .find_map(|a| {
-                    facts[1]
-                        .iter()
-                        .find(|b| {
-                            !a.revoked
-                                && !b.revoked
-                                && a.local_device == b.peer_device
-                                && a.peer_device == b.local_device
-                                && a.approval_id == b.approval_id
-                        })
-                        .map(|b| [a.clone(), b.clone()])
-                })
-                .expect("actual bilateral approved policy");
+            let mut pair = None;
+            for a in &facts[0] {
+                for b in &facts[1] {
+                    if a.revoked
+                        || b.revoked
+                        || a.account != b.account
+                        || a.protected_group != b.protected_group
+                        || a.local_device != b.peer_device
+                        || a.peer_device != b.local_device
+                        || a.approval_id != b.approval_id
+                    {
+                        continue;
+                    }
+                    if current_policy_ready(&mut clients[0], a)
+                        && current_policy_ready(&mut clients[1], b)
+                    {
+                        pair = Some([a.clone(), b.clone()]);
+                        break;
+                    }
+                }
+                if pair.is_some() {
+                    break;
+                }
+            }
+            let pair = pair.expect(
+                "actual current bilateral Core-qualified policy required before request creation",
+            );
             let lower = usize::from(pair[0].local_device > pair[1].local_device);
             let higher = 1 - lower;
             let ids = pair
@@ -270,5 +285,67 @@ fn ready_rows<T>(result: Result<Vec<T>, AccountSharingError>) -> Vec<T> {
         Ok(rows) => rows,
         Err(AccountSharingError::NotReady) => Vec::new(),
         Err(_) => panic!("unexpected typed sharing query failure"),
+    }
+}
+
+fn current_policy_ready(client: &mut AppClient, policy: &ApprovedAccountSharingPolicy) -> bool {
+    use cgka_traits::EngineError;
+    let first = client
+        .runtime
+        .session()
+        .account_chat_sharing_targets(&policy.protected_group);
+    if matches!(first, Err(EngineError::GroupNotHydrated(_))) {
+        eprintln!("collision_fixture_core_targets_hydration_required=true");
+        match client
+            .runtime
+            .session_mut()
+            .ensure_group_hydrated(&policy.protected_group)
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                eprintln!("collision_fixture_core_hydration_quarantined=true");
+                return false;
+            }
+            Err(_) => panic!(
+                "actual protected group hydration backend failed before request construction"
+            ),
+        }
+    } else if let Err(error) = first {
+        eprintln!(
+            "collision_fixture_core_targets_refusal={}",
+            error.privacy_safe_kind()
+        );
+        if matches!(error, EngineError::Storage(_) | EngineError::Backend(_)) {
+            panic!("backend failure cannot masquerade as policy ineligibility");
+        }
+        return false;
+    }
+    match client
+        .runtime
+        .session()
+        .account_chat_sharing_targets(&policy.protected_group)
+    {
+        Ok(targets)
+            if targets.protected_epoch >= policy.approved_protected_epoch
+                && targets
+                    .targets
+                    .iter()
+                    .any(|target| target.device == policy.peer_device) => {}
+        Ok(_) => return false,
+        Err(error) => {
+            eprintln!(
+                "collision_fixture_fresh_core_targets_refusal={}",
+                error.privacy_safe_kind()
+            );
+            if matches!(error, EngineError::Storage(_) | EngineError::Backend(_)) {
+                panic!("fresh target backend failure cannot become an absent policy");
+            }
+            return false;
+        }
+    }
+    match client.automatic_policy_current(policy) {
+        Ok(()) => true,
+        Err(AccountSharingError::Closed | AccountSharingError::NotReady) => false,
+        Err(_) => panic!("unexpected typed policy query error before request construction"),
     }
 }
