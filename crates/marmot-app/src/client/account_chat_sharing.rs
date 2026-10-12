@@ -140,6 +140,10 @@ impl AppClient {
                 return Err(error);
             }
         };
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let Some(received) = self.test_defer_delayed_higher_request(wire, received) else {
+            return Ok(());
+        };
         let result = self.dispatch_authenticated_account_sharing_control(&received, wire);
         if result.is_err() && self.retain_pending_sibling_control(group_id, source, wire) {
             #[cfg(all(test, feature = "test-policy-overrides"))]

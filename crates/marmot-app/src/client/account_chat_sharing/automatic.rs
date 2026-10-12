@@ -2,8 +2,12 @@
 use super::*;
 mod departure;
 #[cfg(all(test, feature = "test-policy-overrides"))]
+mod departure_replay_probe;
+#[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) mod diagnostics;
 mod records;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+mod restart_acceptance;
 mod sends;
 use crate::account_chat_sharing::enabled::OriginalLease;
 use base64::Engine as _;

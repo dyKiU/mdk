@@ -242,6 +242,7 @@ pub(super) mod actual {
         AutomaticFreshAcceptedRejoin,
         AutomaticLegacyFormatAcceptedRejoin,
         AutomaticTwoLegitimateSources,
+        AutomaticDelayedRequestCollision,
         AutomaticDepartureFfiFixture,
         AutomaticAccountDeparture,
         AutomaticAccountDepartureOrdering,
@@ -426,6 +427,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticHeldThreeCInitiates
                 | ApprovalScenario::AutomaticHeldSponsorInitiates
                 | ApprovalScenario::AutomaticHeldRecipientInitiates
+                | ApprovalScenario::AutomaticDelayedRequestCollision
                 | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
                 | ApprovalScenario::AutomaticAccountDeparture
@@ -771,6 +773,7 @@ pub(super) mod actual {
             ApprovalScenario::AutomaticRecordGenerationRenewal
                 | ApprovalScenario::AutomaticHeldThreeBInitiates
                 | ApprovalScenario::AutomaticHeldThreeCInitiates
+                | ApprovalScenario::AutomaticDelayedRequestCollision
                 | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
                 | ApprovalScenario::AutomaticAccountDeparture
@@ -887,6 +890,7 @@ pub(super) mod actual {
                     ApprovalScenario::AutomaticRecordGenerationRenewal
                         | ApprovalScenario::AutomaticHeldThreeBInitiates
                         | ApprovalScenario::AutomaticHeldThreeCInitiates
+                        | ApprovalScenario::AutomaticDelayedRequestCollision
                         | ApprovalScenario::AutomaticTwoLegitimateSources
                         | ApprovalScenario::AutomaticDepartureFfiFixture
                         | ApprovalScenario::AutomaticAccountDeparture
@@ -1084,6 +1088,43 @@ pub(super) mod actual {
                     session.cancel().await.unwrap();
                 }
                 approval.cancel().await.unwrap();
+            }
+            if scenario == ApprovalScenario::AutomaticDelayedRequestCollision {
+                use futures::FutureExt;
+                let result = std::panic::AssertUnwindSafe(async {
+                    for session in [&a, &c] {
+                        session.cancel().await.unwrap();
+                    }
+                    approval.cancel().await.unwrap();
+                    for runtime in &runtimes {
+                        runtime.shutdown_and_close().await.unwrap();
+                        assert!(runtime.storage_is_closed());
+                    }
+                    Box::pin(crate::AppClient::test_delayed_higher_request_collision(
+                        [dirs[0].path(), dirs[1].path()],
+                        &url,
+                        &peer.group,
+                        &peer.initial_ids[0],
+                    ))
+                    .await;
+                })
+                .catch_unwind()
+                .await;
+                let d_closed = peer.runtime.shutdown_and_close().await.is_ok()
+                    && peer.runtime.storage_is_closed();
+                let mut abc_closed = true;
+                for runtime in &runtimes {
+                    abc_closed &= runtime.storage_is_closed()
+                        || (runtime.shutdown_and_close().await.is_ok()
+                            && runtime.storage_is_closed());
+                }
+                relay.shutdown();
+                eprintln!("delayed_request_cleanup_d_closed={d_closed} abc_closed={abc_closed}");
+                if let Err(original) = result {
+                    std::panic::resume_unwind(original);
+                }
+                assert!(d_closed && abc_closed);
+                return;
             }
             if scenario == ApprovalScenario::AutomaticDepartureFfiFixture {
                 super::account_departure_ffi_fixture::serve_fixture(&apps, &runtimes, &peer, &url)
@@ -2514,3 +2555,17 @@ mod automatic_fresh_rejoin_acceptance;
 ))]
 #[path = "automatic_account_departure_rejoin_acceptance.rs"]
 mod automatic_account_departure_rejoin_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[test]
+fn delayed_higher_request_after_real_consent_renews_the_lower_original() {
+    crate::tests::run_composed_app_runtime_test("delayed-real-higher-request", || async {
+        Box::pin(actual::run_native_public_three_device_enrollment(
+            actual::ApprovalScenario::AutomaticDelayedRequestCollision,
+        ))
+        .await;
+    });
+}
