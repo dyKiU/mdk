@@ -3,7 +3,6 @@ use crate::{
     AccountChatDepartureReason, AccountChatDepartureState, AccountChatDepartureStatus, AppError,
     GroupId,
 };
-use cgka_traits::storage::GroupStorage;
 
 impl AppClient {
     pub(crate) fn account_chat_departure_state(
@@ -14,45 +13,11 @@ impl AppClient {
         if let Some(state) = self.approved_account_chat_departure_state(group)? {
             return Ok(state);
         }
-        let storage = self.app.account_storage(&self.state.label)?;
-        let status = match storage.get_group(group) {
-            Err(cgka_traits::storage::StorageError::NotFound) => {
-                AccountChatDepartureStatus::Unavailable
-            }
-            Err(error) => return Err(error.into()),
-            Ok(_) => {
-                let canonical = self
-                    .runtime
-                    .session()
-                    .canonical_group_membership(group)
-                    .map_err(cgka_session::SessionError::from)?;
-                if canonical.local_leaf_active {
-                    let authority = self
-                        .runtime
-                        .session()
-                        .group_authority(group)
-                        .map_err(cgka_session::SessionError::from)?;
-                    if authority.facts.is_admin {
-                        AccountChatDepartureStatus::NeedsAdministrator
-                    } else {
-                        AccountChatDepartureStatus::Available
-                    }
-                } else {
-                    AccountChatDepartureStatus::Completed
-                }
-            }
-        };
+        // Account-wide departure requires genuine approved linked-device
+        // coverage. Local MLS membership cannot prove an account-wide action.
         Ok(AccountChatDepartureState {
-            status,
-            reason: match status {
-                AccountChatDepartureStatus::NeedsAdministrator => {
-                    AccountChatDepartureReason::AwaitingAdministrator
-                }
-                AccountChatDepartureStatus::Unavailable => {
-                    AccountChatDepartureReason::NoAcceptedChat
-                }
-                _ => AccountChatDepartureReason::None,
-            },
+            status: AccountChatDepartureStatus::Unavailable,
+            reason: AccountChatDepartureReason::SharingUnavailable,
             operation_id: None,
         })
     }
@@ -65,17 +30,8 @@ impl AppClient {
         if let Some(state) = self.admit_account_chat_departure(group)? {
             return Ok(state);
         }
-        let before = self.account_chat_departure_state(group)?;
-        if before.status != AccountChatDepartureStatus::Available {
-            return Ok(before);
-        }
-        // Without an approved linked-account policy the established public
-        // device-local SelfRemove remains the ordinary interoperable operation.
-        Box::pin(self.leave_group(group)).await?;
-        Ok(AccountChatDepartureState {
-            status: AccountChatDepartureStatus::Pending,
-            reason: AccountChatDepartureReason::None,
-            operation_id: None,
-        })
+        // Keep device-only SelfRemove available through leave_group. This
+        // explicit account-wide operation must refuse before any local effect.
+        self.account_chat_departure_state(group)
     }
 }
