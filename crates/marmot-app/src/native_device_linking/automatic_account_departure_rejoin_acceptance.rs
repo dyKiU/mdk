@@ -93,18 +93,12 @@ async fn verify_fresh_sources(
     url: &str,
     prior: [PriorSource; 2],
 ) {
-    let _a_trace = crate::AppClient::test_capture_account_chat_progress(
-        apps[0].account_home().root(),
-        "source",
-    );
-    let _b_trace = crate::AppClient::test_capture_account_chat_progress(
-        apps[1].account_home().root(),
-        "source",
-    );
-    let _c_trace = crate::AppClient::test_capture_account_chat_progress(
-        apps[2].account_home().root(),
-        "recipient",
-    );
+    let trace_roots: [std::path::PathBuf; 3] =
+        std::array::from_fn(|index| apps[index].account_home().root().to_path_buf());
+    let _a_trace = crate::AppClient::test_capture_account_chat_progress(&trace_roots[0], "source");
+    let _b_trace = crate::AppClient::test_capture_account_chat_progress(&trace_roots[1], "source");
+    let _c_trace =
+        crate::AppClient::test_capture_account_chat_progress(&trace_roots[2], "recipient");
     assert_eq!(stored_indices(&peer.app, &peer.group).len(), 1);
     let old = runtimes[2]
         .account_chat_departure_state("test", &peer.group)
