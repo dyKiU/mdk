@@ -265,7 +265,7 @@ pub(super) async fn verify(
                 let observed = current_branch_observation(&reopened_app.account_storage("test").unwrap(),&peer.group).map(|current| (current.epoch==published.epoch,current.authenticator_digest==published.authenticator_digest,current.selected_head_digest==published.selected_head_digest)).map_err(|_|"Unknown");
                 eprintln!("account_departure_timeout_b_current_matches_published_branch={observed:?}");
             }
-            eprintln!("account_departure_public_leave_observation={:?}", observe_public_leave_failure(&reopened_app, peer, relay_database).await.map(|o| (o.administrator_epoch,o.administrator_pending_proposals,o.source_sent_proposals,o.administrator_received_proposals,o.administrator_processed_proposals,o.source_pending_fanouts,o.relay_retained_proposals,o.same_epoch,o.same_epoch_authenticator,o.same_selected_head,o.source_proposal_states)).map_err(|_| "Unknown"));
+            eprintln!("account_departure_public_leave_observation={:?}", observe_public_leave_failure(&reopened_app, peer, relay_database).await.map(|o| (o.administrator_epoch,o.administrator_pending_proposals,o.source_sent_proposals,o.administrator_received_proposals,o.administrator_processed_proposals,o.source_pending_fanouts,o.relay_retained_proposals,o.same_epoch,o.same_epoch_authenticator,o.same_selected_head,o.source_proposal_states,o.sent_commits,o.received_commit_states,o.relay_commits)).map_err(|_| "Unknown"));
             eprintln!(
                 "account_departure_timeout_d_leaves={} a_present={} b_present={}",
                 indices.len(),
@@ -410,6 +410,10 @@ struct PublicLeaveObservation {
     same_epoch_authenticator: bool,
     same_selected_head: bool,
     source_proposal_states: [usize; 8],
+    // Direction0 is B→D, direction1 is D→B. The ninth state is NotFound.
+    sent_commits: [usize; 2],
+    received_commit_states: [[usize; 9]; 2],
+    relay_commits: [usize; 2],
 }
 
 /// Observe the actual durable proposal and administrator queue, never a grant.
@@ -502,6 +506,80 @@ async fn observe_public_leave_failure(
             Err(error) => return Err(error.into()),
         }
     }
+    let mut sent_commits = [0; 2];
+    let mut received_commit_states = [[0; 9]; 2];
+    let mut relay_commits = [0; 2];
+    if current.0 > 0 {
+        for (direction, (sender, receiver)) in
+            [(&source, &administrator), (&administrator, &source)]
+                .into_iter()
+                .enumerate()
+        {
+            for record in sender
+                .list_messages(&peer.group, cgka_traits::EpochId(current.0 - 1))?
+                .iter()
+                .take(128)
+            {
+                if record.state != MessageState::Sent {
+                    continue;
+                }
+                let Ok(payload) = StoredMessagePayload::decode(&record.payload) else {
+                    continue;
+                };
+                let (Some(exact), Some(wire)) =
+                    (payload.as_exact_transport(), payload.as_openmls_wire())
+                else {
+                    continue;
+                };
+                let Ok(message) = MlsMessageIn::tls_deserialize_exact(&wire.payload) else {
+                    continue;
+                };
+                let protocol: ProtocolMessage = match message.extract() {
+                    MlsMessageBodyIn::PublicMessage(message) => message.into(),
+                    MlsMessageBodyIn::PrivateMessage(message) => message.into(),
+                    _ => continue,
+                };
+                if protocol.content_type() != ContentType::Commit {
+                    continue;
+                }
+                sent_commits[direction] += 1;
+                let id = nostr_relay_builder::prelude::EventId::from_slice(exact.id.as_slice())
+                    .map_err(|_| {
+                        cgka_traits::StorageError::Serialization(
+                            "diagnostic commit unavailable".into(),
+                        )
+                    })?;
+                relay_commits[direction] += usize::from(
+                    relay_database
+                        .event_by_id(&id)
+                        .await
+                        .map_err(|_| {
+                            cgka_traits::StorageError::Backend(
+                                "diagnostic relay read failed".into(),
+                            )
+                        })?
+                        .is_some(),
+                );
+                use sha2::{Digest, Sha256};
+                let id = cgka_traits::MessageId::new(Sha256::digest(&wire.payload).to_vec());
+                let state = match receiver.get_message(&id) {
+                    Ok(row) => match row.state {
+                        MessageState::Sent => 0,
+                        MessageState::Created => 1,
+                        MessageState::Processed => 2,
+                        MessageState::Failed => 3,
+                        MessageState::Retryable => 4,
+                        MessageState::ConvergenceDeferred => 5,
+                        MessageState::PeelDeferred => 6,
+                        MessageState::EpochInvalidated => 7,
+                    },
+                    Err(cgka_traits::StorageError::NotFound) => 8,
+                    Err(error) => return Err(error.into()),
+                };
+                received_commit_states[direction][state] += 1;
+            }
+        }
+    }
     let fanouts = source.list_outbound_fanouts_for_group(&peer.group)?.len();
     Ok(PublicLeaveObservation {
         administrator_epoch: epoch,
@@ -512,6 +590,9 @@ async fn observe_public_leave_failure(
         source_pending_fanouts: fanouts,
         relay_retained_proposals: relay_retained,
         source_proposal_states,
+        sent_commits,
+        received_commit_states,
+        relay_commits,
         same_epoch: source_branch.epoch == administrator_branch.epoch,
         same_epoch_authenticator: source_branch.authenticator_digest
             == administrator_branch.authenticator_digest,
