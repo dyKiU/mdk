@@ -254,6 +254,64 @@ impl SqliteAccountStorage {
         )
         .storage()
     }
+    /// Accepted-only immutable lineage metadata; never original consent or MLS
+    /// membership. Tagged legacy lineages additionally require their original
+    /// evidence row, under the same configured account/device ownership guard.
+    pub fn current_account_chat_source_origin(
+        &self,
+        account: &[u8; 32],
+        local_device: &[u8; 32],
+        group: &GroupId,
+    ) -> StorageResult<Option<cgka_traits::mirrored_chat_catalog::AcceptedChatOrigin>> {
+        self.account_chat_source_origin_for_verdict(account, local_device, group, 1)
+    }
+
+    /// Denied lineage metadata for a freshly authenticated terminal/explicit
+    /// negative source observation; this never supplies a positive approval.
+    pub fn current_account_chat_source_terminal_origin(
+        &self,
+        account: &[u8; 32],
+        local_device: &[u8; 32],
+        group: &GroupId,
+    ) -> StorageResult<Option<cgka_traits::mirrored_chat_catalog::AcceptedChatOrigin>> {
+        self.account_chat_source_origin_for_verdict(account, local_device, group, 2)
+    }
+
+    fn account_chat_source_origin_for_verdict(
+        &self,
+        account: &[u8; 32],
+        local_device: &[u8; 32],
+        group: &GroupId,
+        verdict: u8,
+    ) -> StorageResult<Option<cgka_traits::mirrored_chat_catalog::AcceptedChatOrigin>> {
+        let conn = self.lock()?;
+        crate::approved_account_sharing_policy::check_configured_owner(
+            &conn,
+            account,
+            local_device,
+        )?;
+        let value: Option<(Vec<u8>, i64)> = conn.query_row(
+            "SELECT o.origin_id,o.origin_order FROM account_chat_source_current c
+             JOIN account_chat_source_origins o USING(origin_id)
+             WHERE c.group_id=?1 AND o.account=?2 AND o.local_device=?3 AND o.verdict=?4
+               AND (substr(o.origin,1,1)!=X'02' OR EXISTS(
+                 SELECT 1 FROM account_chat_legacy_acceptance_evidence e WHERE e.origin_id=o.origin_id))",
+            params![group.as_slice(), account.as_slice(), local_device.as_slice(), verdict],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).optional().storage()?;
+        let Some((id, order)) = value else {
+            return Ok(None);
+        };
+        if !(1..=MAX_ACCOUNT_CHAT_SOURCE_ORIGINS as i64).contains(&order) {
+            return Err(invalid());
+        }
+        Ok(Some(
+            cgka_traits::mirrored_chat_catalog::AcceptedChatOrigin {
+                id: id.try_into().map_err(|_| invalid())?,
+                order: order as u64,
+            },
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -303,6 +361,59 @@ mod tests {
             .current_account_chat_source(&[1; 32], &[2; 32], &GroupId::new(vec![8; 16]))
             .unwrap()
     }
+    #[test]
+    fn accepted_origin_reader_tracks_only_actual_current_accepted_lineage() {
+        let storage = configured();
+        let group = GroupId::new(vec![8; 16]);
+        let read = || {
+            storage
+                .current_account_chat_source_origin(&[1; 32], &[2; 32], &group)
+                .unwrap()
+        };
+        let apply = |origin, operation| {
+            storage
+                .apply_account_chat_source_changes(&[change(origin, operation)], &|_| Ok(()))
+                .unwrap()
+        };
+        assert!(read().is_none());
+        apply(
+            joined(3),
+            AccountChatSourceOperation::Observe {
+                explicitly_accepted: false,
+            },
+        );
+        assert!(read().is_none());
+        apply(joined(3), AccountChatSourceOperation::Accept);
+        let first = read().unwrap();
+        assert_eq!(first.order, 1);
+        apply(joined(3), AccountChatSourceOperation::Deny);
+        assert!(read().is_none());
+        assert!(
+            storage
+                .current_account_chat_source_terminal_origin(&[1; 32], &[2; 32], &group)
+                .unwrap()
+                == Some(first)
+        );
+        apply(
+            joined(4),
+            AccountChatSourceOperation::Observe {
+                explicitly_accepted: true,
+            },
+        );
+        let second = read().unwrap();
+        assert!(second.id != first.id && second.order > first.order);
+        assert!(
+            storage
+                .current_account_chat_source_origin(&[9; 32], &[2; 32], &group)
+                .is_err()
+        );
+        assert!(
+            storage
+                .current_account_chat_source_origin(&[1; 32], &[9; 32], &group)
+                .is_err()
+        );
+    }
+
     #[test]
     fn actual_origin_observation_is_pending_until_explicit_accept_and_new_welcome_resets() {
         let storage = configured();

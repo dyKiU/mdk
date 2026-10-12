@@ -6,6 +6,15 @@ pub const MAX_MIRRORED_CHAT_PAGE: usize = 128;
 pub const MAX_MIRRORED_CHAT_ROWS: usize = 8192;
 pub const MAX_MIRRORED_CHAT_SCOPES: usize = 128;
 
+/// Immutable identity of a genuine locally accepted source lineage. This is
+/// authenticated observation metadata, never consent or MLS membership.
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AcceptedChatOrigin {
+    pub id: [u8; 32],
+    pub order: u64,
+}
+
 /// Exact recipient/source policy context. Persisting this never restores consent.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MirroredChatScope {
