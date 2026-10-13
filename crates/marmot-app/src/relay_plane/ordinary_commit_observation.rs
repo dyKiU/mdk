@@ -117,6 +117,9 @@ pub(super) fn observe(adapter: &MarmotRelayPlaneAccountAdapter, request: &Transp
             .storage
             .get_message(&request.message.id)
             .map_err(|_| "canonical_row_read_failed")?;
+        if row.group_id != watch.group {
+            return Err("canonical_row_group_mismatch");
+        }
         let payload =
             StoredMessagePayload::decode(&row.payload).map_err(|_| "payload_decode_failed")?;
         let Some(stamp) = payload.own_commit_stamp() else {
