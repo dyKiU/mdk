@@ -1568,10 +1568,34 @@ async fn parked_reference_fixture() -> (
     TransportMessage,
     String,
 ) {
-    let (mut committer, _) = build_client(b"parked-reference-committer");
-    let (mut observer, storage) = build_client(b"parked-reference-observer");
-    let (mut leaver, _) = build_client(b"parked-reference-leaver");
-    let (mut unrelated, _) = build_client(b"parked-reference-unrelated");
+    // Advertise the actual SelfRemove proposal capability on every fresh leaf,
+    // matching the existing distributed-convergence SelfRemove fixtures.
+    fn capable_client(seed: &[u8]) -> (Engine<SqliteAccountStorage>, SqliteAccountStorage) {
+        use cgka_traits::capabilities::{CapabilityRequirement, Feature, RequirementLevel};
+        let mut registry = crate::feature_registry::FeatureRegistry::new();
+        registry.register(
+            Feature("self-remove"),
+            CapabilityRequirement {
+                requires: cgka_traits::Capability::Proposal(10),
+                level: RequirementLevel::Required,
+                description: "MIP-03",
+            },
+        );
+        let storage = SqliteAccountStorage::in_memory().unwrap();
+        let engine = EngineBuilder::new(storage.clone())
+            .legacy_compatibility_profile()
+            .identity(member_id(seed).as_slice().to_vec())
+            .account_identity_proof_signer(Arc::new(SeedProofSigner(signing_key(seed))))
+            .feature_registry(registry)
+            .peeler(Box::new(PassthroughPeeler))
+            .build()
+            .unwrap();
+        (engine, storage)
+    }
+    let (mut committer, _) = capable_client(b"parked-reference-committer");
+    let (mut observer, storage) = capable_client(b"parked-reference-observer");
+    let (mut leaver, _) = capable_client(b"parked-reference-leaver");
+    let (mut unrelated, _) = capable_client(b"parked-reference-unrelated");
     let group = group_with(
         &mut committer,
         &mut [&mut observer, &mut leaver, &mut unrelated],
