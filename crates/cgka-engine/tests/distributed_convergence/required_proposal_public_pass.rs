@@ -138,9 +138,7 @@ async fn required_proposal_public_pass(processed_first: bool) {
     }
     let retained = first_storage.get_message(&content_id(&leave)).unwrap();
     assert!(
-        retained
-            .payload
-            .as_ref()
+        StoredMessagePayload::decode(&retained.payload)
             .unwrap()
             .as_openmls_wire()
             .unwrap()
