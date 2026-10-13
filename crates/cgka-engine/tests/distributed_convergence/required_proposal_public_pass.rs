@@ -150,8 +150,13 @@ async fn required_proposal_public_pass_with_tail(
                     id: id.clone(),
                     group_id: group.clone(),
                     epoch: EpochId(first_mls.epoch().as_u64()),
-                    state: MessageState::PeelDeferred,
-                    payload: vec![0xff],
+                    state: MessageState::Processed,
+                    payload: StoredMessagePayload::raw_transport(TransportMessage {
+                        id: id.clone(),
+                        ..leave.clone()
+                    })
+                    .encode()
+                    .unwrap(),
                     deferred_peel: None,
                 })
                 .unwrap();
