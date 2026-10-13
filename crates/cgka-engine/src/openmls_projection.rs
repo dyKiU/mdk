@@ -1043,16 +1043,32 @@ fn replay_openmls_messages_prevalidated_output_with_refutation<S: StorageProvide
     // A probe restores its starting state before this transaction commits.
     // Joining all temporary OpenMLS writes avoids a durable commit per value;
     // the guard still restores state for nested/nontransactional backends.
-    storage.with_transaction(|storage| {
+    let mut staged_cursor = cursor.as_deref().cloned();
+    let result = storage.with_transaction(|storage| {
         replay_openmls_messages_probe_with_refutation(
             storage,
             group_id,
             messages,
             own_commits,
             profile_policy,
-            cursor,
+            staged_cursor.as_mut(),
         )
-    })
+    });
+    // Publish scratch progress only after the crypto/SQL restoration boundary.
+    // Storage/snapshot failure and unwind retain the original cursor.
+    if result.is_ok()
+        || matches!(
+            &result,
+            Err(OpenMlsProjectionError::RejectedDependencyScanPending
+                | OpenMlsProjectionError::MissingReferencedProposal
+                | OpenMlsProjectionError::InvalidCommit { .. })
+        )
+    {
+        if let Some(cursor) = cursor {
+            *cursor = staged_cursor.expect("staged cursor mirrors supplied continuation");
+        }
+    }
+    result
 }
 
 // Keep the restoration body separate so tests can compare identical replay work
@@ -4568,7 +4584,7 @@ fn replayed_commit_establishes_proposal_epoch(
 /// Failed state selects rows to inspect; only the authenticated reference and
 /// current standalone authorization refusal can refute the commit dependency.
 /// Never queue the refused proposal, merge a commit, or read private handshakes.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct RejectedDependencyCursor {
     commit: Option<MessageId>,
     reference: String,
