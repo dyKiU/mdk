@@ -662,11 +662,25 @@ impl AppClient {
                 continue;
             }
             if let Some(probe) = &entry.pre_auth_failure
-                && probe.armed.swap(false, Ordering::AcqRel)
+                && probe.armed.load(Ordering::Acquire)
             {
-                probe.capture_injected_control(entry, group, source, wire);
-                probe.failures.fetch_add(1, Ordering::AcqRel);
-                return Err(crate::AccountSharingError::NotReady);
+                // MLS delivery broadcasts controls for every sibling channel.
+                // Select the exact fault target through read-only Core authentication;
+                // a matching protected source alone can belong to another nonce.
+                // This test-only preflight grants no channel authority. The retained
+                // retry still authenticates the same bytes through the ordinary path.
+                let matches_channel = self
+                    .runtime
+                    .session()
+                    .authenticate_received_account_sharing_control(group, source, wire)
+                    .is_ok_and(|received| {
+                        received.nonce == scope.nonce && received.signer == scope.recipient
+                    });
+                if matches_channel && probe.armed.swap(false, Ordering::AcqRel) {
+                    probe.capture_injected_control(entry, group, source, wire);
+                    probe.failures.fetch_add(1, Ordering::AcqRel);
+                    return Err(crate::AccountSharingError::NotReady);
+                }
             }
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]

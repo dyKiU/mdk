@@ -75,6 +75,10 @@ pub(super) async fn assert_bilateral_completion(
             "sibling exact injected-item normal/retained Core authentication routes, kind, captured: {:?}",
             probe.authentication_routes_for_test()
         );
+        eprintln!(
+            "sibling retained retry counts and channel state: {:?}",
+            probe.snapshot_for_test()
+        );
     }
     if outcome.is_err() {
         eprintln!(
@@ -221,6 +225,12 @@ pub(super) async fn assert_bilateral_completion(
         }
     }
     outcome.expect("actual bilateral B/C policies and encrypted confirmations must settle without another user action");
+    if let Some(probe) = pre_auth_probe {
+        assert!(
+            probe.authentication_routes_for_test().0[1] > 0,
+            "the exact injected control must authenticate on its retained original channel"
+        );
+    }
     let devices = apps.each_ref().map(|app| {
         app.account_storage("test")
             .unwrap()
