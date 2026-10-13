@@ -177,3 +177,5 @@ exhausted after encrypted reopen. Do not prune or reset it silently. Exact dupli
 observation is negative; a distinct request requires fresh original authentication.
 Keep revision14 prefix, default populated-cohort refusal, SQL rollback/fault, owner
 identity and encrypted capacity controls. Preserve core102/private1–14 bodies.
+
+For the upstream integration, core103–107 retain their exact upstream identities; the core102 restriction above describes the frozen legacy bridge. Preserve its single core/private transaction while using declared upstream FK scopes before BEGIN and validating affected references before commit. Delay positive core progress until the shared commit. Observer failures cannot change migration outcomes or consent.

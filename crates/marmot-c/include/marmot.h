@@ -869,6 +869,36 @@ typedef enum MarmotReportReason {
   MARMOT_REPORT_REASON_OTHER,
 } MarmotReportReason;
 
+typedef enum MarmotNativeStartupStage {
+  MARMOT_NATIVE_STARTUP_STAGE_ATTACHMENT_TASK_QUEUED,
+  MARMOT_NATIVE_STARTUP_STAGE_ACCOUNT_RESOLUTION,
+  MARMOT_NATIVE_STARTUP_STAGE_ACCOUNT_STORAGE_CACHE,
+  MARMOT_NATIVE_STARTUP_STAGE_STORAGE_ADMISSION,
+  MARMOT_NATIVE_STARTUP_STAGE_DATABASE_OPEN_LOCK,
+  MARMOT_NATIVE_STARTUP_STAGE_SIGNING_KEYS,
+  MARMOT_NATIVE_STARTUP_STAGE_EXTERNAL_DATABASE_SECRET,
+  MARMOT_NATIVE_STARTUP_STAGE_KEY_DERIVATION,
+  MARMOT_NATIVE_STARTUP_STAGE_SALT_READ,
+  MARMOT_NATIVE_STARTUP_STAGE_RECOVERY_PROBE,
+  MARMOT_NATIVE_STARTUP_STAGE_RECOVERY_REKEY,
+  MARMOT_NATIVE_STARTUP_STAGE_ENCRYPTED_STORE_OPEN,
+  MARMOT_NATIVE_STARTUP_STAGE_CIPHER_CONFIGURATION,
+  MARMOT_NATIVE_STARTUP_STAGE_CIPHER_KEY_APPLICATION,
+  MARMOT_NATIVE_STARTUP_STAGE_OPERATIONAL_PRAGMAS,
+  MARMOT_NATIVE_STARTUP_STAGE_MIGRATION_INSPECTION,
+  MARMOT_NATIVE_STARTUP_STAGE_MIGRATION_APPLY,
+  MARMOT_NATIVE_STARTUP_STAGE_ATTACHMENT_LOCAL_READ,
+  MARMOT_NATIVE_STARTUP_STAGE_ATTACHMENT_FUTURE_WAIT,
+  MARMOT_NATIVE_STARTUP_STAGE_PRODUCT_ANALYTICS_ADMISSION,
+} MarmotNativeStartupStage;
+
+typedef enum MarmotNativeStartupOutcome {
+  MARMOT_NATIVE_STARTUP_OUTCOME_ACTIVE,
+  MARMOT_NATIVE_STARTUP_OUTCOME_SUCCESS,
+  MARMOT_NATIVE_STARTUP_OUTCOME_FAILURE,
+  MARMOT_NATIVE_STARTUP_OUTCOME_ABANDONED,
+} MarmotNativeStartupOutcome;
+
 typedef enum MarmotDeviceLinkingPhase {
   MARMOT_DEVICE_LINKING_PHASE_AWAITING_SETUP,
   MARMOT_DEVICE_LINKING_PHASE_AWAITING_PEER,
@@ -4647,6 +4677,30 @@ typedef struct MarmotModerationReportOutcome {
   enum MarmotSendAcceptDisposition accept_disposition;
 } MarmotModerationReportOutcome;
 
+typedef struct MarmotNativeStartupObservation {
+  uint64_t token;
+  enum MarmotNativeStartupStage stage;
+  uint64_t elapsed_ms;
+  uint64_t stage_elapsed_ms;
+  bool has_migration_version;
+  /**
+   *Only meaningful when the matching `has_` flag is set.
+   */
+  uint32_t migration_version;
+  uint32_t migrations_completed;
+  enum MarmotNativeStartupOutcome outcome;
+} MarmotNativeStartupObservation;
+
+typedef struct MarmotNativeStartupSnapshot {
+  bool enabled;
+  struct MarmotNativeStartupObservation *active;
+  uintptr_t active_len;
+  struct MarmotNativeStartupObservation *events;
+  uintptr_t events_len;
+  uint64_t dropped_events;
+  uint64_t dropped_scopes;
+} MarmotNativeStartupSnapshot;
+
 typedef struct MarmotDeviceLinkingCapabilities {
   bool verification_supported;
   bool enrollment_supported;
@@ -4730,6 +4784,35 @@ typedef struct MarmotDeviceLinkingApprovalReviewMetadata {
 } MarmotDeviceLinkingApprovalReviewMetadata;
 
 /**
+ * Borrowed private input. Its path is local only and is never published.
+ */
+typedef struct MarmotMediaFileUploadAttachmentRequest {
+  const char *source_path;
+  /**
+   * Nonzero requires the immutable snapshot to contain exactly expected_size bytes.
+   */
+  uint8_t has_expected_size;
+  uint64_t expected_size;
+  const char *file_name;
+  const char *media_type;
+  const char *dim;
+  const char *thumbhash;
+} MarmotMediaFileUploadAttachmentRequest;
+
+/**
+ * Borrowed input batch. Snapshots are copied before the first network side effect.
+ */
+typedef struct MarmotMediaFileUploadRequest {
+  const struct MarmotMediaFileUploadAttachmentRequest *attachments;
+  uintptr_t attachments_len;
+  const char *caption;
+  uint8_t send;
+  const char *blossom_server;
+  const struct MarmotStringArray *message_tags;
+  uintptr_t message_tags_len;
+} MarmotMediaFileUploadRequest;
+
+/**
  * List-owned alias. Clone its handle before releasing the parent list.
  */
 typedef struct MarmotHistoryConsentEntry {
@@ -4758,35 +4841,6 @@ typedef struct MarmotHistoryTransferSnapshot {
   uint32_t encoded_bytes;
   uint32_t fragment_count;
 } MarmotHistoryTransferSnapshot;
-
-/**
- * Borrowed private input. Its path is local only and is never published.
- */
-typedef struct MarmotMediaFileUploadAttachmentRequest {
-  const char *source_path;
-  /**
-   * Nonzero requires the immutable snapshot to contain exactly expected_size bytes.
-   */
-  uint8_t has_expected_size;
-  uint64_t expected_size;
-  const char *file_name;
-  const char *media_type;
-  const char *dim;
-  const char *thumbhash;
-} MarmotMediaFileUploadAttachmentRequest;
-
-/**
- * Borrowed input batch. Snapshots are copied before the first network side effect.
- */
-typedef struct MarmotMediaFileUploadRequest {
-  const struct MarmotMediaFileUploadAttachmentRequest *attachments;
-  uintptr_t attachments_len;
-  const char *caption;
-  uint8_t send;
-  const char *blossom_server;
-  const struct MarmotStringArray *message_tags;
-  uintptr_t message_tags_len;
-} MarmotMediaFileUploadRequest;
 
 /**
  * Stable stream and start-message identifiers.
@@ -8832,6 +8886,25 @@ MarmotStatus marmot_send_media_attachments(const struct MarmotClient *client,
                                            struct MarmotSendSummary **out);
 
 /**
+ * Admit a captured ordinary-media payload with its stable token. Consume the supplied
+ * draft only if its exact revision remains current; NULL requests no draft consumption.
+ * Free the result with marmot_local_send_acceptance_free.
+ *
+ * # Safety
+ * Client and required strings must be valid; attachments must be readable for their
+ * length (NULL allowed at zero); an optional revision must remain live; out writable.
+ */
+MarmotStatus marmot_send_prepared_media_with_client_token(const struct MarmotClient *client,
+                                                          const char *account_ref,
+                                                          const char *group_id_hex,
+                                                          const struct MarmotMediaAttachmentReference *attachments,
+                                                          uintptr_t attachments_len,
+                                                          const char *caption,
+                                                          const char *client_token,
+                                                          const struct MarmotMessageDraftRevision *consuming_draft,
+                                                          struct MarmotLocalSendAcceptance **out);
+
+/**
  * Send previously uploaded attachments as one kind-9 message that also
  * carries application `tags` (for example NIP-30 `emoji` tags), each row
  * a `(char **, len)` pair. imeta tags are rejected. Free with
@@ -9722,6 +9795,28 @@ MarmotStatus marmot_configure_moderation_reporting(const struct MarmotClient *cl
 MarmotStatus marmot_verify_public_nostr_event_json(const char *event_json, uint8_t *out);
 
 /**
+ *
+ * # Safety
+ * `client` must be a live handle; string arguments must be valid
+ * NUL-terminated strings (nullable ones may be NULL); array
+ * arguments must hold their stated length (or be NULL with
+ * length 0); out-pointers must be valid.
+ */
+MarmotStatus marmot_set_startup_diagnostics_enabled(const struct MarmotClient *client,
+                                                    uint8_t enabled);
+
+/**
+ *
+ * # Safety
+ * `client` must be a live handle; string arguments must be valid
+ * NUL-terminated strings (nullable ones may be NULL); array
+ * arguments must hold their stated length (or be NULL with
+ * length 0); out-pointers must be valid.
+ */
+MarmotStatus marmot_startup_diagnostics_snapshot(const struct MarmotClient *client,
+                                                 struct MarmotNativeStartupSnapshot **out);
+
+/**
  * Read actual runtime capabilities; enrollment support remains false.
  * # Safety
  * client must be live and out writable; release the returned record with its matching free.
@@ -9973,6 +10068,74 @@ void marmot_device_linking_approval_free(struct MarmotDeviceLinkingApproval *han
 void marmot_device_linking_approval_list_free(struct MarmotDeviceLinkingApprovalList *list);
 
 /**
+ * Create a control; free it with marmot_media_file_transfer_control_free after upload returns.
+ * # Safety
+ * out must be writable.
+ */
+MarmotStatus marmot_media_file_transfer_control_new(struct MarmotMediaFileTransferControl **out);
+
+/**
+ * Cancel before admission starts; once admission starts, delivery belongs to the local-send queue.
+ * # Safety
+ * control must be live; no concurrent free.
+ */
+MarmotStatus marmot_media_file_transfer_control_cancel(const struct MarmotMediaFileTransferControl *control);
+
+/**
+ * Read cancellation as uint8_t (0 or 1).
+ * # Safety
+ * control must be live; out writable; no concurrent free.
+ */
+MarmotStatus marmot_media_file_transfer_control_is_cancelled(const struct MarmotMediaFileTransferControl *control,
+                                                             uint8_t *out);
+
+/**
+ * Read monotonic processed bytes, not a percentage (preparation and retries can exceed file length).
+ * # Safety
+ * control must be live; out writable; no concurrent free.
+ */
+MarmotStatus marmot_media_file_transfer_control_processed_bytes(const struct MarmotMediaFileTransferControl *control,
+                                                                uint64_t *out);
+
+/**
+ * Free a control; NULL is accepted.
+ * # Safety
+ * control must be NULL or live, with all calls on it finished.
+ */
+void marmot_media_file_transfer_control_free(struct MarmotMediaFileTransferControl *control);
+
+/**
+ * Return the per-batch ciphertext implementation bound, including each attachment's AEAD tag.
+ */
+uint64_t marmot_max_file_media_ciphertext_bytes(void);
+
+/**
+ * Blocking file-backed upload. Results use marmot_media_upload_result_free; inputs remain borrowed.
+ * # Safety
+ * client/control must be live; strings/request valid until return; out writable. No concurrent frees.
+ */
+MarmotStatus marmot_upload_media_files(const struct MarmotClient *client,
+                                       const char *account_ref,
+                                       const char *group_id_hex,
+                                       const struct MarmotMediaFileUploadRequest *request,
+                                       const struct MarmotMediaFileTransferControl *control,
+                                       struct MarmotMediaUploadResult **out);
+
+/**
+ * Blocking token-aware twin. Keep one token for the logical submission; probe local-send status after interruption.
+ * Results use marmot_media_upload_submission_free; input paths are copied, never published.
+ * # Safety
+ * Same input/lifetime requirements as marmot_upload_media_files, plus a valid client_token string.
+ */
+MarmotStatus marmot_upload_media_files_with_client_token(const struct MarmotClient *client,
+                                                         const char *account_ref,
+                                                         const char *group_id_hex,
+                                                         const struct MarmotMediaFileUploadRequest *request,
+                                                         const struct MarmotMediaFileTransferControl *control,
+                                                         const char *client_token,
+                                                         struct MarmotMediaUploadSubmission **out);
+
+/**
  * Begin a bounded history action. Recipient is an exact 32-byte device identity.
  * # Safety
  * Live client, borrowed NUL-terminated strings, recipient readable for len and writable out; no concurrent free.
@@ -10075,74 +10238,6 @@ MarmotStatus marmot_history_consent_approve(const struct MarmotHistoryConsent *h
  * Live handle; no concurrent free.
  */
 MarmotStatus marmot_history_consent_cancel(const struct MarmotHistoryConsent *handle);
-
-/**
- * Create a control; free it with marmot_media_file_transfer_control_free after upload returns.
- * # Safety
- * out must be writable.
- */
-MarmotStatus marmot_media_file_transfer_control_new(struct MarmotMediaFileTransferControl **out);
-
-/**
- * Cancel before admission starts; once admission starts, delivery belongs to the local-send queue.
- * # Safety
- * control must be live; no concurrent free.
- */
-MarmotStatus marmot_media_file_transfer_control_cancel(const struct MarmotMediaFileTransferControl *control);
-
-/**
- * Read cancellation as uint8_t (0 or 1).
- * # Safety
- * control must be live; out writable; no concurrent free.
- */
-MarmotStatus marmot_media_file_transfer_control_is_cancelled(const struct MarmotMediaFileTransferControl *control,
-                                                             uint8_t *out);
-
-/**
- * Read monotonic processed bytes, not a percentage (preparation and retries can exceed file length).
- * # Safety
- * control must be live; out writable; no concurrent free.
- */
-MarmotStatus marmot_media_file_transfer_control_processed_bytes(const struct MarmotMediaFileTransferControl *control,
-                                                                uint64_t *out);
-
-/**
- * Free a control; NULL is accepted.
- * # Safety
- * control must be NULL or live, with all calls on it finished.
- */
-void marmot_media_file_transfer_control_free(struct MarmotMediaFileTransferControl *control);
-
-/**
- * Return the per-batch ciphertext implementation bound, including each attachment's AEAD tag.
- */
-uint64_t marmot_max_file_media_ciphertext_bytes(void);
-
-/**
- * Blocking file-backed upload. Results use marmot_media_upload_result_free; inputs remain borrowed.
- * # Safety
- * client/control must be live; strings/request valid until return; out writable. No concurrent frees.
- */
-MarmotStatus marmot_upload_media_files(const struct MarmotClient *client,
-                                       const char *account_ref,
-                                       const char *group_id_hex,
-                                       const struct MarmotMediaFileUploadRequest *request,
-                                       const struct MarmotMediaFileTransferControl *control,
-                                       struct MarmotMediaUploadResult **out);
-
-/**
- * Blocking token-aware twin. Keep one token for the logical submission; probe local-send status after interruption.
- * Results use marmot_media_upload_submission_free; input paths are copied, never published.
- * # Safety
- * Same input/lifetime requirements as marmot_upload_media_files, plus a valid client_token string.
- */
-MarmotStatus marmot_upload_media_files_with_client_token(const struct MarmotClient *client,
-                                                         const char *account_ref,
-                                                         const char *group_id_hex,
-                                                         const struct MarmotMediaFileUploadRequest *request,
-                                                         const struct MarmotMediaFileTransferControl *control,
-                                                         const char *client_token,
-                                                         struct MarmotMediaUploadSubmission **out);
 
 /**
  * Create an offline session from a bunker URI, client pairing config, or durable
@@ -12908,6 +13003,16 @@ void marmot_selected_chat_bytes_free(struct MarmotSelectedChatBytes *ptr);
  * this library.
  */
 void marmot_archived_history_page_free(struct MarmotArchivedHistoryPage *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_native_startup_snapshot_free(struct MarmotNativeStartupSnapshot *ptr);
 
 /**
  * Free a value of this type returned by this library. NULL

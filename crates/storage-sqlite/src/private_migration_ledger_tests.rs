@@ -4,6 +4,7 @@ fn legacy_prefix(connection: &mut Connection, last: usize) {
         let legacy = Migration {
             version: migration.version + 102,
             name: LEGACY_NAMES[(migration.version - 1) as usize],
+            suspend_foreign_keys: &[],
             apply: migration.apply,
         };
         apply_migration(connection, &legacy).unwrap();
@@ -21,6 +22,60 @@ const LEGACY_NAMES: [&str; 8] = [
 ];
 use super::*;
 use crate::{SqlCipherHardening, SqlCipherKey, open_hardened_sqlcipher};
+
+#[test]
+fn private_ledger_progress_never_confirms_a_rolled_back_core_upgrade() {
+    let root = tempfile::tempdir().unwrap();
+    let mut connection = encrypted(&root.path().join("observed-rollback.sqlite"));
+    run(&mut connection, &MIGRATIONS[..102]).unwrap();
+    connection.execute_batch("CREATE TRIGGER reject_core_receipt BEFORE INSERT ON cgka_schema_migrations WHEN NEW.version=105 BEGIN SELECT RAISE(ABORT,'synthetic ledger failure'); END;").unwrap();
+    let progress = std::cell::RefCell::new(Vec::new());
+    let observer = |value| progress.borrow_mut().push(value);
+    assert!(run_all_observed(&mut connection, Some(&observer)).is_err());
+    assert!(
+        progress
+            .borrow()
+            .contains(&crate::StorageOpenProgress::MigrationStarted(105))
+    );
+    assert!(!progress.borrow().iter().any(|value| matches!(
+        value,
+        crate::StorageOpenProgress::MigrationFinished { success: true, .. }
+    )));
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT max(version) FROM cgka_schema_migrations",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        102
+    );
+    assert!(
+        connection
+            .pragma_query_value(None, "foreign_keys", |row| row.get::<_, bool>(0))
+            .unwrap()
+    );
+    assert_eq!(connection.query_row("SELECT count(*) FROM sqlite_master WHERE name='cgka_experimental_device_sync_schema_migrations'", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+    connection
+        .execute_batch("DROP TRIGGER reject_core_receipt")
+        .unwrap();
+    progress.borrow_mut().clear();
+    run_all_observed(&mut connection, Some(&observer)).unwrap();
+    assert!(
+        progress
+            .borrow()
+            .contains(&crate::StorageOpenProgress::MigrationFinished {
+                version: 105,
+                success: true
+            })
+    );
+    assert!(
+        connection
+            .pragma_query_value(None, "foreign_keys", |row| row.get::<_, bool>(0))
+            .unwrap()
+    );
+}
 
 fn encrypted(path: &std::path::Path) -> Connection {
     let connection = Connection::open(path).unwrap();

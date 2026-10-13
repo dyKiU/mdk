@@ -566,3 +566,8 @@ feature-writer fixture. Original closed revision12 fixture bytes remain unchange
 while an upgrade copy exercises revision13. Full backend/production checks remain
 pending: see `docs/selected-chat-recipient-storage-hardening-focused-verification.json`
 from the repository root.
+
+
+Media upgrades 0104 and 0105 preserve existing payload pages during account open. Retained legacy bodies gain a sentinel length column with validation/accounting on mutation; they retain the legacy byte-array bound, while larger files use the chunk tables. Already-upgraded stores keep their compatible physical layout. Partial upgrades replace only parent metadata: the migration runner suspends connection-local foreign-key enforcement before BEGIN, validates the affected parent/child references before commit, and restores the original setting on success, rollback and unwind. Checkpoint chunks are preserved in place; no migration ledger is relabeled. Optional encrypted-open observation reports fixed phases and schema numbers without paths, SQL, keys or user data.
+
+The experimental integration keeps core and private upgrades in one transaction. It uses the same declared foreign-key scope before BEGIN, validates the affected core and private references, and restores enforcement on success, error or unwind. Core migration completion is observed only after that shared transaction commits; rolled-back bodies never report successful completion. Private revisions and frozen legacy receipt identities remain separate from upstream core103–107.

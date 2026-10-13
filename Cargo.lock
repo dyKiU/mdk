@@ -66,7 +66,7 @@ dependencies = [
 
 [[package]]
 name = "agent-connector"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "agent-control",
  "agent-stream-compose",
@@ -95,7 +95,7 @@ dependencies = [
 
 [[package]]
 name = "agent-control"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -105,7 +105,7 @@ dependencies = [
 
 [[package]]
 name = "agent-stream-compose"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "cgka-traits",
  "hex",
@@ -1017,7 +1017,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "cgka-conformance-simulator"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "async-trait",
  "cgka-engine",
@@ -1056,7 +1056,7 @@ dependencies = [
 
 [[package]]
 name = "cgka-engine"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1094,7 +1094,7 @@ dependencies = [
 
 [[package]]
 name = "cgka-session"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "async-trait",
  "cgka-engine",
@@ -1117,7 +1117,7 @@ dependencies = [
 
 [[package]]
 name = "cgka-traits"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "async-trait",
  "criterion",
@@ -1388,7 +1388,7 @@ dependencies = [
 
 [[package]]
 name = "convergence-campaign-runner"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "async-trait",
  "cgka-conformance-simulator",
@@ -2326,7 +2326,7 @@ dependencies = [
 
 [[package]]
 name = "fs-private"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "libc",
  "tempfile",
@@ -3191,7 +3191,7 @@ checksum = "2a0813be332553f857953298749fa19549e8b61b80589757c29b4e2a804fa9c6"
 
 [[package]]
 name = "incident-replay"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "cgka-conformance-simulator",
  "fs-private",
@@ -4006,7 +4006,7 @@ dependencies = [
 
 [[package]]
 name = "marmot-account"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "android-native-keyring-store",
  "apple-native-keyring-store",
@@ -4039,7 +4039,7 @@ dependencies = [
 
 [[package]]
 name = "marmot-app"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "agent-stream-compose",
  "async-trait",
@@ -4089,7 +4089,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tls_codec",
  "tokio",
- "tokio-tungstenite 0.26.2",
+ "tokio-tungstenite 0.28.0",
  "tokio-util",
  "tracing",
  "transport-nostr-adapter",
@@ -4102,7 +4102,7 @@ dependencies = [
 
 [[package]]
 name = "marmot-c"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "futures",
  "keyring-core",
@@ -4115,6 +4115,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "transport-nostr-adapter",
  "transport-quic-broker",
  "url",
  "zeroize",
@@ -4122,7 +4123,7 @@ dependencies = [
 
 [[package]]
 name = "marmot-forensics"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "fs-private",
  "hex",
@@ -4137,7 +4138,7 @@ dependencies = [
 
 [[package]]
 name = "marmot-markdown"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4145,7 +4146,7 @@ dependencies = [
 
 [[package]]
 name = "marmot-terminal-harness"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "agent-control",
  "async-trait",
@@ -4165,7 +4166,7 @@ dependencies = [
 
 [[package]]
 name = "marmot-uniffi"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "cgka-engine",
  "cgka-traits",
@@ -6866,7 +6867,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "storage-sqlite"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "base64 0.22.1",
  "cgka-traits",
@@ -7569,9 +7570,10 @@ dependencies = [
 
 [[package]]
 name = "transport-nostr-adapter"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "async-trait",
+ "async-wsocket 0.17.0",
  "base64 0.22.1",
  "cgka-traits",
  "futures",
@@ -7585,15 +7587,17 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
- "tokio-tungstenite 0.26.2",
+ "tokio-socks",
+ "tokio-tungstenite 0.28.0",
  "tokio-util",
  "tracing",
  "transport-nostr-peeler",
+ "zeroize",
 ]
 
 [[package]]
 name = "transport-nostr-peeler"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -7613,7 +7617,7 @@ dependencies = [
 
 [[package]]
 name = "transport-quic-broker"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "cgka-traits",
  "clap",
@@ -7632,7 +7636,7 @@ dependencies = [
 
 [[package]]
 name = "transport-quic-stream"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "cgka-traits",
  "chacha20poly1305 0.10.1",
@@ -8691,7 +8695,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "wn-claude"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -8706,7 +8710,7 @@ dependencies = [
 
 [[package]]
 name = "wn-cli"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "agent-stream-compose",
  "cgka-traits",
@@ -8739,7 +8743,7 @@ dependencies = [
 
 [[package]]
 name = "wn-codex"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -8753,7 +8757,7 @@ dependencies = [
 
 [[package]]
 name = "wn-goose"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -8769,7 +8773,7 @@ dependencies = [
 
 [[package]]
 name = "wn-opencode"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -8784,7 +8788,7 @@ dependencies = [
 
 [[package]]
 name = "wn-pi"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "async-trait",
  "clap",

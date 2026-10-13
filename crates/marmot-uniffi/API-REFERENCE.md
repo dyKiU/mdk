@@ -1,9 +1,9 @@
 # Complete MarmotKit method reference
 
-This reference inventories the UniFFI exports in the 0.10.2 source baseline and is maintained
-alongside source changes. Start with the [integration guide](README.md#integration-guide-and-api-reference)
-for API selection, lifecycle, localization and ownership. For this release's changes, read
-[0.10.1 → 0.10.2](../../docs/integration/0.10.2.md).
+This reference inventories the UniFFI exports and is maintained alongside source changes.
+Start with the [integration guide](README.md#integration-guide-and-api-reference)
+for API selection, lifecycle, localization and ownership. For the 0.13.0 changes, read
+[0.12.0 → 0.13.0](../../docs/integration/0.13.0.md).
 
 This inventories runtime/object methods, free functions and host callback methods. `AttachmentHistoryCursor` is an opaque object with no exported
 methods. Generated disposal/concurrency helpers are platform scaffolding, not additional
@@ -3446,7 +3446,7 @@ Observe block-list snapshots.
 pub fn includes_chat_list_version(&self, version: Arc<ChatListDraftVersionFfi>) -> bool
 ```
 
-Compare a chat-list row’s opaque `draft_version` with this captured composer revision. True means the same account store/group and a version no newer than this revision; false includes foreign store/group metadata and newer identical edits. This is presentation correlation, not mutation authorization. Keep both values device-local and use revision-checked cleanup. See [pending-send draft presentation](CHAT-LIST-ROWS.md#pending-send-draft-presentation-unreleased).
+Compare a chat-list row’s opaque `draft_version` with this captured composer revision. True means the same account store/group and a version no newer than this revision; false includes foreign store/group metadata and newer identical edits. This is presentation correlation, not mutation authorization. Keep both values device-local and use revision-checked cleanup. See [pending-send draft presentation](CHAT-LIST-ROWS.md#pending-send-draft-presentation-0130).
 
 [Source](src/conversions/conversation_window.rs#L340)
 
@@ -4361,7 +4361,7 @@ Read a retained submission's local state without relay I/O. `None` means no reta
 association. `Completed` describes the worker attempt; inspect its summary disposition
 and follow timeline updates for later delivery. See [local sends](LOCAL-SENDS.md).
 
-[Source](src/commands/local_submissions.rs#L178)
+[Source](src/commands/local_submissions.rs#L203)
 
 ### `Marmot::edit_local_message_with_client_token`
 
@@ -4402,6 +4402,16 @@ acceptance, not delivery; never clear a newer composer on completion. See [local
 
 [Source](src/commands/local_submissions.rs#L103)
 
+### `Marmot::send_prepared_media_with_client_token`
+
+```rust
+pub async fn send_prepared_media_with_client_token( &self, account_ref: String, group_id_hex: String, attachments: Vec<MediaAttachmentReferenceFfi>, caption: Option<String>, client_token: String, consuming_draft: Option<Arc<MessageDraftRevisionFfi>>, ) -> Result<LocalSendAcceptanceFfi, MarmotKitError>
+```
+
+Admit an uploaded ordinary-media snapshot with its stable client token and optional captured draft revision. Conditional consumption is transactional, bound to ordered plaintext SHA-256 hashes, and preserves newer drafts. The method has no reply target. See the [captured-media contract](LOCAL-SENDS.md#captured-ordinary-media-drafts) for token replay, interruption recovery and matching bindings.
+
+[Source](src/commands/local_submissions.rs#L125)
+
 ### `Marmot::send_text_with_client_token`
 
 ```rust
@@ -4425,7 +4435,7 @@ The result includes uploaded references and optional local acceptance. Uploads t
 are not idempotent or restart-resumable; query token status after unknown outcomes.
 See [local sends](LOCAL-SENDS.md) for cancellation and epoch-bound media handling.
 
-[Source](src/commands/local_submissions.rs#L125)
+[Source](src/commands/local_submissions.rs#L150)
 
 ### `Marmot::upload_media_files_with_client_token`
 
@@ -4437,7 +4447,7 @@ pub async fn upload_media_files_with_client_token( &self, account_ref: String, g
 
 File-backed `upload_media_with_client_token`: every attachment is prepared and uploaded before durable token admission. Cancellation observed before admission starts returns an error and admits nothing. Once admission starts it is not interruptible, even before durable acceptance returns; follow `local_send_status` and timeline delivery, including uncertain-delivery handling. Admission rejects references from a source epoch that is no longer current. There is no fixed worker-response timeout; per-endpoint network deadlines still apply.
 
-[Source](src/commands/local_submissions.rs#L152)
+[Source](src/commands/local_submissions.rs#L177)
 
 </details>
 
@@ -4461,7 +4471,7 @@ must enforce those separately and bound any untrusted JSON before passing it.
 </details>
 
 <details>
-<summary>Opaque protected enrollment actions</summary>
+<summary>New exports — complete and organize before merging</summary>
 
 ### `Marmot::post_audit_log_tracker_update_v5`
 
@@ -4484,6 +4494,33 @@ Install or remove an in-memory v5 OTLP audit destination. With `enabled: true`, 
 [Source](src/commands/audit.rs#L54)
 
 </details>
+
+<details>
+<summary>Native startup diagnostics</summary>
+
+### `Marmot::set_startup_diagnostics_enabled`
+
+```rust
+pub fn set_startup_diagnostics_enabled(&self, enabled: bool) -> Result<(), MarmotKitError>
+```
+
+Explicitly enable or revoke bounded native progress for a diagnostic investigation. Capture is off by default and shared by clones of this app handle. It does not change database content, diagnostic-sharing/upload consent, network behavior or cryptographic settings. Re-enabling an already-enabled capture preserves its history; disabling clears it and fences in-flight observations from later captures. Enable before the first account policy read when diagnosing account opening.
+
+[Source](src/commands/startup_diagnostics.rs#L6)
+
+### `Marmot::startup_diagnostics_snapshot`
+
+```rust
+pub fn startup_diagnostics_snapshot(&self) -> Result<NativeStartupSnapshotFfi, MarmotKitError>
+```
+
+Synchronously clone fixed native phases, monotonic durations and migration progress from independent memory. This does not query account storage or the keystore, and remains usable before `start` or while an account-opening future is blocked. At most 16 active scopes and 96 events are retained; drop counters expose truncation. Tokens are anonymous process-local scope numbers. No identifiers, paths, call arguments/results, keys or error messages are returned. Bound serialized host exports separately and collect only in an explicitly enabled diagnostic flow.
+
+[Source](src/commands/startup_diagnostics.rs#L11)
+
+</details>
+
+
 
 <details>
 <summary>Opaque protected enrollment actions</summary>

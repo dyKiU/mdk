@@ -7,7 +7,21 @@
   returns typed Unsupported; experimental builds support verification only and
   keep enrollment gated. Regenerate Swift/Kotlin alongside the matching library.
 
+- `Marmot::send_prepared_media_with_client_token` exposes captured ordinary-media admission with transactional conditional draft consumption. Use the original token and revision for live retries, recover ownership by token after interruption, and pair regenerated Swift/Kotlin bindings with the matching library. See [local sends](LOCAL-SENDS.md).
+
+## 0.13.0 - 2026-10-12
+
+Regenerate Swift/Kotlin bindings with the matching native library. See the
+[release notes](../../docs/release/0.13.0.md) and the
+[client upgrade guide](../../docs/integration/0.13.0.md).
+
 ### Breaking changes
+
+- External-signer accounts move their device-local SQLCipher key from the
+  plaintext `.external-sqlcipher-secret` file into the configured `SecretStore`
+  (`.external-sqlcipher/<account label>`) on first open, then scrub and remove the
+  file. Older binaries cannot open these databases; downgrade is unsupported.
+  Opening a database with neither credential fails instead of generating a key.
 
 - `MarmotKitError` adds `ModerationReportingNotConfigured`,
   `InvalidModerationReportConfig`, `InvalidReportedPublicKey`, `CannotReportSelf`
@@ -39,6 +53,18 @@
 
 ### Added
 
+- `set_startup_diagnostics_enabled` and `startup_diagnostics_snapshot`
+  (`NativeStartupSnapshotFfi`) report fixed startup phases, outcomes and
+  migration progress. Local capture is off by default and changes no upload
+  consent or database state.
+
+- The runtime follows the opt-in `WN_SOCKS5_*` proxy settings described in
+  the marmot-app [SOCKS5 routing](../marmot-app/README.md#socks5-routing)
+  section. With the variables unset, nothing changes. When they are invalid,
+  `Marmot::new` and `Marmot::new_with_options` return an error instead of
+  connecting directly. Agent preview publishing and watching are unavailable
+  while SOCKS5 is on.
+
 - `submit_moderation_report`, `moderation_reporting_available` and
   `configure_moderation_reporting` add private, NIP-59 gift-wrapped NIP-56
   reports to the deployment's moderation team (`ModerationReportOriginFfi`,
@@ -50,7 +76,6 @@
   first public kind-0 is the onboarding-selected profile. Prefer it over
   `create_identity_with_profile` followed by `publish_user_profile`, which
   exposes the generated default to contacts first.
-
 - `Marmot::propose_onboarding_relay_repair` previews a lossless relay-list repair
   without signing or publishing. `OnboardingRepairProposalFfi.relay_repair` carries
   the typed before/after tags, exact diff, restored capabilities and ManualReview
@@ -77,6 +102,8 @@
 
 ### Changed
 
+- Polls can be created in direct conversations as well as groups.
+
 - `retired_relay_hosts()` no longer includes `relay.damus.io`, and
   `classify_relay_endpoints` now reports it as `Allowed`.
 
@@ -88,7 +115,7 @@
   target, avoiding false missing-target errors from a broken pipe.
 
 - Group activity uses shared per-commit reaction targets for authors and peers,
-  including commits preceding a disband. See `marmot-app`'s Unreleased fixes
+  including commits preceding a disband. See `marmot-app`'s 0.13.0 fixes
   for projection and push-token behavior.
 
 ## 0.12.0 - 2026-10-02

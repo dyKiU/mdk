@@ -71,7 +71,41 @@ fn denied() -> StorageError {
     StorageError::Backend("unrecognized experimental schema lineage".into())
 }
 
-pub(super) fn run_all(connection: &mut Connection) -> StorageResult<usize> {
+pub(super) fn run_all(
+    connection: &mut Connection,
+    observer: Option<&dyn Fn(crate::StorageOpenProgress)>,
+) -> StorageResult<usize> {
+    crate::open_progress::observe(
+        observer,
+        crate::StorageOpenProgress::Phase(crate::StorageOpenPhase::MigrationInspection),
+    );
+    let mut mode = MigrationForeignKeys::new(
+        connection,
+        MIGRATIONS
+            .iter()
+            .any(|migration| !migration.suspend_foreign_keys.is_empty()),
+    )?;
+    let mut started = Vec::new();
+    let result = run_transaction(mode.connection, observer, &mut started);
+    let restored = mode.restore();
+    // Core and private receipts share one commit. A successful body is not a committed upgrade.
+    for version in started {
+        crate::open_progress::observe(
+            observer,
+            crate::StorageOpenProgress::MigrationFinished {
+                version,
+                success: result.is_ok(),
+            },
+        );
+    }
+    result.and_then(|applied| restored.map(|()| applied))
+}
+
+fn run_transaction(
+    connection: &mut Connection,
+    observer: Option<&dyn Fn(crate::StorageOpenProgress)>,
+    started: &mut Vec<u32>,
+) -> StorageResult<usize> {
     ensure_ordered(MIGRATIONS)?;
     ensure_ordered(PRIVATE_MIGRATIONS)?;
     let schemas = expected_private_schemas()?;
@@ -142,10 +176,20 @@ pub(super) fn run_all(connection: &mut Connection) -> StorageResult<usize> {
             Some(name) if name == migration.name => {}
             Some(_) => return Err(denied()),
             None => {
-                (migration.apply)(&tx)?;
-                tx.execute("INSERT INTO cgka_schema_migrations VALUES(?1,?2,CAST(strftime('%s','now') AS INTEGER))",params![migration.version,migration.name]).storage()?;
-                #[cfg(test)]
-                migration_crash_pause(migration.version);
+                started.push(migration.version as u32);
+                crate::open_progress::observe(
+                    observer,
+                    crate::StorageOpenProgress::MigrationStarted(migration.version as u32),
+                );
+                let result = (|| {
+                    (migration.apply)(&tx)?;
+                    validate_migration_foreign_keys(&tx, migration)?;
+                    tx.execute("INSERT INTO cgka_schema_migrations VALUES(?1,?2,CAST(strftime('%s','now') AS INTEGER))",params![migration.version,migration.name]).storage()?;
+                    #[cfg(test)]
+                    migration_crash_pause(migration.version);
+                    Ok(())
+                })();
+                result?;
                 applied += 1;
             }
         }
@@ -166,6 +210,22 @@ pub(super) fn run_all(connection: &mut Connection) -> StorageResult<usize> {
     }
     validate_schema(&tx, schemas.last().unwrap(), schemas.last().unwrap())?;
     validate_audit(&tx)?;
+    for (table, (kind, _)) in schemas.last().unwrap() {
+        if kind == "table" {
+            let violations: i64 = tx
+                .query_row(
+                    "SELECT count(*) FROM pragma_foreign_key_check(?1)",
+                    [table],
+                    |row| row.get(0),
+                )
+                .storage()?;
+            if violations != 0 {
+                return Err(StorageError::Backend(
+                    "private migration would violate foreign keys".into(),
+                ));
+            }
+        }
+    }
     tx.commit().storage()?;
     Ok(applied)
 }
@@ -248,7 +308,7 @@ fn expected_private_schemas() -> StorageResult<&'static Vec<Schema>> {
         .get_or_init(|| {
             let result = (|| -> StorageResult<Vec<Schema>> {
                 let mut reference = Connection::open_in_memory().storage()?;
-                run_with_summary(&mut reference, MIGRATIONS)?;
+                run_with_summary_observed(&mut reference, MIGRATIONS, None)?;
                 let core = schema(&reference)?;
                 let mut schemas = Vec::new();
                 for migration in PRIVATE_MIGRATIONS {
@@ -362,7 +422,7 @@ fn validate_legacy_core_schema(connection: &Connection) -> StorageResult<()> {
                 let mut reference = Connection::open_in_memory().storage()?;
                 let frozen_core =
                     &MIGRATIONS[..MIGRATIONS.partition_point(|migration| migration.version <= 102)];
-                run_with_summary(&mut reference, frozen_core)?;
+                run_with_summary_observed(&mut reference, frozen_core, None)?;
                 schema(&reference)
             })()
             .map_err(|_| ())

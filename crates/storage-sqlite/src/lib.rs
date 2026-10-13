@@ -214,3 +214,6 @@ mod selected_chat_key_package;
 
 #[cfg(feature = "experimental-device-sync")]
 mod private_roster_settlement;
+
+mod open_progress;
+pub use open_progress::{StorageOpenPhase, StorageOpenProgress};
