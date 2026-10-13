@@ -605,12 +605,13 @@ impl RuntimeSharedServices {
             .submission_classification_probe
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        if let Some(probe) = slot.as_ref() {
-            if probe.account == account && probe.token == token {
-                probe
-                    .entered
-                    .store(true, std::sync::atomic::Ordering::Release);
-            }
+        if let Some(probe) = slot.as_ref()
+            && probe.account == account
+            && probe.token == token
+        {
+            probe
+                .entered
+                .store(true, std::sync::atomic::Ordering::Release);
         }
     }
 
