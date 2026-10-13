@@ -8,7 +8,7 @@ use crate::{
     binary_tree::array_representation::LeafNodeIndex,
     ciphersuite::hash_ref::ProposalRef,
     error::LibraryError,
-    framing::{Sender, mls_auth_content::AuthenticatedContent, mls_content::FramedContentBody},
+    framing::{mls_auth_content::AuthenticatedContent, mls_content::FramedContentBody, Sender},
     group::errors::*,
     messages::proposals::{
         AddProposal, PreSharedKeyProposal, Proposal, ProposalOrRef, ProposalOrRefType,

@@ -1843,7 +1843,7 @@ async fn parked_dependency_probe_unwind_restores_live_state_and_releases_owner()
 
 #[tokio::test]
 async fn failed_row_metadata_does_not_refute_authenticated_authorized_reference() {
-    let (storage, group, commit, required, _, _) = parked_reference_fixture().await;
+    let (storage, group, commit, required, _, reference) = parked_reference_fixture().await;
     // An actual valid proposal mislabeled Failed is not an authorization refusal.
     let id = MessageId::new(Sha256::digest(&required.payload).to_vec());
     storage
@@ -1889,22 +1889,7 @@ async fn failed_row_metadata_does_not_refute_authenticated_authorized_reference(
             &group,
             &commit,
             &required,
-            &super::replay_openmls_messages_prevalidated_output(
-                &storage,
-                &group,
-                std::slice::from_ref(&required),
-                &super::PrevalidatedOwnCommits::default(),
-                ReplayProfilePolicy::default(),
-            )
-            .unwrap()
-            .observations
-            .iter()
-            .find_map(|observation| match observation {
-                super::OpenMlsReplayObservation::ProposalStored { proposal_ref, .. } =>
-                    Some(proposal_ref.clone()),
-                _ => None,
-            })
-            .unwrap(),
+            &reference,
             ReplayProfilePolicy::default(),
         )
         .unwrap(),
@@ -1943,7 +1928,7 @@ async fn rejected_reference_scan_unwind_preserves_live_state_and_uncommitted_cur
     }
     let before = parked_probe_state(&storage, &group);
     let mut cursor = super::RejectedDependencyCursor::default();
-    PANIC_AFTER_REPLAY.with(|flag| flag.set(true));
+    PANIC_AFTER_REPLAY.set(true);
     let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         super::replay_openmls_messages_prevalidated_output_with_refutation(
             &storage,

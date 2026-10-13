@@ -1056,17 +1056,16 @@ fn replay_openmls_messages_prevalidated_output_with_refutation<S: StorageProvide
     });
     // Publish scratch progress only after the crypto/SQL restoration boundary.
     // Storage/snapshot failure and unwind retain the original cursor.
-    if result.is_ok()
+    if (result.is_ok()
         || matches!(
             &result,
             Err(OpenMlsProjectionError::RejectedDependencyScanPending
                 | OpenMlsProjectionError::MissingReferencedProposal
                 | OpenMlsProjectionError::InvalidCommit { .. })
-        )
+        ))
+        && let Some(cursor) = cursor
     {
-        if let Some(cursor) = cursor {
-            *cursor = staged_cursor.expect("staged cursor mirrors supplied continuation");
-        }
+        *cursor = staged_cursor.expect("staged cursor mirrors supplied continuation");
     }
     result
 }
@@ -1119,8 +1118,10 @@ fn replay_openmls_messages_probe_with_refutation<S: StorageProvider>(
         messages,
         own_commits,
         profile_policy,
-        None,
-        cursor,
+        ReplayScratch {
+            retain_replayed_anchors: None,
+            rejected_dependency_cursor: cursor,
+        },
         #[cfg(feature = "experimental-device-sync")]
         None,
     );
@@ -1519,8 +1520,10 @@ pub(crate) fn process_current_openmls_application<S: StorageProvider>(
         std::slice::from_ref(message),
         &PrevalidatedOwnCommits::default(),
         profile_policy,
-        None,
-        None,
+        ReplayScratch {
+            retain_replayed_anchors: None,
+            rejected_dependency_cursor: None,
+        },
         #[cfg(feature = "experimental-device-sync")]
         Some(&mut PrivateReplayEffects {
             revocation_transition: None,
@@ -2554,8 +2557,10 @@ fn capture_candidate_tip_context<S: StorageProvider>(
         messages,
         own_commits,
         profile_policy,
-        None,
-        None,
+        ReplayScratch {
+            retain_replayed_anchors: None,
+            rejected_dependency_cursor: None,
+        },
         #[cfg(feature = "experimental-device-sync")]
         None,
     )
@@ -3673,8 +3678,10 @@ fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
             replay_messages,
             &PrevalidatedOwnCommits::default(),
             profile_policy,
-            Some(max_retained_anchor_rewind),
-            None,
+            ReplayScratch {
+                retain_replayed_anchors: Some(max_retained_anchor_rewind),
+                rejected_dependency_cursor: None,
+            },
             #[cfg(feature = "experimental-device-sync")]
             Some(&mut PrivateReplayEffects {
                 revocation_transition,
@@ -4688,18 +4695,26 @@ fn rejected_referenced_proposal<S: StorageProvider>(
     Ok(None)
 }
 
+struct ReplayScratch<'a> {
+    retain_replayed_anchors: Option<u64>,
+    rejected_dependency_cursor: Option<&'a mut RejectedDependencyCursor>,
+}
+
 fn process_openmls_messages_inner<S: StorageProvider>(
     storage: &S,
     group_id: &GroupId,
     messages: &[TransportMessage],
     own_commits: &PrevalidatedOwnCommits,
     profile_policy: ReplayProfilePolicy,
-    retain_replayed_anchors: Option<u64>,
-    mut rejected_dependency_cursor: Option<&mut RejectedDependencyCursor>,
+    scratch: ReplayScratch<'_>,
     #[cfg(feature = "experimental-device-sync")] mut private_effects: Option<
         &mut PrivateReplayEffects<'_>,
     >,
 ) -> Result<OpenMlsReplayOutput, OpenMlsProjectionError> {
+    let ReplayScratch {
+        retain_replayed_anchors,
+        mut rejected_dependency_cursor,
+    } = scratch;
     let reject_legacy_group_additions = profile_policy.reject_legacy_group_additions
         && storage
             .get_group(group_id)
