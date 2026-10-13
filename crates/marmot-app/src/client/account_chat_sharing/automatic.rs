@@ -1636,6 +1636,27 @@ impl AppClient {
             }
         };
         let publication_deadline = self.automatic_record_publication_deadline(entry)?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if matches!(kind, AccountSharingControl::Consent)
+            && let (Some(content_id), Some(inner_wire_sha256)) = (
+                entry.channel.outbound_content_id_for_test(kind),
+                entry.channel.outbound_control_wire_digest_for_test(kind),
+            )
+        {
+            consent_delivery_probe::prepared(
+                self.app.account_home().root(),
+                &consent_delivery_probe::PreparedConsent {
+                    account: entry.policy.account,
+                    protected_group: entry.policy.protected_group.clone(),
+                    local_device: entry.policy.local_device,
+                    peer_device: entry.policy.peer_device,
+                    nonce: entry.channel.scope().nonce,
+                    content_id,
+                    input_outer_payload_sha256: input_payload_digest,
+                    inner_wire_sha256,
+                },
+            );
+        }
         let _publication = tokio::select! {biased;()=stopping=>return Err(AccountSharingError::Closed),()=&mut revoked=>return Err(AccountSharingError::Closed),()=tokio::time::sleep_until(publication_deadline.into())=>{entry.renew=true;return Err(AccountSharingError::Closed)},report=self.adapter.publish_selected_chat(request)=>{let report=report.map_err(|_|AccountSharingError::RuntimeUnavailable)?;if !report.met_required_acks(){return Err(AccountSharingError::NotReady)} report}};
         self.automatic_policy_current(&entry.policy)?;
         if !self.automatic_record_publication_current(entry)? {

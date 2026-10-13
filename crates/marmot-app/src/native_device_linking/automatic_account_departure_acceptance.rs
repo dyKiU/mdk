@@ -518,6 +518,15 @@ pub(super) async fn verify(
             }
             let consent_snapshot = consent_probe.snapshot();
             eprintln!("account_departure_actual_consent_summary={:?}", consent_snapshot.summary());
+            for (attempt, observed) in consent_snapshot.records.iter().enumerate() {
+                let sender = consent_devices.iter().position(|device| *device == observed.publication.local_device).unwrap();
+                let receiver = consent_devices.iter().position(|device| *device == observed.publication.peer_device).unwrap();
+                eprintln!("account_departure_actual_consent_route={attempt} sender={sender} receiver={receiver} event_seen={} incomplete={} auth={:?} nonce_matches={} automatic_matched={} bound={} dispatch={:?}",
+                    observed.event_seen, observed.observation_incomplete,
+                    observed.authentication.map(|outcome| outcome.label()),
+                    observed.authenticated_nonce_matches, observed.automatic_matched, observed.consent_bound,
+                    observed.dispatch.map(|outcome| outcome.label()));
+            }
             if completion.is_err() {
                 let consent_diagnostics = tokio::time::timeout(std::time::Duration::from_secs(5),
                     std::panic::AssertUnwindSafe(async {
