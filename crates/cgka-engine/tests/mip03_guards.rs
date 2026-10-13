@@ -902,6 +902,15 @@ async fn unrelated_rejected_reference_does_not_veto_genuine_late_self_remove() {
         fixture.carol.ingest(leave).await.unwrap(),
         IngestOutcome::Processed
     ));
+    assert_eq!(
+        fixture
+            .carol_storage
+            .get_message(&canonical_id)
+            .unwrap()
+            .state,
+        MessageState::Retryable,
+        "the exact original commit must activate after its own authenticated reference arrives",
+    );
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
     loop {
         fixture
