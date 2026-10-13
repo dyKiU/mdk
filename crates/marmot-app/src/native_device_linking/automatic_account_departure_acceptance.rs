@@ -543,13 +543,15 @@ pub(super) async fn verify(
     assert!(closed, "reopened B owner must positively close");
 }
 
+type RequiredProposalProvenance = (Option<[usize; 3]>, Option<bool>, [usize; 8]);
+
 // Observation only: no packet/permission is reconstructed from these references.
 fn observed_required_proposal_provenance(
     source: &MarmotApp,
     administrator: &MarmotApp,
     group: &cgka_traits::GroupId,
     epoch: cgka_traits::EpochId,
-) -> Result<(Option<[usize; 3]>, Option<bool>, [usize; 8]), &'static str> {
+) -> Result<RequiredProposalProvenance, &'static str> {
     use cgka_traits::{
         message::{MessageState, StoredMessagePayload},
         storage::MessageStorage,
