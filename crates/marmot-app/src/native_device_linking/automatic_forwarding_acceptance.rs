@@ -1,6 +1,5 @@
 //! Real client-token send from a paired mirror through an actual member.
 use super::*;
-use crate::AppError;
 use cgka_traits::StorageProvider;
 
 #[tokio::test]
@@ -76,29 +75,6 @@ pub(super) async fn verify(
     );
 }
 
-struct HeldForwardingDatabase {
-    release: Option<std::sync::mpsc::Sender<()>>,
-    thread: Option<std::thread::JoinHandle<Result<(), AppError>>>,
-}
-
-impl HeldForwardingDatabase {
-    fn release(mut self) {
-        self.release.take().unwrap().send(()).unwrap();
-        self.thread.take().unwrap().join().unwrap().unwrap();
-    }
-}
-
-impl Drop for HeldForwardingDatabase {
-    fn drop(&mut self) {
-        if let Some(release) = self.release.take() {
-            let _ = release.send(());
-        }
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
-    }
-}
-
 pub(super) async fn verify_cancelled_host_admission(
     apps: &[MarmotApp; 3],
     runtime: &MarmotAppRuntime,
@@ -112,25 +88,6 @@ pub(super) async fn verify_cancelled_host_admission(
         Err(cgka_traits::StorageError::NotFound)
     ));
     let account = apps[2].account_home().account("test").unwrap();
-    let (entered, entered_wait) = tokio::sync::oneshot::channel();
-    let (release, release_wait) = std::sync::mpsc::channel();
-    let thread = std::thread::spawn(move || {
-        StorageProvider::with_transaction(&storage, |_| {
-            let _ = entered.send(());
-            release_wait
-                .recv_timeout(std::time::Duration::from_secs(10))
-                .expect("fixture must release the caller database");
-            Ok::<_, AppError>(())
-        })
-    });
-    let held = HeldForwardingDatabase {
-        release: Some(release),
-        thread: Some(thread),
-    };
-    tokio::time::timeout(std::time::Duration::from_secs(2), entered_wait)
-        .await
-        .unwrap()
-        .unwrap();
     let token = "forwarded-cancelled-host-token".to_owned();
     let text = "forwarded after host cancellation".to_owned();
     let classification_entered = runtime
@@ -144,7 +101,7 @@ pub(super) async fn verify_cancelled_host_admission(
         tokio::spawn(async move { runtime.submit_text("test", &group, text, token).await })
     };
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        while !classification_entered.load(std::sync::atomic::Ordering::Acquire) {
+        while !classification_entered.entered() {
             tokio::time::sleep(std::time::Duration::from_millis(1)).await;
         }
     })
@@ -155,7 +112,7 @@ pub(super) async fn verify_cancelled_host_admission(
         Err(error) => assert!(error.is_cancelled()),
         Ok(_) => panic!("the host waiter must be cancelled before releasing admission"),
     }
-    held.release();
+    classification_entered.release();
     tokio::time::timeout(std::time::Duration::from_secs(90), async {
         loop {
             if let Some(crate::LocalSendStatus::Completed(summary)) =

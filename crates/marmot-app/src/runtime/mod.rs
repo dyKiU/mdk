@@ -385,6 +385,48 @@ struct SubmissionClassificationProbe {
     account: String,
     token: String,
     entered: Arc<std::sync::atomic::AtomicBool>,
+    release: Option<std::sync::mpsc::Receiver<()>>,
+}
+
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+pub(crate) struct SubmissionClassificationHold {
+    entered: Arc<std::sync::atomic::AtomicBool>,
+    release: Option<std::sync::mpsc::Sender<()>>,
+}
+
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+impl SubmissionClassificationHold {
+    pub(crate) fn entered(&self) -> bool {
+        self.entered.load(std::sync::atomic::Ordering::Acquire)
+    }
+    pub(crate) fn release(mut self) {
+        self.release
+            .take()
+            .unwrap()
+            .send(())
+            .expect("actual caller hold must still be waiting");
+    }
+}
+
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+impl Drop for SubmissionClassificationHold {
+    fn drop(&mut self) {
+        if let Some(release) = self.release.take() {
+            let _ = release.send(());
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -577,7 +619,7 @@ impl RuntimeSharedServices {
         &self,
         account: &str,
         token: &str,
-    ) -> Arc<std::sync::atomic::AtomicBool> {
+    ) -> SubmissionClassificationHold {
         let mut slot = self
             .submission_classification_probe
             .lock()
@@ -587,12 +629,17 @@ impl RuntimeSharedServices {
             "only one caller classification probe may be armed"
         );
         let entered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (release, wait) = std::sync::mpsc::channel();
         *slot = Some(SubmissionClassificationProbe {
             account: account.to_owned(),
             token: token.to_owned(),
             entered: entered.clone(),
+            release: Some(wait),
         });
-        entered
+        SubmissionClassificationHold {
+            entered,
+            release: Some(release),
+        }
     }
 
     #[cfg(all(
@@ -601,17 +648,27 @@ impl RuntimeSharedServices {
         feature = "test-policy-overrides"
     ))]
     fn observe_submission_classification_for_test(&self, account: &str, token: &str) {
-        let slot = self
-            .submission_classification_probe
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if let Some(probe) = slot.as_ref()
-            && probe.account == account
-            && probe.token == token
-        {
-            probe
-                .entered
-                .store(true, std::sync::atomic::Ordering::Release);
+        let held = {
+            let mut slot = self
+                .submission_classification_probe
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(probe) = slot.as_mut()
+                && probe.account == account
+                && probe.token == token
+            {
+                probe
+                    .release
+                    .take()
+                    .map(|wait| (probe.entered.clone(), wait))
+            } else {
+                None
+            }
+        };
+        if let Some((entered, wait)) = held {
+            entered.store(true, std::sync::atomic::Ordering::Release);
+            wait.recv_timeout(std::time::Duration::from_secs(10))
+                .expect("fixture must release the exact caller classification hold");
         }
     }
 
