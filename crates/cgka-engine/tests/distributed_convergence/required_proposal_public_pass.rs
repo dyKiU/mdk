@@ -75,6 +75,16 @@ async fn required_proposal_public_pass(processed_first: bool) {
         .unwrap()
         .unwrap();
     let required_refs = proposal_refs(&second_mls);
+    let authenticated_packet = second_storage.get_message(&content_id(&leave)).unwrap();
+    assert!(
+        StoredMessagePayload::decode(&authenticated_packet.payload)
+            .unwrap()
+            .as_openmls_wire()
+            .unwrap()
+            .payload
+            == leave.payload,
+        "the sole authenticated queued reference must come from this exact genuine packet"
+    );
     assert_eq!(
         required_refs.len(),
         1,
@@ -128,13 +138,7 @@ async fn required_proposal_public_pass(processed_first: bool) {
     assert_eq!(pass.phase, ConvergencePassPhase::Collecting);
     if !processed_first {
         first.ingest(leave.clone()).await.unwrap();
-        let first_mls = MlsGroup::load(first_storage.mls_storage(), &mls_id)
-            .unwrap()
-            .unwrap();
-        assert!(
-            proposal_refs(&first_mls) == required_refs,
-            "arrived real packet must authenticate to the exact consumed reference before freeze"
-        );
+        assert_message_state(&first_storage, &leave, MessageState::Processed);
     }
     let retained = first_storage.get_message(&content_id(&leave)).unwrap();
     assert!(
@@ -149,8 +153,25 @@ async fn required_proposal_public_pass(processed_first: bool) {
     eprintln!(
         "required_proposal_public_pass_exact_authenticated_reference_matched=true processed_first={processed_first}"
     );
-    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
-    first.advance_convergence(&group).await.unwrap();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        first.advance_convergence(&group).await.unwrap();
+        for outgoing in first.drain_auto_publish() {
+            first.confirm_published(outgoing.pending).await.unwrap();
+        }
+        if first_storage
+            .convergence_pass(&group)
+            .unwrap()
+            .is_some_and(|pass| pass.phase == ConvergencePassPhase::Completed)
+        {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "public pass must finish through ordinary bounded maintenance"
+        );
+    }
     let observation = probe.snapshot();
     eprintln!("required_proposal_public_pass_observation={observation:?}");
     assert!(
