@@ -1,5 +1,48 @@
 # Account-wide departure source checkpoint
 
+## Account-owned submission repair (2026-10-13)
+
+Signed runtime/test source `a750af7e27ed8af14cd55d24c9ae7bb53f7a6b68`
+moves experimental local-versus-forwarded group classification into the existing
+account-gated blocking admission. An owned continuation survives host cancellation
+through forwarding; the default path still awaits directly. Queue timing,
+projection updates, lifecycle checks and normal forwarding authority are preserved.
+No wire, schema, binding declaration or production thread-stack setting changed.
+
+The frozen `e07071ab` backend passed default tests (4,240 passed) but failed
+experimental tests (4,889 passed,4 failed). Its four subsequent static gates and
+all SDK gates were not executed. Two initial departure failures retain an active B
+leaf on a different epoch3 branch from D; the sibling retained-authentication retry
+assertion also remains unresolved. This submission component does not fix them.
+
+All prefixes below are under `/Users/pj/project/build/results/`.
+
+| Scope | Actual result | Prefix |
+|---|---|---|
+| Existing unchanged admission fixture against preserved e070 executable |0 passed,1 failed,0 ignored; fixed2s gate timeout|`account-submission-e07071ab-blocking-admission-red-v1`|
+| Same admission fixture on a750 |1 passed,0 failed/ignored|`account-submission-a750af7e-focused-v5`|
+| Real forwarded send after host waiter cancellation |1 passed,0 failed/ignored; actual caller held before SQL, host aborted before release, source publication1 and exact canonical mirrored record|same v5 prefix|
+| Experimental queue/removal timing controls |2 passed,0 failed/ignored|same v5 prefix|
+| Forwarded reply, offline/reopen, recipient SQL rollback controls |3 passed,0 failed/ignored|`account-submission-a750af7e-affected-v6`|
+| Default queue controls |2 passed,0 failed/ignored|same v6 prefix|
+| App all-targets Clippy default and experimental, including test-policy/exports |both exit0, `-D warnings`, no exemptions|same v6 prefix|
+| Whole-workspace formatting |exit0|same v6 prefix|
+
+The original admission fixture is byte-identical to e070. Focused tests use one
+libtest thread versus the full cohort's two, the same App experimental/OTLP/analytics/
+test-policy features, Rust1.97.1, debug0, incremental0, jobs1 and4MiB test stack.
+The new cancellation fixture uses a bounded cfg-test-only caller hold with RAII
+release; it is not a database-blocking regression. Its genuine source/canonical
+record assertions and body marker executed. The composed fixture checks normal
+ABC shutdown results, without additional storage-closed flags. All frozen inputs
+remained unchanged; the original executable is separately hash-preserved.
+
+Earlier v1 missing-import compilation, v2 zero forwarding selection and v3
+single-thread fixture database starvation are retained nonqualifying attempts.
+The corrected cancellation hold changes only test behavior. Final full fast-ci,
+six-package backend qualification, generated SDK and installed-host acceptance
+remain required; this component authorizes no SDK/app promotion or fork publication.
+
 ## Current component checkpoint (2026-10-12)
 
 Signed component source `430be45ea43045f7115fac9c52d657d04cda2255` includes
