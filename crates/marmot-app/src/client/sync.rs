@@ -2862,6 +2862,12 @@ impl AppClient {
         (SyncSummary, RecoveredDelivery),
         (SyncSummary, bool, bool, AppError, SyncFailureStage),
     > {
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        self.test_observe_automatic_consent_raw(&delivery.message);
         let cursor_before_secs = self.state.last_transport_timestamp;
         let mut summary = SyncSummary::default();
         let message_id = delivery.message.id.clone();
@@ -3131,6 +3137,12 @@ impl AppClient {
                         .await);
                 }
             };
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            self.test_observe_automatic_consent_raw(&delivery.message);
             let event_id = hex::encode(delivery.message.id.as_slice());
             if receipts.contains(&event_id) {
                 self.record_durable_transport_reconciliation_delivery(&delivery);

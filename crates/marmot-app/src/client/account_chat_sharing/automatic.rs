@@ -1,5 +1,7 @@
 //! Fresh scheduling from durable explicit policy. Stored facts do not restore keys.
 use super::*;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(super) mod consent_delivery_probe;
 mod departure;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) mod departure_replay_probe;
@@ -257,6 +259,46 @@ impl AppClient {
         );
         self.test_trace_automatic_peer_stage(stage, &entry.policy.peer_device, &summary);
     }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn test_capture_automatic_consent_delivery(
+        account: [u8; 32],
+        group: crate::GroupId,
+        roots: [&std::path::Path; 3],
+        devices: [[u8; 32]; 3],
+    ) -> std::sync::Arc<consent_delivery_probe::ConsentDeliveryProbe> {
+        consent_delivery_probe::arm(
+            account,
+            group,
+            std::array::from_fn(|index| consent_delivery_probe::Peer {
+                root: roots[index].to_path_buf(),
+                device: devices[index],
+            }),
+        )
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn test_observe_automatic_consent_raw(
+        &self,
+        message: &cgka_traits::TransportMessage,
+    ) {
+        consent_delivery_probe::raw_received(
+            self.app.account_home().root(),
+            &message.id,
+            Sha256::digest(&message.payload).into(),
+        );
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn test_consent_outcome(
+        result: &Result<(), AccountSharingError>,
+    ) -> consent_delivery_probe::Outcome {
+        use consent_delivery_probe::Outcome;
+        match result {
+            Ok(()) => Outcome::Success,
+            Err(AccountSharingError::NotReady) => Outcome::NotReady,
+            Err(AccountSharingError::Closed) => Outcome::Closed,
+            Err(AccountSharingError::RuntimeUnavailable) => Outcome::RuntimeUnavailable,
+            Err(_) => Outcome::Refused,
+        }
+    }
     fn automatic_policy_id(
         policy: &ApprovedAccountSharingPolicy,
     ) -> Result<[u8; 32], AccountSharingError> {
@@ -513,6 +555,12 @@ impl AppClient {
             .expect("found automatic channel");
         #[cfg(all(test, feature = "test-policy-overrides"))]
         self.test_trace_automatic_progress("dispatch_before", &entry, "matched");
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        consent_delivery_probe::automatic_matched(
+            self.app.account_home().root(),
+            received,
+            Sha256::digest(wire).into(),
+        );
         let result = (|| {
             self.automatic_policy_current(&entry.policy)?;
             if received.control == AccountSharingControl::Consent && !entry.recipient {
@@ -521,6 +569,12 @@ impl AppClient {
                     .bind_account_sharing_consent(&mut entry.channel, wire)
                     .map_err(|_| AccountSharingError::NotReady)?;
                 entry.ready = true;
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                consent_delivery_probe::consent_bound(
+                    self.app.account_home().root(),
+                    received,
+                    Sha256::digest(wire).into(),
+                );
             } else if matches!(received.control, AccountSharingControl::Body(_)) && entry.ready {
                 let (kind, _, body) = self
                     .runtime
@@ -1532,6 +1586,8 @@ impl AppClient {
             .wrap_account_sharing_control(&mut entry.channel, kind)
             .await
             .map_err(|_| AccountSharingError::NotReady)?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let input_payload_digest: [u8; 32] = Sha256::digest(&message.payload).into();
         let evidence = self
             .runtime
             .session()
@@ -1580,7 +1636,7 @@ impl AppClient {
             }
         };
         let publication_deadline = self.automatic_record_publication_deadline(entry)?;
-        tokio::select! {biased;()=stopping=>return Err(AccountSharingError::Closed),()=&mut revoked=>return Err(AccountSharingError::Closed),()=tokio::time::sleep_until(publication_deadline.into())=>{entry.renew=true;return Err(AccountSharingError::Closed)},report=self.adapter.publish_selected_chat(request)=>{if !report.map_err(|_|AccountSharingError::RuntimeUnavailable)?.met_required_acks(){return Err(AccountSharingError::NotReady)}}}
+        let _publication = tokio::select! {biased;()=stopping=>return Err(AccountSharingError::Closed),()=&mut revoked=>return Err(AccountSharingError::Closed),()=tokio::time::sleep_until(publication_deadline.into())=>{entry.renew=true;return Err(AccountSharingError::Closed)},report=self.adapter.publish_selected_chat(request)=>{let report=report.map_err(|_|AccountSharingError::RuntimeUnavailable)?;if !report.met_required_acks(){return Err(AccountSharingError::NotReady)} report}};
         self.automatic_policy_current(&entry.policy)?;
         if !self.automatic_record_publication_current(entry)? {
             return Err(AccountSharingError::Closed);
@@ -1589,5 +1645,29 @@ impl AppClient {
             .session()
             .validate_account_sharing_channel(&entry.channel)
             .map_err(|_| AccountSharingError::Closed)
+            .inspect(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                if matches!(kind, AccountSharingControl::Consent)
+                    && let (Some(content_id), Some(inner_wire_sha256)) = (
+                        entry.channel.outbound_content_id_for_test(kind),
+                        entry.channel.outbound_control_wire_digest_for_test(kind),
+                    )
+                {
+                    consent_delivery_probe::published(
+                        self.app.account_home().root(),
+                        &consent_delivery_probe::Publication {
+                            account: entry.policy.account,
+                            protected_group: entry.policy.protected_group.clone(),
+                            local_device: entry.policy.local_device,
+                            peer_device: entry.policy.peer_device,
+                            nonce: entry.channel.scope().nonce,
+                            content_id,
+                            outer_id: _publication.message_id.clone(),
+                            input_outer_payload_sha256: input_payload_digest,
+                            inner_wire_sha256,
+                        },
+                    );
+                }
+            })
     }
 }

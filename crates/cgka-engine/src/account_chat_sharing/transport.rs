@@ -9,6 +9,8 @@ pub(super) struct FrozenSharingControl {
     kind: AccountSharingControl,
     ciphertext: Vec<u8>,
     wrapped: Option<TransportMessage>,
+    #[cfg(feature = "test-policy-overrides")]
+    control_wire_digest: [u8; 32],
 }
 impl OwnedAccountSharingChannel {
     /// Test observation of already-frozen MLS bytes, never permission evidence.
@@ -22,6 +24,18 @@ impl OwnedAccountSharingChannel {
             .find(|entry| entry.kind == kind)
             .map(|entry| crate::message_processor::content_dedup_id(&entry.ciphertext))
     }
+    /// Read-only identity of the already-produced, authenticated control wire.
+    #[cfg(feature = "test-policy-overrides")]
+    pub fn outbound_control_wire_digest_for_test(
+        &self,
+        kind: AccountSharingControl,
+    ) -> Option<[u8; 32]> {
+        self.outbound
+            .iter()
+            .find(|entry| entry.kind == kind)
+            .map(|entry| entry.control_wire_digest)
+    }
+
     fn control_wire(&self, kind: AccountSharingControl) -> Result<Vec<u8>, EngineError> {
         self.live()?;
         match (self.recipient_role, kind) {
@@ -112,6 +126,8 @@ impl<S: StorageProvider> Engine<S> {
                 kind,
                 ciphertext: encrypted?,
                 wrapped: None,
+                #[cfg(feature = "test-policy-overrides")]
+                control_wire_digest: Sha256::digest(&wire).into(),
             });
             channel.outbound.len() - 1
         };

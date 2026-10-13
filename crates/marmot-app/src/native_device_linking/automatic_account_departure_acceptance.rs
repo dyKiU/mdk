@@ -85,6 +85,31 @@ pub(super) async fn verify(
     })
     .await
     .expect("actual two-source origin coverage must make mirrored departure available");
+    let consent_rounds: [_; 3] = std::array::from_fn(|index| {
+        apps[index]
+            .account_storage("test")
+            .unwrap()
+            .private_roster_settlement_storage()
+            .unwrap()
+            .read_round()
+            .unwrap()
+            .unwrap()
+    });
+    assert!(
+        consent_rounds.iter().all(
+            |round| round.anchor.account == consent_rounds[0].anchor.account
+                && round.anchor.group_id == consent_rounds[0].anchor.group_id
+        ),
+        "Consent diagnostics must observe the actual same-account protected group"
+    );
+    let consent_devices = std::array::from_fn(|index| consent_rounds[index].anchor.local_device);
+    let consent_probe = crate::AppClient::test_capture_automatic_consent_delivery(
+        consent_rounds[0].anchor.account,
+        consent_rounds[0].anchor.group_id.clone(),
+        std::array::from_fn(|index| apps[index].account_home().root()),
+        consent_devices,
+    );
+    eprintln!("account_departure_actual_consent_observer_armed=true");
     let epoch_before = apps[1]
         .account_storage("test")
         .unwrap()
@@ -488,6 +513,42 @@ pub(super) async fn verify(
             if !ordered {
                 eprintln!("account_departure_nonordered_d_commit_at_b={:?}", canonical_probe.as_ref().map(|probe| probe.snapshot()));
                 eprintln!("account_departure_nonordered_b_commit_at_d={:?}", administrator_publication_observation.as_ref().map(|observation| observation.snapshot()));
+            }
+            let consent_snapshot = consent_probe.snapshot();
+            eprintln!("account_departure_actual_consent_summary={:?}", consent_snapshot.summary());
+            if completion.is_err() {
+                let consent_diagnostics = tokio::time::timeout(std::time::Duration::from_secs(5),
+                    std::panic::AssertUnwindSafe(async {
+                for (attempt, observed) in consent_snapshot.records.iter().enumerate() {
+                    let sender = consent_devices.iter().position(|device| *device == observed.publication.local_device).unwrap();
+                    let receiver = consent_devices.iter().position(|device| *device == observed.publication.peer_device).unwrap();
+                    // Compare the canonical MLS content ID and actual report ID
+                    // in their separate domains. Missing observations under a
+                    // truncated receive buffer remain explicitly unknown.
+                    let app = if receiver == 1 { &reopened_app } else { &apps[receiver] };
+                    assert!(app.account_home().root() == observed.receiver_root);
+                    let store = app.account_storage("test").unwrap();
+                    let row = |id: &cgka_traits::MessageId| match store.get_message(id) {
+                        Ok(record) => Ok(Some((record.epoch.0, record.state))),
+                        Err(cgka_traits::StorageError::NotFound) => Ok(None),
+                        Err(_) => Err("Unknown"),
+                    };
+                    eprintln!("account_departure_actual_consent_attempt={attempt} sender={sender} receiver={receiver} raw_seen={} raw_input_hash_matches={} event_seen={} incomplete={} auth={:?} nonce_matches={} automatic_matched={} bound={} dispatch={:?} canonical_row={:?} report_row={:?}",
+                        observed.raw_id_seen, observed.raw_payload_hash_matches, observed.event_seen,
+                        observed.observation_incomplete, observed.authentication.map(|outcome| outcome.label()),
+                        observed.authenticated_nonce_matches, observed.automatic_matched, observed.consent_bound,
+                        observed.dispatch.map(|outcome| outcome.label()), row(&observed.publication.content_id), row(&observed.publication.outer_id));
+                }
+                    }).catch_unwind()).await;
+                eprintln!("account_departure_consent_diagnostics_completed={} unknown={}",
+                    matches!(consent_diagnostics, Ok(Ok(()))), !matches!(consent_diagnostics, Ok(Ok(()))));
+            }
+            if completion.is_ok() {
+                assert!(consent_snapshot.records.iter().any(|record|
+                    (record.publication.local_device == consent_devices[1] && record.publication.peer_device == consent_devices[2])
+                    || (record.publication.local_device == consent_devices[2] && record.publication.peer_device == consent_devices[1])),
+                    "actual fresh B/C Consent publication must execute the diagnostic body");
+                eprintln!("account_departure_actual_b_c_consent_publication_observed=true");
             }
             completion
                 .expect("both genuine ordinary removals and peer receipts must precede completion");
