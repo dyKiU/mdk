@@ -57,6 +57,7 @@ pub(super) struct CandidateSearch {
     replay_rejected_commit_ids: BTreeSet<String>,
     materialized_commit_ids: BTreeSet<String>,
     seen_paths: BTreeSet<Vec<[u8; 32]>>,
+    rejected_dependency_cursor: RejectedDependencyCursor,
 }
 
 impl CandidateSearch {
@@ -92,6 +93,7 @@ impl CandidateSearch {
             replay_rejected_commit_ids: BTreeSet::new(),
             materialized_commit_ids: BTreeSet::new(),
             seen_paths: BTreeSet::from([Vec::new()]),
+            rejected_dependency_cursor: RejectedDependencyCursor::default(),
         })
     }
 
@@ -142,6 +144,7 @@ impl CandidateSearch {
                     own_commits,
                     budget,
                     profile_policy,
+                    &mut self.rejected_dependency_cursor,
                 )? {
                     CandidatePathProbeResult::Materialized(Some(candidate)) => {
                         self.materialized_commit_ids
@@ -151,6 +154,13 @@ impl CandidateSearch {
                     CandidatePathProbeResult::Materialized(None) => {
                         self.replay_rejected_commit_ids
                             .insert(commit.message.id.to_string());
+                        continue;
+                    }
+                    CandidatePathProbeResult::RefutationPending => {
+                        // No disposition or missing-dependency conclusion until the
+                        // exact candidate's bounded negative lookup completes.
+                        self.seen_paths.remove(&digests);
+                        index -= 1;
                         continue;
                     }
                     CandidatePathProbeResult::MissingReferencedProposal => continue,

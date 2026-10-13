@@ -238,6 +238,7 @@ impl ReplayBudget {
 
 #[derive(Clone, Debug)]
 enum CandidatePathProbeResult {
+    RefutationPending,
     Materialized(Option<OpenMlsMaterializedCandidate>),
     MissingReferencedProposal,
     RejectedProposal {
@@ -384,6 +385,7 @@ pub enum OpenMlsProjectionError {
     Replay(String),
     /// Negative dependency hint only; leaf/path/authority validation has not completed.
     MissingReferencedProposal,
+    RejectedDependencyScanPending,
     RejectedProposal {
         message_id: String,
         category: cgka_traits::ingest::ProposalRejectionCategory,
@@ -430,6 +432,9 @@ impl std::fmt::Display for OpenMlsProjectionError {
             OpenMlsProjectionError::MissingGroup => write!(f, "MLS group not found"),
             OpenMlsProjectionError::Snapshot(e) => write!(f, "snapshot failed: {e}"),
             OpenMlsProjectionError::Replay(e) => write!(f, "OpenMLS replay failed: {e}"),
+            OpenMlsProjectionError::RejectedDependencyScanPending => {
+                write!(f, "rejected dependency scan requires another bounded slice")
+            }
             OpenMlsProjectionError::MissingReferencedProposal => {
                 write!(f, "referenced proposal unavailable")
             }
@@ -1017,22 +1022,66 @@ fn replay_openmls_messages_prevalidated_output<S: StorageProvider>(
     own_commits: &PrevalidatedOwnCommits,
     profile_policy: ReplayProfilePolicy,
 ) -> Result<OpenMlsReplayOutput, OpenMlsProjectionError> {
+    replay_openmls_messages_prevalidated_output_with_refutation(
+        storage,
+        group_id,
+        messages,
+        own_commits,
+        profile_policy,
+        None,
+    )
+}
+
+fn replay_openmls_messages_prevalidated_output_with_refutation<S: StorageProvider>(
+    storage: &S,
+    group_id: &GroupId,
+    messages: &[TransportMessage],
+    own_commits: &PrevalidatedOwnCommits,
+    profile_policy: ReplayProfilePolicy,
+    cursor: Option<&mut RejectedDependencyCursor>,
+) -> Result<OpenMlsReplayOutput, OpenMlsProjectionError> {
     // A probe restores its starting state before this transaction commits.
     // Joining all temporary OpenMLS writes avoids a durable commit per value;
     // the guard still restores state for nested/nontransactional backends.
     storage.with_transaction(|storage| {
-        replay_openmls_messages_probe(storage, group_id, messages, own_commits, profile_policy)
+        replay_openmls_messages_probe_with_refutation(
+            storage,
+            group_id,
+            messages,
+            own_commits,
+            profile_policy,
+            cursor,
+        )
     })
 }
 
 // Keep the restoration body separate so tests can compare identical replay work
 // with and without the transaction. Production callers enter through the wrapper.
+#[cfg(test)]
 fn replay_openmls_messages_probe<S: StorageProvider>(
     storage: &S,
     group_id: &GroupId,
     messages: &[TransportMessage],
     own_commits: &PrevalidatedOwnCommits,
     profile_policy: ReplayProfilePolicy,
+) -> Result<OpenMlsReplayOutput, OpenMlsProjectionError> {
+    replay_openmls_messages_probe_with_refutation(
+        storage,
+        group_id,
+        messages,
+        own_commits,
+        profile_policy,
+        None,
+    )
+}
+
+fn replay_openmls_messages_probe_with_refutation<S: StorageProvider>(
+    storage: &S,
+    group_id: &GroupId,
+    messages: &[TransportMessage],
+    own_commits: &PrevalidatedOwnCommits,
+    profile_policy: ReplayProfilePolicy,
+    cursor: Option<&mut RejectedDependencyCursor>,
 ) -> Result<OpenMlsReplayOutput, OpenMlsProjectionError> {
     use crate::snapshot_guard::SnapshotRollbackGuard;
     // RAII: on any unwind path (panic during replay, early error)
@@ -1055,6 +1104,7 @@ fn replay_openmls_messages_probe<S: StorageProvider>(
         own_commits,
         profile_policy,
         None,
+        cursor,
         #[cfg(feature = "experimental-device-sync")]
         None,
     );
@@ -1097,6 +1147,26 @@ fn materialize_openmls_candidate_paths_budgeted<S: StorageProvider>(
     budget: &mut ReplayBudget,
     profile_policy: ReplayProfilePolicy,
 ) -> Result<Vec<OpenMlsMaterializedCandidate>, OpenMlsProjectionError> {
+    materialize_openmls_candidate_paths_budgeted_with_refutation(
+        storage,
+        group_id,
+        paths,
+        own_commits,
+        budget,
+        profile_policy,
+        None,
+    )
+}
+
+fn materialize_openmls_candidate_paths_budgeted_with_refutation<S: StorageProvider>(
+    storage: &S,
+    group_id: &GroupId,
+    paths: &[OpenMlsCandidatePath],
+    own_commits: &PrevalidatedOwnCommits,
+    budget: &mut ReplayBudget,
+    profile_policy: ReplayProfilePolicy,
+    mut cursor: Option<&mut RejectedDependencyCursor>,
+) -> Result<Vec<OpenMlsMaterializedCandidate>, OpenMlsProjectionError> {
     let mut candidates = Vec::with_capacity(paths.len());
     for path in paths {
         if path.messages.is_empty() {
@@ -1107,12 +1177,13 @@ fn materialize_openmls_candidate_paths_budgeted<S: StorageProvider>(
         budget.consume()?;
         #[cfg(test)]
         let probe_started = std::time::Instant::now();
-        let replay = replay_openmls_messages_prevalidated_output(
+        let replay = replay_openmls_messages_prevalidated_output_with_refutation(
             storage,
             group_id,
             &path.messages,
             own_commits,
             profile_policy,
+            cursor.as_deref_mut(),
         );
         #[cfg(test)]
         budget
@@ -1432,6 +1503,7 @@ pub(crate) fn process_current_openmls_application<S: StorageProvider>(
         std::slice::from_ref(message),
         &PrevalidatedOwnCommits::default(),
         profile_policy,
+        None,
         None,
         #[cfg(feature = "experimental-device-sync")]
         Some(&mut PrivateReplayEffects {
@@ -2467,6 +2539,7 @@ fn capture_candidate_tip_context<S: StorageProvider>(
         own_commits,
         profile_policy,
         None,
+        None,
         #[cfg(feature = "experimental-device-sync")]
         None,
     )
@@ -2580,16 +2653,24 @@ fn build_stored_openmls_candidate_paths_reference<S: StorageProvider>(
                     continue;
                 }
 
-                let candidate = match probe_candidate_path(
-                    storage,
-                    group_id,
-                    messages.clone(),
-                    &digests,
-                    &pending_proposals,
-                    own_commits,
-                    budget,
-                    profile_policy,
-                )? {
+                let mut cursor = RejectedDependencyCursor::default();
+                let candidate = match loop {
+                    let result = probe_candidate_path(
+                        storage,
+                        group_id,
+                        messages.clone(),
+                        &digests,
+                        &pending_proposals,
+                        own_commits,
+                        budget,
+                        profile_policy,
+                        &mut cursor,
+                    )?;
+                    if matches!(result, CandidatePathProbeResult::RefutationPending) {
+                        continue;
+                    }
+                    break result;
+                } {
                     CandidatePathProbeResult::Materialized(Some(candidate)) => {
                         materialized_commit_ids.insert(commit.message.id.to_string());
                         candidate
@@ -2597,6 +2678,9 @@ fn build_stored_openmls_candidate_paths_reference<S: StorageProvider>(
                     CandidatePathProbeResult::Materialized(None) => {
                         replay_rejected_commit_ids.insert(commit.message.id.to_string());
                         continue;
+                    }
+                    CandidatePathProbeResult::RefutationPending => {
+                        unreachable!("reference loop drains pending pages")
                     }
                     CandidatePathProbeResult::MissingReferencedProposal => continue,
                     CandidatePathProbeResult::RejectedProposal {
@@ -2736,19 +2820,21 @@ fn probe_candidate_path<S: StorageProvider>(
     own_commits: &PrevalidatedOwnCommits,
     budget: &mut ReplayBudget,
     profile_policy: ReplayProfilePolicy,
+    cursor: &mut RejectedDependencyCursor,
 ) -> Result<CandidatePathProbeResult, OpenMlsProjectionError> {
     let path = OpenMlsCandidatePath {
         branch_id: branch_id_for_path_digests(digests),
         messages,
     };
     let replay_paths = candidate_paths_with_pending_replay_messages(&[path], pending_proposals)?;
-    match materialize_openmls_candidate_paths_budgeted(
+    match materialize_openmls_candidate_paths_budgeted_with_refutation(
         storage,
         group_id,
         &replay_paths,
         own_commits,
         budget,
         profile_policy,
+        Some(cursor),
     ) {
         Ok(mut candidates) => Ok(CandidatePathProbeResult::Materialized(candidates.pop())),
         Err(OpenMlsProjectionError::RejectedProposal {
@@ -2769,6 +2855,9 @@ fn probe_candidate_path<S: StorageProvider>(
             message_id,
             rejection_category,
         }),
+        Err(OpenMlsProjectionError::RejectedDependencyScanPending) => {
+            Ok(CandidatePathProbeResult::RefutationPending)
+        }
         Err(OpenMlsProjectionError::MissingReferencedProposal) => {
             Ok(CandidatePathProbeResult::MissingReferencedProposal)
         }
@@ -3563,6 +3652,7 @@ fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
             &PrevalidatedOwnCommits::default(),
             profile_policy,
             Some(max_retained_anchor_rewind),
+            None,
             #[cfg(feature = "experimental-device-sync")]
             Some(&mut PrivateReplayEffects {
                 revocation_transition,
@@ -4478,20 +4568,58 @@ fn replayed_commit_establishes_proposal_epoch(
 /// Failed state selects rows to inspect; only the authenticated reference and
 /// current standalone authorization refusal can refute the commit dependency.
 /// Never queue the refused proposal, merge a commit, or read private handshakes.
+#[derive(Default)]
+struct RejectedDependencyCursor {
+    commit: Option<MessageId>,
+    reference: String,
+    epoch: u64,
+    after: Option<MessageId>,
+}
+
 fn rejected_referenced_proposal<S: StorageProvider>(
     storage: &S,
     crypto: &RustCrypto,
     group: &mut MlsGroup,
     group_id: &GroupId,
-    epoch: u64,
+    commit: &TransportMessage,
     reference: &str,
+    cursor: &mut RejectedDependencyCursor,
 ) -> Result<Option<cgka_traits::ingest::ProposalRejectionCategory>, OpenMlsProjectionError> {
-    let provider = EngineOpenMlsProvider::<S>::new(crypto, storage.mls_storage());
-    for record in storage
-        .list_messages_in_states(group_id, &[MessageState::Failed], epoch)
-        .map_err(|_| OpenMlsProjectionError::Storage("rejected dependency lookup failed".into()))?
+    let epoch = group.epoch().as_u64();
+    if cursor.commit.as_ref() != Some(&commit.id)
+        || cursor.reference != reference
+        || cursor.epoch != epoch
     {
-        if record.group_id != *group_id || record.epoch != epoch {
+        *cursor = RejectedDependencyCursor {
+            commit: Some(commit.id.clone()),
+            reference: reference.into(),
+            epoch,
+            after: None,
+        };
+    }
+    let mut records = Vec::new();
+    storage
+        .visit_messages_in_states_after(
+            group_id,
+            &[MessageState::Failed],
+            EpochId(epoch),
+            cursor.after.as_ref(),
+            64,
+            &mut |record| {
+                records.push(record);
+                true
+            },
+        )
+        .map_err(|_| OpenMlsProjectionError::Storage("rejected dependency lookup failed".into()))?;
+    let full_page = records.len() == 64;
+    let started = web_time::Instant::now();
+    let provider = EngineOpenMlsProvider::<S>::new(crypto, storage.mls_storage());
+    for record in records {
+        if started.elapsed() >= std::time::Duration::from_millis(500) && cursor.after.is_some() {
+            return Err(OpenMlsProjectionError::RejectedDependencyScanPending);
+        }
+        cursor.after = Some(record.id.clone());
+        if record.group_id != *group_id || record.epoch != EpochId(epoch) {
             continue;
         }
         let Ok(payload) = StoredMessagePayload::decode(&record.payload) else {
@@ -4533,6 +4661,9 @@ fn rejected_referenced_proposal<S: StorageProvider>(
             return Ok(Some(rejection.category));
         }
     }
+    if full_page {
+        return Err(OpenMlsProjectionError::RejectedDependencyScanPending);
+    }
     Ok(None)
 }
 
@@ -4543,6 +4674,7 @@ fn process_openmls_messages_inner<S: StorageProvider>(
     own_commits: &PrevalidatedOwnCommits,
     profile_policy: ReplayProfilePolicy,
     retain_replayed_anchors: Option<u64>,
+    mut rejected_dependency_cursor: Option<&mut RejectedDependencyCursor>,
     #[cfg(feature = "experimental-device-sync")] mut private_effects: Option<
         &mut PrivateReplayEffects<'_>,
     >,
@@ -4755,13 +4887,15 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                 if let ProcessMessageError::InvalidCommit(
                     openmls::group::StageCommitError::MissingProposalReference(missing),
                 ) = &err
+                    && let Some(cursor) = rejected_dependency_cursor.as_deref_mut()
                     && let Some(category) = rejected_referenced_proposal(
                         storage,
                         &crypto,
                         &mut mls_group,
                         group_id,
-                        source_epoch,
+                        message,
                         &tls_hex(missing.reference())?,
+                        cursor,
                     )?
                 {
                     return Err(OpenMlsProjectionError::InvalidCommit {
