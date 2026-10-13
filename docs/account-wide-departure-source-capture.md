@@ -1,5 +1,49 @@
 # Account-wide departure source checkpoint
 
+
+## Exact rejected-reference security checkpoint (2026-10-13)
+
+Component-qualified Core source `8a114134feee73e9fbc0269f940ffbc3c4e880ac`
+restores the unchanged identity-spoofing refusal regression. Frozen b3 full
+fast-ci passed, but its default backend reported this actual security-guard
+failure; the run was intentionally interrupted and remains incomplete and
+unqualified. Its unchanged exact test reproduced 0/1 on the retained full-default
+artifact. No subsequent backend or SDK gate ran on that failed cohort.
+
+OpenMLS now carries the exact missing reference from its authenticated lookup
+with redacted diagnostics. Core re-authenticates only retained public proposal
+wire against the actual candidate, pins group/epoch/content digest, matches the
+actual queued reference, and requires current authorization refusal before
+terminally rejecting the referencing commit. Failed metadata alone, unrelated
+wire and unavailable dependencies cannot authorize this rejection. Refused
+proposals are never queued or admitted. Legitimate late dependency recovery stays
+fully validated.
+
+Negative lookup visits at most64 rows/500 ms per candidate page. The existing
+resumable search retains its exact candidate-path cursor after crypto/SQL
+restoration; changed prefixes reset it. Every page consumes the existing
+anti-amplification replay budget, and capacity/error is not an absence verdict.
+Restart reconstructs scratch work from immutable rows, without new durable
+permission, schema or public wire.
+
+M5 prefixes under `/Users/pj/project/build/results/`:
+
+- `rejected-reference-02f83c5e-controls-v4`: default20+experimental20 identity
+  guards, genuine late/direct4 and existing rollback/refusal3 passed (47 selected
+  executions). Its strict/fmt failures are retained separately.
+- `rejected-reference-8a114134-affected-v5`: Core18 and original App1 passed;
+  Core strict default/experimental plus workspace fmt exited0 without exemptions.
+  The additional fresh-both App test failed the initial common departure timeout
+  before its rejoin body. B remained Available with no intent journal while C
+  retained pending intents; this is not a late-reference or rejoin success claim.
+
+The new controls prove exact rejected dependency discovery beyond65 inert Failed
+rows after same-storage restart, unrelated real rejection cannot veto a genuine
+late commit, authorized wire mislabeled Failed remains nonterminal, and scan
+unwind restores the opaque live state, complete ledger and uncommitted cursor.
+The App delivery failure remains unresolved; final matrix, SDK and host deployment
+are still blocked. Production apps and prior qualified SDKs remain untouched.
+
 ## Combined component/native checkpoint (2026-10-13)
 
 Frozen tested source `3c527fc999f6df4350e94b61991011c73d793492` adds only
