@@ -3121,6 +3121,12 @@ impl AppClient {
             self.pending_applied_sync_summary
                 .merge(std::mem::take(&mut summary));
             let acquisition_deadline = self.observed_acquisition_deadline(&delivery).await;
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            self.test_observe_automatic_consent_raw(&delivery.message);
             let receipts = match self.transport_receipts() {
                 Ok(receipts) => receipts,
                 Err(error) => {
@@ -3137,12 +3143,6 @@ impl AppClient {
                         .await);
                 }
             };
-            #[cfg(all(
-                test,
-                feature = "experimental-device-sync",
-                feature = "test-policy-overrides"
-            ))]
-            self.test_observe_automatic_consent_raw(&delivery.message);
             let event_id = hex::encode(delivery.message.id.as_slice());
             if receipts.contains(&event_id) {
                 self.record_durable_transport_reconciliation_delivery(&delivery);

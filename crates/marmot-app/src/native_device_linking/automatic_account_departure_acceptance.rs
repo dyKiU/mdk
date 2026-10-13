@@ -5,7 +5,7 @@ use super::automatic_two_source_leave_acceptance::{
 };
 use super::*;
 use cgka_traits::StorageProvider;
-use cgka_traits::storage::{GroupStorage, LeaveRequestStorage};
+use cgka_traits::storage::{GroupStorage, LeaveRequestStorage, MessageStorage};
 use futures::FutureExt;
 
 #[test]
