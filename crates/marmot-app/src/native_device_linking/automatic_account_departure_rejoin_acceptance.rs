@@ -108,6 +108,24 @@ pub(super) async fn verify_or_depart(
         crate::AppClient::test_capture_account_chat_progress(&trace_roots[1], "source_b");
     let _c_trace =
         crate::AppClient::test_capture_account_chat_progress(&trace_roots[2], "recipient");
+    let peer_labels: [([u8; 32], &'static str); 3] = std::array::from_fn(|index| {
+        let round = apps[index]
+            .account_storage("test")
+            .unwrap()
+            .private_roster_settlement_storage()
+            .unwrap()
+            .read_round()
+            .unwrap()
+            .unwrap();
+        (
+            round.anchor.local_device,
+            ["source_a", "source_b", "recipient"][index],
+        )
+    });
+    for root in &trace_roots {
+        crate::AppClient::test_label_account_chat_peers(root, &peer_labels);
+    }
+    eprintln!("account_departure_actual_peer_labels_registered=true");
     let prior = fresh_rejoin.then(|| {
         std::array::from_fn::<_, 2, _>(|index| {
             let (device, origin) = source_observation(&apps[index], &peer.group);

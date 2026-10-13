@@ -222,6 +222,18 @@ impl AppClient {
         diagnostics::trace_root(root, owner)
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn test_label_account_chat_peers(
+        root: &std::path::Path,
+        peers: &[([u8; 32], &'static str)],
+    ) {
+        diagnostics::label_peers(root, peers);
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    fn test_trace_automatic_peer_stage(&self, stage: &'static str, device: &[u8], category: &str) {
+        let peer = diagnostics::peer(self.app.account_home().root(), device);
+        self.test_trace_catalog_stage(stage, &format!("{category}, peer={peer}"), None);
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     fn test_trace_automatic_progress(
         &self,
         stage: &'static str,
@@ -243,7 +255,7 @@ impl AppClient {
             entry.renew,
             entry.records.test_progress()
         );
-        self.test_trace_catalog_stage(stage, &summary, None);
+        self.test_trace_automatic_peer_stage(stage, &entry.policy.peer_device, &summary);
     }
     fn automatic_policy_id(
         policy: &ApprovedAccountSharingPolicy,
@@ -277,7 +289,16 @@ impl AppClient {
             .runtime
             .session()
             .account_chat_sharing_targets(&policy.protected_group)
-            .map_err(|_| AccountSharingError::Closed)?;
+            .map_err(|error| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_automatic_peer_stage(
+                    "automatic_policy_core_targets",
+                    &policy.peer_device,
+                    error.privacy_safe_kind(),
+                );
+                let _ = error;
+                AccountSharingError::Closed
+            })?;
         if current.protected_epoch < policy.approved_protected_epoch
             || !current
                 .targets
@@ -307,19 +328,40 @@ impl AppClient {
         wire: &[u8],
     ) -> Result<bool, AccountSharingError> {
         if received.control == AccountSharingControl::Request {
-            let Ok(request) = self
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_automatic_peer_stage(
+                "automatic_request_received",
+                &received.source,
+                "outer_core_authenticated",
+            );
+            let authentication = self
                 .runtime
                 .session()
-                .authenticate_account_sharing_request(wire)
-            else {
+                .authenticate_account_sharing_request(wire);
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_automatic_peer_stage(
+                "automatic_request_core_auth",
+                &received.source,
+                authentication
+                    .as_ref()
+                    .err()
+                    .map(|error| error.privacy_safe_kind())
+                    .unwrap_or("authenticated"),
+            );
+            let Ok(request) = authentication else {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 self.test_trace_catalog_stage("automatic_request_authentication", "refused", None);
                 return Ok(false);
             };
-            let storage = self
-                .app
-                .account_storage(&self.state.label)
-                .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+            let storage = self.app.account_storage(&self.state.label).map_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_automatic_peer_stage(
+                    "automatic_request_policy_storage",
+                    &received.signer,
+                    "runtime_unavailable",
+                );
+                AccountSharingError::RuntimeUnavailable
+            })?;
             let Some(store) = storage.approved_account_sharing_policy_storage() else {
                 return Ok(false);
             };
@@ -338,19 +380,34 @@ impl AppClient {
                 });
             let Some(policy) = matching else {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
-                self.test_trace_catalog_stage("automatic_request_policy", "no_match", None);
+                self.test_trace_automatic_peer_stage(
+                    "automatic_request_policy",
+                    &received.signer,
+                    "no_match",
+                );
                 return Ok(false);
             };
-            self.automatic_policy_current(&policy)?;
+            let current = self.automatic_policy_current(&policy);
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            self.test_trace_catalog_stage(
+            self.test_trace_automatic_peer_stage(
+                "automatic_request_current_policy",
+                &policy.peer_device,
+                current
+                    .as_ref()
+                    .err()
+                    .map(diagnostics::sharing_category)
+                    .unwrap_or("current"),
+            );
+            current?;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_automatic_peer_stage(
                 "automatic_request_policy",
+                &policy.peer_device,
                 if policy.local_device < policy.peer_device {
                     "higher_request_authenticated"
                 } else {
                     "lower_request_authenticated"
                 },
-                None,
             );
             let id = Self::automatic_policy_id(&policy)?;
             if policy.local_device < policy.peer_device {
@@ -358,7 +415,20 @@ impl AppClient {
                 // never consent for its noncanonical direction. A live lower
                 // pending request wins; otherwise begin a fresh lower original.
                 // This also handles a delayed losing request after Consent.
-                self.ensure_canonical_automatic_initiator(policy)?;
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                let peer_device = policy.peer_device;
+                let restart = self.ensure_canonical_automatic_initiator(policy);
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_automatic_peer_stage(
+                    "automatic_request_canonical_restart",
+                    &peer_device,
+                    restart
+                        .as_ref()
+                        .err()
+                        .map(diagnostics::sharing_category)
+                        .unwrap_or("ok"),
+                );
+                restart?;
                 return Ok(true);
             }
             if self
@@ -429,7 +499,11 @@ impl AppClient {
             .map(|(id, _)| *id);
         let Some(id) = id else {
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            self.test_trace_catalog_stage("automatic_dispatch", "no_nonce_match", None);
+            self.test_trace_automatic_peer_stage(
+                "automatic_dispatch",
+                &received.signer,
+                "no_nonce_match",
+            );
             return Ok(false);
         };
         let mut entry = self
@@ -483,6 +557,16 @@ impl AppClient {
                     }
                     AccountSharedBodyKind::DepartureIntent
                     | AccountSharedBodyKind::DepartureReceipt => {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        self.test_trace_automatic_progress(
+                            "departure_body_core_opened",
+                            &entry,
+                            if kind == AccountSharedBodyKind::DepartureIntent {
+                                "intent"
+                            } else {
+                                "receipt"
+                            },
+                        );
                         self.accept_automatic_departure(&mut entry, kind, &body)?;
                     }
                     _ => return Err(AccountSharingError::NotReady),
@@ -490,6 +574,16 @@ impl AppClient {
             }
             Ok(true)
         })();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_trace_automatic_progress(
+            "dispatch_after",
+            &entry,
+            result
+                .as_ref()
+                .err()
+                .map(diagnostics::sharing_category)
+                .unwrap_or("ok"),
+        );
         self.account_sharing_owner.automatic.insert(id, entry);
         result
     }
