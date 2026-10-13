@@ -67,6 +67,8 @@ impl<S: StorageProvider> Engine<S> {
         {
             return Err(refused());
         }
+        #[cfg(feature = "test-policy-overrides")]
+        let control_wire_digest: [u8; 32] = Sha256::digest(&wire).into();
         let group_id = channel.scope.protected.group_id.clone();
         let position = channel.outbound.iter().position(|entry| entry.kind == kind);
         if let Some(position) = position
@@ -127,7 +129,7 @@ impl<S: StorageProvider> Engine<S> {
                 ciphertext: encrypted?,
                 wrapped: None,
                 #[cfg(feature = "test-policy-overrides")]
-                control_wire_digest: Sha256::digest(&wire).into(),
+                control_wire_digest,
             });
             channel.outbound.len() - 1
         };
