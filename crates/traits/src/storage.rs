@@ -36,7 +36,7 @@ pub enum StorageError {
     NotFound,
     #[error("record already exists")]
     AlreadyExists,
-    /// An authenticated mirrored-record batch targets an origin covered by an
+    /// A mirrored-record batch targets an origin covered by an
     /// account-wide departure cut. This is a negative disposition, not an import.
     #[error("mirrored record denied by account departure")]
     MirroredRecordDeniedByDeparture,
