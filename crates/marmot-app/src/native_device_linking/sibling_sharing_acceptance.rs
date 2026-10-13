@@ -70,6 +70,12 @@ pub(super) async fn assert_bilateral_completion(
         }
     })
     .await;
+    if let Some(probe) = pre_auth_probe {
+        eprintln!(
+            "sibling exact injected-item normal/retained Core authentication routes, kind, captured: {:?}",
+            probe.authentication_routes_for_test()
+        );
+    }
     if outcome.is_err() {
         eprintln!(
             "sharing phase and durable policy-count observations: {:?}",
