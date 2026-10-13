@@ -38,6 +38,7 @@ pub struct OwnedEnrollmentRecipientEvidence {
     artifact: AuthenticatedPrivatePredecessor,
     binding: [u8; 32],
     signed_packets: Vec<Vec<u8>>,
+    sharing_devices: Vec<[u8; 32]>,
 }
 impl OwnedEnrollmentRecipientEvidence {
     pub fn context_json(&self) -> &str {
@@ -48,6 +49,10 @@ impl OwnedEnrollmentRecipientEvidence {
     }
     pub fn context_digest(&self) -> &[u8; 32] {
         &self.packet.request.context_digest
+    }
+    /// Signed predecessor choices only; no bilateral policy or admission grant.
+    pub fn sharing_devices(&self) -> &[[u8; 32]] {
+        &self.sharing_devices
     }
     pub fn predecessor(&self) -> &AuthenticatedPrivatePredecessor {
         &self.artifact
@@ -194,6 +199,7 @@ impl<S: StorageProvider> Engine<S> {
             artifact,
             binding,
             signed_packets,
+            sharing_devices,
         } = decode_packet(self, bytes)?;
         let frame = &packet.request;
         let purpose = self
@@ -220,6 +226,7 @@ impl<S: StorageProvider> Engine<S> {
             artifact,
             binding,
             signed_packets,
+            sharing_devices,
         };
         evidence.check(self, &purpose)?;
         Ok(evidence)
@@ -248,6 +255,7 @@ pub(crate) fn authenticate_existing_packet<S: StorageProvider>(
         artifact,
         binding,
         signed_packets,
+        sharing_devices: _,
     } = decode_packet(engine, bytes)?;
     let frame = packet.request;
     let predecessor = cgka_traits::accepted_device_group_anchor::DeviceGroupAnchorRoster {
@@ -291,6 +299,7 @@ struct AuthenticatedPacket {
     artifact: AuthenticatedPrivatePredecessor,
     binding: [u8; 32],
     signed_packets: Vec<Vec<u8>>,
+    sharing_devices: Vec<[u8; 32]>,
 }
 fn decode_packet<S: StorageProvider>(
     engine: &Engine<S>,
@@ -370,11 +379,13 @@ fn decode_packet<S: StorageProvider>(
         })
         .collect::<Result<Vec<_>, EngineError>>()?;
     let packets = signed_packets.iter().map(Vec::as_slice).collect::<Vec<_>>();
-    engine.authenticate_all_private_enrollment_endorsements(&artifact, &binding, &packets)?;
+    let proof =
+        engine.authenticate_all_private_enrollment_endorsements(&artifact, &binding, &packets)?;
     Ok(AuthenticatedPacket {
         packet,
         artifact,
         binding,
         signed_packets,
+        sharing_devices: proof.sharing_devices().to_vec(),
     })
 }

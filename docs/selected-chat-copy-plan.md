@@ -153,3 +153,7 @@ message while B has neither that message nor prejoin history. Focused1, full
 selected8 and formatting pass; this is a test-only qualification. See
 `device-sync-selected-welcome-retry-cancellation-verification.json`. Expiry during
 the retained slot and blocked-publication/lost-response controls remain separate.
+
+### Same-owner protected Remove storage retry checkpoint
+
+The actual faulted protected Remove now retries on the same original recipient Engine, reaches fresh survivor Completed settlement, and permits explicitly reviewed A→B prejoin history import. The unchanged encrypted-reopen control still refuses reconstructed positive authority. Nine revocation controls, default refusal and production Engine/Session/App lint/default/format gates pass. See `device-sync-revocation-storage-retry-verification.json`. Post-revocation new-device enrollment, receipt-expiry/shutdown during retry, blocked successor settlement and matched native exports remain open.

@@ -40,14 +40,16 @@ _Static_assert(MARMOT_MODERATION_REPORT_ORIGIN_BLOCK_AND_REPORT == 1, "moderatio
 _Static_assert(MARMOT_STATUS_MODERATION_REPORTING_NOT_CONFIGURED == 96, "moderation status ABI value");
 _Static_assert(MARMOT_STATUS_MODERATION_REPORT_RATE_LIMITED == 100, "moderation status ABI value");
 
-_Static_assert(MARMOT_STATUS_SELECTED_CHAT_COPY_UNSUPPORTED == 102, "selected unsupported ABI");
-_Static_assert(MARMOT_STATUS_SELECTED_CHAT_COPY_CLOSED == 111, "selected closed ABI");
+_Static_assert(MARMOT_STATUS_SELECTED_CHAT_COPY_UNSUPPORTED == 127, "selected unsupported ABI");
+_Static_assert(MARMOT_STATUS_SELECTED_CHAT_COPY_CLOSED == 136, "selected closed ABI");
 _Static_assert(MARMOT_SELECTED_CHAT_COPY_PHASE_INVITE_CONFIRMED == 4, "selected source confirmation ABI");
-_Static_assert(MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED == 96, "device unsupported ABI");
-_Static_assert(MARMOT_STATUS_DEVICE_LINKING_RUNTIME_UNAVAILABLE == 101, "device runtime ABI");
+_Static_assert(MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED == 121, "device unsupported ABI");
+_Static_assert(MARMOT_STATUS_DEVICE_LINKING_RUNTIME_UNAVAILABLE == 126, "device runtime ABI");
 _Static_assert(MARMOT_DEVICE_LINKING_PHASE_FAILED == 7, "existing device phase ABI");
 _Static_assert(MARMOT_DEVICE_LINKING_PHASE_ENROLLMENT_COMPLETE == 8, "completed device phase ABI");
 _Static_assert(MARMOT_DEVICE_LINKING_APPROVAL_PHASE_SETTLED == 3, "settled approval ABI");
+_Static_assert(MARMOT_STATUS_ACCOUNT_SHARING_UNSUPPORTED == 146, "account sharing unsupported ABI");
+_Static_assert(MARMOT_STATUS_ACCOUNT_SHARING_RUNTIME_UNAVAILABLE == 150, "account sharing runtime ABI");
 
 
 static int failures = 0;
@@ -245,6 +247,26 @@ int main(int argc, char **argv) {
     check(st == MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED && approval_list == NULL,
           "default pending approvals typed Unsupported before lookup");
     marmot_device_linking_approval_list_free(approval_list);
+    struct MarmotAccountSharingTargets *sharing_targets = NULL;
+    st = marmot_account_chat_sharing_targets(client, "missing", &sharing_targets);
+    check(st == MARMOT_STATUS_ACCOUNT_SHARING_UNSUPPORTED && sharing_targets == NULL,
+          "default account sharing targets typed Unsupported before lookup");
+    marmot_account_sharing_targets_free(sharing_targets);
+    struct MarmotAccountSharingApproval *sharing = NULL;
+    st = marmot_begin_account_chat_sharing(client, "missing", NULL, SIZE_MAX, &sharing);
+    check(st == MARMOT_STATUS_ACCOUNT_SHARING_UNSUPPORTED && sharing == NULL,
+          "default sharing factory refuses before invalid recipient access");
+    marmot_account_sharing_approval_free(sharing);
+    struct MarmotAccountSharingApprovalList *sharing_pending = NULL;
+    st = marmot_pending_account_chat_sharing(client, "missing", &sharing_pending);
+    check(st == MARMOT_STATUS_ACCOUNT_SHARING_UNSUPPORTED && sharing_pending == NULL,
+          "default pending sharing refuses before lookup");
+    marmot_account_sharing_approval_list_free(sharing_pending);
+    struct MarmotAccountSharingSnapshot *sharing_snapshot = NULL;
+    st = marmot_account_sharing_approval_snapshot(NULL, &sharing_snapshot);
+    check(st == MARMOT_STATUS_NULL_POINTER && sharing_snapshot == NULL,
+          "sharing review requires original owner");
+    marmot_account_sharing_snapshot_free(sharing_snapshot);
     struct MarmotDeviceLinkingApproval *approval_clone = NULL;
     st = marmot_device_linking_approval_clone(NULL, &approval_clone);
     check(st == MARMOT_STATUS_NULL_POINTER && approval_clone == NULL,

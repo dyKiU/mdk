@@ -344,7 +344,13 @@ pub(crate) struct AccountWorkerRuntime {
 
 pub(crate) enum AccountWorkerCommand {
     #[cfg(feature = "experimental-device-sync")]
+    DeviceRevocation(Box<super::device_revocation::Command>),
+    #[cfg(feature = "experimental-device-sync")]
     HistoryTransfer(Box<super::history_transfer::Command>),
+    #[cfg(feature = "experimental-device-sync")]
+    AccountSharing(Box<super::account_chat_sharing::Command>),
+    #[cfg(feature = "experimental-device-sync")]
+    AccountChatPresentation(Box<super::account_chat_presentation::Command>),
     #[cfg(feature = "experimental-device-sync")]
     SelectedChatConsent(Box<super::selected_chat_copy::ConsentCommand>),
     #[cfg(feature = "experimental-device-sync")]
@@ -2624,6 +2630,14 @@ async fn run_app_runtime_account_worker(
                             scheduled_convergence.schedule_retry_groups(groups);
                             continue 'worker;
                         }
+                        #[cfg(feature = "experimental-device-sync")]
+                        if let Some(mut groups) = client.device_revocation_storage_retry_groups(&err) {
+                            // Only the already-live original receipt survives rollback.
+                            // Stored inputs cannot reconstruct that owner after reopen.
+                            groups.extend(client.take_pending_convergence_groups());
+                            scheduled_convergence.schedule_retry_groups(groups);
+                            continue 'worker;
+                        }
                         if client.arm_failed_receive_projection_retry() {
                             // Reopening cannot reconstruct consumed activity events
                             // or the output of a batch awaiting its state checkpoint.
@@ -2948,6 +2962,13 @@ async fn run_app_runtime_account_worker(
                         }
                         Ok(None) => {},
                         Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_native_enrollment_tick", "native enrollment publication deferred"),
+                    }
+                    match client.pending_revoked_settlement() {
+                        Ok(Some(binding)) => super::private_commit::publish_revoked_settlement(
+                            &mut client, binding, None, &mut commands, &mut pending, &publication_control, &shared, &app, &account_label,
+                        ).await,
+                        Ok(None) => {},
+                        Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_revoked_settlement_tick", "private confirmation selection deferred"),
                     }
                     match client.pending_existing_private_settlement() {
                         Ok(Some(binding)) => super::private_commit::publish_existing_settlement(
@@ -4767,6 +4788,21 @@ fn account_worker_command_future<'a>(
     } = context;
     let storage_permit = shared.product_analytics.permit();
     match command {
+        #[cfg(feature = "experimental-device-sync")]
+        AccountWorkerCommand::DeviceRevocation(command) => Box::pin(async move {
+            super::device_revocation::handle(client, *command).await;
+            false
+        }),
+        #[cfg(feature = "experimental-device-sync")]
+        AccountWorkerCommand::AccountChatPresentation(command) => Box::pin(async move {
+            super::account_chat_presentation::handle(client, *command);
+            false
+        }),
+        #[cfg(feature = "experimental-device-sync")]
+        AccountWorkerCommand::AccountSharing(command) => Box::pin(async move {
+            super::account_chat_sharing::handle(client, *command).await;
+            false
+        }),
         #[cfg(feature = "experimental-device-sync")]
         AccountWorkerCommand::HistoryTransfer(command) => Box::pin(async move {
             super::history_transfer::handle(client, *command).await;

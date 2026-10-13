@@ -96,11 +96,28 @@ mod conversions;
     reason = "Experimental adapter awaits account-worker enrollment integration"
 )]
 mod device_linking;
+mod device_revocation;
+pub use device_revocation::{
+    DeviceRevocation, DeviceRevocationSnapshot, GroupDeviceRevocation, GroupDeviceRevocationError,
+    GroupDeviceRevocationSnapshot,
+};
+mod account_chat_presentation;
+pub use account_chat_presentation::{
+    AccountChatReadError, AccountConversationPage, AccountConversationRow, PairedChatContent,
+    PairedChatListPage, PairedChatMessage, PairedChatMessageCursor, PairedChatMessagePage,
+    PairedChatSource, PairedChatSummary,
+};
+mod account_chat_sharing;
+pub use account_chat_sharing::{
+    AccountSharingApproval, AccountSharingError, AccountSharingSnapshot, AccountSharingTarget,
+    AccountSharingTargets,
+};
 mod history_transfer;
 mod native_device_linking;
 mod selected_chat_copy;
 pub use history_transfer::{
-    HistoryConsent, HistoryTransfer, HistoryTransferError, HistoryTransferSnapshot,
+    HistoryConsent, HistoryTransfer, HistoryTransferError, HistoryTransferRecipient,
+    HistoryTransferSnapshot,
 };
 pub use native_device_linking::{
     DeviceLinkingApproval, DeviceLinkingApprovalPhase, DeviceLinkingApprovalReviewMetadata,
@@ -191,6 +208,14 @@ pub use runtime::{
     RuntimeTimelineMessageUpdate, RuntimeTimelineMessagesSubscription, SignOutOptions,
     SignOutOutcome, StreamStartView, TimelineWindowHandle, WipeOutcome,
     default_directory_discovery_relays,
+};
+pub use runtime::{
+    AccountChatListWindowHandle, AccountChatListWindowSnapshot, AccountChatRow,
+    RuntimeAccountChatListWindowSubscription,
+};
+pub use runtime::{
+    AccountConversationHeader, AccountConversationWindowHandle, AccountConversationWindowSnapshot,
+    LocalAccountConversationHeader, RuntimeAccountConversationWindowSubscription,
 };
 pub use runtime::{
     CHAT_LIST_WINDOW_INITIAL_ROWS, CHAT_LIST_WINDOW_MAX_ROWS, ChatListAnchorOutcome,
@@ -2067,6 +2092,10 @@ impl MarmotApp {
             #[cfg(feature = "experimental-device-sync")]
             history_owner: crate::history_transfer::enabled::AccountHistoryOwner::default(),
             #[cfg(feature = "experimental-device-sync")]
+            account_sharing_owner: crate::account_chat_sharing::enabled::AccountSharingOwner::default(),
+            #[cfg(feature = "experimental-device-sync")]
+            device_revocation_owner: crate::device_revocation::enabled::AccountRevocationOwner::default(),
+            #[cfg(feature = "experimental-device-sync")]
             selected_welcome_provenance: open.selected_welcome_provenance,
             runtime: open.runtime,
             _session_guard: open.session_guard,
@@ -2081,6 +2110,8 @@ impl MarmotApp {
             seen_events_index,
             pending_seen_event_count: 0,
             pending_group_projection_updates: std::collections::HashSet::new(),
+            #[cfg(feature = "experimental-device-sync")]
+            pending_chat_source_changes: Vec::new(),
             pending_recovery_status_updates: std::collections::HashSet::new(),
             history_notice_baseline: None,
             cursor_audit_placements,
@@ -4503,6 +4534,9 @@ impl MarmotApp {
         // Account refs may be labels, hex pubkeys, or npubs. Ownership is keyed
         // by the canonical stored label so aliases cannot open a second engine.
         let label = account.label.as_str();
+        let public_key_package_publication_disabled = self
+            .account_home
+            .public_key_package_publication_disabled(label)?;
         let session_guard = self.acquire_account_session(label)?;
         let state = self.load_state(label)?;
         let recovery_storage = self.account_storage(label)?;
@@ -4674,6 +4708,9 @@ impl MarmotApp {
         let routing = self.routing_for(&state)?;
         let mut runtime =
             AccountDeviceRuntime::new(session, adapter.clone(), routing.clone(), key_packages);
+        if public_key_package_publication_disabled {
+            runtime = runtime.with_public_key_package_publication_disabled();
+        }
         if let Some(timing) = dev_maintenance_timing(&self.config) {
             runtime = runtime.with_maintenance_timing(timing);
         }

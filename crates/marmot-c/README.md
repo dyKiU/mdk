@@ -17,9 +17,12 @@ per feature.
 - [Onboarding relay repair](#onboarding-relay-repair)
 - [NIP-46 accounts](#nip-46-accounts)
 - [Device verification](#device-verification)
+- [Account-wide sharing approval](#account-wide-sharing-approval)
 - [Selected-chat copies](#selected-chat-copies)
+- [Exact-device revocation](#exact-device-revocation)
 - [Original history transfers](#original-history-transfers)
 - [Committed synchronized history](#committed-synchronized-history)
+- [Account chat views](#account-chat-views)
 - Feature notes: [runtime construction](#runtime-construction), [local sends](#local-sends),
   [file-backed media upload](#file-backed-media-upload),
   [public event verification](#public-event-verification), [host performance stages](#host-performance-stages),
@@ -554,6 +557,13 @@ recipient inputs must have exactly 32 readable bytes in an experimental build.
 Default factories return `MARMOT_STATUS_HISTORY_TRANSFER_UNSUPPORTED` before
 reading account/group/recipient inputs.
 
+`marmot_history_transfer_recipients` returns an owned
+`MarmotHistoryTransferRecipientList` of current eligible choices. Its embedded
+entries carry a leaf index and public device bytes; they create no transfer or
+consent. Release the list with `marmot_history_transfer_recipient_list_free`,
+which frees the entry array and every device buffer. Entries have no separate
+free. Starting a transfer revalidates the selected identity.
+
 Each `MarmotHistoryConsentList` owns its `MarmotHistoryConsentEntry.handle` aliases.
 Clone a selected handle before freeing the list and free that retained clone
 separately. The matching deep free releases the entry array and every owned
@@ -577,3 +587,29 @@ releases it with `marmot_archived_history_page_free`; embedded records are owned
 by that page. Required outputs are cleared before input reads or effects. NULL
 cursor starts the first page. Query statuses append142–145; page/cursor records
 never authorize a history transfer or media acquisition.
+
+## Account-wide sharing approval
+
+See the [shared original-approval contract](../marmot-uniffi/ACCOUNT-CHAT-SHARING.md).
+The C factories preflight and clear required outputs before effects; default
+builds refuse before reading foreign inputs. Each approval is an opaque alias
+of the same UniFFI original. Clone entries before freeing a pending-approval list,
+then free retained aliases separately. Snapshot and target roots have matching
+deep frees; their device buffers and target entries belong to those roots.
+Approval calls are blocking and callback-safe. Status values 146–150 append
+account-sharing errors without renumbering existing values. No observation DTO
+or list entry grants approval.
+
+## Account chat views
+
+See the shared [account chat view contract](../marmot-uniffi/ACCOUNT-CHAT-VIEWS.md).
+Pages and window snapshots own every embedded tagged-union payload; release only
+with the root deep-free. Window handles offer blocking timed `next`, a one-time
+initial snapshot, bounded paging and synchronous cancellation. Cancel before
+teardown; free each handle before its client and while no other call uses it.
+These windows do not install callbacks. Inputs and cursors are borrowed for the
+call; default builds refuse before inspecting them.
+
+## Exact-device revocation
+
+The [shared exact-device contract](../marmot-uniffi/DEVICE-REVOCATION.md) applies to the blocking `marmot_begin_device_revocation` factory and opaque original handle. Retain aliases with `marmot_device_revocation_clone`; deep-free review snapshots and free each handle separately. Required outputs precede effects, and default builds refuse before input reads. Status values 151–157 append typed revocation outcomes after account-sharing statuses146–150.

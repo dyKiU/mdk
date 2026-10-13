@@ -28,7 +28,8 @@ fn validate_anchor(anchor: &PrivateSettlementAnchor) -> StorageResult<()> {
     match anchor.origin {
         PrivateInviteOrigin::Accepted(n)
         | PrivateInviteOrigin::Confirmed(n)
-        | PrivateInviteOrigin::Existing(n) => {
+        | PrivateInviteOrigin::Existing(n)
+        | PrivateInviteOrigin::Revoked(n) => {
             generation(n)?;
         }
         _ => return Err(invalid()),

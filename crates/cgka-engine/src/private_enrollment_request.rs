@@ -541,6 +541,7 @@ pub(crate) fn is_request_payload(payload: &[u8], sender: Option<&MemberId>) -> b
                             REQUEST_PROTOCOL
                                 | PROPOSAL_PROTOCOL
                                 | crate::private_enrollment_endorsement::PROTOCOL
+                                | crate::private_enrollment_endorsement::SHARING_PROTOCOL
                         )
                     )
                 })

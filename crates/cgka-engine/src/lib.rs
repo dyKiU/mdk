@@ -53,6 +53,8 @@ pub mod device_group_genesis;
 mod device_group_lineage;
 #[cfg(feature = "experimental-device-sync")]
 pub mod device_group_snapshot;
+#[cfg(feature = "experimental-device-sync")]
+pub mod device_leaf_revocation;
 pub mod disband;
 pub mod distributed_convergence;
 pub mod engine;
@@ -61,6 +63,8 @@ pub mod epoch_manager;
 pub mod feature_registry;
 pub mod group_authority;
 pub mod group_context_view;
+#[cfg(feature = "experimental-device-sync")]
+mod group_creation_origin;
 pub mod group_lifecycle;
 pub mod group_state_changes;
 pub mod identity;
@@ -128,6 +132,10 @@ pub mod private_enrollment_request;
 #[cfg(feature = "experimental-device-sync")]
 pub mod private_enrollment_endorsement;
 
+#[cfg(feature = "experimental-device-sync")]
+pub mod account_chat_catalog;
+#[cfg(feature = "experimental-device-sync")]
+pub mod account_chat_sharing;
 #[cfg(feature = "experimental-device-sync")]
 pub mod history_transfer;
 #[cfg(feature = "experimental-device-sync")]

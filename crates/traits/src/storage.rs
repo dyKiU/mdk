@@ -1084,6 +1084,13 @@ pub trait StorageProvider:
         None
     }
 
+    /// Optional original single-Remove successor metadata. Defaults unavailable.
+    fn revoked_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn crate::revoked_device_group_anchor::RevokedDeviceGroupStorage> {
+        None
+    }
+
     /// Optional private-group creation provenance. Unsupported backends grant nothing.
     fn device_group_genesis_storage(
         &self,
@@ -1115,6 +1122,42 @@ pub trait StorageProvider:
     fn selected_chat_key_package_storage(
         &self,
     ) -> Option<&dyn crate::selected_chat_key_package::SelectedChatKeyPackageStorage> {
+        None
+    }
+
+    /// Optional paired-source catalog observations, never membership or consent.
+    fn mirrored_chat_catalog_storage(
+        &self,
+    ) -> Option<&dyn crate::mirrored_chat_catalog::MirroredChatCatalogStorage> {
+        None
+    }
+
+    /// Optional durable explicit approvals; facts never restore live grants.
+    fn approved_account_sharing_policy_storage(
+        &self,
+    ) -> Option<&dyn crate::approved_account_sharing_policy::ApprovedAccountSharingPolicyStorage>
+    {
+        None
+    }
+
+    /// Optional paired-source logical message observations, never MLS evidence.
+    fn mirrored_chat_message_storage(
+        &self,
+    ) -> Option<&dyn crate::mirrored_chat_messages::MirroredChatMessageStorage> {
+        None
+    }
+
+    /// Optional logical-delivery metadata. Reading it cannot restore authorization.
+    fn account_chat_record_stream_storage(
+        &self,
+    ) -> Option<&dyn crate::account_chat_record_stream::AccountChatRecordStreamStorage> {
+        None
+    }
+
+    /// Optional durable paired-member sends; never a live permission or MLS ID.
+    fn account_chat_send_queue_storage(
+        &self,
+    ) -> Option<&dyn crate::account_chat_send_queue::AccountChatSendQueueStorage> {
         None
     }
 

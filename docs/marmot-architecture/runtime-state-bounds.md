@@ -24,6 +24,22 @@ Tracking issue: marmot-protocol/mdk#381.
 
 ## Inventory
 
+### Experimental Core automatic-sharing originals
+
+Each `OwnedAccountSharingChannel` retains one signed request, one signed consent,
+one recipient-only HPKE key pair and at most 128 immutable sealed bodies. Plain
+bodies are at most 1536 bytes and canonical signed wire frames at most 16 KiB.
+Same-sequence different-kind/body retries refuse; capacity exhaustion refuses
+before adding another entry. These are original action resources, not convergence
+policy or a persisted ongoing journal. Fixed actor expiry, cancellation and Engine
+destruction deny access; explicit retirement and final drop release the keys and
+retry buffers. HPKE private keys use upstream `SecretVLBytes` zeroization on drop.
+The protected carrier additionally retains at most 130 frozen encrypted controls
+and their successful wrappers per original (the 128 body budget plus handshake
+allowance); expiry/cancellation deny retries and retirement/drop reclaim them.
+No channel registry, automatic actor renewal or durable send queue is introduced
+by this Core foundation.
+
 ### Experimental native device enrollment (`marmot-app`)
 
 These are account-owned UI/transport resources, not convergence policy or
@@ -400,3 +416,18 @@ The existing process-local128 owner/terminal-ID budget remains unchanged. This i
 a bounded experimental anti-replay limit, not an unbounded ongoing-sync journal
 or a new convergence scheduling policy. Actual encrypted reopen replay and fresh
 distinct request controls pass alongside immutable-row, rollback and capacity tests.
+
+### Original one-group device revocation review
+
+The default-off `AccountRevocationOwner` retains one weak current original and a cumulative process-client creation count capped at128. Each original holds one bounded Core selection (at most128 indexed ordinary and protected leaves), its captured600-second monotonic deadline and exact cancellation flag. Cancel/last handle Drop/expiry end that original; client Drop invalidates all retained handles. New explicit captures require fresh actual Core authority and cannot reuse old selections across Engine/client reopen. The budget is not recycled within a client lifetime. No SQL positive approval, Remove, retry queue or permission is created by this review-only checkpoint. These are process-local owner resource limits, not convergence scheduling policy.
+
+The exact ordinary-leaf revocation owner additionally retains one pending/origin/group/Weak-original negative cleanup identity per account. Original memory holds one prepared generated Commit/report/confirmed effects, never an account-level removal intent or durable positive authority. Retry uses the same original fixed 600-second deadline; cancellation/Drop/expiry only schedule exact negative retirement. Confirmation is retained before fallible projection reads; the cumulative 128-original account-client budget is unchanged.
+
+
+### Exact-device captured-scope removal checkpoint
+
+Device revocation retains one weak current original, a cumulative 128-original budget, at most 128 captured selections per original, one current pending Commit/report/effects and its exact negative cleanup identity. The original 600-second deadline never renews. Admission currently refuses more than 128 total stored group IDs before filtering; this explicit account-wide liveness limit is separate from convergence policy.
+
+### Original protected Remove settlement custody
+
+Each originating Engine retains at most128 distinct group/canonical-Commit-digest identities across live receipts and captured Remove intents, including terminal entries. Receipt slots are acquired only from actual live delivery after durable content dedup and a matching Completed predecessor. Retries only shorten/preserve the first acquisition deadline. Source intents retain the original approved action's fixed600-second deadline; receiver intents retain the original transport acquisition deadline. Intent fields are bounded actual roster/identity/digest metadata and optional original source lease, never serialized approval. Engine Drop retires all custody; stored rows cannot renew it. The private publisher observes the same opaque admission lifetime, including source cancellation, with a25ms negative liveness check during blocked transport. Positive same-client storage retry and blocked successor-settlement controls remain unqualified.

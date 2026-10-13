@@ -18,6 +18,11 @@ pub(super) struct SessionState {
     setup: Vec<u8>,
     new_device: bool,
     operation: AsyncMutex<PacketProgress>,
+    sharing_choice: Mutex<
+        Option<
+            Arc<crate::client::device_linking::sibling_sharing::OriginalEnrollmentSharingChoice>,
+        >,
+    >,
     snapshot: Mutex<DeviceLinkingSnapshot>,
     updates: watch::Sender<DeviceLinkingSnapshot>,
     closed: AtomicBool,
@@ -141,6 +146,9 @@ impl SessionState {
     }
     fn close(&self) {
         self.closed.store(true, Ordering::Release);
+        if let Some(choice) = self.sharing_choice.lock().expect("sharing choice").take() {
+            choice.cancel();
+        }
         self.update(DeviceLinkingPhase::Cancelled, None);
     }
     fn defer_cleanup(&self) {
@@ -207,6 +215,122 @@ impl AccountManager {
     }
 }
 impl DeviceLinkingSession {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_projection_aggregates_for_test(&self) -> Option<[usize; 4]> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .map(|choice| choice.projection_aggregates_for_test())
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_projection_event_for_test(
+        &self,
+        id: &cgka_traits::MessageId,
+    ) -> Option<[usize; 6]> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .and_then(|choice| choice.projection_event_for_test(id))
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_request_scope_matches_for_test(
+        &self,
+        scope: &cgka_engine::account_chat_sharing::AccountSharingScope,
+    ) -> Option<[bool; 5]> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .map(|choice| choice.request_scope_matches_for_test(scope))
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_source_event_for_test(
+        &self,
+        id: &cgka_traits::MessageId,
+    ) -> Option<bool> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .and_then(|choice| choice.source_event_for_test(id))
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn arm_sibling_projection_head_probe_for_test(
+        &self,
+    ) -> Result<
+        std::sync::Arc<crate::client::device_linking::sibling_sharing::SiblingProjectionHeadProbe>,
+        crate::AccountSharingError,
+    > {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .ok_or(crate::AccountSharingError::Closed)?
+            .arm_projection_head_probe_for_test()
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn arm_sibling_routing_probe_for_test(
+        &self,
+        nonce: [u8; 32],
+    ) -> Result<
+        std::sync::Arc<crate::client::device_linking::sibling_sharing::SiblingRoutingProbe>,
+        crate::AccountSharingError,
+    > {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .ok_or(crate::AccountSharingError::Closed)?
+            .arm_wrong_recipient_probe_for_test(nonce)
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_request_observation_for_test(
+        &self,
+        nonce: [u8; 32],
+    ) -> Option<[bool; 3]> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .and_then(|choice| choice.request_observation_for_test(nonce))
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_context_rejections_for_test(&self) -> Option<[usize; 9]> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .map(|choice| choice.recipient_context_rejections_for_test())
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_recipient_rejections_for_test(&self) -> Option<[usize; 4]> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .map(|choice| choice.recipient_rejections_for_test())
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_recipient_diagnostics_for_test(&self) -> Option<[usize; 8]> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .map(|choice| choice.recipient_snapshot_for_test())
+    }
+
     // Test inspection of the original actor-owned identity, never a native API
     // or a constructor for a proof, scope or continuation.
     #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -237,6 +361,7 @@ impl DeviceLinkingSession {
             setup: packet.packet,
             new_device,
             operation: AsyncMutex::new(PacketProgress::default()),
+            sharing_choice: Mutex::new(None),
             snapshot: Mutex::new(snapshot),
             updates,
             closed: AtomicBool::new(false),
@@ -525,7 +650,22 @@ impl DeviceLinkingSession {
         Ok(())
     }
 
+    /// Approve sharing existing and future chats, history and messaging with
+    /// this exact paired device. The original verified action remains required.
+    pub async fn continue_linking_and_share_chats(
+        &self,
+        revision: u64,
+    ) -> Result<(), DeviceLinkingError> {
+        self.continue_original_linking(revision, true).await
+    }
     pub async fn continue_linking(&self, revision: u64) -> Result<(), DeviceLinkingError> {
+        self.continue_original_linking(revision, false).await
+    }
+    async fn continue_original_linking(
+        &self,
+        revision: u64,
+        share_chats: bool,
+    ) -> Result<(), DeviceLinkingError> {
         self.inner.check_open()?;
         let mut operation = self.inner.operation.lock().await;
         self.inner.check_open()?;
@@ -537,21 +677,62 @@ impl DeviceLinkingSession {
         if snapshot.phase != DeviceLinkingPhase::VerificationCompleteEnrollmentPending {
             return Err(DeviceLinkingError::NotReady);
         }
+        if share_chats {
+            // Capture synchronous negative control before the positive worker
+            // continuation can wait on transport. Closing this native original
+            // also fences a reply arriving after its owner has been cancelled.
+            let choice = self
+                .inner
+                .manager
+                .native_capture_sharing_choice(&self.inner.account, &self.inner.scope)
+                .await
+                .map_err(map_error)?;
+            let mut held = self.inner.sharing_choice.lock().expect("sharing choice");
+            if self.inner.closed.load(Ordering::Acquire) {
+                choice.cancel();
+                return Err(DeviceLinkingError::Closed);
+            }
+            *held = Some(choice);
+        }
         if operation.enrollment_started {
+            if share_chats {
+                self.inner
+                    .manager
+                    .native_continue_device_linking_and_share_chats(
+                        &self.inner.account,
+                        &self.inner.scope,
+                        self.inner.new_device,
+                    )
+                    .await
+                    .map_err(map_error)?;
+                self.inner.check_open()?;
+            }
             return Ok(());
         }
         // These factories currently accept only the singleton setup profile.
         // The actor validates and takes its original SDK proof; native packets
         // and this operation marker cannot recreate that proof or grant access.
-        self.inner
-            .manager
-            .native_continue_device_linking(
-                &self.inner.account,
-                &self.inner.scope,
-                self.inner.new_device,
-            )
-            .await
-            .map_err(map_error)?;
+        if share_chats {
+            self.inner
+                .manager
+                .native_continue_device_linking_and_share_chats(
+                    &self.inner.account,
+                    &self.inner.scope,
+                    self.inner.new_device,
+                )
+                .await
+                .map_err(map_error)?;
+        } else {
+            self.inner
+                .manager
+                .native_continue_device_linking(
+                    &self.inner.account,
+                    &self.inner.scope,
+                    self.inner.new_device,
+                )
+                .await
+                .map_err(map_error)?;
+        }
         self.inner.check_open()?;
         operation.enrollment_started = true;
         self.inner.refresh().await?;
@@ -612,6 +793,9 @@ pub(super) struct ApprovalState {
     account: String,
     binding: [u8; 32],
     operation: AsyncMutex<Option<Vec<u8>>>,
+    sharing_original: Mutex<
+        Option<Arc<crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval>>,
+    >,
     snapshot: Mutex<DeviceLinkingApprovalSnapshot>,
     closed: AtomicBool,
     runtime: tokio::runtime::Handle,
@@ -654,6 +838,14 @@ impl ApprovalState {
     }
     fn close(&self) {
         self.closed.store(true, Ordering::Release);
+        if let Some(original) = self
+            .sharing_original
+            .lock()
+            .expect("sharing original")
+            .take()
+        {
+            original.cancel();
+        }
         let mut snapshot = self.snapshot.lock().expect("approval observation");
         if !matches!(
             snapshot.phase,
@@ -732,6 +924,7 @@ impl AccountManager {
                         account: account.clone(),
                         binding,
                         operation: AsyncMutex::new(None),
+                        sharing_original: Mutex::new(None),
                         snapshot: Mutex::new(DeviceLinkingApprovalSnapshot {
                             revision: 1,
                             phase: DeviceLinkingApprovalPhase::AwaitingApproval,
@@ -754,6 +947,17 @@ impl AccountManager {
     }
 }
 impl DeviceLinkingApproval {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn sharing_original_for_test(
+        &self,
+    ) -> Option<Arc<crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval>>
+    {
+        self.inner
+            .sharing_original
+            .lock()
+            .expect("sharing original")
+            .clone()
+    }
     pub async fn review_metadata(
         &self,
         revision: u64,
@@ -794,6 +998,16 @@ impl DeviceLinkingApproval {
         self.inner.refresh().await
     }
     pub async fn approve(&self, revision: u64) -> Result<(), DeviceLinkingError> {
+        self.approve_choice(revision, false).await
+    }
+    pub async fn approve_and_share_chats(&self, revision: u64) -> Result<(), DeviceLinkingError> {
+        self.approve_choice(revision, true).await
+    }
+    async fn approve_choice(
+        &self,
+        revision: u64,
+        share_chats: bool,
+    ) -> Result<(), DeviceLinkingError> {
         let _operation = self.inner.operation.lock().await;
         self.inner.check_open()?;
         let snapshot = self.inner.refresh().await?;
@@ -808,11 +1022,33 @@ impl DeviceLinkingApproval {
         ) {
             return Err(DeviceLinkingError::NotReady);
         }
-        self.inner
-            .manager
-            .native_approve_received_proposal(&self.inner.account, &self.inner.binding)
-            .await
-            .map_err(map_error)?;
+        if share_chats {
+            let original = self
+                .inner
+                .manager
+                .native_approve_received_proposal_and_share_chats(
+                    &self.inner.account,
+                    &self.inner.binding,
+                )
+                .await
+                .map_err(map_error)?;
+            let mut held = self
+                .inner
+                .sharing_original
+                .lock()
+                .expect("sharing original");
+            if self.inner.closed.load(Ordering::Acquire) {
+                original.cancel();
+                return Err(DeviceLinkingError::Closed);
+            }
+            *held = Some(original);
+        } else {
+            self.inner
+                .manager
+                .native_approve_received_proposal(&self.inner.account, &self.inner.binding)
+                .await
+                .map_err(map_error)?;
+        }
         self.inner.check_open()?;
         self.inner
             .manager

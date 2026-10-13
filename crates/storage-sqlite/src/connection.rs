@@ -1439,6 +1439,13 @@ impl StorageProvider for SqliteAccountStorage {
     }
 
     #[cfg(feature = "experimental-device-sync")]
+    fn revoked_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::revoked_device_group_anchor::RevokedDeviceGroupStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
     fn private_group_privacy_storage(
         &self,
     ) -> Option<&dyn cgka_traits::private_group_privacy::PrivateGroupPrivacyStorage> {
@@ -1484,6 +1491,43 @@ impl StorageProvider for SqliteAccountStorage {
     fn selected_chat_key_package_storage(
         &self,
     ) -> Option<&dyn cgka_traits::selected_chat_key_package::SelectedChatKeyPackageStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn mirrored_chat_catalog_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::mirrored_chat_catalog::MirroredChatCatalogStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn approved_account_sharing_policy_storage(
+        &self,
+    ) -> Option<
+        &dyn cgka_traits::approved_account_sharing_policy::ApprovedAccountSharingPolicyStorage,
+    > {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn mirrored_chat_message_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::mirrored_chat_messages::MirroredChatMessageStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn account_chat_record_stream_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::account_chat_record_stream::AccountChatRecordStreamStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn account_chat_send_queue_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::account_chat_send_queue::AccountChatSendQueueStorage> {
         Some(self)
     }
 

@@ -512,6 +512,16 @@ actual regression counts and limits.
 
 The portable all-leaf signature fixture signs A's public packet with its actual key and exercises B's genuine received action. It explicitly rejects passing B's opaque observation into A's action; it does not qualify an original-SDK A approval. Focused evidence is in `docs/device-sync-b-endorsement-verification.json`.
 
+The named `endorse_private_enrollment_request_and_share_chats` action signs
+requested existing/future chat, history and messaging terms using the same actual
+received request and original deadline. Its private sharing-endorsement protocol
+uses a separate signature domain binding policy version1/capabilities0x0f,
+exact request binding and predecessor signer. Ordinary v1 endorsements keep their
+original serialized shape and do not carry the marker. Complete authenticated
+endorsement proofs and original recipient evidence expose `sharing_devices()`
+as observations; these cannot restore an action, create bilateral policy or
+admit a device. App/native handoff and automatic delivery remain separate work.
+
 The default-off Core endorsement transport uses kind38176. The original B action
 retains one MLS ciphertext and exact wrapped transport for retry; SQL failure
 rolls back the send ratchet, and cancellation wakes a stalled wrap. Fresh intake

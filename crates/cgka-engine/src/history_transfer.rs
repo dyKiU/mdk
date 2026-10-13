@@ -1,5 +1,8 @@
 //! Original history channels. Signed observations and HPKE keys are not consent.
-use crate::{Engine, device_group_snapshot::CandidateDeviceGroupSnapshot};
+use crate::{
+    Engine, device_group_snapshot::CandidateDeviceGroupSnapshot,
+    private_roster_settlement::ValidatedSettledDeviceRoster,
+};
 use cgka_traits::{
     EngineError, GroupId, GroupLifecycleState, group::ProtocolProfile, storage::StorageProvider,
 };
@@ -215,7 +218,54 @@ impl OwnedHistoryChannel {
         Ok(h.finalize().into())
     }
 }
+/// Bounded current linked-recipient observation; no consent, lease or channel.
+#[derive(Clone, PartialEq, Eq)]
+pub struct HistoryRecipient {
+    pub leaf_index: u32,
+    pub device: Vec<u8>,
+}
 impl<S: StorageProvider> Engine<S> {
+    /// Read eligible actual linked devices for an ordinary chat. Observation only.
+    pub fn history_recipients(
+        &self,
+        ordinary: &GroupId,
+        protected: &GroupId,
+    ) -> Result<Vec<HistoryRecipient>, EngineError> {
+        self.storage.with_read_snapshot(|_| {
+            let (actual, _, _) = self.history_selection(ordinary, protected)?;
+            let mut recipients: Vec<_> = actual
+                .candidate()
+                .leaves
+                .iter()
+                .filter(|leaf| leaf.signature_public_key != self.identity.signer.public())
+                .map(|leaf| HistoryRecipient {
+                    leaf_index: leaf.leaf_index,
+                    device: leaf.signature_public_key.clone(),
+                })
+                .collect();
+            recipients.sort_unstable_by_key(|recipient| recipient.leaf_index);
+            Ok(recipients)
+        })
+    }
+
+    // Shared fresh eligibility checks for observation and actual transfer creation.
+    // Call only inside the caller's storage read snapshot.
+    fn history_selection(
+        &self,
+        ordinary: &GroupId,
+        protected: &GroupId,
+    ) -> Result<(ValidatedSettledDeviceRoster, u64, [u8; 32]), EngineError> {
+        if ordinary == protected {
+            return Err(refused());
+        }
+        let actual = self
+            .validated_settled_device_roster(protected)?
+            .ok_or_else(refused)?;
+        let ordinary_epoch = self.history_ordinary_epoch(ordinary)?;
+        let ordinary_authenticator = self.history_ordinary_authenticator(ordinary)?;
+        Ok((actual, ordinary_epoch, ordinary_authenticator))
+    }
+
     fn history_ordinary_epoch(&self, group: &GroupId) -> Result<u64, EngineError> {
         self.ensure_group_live(group)?;
         let record = self.group_record(group)?;
@@ -352,15 +402,11 @@ impl<S: StorageProvider> Engine<S> {
         build: Option<&HistorySnapshotBuilder<'_>>,
     ) -> Result<OwnedHistoryChannel, EngineError> {
         self.storage.with_read_snapshot(|_| {
-            if ordinary == protected
-                || recipient.len() != 32
-                || recipient == self.identity.signer.public()
-            {
+            if recipient.len() != 32 || recipient == self.identity.signer.public() {
                 return Err(refused());
             }
-            let actual = self
-                .validated_settled_device_roster(protected)?
-                .ok_or_else(refused)?;
+            let (actual, ordinary_epoch, ordinary_authenticator) =
+                self.history_selection(ordinary, protected)?;
             if !actual
                 .candidate()
                 .leaves
@@ -375,8 +421,8 @@ impl<S: StorageProvider> Engine<S> {
                 protected: actual.candidate().clone(),
                 local_generation: actual.settlement_generation(),
                 ordinary_group: ordinary.clone(),
-                ordinary_epoch: self.history_ordinary_epoch(ordinary)?,
-                ordinary_authenticator: self.history_ordinary_authenticator(ordinary)?,
+                ordinary_epoch,
+                ordinary_authenticator,
                 source: self.identity.signer.public().to_vec(),
                 recipient: recipient.to_vec(),
                 transfer,

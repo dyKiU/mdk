@@ -1039,6 +1039,35 @@ mod private_migration_0013_selected_reference_guards;
 #[path = "private_migrations/0014_history_archive_staging.rs"]
 mod private_migration_0014_history_staging;
 
+#[path = "private_migrations/0016_revoked_device_group_anchor.rs"]
+mod private_migration_0016_revoked_anchor;
+
+#[path = "private_migrations/0017_mirrored_chat_catalog.rs"]
+mod private_migration_0017_mirrored_catalog;
+
+#[path = "private_migrations/0018_approved_account_sharing_policy.rs"]
+mod private_migration_0018_sharing_policy;
+
+#[path = "private_migrations/0019_mirrored_chat_messages.rs"]
+mod private_migration_0019_mirrored_messages;
+
+#[path = "private_migrations/0020_account_chat_send_queue.rs"]
+mod private_migration_0020_chat_send_queue;
+
+#[path = "private_migrations/0021_account_chat_record_stream.rs"]
+mod private_migration_0021_record_stream;
+
+#[path = "private_migrations/0022_account_chat_record_generation_receipts.rs"]
+mod private_migration_0022_record_generation_receipts;
+
+#[path = "private_migrations/0023_account_chat_source_acceptance.rs"]
+mod private_migration_0023_chat_source_acceptance;
+
+#[path = "private_migrations/0024_explicit_legacy_chat_acceptance.rs"]
+mod private_migration_0024_legacy_chat_acceptance;
+#[path = "private_migrations/0025_mirrored_chat_origins.rs"]
+mod private_migration_0025_mirrored_chat_origins;
+
 const PRIVATE_MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -1129,6 +1158,66 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
         name: "0015_history_request_observations",
         suspend_foreign_keys: &[],
         apply: private_migration_0015_history_requests::apply,
+    },
+    Migration {
+        version: 16,
+        name: "0016_revoked_device_group_anchor",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0016_revoked_anchor::apply,
+    },
+    Migration {
+        version: 17,
+        name: "0017_mirrored_chat_catalog",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0017_mirrored_catalog::apply,
+    },
+    Migration {
+        version: 18,
+        name: "0018_approved_account_sharing_policy",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0018_sharing_policy::apply,
+    },
+    Migration {
+        version: 19,
+        name: "0019_mirrored_chat_messages",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0019_mirrored_messages::apply,
+    },
+    Migration {
+        version: 20,
+        name: "0020_account_chat_send_queue",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0020_chat_send_queue::apply,
+    },
+    Migration {
+        version: 21,
+        name: "0021_account_chat_record_stream",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0021_record_stream::apply,
+    },
+    Migration {
+        version: 22,
+        name: "0022_account_chat_record_generation_receipts",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0022_record_generation_receipts::apply,
+    },
+    Migration {
+        version: 23,
+        name: "0023_account_chat_source_acceptance",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0023_chat_source_acceptance::apply,
+    },
+    Migration {
+        version: 24,
+        name: "0024_explicit_legacy_chat_acceptance",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0024_legacy_chat_acceptance::apply,
+    },
+    Migration {
+        version: 25,
+        name: "0025_mirrored_chat_origins",
+        suspend_foreign_keys: &[],
+        apply: private_migration_0025_mirrored_chat_origins::apply,
     },
 ];
 

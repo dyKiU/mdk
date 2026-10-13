@@ -192,10 +192,10 @@ from review records or stored manifests. Preserve default Unsupported-before-
 inputs/effects, displayed revisions and explicit cancellation; completion is a
 committed-import observation. Keep provenance reads separate from live moderation
 projection. C consent lists use list-owned entries with exactly one CFree per
-alias; qualify output preflight, deep frees and appended statuses112–116.
+alias; qualify output preflight, deep frees and appended statuses137–141.
 
 Read-only synchronized history forwards App retention/live-message precedence.
 Keep message-ID keyset cursors separate from consent, preserve ordered media
 verdicts and source-attested provenance, redact DTO Debug, and append query
-statuses117–120. Pages own embedded records; only the page exports a deep-free.
+statuses142–145. Pages own embedded records; only the page exports a deep-free.
 See `../marmot-uniffi/SYNCHRONIZED-HISTORY.md` for the shared contract.

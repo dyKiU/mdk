@@ -170,6 +170,18 @@ pub enum MarmotStatus {
     SynchronizedHistoryInvalidQuery = 143,
     SynchronizedHistoryUnavailable = 144,
     SynchronizedHistoryInvalidRecord = 145,
+    AccountSharingUnsupported = 146,
+    AccountSharingNotReady = 147,
+    AccountSharingClosed = 148,
+    AccountSharingStaleRevision = 149,
+    AccountSharingRuntimeUnavailable = 150,
+    DeviceRevocationUnsupported = 151,
+    DeviceRevocationNotReady = 152,
+    DeviceRevocationClosed = 153,
+    DeviceRevocationInvalidSelection = 154,
+    DeviceRevocationBusy = 155,
+    DeviceRevocationStaleRevision = 156,
+    DeviceRevocationRuntimeUnavailable = 157,
 }
 
 thread_local! {
@@ -293,6 +305,26 @@ pub(crate) fn status_from_error(err: &MarmotKitError) -> MarmotStatus {
         }
         MarmotKitError::SynchronizedHistoryInvalidRecord => {
             MarmotStatus::SynchronizedHistoryInvalidRecord
+        }
+        MarmotKitError::AccountSharingUnsupported => MarmotStatus::AccountSharingUnsupported,
+        MarmotKitError::AccountSharingNotReady => MarmotStatus::AccountSharingNotReady,
+        MarmotKitError::AccountSharingClosed => MarmotStatus::AccountSharingClosed,
+        MarmotKitError::AccountSharingStaleRevision => MarmotStatus::AccountSharingStaleRevision,
+        MarmotKitError::AccountSharingRuntimeUnavailable => {
+            MarmotStatus::AccountSharingRuntimeUnavailable
+        }
+        MarmotKitError::DeviceRevocationUnsupported => MarmotStatus::DeviceRevocationUnsupported,
+        MarmotKitError::DeviceRevocationNotReady => MarmotStatus::DeviceRevocationNotReady,
+        MarmotKitError::DeviceRevocationClosed => MarmotStatus::DeviceRevocationClosed,
+        MarmotKitError::DeviceRevocationInvalidSelection => {
+            MarmotStatus::DeviceRevocationInvalidSelection
+        }
+        MarmotKitError::DeviceRevocationBusy => MarmotStatus::DeviceRevocationBusy,
+        MarmotKitError::DeviceRevocationStaleRevision => {
+            MarmotStatus::DeviceRevocationStaleRevision
+        }
+        MarmotKitError::DeviceRevocationRuntimeUnavailable => {
+            MarmotStatus::DeviceRevocationRuntimeUnavailable
         }
         MarmotKitError::HistoryTransferUnsupported => MarmotStatus::HistoryTransferUnsupported,
         MarmotKitError::HistoryTransferNotReady => MarmotStatus::HistoryTransferNotReady,
@@ -429,6 +461,18 @@ mod tests {
             MarmotKitError::SynchronizedHistoryInvalidQuery,
             MarmotKitError::SynchronizedHistoryUnavailable,
             MarmotKitError::SynchronizedHistoryInvalidRecord,
+            MarmotKitError::AccountSharingUnsupported,
+            MarmotKitError::AccountSharingNotReady,
+            MarmotKitError::AccountSharingClosed,
+            MarmotKitError::AccountSharingStaleRevision,
+            MarmotKitError::AccountSharingRuntimeUnavailable,
+            MarmotKitError::DeviceRevocationUnsupported,
+            MarmotKitError::DeviceRevocationNotReady,
+            MarmotKitError::DeviceRevocationClosed,
+            MarmotKitError::DeviceRevocationInvalidSelection,
+            MarmotKitError::DeviceRevocationBusy,
+            MarmotKitError::DeviceRevocationStaleRevision,
+            MarmotKitError::DeviceRevocationRuntimeUnavailable,
         ];
         for (error, expected) in moderation {
             assert_eq!(status_from_error(&error) as i32, expected);
@@ -441,7 +485,7 @@ mod tests {
     #[test]
     fn every_runtime_error_variant_maps_to_a_distinct_status() {
         let _guard = crate::memory::audit::test_lock();
-        // Every `MarmotKitError` variant, in declaration order. `status_from_error`'s
+        // Every `MarmotKitError` variant. `status_from_error`'s
         // exhaustive match forces a new arm for a new variant; add the variant
         // here too so a duplicated or renumbered stable status cannot pass.
         let variants: Vec<MarmotKitError> = vec![
@@ -629,10 +673,47 @@ mod tests {
             },
             MarmotKitError::AccountWorkerBusy,
             MarmotKitError::AccountWorkerResponseTimedOut,
+            MarmotKitError::AccountSharingUnsupported,
+            MarmotKitError::AccountSharingNotReady,
+            MarmotKitError::AccountSharingClosed,
+            MarmotKitError::AccountSharingStaleRevision,
+            MarmotKitError::AccountSharingRuntimeUnavailable,
+            MarmotKitError::DeviceLinkingUnsupported,
+            MarmotKitError::DeviceLinkingClosed,
+            MarmotKitError::DeviceLinkingInvalidPacket,
+            MarmotKitError::DeviceLinkingNotReady,
+            MarmotKitError::DeviceLinkingStaleRevision,
+            MarmotKitError::DeviceLinkingRuntimeUnavailable,
+            MarmotKitError::SelectedChatCopyUnsupported,
+            MarmotKitError::SelectedChatCopyNotReady,
+            MarmotKitError::SelectedChatCopyInvalidSelection,
+            MarmotKitError::SelectedChatCopyUnsupportedGroup,
+            MarmotKitError::SelectedChatCopyNotAdmin,
+            MarmotKitError::SelectedChatCopyBusy,
+            MarmotKitError::SelectedChatCopyRuntimeUnavailable,
+            MarmotKitError::SelectedChatCopyInvalidPacket,
+            MarmotKitError::SelectedChatCopyStaleRevision,
+            MarmotKitError::SelectedChatCopyClosed,
+            MarmotKitError::HistoryTransferUnsupported,
+            MarmotKitError::HistoryTransferNotReady,
+            MarmotKitError::HistoryTransferClosed,
+            MarmotKitError::HistoryTransferStaleRevision,
+            MarmotKitError::HistoryTransferRuntimeUnavailable,
+            MarmotKitError::SynchronizedHistoryUnsupported,
+            MarmotKitError::SynchronizedHistoryInvalidQuery,
+            MarmotKitError::SynchronizedHistoryUnavailable,
+            MarmotKitError::SynchronizedHistoryInvalidRecord,
+            MarmotKitError::DeviceRevocationUnsupported,
+            MarmotKitError::DeviceRevocationNotReady,
+            MarmotKitError::DeviceRevocationClosed,
+            MarmotKitError::DeviceRevocationInvalidSelection,
+            MarmotKitError::DeviceRevocationBusy,
+            MarmotKitError::DeviceRevocationStaleRevision,
+            MarmotKitError::DeviceRevocationRuntimeUnavailable,
         ];
         assert_eq!(
             variants.len(),
-            91,
+            128,
             "list every MarmotKitError variant exactly once (update this count with the enum)"
         );
         assert_eq!(status_from_error(&MarmotKitError::UserBlocked) as i32, 78);

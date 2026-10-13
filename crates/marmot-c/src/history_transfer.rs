@@ -5,7 +5,9 @@ use crate::memory::{CFree, boxed, free_vec};
 #[cfg(feature = "experimental-device-sync")]
 use crate::memory::{owned_vec, required_str};
 use crate::status::status_from_error;
-use crate::types::history_transfer::MarmotHistoryTransferSnapshot;
+use crate::types::history_transfer::{
+    MarmotHistoryTransferRecipientList, MarmotHistoryTransferSnapshot,
+};
 use crate::{MarmotClient, MarmotStatus, block_on_handle, ffi_guard, preflight_out_ptr};
 use std::{ffi::c_char, sync::Arc};
 
@@ -51,6 +53,39 @@ fn unit(result: Result<(), marmot_uniffi::MarmotKitError>) -> MarmotStatus {
         Ok(()) => MarmotStatus::Ok,
         Err(error) => status_from_error(&error),
     }
+}
+
+/// Observe current linked-recipient choices; creates no transfer or consent.
+/// # Safety
+/// Live client, borrowed NUL-terminated strings and writable out; no concurrent free.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_history_transfer_recipients(
+    client: *const MarmotClient,
+    account: *const c_char,
+    group: *const c_char,
+    out: *mut *mut MarmotHistoryTransferRecipientList,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        arg!(unsafe { preflight_out_ptr(out) });
+        #[cfg(not(feature = "experimental-device-sync"))]
+        {
+            let _ = (client, account, group);
+            MarmotStatus::HistoryTransferUnsupported
+        }
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            let client = arg!(unsafe { client_ref(client) });
+            let account = arg!(unsafe { required_str(account) });
+            let group = arg!(unsafe { required_str(group) });
+            match client.block_on(client.marmot.history_transfer_recipients(account, group)) {
+                Ok(recipients) => {
+                    unsafe { *out = boxed(MarmotHistoryTransferRecipientList::from(recipients)) };
+                    MarmotStatus::Ok
+                }
+                Err(error) => status_from_error(&error),
+            }
+        }
+    })
 }
 
 /// Begin a bounded history action. Recipient is an exact 32-byte device identity.
@@ -307,6 +342,15 @@ mod tests {
     fn history_required_outputs_preflight_before_foreign_inputs() {
         unsafe {
             assert_eq!(
+                marmot_history_transfer_recipients(
+                    ptr::null(),
+                    ptr::null(),
+                    ptr::null(),
+                    ptr::null_mut()
+                ),
+                MarmotStatus::NullPointer
+            );
+            assert_eq!(
                 marmot_begin_history_transfer(
                     ptr::null(),
                     ptr::null(),
@@ -413,7 +457,71 @@ mod tests {
                 MarmotStatus::HistoryTransferUnsupported
             );
             assert!(requests.is_null());
+            let mut recipients = ptr::dangling_mut();
+            assert_eq!(
+                marmot_history_transfer_recipients(
+                    ptr::null(),
+                    ptr::null(),
+                    ptr::null(),
+                    &mut recipients
+                ),
+                MarmotStatus::HistoryTransferUnsupported
+            );
+            assert!(recipients.is_null());
         }
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    #[test]
+    fn history_recipient_query_null_client_clears_required_output() {
+        let mut recipients = ptr::dangling_mut();
+        unsafe {
+            assert_eq!(
+                marmot_history_transfer_recipients(
+                    ptr::null(),
+                    ptr::null(),
+                    ptr::null(),
+                    &mut recipients
+                ),
+                MarmotStatus::NullPointer
+            );
+        }
+        assert!(recipients.is_null());
+    }
+
+    #[cfg(feature = "alloc-audit")]
+    #[test]
+    fn history_recipient_choice_list_preserves_leaves_and_deep_frees_device_bytes() {
+        let _lock = crate::memory::audit::test_lock();
+        let before = crate::memory::audit::live_allocations();
+        let list = boxed(MarmotHistoryTransferRecipientList::from(vec![
+            marmot_uniffi::HistoryTransferRecipientFfi {
+                leaf_index: 2,
+                device: vec![3; 32],
+            },
+            marmot_uniffi::HistoryTransferRecipientFfi {
+                leaf_index: 7,
+                device: vec![8; 32],
+            },
+        ]));
+        assert_eq!(crate::memory::audit::live_allocations(), before + 4);
+        unsafe {
+            let entries = std::slice::from_raw_parts((*list).items, (*list).len);
+            assert_eq!(entries.len(), 2);
+            for (entry, index, byte) in [(&entries[0], 2, 3), (&entries[1], 7, 8)] {
+                assert_eq!(entry.leaf_index, index);
+                assert_eq!(entry.device_len, 32);
+                assert_eq!(
+                    std::slice::from_raw_parts(entry.device, entry.device_len),
+                    &[byte; 32]
+                );
+            }
+            crate::types::history_transfer::marmot_history_transfer_recipient_list_free(list);
+            crate::types::history_transfer::marmot_history_transfer_recipient_list_free(
+                ptr::null_mut(),
+            );
+        }
+        assert_eq!(crate::memory::audit::live_allocations(), before);
     }
 
     #[cfg(feature = "alloc-audit")]

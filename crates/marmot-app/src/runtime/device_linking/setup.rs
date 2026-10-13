@@ -6,6 +6,14 @@ use crate::device_linking::{LinkError, OwnerError};
 use cgka_traits::{GroupId, device_linking_key_package::PurposeAttemptScope};
 
 pub(crate) enum SetupCommand {
+    CaptureSharingChoice {
+        scope: PurposeAttemptScope,
+        respond: Reply<
+            std::sync::Arc<
+                crate::client::device_linking::sibling_sharing::OriginalEnrollmentSharingChoice,
+            >,
+        >,
+    },
     ApprovalBindings {
         respond: Reply<Vec<([u8; 32], std::time::Instant)>>,
     },
@@ -28,6 +36,11 @@ pub(crate) enum SetupCommand {
     ApprovalReview {
         binding: [u8; 32],
         respond: Reply<([u8; 32], [u8; 32], u32)>,
+    },
+    ContinueAndShareChats {
+        scope: PurposeAttemptScope,
+        new_device: bool,
+        respond: Reply<()>,
     },
     Continue {
         scope: PurposeAttemptScope,
@@ -90,6 +103,15 @@ pub(super) async fn handle(
     publication_control: &crate::runtime::private_commit::PublicationControl,
 ) {
     match command {
+        SetupCommand::CaptureSharingChoice { scope, respond } => {
+            let result = client.capture_owned_native_sharing_choice(&scope);
+            if let Err(result) = respond.send(result) {
+                if let Ok(original) = result {
+                    original.cancel();
+                }
+                cancel_abandoned_setup(client, &scope).await;
+            }
+        }
         SetupCommand::ApprovalBindings { respond } => {
             let _ = respond.send(client.native_authenticated_received_bindings());
         }
@@ -118,6 +140,26 @@ pub(super) async fn handle(
             let result = client.native_finalize_enrollment(&scope).await;
             if result.is_ok()
                 && let Ok((_, gate)) = client.private_commit_control(&scope)
+            {
+                publication_control.install(scope.clone(), gate);
+            }
+            if respond.send(result).is_err() {
+                cancel_abandoned_setup(client, &scope).await;
+            }
+        }
+        SetupCommand::ContinueAndShareChats {
+            scope,
+            new_device,
+            respond,
+        } => {
+            let result = client
+                .continue_owned_native_linking_and_share_chats(&scope, new_device)
+                .await;
+            if result.is_ok()
+                && !new_device
+                && let Ok((_, gate)) = client
+                    .private_commit_control(&scope)
+                    .or_else(|_| client.enrollment_proposal_control(&scope))
             {
                 publication_control.install(scope.clone(), gate);
             }
@@ -179,6 +221,24 @@ pub(super) async fn handle(
 }
 
 impl AccountManager {
+    pub(crate) async fn native_capture_sharing_choice(
+        &self,
+        account: &str,
+        scope: &PurposeAttemptScope,
+    ) -> Result<
+        std::sync::Arc<
+            crate::client::device_linking::sibling_sharing::OriginalEnrollmentSharingChoice,
+        >,
+        ClientLinkingError,
+    > {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::CaptureSharingChoice {
+                scope: scope.clone(),
+                respond,
+            })
+        })
+        .await
+    }
     pub(crate) async fn native_received_proposals(
         &self,
         account: &str,
@@ -195,6 +255,22 @@ impl AccountManager {
     ) -> Result<(), ClientLinkingError> {
         self.verifier_command(account, |respond| {
             VerifierCommand::EndorseReceivedEnrollmentProposal {
+                binding: *binding,
+                respond,
+            }
+        })
+        .await
+    }
+    pub(crate) async fn native_approve_received_proposal_and_share_chats(
+        &self,
+        account: &str,
+        binding: &[u8; 32],
+    ) -> Result<
+        std::sync::Arc<crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval>,
+        ClientLinkingError,
+    > {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::EndorseReceivedEnrollmentProposalAndShareChats {
                 binding: *binding,
                 respond,
             }
@@ -283,6 +359,21 @@ impl AccountManager {
         .await
     }
 
+    pub(crate) async fn native_continue_device_linking_and_share_chats(
+        &self,
+        account: &str,
+        scope: &PurposeAttemptScope,
+        new_device: bool,
+    ) -> Result<(), ClientLinkingError> {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::ContinueAndShareChats {
+                scope: scope.clone(),
+                new_device,
+                respond,
+            })
+        })
+        .await
+    }
     pub(crate) async fn native_continue_device_linking(
         &self,
         account: &str,

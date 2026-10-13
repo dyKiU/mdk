@@ -18,6 +18,9 @@ use web_time::Instant;
 pub(crate) const ENDORSEMENT_KIND: u64 = 38176;
 pub(crate) const PROTOCOL: &str = "whitenoise.experimental.enrollment-endorsement.v1";
 const DOMAIN: &[u8] = b"whitenoise-private-enrollment-endorsement-v1\0";
+pub(crate) const SHARING_PROTOCOL: &str =
+    "whitenoise.experimental.enrollment-sharing-endorsement.v1";
+const SHARING_DOMAIN: &[u8] = b"whitenoise-private-enrollment-account-chat-sharing-v1\0";
 const MAX_PACKET_BYTES: usize = 2048;
 
 fn denied() -> EngineError {
@@ -75,11 +78,29 @@ struct Packet {
     source_index: u32,
     source_signer: [u8; 32],
     binding_digest: [u8; 32],
+    #[serde(default, skip_serializing_if = "is_false")]
+    share_chats: bool,
     signature: Vec<u8>,
+}
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+fn valid_protocol(packet: &Packet) -> bool {
+    (packet.protocol == PROTOCOL && !packet.share_chats)
+        || (packet.protocol == SHARING_PROTOCOL && packet.share_chats)
 }
 fn signing_input(packet: &Packet) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(DOMAIN.len() + 68);
-    bytes.extend_from_slice(DOMAIN);
+    if packet.share_chats {
+        bytes.extend_from_slice(SHARING_DOMAIN);
+        bytes.extend_from_slice(
+            &cgka_traits::approved_account_sharing_policy::ACCOUNT_SHARING_POLICY_VERSION
+                .to_be_bytes(),
+        );
+        bytes.push(cgka_traits::approved_account_sharing_policy::ACCOUNT_SHARING_CAPABILITIES);
+    } else {
+        bytes.extend_from_slice(DOMAIN);
+    }
     bytes.extend_from_slice(&packet.source_index.to_be_bytes());
     bytes.extend_from_slice(&packet.source_signer);
     bytes.extend_from_slice(&packet.binding_digest);
@@ -173,7 +194,7 @@ pub(crate) fn received_observation(
         return None;
     }
     let packet: Packet = serde_json::from_str(content).ok()?;
-    if packet.protocol != PROTOCOL
+    if !valid_protocol(&packet)
         || packet.source_index != index
         || packet.source_signer != signer
         || packet.binding_digest == [0; 32]
@@ -213,6 +234,7 @@ pub(crate) fn sign_packet<S: StorageProvider>(
         source_index: own.leaf_index,
         source_signer,
         binding_digest: binding,
+        share_chats: false,
         signature: Vec::new(),
     };
     packet.signature = engine
@@ -231,6 +253,7 @@ pub struct AuthenticatedAllLeafEndorsements {
     binding_digest: [u8; 32],
     artifact_digest: [u8; 32],
     leaf_count: usize,
+    sharing_devices: Vec<[u8; 32]>,
 }
 impl AuthenticatedAllLeafEndorsements {
     pub fn leaf_count(&self) -> usize {
@@ -241,6 +264,10 @@ impl AuthenticatedAllLeafEndorsements {
     }
     pub fn artifact_digest(&self) -> &[u8; 32] {
         &self.artifact_digest
+    }
+    /// Authenticated terms observations only; no bilateral policy or live grant.
+    pub fn sharing_devices(&self) -> &[[u8; 32]] {
+        &self.sharing_devices
     }
 }
 pub(crate) fn matches_current(
@@ -272,6 +299,39 @@ impl<S: StorageProvider> Engine<S> {
         artifact: &[u8],
         package: &KeyPackage,
         context_digest: &[u8; 32],
+    ) -> Result<OwnedEnrollmentEndorsement, EngineError> {
+        self.endorse_private_enrollment_request_with_sharing(
+            request,
+            artifact,
+            package,
+            context_digest,
+            false,
+        )
+    }
+    /// Sign the explicit broader choice with the same original received action.
+    /// The marker identifies requested terms; it is not a policy or join grant.
+    pub fn endorse_private_enrollment_request_and_share_chats(
+        &self,
+        request: &AuthenticatedEnrollmentRequest,
+        artifact: &[u8],
+        package: &KeyPackage,
+        context_digest: &[u8; 32],
+    ) -> Result<OwnedEnrollmentEndorsement, EngineError> {
+        self.endorse_private_enrollment_request_with_sharing(
+            request,
+            artifact,
+            package,
+            context_digest,
+            true,
+        )
+    }
+    fn endorse_private_enrollment_request_with_sharing(
+        &self,
+        request: &AuthenticatedEnrollmentRequest,
+        artifact: &[u8],
+        package: &KeyPackage,
+        context_digest: &[u8; 32],
+        share_chats: bool,
     ) -> Result<OwnedEnrollmentEndorsement, EngineError> {
         let state = &self.enrollment_endorsements;
         let generation = state.lifetime.generation.load(Ordering::SeqCst);
@@ -334,10 +394,16 @@ impl<S: StorageProvider> Engine<S> {
             .ok_or_else(denied)?;
         let binding_digest = request.binding_digest()?;
         let mut packet = Packet {
-            protocol: PROTOCOL.into(),
+            protocol: if share_chats {
+                SHARING_PROTOCOL
+            } else {
+                PROTOCOL
+            }
+            .into(),
             source_index: own.leaf_index,
             source_signer,
             binding_digest,
+            share_chats,
             signature: Vec::new(),
         };
         packet.signature = self
@@ -507,7 +573,7 @@ impl<S: StorageProvider> Engine<S> {
             return Err(denied());
         }
         let packet: Packet = serde_json::from_slice(wire).map_err(|_| denied())?;
-        if packet.protocol != PROTOCOL
+        if !valid_protocol(&packet)
             || packet.binding_digest != *binding
             || packet.signature.len() != 64
             || !artifact.leaves().iter().any(|leaf| {
@@ -544,17 +610,24 @@ impl<S: StorageProvider> Engine<S> {
             return Err(denied());
         }
         let mut indices = HashSet::new();
+        let mut sharing_devices = Vec::new();
         for wire in endorsements {
             let (index, _) =
                 self.authenticate_private_enrollment_packet(artifact, binding, wire)?;
             if !indices.insert(index) {
                 return Err(denied());
             }
+            let packet: Packet = serde_json::from_slice(wire).map_err(|_| denied())?;
+            if packet.share_chats {
+                sharing_devices.push(packet.source_signer);
+            }
         }
+        sharing_devices.sort();
         Ok(AuthenticatedAllLeafEndorsements {
             binding_digest: *binding,
             artifact_digest: *artifact.artifact_digest(),
             leaf_count: indices.len(),
+            sharing_devices,
         })
     }
 }
@@ -586,6 +659,7 @@ pub(crate) fn sign_public_packet_for_test<S: StorageProvider + 'static>(
         source_index: own.leaf_index,
         source_signer,
         binding_digest: binding,
+        share_chats: false,
         signature: Vec::new(),
     };
     packet.signature = engine

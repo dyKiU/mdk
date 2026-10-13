@@ -76,8 +76,8 @@ pub use account_projection::{
     AccountChatNotificationSettings, AccountDeliveryRecovery, AccountGroupPushToken,
     AccountNotificationSettings, AccountPendingPushRegistrationRemoval, AccountPushRegistration,
     AccountStoredPushRegistration, AppEventReplayCursor, DeleteLocalGroupDataResult,
-    SelfMembership, StoredAccountGroup, StoredAccountGroupComponent, StoredAccountState,
-    StoredAppMessageQuery, StoredAppMessageRecord, StoredEpochBackfillIntent,
+    MAX_APP_MESSAGE_REPLAY_PAGE, SelfMembership, StoredAccountGroup, StoredAccountGroupComponent,
+    StoredAccountState, StoredAppMessageQuery, StoredAppMessageRecord, StoredEpochBackfillIntent,
     StoredEpochStallEvidence, StoredNostrRoute, clamp_to_max_future_skew,
 };
 pub use attachment_acquisition::{
@@ -210,7 +210,30 @@ mod private_device_invite;
 #[cfg(all(test, feature = "experimental-device-sync"))]
 mod private_device_invite_tests;
 #[cfg(feature = "experimental-device-sync")]
+mod revoked_device_group_anchor;
+#[cfg(feature = "experimental-device-sync")]
 mod selected_chat_key_package;
+
+#[cfg(feature = "experimental-device-sync")]
+mod account_chat_legacy_acceptance;
+#[cfg(feature = "experimental-device-sync")]
+mod account_chat_record_stream;
+#[cfg(feature = "experimental-device-sync")]
+mod account_chat_send_queue;
+#[cfg(feature = "experimental-device-sync")]
+pub mod account_chat_source;
+#[cfg(feature = "experimental-device-sync")]
+mod approved_account_sharing_policy;
+#[cfg(feature = "experimental-device-sync")]
+mod mirrored_chat_catalog;
+#[cfg(feature = "experimental-device-sync")]
+mod mirrored_chat_messages;
+#[cfg(feature = "experimental-device-sync")]
+mod mirrored_chat_presentation;
+#[cfg(feature = "experimental-device-sync")]
+pub use mirrored_chat_presentation::{
+    AccountConversationObservation, MirroredCatalogObservation, MirroredMessageObservation,
+};
 
 #[cfg(feature = "experimental-device-sync")]
 mod private_roster_settlement;

@@ -56,6 +56,7 @@ pub use markdown::{
 };
 pub use secret_store::SecretStore;
 pub use subscriptions::ConversationWindowSubscription;
+pub use subscriptions::{AccountChatListWindowSubscription, AccountConversationWindowSubscription};
 
 uniffi::setup_scaffolding!();
 
@@ -517,8 +518,15 @@ pub use conversions::{
     SelectedChatCopySnapshotFfi,
 };
 
+pub use commands::AccountSharingApproval;
 pub use commands::{HistoryConsent, HistoryTransfer};
-pub use conversions::HistoryTransferSnapshotFfi;
+pub use conversions::{
+    AccountSharingSnapshotFfi, AccountSharingTargetFfi, AccountSharingTargetsFfi,
+};
+
+pub use commands::DeviceRevocation;
+pub use conversions::DeviceRevocationSnapshotFfi;
+pub use conversions::{HistoryTransferRecipientFfi, HistoryTransferSnapshotFfi};
 
 pub use conversions::{ArchivedHistoryPageFfi, ArchivedHistoryRecordFfi};
 

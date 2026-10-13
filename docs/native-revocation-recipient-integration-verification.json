@@ -1,0 +1,283 @@
+{
+  "scope": "Qualified combined recipient-choice query and original protected Remove successor/storage-retry source candidate; matched host Swift/C ABI, not packaged Apple artifacts or native adoption",
+  "signed_merge": "606a9bc9084c919fbd67034fbc54ca5dd69fedf4",
+  "parents": [
+    "cc3888041e053799b4589277b8e33c7a62bf1d49",
+    "5b51d9b74c5f110fc165014fc965ca23f6653231"
+  ],
+  "final_acceptance_candidate_git_stash": "252038e1669a1fe7565520204fb3699d31b833a4",
+  "merge_resolution": "Normal signed two-parent merge; no conflicts or runtime changes. Qualified parent branches preserved.",
+  "acceptance_change": "Fixture only after initial19 gates terminal: actual public source query after protected C removal must return the sole surviving B leaf and exclude removed C. Pass that returned device into fresh begin, retain original explicit B review/approve and committed prejoin import. Covers normal successor and original same-client storage rollback retry.",
+  "runtime_binding_header_bytes_unchanged_between_cohorts": true,
+  "changed_frozen_input": "crates/marmot-app/src/selected_chat_copy/tests.rs",
+  "final_fixture_sha256": "52841560440517bc7d8b40d5bc196e0ea035372ef48d750153b6b20b4ec1123d",
+  "cohorts": [
+    {
+      "prefix": "native-revocation-recipient-integration-v1",
+      "exact_candidate_git_stash": "606a9bc9084c919fbd67034fbc54ca5dd69fedf4",
+      "input_count": 2518,
+      "source_manifest_sha256": "c2a4ce53cd6eb1c8cae80c8601158e344f172bbac1bc17b2a547332f8eb25c73",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "core-history",
+          "exit": 0,
+          "log_sha256": "be6a11c55e83b930cefa4f757fda1f90b247296f42b3f1398fef29f00e052a5c",
+          "actual_tests": {
+            "passed": 14,
+            "failed": 0,
+            "ignored": 0
+          },
+          "host_abi_markers": []
+        },
+        {
+          "gate": "app-query",
+          "exit": 0,
+          "log_sha256": "21ff6e432ce92c531b3c30c4fd735fc010428642f71ad3ae6e81ec95fe6f5ff8",
+          "actual_tests": {
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          },
+          "host_abi_markers": []
+        },
+        {
+          "gate": "app-approved-import",
+          "exit": 0,
+          "log_sha256": "c2c6c4cd3c82651e8cda6aae20cc2edbe365e0f1b1945ca3cafff0fbf4319d77",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "host_abi_markers": []
+        },
+        {
+          "gate": "revocation-family",
+          "exit": 0,
+          "log_sha256": "c239574546ebca6cfe4e4e80b806daae11064046d4de0dc1d6d4bd1ac8274366",
+          "actual_tests": {
+            "passed": 9,
+            "failed": 0,
+            "ignored": 0
+          },
+          "host_abi_markers": []
+        },
+        {
+          "gate": "app-default-history",
+          "exit": 0,
+          "log_sha256": "dab9a48c8c504f5ccb18cf1e73fe4f4cf2bcef742f2aabb6c28c77eb755b6dc1",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "host_abi_markers": []
+        },
+        {
+          "gate": "app-default-revocation",
+          "exit": 0,
+          "log_sha256": "3b018f9a76f792f55faa54e1b173d58fc489e62b3eba15d26d5e3c76c3aef75d",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "host_abi_markers": []
+        },
+        {
+          "gate": "uniffi-feature",
+          "exit": 0,
+          "log_sha256": "27b13bd087ea9df59de44df8b0b863a1562af67da40e0656a3bf0c813acce9f5",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "host_abi_markers": []
+        },
+        {
+          "gate": "uniffi-default",
+          "exit": 0,
+          "log_sha256": "e1a3ae84b73af2886aa103f2b46060c8a66299183e8c0c92c0d86d9d4d390403",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "host_abi_markers": []
+        },
+        {
+          "gate": "c-feature",
+          "exit": 0,
+          "log_sha256": "ec40a7bbd4d65d65275dba32f1664442d7df9cd743f9688a2aaa9e6f0db78c46",
+          "actual_tests": {
+            "passed": 7,
+            "failed": 0,
+            "ignored": 0
+          },
+          "host_abi_markers": []
+        },
+        {
+          "gate": "c-default",
+          "exit": 0,
+          "log_sha256": "bacd5db6821536b082fe05a71b9b180305e1314e94cc841584c04d249a7482aa",
+          "actual_tests": {
+            "passed": 7,
+            "failed": 0,
+            "ignored": 0
+          },
+          "host_abi_markers": []
+        },
+        {
+          "gate": "production-clippy",
+          "exit": 0,
+          "log_sha256": "5f7ead4ec2f7316bb851cf45fcbef4d0f591af579de83a32da63d491180327e3",
+          "actual_tests": null,
+          "host_abi_markers": []
+        },
+        {
+          "gate": "default-check",
+          "exit": 0,
+          "log_sha256": "940d1154f37ac9ef491536a55162831a1fe836fc007c9b54987495c198114501",
+          "actual_tests": null,
+          "host_abi_markers": []
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "actual_tests": null,
+          "host_abi_markers": []
+        },
+        {
+          "gate": "docs",
+          "exit": 0,
+          "log_sha256": "33667cb65a810847534bf0901566ffe60d7819f593440552a40a22066a56801c",
+          "actual_tests": null,
+          "host_abi_markers": []
+        },
+        {
+          "gate": "parity",
+          "exit": 0,
+          "log_sha256": "25b7c451e7eb2bade2b9a30d54b08c3dcd4a14630a8918d0a3a5646a2f849355",
+          "actual_tests": null,
+          "host_abi_markers": []
+        },
+        {
+          "gate": "swift-default",
+          "exit": 0,
+          "log_sha256": "ea12d7020c6ff68b3519c31d6c1f53ee90da859b73800120733308f20b07cf0d",
+          "actual_tests": null,
+          "host_abi_markers": [
+            "history Swift ABI: snapshots=2 recipient-records=2 errors=5 factory-gates=3 query-gates=2 no-account-effects=1 experimental=false"
+          ]
+        },
+        {
+          "gate": "c-abi-default",
+          "exit": 0,
+          "log_sha256": "68a27987bc7cbc1635d930ae75a3bb2dc2bc5bad9301e8a2d12ddbf8b7c76a48",
+          "actual_tests": null,
+          "host_abi_markers": [
+            "history C ABI: statuses=5 preflight=2 factory-gates=3 query-gates=2 no-account-effects=1 experimental=0",
+            "history C ABI: statuses=5 preflight=2 factory-gates=3 query-gates=2 no-account-effects=1 experimental=0"
+          ]
+        },
+        {
+          "gate": "swift-feature",
+          "exit": 0,
+          "log_sha256": "7578579f8cb1c5eea8a8f5cb3de6dd296eb8dd4d260b5aad9b6ddf7371085398",
+          "actual_tests": null,
+          "host_abi_markers": [
+            "history Swift ABI: snapshots=2 recipient-records=2 errors=5 factory-gates=3 query-gates=2 no-account-effects=1 experimental=true"
+          ]
+        },
+        {
+          "gate": "c-abi-feature",
+          "exit": 0,
+          "log_sha256": "fa795cb28a1a451ee62b4a0a9fbfff0d8778c909c8f22e9b5919ded8b87191f6",
+          "actual_tests": null,
+          "host_abi_markers": [
+            "history C ABI: statuses=5 preflight=2 factory-gates=3 query-gates=2 no-account-effects=1 experimental=1",
+            "history C ABI: statuses=5 preflight=2 factory-gates=3 query-gates=2 no-account-effects=1 experimental=1"
+          ]
+        }
+      ]
+    },
+    {
+      "prefix": "native-revocation-recipient-acceptance-v1",
+      "exact_candidate_git_stash": "252038e1669a1fe7565520204fb3699d31b833a4",
+      "input_count": 2518,
+      "source_manifest_sha256": "03bb8de401f437acc84d9e667dbe5cddb8dcb0635412b2c9d64b631b5ff6d032",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "revocation-family",
+          "exit": 0,
+          "log_sha256": "96208a592efd19ea954b7128bd15d4c038c143b1a414ec76f65581bd183e81ac",
+          "actual_tests": {
+            "passed": 9,
+            "failed": 0,
+            "ignored": 0
+          },
+          "host_abi_markers": []
+        },
+        {
+          "gate": "recipient-query",
+          "exit": 0,
+          "log_sha256": "54057c9dc0229170259a440ce7de5a0618931921a28234e7717001802e1773f7",
+          "actual_tests": {
+            "passed": 2,
+            "failed": 0,
+            "ignored": 0
+          },
+          "host_abi_markers": []
+        },
+        {
+          "gate": "default-history",
+          "exit": 0,
+          "log_sha256": "65fd153b6d6de8348eeea7183bd697cfbaf8a29b315631ca6312b30f4f489979",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "host_abi_markers": []
+        },
+        {
+          "gate": "default-revocation",
+          "exit": 0,
+          "log_sha256": "afe884b647e2cb47dba23420cae0b465a860d12c25c2bd33faaef1a888e22656",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          "host_abi_markers": []
+        },
+        {
+          "gate": "production-clippy",
+          "exit": 0,
+          "log_sha256": "fdcf62c4f74dd175f868ee1e2497dc0d48e7d4808a72fcb1fffc05ca94db112f",
+          "actual_tests": null,
+          "host_abi_markers": []
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "actual_tests": null,
+          "host_abi_markers": []
+        }
+      ]
+    }
+  ],
+  "post_freeze_delta": "Only this qualification document was added after final six gates; runtime/test source matches the exact final frozen candidate.",
+  "limits": [
+    "Full combined workspace/conformance qualification remains pending; earlier broad runs pin other source cohorts.",
+    "Post-revocation new-device enrollment and receipt expiry/shutdown during SQL retry remain unqualified.",
+    "Blocked successor settlement publication, wider survivor roster shapes and native revocation exports remain separate.",
+    "Host Swift generation/C shared-static smoke is not Mac/iOS packaged artifact validation or installed native acceptance.",
+    "Prior83/84113 SDK outputs, installed apps and historical93eaf standalone App binary remain untouched; no publication."
+  ]
+}

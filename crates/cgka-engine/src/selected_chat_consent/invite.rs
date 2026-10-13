@@ -24,7 +24,7 @@ pub trait SelectedChatInviteLease: Send {
     ) -> Result<(), EngineError>;
 }
 
-pub(super) fn indexed_tree(
+pub(crate) fn indexed_tree(
     tree: openmls::treesync::RatchetTree,
 ) -> Result<Vec<IndexedOrdinaryLeaf>, EngineError> {
     let mut leaves = Vec::new();
@@ -59,7 +59,7 @@ pub(super) fn indexed_tree(
 }
 
 impl<S: StorageProvider> Engine<S> {
-    pub(super) fn selected_indexed_ordinary_leaves(
+    pub(crate) fn selected_indexed_ordinary_leaves(
         &self,
         group: &GroupId,
     ) -> Result<Vec<IndexedOrdinaryLeaf>, EngineError> {

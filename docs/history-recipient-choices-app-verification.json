@@ -1,0 +1,95 @@
+{
+  "scope": "Public read-only App recipient query through account worker/Core and real SDK choice-to-approved-import regression; native ABI/artifacts/UI remain open.",
+  "source_base": "aa23aaac7d6443ee1522fd7a864f88884ff79e19",
+  "cohorts": [
+    {
+      "cohort": "app-red-v1",
+      "original_local_stash": "621908e48ebe1cadd93ca5fadfa21872bbc0772e",
+      "original_m5_stash": "e4d98d430a0bc565fd09e944f12b9d9ac172e653",
+      "source_hashes_verified": 2499,
+      "input_manifest_sha256": "38a0dabeb9ae6e537a30b5e58fa8bb875e2ac27016a0b94675450c0749853ef1",
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 101,
+          "seconds": 77.59690523147583,
+          "log": "/Users/pj/project/build/history-recipient-choices-app-red-v1-feature.log",
+          "log_sha256": "e1397789965579d0555519db3738f8cfab0dc6d7333c8c5ad2d454166a26b8d8"
+        }
+      ]
+    },
+    {
+      "cohort": "app-green-v1",
+      "original_local_stash": "2e1d7cdafb868832c4895f999656b11c648eff49",
+      "original_m5_stash": "362c94052f479e996db048b9d97d099f1118d588",
+      "source_hashes_verified": 2499,
+      "input_manifest_sha256": "371912286e4ca296c4a51b8e6c6285eb36592aa71cb2319ee30f81d92c1114f4",
+      "gates": [
+        {
+          "gate": "query",
+          "exit": 0,
+          "seconds": 63.70852994918823,
+          "log": "/Users/pj/project/build/history-recipient-choices-app-green-v1-query.log",
+          "log_sha256": "b62693f8729ee20300106f5b16d5d6b392a6e4a1f5eb0744f344208169be0294"
+        },
+        {
+          "gate": "original",
+          "exit": 0,
+          "seconds": 21.166300296783447,
+          "log": "/Users/pj/project/build/history-recipient-choices-app-green-v1-original.log",
+          "log_sha256": "c446934e092ce84358a7048232fa7c360dbf6086ebc21ca534072bd7de6e94be"
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 46.28455996513367,
+          "log": "/Users/pj/project/build/history-recipient-choices-app-green-v1-default.log",
+          "log_sha256": "8e2b76a40e191be5122f0cf45df97323f3b985637653fa6b864928d40630e05e"
+        },
+        {
+          "gate": "production",
+          "exit": 0,
+          "seconds": 23.747182846069336,
+          "log": "/Users/pj/project/build/history-recipient-choices-app-green-v1-production.log",
+          "log_sha256": "c6bc9cf7802697734081730b26ae092f8594b269d03e54fbf971a8c07a0c03cb"
+        },
+        {
+          "gate": "clippy",
+          "exit": 0,
+          "seconds": 26.81527805328369,
+          "log": "/Users/pj/project/build/history-recipient-choices-app-green-v1-clippy.log",
+          "log_sha256": "3971097ef2157c394055f8e1d335f93bfbdfdd9de4ec4fe493a274dd72b93b98"
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "seconds": 3.574235200881958,
+          "log": "/Users/pj/project/build/history-recipient-choices-app-green-v1-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  ],
+  "controls": [
+    "Genuine public SDK ABC protected enrollment and ordinary ABCD delivery fixture",
+    "Choices exactly match actual remote occupied protected leaves; local and independent D omitted",
+    "Query creates no source/recipient pending consent or channel observations/import",
+    "Returned choice starts genuine original transfer; explicit recipient approval then committed prejoin import",
+    "Empty/oversized group refused before missing account; valid opaque16byte group retains RuntimeUnavailable",
+    "Default Unsupported before account or worker effects"
+  ],
+  "postgate_delta": [
+    "App README recipient query contract",
+    "Architecture current-state orientation",
+    "This verification document"
+  ],
+  "source_graph_mtimes": "Refreshed before RED on shared target handoff; GREEN reused same checkout and verified only changed App source recompiled.",
+  "toolchain": "Rust1.97.1 aarch64 Apple Darwin",
+  "target": "MdkRecipientCollectionTargetM5 reused, incremental0",
+  "limits": [
+    "No native UniFFI/C query export, regenerated Apple artifacts or device-picker/UI adoption",
+    "Focused source qualification only; full PR/workspace checks required before integration",
+    "Physical iPhone and installed production Mac apps untouched"
+  ],
+  "linker_note": "Test binary linker reports existing large __eh_frame compact-unwind warning; actual tests and strict production Clippy pass."
+}

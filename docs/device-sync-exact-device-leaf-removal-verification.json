@@ -1,0 +1,169 @@
+{
+  "schema": 1,
+  "base_commit": "c7f4fc230883822d594c69b8b8a898ce1e2b0dd7",
+  "scope": "Original explicit administrator action removes one actual same-account ordinary leaf; real ACK, committed exact successor, sender projection and actual surviving A/B/D message delivery. Protected roster and other ordinary groups are unchanged.",
+  "cohorts": [
+    {
+      "prefix": "exact-device-removal-red-v1",
+      "exact_candidate_git_stash": "d05ffa6cebaaac4782ad0485aa517eb4a5581f8c",
+      "description": "Original semantic RED at explicit approval; default refusal passes.",
+      "input_count": 2484,
+      "source_manifest_sha256": "2f184889c9091d2bcbbb5fb203c8eac2acb1099cb3d3f68dae96e76ca1e715eb",
+      "all_inputs_independently_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 101,
+          "seconds": 63.25237584114075,
+          "log": "/Users/pj/project/build/exact-device-removal-red-v1-feature.log",
+          "log_sha256": "cb8a58b157a3dd53df07135c8e46303870ed9571046a150e2b3e615231c5756e",
+          "actual_tests": {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          }
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 43.514780044555664,
+          "log": "/Users/pj/project/build/exact-device-removal-red-v1-default.log",
+          "log_sha256": "d5aabef02599882e66285af8a927d12dcd5ad2d31035e47fd97fe21e499f490a",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "exact-device-removal-green-v1",
+      "exact_candidate_git_stash": "5e95bfa3d47cee84df56c9eceab4669c3f195b1e",
+      "description": "Remove and three survivor trees succeed; fixture checks C outbound too early before authenticated eviction receipt.",
+      "input_count": 2484,
+      "source_manifest_sha256": "49a48897b82d5c032b0827d66517413194174f5b0a152dbb74f104511dc2d99c",
+      "all_inputs_independently_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 101,
+          "seconds": 68.1979558467865,
+          "log": "/Users/pj/project/build/exact-device-removal-green-v1-feature.log",
+          "log_sha256": "2b95d13952021f4c06dd82aac1fcc2307e0b39271a6a3602c6475ad86e1d82a4",
+          "actual_tests": {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "exact-device-removal-green-v2",
+      "exact_candidate_git_stash": "eb95101ce932ceec2f4719ed971b52d72620092e",
+      "description": "Compile-only fixture missing GroupStorage trait; zero tests.",
+      "input_count": 2484,
+      "source_manifest_sha256": "a990891a86ca201e707aa021afdaa34b150e5a762386b2365d2b07f1ab543fd5",
+      "all_inputs_independently_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 101,
+          "seconds": 30.569134950637817,
+          "log": "/Users/pj/project/build/exact-device-removal-green-v2-feature.log",
+          "log_sha256": "1aa50d9f2a2e3829b64963fe1485a672b258af74816e6cf0062d54421a1fb1d5",
+          "actual_tests": null
+        }
+      ]
+    },
+    {
+      "prefix": "exact-device-removal-green-v3",
+      "exact_candidate_git_stash": "4e6f2870f459682c0d4119106f0d1934cc4e6d04",
+      "description": "Actual one-leaf removal and survivor messages/C refusal; waits authentic C terminal state.",
+      "input_count": 2484,
+      "source_manifest_sha256": "55d1270084ef83ce4aea26e40f828940dd116c32878211bf7b824e0c99142501",
+      "all_inputs_independently_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 0,
+          "seconds": 65.48420143127441,
+          "log": "/Users/pj/project/build/exact-device-removal-green-v3-feature.log",
+          "log_sha256": "63347f538a72106085a96b72e37167626f97ef7e494fa06a4574d3c8bad4f4d8",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 44.450721740722656,
+          "log": "/Users/pj/project/build/exact-device-removal-green-v3-default.log",
+          "log_sha256": "49d95bfa0789e37a3b123c53fc61b3b71656ff0594b898c205e506a46423abbc",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "exact-device-removal-production-v1",
+      "exact_candidate_git_stash": "4e6f2870f459682c0d4119106f0d1934cc4e6d04",
+      "description": "Same final runtime/test bytes; generic account-removal regression and production/default/fmt.",
+      "input_count": 2484,
+      "source_manifest_sha256": "55d1270084ef83ce4aea26e40f828940dd116c32878211bf7b824e0c99142501",
+      "all_inputs_independently_verified": true,
+      "gates": [
+        {
+          "gate": "generic-remove",
+          "exit": 0,
+          "seconds": 15.251621961593628,
+          "log": "/Users/pj/project/build/exact-device-removal-production-v1-generic-remove.log",
+          "log_sha256": "5db5dc21745be40480c97b155a059c3dbf7b6b3b6562be2b5eaeb0ecf1593bfc",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "gate": "clippy",
+          "exit": 0,
+          "seconds": 29.9250648021698,
+          "log": "/Users/pj/project/build/exact-device-removal-production-v1-clippy.log",
+          "log_sha256": "f58533f0a16b826760ba2f221e99940d2494763c06a8b351f7558f6dde8327da",
+          "actual_tests": null
+        },
+        {
+          "gate": "check",
+          "exit": 0,
+          "seconds": 21.85594892501831,
+          "log": "/Users/pj/project/build/exact-device-removal-production-v1-check.log",
+          "log_sha256": "62e73f3c5e78481dff026c6e6130ce110b77500941846e50f229424377da4a47",
+          "actual_tests": null
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "seconds": 3.5975279808044434,
+          "log": "/Users/pj/project/build/exact-device-removal-production-v1-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "actual_tests": null
+        }
+      ]
+    }
+  ],
+  "pending": [
+    "Actual blocked-publication cancellation/lost-reply/expiry/shutdown controls",
+    "Actual removed C encrypted reopen and future ciphertext rejection controls",
+    "Protected-roster and multigroup device revocation/outcomes",
+    "Native revocation bindings/UI",
+    "Full combined backend and conformance qualification"
+  ],
+  "post_freeze_delta": "Only this qualification proof plus appended Core/App AGENTS, runtime-state-bounds and current-state prose. Runtime/test bytes match final frozen candidate exactly."
+}

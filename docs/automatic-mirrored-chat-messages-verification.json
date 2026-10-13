@@ -1,0 +1,114 @@
+{
+  "scope": "Bounded authenticated logical message observation persistence; not automatic actor, normal presentation, transport delivery or deployment qualification",
+  "base": "1bc2fb61ca602f5b461412c286c41c5d91500407",
+  "commit_parent": "a457ddb4a4b3ea014fdc93835d61b77d51c4b3e7",
+  "inputs": {
+    "count": 750,
+    "manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-mirrored-messages-v3-inputs.json",
+    "sha256": "02f650b11a79a8e411cec0429de24ee30c39df24fabaf9869bda5a0e2b630eab",
+    "M1_M5_hash_match": true,
+    "scope": "traits/storage-sqlite/fs-private/OpenMLS Rust/Cargo/snapshot inputs",
+    "remote_normal_worktree": "/Users/pj/project/mdk-automatic-mirror-message-storage"
+  },
+  "runner": {
+    "host": "macbook.m5",
+    "toolchain": "1.97.1-aarch64-apple-darwin",
+    "target": "/Users/pj/project/build/Mdk986ConformanceTargetM5",
+    "incremental": false
+  },
+  "gates": {
+    "focused": {
+      "passed": 39,
+      "failed": 0,
+      "filtered_or_existing_ignore_skipped": 1089,
+      "seconds": 10.095,
+      "log": "automatic-mirrored-messages-storage-green-v3.log"
+    },
+    "full_backend": {
+      "passed": 1121,
+      "failed": 0,
+      "skipped": 7,
+      "seconds": 150.21,
+      "command": "cargo nextest run -p storage-sqlite --features experimental-device-sync --locked",
+      "log": "automatic-mirrored-messages-backend-v3.log"
+    },
+    "traits": {
+      "passed": 171,
+      "failed": 0,
+      "ignored": 0,
+      "suite_counts": [
+        125,
+        1,
+        4,
+        6,
+        35,
+        0
+      ],
+      "command": "cargo test -p cgka-traits --locked",
+      "log": "automatic-mirrored-messages-traits-v3.log"
+    },
+    "strict_clippy": {
+      "result": "Passed",
+      "command": "cargo clippy -p storage-sqlite -p cgka-traits --all-targets --features storage-sqlite/experimental-device-sync --locked -- -D warnings",
+      "log": "automatic-mirrored-messages-clippy-v3.log"
+    },
+    "default_all_targets": {
+      "result": "Passed",
+      "command": "cargo check -p storage-sqlite --all-targets --locked",
+      "log": "automatic-mirrored-messages-default-v3.log"
+    },
+    "format_diff": {
+      "result": "Passed",
+      "commands": [
+        "cargo fmt --all -- --check",
+        "git diff --check"
+      ]
+    }
+  },
+  "regression": {
+    "bug": "SQL UPDATE could mutate active payload bytes while retaining old content digest",
+    "actual_red": {
+      "passed": 0,
+      "failed": 1,
+      "skipped": 1127,
+      "seconds": 1.037,
+      "log": "automatic-mirrored-messages-sql-guard-red-v2.log"
+    },
+    "fix": "SQL same-row and cross-source identity guards retain active payload bytes; deletion/expiry may erase payload without restoring it",
+    "green": "Same SQL regression included in focused39 and full1121"
+  },
+  "coverage": [
+    "Nine new cases cover ordered cursor/retry/tags, immutable conflict and atomic rollback, original before/tail cancellation, global tombstones across source/policy, tightening expiry/local purge, source epoch/sequence, encrypted reopen/close, owner/catalog/digest/bounds and SQL fences.",
+    "64MiB actually filled with1024 maximum-size records, overflow batch rolled back, bounded purge128 reclaimed bytes while retaining identity, next128 import succeeded.",
+    "Logical records do not create live Group membership or app_events and never claim MLS-verification; local expiry views cannot be re-exported as source attestations.",
+    "125 earlier migration source files byte-match signed base; core102/private1\u201318 retained. Snapshot generated with real INSTA update, inspected then normal traits171 verification."
+  ],
+  "preserved_baseline": {
+    "qualified_v1_git_stash": "ad306cd7459426ea7638304bc75e8cb0ca626b29",
+    "full_backend_before_guard_fix": {
+      "passed": 1121,
+      "failed": 0,
+      "skipped": 7,
+      "seconds": 212.228,
+      "log": "automatic-mirrored-messages-backend-v1.log"
+    }
+  },
+  "raw_logs": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-mirrored-messages",
+  "raw_sha256": {
+    "automatic-mirrored-messages-backend-v1.log": "0407658e4916b6bf8104e641471ec2191498c1b02da4c81e71d3fe1f8fa20b69",
+    "automatic-mirrored-messages-backend-v3.log": "9d0d1296754bb18f6948f3bc72da72b70c8b76685228d0d64d3bc77b5755cedc",
+    "automatic-mirrored-messages-clippy-v1.log": "cadc1d9eabca56161c23d2d3e4a8d24c53a2343e550bdfb8da2c4e9e449dd8ab",
+    "automatic-mirrored-messages-clippy-v3.log": "1fb4e8d6669f233951ba6c3ea3e530c64291ab2e6f8e2fc309032ea5380c96de",
+    "automatic-mirrored-messages-default-v3.log": "b68c8da18d4cc905aa0f2185a81d64ac9b3ffd3a37bd79ec2695c61738342991",
+    "automatic-mirrored-messages-sql-guard-red-v2.log": "5a1a1b03a1d6a9bd5a2b593b9dc8a2559a369efd79e0cdcef786510e3b4cb5ec",
+    "automatic-mirrored-messages-storage-green-v3.log": "4b6eef163a201026fb6333637077933322e55a7cd40323943a945a836ee98d8b",
+    "automatic-mirrored-messages-storage-v1.log": "4e875b859c5408a175965331f9a28463da463ebb73e3ca0a935dc142390ad64e",
+    "automatic-mirrored-messages-traits-v1.log": "e2b82456792b57a0edba303e5eabd014a02c20dac755ecf306ab6deaeb85f74f",
+    "automatic-mirrored-messages-traits-v3.log": "d630e8df16b211d7263960b79a0401f53dce007a656cf238dcb68343fee7b26b"
+  },
+  "limits": [
+    "Storage callbacks are synthetic and do not establish actual Core authentication/lease or original policy approval.",
+    "Final native/app/protocol promotion and automatic all-chat actor acceptance remain required.",
+    "Queue/outbox/cursor, normal UI integration and matched SDK delivery remain unfinished."
+  ]
+}

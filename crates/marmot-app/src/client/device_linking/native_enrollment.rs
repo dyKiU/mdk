@@ -23,6 +23,126 @@ pub(crate) enum NativeInvitePublication {
 }
 
 impl AppClient {
+    pub(crate) async fn continue_owned_native_linking_and_share_chats(
+        &mut self,
+        scope: &PurposeAttemptScope,
+        new_device: bool,
+    ) -> Result<(), ClientLinkingError> {
+        self.capture_owned_native_sharing_choice(scope)?;
+        self.continue_owned_native_linking(scope, new_device).await
+    }
+
+    pub(super) fn persist_completed_pair_sharing_approval(
+        &mut self,
+    ) -> Result<(), ClientLinkingError> {
+        use cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard;
+        use cgka_traits::approved_account_sharing_policy::{
+            ACCOUNT_SHARING_CAPABILITIES, ACCOUNT_SHARING_POLICY_VERSION,
+            ApprovedAccountSharingPolicy,
+        };
+        let Some(original) = self.linking_owner.sharing_approval.as_ref() else {
+            return Ok(());
+        };
+        if !original.live() {
+            original.cancel();
+            self.linking_owner.sharing_approval = None;
+            return Ok(());
+        }
+        if original.primary_committed() {
+            return Ok(());
+        }
+        let Some(attempt) = self.linking_owner.settlement_attempt.as_ref() else {
+            return Ok(());
+        };
+        let guard = attempt.guard.clone();
+        if guard.scope() != &original.scope || !guard.matches_original_context(&original.context) {
+            original.cancel();
+            self.linking_owner.sharing_approval = None;
+            return Ok(());
+        }
+        let group = guard.group();
+        let Some(roster) = self
+            .runtime
+            .session()
+            .validated_settled_device_roster(&group)
+            .map_err(ClientLinkingError::Engine)?
+        else {
+            return Ok(());
+        };
+        let peer = if original.scope.local_device == original.context.approver {
+            original.context.recipient
+        } else if original.scope.local_device == original.context.recipient {
+            original.context.approver
+        } else {
+            return Err(ClientLinkingError::Gate(
+                LinkingWelcomeDenied::ContextMismatch,
+            ));
+        };
+        let approval_id = original.context.digest().map_err(|error| {
+            ClientLinkingError::Owner(crate::device_linking::OwnerError::Verifier(error))
+        })?;
+        let policy = ApprovedAccountSharingPolicy {
+            account: original.scope.account,
+            local_device: original.scope.local_device,
+            peer_device: peer,
+            protected_group: group.clone(),
+            approval_id,
+            version: ACCOUNT_SHARING_POLICY_VERSION,
+            capabilities: ACCOUNT_SHARING_CAPABILITIES,
+            created_at: original.created_at,
+            approved_protected_epoch: roster.candidate().epoch.0,
+            revoked: false,
+        };
+        let generation = roster.settlement_generation();
+        let storage = self
+            .app
+            .account_storage(&self.state.label)
+            .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
+        let validator = || -> cgka_traits::storage::StorageResult<()> {
+            let denied = || {
+                cgka_traits::storage::StorageError::Serialization(
+                    "original pairing sharing approval unavailable".into(),
+                )
+            };
+            if !original.live()
+                || Instant::now() >= original.deadline
+                || !guard.matches_original_context(&original.context)
+            {
+                return Err(denied());
+            }
+            let round = storage
+                .private_roster_settlement_storage()
+                .ok_or_else(denied)?
+                .read_round()?
+                .ok_or_else(denied)?;
+            guard.validate(&round.anchor).map_err(|_| denied())?;
+            let fresh = self
+                .runtime
+                .session()
+                .validated_settled_device_roster(&group)
+                .map_err(|_| denied())?
+                .ok_or_else(denied)?;
+            if fresh.settlement_generation() != generation
+                || fresh.candidate() != roster.candidate()
+            {
+                return Err(denied());
+            }
+            Ok(())
+        };
+        let capture = original
+            .legacy_capture
+            .lock()
+            .expect("legacy capture")
+            .clone()
+            .ok_or(ClientLinkingError::Gate(
+                LinkingWelcomeDenied::UnsupportedStorage,
+            ))?;
+        self.commit_policy_with_legacy_chats(&policy, &capture, &validator)
+            .map_err(|error| ClientLinkingError::Engine(error.into()))?;
+        self.mark_primary_sharing_committed();
+        Ok(())
+    }
+
     pub(crate) async fn continue_owned_native_linking(
         &mut self,
         scope: &PurposeAttemptScope,

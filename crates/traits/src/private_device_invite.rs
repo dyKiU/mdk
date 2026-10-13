@@ -27,6 +27,7 @@ pub enum PrivateInviteOrigin {
     Accepted(u64),
     Confirmed(u64),
     Existing(u64),
+    Revoked(u64),
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]

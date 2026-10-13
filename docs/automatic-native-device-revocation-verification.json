@@ -1,0 +1,380 @@
+{
+  "source_commit": "51b9544a4d2002d511dc1a2417ef912b0c6f2ed8",
+  "base_commit": "1a3c1a386725e27ec25a2e4aae3d3755d3c14423",
+  "scope": "Original App device-revocation ownership exported through matched UniFFI/C, preserving account-sharing statuses121\u2013125 and appending revocation126\u2013132. No App/Core runtime changes beyond the source23 base.",
+  "rust_original_controls": [
+    {
+      "gate": "uf-original",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "--lib",
+        "--features",
+        "experimental-device-sync",
+        "opaque_device_revocation_retains_original_scope_revision_and_cancellation",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 151.67,
+      "inputs_unchanged": true,
+      "log": "/Users/pj/project/build/results/automatic-native-revocation-adoption-v1-uf-original.log",
+      "log_sha256": "3dc32744b038f0d0b90c2ddaa557d5abe477bad6c3e9156ac0ac4fc665e0a279",
+      "counts": [
+        [
+          "1",
+          "0",
+          "0"
+        ]
+      ],
+      "resource_abort": false
+    },
+    {
+      "gate": "c-original",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-c",
+        "--lib",
+        "--features",
+        "experimental-device-sync,alloc-audit",
+        "actual_c_three_device_enrollment_retains_approval_after_list_free",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 95.42,
+      "inputs_unchanged": true,
+      "log": "/Users/pj/project/build/results/automatic-native-revocation-adoption-v1-c-original.log",
+      "log_sha256": "939fcd14e844c2dff0af22b009f25d9ddb957eb231b81dbf2f3e0c51f8b53908",
+      "counts": [
+        [
+          "1",
+          "0",
+          "0"
+        ]
+      ],
+      "resource_abort": false
+    },
+    {
+      "gate": "uf-default",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "--lib",
+        "revocation",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 85.05,
+      "inputs_unchanged": true,
+      "log": "/Users/pj/project/build/results/automatic-native-revocation-adoption-v1-uf-default.log",
+      "log_sha256": "a42f54d89357a3fbc4bd4539589df29dd1835864cbf52ff60eb6359e5fae55b9",
+      "counts": [
+        [
+          "1",
+          "0",
+          "0"
+        ]
+      ],
+      "resource_abort": false
+    },
+    {
+      "gate": "c-default",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-c",
+        "--lib",
+        "--features",
+        "alloc-audit",
+        "revocation",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 55.47,
+      "inputs_unchanged": true,
+      "log": "/Users/pj/project/build/results/automatic-native-revocation-adoption-v1-c-default.log",
+      "log_sha256": "172e37195fd74205dd73a1cb177db469a10defe07b2f1839da8146a5701b7e54",
+      "counts": [
+        [
+          "2",
+          "0",
+          "0"
+        ]
+      ],
+      "resource_abort": false
+    },
+    {
+      "gate": "strict",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync,alloc-audit",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 65.7,
+      "inputs_unchanged": true,
+      "log": "/Users/pj/project/build/results/automatic-native-revocation-adoption-v1-strict.log",
+      "log_sha256": "f6257bd9ea20cac61a695a25574336fa3f7695c9ae3894a362f321c0f528551a",
+      "counts": [],
+      "resource_abort": false
+    },
+    {
+      "gate": "default-check",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--all-targets",
+        "--features",
+        "alloc-audit"
+      ],
+      "exit": 0,
+      "seconds": 42.66,
+      "inputs_unchanged": true,
+      "log": "/Users/pj/project/build/results/automatic-native-revocation-adoption-v1-default-check.log",
+      "log_sha256": "f839edc1ec2a00149395dcbd69a25822dc59b99f3dca7f29d98659f94e651edd",
+      "counts": [],
+      "resource_abort": false
+    },
+    {
+      "gate": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 3.81,
+      "inputs_unchanged": true,
+      "log": "/Users/pj/project/build/results/automatic-native-revocation-adoption-v1-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "counts": [],
+      "resource_abort": false
+    }
+  ],
+  "host_abi": {
+    "source_commit": "bdd6f4fa14d09afd93943455033ec28aed8533d6",
+    "protected_files_unchanged": true,
+    "source_inputs": 2644,
+    "manifest_sha256": "5ae1d2b960a34941c9995b5754413ae2717e3957d5d74266698678d52535a8a2",
+    "gates": [
+      {
+        "gate": "docs",
+        "command": [
+          "just",
+          "binding-docs-gate"
+        ],
+        "experimental": false,
+        "exit_code": 0,
+        "seconds": 0.6106082079932094,
+        "log_sha256": "6c6054bf032f075352220c41fed5d5ca0cf104ccbbc51629437c05a6747452fe"
+      },
+      {
+        "gate": "parity",
+        "command": [
+          "just",
+          "c-parity-gate"
+        ],
+        "experimental": false,
+        "exit_code": 0,
+        "seconds": 0.36549370805732906,
+        "log_sha256": "b61a222a14f0e3bf9defae0ec5e0172eb43a33359aacf57d36767a09970e0812"
+      },
+      {
+        "gate": "swift-default",
+        "command": [
+          "bash",
+          "crates/marmot-uniffi/device-linking-smoke.sh"
+        ],
+        "experimental": false,
+        "exit_code": 0,
+        "seconds": 76.92048049997538,
+        "log_sha256": "67a12167422726bb9ea42462e679578a33967a92485133b439685c3420422158"
+      },
+      {
+        "gate": "c-default",
+        "command": [
+          "bash",
+          "crates/marmot-c/history-transfer-smoke.sh"
+        ],
+        "experimental": false,
+        "exit_code": 0,
+        "seconds": 53.58365595783107,
+        "log_sha256": "9a43f140e93945ce27d0c39edd7f974c449baca95b858a288e153364276219c5"
+      },
+      {
+        "gate": "swift-feature",
+        "command": [
+          "bash",
+          "crates/marmot-uniffi/device-linking-smoke.sh"
+        ],
+        "experimental": true,
+        "exit_code": 0,
+        "seconds": 84.09334633406252,
+        "log_sha256": "789155c3d6fcf66cddc245bbfb54337c215c90437b9da275f2c5471c3aefdc1e"
+      },
+      {
+        "gate": "c-feature",
+        "command": [
+          "bash",
+          "crates/marmot-c/history-transfer-smoke.sh"
+        ],
+        "experimental": true,
+        "exit_code": 0,
+        "seconds": 61.45379216596484,
+        "log_sha256": "cb6ad5ce669873fe2104717fb2ee407dcdc10dbf8eda6529dc98566413019d1d"
+      }
+    ],
+    "scope": "Matched host Swift and C shared/static ABI; not Apple packaged artifacts or native multi-device acceptance"
+  },
+  "final_status_and_static": {
+    "source_commit": "51b9544a4d2002d511dc1a2417ef912b0c6f2ed8",
+    "reused_product_unchanged": true,
+    "gates": [
+      {
+        "gate": "status-map",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-c",
+          "--lib",
+          "--features",
+          "experimental-device-sync,alloc-audit",
+          "every_runtime_error_variant_maps_to_a_distinct_status",
+          "--",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "seconds": 12.304654167033732,
+        "log_sha256": "c45fd579c1da7374aad0e17edfc087d20a47a09d9b277630bfa7d91a776cbdf6",
+        "counts": [
+          [
+            "1",
+            "0",
+            "0"
+          ]
+        ],
+        "source_inputs_unchanged": true,
+        "protected_files_unchanged": true
+      },
+      {
+        "gate": "strict",
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "marmot-uniffi",
+          "-p",
+          "marmot-c",
+          "--all-targets",
+          "--features",
+          "experimental-device-sync,alloc-audit",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "seconds": 36.723830042174086,
+        "log_sha256": "4badf9ec531ee45dcca3686e27b24ff31f48ca1d27190274e86eb975bd29e4a6",
+        "counts": [],
+        "source_inputs_unchanged": true,
+        "protected_files_unchanged": true
+      },
+      {
+        "gate": "fmt",
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "exit_code": 0,
+        "seconds": 3.7307489581871778,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "counts": [],
+        "source_inputs_unchanged": true,
+        "protected_files_unchanged": true
+      }
+    ]
+  },
+  "verified_execution_counts": {
+    "rust_original_and_default_tests": 5,
+    "complete_distinct_error_mapping_test": 1,
+    "swift_generated_host_runs": 2,
+    "c_shared_static_host_runs": 4
+  },
+  "frozen_input_count": 2644,
+  "frozen_input_manifest": {
+    "path": "build/results/automatic-record-generation/automatic-native-revocation-status-map-v2-inputs.json",
+    "sha256": "36464e51cb4fe0848e1b3844855243b136281b5c02a4cca00007d4807461d794"
+  },
+  "reuse": "50eefc31 Rust qualification retained after bdd6f4fa C-smoke assertions only; bdd6f4fa host ABI retained after 51b9544a changes only C test module. Production status source before cfg(test) is byte-identical; final strict/fmt and expanded status test rerun. All underlying log hashes independently verified.",
+  "failures_retained": [
+    {
+      "result": {
+        "source_commit": "bdd6f4fa14d09afd93943455033ec28aed8533d6",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "marmot-c",
+          "--lib",
+          "--features",
+          "experimental-device-sync,alloc-audit",
+          "every_runtime_error_variant_maps_to_a_distinct_status",
+          "--",
+          "--test-threads=1"
+        ],
+        "exit_code": 101,
+        "seconds": 12.198870041873306,
+        "log_sha256": "1e69167501adf42c55762f45892c2825d70d86c6b0b806b067a9ebdd819a7490",
+        "source_inputs_unchanged": true
+      },
+      "classification": "Actual status regression failure from stale count98/91; enumeration audit also found25 older omitted errors. Final test enumerates all123 actual error variants exactly once. No production mapping change or protocol RED claim."
+    }
+  ],
+  "limits": [
+    "Not final workspace/backend or Apple SDK promotion qualification.",
+    "Host debug linker minimum-version warnings retained; no release deployment-target validation claim.",
+    "Not native M1/M5/iOS simulator exact-device removal or installed-app acceptance.",
+    "No Android artifact claim.",
+    "Legacy pruned chats, two-source acceptance, fresh rejoin and principal-wide departure remain separate open work."
+  ]
+}

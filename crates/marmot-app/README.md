@@ -16,6 +16,8 @@ the generic account, session, and engine crates. Read this if you are building a
 - [Conversations](#conversations)
 - [Encrypted media endpoints](#encrypted-media-endpoints)
 - [Application-owned group state](#application-owned-group-state)
+- [History transfer recipient selection](#history-transfer-recipient-selection)
+- [Read-only synchronized logical history](#read-only-synchronized-logical-history)
 - [Explicit full-history repair](#explicit-full-history-repair)
 - [History may be incomplete notices](#history-may-be-incomplete-notices)
 - [User blocking](#user-blocking)
@@ -143,6 +145,15 @@ shared store still initializes tables without a numbered ledger; neither tier us
 version.
 
 ## Account bootstrap and KeyPackages
+
+Interactive imported-account sign-in pauses at `SingleDevice`. Continuing after
+possible or inconclusive other-installation discovery persists a companion
+publication hold, skips the public KeyPackage step and completes local setup.
+Complete empty discovery retains ordinary publication unless a hold already
+exists. Reopening applies the hold before activation; it blocks manual publication
+and retained maintenance fanout, without copying MLS state or pairing devices.
+Existing public slots and invitations already encrypted for another installation
+are not repaired by this policy. See the [native onboarding contract](../marmot-uniffi/README.md#single-device-notice).
 
 **New accounts.** Bootstrap publishes the required NIP-65 kind `10002` and inbox kind `10050` relay-list events, a
 kind `0` profile, and an initial last-resort Marmot kind `30443` KeyPackage from a default relay set. Account setup
@@ -342,6 +353,28 @@ Refresh on runtime group events (including `EpochChanged` and convergence) and a
 through the account worker and may wait behind an in-flight mutation. Updates use existing publication and convergence
 semantics; hosts must handle publication uncertainty and `GroupChangeSuperseded` rather than assuming a successful local
 change wins every later concurrent commit. This API does not add automatic retries of an application's desired value.
+
+## History transfer recipient selection
+
+With `experimental-device-sync`,
+`AccountManager::history_transfer_recipients(account_ref, group_id)` lists
+current linked-device choices for one ordinary chat. Core freshly checks the
+selected protected completed roster and the ordinary Current-profile state in
+one storage read snapshot. Results contain exact occupied leaf indices and
+public device identities, ordered by index, excluding the local device and
+bounded by the private roster's 128-leaf limit. Debug output omits identities.
+The account worker serializes the query; it creates no transfer, pending request,
+consent, lease, archive or network publication.
+
+Pass a selected device identity to `begin_history_transfer`; Core independently
+revalidates the current selection. A successful list is an observation, not a
+promise that a transfer can start or that the recipient has approved it. The
+recipient must review and explicitly approve its original received request at
+the displayed revision. Refresh choices when the linked roster or chat changes.
+Default builds return `Unsupported` before account or worker effects; invalid
+MLS group lengths return `NotReady`, and an unavailable account worker returns
+`RuntimeUnavailable`. UniFFI/C export and matched host adoption require separate
+qualification.
 
 ## Read-only synchronized logical history
 
@@ -836,3 +869,76 @@ The genuine public three-device regression compares identities to A's actual
 MLS leaf and C's original setup, checks unchanged pending state, then completes
 ABC. Native binding/artifact adoption, approval UI and installed application
 delivery remain separate from this read-only App API checkpoint.
+
+### Explicit pairing-wide chat sharing approval
+
+`DeviceLinkingSession::continue_linking_and_share_chats(displayed_revision)` forwards the exact held verified pairing original. This action approves sharing existing and future chats, history and messaging with that paired device. Durable policy is recorded only after the same SDK-derived original and fresh all-leaf Completed settlement validate; the public EnrollmentComplete observation waits for that write. Ordinary `continue_linking` does not approve broad sharing, and the default build returns Unsupported before effects. Adding another device does not implicitly grant it an existing pair's policy.
+
+This checkpoint qualifies original A/B approval and durable handoff, not automatic catalog exchange, mirrored conversation presentation or bridge sends. Existing pairs still need a fresh explicit pair-wide approval. See [qualification](../../docs/automatic-pairing-chat-sharing-verification.json).
+
+### Existing paired-device broad approval
+
+`AccountManager::begin_account_chat_sharing(account, recipient_device)` creates a fresh opaque review for an already paired device. Its `approve(displayed_revision)` publishes the genuine protected Request; `pending_account_chat_sharing(account)` exposes the addressed recipient's authenticated original for its own explicit approval. The read-only snapshot identifies both devices and the protected group/epoch. Neither a snapshot nor a device selector grants access. Signed Request/Consent and fresh Core context checks precede each peer's immutable durable policy write. Default builds return Unsupported before account effects.
+
+This source checkpoint does not yet exchange automatic catalogs/messages or populate ordinary conversation views. No packets, channel keys or grant DTOs are exposed. See [acceptance and limits](../../docs/automatic-existing-pair-sharing-verification.json).
+
+### Approved-policy catalog exchange (experimental checkpoint)
+
+Account workers now negotiate fresh encrypted channels under the original pair-wide approval and import initial and later source catalogs into separate source-attested mirror storage. The independent-store relay regression preserves canonical chat IDs and a fragmented 4096-byte description; a protected member without the addressed pair policy remains excluded. Receiving metadata does not create ordinary MLS membership.
+
+This checkpoint does not populate normal conversation views or forward messages. Catalog delivery receipts, loss/reordering, withdrawals, large-catalog renewal and retired-request replay controls remain pending. See [acceptance and limits](../../docs/automatic-approved-policy-catalog-actor-verification.json).
+
+Catalog scheduling now reserves a whole entry before exhausting a channel and resumes the scan under a newly validated channel. The real 22-chat renewal regression and earlier policy SQL-race/default controls pass. Recipient committed catalog acknowledgements and loss/reorder recovery remain separate; see `docs/automatic-catalog-renewal-verification.json`.
+
+### Automatic paired-source text sends
+
+With `experimental-device-sync`, an approved mirrored-only chat can use the existing runtime `submit_text` client-token API. Admission verifies the fresh pair policy and active mirrored catalog inside the queue transaction. The queued intent retains its exact ordinary inner event; an actual member publishes it through the ordinary send pipeline. `local_send_status` stays `Queued` until an authenticated publication receipt confirms that canonical event ID. Mirror rows never become ordinary MLS membership, and ordinary member sends retain their existing path.
+
+The scoped relay acceptance covers plain text, same-token retry, conflicting-body refusal, genuine publication receipts and automatic record import. Mirrored `submit_message_draft`, media and edits explicitly remain unavailable; reply, offline/restart recovery and blocked publication require their next controls. No installed automatic feature or SDK adoption is implied. See [checkpoint and limits](../../docs/automatic-account-chat-forwarding-verification.json).
+
+### Source-qualified automatic chat observations
+
+Experimental `paired_chat_list_page`, `paired_chat_message_page`, and
+`account_conversation_page` read already-authenticated mirror storage through the
+serial account worker. Current durable approvals and fresh protected roster state
+are checked before and after each read. `LocalMls` and `PairedSource` remain
+distinct; mirror rows create no MLS membership or media download permission.
+
+`open_account_chat_list_window` combines bounded ordinary and mirror lanes; its
+ordinary metadata/anchors and separate mirror cursor do not imply global activity
+ordering. `open_account_conversation_window` merges canonical event time/ID with
+ordinary precedence and a total 128-row SQL bound. Captured sequence, cancellation,
+account reset, runtime shutdown, committed catalog wakes and retention refresh
+keep owners current. Unsupported logical kinds remain visible placeholders.
+Local-to-paired membership changes require reopening the conversation window.
+
+The focused proof in `docs/account-chat-presentation-app-windows-verification.json`
+covers real original approval/catalog/window custody and separate storage privacy
+controls. Records-actor message delivery, native bindings/views, normal forwarding
+and full integration acceptance require their own qualification.
+
+Merged ordinary rows do not carry the original conversation page
+`authenticated_system_content` proof. Native conversion must keep their system
+content untrusted; authenticated system/reference/action presentation still uses
+the genuine ordinary conversation owner. Stored fields and tags are not proof.
+
+### Ordinary-chat acceptance before automatic disclosure
+
+Experimental automatic catalog, history and member-forwarding admission share a
+fresh source-eligibility check. Actual public creation and explicit incoming
+invitation acceptance persist their origin with the App checkpoint; an unaccepted
+Welcome remains ineligible even when its MLS membership and message projection
+are already present. Explicit decline retains a negative origin and withdraws that
+source's advertised catalog. Local hide preserves accepted lineage without
+authorizing pending invitations. Stored lineage still requires current Core
+membership and the genuine approved sharing channel.
+
+Existing incoming chats can bootstrap only from their retained nonpending Member
+projection and actual Welcome identity. Existing created chats require the actual
+local signer's retained epoch-zero founding leaf; the observational rewind restores
+and checks live state before any positive checkpoint. Missing projections,
+messages, administrator status and default installation epochs are not acceptance.
+Pruned ambiguous legacy chats need a separate fresh original human approval path.
+The current source-terminal mirror fence does not yet allow a fresh accepted
+rejoin after decline; account-wide principal leave remains separate from device
+SelfRemove. No new SDK or installed-app qualification follows from these APIs.

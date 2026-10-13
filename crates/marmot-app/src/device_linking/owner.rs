@@ -422,6 +422,28 @@ impl LinkingOwner {
         Ok(context.clone())
     }
 
+    /// Explicit broad approval is attached only to this verified original,
+    /// before SDK custody is consumed. Metadata never restores that custody.
+    pub(crate) fn native_sharing_context(
+        &mut self,
+        scope: &cgka_traits::device_linking_key_package::PurposeAttemptScope,
+        now: Instant,
+    ) -> OwnerResult<(LinkingContext, Instant)> {
+        let (phase, _) = self.native_observation_for_scope(scope, now)?;
+        if phase != crate::DeviceLinkingPhase::VerificationCompleteEnrollmentPending {
+            return Err(OwnerError::Verifier(LinkError::NotReady));
+        }
+        self.guard(now)?;
+        let reservation = self
+            .reservation_deadline
+            .ok_or(OwnerError::Verifier(LinkError::NotReady))?;
+        let attempt = self.linker.live(now).map_err(OwnerError::Verifier)?;
+        Ok((
+            attempt.context.clone(),
+            reservation.min(attempt.response_deadline.unwrap_or(attempt.setup_deadline)),
+        ))
+    }
+
     /// Private scheduling observation of the exact original live attempt.
     pub(crate) fn native_context_version(
         &mut self,

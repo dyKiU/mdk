@@ -424,6 +424,12 @@ async fn abandoned_notification_lane_counts_queued_loss_for_only_its_account() {
     let source = SdkRelayNotificationSource {
         client: alice_client.client().clone(),
         loss: Some(alice_client),
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        disposition_observer: None,
     };
     let pending = AtomicU64::new(3);
     let failed_worker = tokio::spawn(async { panic!("forced event worker failure") });

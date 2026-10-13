@@ -109,6 +109,19 @@ pub use attachment_history::{
 };
 mod avatar_access;
 pub use avatar_access::{LocalAvatarRead, MAX_AVATAR_BATCH_BYTES, MAX_AVATAR_BATCH_ITEMS};
+mod account_chat_presentation;
+mod account_conversation_windows;
+pub use account_conversation_windows::{
+    AccountConversationHeader, AccountConversationWindowHandle, AccountConversationWindowSnapshot,
+    LocalAccountConversationHeader, RuntimeAccountConversationWindowSubscription,
+};
+mod account_chat_windows;
+pub use account_chat_windows::{
+    AccountChatListWindowHandle, AccountChatListWindowSnapshot, AccountChatRow,
+    RuntimeAccountChatListWindowSubscription,
+};
+#[cfg(feature = "experimental-device-sync")]
+mod account_chat_sharing;
 mod commands;
 #[cfg(feature = "experimental-device-sync")]
 #[allow(
@@ -116,6 +129,8 @@ mod commands;
     reason = "private worker lifecycle before native pairing integration"
 )]
 mod device_linking;
+#[cfg(feature = "experimental-device-sync")]
+mod device_revocation;
 #[cfg(feature = "experimental-device-sync")]
 mod history_transfer;
 #[cfg(feature = "experimental-device-sync")]
@@ -1608,6 +1623,15 @@ impl MarmotAppRuntime {
         self.accounts
             .app
             .cached_identity_projections_for_account_ids(account_id_hexes)
+    }
+
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn relay_plane_for_test(&self) -> &MarmotRelayPlane {
+        self.shared.relay_plane()
     }
 
     pub fn accounts(&self) -> AccountManager {
@@ -5452,6 +5476,18 @@ impl MarmotAppRuntime {
         Ok(match state.phase {
             AccountSetupPhase::LocalStateCreated => AccountSetupReadiness::Initializing,
             AccountSetupPhase::LocalReady => AccountSetupReadiness::LocalReady,
+            AccountSetupPhase::CompanionReady => {
+                if self
+                    .accounts
+                    .app
+                    .account_home()
+                    .public_key_package_publication_disabled(&account.label)?
+                {
+                    AccountSetupReadiness::NetworkReady
+                } else {
+                    AccountSetupReadiness::RecoveryRequired
+                }
+            }
             AccountSetupPhase::BootstrapPublicationStarted
             | AccountSetupPhase::BootstrapPublicationConfirmed
             | AccountSetupPhase::KeyPackagePublicationStarted

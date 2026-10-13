@@ -4,6 +4,28 @@ import Foundation
 struct ChatProjectionsSmoke {
     /// Exercise generated record layout and enum discriminants, including presentation roles.
     static func main() throws {
+        let pairedSource = PairedChatSourceFfi(deviceHex: "device", policyDigestHex: "policy", protectedGeneration: UInt64.max, sourceEpoch: 2, sourceSequence: 3, sourceDigestHex: "digest")
+        let pairedSummary = PairedChatSummaryFfi(groupIdHex: "opaque-group", name: "Paired 🦀", description: "source observation", source: pairedSource)
+        let pairedList = PairedChatListPageFfi(chats: [pairedSummary], nextGroupIdHex: "opaque-next")
+        let pairedListCopy = try FfiConverterTypePairedChatListPageFfi.lift(FfiConverterTypePairedChatListPageFfi.lower(pairedList))
+        precondition(pairedListCopy == pairedList)
+        let pairedRow = AccountChatRowFfi.pairedSource(row: pairedSummary)
+        let pairedRowCopy = try FfiConverterTypeAccountChatRowFfi.lift(FfiConverterTypeAccountChatRowFfi.lower(pairedRow))
+        guard case let .pairedSource(row) = pairedRowCopy else { preconditionFailure("Paired row discriminant changed") }
+        precondition(row == pairedSummary)
+        for cursor in [nil, PairedChatMessageCursorFfi(createdAt: UInt64.max, messageIdHex: "canonical")] {
+            let observation = PairedChatMessageFfi(kind: 9, canonicalChat: true, messageIdHex: "canonical", authorHex: "author", createdAt: 1, expiresAt: nil, deleted: false, content: "fixture 🦀", contentTokens: MarkdownDocumentFfi(blocks: [], truncated: false, blankLinesBefore: Data()), tags: [MessageTagFfi(values: ["e", "reply"])], mediaAttachments: [], source: pairedSource)
+            let pairedPage = PairedChatMessagePageFfi(messages: [observation], next: cursor)
+            let pairedPageCopy = try FfiConverterTypePairedChatMessagePageFfi.lift(FfiConverterTypePairedChatMessagePageFfi.lower(pairedPage))
+            precondition(pairedPageCopy == pairedPage)
+            let pairedWindow = AccountConversationWindowSnapshotFfi(generation: "original-window", sequence: UInt64.max, header: .pairedSource(header: pairedSummary), rows: [.pairedSource(row: observation)], nextBefore: cursor)
+            let pairedWindowCopy = try FfiConverterTypeAccountConversationWindowSnapshotFfi.lift(FfiConverterTypeAccountConversationWindowSnapshotFfi.lower(pairedWindow))
+            precondition(pairedWindowCopy.generation == pairedWindow.generation && pairedWindowCopy.sequence == pairedWindow.sequence && pairedWindowCopy.nextBefore == cursor)
+            guard case let .pairedSource(header) = pairedWindowCopy.header else { preconditionFailure("Paired header discriminant changed") }
+            precondition(header == pairedSummary && pairedWindowCopy.rows.count == 1)
+            guard case let .pairedSource(row) = pairedWindowCopy.rows[0] else { preconditionFailure("Paired message discriminant changed") }
+            precondition(row == observation)
+        }
         for role in [AttachmentRoleFfi.shared, .inlineEmoji] {
             let entry = AttachmentEntryFfi(messageIdHex: "m", sourceMessageIdHex: "s", sender: "a", timelineAt: 1, receivedAt: 2, sourceEpoch: nil, category: .rejected, role: role, attachment: .rejected(attachmentIndex: 7, rejection: MediaAttachmentRejectionFfi(kind: .unsupportedFormat, detail: "unsupported")))
             let copy = try FfiConverterTypeAttachmentEntryFfi.lift(FfiConverterTypeAttachmentEntryFfi.lower(entry))
@@ -90,7 +112,8 @@ struct ChatProjectionsSmoke {
                 let value = ChatListWindowSnapshotFfi(subscriptionGeneration: "generation", sequence: UInt64.max,
                     view: view, rows: [], hasMoreBefore: true, hasMoreAfter: false, anchor: anchor)
                 let copy = try FfiConverterTypeChatListWindowSnapshotFfi.lift(FfiConverterTypeChatListWindowSnapshotFfi.lower(value))
-                precondition(copy == value)
+                precondition(copy.subscriptionGeneration == value.subscriptionGeneration && copy.sequence == value.sequence)
+                precondition(copy.view == value.view && copy.rows.isEmpty && copy.hasMoreBefore == value.hasMoreBefore && copy.hasMoreAfter == value.hasMoreAfter && copy.anchor == anchor)
             }
         }
         let total = AccountAttentionTotalFfi(unreadCount: UInt64.max, unreadMentionCount: 7,
@@ -248,4 +271,9 @@ func compileAttachmentControls(_ marmot: Marmot, account: String, group: String,
     let stream = try await marmot.subscribeAttachmentTransfers(accountRef: account, groupIdHex: group, targets: [target])
     _ = try await stream.next()
     stream.cancel()
+}
+
+// The stream action must not collide with Kotlin's generated AutoCloseable disposal.
+func compileDeviceLinkingStreamClose(_ subscription: DeviceLinkingSubscription) {
+    subscription.closeStream()
 }

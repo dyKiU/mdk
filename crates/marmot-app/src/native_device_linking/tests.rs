@@ -24,6 +24,20 @@ async fn default_native_verification_is_unsupported_before_account_or_worker_eff
             .await,
         Err(DeviceLinkingError::Unsupported)
     ));
+    assert!(matches!(
+        accounts
+            .begin_account_chat_sharing("missing", vec![0; 32])
+            .await,
+        Err(crate::AccountSharingError::Unsupported)
+    ));
+    assert!(matches!(
+        accounts.pending_account_chat_sharing("missing").await,
+        Err(crate::AccountSharingError::Unsupported)
+    ));
+    assert!(matches!(
+        accounts.account_chat_sharing_targets("missing").await,
+        Err(crate::AccountSharingError::Unsupported)
+    ));
     assert!(accounts.managed_accounts().unwrap().is_empty());
     runtime.shutdown_and_close().await.unwrap();
 }
@@ -55,6 +69,10 @@ async fn default_native_enrollment_is_unsupported_without_account_or_worker_effe
         session.finalize_linking(0).await,
         Err(DeviceLinkingError::Unsupported)
     ));
+    assert!(matches!(
+        session.continue_linking_and_share_chats(0).await,
+        Err(DeviceLinkingError::Unsupported)
+    ));
     let approval = DeviceLinkingApproval { _private: () };
     assert!(matches!(
         approval.review_metadata(0).await,
@@ -84,7 +102,7 @@ async fn default_native_enrollment_is_unsupported_without_account_or_worker_effe
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-mod actual {
+pub(super) mod actual {
     use super::*;
     use marmot_account::AccountHome;
     use std::sync::Arc;
@@ -178,31 +196,205 @@ mod actual {
      {
         run_native_public_three_device_enrollment(ApprovalScenario::ReviewThenEnroll).await;
     }
+    #[tokio::test]
+    async fn native_pairing_explicit_chat_sharing_persists_only_completed_original() {
+        run_native_public_three_device_enrollment(ApprovalScenario::ShareChats).await;
+    }
+    #[tokio::test]
+    async fn existing_pair_explicit_account_sharing_uses_original_relay_consent() {
+        run_native_public_three_device_enrollment(ApprovalScenario::ExistingShare).await;
+    }
+    #[tokio::test]
+    async fn automatic_sharing_request_before_source_policy_commit_retains_original_deadline() {
+        run_native_public_three_device_enrollment(ApprovalScenario::AutomaticRace).await;
+    }
+    #[tokio::test]
+    async fn automatic_catalog_channel_renewal_reaches_later_entries_without_manual_consent() {
+        run_native_public_three_device_enrollment(ApprovalScenario::AutomaticRenewal).await;
+    }
+    #[tokio::test]
+    async fn automatic_catalog_recipient_sql_failure_retries_without_manual_consent() {
+        run_native_public_three_device_enrollment(ApprovalScenario::AutomaticCatalogRetry).await;
+    }
     #[derive(Clone, Copy, PartialEq)]
-    enum ApprovalScenario {
+    pub(super) enum ApprovalScenario {
+        BroadEnrollment,
+        BroadPreAuthFailure,
+        BroadProjectionHeadFailure,
+        BroadWrongRecipientRouting,
+        BroadPairPlainSibling,
+        BroadSiblingCancel,
         Enroll,
         Cancel,
         ReviewThenEnroll,
+        ShareChats,
+        ExistingShare,
+        AutomaticRace,
+        AutomaticRenewal,
+        AutomaticCatalogRetry,
+        AutomaticRecords,
+        AutomaticRecordsWindow,
+        AutomaticForwarding,
+        AutomaticForwardingReply,
+        AutomaticForwardingOffline,
+        AutomaticForwardingNonAdmin,
+        AutomaticWithdrawal,
+        AutomaticFreshAcceptedRejoin,
+        AutomaticLegacyFormatAcceptedRejoin,
+        AutomaticTwoLegitimateSources,
+        AutomaticRecordGenerationRenewal,
+        AutomaticHeldThreeBInitiates,
+        AutomaticHeldThreeCInitiates,
+        AutomaticHeldSponsorInitiates,
+        AutomaticHeldRecipientInitiates,
+        AutomaticForwardingReceiptRetry,
     }
-    async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
+    pub(super) async fn run_native_public_three_device_enrollment(scenario: ApprovalScenario) {
         use cgka_traits::StorageProvider;
-        let relay =
-            nostr_relay_builder::LocalRelay::new(nostr_relay_builder::RelayBuilder::default());
+        let relay_database = Arc::new(nostr_relay_builder::prelude::MemoryDatabase::with_opts(
+            nostr_relay_builder::prelude::MemoryDatabaseOptions {
+                events: true,
+                max_events: Some(75_000),
+            },
+        ));
+        let relay = nostr_relay_builder::LocalRelay::new(
+            nostr_relay_builder::RelayBuilder::default().database(relay_database.clone()),
+        );
         relay.run().await.unwrap();
         let url = relay.url().await.to_string();
         let keys = nostr::prelude::Keys::generate();
         let dirs: [tempfile::TempDir; 3] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
-        let apps = std::array::from_fn::<_, 3, _>(|i| {
+        let mut apps = std::array::from_fn::<_, 3, _>(|i| {
             AccountHome::open(dirs[i].path())
                 .import_account("test", &keys.secret_key().to_secret_hex())
                 .unwrap();
             MarmotApp::with_relay(dirs[i].path(), &url)
         });
+        if matches!(
+            scenario,
+            ApprovalScenario::AutomaticHeldSponsorInitiates
+                | ApprovalScenario::AutomaticHeldRecipientInitiates
+        ) {
+            super::automatic_held_original_acceptance::order_actual_signers(
+                &mut apps,
+                &keys,
+                scenario == ApprovalScenario::AutomaticHeldSponsorInitiates,
+            )
+            .await;
+        }
+        if matches!(
+            scenario,
+            ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
+        ) {
+            super::automatic_held_three_original_acceptance::order_actual_signers(
+                &mut apps,
+                &keys,
+                scenario == ApprovalScenario::AutomaticHeldThreeBInitiates,
+            )
+            .await;
+        }
+        // Establish the exact ordinary A/B leaves before managed workers own any engines.
+        let two_source_peer = if scenario == ApprovalScenario::AutomaticTwoLegitimateSources {
+            Some(
+                Box::pin(
+                    super::automatic_two_source_leave_acceptance::TwoSourcePeer::prepare(
+                        &apps, &url,
+                    ),
+                )
+                .await,
+            )
+        } else {
+            None
+        };
+        let legacy_encoding = (scenario == ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin)
+            .then(|| crate::AppClient::test_legacy_account_chat_encoding(dirs[0].path()));
         let runtimes = apps.clone().map(MarmotAppRuntime::new);
-        for r in &runtimes {
+        runtimes[0].reconcile_accounts().await.unwrap();
+        // Establish the real incoming chat while A is the sole active public
+        // installation. Account-level invitations may select any later sibling.
+        let incoming_peer = if matches!(
+            scenario,
+            ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticWithdrawal
+                | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
+                | ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
+                | ApprovalScenario::AutomaticHeldSponsorInitiates
+                | ApprovalScenario::AutomaticHeldRecipientInitiates
+        ) {
+            Some(
+                super::automatic_forwarding_non_admin_acceptance::IncomingPeer::create(
+                    &url,
+                    &apps[0],
+                    &runtimes[0],
+                    &keys.public_key().to_hex(),
+                )
+                .await,
+            )
+        } else {
+            None
+        };
+        // Retain comparison-only provenance from the actual accepted incoming
+        // Welcome before withdrawal retires its ordinary App projection.
+        let rejoin_provenance = if matches!(
+            scenario,
+            ApprovalScenario::AutomaticFreshAcceptedRejoin
+                | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
+        ) {
+            let peer = incoming_peer.as_ref().unwrap();
+            let row = apps[0]
+                .group("test", &hex::encode(peer.group.as_slice()))
+                .unwrap()
+                .unwrap();
+            assert!(!row.pending_confirmation);
+            Some((
+                row.via_welcome_message_id_hex.unwrap(),
+                row.welcomer_account_id_hex.unwrap(),
+            ))
+        } else {
+            None
+        };
+        for r in &runtimes[1..] {
             r.reconcile_accounts().await.unwrap();
         }
         let managers = runtimes.each_ref().map(|r| r.accounts());
+        let record_receipt_probe = if matches!(
+            scenario,
+            ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
+        ) {
+            let peer = incoming_peer.as_ref().unwrap();
+            let storage = apps[0].account_storage("test").unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    if storage
+                        .timeline_message(
+                            &hex::encode(peer.group.as_slice()),
+                            &peer.preapproval_message,
+                        )
+                        .unwrap()
+                        .is_some()
+                    {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .expect("real source timeline must materialize before sharing approval");
+            Some(
+                managers[0]
+                    .observe_automatic_record_receipts_for_test("test")
+                    .await
+                    .unwrap(),
+            )
+        } else {
+            None
+        };
         let b = managers[1]
             .begin_device_linking_session("test")
             .await
@@ -212,16 +404,172 @@ mod actual {
             .await
             .unwrap();
         verify_public_pair(&initial_a, &b).await;
-        b.continue_linking(b.snapshot().await.unwrap().revision)
-            .await
-            .unwrap();
-        initial_a
-            .continue_linking(initial_a.snapshot().await.unwrap().revision)
-            .await
-            .unwrap();
+        let broad_enrollment = matches!(
+            scenario,
+            ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
+                | ApprovalScenario::AutomaticHeldSponsorInitiates
+                | ApprovalScenario::AutomaticHeldRecipientInitiates
+                | ApprovalScenario::AutomaticTwoLegitimateSources
+                | ApprovalScenario::BroadEnrollment
+                | ApprovalScenario::BroadPreAuthFailure
+                | ApprovalScenario::BroadProjectionHeadFailure
+                | ApprovalScenario::BroadWrongRecipientRouting
+                | ApprovalScenario::BroadPairPlainSibling
+                | ApprovalScenario::BroadSiblingCancel
+        );
+        if scenario == ApprovalScenario::ShareChats || broad_enrollment {
+            let b_revision = b.snapshot().await.unwrap().revision;
+            assert!(matches!(
+                b.continue_linking_and_share_chats(b_revision + 1).await,
+                Err(DeviceLinkingError::StaleRevision)
+            ));
+            b.continue_linking_and_share_chats(b_revision)
+                .await
+                .unwrap();
+            initial_a
+                .continue_linking_and_share_chats(initial_a.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+        } else {
+            b.continue_linking(b.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+            initial_a
+                .continue_linking(initial_a.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+        }
         wait_actual_roster(&apps[..2], 2).await;
-        initial_a.cancel().await.unwrap();
-        b.cancel().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                if initial_a.snapshot().await.unwrap().phase
+                    == DeviceLinkingPhase::EnrollmentComplete
+                    && b.snapshot().await.unwrap().phase == DeviceLinkingPhase::EnrollmentComplete
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("actual original enrollment completion must remain observable");
+        // Completion is a synchronous durable handoff: the native UI may close
+        // both originals immediately, without another background tick.
+        let policies: Vec<_> = apps[..2]
+            .iter()
+            .map(|app| {
+                app.account_storage("test")
+                    .unwrap()
+                    .approved_account_sharing_policy_storage()
+                    .unwrap()
+                    .approved_account_sharing_policies()
+                    .unwrap()
+            })
+            .collect();
+        if scenario == ApprovalScenario::ShareChats || broad_enrollment {
+            use cgka_traits::approved_account_sharing_policy::approved_account_sharing_identity;
+            assert!(policies.iter().all(|rows| rows.len() == 1));
+            let ids: Vec<_> = policies
+                .iter()
+                .map(|rows| {
+                    let p = &rows[0];
+                    assert!(!p.revoked);
+                    assert_eq!(p.approved_protected_epoch, 1);
+                    approved_account_sharing_identity(
+                        &p.account,
+                        &p.protected_group,
+                        &p.local_device,
+                        &p.peer_device,
+                        &p.approval_id,
+                    )
+                    .unwrap()
+                })
+                .collect();
+            assert_eq!(ids[0], ids[1]);
+            assert_eq!(policies[0][0].local_device, policies[1][0].peer_device);
+            assert_eq!(policies[1][0].local_device, policies[0][0].peer_device);
+        } else {
+            assert!(policies.iter().all(Vec::is_empty));
+        }
+        if matches!(
+            scenario,
+            ApprovalScenario::AutomaticHeldSponsorInitiates
+                | ApprovalScenario::AutomaticHeldRecipientInitiates
+        ) {
+            let delivered = super::automatic_held_original_acceptance::wait_record(
+                &apps[0],
+                &runtimes[1],
+                incoming_peer.as_ref().unwrap(),
+            )
+            .await;
+            let owners_completed = initial_a.snapshot().await.unwrap().phase
+                == DeviceLinkingPhase::EnrollmentComplete
+                && b.snapshot().await.unwrap().phase == DeviceLinkingPhase::EnrollmentComplete;
+            initial_a.cancel().await.unwrap();
+            b.cancel().await.unwrap();
+            incoming_peer
+                .as_ref()
+                .unwrap()
+                .runtime
+                .shutdown_and_close()
+                .await
+                .unwrap();
+            assert!(incoming_peer.as_ref().unwrap().runtime.storage_is_closed());
+            for runtime in runtimes {
+                runtime.shutdown_and_close().await.unwrap();
+                assert!(runtime.storage_is_closed());
+            }
+            relay.shutdown();
+            assert!(
+                owners_completed,
+                "held completed originals must remain observable"
+            );
+            assert!(
+                delivered,
+                "actual paired canonical record must arrive while completed sponsor/recipient originals remain held"
+            );
+            return;
+        }
+        if matches!(
+            scenario,
+            ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
+        ) {
+            // Match the supported native journey: completed explicit owners
+            // close immediately after the durable handoff, before discovery.
+            initial_a.cancel().await.unwrap();
+            b.cancel().await.unwrap();
+        }
+        let record_renewal = if matches!(
+            scenario,
+            ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
+        ) {
+            Some(
+                super::automatic_record_renewal_acceptance::RenewalWitness::before_abc(
+                    &apps,
+                    &runtimes,
+                    incoming_peer.as_ref().expect("real incoming peer"),
+                    record_receipt_probe.unwrap(),
+                )
+                .await,
+            )
+        } else {
+            None
+        };
+        if !matches!(
+            scenario,
+            ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
+        ) {
+            initial_a.cancel().await.unwrap();
+            b.cancel().await.unwrap();
+        }
         let targets = managers[0]
             .device_linking_targets("test")
             .await
@@ -241,12 +589,21 @@ mod actual {
             .await
             .unwrap();
         verify_public_pair(&a, &c).await;
-        c.continue_linking(c.snapshot().await.unwrap().revision)
-            .await
-            .unwrap();
-        a.continue_linking(a.snapshot().await.unwrap().revision)
-            .await
-            .unwrap();
+        if broad_enrollment {
+            c.continue_linking_and_share_chats(c.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+            a.continue_linking_and_share_chats(a.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+        } else {
+            c.continue_linking(c.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+            a.continue_linking(a.snapshot().await.unwrap().revision)
+                .await
+                .unwrap();
+        }
         let approval = tokio::time::timeout(std::time::Duration::from_secs(20), async {
             loop {
                 let mut pending = managers[1]
@@ -317,11 +674,39 @@ mod actual {
                 Err(DeviceLinkingError::StaleRevision)
             ));
         }
-        if scenario == ApprovalScenario::Cancel {
+        if scenario == ApprovalScenario::Cancel || scenario == ApprovalScenario::BroadSiblingCancel
+        {
             let shared = managers[1]
                 .pending_device_linking_approvals("test")
                 .await
                 .unwrap();
+            if scenario == ApprovalScenario::BroadSiblingCancel {
+                approval
+                    .approve_and_share_chats(observed.revision)
+                    .await
+                    .unwrap();
+                let original = approval.sharing_original_for_test().unwrap();
+                assert!(original.status_for_test().0);
+                approval.cancel().await.unwrap();
+                assert!(
+                    !original.status_for_test().0,
+                    "native cancellation must synchronously retire the actual original"
+                );
+                assert!(!original.status_for_test().1);
+                for app in &apps {
+                    assert!(
+                        app.account_storage("test")
+                            .unwrap()
+                            .approved_account_sharing_policy_storage()
+                            .unwrap()
+                            .approved_account_sharing_policies()
+                            .unwrap()
+                            .iter()
+                            .all(|policy| policy.approved_protected_epoch == 1),
+                        "cancelled B/C original must create no third-device policy"
+                    );
+                }
+            }
             approval.cancel().await.unwrap();
             let cancelled = approval.snapshot().await.unwrap();
             assert_eq!(cancelled.phase, DeviceLinkingApprovalPhase::Cancelled);
@@ -361,7 +746,60 @@ mod actual {
             approval.approve(observed.revision + 1).await,
             Err(DeviceLinkingError::StaleRevision)
         ));
-        approval.approve(observed.revision).await.unwrap();
+        let mut pre_auth_probe = None;
+        if matches!(
+            scenario,
+            ApprovalScenario::AutomaticRecordGenerationRenewal
+                | ApprovalScenario::AutomaticHeldThreeBInitiates
+                | ApprovalScenario::AutomaticHeldThreeCInitiates
+                | ApprovalScenario::AutomaticTwoLegitimateSources
+                | ApprovalScenario::BroadEnrollment
+                | ApprovalScenario::BroadPreAuthFailure
+                | ApprovalScenario::BroadProjectionHeadFailure
+        ) {
+            assert!(matches!(
+                approval
+                    .approve_and_share_chats(observed.revision + 1)
+                    .await,
+                Err(DeviceLinkingError::StaleRevision)
+            ));
+            approval
+                .approve_and_share_chats(observed.revision)
+                .await
+                .unwrap();
+            if scenario == ApprovalScenario::BroadPreAuthFailure {
+                pre_auth_probe = Some(
+                    managers[1]
+                        .arm_sibling_pre_auth_failure_for_test(
+                            "test",
+                            approval.sharing_original_for_test().unwrap(),
+                        )
+                        .await
+                        .unwrap(),
+                );
+            }
+            let approved = approval.snapshot().await.unwrap();
+            assert_eq!(
+                approved.phase,
+                DeviceLinkingApprovalPhase::ApprovedAwaitingPacket
+            );
+            assert!(
+                approval.approve(approved.revision).await.is_err(),
+                "ordinary retry cannot change the original broad choice"
+            );
+        } else {
+            approval.approve(observed.revision).await.unwrap();
+            if scenario == ApprovalScenario::BroadPairPlainSibling {
+                let approved = approval.snapshot().await.unwrap();
+                assert!(
+                    approval
+                        .approve_and_share_chats(approved.revision)
+                        .await
+                        .is_err(),
+                    "a taken ordinary B approval cannot be upgraded"
+                );
+            }
+        }
         let packet = tokio::time::timeout(std::time::Duration::from_secs(20), async {
             loop {
                 let revision = a.snapshot().await.unwrap().revision;
@@ -386,12 +824,788 @@ mod actual {
             .receive_enrollment_packet(approval.snapshot().await.unwrap().revision, packet)
             .await
             .unwrap();
+        let projection_head_probe = (scenario == ApprovalScenario::BroadProjectionHeadFailure)
+            .then(|| c.arm_sibling_projection_head_probe_for_test().unwrap());
+        if let Some(head) = &projection_head_probe {
+            managers[1]
+                .arm_sibling_pre_auth_failure_for_test(
+                    "test",
+                    approval.sharing_original_for_test().unwrap(),
+                )
+                .await
+                .unwrap()
+                .hold_request_until_projection_head_for_test(head)
+                .unwrap();
+        }
         // Both actual original actors are armed before A moves its proposal
         // lease into Add; transporting/acknowledging bytes is never admission.
         a.finalize_linking(a.snapshot().await.unwrap().revision)
             .await
             .unwrap();
         wait_actual_roster(&apps, 3).await;
+        let projection_distractor = if projection_head_probe.is_some() {
+            Some(
+                super::sibling_sharing_projection_acceptance::begin_actual_approver_distractor(
+                    &apps, &managers,
+                )
+                .await,
+            )
+        } else {
+            None
+        };
+        if broad_enrollment {
+            super::sibling_sharing_acceptance::assert_bilateral_completion(
+                &apps,
+                &a,
+                &c,
+                &approval,
+                matches!(
+                    scenario,
+                    ApprovalScenario::AutomaticRecordGenerationRenewal
+                        | ApprovalScenario::AutomaticHeldThreeBInitiates
+                        | ApprovalScenario::AutomaticHeldThreeCInitiates
+                        | ApprovalScenario::AutomaticTwoLegitimateSources
+                        | ApprovalScenario::BroadEnrollment
+                        | ApprovalScenario::BroadPreAuthFailure
+                        | ApprovalScenario::BroadProjectionHeadFailure
+                ),
+                pre_auth_probe.as_deref(),
+                (relay_database.as_ref(), runtimes[2].relay_plane_for_test()),
+            )
+            .await;
+        }
+        if let Some(action) = projection_distractor {
+            action.cancel();
+        }
+        if let Some(probe) = projection_head_probe {
+            let counts = probe.snapshot_for_test();
+            assert!(
+                counts[0] > 0,
+                "actual A control must fail before Core authentication"
+            );
+            assert!(
+                counts[1] > 0,
+                "same retained original must retry Core after actual B channel admission"
+            );
+        }
+        if let Some(probe) = pre_auth_probe {
+            assert_eq!(
+                probe.failures(),
+                1,
+                "genuine MLS intake must encounter the one-shot failure"
+            );
+            assert!(
+                probe.buffered() >= 1,
+                "the original retains the unprocessed opaque control"
+            );
+            assert!(
+                probe.authenticated_retries() >= 1,
+                "retry must pass genuine Core authentication for the same channel"
+            );
+        }
+        if scenario == ApprovalScenario::BroadWrongRecipientRouting {
+            super::sibling_sharing_routing_acceptance::assert_wrong_recipient_request_is_not_pending(&apps, &managers, &c).await;
+        }
+        // Membership alone cannot silently broaden the original A/B choice
+        // to C. Its separate ordinary pairing created no sharing approval.
+        for (index, app) in apps.iter().enumerate() {
+            let policies = app
+                .account_storage("test")
+                .unwrap()
+                .approved_account_sharing_policy_storage()
+                .unwrap()
+                .approved_account_sharing_policies()
+                .unwrap();
+            if !broad_enrollment {
+                assert_eq!(
+                    policies.len(),
+                    usize::from(scenario == ApprovalScenario::ShareChats && index < 2)
+                );
+            }
+        }
+        if let Some(witness) = record_renewal {
+            if matches!(
+                scenario,
+                ApprovalScenario::AutomaticHeldThreeBInitiates
+                    | ApprovalScenario::AutomaticHeldThreeCInitiates
+            ) {
+                let incoming = incoming_peer.as_ref().unwrap();
+                let delivered_b = super::automatic_held_original_acceptance::wait_record(
+                    &apps[0],
+                    &runtimes[1],
+                    incoming,
+                )
+                .await;
+                let delivered_c = super::automatic_held_original_acceptance::wait_record(
+                    &apps[0],
+                    &runtimes[2],
+                    incoming,
+                )
+                .await;
+                let delivered_bc =
+                    super::automatic_held_three_original_acceptance::create_real_b_source_and_wait(
+                        &runtimes, &apps[1],
+                    )
+                    .await;
+                let completed = a.snapshot().await.unwrap().phase
+                    == DeviceLinkingPhase::EnrollmentComplete
+                    && c.snapshot().await.unwrap().phase == DeviceLinkingPhase::EnrollmentComplete
+                    && approval.snapshot().await.unwrap().phase
+                        == DeviceLinkingApprovalPhase::Settled;
+                a.cancel().await.unwrap();
+                c.cancel().await.unwrap();
+                approval.cancel().await.unwrap();
+                for runtime in &runtimes {
+                    runtime.shutdown_and_close().await.unwrap();
+                    assert!(runtime.storage_is_closed());
+                }
+                incoming.runtime.shutdown_and_close().await.unwrap();
+                assert!(incoming.runtime.storage_is_closed());
+                relay.shutdown();
+                assert!(
+                    completed,
+                    "all three completed original observations must remain held through discovery"
+                );
+                assert!(
+                    delivered_b && delivered_c && delivered_bc,
+                    "held ABC canonical discovery failed: A-to-B={} A-to-C={} B-to-C={}",
+                    delivered_b,
+                    delivered_c,
+                    delivered_bc
+                );
+                return;
+            }
+            a.cancel().await.unwrap();
+            c.cancel().await.unwrap();
+            approval.cancel().await.unwrap();
+            witness.after_abc(&apps, &runtimes).await;
+            for runtime in &runtimes {
+                runtime.shutdown_and_close().await.unwrap();
+                assert!(runtime.storage_is_closed());
+            }
+            incoming_peer
+                .as_ref()
+                .unwrap()
+                .runtime
+                .shutdown_and_close()
+                .await
+                .unwrap();
+            assert!(incoming_peer.as_ref().unwrap().runtime.storage_is_closed());
+            return;
+        }
+        if let Some(peer) = two_source_peer {
+            Box::pin(peer.verify_device_only_leave(&apps, &runtimes)).await;
+            // The broad AB ceremony already cancelled initial_a and b before
+            // starting the third-device ceremony. Only its current originals
+            // remain owned here; every cancellation must succeed.
+            for session in [&a, &c] {
+                session.cancel().await.unwrap();
+            }
+            approval.cancel().await.unwrap();
+            peer.runtime.shutdown_and_close().await.unwrap();
+            assert!(peer.runtime.storage_is_closed());
+            for runtime in runtimes {
+                runtime.shutdown_and_close().await.unwrap();
+                assert!(runtime.storage_is_closed());
+            }
+            relay.shutdown();
+            return;
+        }
+        let initial_shared_chat = if matches!(
+            scenario,
+            ApprovalScenario::ExistingShare
+                | ApprovalScenario::AutomaticRace
+                | ApprovalScenario::AutomaticRenewal
+                | ApprovalScenario::AutomaticCatalogRetry
+                | ApprovalScenario::AutomaticRecords
+                | ApprovalScenario::AutomaticRecordsWindow
+                | ApprovalScenario::AutomaticForwarding
+                | ApprovalScenario::AutomaticForwardingReply
+                | ApprovalScenario::AutomaticForwardingOffline
+                | ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticWithdrawal
+                | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
+                | ApprovalScenario::AutomaticForwardingReceiptRetry
+        ) {
+            if matches!(
+                scenario,
+                ApprovalScenario::AutomaticForwardingNonAdmin
+                    | ApprovalScenario::AutomaticWithdrawal
+                    | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                    | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
+            ) {
+                Some(incoming_peer.as_ref().unwrap().group.clone())
+            } else {
+                Some(
+                    managers[0]
+                        .create_group(
+                            "test",
+                            "Automatically discovered existing chat",
+                            &[],
+                            Some("x".repeat(4096)),
+                        )
+                        .await
+                        .unwrap(),
+                )
+            }
+        } else {
+            None
+        };
+        let initial_record_ids = if matches!(
+            scenario,
+            ApprovalScenario::AutomaticRecords
+                | ApprovalScenario::AutomaticRecordsWindow
+                | ApprovalScenario::AutomaticForwarding
+                | ApprovalScenario::AutomaticForwardingReply
+                | ApprovalScenario::AutomaticForwardingOffline
+                | ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticWithdrawal
+                | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
+                | ApprovalScenario::AutomaticForwardingReceiptRetry
+        ) {
+            let mut ids = super::automatic_records_acceptance::seed(
+                &managers[0],
+                initial_shared_chat.as_ref().unwrap(),
+            )
+            .await;
+            if let Some(peer) = &incoming_peer {
+                ids.push(peer.preapproval_message.clone());
+            }
+            ids
+        } else {
+            Vec::new()
+        };
+        let mut renewal_chats = Vec::new();
+        if scenario == ApprovalScenario::AutomaticRenewal {
+            for index in 0..20 {
+                renewal_chats.push(
+                    managers[0]
+                        .create_group(
+                            "test",
+                            &format!("Renewal chat {index}"),
+                            &[],
+                            Some("x".repeat(4096)),
+                        )
+                        .await
+                        .unwrap(),
+                );
+            }
+        }
+        if matches!(
+            scenario,
+            ApprovalScenario::ExistingShare
+                | ApprovalScenario::AutomaticRace
+                | ApprovalScenario::AutomaticRenewal
+                | ApprovalScenario::AutomaticCatalogRetry
+                | ApprovalScenario::AutomaticRecords
+                | ApprovalScenario::AutomaticRecordsWindow
+                | ApprovalScenario::AutomaticForwarding
+                | ApprovalScenario::AutomaticForwardingReply
+                | ApprovalScenario::AutomaticForwardingOffline
+                | ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticWithdrawal
+                | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
+                | ApprovalScenario::AutomaticForwardingReceiptRetry
+        ) {
+            // Select C from actual settled protected tree, never invent a target.
+            let c_key = apps[2]
+                .account_storage("test")
+                .unwrap()
+                .private_roster_settlement_storage()
+                .unwrap()
+                .read_round()
+                .unwrap()
+                .unwrap()
+                .anchor
+                .local_device;
+            let inventory = managers[0]
+                .account_chat_sharing_targets("test")
+                .await
+                .unwrap();
+            assert_eq!(inventory.targets.len(), 2);
+            assert!(
+                inventory
+                    .targets
+                    .windows(2)
+                    .all(|pair| pair[0].leaf_index < pair[1].leaf_index)
+            );
+            assert!(
+                managers[0]
+                    .account_chat_sharing_targets("missing")
+                    .await
+                    .is_err()
+            );
+            let local = apps[0]
+                .account_storage("test")
+                .unwrap()
+                .private_roster_settlement_storage()
+                .unwrap()
+                .read_round()
+                .unwrap()
+                .unwrap()
+                .anchor
+                .local_device;
+            assert!(
+                inventory
+                    .targets
+                    .iter()
+                    .all(|target| target.device != local)
+            );
+            let chosen = inventory
+                .targets
+                .iter()
+                .find(|target| target.device == c_key)
+                .unwrap()
+                .device
+                .clone();
+            let cancelled = managers[0]
+                .begin_account_chat_sharing("test", chosen.clone())
+                .await
+                .unwrap();
+            let cancelled_revision = cancelled.snapshot().unwrap().revision;
+            cancelled.cancel();
+            assert!(matches!(
+                cancelled.approve(cancelled_revision).await,
+                Err(crate::AccountSharingError::Closed)
+            ));
+            let source = managers[0]
+                .begin_account_chat_sharing("test", chosen)
+                .await
+                .unwrap();
+            let review = source.snapshot().unwrap();
+            assert!(!review.approved && !review.complete);
+            assert_eq!(review.protected_group, inventory.protected_group);
+            assert_eq!(review.protected_epoch, inventory.protected_epoch);
+            assert!(
+                managers[2]
+                    .pending_account_chat_sharing("test")
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(
+                managers[0]
+                    .begin_account_chat_sharing("missing", c_key.to_vec())
+                    .await
+                    .is_err()
+            );
+            assert!(matches!(
+                source.approve(review.revision + 1).await,
+                Err(crate::AccountSharingError::StaleRevision)
+            ));
+            let alias = source.clone();
+            drop(alias);
+            source.approve(review.revision).await.unwrap();
+            let end = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            let recipient = loop {
+                let mut pending = managers[2]
+                    .pending_account_chat_sharing("test")
+                    .await
+                    .unwrap();
+                if !pending.is_empty() {
+                    break pending.remove(0);
+                }
+                assert!(
+                    std::time::Instant::now() < end,
+                    "real protected request did not arrive"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            };
+            let recipient_review = recipient.snapshot().unwrap();
+            assert_eq!(recipient_review.protected_group, review.protected_group);
+            assert_eq!(recipient_review.protected_epoch, review.protected_epoch);
+            assert_eq!(recipient_review.source_device, review.source_device);
+            assert_eq!(recipient_review.recipient_device, review.recipient_device);
+            assert!(
+                managers[1]
+                    .pending_account_chat_sharing("test")
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(matches!(
+                recipient.approve(recipient_review.revision + 1).await,
+                Err(crate::AccountSharingError::StaleRevision)
+            ));
+            let policy_injector = if scenario == ApprovalScenario::AutomaticRace {
+                let path = apps[0].account_storage_path("test");
+                let keys = apps[0].account_home().load_signing_keys("test").unwrap();
+                let sql_key = apps[0]
+                    .sqlcipher_key(
+                        "test",
+                        &keys,
+                        &path,
+                        crate::sqlcipher::SqlcipherDatabaseKind::Session,
+                    )
+                    .unwrap();
+                let connection = rusqlite::Connection::open(&path).unwrap();
+                storage_sqlite::open_hardened_sqlcipher(
+                    &connection,
+                    &sql_key,
+                    storage_sqlite::SqlCipherHardening::cipher_only(),
+                )
+                .unwrap();
+                connection.execute_batch("CREATE TRIGGER hold_original_sharing_policy BEFORE INSERT ON approved_account_sharing_policies BEGIN SELECT RAISE(ABORT,'isolated original sharing policy rollback'); END;").unwrap();
+                Some(connection)
+            } else {
+                None
+            };
+            let mut catalog_errors = runtimes[2].subscribe();
+            let catalog_injector = if scenario == ApprovalScenario::AutomaticCatalogRetry {
+                let path = apps[2].account_storage_path("test");
+                let keys = apps[2].account_home().load_signing_keys("test").unwrap();
+                let sql_key = apps[2]
+                    .sqlcipher_key(
+                        "test",
+                        &keys,
+                        &path,
+                        crate::sqlcipher::SqlcipherDatabaseKind::Session,
+                    )
+                    .unwrap();
+                let connection = rusqlite::Connection::open(&path).unwrap();
+                storage_sqlite::open_hardened_sqlcipher(
+                    &connection,
+                    &sql_key,
+                    storage_sqlite::SqlCipherHardening::cipher_only(),
+                )
+                .unwrap();
+                connection.execute_batch("CREATE TRIGGER hold_automatic_catalog BEFORE INSERT ON mirrored_chat_catalog BEGIN SELECT RAISE(ABORT,'isolated catalog commit rollback'); END;").unwrap();
+                Some(connection)
+            } else {
+                None
+            };
+            recipient.approve(recipient_review.revision).await.unwrap();
+            let retained_request = if let Some(connection) = policy_injector.as_ref() {
+                assert!(recipient.snapshot().unwrap().complete);
+                assert!(!source.snapshot().unwrap().complete);
+                assert!(
+                    apps[0]
+                        .account_storage("test")
+                        .unwrap()
+                        .approved_account_sharing_policy_storage()
+                        .unwrap()
+                        .approved_account_sharing_policies()
+                        .unwrap()
+                        .is_empty()
+                );
+                // Change only scheduling: use the exact normal factory, durable
+                // original-approved policy, Core validation and relay publisher.
+                managers[2]
+                    .kick_approved_automatic_channel("test")
+                    .await
+                    .unwrap();
+                let pending = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                    loop {
+                        let pending = managers[0]
+                            .pending_account_chat_sharing("test")
+                            .await
+                            .unwrap();
+                        if let Some(original) = pending.into_iter().find(|original| {
+                            original.snapshot().unwrap().source_device == review.recipient_device
+                        }) {
+                            break original;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .expect("actual encrypted request must precede source policy commit");
+                let observed = pending.snapshot().unwrap();
+                assert_eq!(observed.protected_group, review.protected_group);
+                assert_eq!(observed.protected_epoch, review.protected_epoch);
+                assert_eq!(observed.recipient_device, review.source_device);
+                assert!(!observed.approved && !observed.complete);
+                let deadline = pending.original.deadline;
+                connection
+                    .execute_batch("DROP TRIGGER hold_original_sharing_policy;")
+                    .unwrap();
+                Some((pending, deadline))
+            } else {
+                None
+            };
+
+            while !source.snapshot().unwrap().complete {
+                assert!(
+                    std::time::Instant::now() < end,
+                    "real signed consent did not complete"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            assert!(recipient.snapshot().unwrap().complete);
+            if let Some((pending, deadline)) = retained_request {
+                tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                    while pending.original.live() {
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }).await.expect("newly committed original policy must promote the retained authenticated request without another manual approval");
+                assert_eq!(pending.original.deadline, deadline);
+            }
+            let facts: Vec<_> = apps
+                .iter()
+                .map(|app| {
+                    app.account_storage("test")
+                        .unwrap()
+                        .approved_account_sharing_policy_storage()
+                        .unwrap()
+                        .approved_account_sharing_policies()
+                        .unwrap()
+                })
+                .collect();
+            assert_eq!(facts[0].len(), 1);
+            assert!(facts[1].is_empty());
+            assert_eq!(facts[2].len(), 1);
+            assert_eq!(facts[0][0].approval_id, facts[2][0].approval_id);
+            assert_eq!(facts[0][0].local_device, facts[2][0].peer_device);
+            assert_eq!(facts[0][0].peer_device, facts[2][0].local_device);
+            let policy = &facts[2][0];
+            let mirror = cgka_traits::mirrored_chat_catalog::MirroredChatScope {
+                account: policy.account,
+                local_device: policy.local_device,
+                source_device: policy.peer_device,
+                policy_digest:
+                    cgka_traits::approved_account_sharing_policy::approved_account_sharing_identity(
+                        &policy.account,
+                        &policy.protected_group,
+                        &policy.local_device,
+                        &policy.peer_device,
+                        &policy.approval_id,
+                    )
+                    .unwrap(),
+                protected_group: policy.protected_group.clone(),
+                protected_generation: apps[2]
+                    .account_storage("test")
+                    .unwrap()
+                    .private_roster_settlement_storage()
+                    .unwrap()
+                    .read_round()
+                    .unwrap()
+                    .unwrap()
+                    .generation,
+            };
+            if let Some(connection) = catalog_injector {
+                tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    loop {
+                        if let crate::MarmotAppEvent::AccountError(error) =
+                            catalog_errors.recv().await.unwrap()
+                            && error.message.starts_with("runtime receive failed")
+                        {
+                            assert_eq!(
+                                error.message,
+                                "runtime receive failed: invalid_app_message_payload"
+                            );
+                            break;
+                        }
+                    }
+                })
+                .await
+                .expect("actual encrypted catalog must reach the injected SQL refusal");
+                assert!(
+                    apps[2]
+                        .account_storage("test")
+                        .unwrap()
+                        .mirrored_chat_catalog_storage()
+                        .unwrap()
+                        .mirrored_chat_catalog_page(&mirror, None, 128)
+                        .unwrap()
+                        .is_empty(),
+                    "failed recipient transaction must commit no mirrored catalog entry"
+                );
+                connection
+                    .execute_batch("DROP TRIGGER hold_automatic_catalog;")
+                    .unwrap();
+            }
+            let later = managers[0]
+                .create_group("test", "Automatically discovered later chat", &[], None)
+                .await
+                .unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(if scenario == ApprovalScenario::AutomaticRenewal {180} else {30}),async{
+                loop{
+                    let rows=apps[2].account_storage("test").unwrap().mirrored_chat_catalog_storage().unwrap().mirrored_chat_catalog_page(&mirror,None,128).unwrap();
+                    if rows.len()==2 + renewal_chats.len() {
+                        let old=rows.iter().find(|record|Some(&record.group_id)==initial_shared_chat.as_ref()).unwrap();
+                        assert_eq!(old.description.len(),4096);
+                        assert!(rows.iter().any(|record|record.group_id==later));
+                        for group in &renewal_chats {assert!(rows.iter().any(|record|&record.group_id==group && record.description.len()==4096));}
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            }).await.expect("approved policy must automatically discover existing and later chats without per-chat actions");
+            assert!(
+                apps[2].load_state("test").unwrap().groups.is_empty(),
+                "a mirrored catalog is not MLS membership"
+            );
+            assert!(
+                apps[1]
+                    .account_storage("test")
+                    .unwrap()
+                    .mirrored_chat_catalog_storage()
+                    .unwrap()
+                    .mirrored_chat_catalog_page(&mirror, None, 128)
+                    .is_err(),
+                "unapproved B cannot read C-owned mirrors"
+            );
+            if matches!(
+                scenario,
+                ApprovalScenario::AutomaticRecords
+                    | ApprovalScenario::AutomaticRecordsWindow
+                    | ApprovalScenario::AutomaticForwarding
+                    | ApprovalScenario::AutomaticForwardingReply
+                    | ApprovalScenario::AutomaticForwardingOffline
+                    | ApprovalScenario::AutomaticForwardingNonAdmin
+                    | ApprovalScenario::AutomaticWithdrawal
+                    | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                    | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
+                    | ApprovalScenario::AutomaticForwardingReceiptRetry
+            ) {
+                super::automatic_records_acceptance::verify(
+                    &apps,
+                    &managers[0],
+                    initial_shared_chat.as_ref().unwrap(),
+                    &mirror,
+                    &initial_record_ids,
+                    (scenario == ApprovalScenario::AutomaticRecordsWindow).then_some(&runtimes[2]),
+                )
+                .await;
+            }
+            if matches!(
+                scenario,
+                ApprovalScenario::AutomaticForwarding
+                    | ApprovalScenario::AutomaticForwardingNonAdmin
+                    | ApprovalScenario::AutomaticWithdrawal
+                    | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                    | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
+            ) {
+                super::automatic_forwarding_acceptance::verify(
+                    &apps,
+                    &runtimes[2],
+                    initial_shared_chat.as_ref().unwrap(),
+                    &mirror,
+                )
+                .await;
+            }
+            if let Some(peer) = &incoming_peer {
+                peer.verify_forwarded_receipt(&runtimes[2]).await;
+            }
+            if matches!(
+                scenario,
+                ApprovalScenario::AutomaticWithdrawal
+                    | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                    | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
+            ) {
+                let peer = incoming_peer.as_ref().unwrap();
+                peer.verify_withdrawal(&apps, &runtimes, &mirror).await;
+                source.cancel();
+                recipient.cancel();
+                a.cancel().await.unwrap();
+                c.cancel().await.unwrap();
+                approval.cancel().await.unwrap();
+                if scenario == ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin {
+                    let old = apps[2]
+                        .account_storage("test")
+                        .unwrap()
+                        .mirrored_chat_catalog_storage()
+                        .unwrap()
+                        .mirrored_chat_catalog_page(&mirror, None, 128)
+                        .unwrap();
+                    let terminal = old.iter().find(|row| row.group_id == peer.group).unwrap();
+                    assert!(
+                        terminal.state
+                            == cgka_traits::mirrored_chat_catalog::MirroredChatState::Left
+                    );
+                    assert!(terminal.accepted_origin.is_none());
+                }
+                peer.verify_withdrawal_reopen(
+                    &runtimes,
+                    [dirs[0].path(), dirs[2].path()],
+                    &url,
+                    &later,
+                )
+                .await;
+                // Initial Active/Records and the actual committed withdrawal
+                // used old-format bytes under the original authenticated channel.
+                // Retire that encoder before opening the fresh acceptance owner.
+                drop(legacy_encoding);
+                let rejoin_result = if matches!(
+                    scenario,
+                    ApprovalScenario::AutomaticFreshAcceptedRejoin
+                        | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
+                ) {
+                    use futures::FutureExt;
+                    Some(
+                        std::panic::AssertUnwindSafe(
+                            super::automatic_fresh_rejoin_acceptance::verify_fresh_rejoin(
+                                peer,
+                                [dirs[0].path(), dirs[2].path()],
+                                &url,
+                                rejoin_provenance.as_ref().unwrap(),
+                            ),
+                        )
+                        .catch_unwind()
+                        .await,
+                    )
+                } else {
+                    None
+                };
+                peer.runtime.shutdown_and_close().await.unwrap();
+                assert!(peer.runtime.storage_is_closed());
+                for runtime in runtimes {
+                    runtime.shutdown_and_close().await.unwrap();
+                    assert!(runtime.storage_is_closed());
+                }
+                relay.shutdown();
+                if let Some(Err(error)) = rejoin_result {
+                    std::panic::resume_unwind(error);
+                }
+                return;
+            }
+            if scenario == ApprovalScenario::AutomaticForwardingReply {
+                super::automatic_forwarding_acceptance::verify_reply(
+                    &apps,
+                    &runtimes[2],
+                    initial_shared_chat.as_ref().unwrap(),
+                    &mirror,
+                    &initial_record_ids[0],
+                )
+                .await;
+            }
+            if scenario == ApprovalScenario::AutomaticForwardingReceiptRetry {
+                super::automatic_forwarding_acceptance::verify_receipt_sql_retry(
+                    &apps,
+                    &runtimes[2],
+                    initial_shared_chat.as_ref().unwrap(),
+                    &mirror,
+                )
+                .await;
+            }
+            source.cancel();
+            recipient.cancel();
+            if scenario == ApprovalScenario::AutomaticForwardingOffline {
+                for session in [&a, &c] {
+                    assert_eq!(
+                        session.snapshot().await.unwrap().phase,
+                        DeviceLinkingPhase::EnrollmentComplete
+                    );
+                }
+                super::automatic_forwarding_acceptance::verify_offline_reopen(
+                    &apps,
+                    &runtimes,
+                    [dirs[0].path(), dirs[2].path()],
+                    &url,
+                    initial_shared_chat.as_ref().unwrap(),
+                    &mirror,
+                )
+                .await;
+                for runtime in runtimes {
+                    runtime.shutdown_and_close().await.unwrap();
+                }
+                relay.shutdown();
+                return;
+            }
+        }
         assert!(
             managers
                 .iter()
@@ -434,10 +1648,102 @@ mod actual {
         assert_eq!(a.snapshot().await.unwrap(), complete);
         assert_eq!(approval.snapshot().await.unwrap(), settled);
 
-        assert!(
-            apps.iter()
-                .all(|app| app.load_state("test").unwrap().groups.is_empty())
-        );
+        assert!(apps.iter().enumerate().all(|(index, app)| matches!(
+            scenario,
+            ApprovalScenario::ExistingShare
+                | ApprovalScenario::AutomaticRace
+                | ApprovalScenario::AutomaticRenewal
+                | ApprovalScenario::AutomaticCatalogRetry
+                | ApprovalScenario::AutomaticRecords
+                | ApprovalScenario::AutomaticRecordsWindow
+                | ApprovalScenario::AutomaticForwarding
+                | ApprovalScenario::AutomaticForwardingReply
+                | ApprovalScenario::AutomaticForwardingOffline
+                | ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticWithdrawal
+                | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
+                | ApprovalScenario::AutomaticForwardingReceiptRetry
+        ) && index == 0
+            || app.load_state("test").unwrap().groups.is_empty()));
+        if matches!(
+            scenario,
+            ApprovalScenario::ExistingShare
+                | ApprovalScenario::AutomaticRace
+                | ApprovalScenario::AutomaticRenewal
+                | ApprovalScenario::AutomaticCatalogRetry
+                | ApprovalScenario::AutomaticRecords
+                | ApprovalScenario::AutomaticRecordsWindow
+                | ApprovalScenario::AutomaticForwarding
+                | ApprovalScenario::AutomaticForwardingReply
+                | ApprovalScenario::AutomaticForwardingOffline
+                | ApprovalScenario::AutomaticForwardingNonAdmin
+                | ApprovalScenario::AutomaticWithdrawal
+                | ApprovalScenario::AutomaticFreshAcceptedRejoin
+                | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
+                | ApprovalScenario::AutomaticForwardingReceiptRetry
+        ) {
+            let old = managers[0]
+                .account_chat_sharing_targets("test")
+                .await
+                .unwrap();
+            let removed = apps[2]
+                .account_storage("test")
+                .unwrap()
+                .private_roster_settlement_storage()
+                .unwrap()
+                .read_round()
+                .unwrap()
+                .unwrap()
+                .anchor
+                .local_device
+                .to_vec();
+            let action = managers[0]
+                .begin_device_revocation("test", removed.clone())
+                .await
+                .unwrap();
+            let review = action.snapshot().await.unwrap();
+            assert!(review.ordinary_groups.is_empty());
+            if matches!(scenario, ApprovalScenario::AutomaticRenewal) {
+                // This fixture deliberately fills the real relay's publication
+                // bucket. A transient refusal must retain the exact reviewed
+                // original, including its prepared Commit and fixed deadline.
+                tokio::time::timeout(std::time::Duration::from_secs(30), async {
+                    loop {
+                        match action.approve(review.revision).await {
+                            Ok(()) => break,
+                            Err(crate::device_revocation::GroupDeviceRevocationError::RuntimeUnavailable) => {
+                                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            }
+                            Err(error) => panic!("same-original revocation retry failed: {error:?}"),
+                        }
+                    }
+                })
+                .await
+                .expect("same original revocation must recover after publication refusal");
+            } else {
+                action.approve(review.revision).await.unwrap();
+            }
+            wait_actual_roster(&apps[..2], 2).await;
+            let fresh = managers[0]
+                .account_chat_sharing_targets("test")
+                .await
+                .unwrap();
+            assert_eq!(fresh.targets.len(), 1);
+            assert!(fresh.targets.iter().all(|target| target.device != removed));
+            assert_eq!(fresh.protected_group, old.protected_group);
+            assert!(fresh.protected_epoch > old.protected_epoch);
+            assert!(
+                managers[0]
+                    .begin_account_chat_sharing("test", removed)
+                    .await
+                    .is_err()
+            );
+        }
+        if let Some(peer) = incoming_peer {
+            peer.runtime.shutdown_and_close().await.unwrap();
+            assert!(peer.runtime.storage_is_closed());
+        }
         for runtime in runtimes {
             runtime.shutdown_and_close().await.unwrap();
         }
@@ -960,3 +2266,80 @@ mod actual {
         runtimes[0].shutdown_and_close().await.unwrap();
     }
 }
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "sibling_sharing_acceptance.rs"]
+mod sibling_sharing_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "sibling_sharing_routing_acceptance.rs"]
+mod sibling_sharing_routing_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_records_acceptance.rs"]
+mod automatic_records_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_forwarding_acceptance.rs"]
+mod automatic_forwarding_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_forwarding_non_admin_acceptance.rs"]
+mod automatic_forwarding_non_admin_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "sibling_sharing_projection_acceptance.rs"]
+mod sibling_sharing_projection_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_record_renewal_acceptance.rs"]
+mod automatic_record_renewal_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_held_original_acceptance.rs"]
+mod automatic_held_original_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_held_three_original_acceptance.rs"]
+mod automatic_held_three_original_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_two_source_leave_acceptance.rs"]
+mod automatic_two_source_leave_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "automatic_fresh_rejoin_acceptance.rs"]
+mod automatic_fresh_rejoin_acceptance;

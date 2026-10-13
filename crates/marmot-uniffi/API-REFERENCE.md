@@ -3624,7 +3624,7 @@ pub fn new_with_configuration( root_path: String, relay_urls: Vec<String>, optio
 
 Open with any combination of runtime options. Existing constructors are compatibility wrappers around this entry point.
 
-[Source](src/lib.rs#L252)
+[Source](src/lib.rs#L253)
 
 ### `Marmot::new_with_options`
 
@@ -3636,7 +3636,7 @@ pub fn new_with_options( root_path: String, relay_urls: Vec<String>, relay_polic
 
 Open with an explicit relay policy and optional host-owned key storage. Existing constructors retain their public-only relay policy.
 
-[Source](src/lib.rs#L268)
+[Source](src/lib.rs#L269)
 
 ### `Marmot::new`
 
@@ -3648,7 +3648,7 @@ pub fn new(root_path: String, relay_urls: Vec<String>) -> Result<Arc<Self>, Marm
 
 Open the Marmot app at `root_path`, configured with the given default relay URLs. Account secrets (Nostr private keys) are stored in the platform keyring (Keychain on Apple platforms, Android's native keyring on Android) via the default keychain-backed account home — not in a plaintext file. Fallible because initializing the platform secret store can fail or another process may own the same root (`MarmotKitError::RuntimeBusy`). Root ownership is nonblocking and remains held until the final `Marmot`/runtime handle is dropped, even after `Marmot::shutdown`. Call `Marmot::start` before subscribing to events.
 
-[Source](src/lib.rs#L296)
+[Source](src/lib.rs#L297)
 
 ### `Marmot::new_with_secret_store`
 
@@ -3660,7 +3660,7 @@ pub fn new_with_secret_store( root_path: String, relay_urls: Vec<String>, secret
 
 Open the Marmot app with host-supplied account-secret storage instead of the platform keychain. Identical to `Marmot::new` except that every read, write, and removal of an account signing key goes through `secret_store`.
 
-[Source](src/lib.rs#L314)
+[Source](src/lib.rs#L315)
 
 ### `Marmot::new_with_cursor_persistence`
 
@@ -3672,7 +3672,7 @@ pub fn new_with_cursor_persistence( root_path: String, relay_urls: Vec<String>, 
 
 Construct with explicit advancing/frozen relay cursor behavior; new_with_configuration composes this with other options.
 
-[Source](src/lib.rs#L344)
+[Source](src/lib.rs#L345)
 
 ### `Marmot::new_with_client_name`
 
@@ -3684,7 +3684,7 @@ pub fn new_with_client_name( root_path: String, relay_urls: Vec<String>, client_
 
 Open with an optional public client label for new KeyPackage publications. Existing constructors remain untagged. Whitespace-only labels are omitted. Hosts must supply this on every foreground/background runtime construction.
 
-[Source](src/lib.rs#L363)
+[Source](src/lib.rs#L364)
 
 ### `Marmot::start`
 
@@ -3696,7 +3696,7 @@ pub async fn start(&self) -> Result<(), MarmotKitError>
 
 Bring the runtime to local readiness.
 
-[Source](src/lib.rs#L400)
+[Source](src/lib.rs#L401)
 
 ### `Marmot::shutdown`
 
@@ -3708,7 +3708,7 @@ pub async fn shutdown(&self)
 
 Tear the runtime down. Drops all subscriptions; long-lived `EventsSubscription` / `ChatsSubscription` / etc. instances on the host side will see their `next()` return `None` shortly after.
 
-[Source](src/lib.rs#L412)
+[Source](src/lib.rs#L413)
 
 ### `Marmot::shutdown_and_close`
 
@@ -3720,7 +3720,7 @@ pub async fn shutdown_and_close(&self) -> Result<(), MarmotKitError>
 
 Terminally stop work, close storage and release root ownership; reconstruct before further reads/work.
 
-[Source](src/lib.rs#L447)
+[Source](src/lib.rs#L448)
 
 ### `Marmot::storage_is_closed`
 
@@ -3732,7 +3732,7 @@ pub fn storage_is_closed(&self) -> bool
 
 True once `Marmot::shutdown_and_close` has closed the store. A host can check this to confirm it is safe to be suspended, or to notice it is holding a spent handle and needs a fresh one.
 
-[Source](src/lib.rs#L455)
+[Source](src/lib.rs#L456)
 
 ### `Marmot::is_stopping`
 
@@ -3744,7 +3744,7 @@ pub fn is_stopping(&self) -> bool
 
 True once shutdown has started. Host apps can use this to avoid launching more subscriptions or account work while they are moving to the background.
 
-[Source](src/lib.rs#L462)
+[Source](src/lib.rs#L463)
 
 </details>
 
@@ -4563,7 +4563,7 @@ pub async fn continue_linking(&self, displayed_revision: u64) -> Result<(), Marm
 
 After genuine verification, feature builds accept revision-bound singleton continuation through the original actor-owned actions. Before verification or for gated existing-group enrollment, return typed NotReady. Default builds are Unsupported; no synchronized completion can be inferred from this operation.
 
-[Source](src/commands/device_linking.rs#L156)
+[Source](src/commands/device_linking.rs#L168)
 
 ### `DeviceLinkingSession::outgoing_packets`
 
@@ -4633,7 +4633,7 @@ pub fn close(&self)
 
 Close this observation stream and wake waiting reads. This is an independent negative observation control, not session cancellation; use the original session's cancel when ending verification.
 
-[Source](src/commands/device_linking.rs#L200)
+[Source](src/commands/device_linking.rs#L225)
 
 ### `DeviceLinkingSubscription::next`
 
@@ -4643,7 +4643,7 @@ pub async fn next(&self) -> Result<DeviceLinkingSnapshotFfi, MarmotKitError>
 
 Await the initial/coalesced observation with one active receiver. Explicit `close()` wakes pending reads with typed Closed; cancelled waits do not consume a future update. Session cancellation remains a separate operation.
 
-[Source](src/commands/device_linking.rs#L196)
+[Source](src/commands/device_linking.rs#L219)
 
 ### `Marmot::approve_device_linking_session`
 
@@ -4688,7 +4688,7 @@ pub async fn approve(&self, displayed_revision: u64) -> Result<(), MarmotKitErro
 
 **Current.** Explicit human approval of the revision actually displayed for this original existing-device action. Stale, expired or cancelled actions are refused; historical roster records cannot authorize this operation.
 
-[Source](src/commands/device_linking.rs#L174)
+[Source](src/commands/device_linking.rs#L186)
 
 ### `DeviceLinkingApproval::cancel`
 
@@ -4698,7 +4698,7 @@ pub async fn cancel(&self) -> Result<(), MarmotKitError>
 
 **Current.** Revoke this exact original existing-device action before waiting for worker cleanup. Prefer awaited cancellation when its account/UI scope ends; release all retained handles afterward.
 
-[Source](src/commands/device_linking.rs#L189)
+[Source](src/commands/device_linking.rs#L212)
 
 ### `DeviceLinkingApproval::receive_enrollment_packet`
 
@@ -4708,7 +4708,7 @@ pub async fn receive_enrollment_packet( &self, displayed_revision: u64, packet: 
 
 **Current.** Submit the approver’s bounded complete all-leaf packet under this original existing-device action and displayed revision. Rust authenticates the packet and stages the protected transition; successful receipt alone is not settlement.
 
-[Source](src/commands/device_linking.rs#L178)
+[Source](src/commands/device_linking.rs#L201)
 
 ### `Marmot::begin_selected_chat_copy`
 
@@ -4849,7 +4849,7 @@ pub async fn review_metadata( &self, displayed_revision: u64, ) -> Result<crate:
 
 Read authenticated display metadata from this original pending approval at the displayed revision. The returned source and joining device signature keys and predecessor device count are observations, never enrollment permission. Stale revisions and non-pending phases are refused; read a fresh snapshot before explicitly approving.
 
-[Source](src/commands/device_linking.rs#L163)
+[Source](src/commands/device_linking.rs#L175)
 
 ### `DeviceLinkingApproval::snapshot`
 
@@ -4859,7 +4859,7 @@ pub async fn snapshot(&self) -> Result<DeviceLinkingApprovalSnapshotFfi, MarmotK
 
 **Current.** Read the sanitized revision and approval phase. Settled is a historical observation of actual protected completion; it grants no further positive action. Display the returned revision before requesting approval.
 
-[Source](src/commands/device_linking.rs#L170)
+[Source](src/commands/device_linking.rs#L182)
 
 ### `DeviceLinkingSession::enrollment_packet`
 
@@ -4924,7 +4924,7 @@ pub async fn approve(&self, revision: u64) -> Result<(), MarmotKitError>
 
 Approve the authenticated request using the revision returned by this original consent object’s snapshot. Present its source device, chat and snapshot bounds first. A stale revision is rejected; cloning or observing the object never supplies approval.
 
-[Source](src/commands/history_transfer.rs#L91)
+[Source](src/commands/history_transfer.rs#L117)
 
 ### `HistoryConsent::cancel`
 
@@ -4934,7 +4934,7 @@ pub fn cancel(&self)
 
 Cancel this original consent and its unfinished work. All aliases share cancellation. Cancellation does not erase completed retained history or remove an admitted device.
 
-[Source](src/commands/history_transfer.rs#L98)
+[Source](src/commands/history_transfer.rs#L124)
 
 ### `HistoryConsent::snapshot`
 
@@ -4944,7 +4944,7 @@ pub async fn snapshot(&self) -> Result<HistoryTransferSnapshotFfi, MarmotKitErro
 
 Review the authenticated source, selected chat, snapshot bounds and current revision without approving the request. The returned record is read-only and cannot reconstruct a consent object.
 
-[Source](src/commands/history_transfer.rs#L87)
+[Source](src/commands/history_transfer.rs#L113)
 
 ### `HistoryTransfer::cancel`
 
@@ -4954,7 +4954,7 @@ pub fn cancel(&self)
 
 Cancel this original source action and its unfinished work. All aliases share cancellation; completed retained history and existing device membership remain governed by their separate policies.
 
-[Source](src/commands/history_transfer.rs#L79)
+[Source](src/commands/history_transfer.rs#L105)
 
 ### `HistoryTransfer::continue_transfer`
 
@@ -4964,7 +4964,7 @@ pub async fn continue_transfer(&self, revision: u64) -> Result<(), MarmotKitErro
 
 Continue the exact original source action using its current snapshot revision. App owns transport and retries. Successful continuation observes the authenticated final committed-import receipt; local publication or intermediate staging acknowledgments do not establish completion.
 
-[Source](src/commands/history_transfer.rs#L72)
+[Source](src/commands/history_transfer.rs#L98)
 
 ### `HistoryTransfer::snapshot`
 
@@ -4974,7 +4974,7 @@ pub async fn snapshot(&self) -> Result<HistoryTransferSnapshotFfi, MarmotKitErro
 
 Observe this original action’s selected chat, devices, snapshot bounds, revision and committed completion. The record carries no authority to create another action. Keep the original object with its originating account runtime.
 
-[Source](src/commands/history_transfer.rs#L68)
+[Source](src/commands/history_transfer.rs#L94)
 
 ### `Marmot::begin_history_transfer`
 
@@ -4984,7 +4984,7 @@ pub async fn begin_history_transfer( &self, account_ref: String, group_id_hex: S
 
 Begin a bounded logical-history transfer for one selected chat and one exact linked recipient. Retain the returned original source object. The recipient must separately approve its authenticated request; enrollment and ordinary membership do not approve history. Default builds return HistoryTransferUnsupported before parsing input or starting account workers.
 
-[Source](src/commands/history_transfer.rs#L17)
+[Source](src/commands/history_transfer.rs#L43)
 
 ### `Marmot::pending_history_requests`
 
@@ -4994,7 +4994,7 @@ pub async fn pending_history_requests( &self, account_ref: String, ) -> Result<V
 
 Poll authenticated requests for this account without approving them. Retain an original returned consent object while displaying its snapshot, then explicitly approve its current revision. Reopening an account does not restore consent from stored receipts. Default builds return HistoryTransferUnsupported before account effects.
 
-[Source](src/commands/history_transfer.rs#L42)
+[Source](src/commands/history_transfer.rs#L68)
 
 </details>
 
@@ -5009,3 +5009,285 @@ pub fn synchronized_history_page( &self, account_ref: String, group_id_hex: Stri
 Read a bounded committed logical archive separately from live conversation rows. This synchronous App-policy query uses a nonempty opaque MLS group ID, a 1–200 page limit and optional exact 32-byte message-ID hex cursor. Offload storage work from the UI thread. Results retain source-attested provenance and ordered media verdicts, confer no transfer/download permission, and may require a final empty page. Default builds refuse before parsing or account work; normal experimental account/storage initialization can occur. See [reader contract](SYNCHRONIZED-HISTORY.md).
 
 [Source](src/commands/synchronized_history.rs#L8)
+
+### `Marmot::history_transfer_recipients`
+
+```rust
+pub async fn history_transfer_recipients( &self, account_ref: String, group_id_hex: String, ) -> Result<Vec<HistoryTransferRecipientFfi>, MarmotKitError>
+```
+
+Observe bounded current linked-recipient choices for an ordinary MLS chat. Each record has the actual protected-group leaf index and public device identity, excluding the local device. Listing creates no transfer or consent. Pass the selected device identity to `begin_history_transfer`, which independently revalidates eligibility. Default builds refuse before input parsing or account effects. See [the original-history contract](HISTORY-TRANSFER.md).
+
+[Source](src/commands/history_transfer.rs#L17)
+
+
+
+### `AccountSharingApproval::approve`
+
+```rust
+pub async fn approve(&self, displayed_revision: u64) -> Result<(), MarmotKitError>
+```
+
+Approve the held authenticated original at the revision displayed to the user. The scope covers existing and future chats, history, and messaging between this pair; never infer approval from snapshot fields. Stale, cancelled, retired or unavailable originals return typed errors.
+
+[Source](src/commands/account_chat_sharing.rs#L53)
+
+
+### `AccountSharingApproval::cancel`
+
+```rust
+pub fn cancel(&self)
+```
+
+Cancel an unfinished original and its live negotiation. Shared aliases retain the same owner; dropping the final alias also cancels unfinished work. This is not a revocation operation for a completed durable sharing policy.
+
+[Source](src/commands/account_chat_sharing.rs#L132)
+
+
+### `AccountSharingApproval::snapshot`
+
+```rust
+pub fn snapshot(&self) -> Result<AccountSharingSnapshotFfi, MarmotKitError>
+```
+
+Observe the authenticated original’s device identities, protected epoch, revision and completion. These fields are display observations and cannot recreate consent. Completion reports the negotiated durable policy, not installed chat-delivery acceptance.
+
+[Source](src/commands/account_chat_sharing.rs#L128)
+
+
+### `DeviceLinkingSession::continue_linking_and_share_chats`
+
+```rust
+pub async fn continue_linking_and_share_chats( &self, displayed_revision: u64, ) -> Result<(), MarmotKitError>
+```
+
+Explicitly continue the original verified pairing while approving account-wide chat sharing with its authenticated peer. Display the existing/future-chat, history and messaging scope before invoking the named action. Ordinary continue_linking retains its narrower scope; use the displayed revision and handle stale/cancelled originals.
+
+[Source](src/commands/device_linking.rs#L158)
+
+
+### `Marmot::account_chat_sharing_targets`
+
+```rust
+pub async fn account_chat_sharing_targets( &self, account_ref: String, ) -> Result<AccountSharingTargetsFfi, MarmotKitError>
+```
+
+List current actual Completed same-account protected peers in leaf-index order. Pending, removed and local devices are excluded. This read grants no permission; begin_account_chat_sharing freshly revalidates the selected device. Default builds return typed Unsupported before account validation or effects.
+
+[Source](src/commands/account_chat_sharing.rs#L11)
+
+
+### `Marmot::begin_account_chat_sharing`
+
+```rust
+pub async fn begin_account_chat_sharing( &self, account_ref: String, recipient_device: Vec<u8>, ) -> Result<Arc<AccountSharingApproval>, MarmotKitError>
+```
+
+Create an opaque original review for an existing paired device selected from account_chat_sharing_targets. The recipient public-device key must identify a current authenticated protected peer. This avoids re-enrolling an existing pair and does not approve it automatically; both original reviews require explicit revision-bound approval.
+
+[Source](src/commands/account_chat_sharing.rs#L23)
+
+
+### `Marmot::pending_account_chat_sharing`
+
+```rust
+pub async fn pending_account_chat_sharing( &self, account_ref: String, ) -> Result<Vec<Arc<AccountSharingApproval>>, MarmotKitError>
+```
+
+Return aliases of authenticated requests addressed to this account’s current local device. Polling never grants permission. Retain the original object while presenting its review and invoke approve only after the user accepts its broad scope; preserve account selection and displayed revisions across asynchronous work.
+
+[Source](src/commands/account_chat_sharing.rs#L36)
+
+</details>
+
+<details>
+<summary>New exports — complete and organize before merging</summary>
+
+
+### `AccountChatListWindowSubscription::cancel`
+
+```rust
+pub fn cancel(&self)
+```
+
+Synchronously cancel the original App window and clear its initial snapshot. This is idempotent and wakes a pending receiver; it does not change account sharing consent.
+
+[Source](src/subscriptions/account_chat_windows.rs#L62)
+
+
+### `AccountChatListWindowSubscription::next`
+
+```rust
+pub async fn next(&self) -> Result<Option<AccountChatListWindowSnapshotFfi>, MarmotKitError>
+```
+
+Receive complete replacement snapshots with one active receiver. Install the initial snapshot first; commands and cancellation do not acquire the receiver lock. Closure returns None.
+
+[Source](src/subscriptions/account_chat_windows.rs#L35)
+
+
+### `AccountChatListWindowSubscription::paired_page`
+
+```rust
+pub async fn paired_page( &self, sequence: u64, after_group_id_hex: Option<String>, ) -> Result<AccountChatListWindowSnapshotFfi, MarmotKitError>
+```
+
+Fetch a bounded paired-source catalog page using the installed sequence and opaque returned group cursor. Stale sequences fail; ordinary chat paging remains on its original window.
+
+[Source](src/subscriptions/account_chat_windows.rs#L46)
+
+
+### `AccountChatListWindowSubscription::snapshot`
+
+```rust
+pub fn snapshot(&self) -> Option<AccountChatListWindowSnapshotFfi>
+```
+
+Take the initial replacement exactly once. Display rows without concatenating the nested ordinary metadata rows again; subsequent calls return None.
+
+[Source](src/subscriptions/account_chat_windows.rs#L31)
+
+
+### `AccountConversationWindowSubscription::cancel`
+
+```rust
+pub fn cancel(&self)
+```
+
+Synchronously cancel the original App conversation view and clear its initial snapshot. Cancellation wakes receivers and grants or revokes no sharing authority.
+
+[Source](src/subscriptions/account_chat_windows.rs#L122)
+
+
+### `AccountConversationWindowSubscription::next`
+
+```rust
+pub async fn next( &self, ) -> Result<Option<AccountConversationWindowSnapshotFfi>, MarmotKitError>
+```
+
+Receive one complete replacement with a single active receiver. Preserve local-MLS versus paired-source row provenance; closure returns None.
+
+[Source](src/subscriptions/account_chat_windows.rs#L96)
+
+
+### `AccountConversationWindowSubscription::older_page`
+
+```rust
+pub async fn older_page( &self, sequence: u64, before: Option<PairedChatMessageCursorFfi>, ) -> Result<AccountConversationWindowSnapshotFfi, MarmotKitError>
+```
+
+Fetch bounded earlier observations using the installed sequence and returned chronological cursor verbatim. Stale sequences fail; this command grants no send, moderation or attachment authority.
+
+[Source](src/subscriptions/account_chat_windows.rs#L109)
+
+
+### `AccountConversationWindowSubscription::snapshot`
+
+```rust
+pub fn snapshot(&self) -> Option<AccountConversationWindowSnapshotFfi>
+```
+
+Take the initial replacement once. Use the explicitly local or paired-source header; retain the ordinary conversation window for authenticated system content and revision-bound actions.
+
+[Source](src/subscriptions/account_chat_windows.rs#L93)
+
+
+### `Marmot::open_account_chat_list_window`
+
+```rust
+pub async fn open_account_chat_list_window( &self, account_ref: String, initial_rows: u32, ) -> Result<Arc<AccountChatListWindowSubscription>, MarmotKitError>
+```
+
+Open a cancellable account-owned view of ordinary and paired-source chats with 2–128 retained rows. The experimental feature is required. Default builds refuse before opening a window; this is a local view, not a manual sync trigger.
+
+[Source](src/commands/account_chat_windows.rs#L13)
+
+
+### `Marmot::open_account_conversation_window`
+
+```rust
+pub async fn open_account_conversation_window( &self, account_ref: String, group_id_hex: String, initial_rows: u32, ) -> Result<Arc<AccountConversationWindowSubscription>, MarmotKitError>
+```
+
+Open a cancellable account conversation view with 1–128 rows and an explicit local or paired-source header. The experimental feature is required; ordinary authority remains with the original ordinary conversation window.
+
+[Source](src/commands/account_chat_windows.rs#L29)
+
+
+### `Marmot::paired_chat_list_page`
+
+```rust
+pub async fn paired_chat_list_page( &self, account_ref: String, after_group_id_hex: Option<String>, limit: u32, ) -> Result<PairedChatListPageFfi, MarmotKitError>
+```
+
+Read a bounded authenticated paired-source catalog page without networking or reconstructed MLS membership. Pass the opaque group cursor verbatim. Default builds return Unsupported before decoding inputs.
+
+[Source](src/commands/account_chat_presentation.rs#L34)
+
+
+### `Marmot::paired_chat_message_page`
+
+```rust
+pub async fn paired_chat_message_page( &self, account_ref: String, group_id_hex: String, after: Option<PairedChatMessageCursorFfi>, limit: u32, ) -> Result<PairedChatMessagePageFfi, MarmotKitError>
+```
+
+Read bounded canonical message observations and source provenance using the returned message-ID/time cursor. This local read grants no send, attachment or moderation authority; default builds refuse before decoding inputs.
+
+[Source](src/commands/account_chat_presentation.rs#L55)
+
+</details>
+
+
+### `DeviceLinkingApproval::approve_and_share_chats`
+
+```rust
+pub async fn approve_and_share_chats( &self, displayed_revision: u64, ) -> Result<(), MarmotKitError>
+```
+
+Approve this exact original existing-device enrollment while authorizing existing and future chat sharing with the joining device. Use the revision actually displayed by this handle; ordinary approval cannot be upgraded retrospectively. Retain the same handle through packet admission and settlement. Cancellation immediately retires pending original work, and `Settled` is reported only after the durable bilateral handoff completes. This does not confer ordinary MLS membership or recreate an approval after restart.
+
+[Source](src/commands/device_linking.rs#L191)
+
+
+### `DeviceRevocation::approve`
+
+```rust
+pub async fn approve(&self, revision: u64) -> Result<(), MarmotKitError>
+```
+
+Approve this held original at the displayed revision; Core revalidates its exact device and captured group lineage. See [exact-device revocation](DEVICE-REVOCATION.md).
+
+[Source](src/commands/device_revocation.rs#L45)
+
+
+### `DeviceRevocation::cancel`
+
+```rust
+pub fn cancel(&self)
+```
+
+Permanently cancel this original across all shared aliases; confirmed removals are retained. See [exact-device revocation](DEVICE-REVOCATION.md).
+
+[Source](src/commands/device_revocation.rs#L52)
+
+
+### `DeviceRevocation::snapshot`
+
+```rust
+pub async fn snapshot(&self) -> Result<DeviceRevocationSnapshotFfi, MarmotKitError>
+```
+
+Read captured target/groups, displayed revision and per-group confirmed progress. This record cannot reconstruct a Remove action. See [exact-device revocation](DEVICE-REVOCATION.md).
+
+[Source](src/commands/device_revocation.rs#L41)
+
+
+### `Marmot::begin_device_revocation`
+
+```rust
+pub async fn begin_device_revocation( &self, account_ref: String, target_device: Vec<u8>, ) -> Result<Arc<DeviceRevocation>, MarmotKitError>
+```
+
+Create a fresh authenticated original review for an exact 32-byte device selector. Default builds refuse before account effects; explicit approval is separate. See [exact-device revocation](DEVICE-REVOCATION.md).
+
+[Source](src/commands/device_revocation.rs#L13)

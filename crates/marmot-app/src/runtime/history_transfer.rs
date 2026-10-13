@@ -1,11 +1,15 @@
 //! Scope-free host commands; the account worker retains original Core channels.
 use super::{AccountManager, AccountWorkerCommand};
-use crate::history_transfer::{HistoryTransferError, enabled::State};
+use crate::history_transfer::{HistoryTransferError, HistoryTransferRecipient, enabled::State};
 use cgka_traits::GroupId;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 type Reply<T> = oneshot::Sender<Result<T, HistoryTransferError>>;
 pub(crate) enum Command {
+    Recipients {
+        group: GroupId,
+        respond: Reply<Vec<HistoryTransferRecipient>>,
+    },
     #[cfg(all(test, feature = "test-policy-overrides"))]
     ObservedChunks {
         respond: Reply<(usize, usize, usize, usize, usize)>,
@@ -51,6 +55,21 @@ pub(crate) enum Command {
     },
 }
 impl AccountManager {
+    pub(crate) async fn query_history_recipients(
+        &self,
+        account: &str,
+        group: &GroupId,
+    ) -> Result<Vec<HistoryTransferRecipient>, HistoryTransferError> {
+        if group.as_slice().is_empty() || group.as_slice().len() > 255 {
+            return Err(HistoryTransferError::NotReady);
+        }
+        self.send_history(account, |respond| Command::Recipients {
+            group: group.clone(),
+            respond,
+        })
+        .await
+    }
+
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) async fn next_original_history_lifetime_for_test(
         &self,
@@ -182,6 +201,9 @@ impl AccountManager {
 }
 pub(crate) async fn handle(client: &mut crate::AppClient, command: Command) {
     match command {
+        Command::Recipients { group, respond } => {
+            let _ = respond.send(client.history_recipients(&group));
+        }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         Command::ObservedChunks { respond } => {
             let _ = respond.send(Ok((

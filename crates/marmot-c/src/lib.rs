@@ -22,10 +22,13 @@ use std::sync::Arc;
 
 use marmot_uniffi::Marmot;
 
+mod account_chat_presentation;
+pub mod account_chat_sharing;
 pub mod attachment_access;
 pub mod attachment_history;
 pub mod commands;
 pub mod device_linking;
+pub mod device_revocation;
 pub mod file_media;
 pub mod history_transfer;
 pub(crate) mod macros;

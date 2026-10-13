@@ -17,6 +17,20 @@ pub enum HistoryTransferError {
     RuntimeUnavailable,
 }
 
+/// Current eligible linked device observation; never consent or transfer authority.
+#[derive(Clone, PartialEq, Eq)]
+pub struct HistoryTransferRecipient {
+    pub leaf_index: u32,
+    pub device: Vec<u8>,
+}
+impl std::fmt::Debug for HistoryTransferRecipient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HistoryTransferRecipient")
+            .field("leaf_index", &self.leaf_index)
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HistoryTransferSnapshot {
     pub revision: u64,
@@ -54,6 +68,24 @@ pub struct HistoryConsent {
     _private: (),
 }
 impl AccountManager {
+    /// List fresh Core-derived eligible recipients for one ordinary chat.
+    /// The result creates no original transfer, recipient request or consent.
+    pub async fn history_transfer_recipients(
+        &self,
+        account: &str,
+        group: &GroupId,
+    ) -> Result<Vec<HistoryTransferRecipient>, HistoryTransferError> {
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            self.query_history_recipients(account, group).await
+        }
+        #[cfg(not(feature = "experimental-device-sync"))]
+        {
+            let _ = (account, group);
+            Err(HistoryTransferError::Unsupported)
+        }
+    }
+
     pub async fn begin_history_transfer(
         &self,
         account: &str,
@@ -197,6 +229,12 @@ mod tests {
             manager.pending_history_requests("missing").await,
             Err(HistoryTransferError::Unsupported)
         ));
+        assert!(matches!(
+            manager
+                .history_transfer_recipients("missing", &GroupId::new(vec![]))
+                .await,
+            Err(HistoryTransferError::Unsupported)
+        ));
         assert!(manager.managed_accounts().unwrap().is_empty());
         runtime.shutdown_and_close().await.unwrap();
     }
@@ -234,5 +272,35 @@ impl HistoryTransfer {
                 message_id,
             )
             .await
+    }
+}
+
+#[cfg(all(test, feature = "experimental-device-sync"))]
+mod recipient_tests {
+    use super::*;
+    #[tokio::test]
+    async fn history_recipient_query_validates_group_bounds_before_worker_effects() {
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = crate::MarmotAppRuntime::new(crate::MarmotApp::with_relay(
+            dir.path(),
+            "wss://relay.example",
+        ));
+        let manager = runtime.accounts();
+        for bytes in [vec![], vec![1; 256]] {
+            assert!(matches!(
+                manager
+                    .history_transfer_recipients("missing", &GroupId::new(bytes))
+                    .await,
+                Err(HistoryTransferError::NotReady)
+            ));
+        }
+        assert!(matches!(
+            manager
+                .history_transfer_recipients("missing", &GroupId::new(vec![1; 16]))
+                .await,
+            Err(HistoryTransferError::RuntimeUnavailable)
+        ));
+        assert!(manager.managed_accounts().unwrap().is_empty());
+        runtime.shutdown_and_close().await.unwrap();
     }
 }

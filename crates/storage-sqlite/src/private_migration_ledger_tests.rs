@@ -771,7 +771,10 @@ fn private_history_request_revision15_preserves_encrypted_revision14_prefix() {
         .unwrap();
     drop(conn);
     let mut conn = encrypted(&path);
-    assert_eq!(run_all(&mut conn).unwrap(), 1 + MIGRATIONS.len() - 102);
+    assert_eq!(
+        run_all(&mut conn).unwrap(),
+        PRIVATE_MIGRATIONS.len() - 14 + MIGRATIONS.len() - 102
+    );
     assert_eq!(run_all(&mut conn).unwrap(), 0);
     assert_eq!(conn.query_row("SELECT count(*) FROM cgka_experimental_device_sync_schema_migrations WHERE version<=14 AND applied_at_unix_seconds=17",[],|r|r.get::<_,i64>(0)).unwrap(),14);
     assert_eq!(
@@ -800,4 +803,83 @@ fn private_history_request_revision15_preserves_encrypted_revision14_prefix() {
         .unwrap(),
         1
     );
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[test]
+fn private_origin_revision25_preserves_all_old_terminal_scopes() {
+    // These are old-writer terminal observations, not authenticated rejoin
+    // authority. Different policy scopes collapse onto one retained origin cut.
+    for reverse in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("revision24.sqlite");
+        let mut conn = encrypted(&path);
+        run(&mut conn, MIGRATIONS).unwrap();
+        conn.execute_batch(super::private_migration_ledger::NAMESPACE_SQL)
+            .unwrap();
+        for migration in PRIVATE_MIGRATIONS.iter().take(24) {
+            let tx = conn.transaction().unwrap();
+            (migration.apply)(&tx).unwrap();
+            tx.execute(
+                "INSERT INTO cgka_experimental_device_sync_schema_migrations(version,name,applied_at_unix_seconds) VALUES(?1,?2,17)",
+                params![migration.version, migration.name],
+            ).unwrap();
+            tx.commit().unwrap();
+        }
+        let observations = if reverse {
+            [(2, 4), (1, 9)]
+        } else {
+            [(1, 9), (2, 4)]
+        };
+        for (index, (state, epoch)) in observations.into_iter().enumerate() {
+            let scope = [index as u8 + 1; 32];
+            conn.execute(
+                "INSERT INTO mirrored_chat_scopes VALUES(?1,?2,?3,?4)",
+                params![scope, [1u8; 32], [2u8; 32], [3u8; 32]],
+            )
+            .unwrap();
+            let record = serde_json::to_vec(&serde_json::json!({ "source_epoch": epoch })).unwrap();
+            conn.execute(
+                "INSERT INTO mirrored_chat_catalog VALUES(?1,?2,1,?3,?4)",
+                params![scope, [7u8; 16], state, record],
+            )
+            .unwrap();
+        }
+        drop(conn);
+        let mut conn = encrypted(&path);
+        assert_eq!(run_all(&mut conn).unwrap(), PRIVATE_MIGRATIONS.len() - 24);
+        assert_eq!(run_all(&mut conn).unwrap(), 0);
+        let retained: (i64, i64, i64, Vec<u8>) = conn
+            .query_row(
+                "SELECT origin_order,epoch,state,origin_id FROM mirrored_chat_origin_fences",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(retained, (0, 9, 2, vec![0; 32]));
+        assert_eq!(
+            conn.query_row(
+                "SELECT count(*) FROM mirrored_chat_origin_fences",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            conn.query_row("SELECT count(*) FROM mirrored_chat_catalog", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        // Replacement must not downgrade either the Deleted verdict or the
+        // greatest observed canonical epoch after migration.
+        assert!(
+            conn.execute(
+                "INSERT OR REPLACE INTO mirrored_chat_origin_fences VALUES(?1,?2,?3,?4,?5,0,4,1)",
+                params![[1u8; 32], [2u8; 32], [3u8; 32], [7u8; 16], [0u8; 32]],
+            )
+            .is_err()
+        );
+    }
 }

@@ -98,10 +98,25 @@ impl<S: StorageProvider> Engine<S> {
                             &fact.draft.successor,
                         )
                 });
+            let revoked = storage
+                .revoked_device_group_anchor_storage()
+                .map(|store| store.revoked_anchor())
+                .transpose()?
+                .flatten()
+                .filter(|fact| {
+                    !fact.denied
+                        && fact.generation != 0
+                        && fact.draft.group_id == *group
+                        && actual.matches(
+                            &fact.draft.account,
+                            &fact.draft.local_device,
+                            &fact.draft.successor,
+                        )
+                });
             // Each genuine successor has one protected local origin. Conflicting
             // matching origins cannot choose their authority by precedence.
-            let anchor = match (accepted, confirmed, existing) {
-                (Some(fact), None, None) => PrivateSettlementAnchor {
+            let anchor = match (accepted, confirmed, existing, revoked) {
+                (Some(fact), None, None, None) => PrivateSettlementAnchor {
                     origin: PrivateInviteOrigin::Accepted(fact.scope.selection_generation),
                     account: fact.scope.account,
                     local_device: fact.scope.local_device,
@@ -112,7 +127,7 @@ impl<S: StorageProvider> Engine<S> {
                     context_digest: fact.draft.context_digest,
                     coordinator: fact.draft.approver,
                 },
-                (None, Some(fact), None) => PrivateSettlementAnchor {
+                (None, Some(fact), None, None) => PrivateSettlementAnchor {
                     origin: PrivateInviteOrigin::Confirmed(fact.scope.staging_generation),
                     account: fact.scope.account,
                     local_device: fact.scope.local_device,
@@ -123,7 +138,7 @@ impl<S: StorageProvider> Engine<S> {
                     context_digest: fact.binding.context_digest,
                     coordinator: fact.binding.approver_scope.local_device,
                 },
-                (None, None, Some(fact)) => PrivateSettlementAnchor {
+                (None, None, Some(fact), None) => PrivateSettlementAnchor {
                     origin: PrivateInviteOrigin::Existing(fact.generation),
                     account: fact.draft.account,
                     local_device: fact.draft.local_device,
@@ -133,6 +148,17 @@ impl<S: StorageProvider> Engine<S> {
                     enrollment_nonce: fact.draft.nonce,
                     context_digest: fact.draft.context_digest,
                     coordinator: fact.draft.coordinator,
+                },
+                (None, None, None, Some(fact)) => PrivateSettlementAnchor {
+                    origin: PrivateInviteOrigin::Revoked(fact.generation),
+                    account: fact.draft.account,
+                    local_device: fact.draft.local_device,
+                    group_id: group.clone(),
+                    successor: fact.draft.successor,
+                    roster_commitment: candidate.roster_commitment,
+                    enrollment_nonce: fact.draft.nonce,
+                    context_digest: fact.draft.context_digest,
+                    coordinator: fact.draft.source_device,
                 },
                 _ => return Ok(None),
             };
@@ -223,9 +249,24 @@ pub(crate) fn anchor_matches_actual_tree<S: StorageProvider>(
                     &fact.draft.successor,
                 )
         });
+    let revoked = storage
+        .revoked_device_group_anchor_storage()
+        .map(|store| store.revoked_anchor())
+        .transpose()?
+        .flatten()
+        .filter(|fact| {
+            !fact.denied
+                && fact.generation != 0
+                && fact.draft.group_id == *group_id
+                && actual.matches(
+                    &fact.draft.account,
+                    &fact.draft.local_device,
+                    &fact.draft.successor,
+                )
+        });
     // The same ambiguity rule as fresh Engine evidence: no precedence grant.
-    let matches = match (accepted, confirmed, existing) {
-        (Some(fact), None, None) => {
+    let matches = match (accepted, confirmed, existing, revoked) {
+        (Some(fact), None, None, None) => {
             anchor.origin == PrivateInviteOrigin::Accepted(fact.scope.selection_generation)
                 && anchor.account == fact.scope.account
                 && anchor.local_device == fact.scope.local_device
@@ -234,7 +275,7 @@ pub(crate) fn anchor_matches_actual_tree<S: StorageProvider>(
                 && anchor.context_digest == fact.draft.context_digest
                 && anchor.coordinator == fact.draft.approver
         }
-        (None, Some(fact), None) => {
+        (None, Some(fact), None, None) => {
             anchor.origin == PrivateInviteOrigin::Confirmed(fact.scope.staging_generation)
                 && anchor.account == fact.scope.account
                 && anchor.local_device == fact.scope.local_device
@@ -243,7 +284,7 @@ pub(crate) fn anchor_matches_actual_tree<S: StorageProvider>(
                 && anchor.context_digest == fact.binding.context_digest
                 && anchor.coordinator == fact.binding.approver_scope.local_device
         }
-        (None, None, Some(fact)) => {
+        (None, None, Some(fact), None) => {
             anchor.origin == PrivateInviteOrigin::Existing(fact.generation)
                 && anchor.account == fact.draft.account
                 && anchor.local_device == fact.draft.local_device
@@ -251,6 +292,15 @@ pub(crate) fn anchor_matches_actual_tree<S: StorageProvider>(
                 && anchor.enrollment_nonce == fact.draft.nonce
                 && anchor.context_digest == fact.draft.context_digest
                 && anchor.coordinator == fact.draft.coordinator
+        }
+        (None, None, None, Some(fact)) => {
+            anchor.origin == PrivateInviteOrigin::Revoked(fact.generation)
+                && anchor.account == fact.draft.account
+                && anchor.local_device == fact.draft.local_device
+                && anchor.successor == fact.draft.successor
+                && anchor.enrollment_nonce == fact.draft.nonce
+                && anchor.context_digest == fact.draft.context_digest
+                && anchor.coordinator == fact.draft.source_device
         }
         _ => false,
     };

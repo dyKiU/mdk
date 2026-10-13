@@ -92,6 +92,15 @@ impl SettlementGuard {
     pub(crate) fn scope(&self) -> &PurposeAttemptScope {
         &self.scope
     }
+    pub(crate) fn matches_original_context(&self, context: &LinkingContext) -> bool {
+        self.is_live()
+            && self
+                .context
+                .digest()
+                .ok()
+                .zip(context.digest().ok())
+                .is_some_and(|(own, other)| own == other)
+    }
     pub(crate) fn group(&self) -> GroupId {
         GroupId::new(self.context.device_group.clone())
     }

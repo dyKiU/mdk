@@ -563,6 +563,15 @@ pub(crate) fn own_commit_checkpoint_id<S: StorageProvider>(
     storage: &S,
     message_id: &MessageId,
 ) -> Result<String, cgka_traits::error::EngineError> {
+    Ok(format!(
+        "openmls-own-commit-v1-{}",
+        hex::encode(own_commit_message_digest(storage, message_id)?)
+    ))
+}
+pub(crate) fn own_commit_message_digest<S: StorageProvider>(
+    storage: &S,
+    message_id: &MessageId,
+) -> Result<[u8; 32], cgka_traits::error::EngineError> {
     let record = storage.get_message(message_id)?;
     let payload = StoredMessagePayload::decode(&record.payload)
         .map_err(|error| cgka_traits::error::EngineError::Serialize(error.to_string()))?;
@@ -578,10 +587,7 @@ pub(crate) fn own_commit_checkpoint_id<S: StorageProvider>(
             "own commit record is not a commit".into(),
         ));
     }
-    Ok(format!(
-        "openmls-own-commit-v1-{}",
-        hex::encode(projection.message_digest)
-    ))
+    Ok(projection.message_digest)
 }
 
 pub(crate) fn own_commit_post_merge_epoch_authenticator(merged: &MlsGroup) -> String {
@@ -1423,6 +1429,7 @@ pub(crate) fn process_current_openmls_application<S: StorageProvider>(
         None,
         #[cfg(feature = "experimental-device-sync")]
         Some(&mut PrivateReplayEffects {
+            revocation_transition: None,
             enrollment: &mut enrollment_effects,
             enrollment_intake,
             existing_transition: None,
@@ -2799,6 +2806,8 @@ pub(crate) fn apply_openmls_canonicalization_result_with_profile_policy<S: Stora
         None,
         #[cfg(feature = "experimental-device-sync")]
         None,
+        #[cfg(feature = "experimental-device-sync")]
+        None,
     )
 }
 
@@ -2816,6 +2825,9 @@ pub(crate) fn apply_openmls_canonicalization_result_with_profile_policy_and_sett
     >,
     #[cfg(feature = "experimental-device-sync")] enrollment_intake: Option<
         &crate::private_enrollment_request::EnrollmentIntake,
+    >,
+    #[cfg(feature = "experimental-device-sync")] revocation_transition: Option<
+        &crate::device_leaf_revocation::transition::DeviceRevocationTransitionState,
     >,
     #[cfg(feature = "experimental-device-sync")] existing_transition: Option<
         &std::sync::Arc<crate::private_enrollment_endorsement::OwnedExistingEnrollmentTransition>,
@@ -2947,6 +2959,7 @@ pub(crate) fn apply_openmls_canonicalization_result_with_profile_policy_and_sett
             profile_policy,
             #[cfg(feature = "experimental-device-sync")]
             PrivateReplayInputs {
+                revocation_transition,
                 settlement_admission,
                 enrollment_intake,
                 existing_transition,
@@ -2963,6 +2976,16 @@ pub(crate) fn apply_openmls_canonicalization_result_with_profile_policy_and_sett
             guard
                 .check_applied(storage, group_id)
                 .map_err(capture_effect_error)?;
+        }
+        #[cfg(feature = "experimental-device-sync")]
+        if observations
+            .staged_settlement_admission
+            .as_ref()
+            .is_some_and(|admission| !admission.is_live())
+        {
+            return Err(OpenMlsProjectionError::Replay(
+                "original Remove admission expired at apply tail".into(),
+            ));
         }
         Ok(observations)
     });
@@ -3428,6 +3451,8 @@ fn oldest_retained_epoch(retained_epoch: u64, max_retained_anchor_rewind: u64) -
 /// supply neither source and cannot mint metadata or settlement facts.
 #[cfg(feature = "experimental-device-sync")]
 struct PrivateReplayInputs<'a> {
+    revocation_transition:
+        Option<&'a crate::device_leaf_revocation::transition::DeviceRevocationTransitionState>,
     settlement_admission:
         Option<&'a std::sync::Arc<crate::private_roster_settlement::LiveSettlementAdmission>>,
     enrollment_intake: Option<&'a crate::private_enrollment_request::EnrollmentIntake>,
@@ -3451,6 +3476,7 @@ fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
 ) -> Result<OpenMlsApplyOutput, OpenMlsProjectionError> {
     #[cfg(feature = "experimental-device-sync")]
     let PrivateReplayInputs {
+        revocation_transition,
         settlement_admission,
         enrollment_intake,
         existing_transition,
@@ -3492,6 +3518,7 @@ fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
             Some(max_retained_anchor_rewind),
             #[cfg(feature = "experimental-device-sync")]
             Some(&mut PrivateReplayEffects {
+                revocation_transition,
                 enrollment: &mut enrollment_effects,
                 enrollment_intake,
                 existing_transition,
@@ -4351,6 +4378,8 @@ fn project_pending_canonicalization_messages(
 /// readability probe omits this context and cannot retain confirmation facts.
 #[cfg(feature = "experimental-device-sync")]
 struct PrivateReplayEffects<'a> {
+    revocation_transition:
+        Option<&'a crate::device_leaf_revocation::transition::DeviceRevocationTransitionState>,
     enrollment: &'a mut Vec<crate::private_enrollment_request::EnrollmentEffect>,
     enrollment_intake: Option<&'a crate::private_enrollment_request::EnrollmentIntake>,
     existing_transition: Option<
@@ -4836,6 +4865,28 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                     .transpose()
                     .map_err(capture_effect_error)?
                     .unwrap_or(false);
+                #[cfg(feature = "experimental-device-sync")]
+                let revoked_intent = if retain_replayed_anchors.is_some() {
+                    private_effects
+                        .as_ref()
+                        .and_then(|effects| effects.revocation_transition)
+                        .map(|state| {
+                            state.capture(
+                                storage,
+                                group_id,
+                                &mls_group,
+                                &staged,
+                                committer_index,
+                                projection.message_digest,
+                                None,
+                            )
+                        })
+                        .transpose()
+                        .map_err(capture_effect_error)?
+                        .flatten()
+                } else {
+                    None
+                };
                 mls_group
                     .merge_staged_commit(&provider, *staged)
                     .map_err(|e| {
@@ -4854,6 +4905,21 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                     })?;
                     *effects.staged_admission.as_deref_mut().ok_or_else(|| {
                         OpenMlsProjectionError::Replay("missing staged admission output".into())
+                    })? = Some(admission);
+                }
+                #[cfg(feature = "experimental-device-sync")]
+                if let Some(intent) = revoked_intent {
+                    let guard = intent
+                        .install_applied(storage, group_id, &mls_group)
+                        .map_err(capture_effect_error)?;
+                    let admission = crate::private_roster_settlement::LiveSettlementAdmission::select_applied_revoked(storage, group_id, &mls_group, guard).map_err(capture_effect_error)?;
+                    let effects = private_effects.as_mut().ok_or_else(|| {
+                        OpenMlsProjectionError::Replay("missing original Remove apply owner".into())
+                    })?;
+                    *effects.staged_admission.as_deref_mut().ok_or_else(|| {
+                        OpenMlsProjectionError::Replay(
+                            "missing original Remove admission output".into(),
+                        )
                     })? = Some(admission);
                 }
                 observations.push(OpenMlsReplayObservation::CommitStaged {

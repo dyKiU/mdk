@@ -1133,6 +1133,30 @@ impl<S: StorageProvider> Engine<S> {
         let msg_epoch = EpochId(proto.epoch().as_u64());
         let msg_content_type = proto.content_type();
 
+        #[cfg(feature = "experimental-device-sync")]
+        if msg_content_type == ContentType::Commit
+            && let Some(origin) = self.live_enrollment_ingress.as_ref()
+            && origin.id == raw_msg_id
+            && crate::private_roster_settlement::completed_round_for_predecessor_tree(
+                &self.storage,
+                &group_id,
+                &mls_group,
+            )?
+            .is_some()
+        {
+            let projection = project_mls_message(&openmls_msg.payload).map_err(|error| {
+                crate::openmls_projection::enrollment_replay_error(
+                    error,
+                    "original Remove receipt projection failed",
+                )
+            })?;
+            self.revocation_transition.observe_live_receipt(
+                &group_id,
+                projection.message_digest,
+                origin.deadline,
+            )?;
+        }
+
         // Pre-membership classification (mdk#339): an application
         // message whose MLS epoch precedes this device's join epoch can
         // never be decrypted here by design — OpenMLS holds no secrets

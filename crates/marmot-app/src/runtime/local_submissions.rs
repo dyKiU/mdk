@@ -155,6 +155,13 @@ impl MarmotAppRuntime {
             .app
             .account_storage(&account.label)?
             .local_submission(&hex::encode(group.as_slice()), token)?;
+        #[cfg(feature = "experimental-device-sync")]
+        if submission.is_none() {
+            return self
+                .accounts
+                .app
+                .forwarded_local_send_status(&account.label, group, token);
+        }
         submission
             .map(|s| {
                 Ok(if let Some(json) = s.outcome_json {
@@ -331,6 +338,35 @@ impl MarmotAppRuntime {
     ) -> Result<crate::LocalSendAcceptance, AppError> {
         self.accounts.worker_commands(account).await?;
         let account = self.accounts.resolve(account)?;
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            use cgka_traits::storage::GroupStorage;
+            match self
+                .accounts
+                .app
+                .account_storage(&account.label)?
+                .get_group(group)
+            {
+                Err(cgka_traits::storage::StorageError::NotFound) => {
+                    if draft.is_some() || edit_of_client_token.is_some() {
+                        return Err(crate::AppError::InvalidAppMessagePayload(
+                            "forwarded draft correlation is unavailable".into(),
+                        ));
+                    }
+                    let accounts = self.accounts.clone();
+                    let group = group.clone();
+                    return tokio::spawn(async move {
+                        accounts
+                            .admit_forwarded_chat(&account.label, group, token, request)
+                            .await
+                    })
+                    .await
+                    .map_err(|_| crate::AppError::TransportClosed)?;
+                }
+                Err(error) => return Err(error.into()),
+                Ok(_) => {}
+            }
+        }
         let app = self.accounts.app.clone();
         let shared = self.accounts.shared.clone();
         let events = self.accounts.events.clone();

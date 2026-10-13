@@ -26,6 +26,7 @@ not "fix" it into the per-account database.
 | `src/delivery_spill.rs` | Durable overflow tail of the in-memory account delivery queue: bounded spill, seen/released dedup, oldest-first reads and per-row removal after ingest. |
 | `src/recovery_health.rs` | Durable reports of unsuccessful automatic synchronization recovery. |
 | `src/synchronized_history.rs`, `src/synchronized_history/tests.rs` | Default-off experimental archive import with separate provenance, staged completion, bounded receipts and retention fences; never engine evidence or live app-event projection. |
+| `src/mirrored_chat_catalog.rs`, `src/mirrored_chat_catalog/tests.rs` | Private revision17 paired-source sidebar observations, original-owner transaction callbacks, exact local account/signer binding and retained terminal/replay fences; never live Group rows or membership. |
 | `src/accepted_device_group_anchor.rs`, `src/accepted_device_group_anchor_tests.rs` | Schema109 bounded accepted-successor facts, exact local selection/owner/purpose fences and permanent denial; separate from genesis, never SDK reconstruction or settlement authority. |
 | `src/private_device_invite.rs`, `src/private_device_invite_tests.rs` | Provisional schema110 outgoing raw/wrapped/dispatch/unknown/confirmed facts with separate retained confirmed lineage, exact retries and transactional transitions. Trusted-core persistence only; never SDK consent, publication proof or native draft admission. |
 | `src/accepted_welcome.rs`, `src/accepted_welcome/tests.rs` | Default-off immutable accepted-join facts in schema105; exact Welcome/KPref/signers/epoch, atomic with real join, never enrollment or settled-roster permission. |
@@ -64,6 +65,10 @@ not "fix" it into the per-account database.
 - Accept raw SQLCipher keys only. Key derivation and recovery live above this crate.
 - Apply privacy/durability defaults unless callers opt out with `SqliteStorageOptions`.
 - Keep invalidated message records. Applications decide whether to show them.
+- `app_messages_page` is raw local replay paging, not presentation or permission.
+  Require a limit in 1..=128 and use the complete `AppEventReplayCursor` order.
+  Keep invalidated/expired rows for authenticated retention export. Cursors do
+  not prove coverage; older inserts and changed retention require a fresh scan.
 - Build every long-lived connection on `CloseableConnection` so a host can release the database's file locks at a known
   instant. Closing is terminal: surviving clones return `StorageError::Closed`, and nothing reopens implicitly. See
   `docs/marmot-architecture/overview/local-artifact-safety.md`.
@@ -179,3 +184,54 @@ Keep revision14 prefix, default populated-cohort refusal, SQL rollback/fault, ow
 identity and encrypted capacity controls. Preserve core102/private1–14 bodies.
 
 For the upstream integration, core103–107 retain their exact upstream identities; the core102 restriction above describes the frozen legacy bridge. Preserve its single core/private transaction while using declared upstream FK scopes before BEGIN and validating affected references before commit. Delay positive core progress until the shared commit. Observer failures cannot change migration outcomes or consent.
+Private revision16 adds bounded immutable `revoked_device_group_anchor` references
+including denied generations. Install only before retiring the exact active
+predecessor/Completed local round, within original authenticated Remove SQL.
+Atomic successor selection retains and denies the old generation; failed insertion
+restores it. Owner/signer projection mismatches reject, exact retry cannot reopen
+a denied fact, and delete/replace/mutation/reactivation are blocked by SQL guards.
+Keep all128 lifetime references outside group snapshot rollback. Group deletion
+denies them; bounded historical reads are negative privacy observation only.
+Core/Session/App integration, full workspace and native qualification remain
+separate from the synthetic storage proof in
+`docs/revoked-device-anchor-storage-verification.json`. Preserve core102/private1–15.
+
+Private revision 18 (`approved_account_sharing_policy.rs`) retains at most 128
+immutable approvals including revoked references, plus 8192 latest group-digest
+observations. Counters, observations and original before/tail checks share SQL;
+exact current retries retain sequence, historical bodies after changes get fresh
+sequence. Never reconstruct positive original ownership or channel crypto from
+facts. Preserve core102/private1–17 and configured identity/signer fences. Closed
+storage is terminal; encrypted restart retains revocation and replay state.
+
+Private revision 19 (`mirrored_chat_messages.rs`) imports already-authenticated
+logical messages only under active source catalog/account/signer scope with
+original before/tail checks. Payloads are separate bounded blobs; 64 MiB checked in
+the same batch transaction and 100,000 lifetime references enforced on insert.
+Immutable author/time/kind/content digest and global event-ID terminal fences span
+source/policy renewal. Expiry only tightens. Local purge changes no source sequence
+and retains identity; expired read views must never be re-exported as original
+source attestations. Preserve core102/private1–18 and all receipt/cohort fences.
+
+Private revision20 (`account_chat_send_queue.rs`) retains4096 lifetime logical
+intent identities,8192 route references and32768 exact receipt outbox references,
+including terminal/acknowledged rows. Active payload budget16MiB, body64KiB and
+page128. Immutable canonical event/account/origin/time/digest survives clearing;
+genuine Published ID must equal the ordinary event ID, never intent ID. Route
+Denied is local; original-origin cancellation is global and permanent. A revoked
+old route cannot be rebound under a new approval. Existing preapproved alternatives
+remain independently valid. Transition+outbox and original before/tail checks share
+SQL. Cursor reads are observations only; no persisted deadline/keys/permissions.
+Preserve core102/private1–19 and configured account/signer/terminal-close fences.
+
+Private revision21 (`account_chat_record_stream.rs`) keeps a separate source
+record journal, canonical delivery outbox and immutable committed receipts.
+Logical apply, receipt and maximum observed sequence share one SQL transaction;
+earlier batches still apply through per-event fences. Receipt identity is stable
+policy/group/digest across current projection scopes. Source ACK and permanent
+denial are distinct; both erase encoded bytes without deleting lifetime identity.
+The exact configured owner may negatively retire a revoked policy's pending batch.
+Limits: 100,000 journal refs, 4,096 outbox refs, 8,192 receipts/progress refs,
+64 MiB active outbox bytes, 1 MiB canonical batch and 128 records. Original
+before/tail guards remain mandatory; no keys/lease or permission is restored.
+Preserve core102/private1–20 bodies and the irreversible cohort marker.

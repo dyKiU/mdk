@@ -154,6 +154,18 @@ refuse an upgraded schema; downgrading a binary requires a pre-upgrade backup.
 
 ## Experimental synchronized history
 
+Private revision17 adds a separate paired-source chat catalog. The default-off
+`MirroredChatCatalogStorage` capability accepts bounded pages only after the
+trusted original policy owner validates before work and before SQL commit.
+Configured account and local signer must match. Canonical group IDs distinguish
+same-title chats; exact retries are idempotent, conflicting sequences are refused,
+and retained Left/Deleted observations cannot become Active under the same scope.
+The catalog never writes live MLS groups or membership. Paging returns
+observations, not consent. Limits are 128 entries per page, 128 retained scopes
+and 8,192 retained rows, including terminal references. Database reopen does not
+restore a channel, approval or permission. Automatic transport and normal app
+projection remain separate integration work.
+
 The default-off `experimental-device-sync` feature exposes a bounded account-history archive importer on
 `SqliteAccountStorage`. This storage integration is not a pairing protocol, a continuous replication journal, or an
 end-to-end multi-device client implementation. The caller must authenticate the device-group roster, user consent,
@@ -243,6 +255,16 @@ whose `QueuedProposal` is missing (a dangling ref) or undeserializable (truncati
 backend clears the whole proposal queue for that group and returns it empty. It never loads a partial subset: a later
 commit must start from current MLS group state and require proposals to be re-enqueued. Only deserialize failures are
 treated as recoverable; SQLite/lock failures propagate so a transient fault is never mistaken for corruption.
+
+**Bounded raw-event paging.** `app_messages_page(query, after)` reads forward in
+the local `(recorded_at, message_id_hex, insert_order)` replay order. Supply
+`Some(1..=128)` as the limit and continue with the last record's `replay_cursor()`.
+Group/kind filters apply before the limit; at most 128 kind filters are accepted.
+Unlike the existing newest-window query, this can traverse older retained history
+without an unbounded read. Invalidated and expired rows remain available for
+authenticated source export. This cursor is local durable observation, not peer
+ordering, complete coverage or authority. Callers must re-scan changed retention
+and late older inserts, validate source authority, and bound encoded payload bytes.
 
 **Replay-state validation.** `group_replay_state_fingerprint` takes a consistent read of live canonical/OpenMLS state
 (as a state-scoped snapshot) plus all retained snapshot/checkpoint bytes and epochs. It excludes live message,
@@ -527,7 +549,7 @@ empty ordinary schemas continue to open normally.
 
 Experimental anchored roster settlement is a separate optional persistence capability
 (`private_roster_settlement.rs`), not generic ACK capture or authorization. It stores
-one checked-generation owner-bound round, at most128 occupied leaf facts, exact
+one checked-generation owner-bound round, at most 128 occupied leaf facts, exact
 prepared ciphertext/outbound retries and atomic last-slot completion. Completed
 metadata never mints live admission; Engine must independently validate protected
 origin/current tree and a fixed monotonic live round. No deadline or SDK permission
@@ -571,3 +593,104 @@ from the repository root.
 Media upgrades 0104 and 0105 preserve existing payload pages during account open. Retained legacy bodies gain a sentinel length column with validation/accounting on mutation; they retain the legacy byte-array bound, while larger files use the chunk tables. Already-upgraded stores keep their compatible physical layout. Partial upgrades replace only parent metadata: the migration runner suspends connection-local foreign-key enforcement before BEGIN, validates the affected parent/child references before commit, and restores the original setting on success, rollback and unwind. Checkpoint chunks are preserved in place; no migration ledger is relabeled. Optional encrypted-open observation reports fixed phases and schema numbers without paths, SQL, keys or user data.
 
 The experimental integration keeps core and private upgrades in one transaction. It uses the same declared foreign-key scope before BEGIN, validates the affected core and private references, and restores enforcement on success, error or unwind. Core migration completion is observed only after that shared transaction commits; rolled-back bodies never report successful completion. Private revisions and frozen legacy receipt identities remain separate from upstream core103–107.
+### Experimental Remove-successor metadata
+
+Private revision16 retains up to128 immutable Remove-successor references, including
+denied rows. Installation checks the exact active predecessor and Completed local
+settlement, canonical single-Remove successor, and any present account/signer
+projections. The authenticated Core caller must still own the original action and
+actual MLS transition. Successive installation denies the preceding generation in
+the same SQL transaction; insert failure rolls back that denial. Group deletion
+denies retained records. Snapshot rollback cannot restore positive metadata.
+
+The separate `PrivateInviteOrigin::Revoked` generation supports a fresh settlement
+and subsequent Add while preserving old denial fences. No persisted consent, lease,
+or original guard is supplied. Core integration and full workspace qualification
+are required separately from the synthetic storage contracts.
+
+Private revision 18 persists immutable explicit account/device pairing approvals
+and monotonic local-source chat observations. Approval revocation is permanent;
+renewed recipient-only channels do not reset the policy's source sequences.
+Original-owner callbacks run before work and before the same transaction commits.
+The protected epoch is retained for revocation checks, never to restore a live
+permission. These tables remain separate from ordinary MLS and Group state.
+
+Private revision 19 adds source-attested logical message storage for automatic
+paired-device catch-up. Payloads are separate raw bounded blobs; no ordinary
+`app_events`, MLS ratchets or Group rows are manufactured. Active catalog
+observations and original-owner transaction checks guard imports. Immutable event
+identity/body checks span sources; deletions and expiry cannot be undone by a
+renewed policy. Chronological pages never return expired contents. Bounded purge
+retains identity/digest/source sequence while releasing payload bytes. The account
+payload budget is 64 MiB; lifetime references are bounded at 100,000 rows.
+
+Private revision20 (`account_chat_send_queue.rs`) retains4096 lifetime logical
+intent identities,8192 route references and32768 exact receipt outbox references,
+including terminal/acknowledged rows. Active payload budget16MiB, body64KiB and
+page128. Immutable canonical event/account/origin/time/digest survives clearing;
+genuine Published ID must equal the ordinary event ID, never intent ID. Route
+Denied is local; original-origin cancellation is global and permanent. A revoked
+old route cannot be rebound under a new approval. Existing preapproved alternatives
+remain independently valid. Transition+outbox and original before/tail checks share
+SQL. Cursor reads are observations only; no persisted deadline/keys/permissions.
+Preserve core102/private1–19 and configured account/signer/terminal-close fences.
+
+Private revision21 provides the optional `AccountChatRecordStreamStorage`
+capability. Its record counter is independent of catalog counters and chronology.
+The current exact event attestation retries its sequence; changed retention facts
+advance it. Canonical ordered batches are retained before publication, up to
+128 records and 1 MiB each, with 64 MiB active bytes and 4,096 lifetime outbox
+references. A fresh authenticated peer acknowledgment clears bytes; source
+deletion/expiry/revocation instead permanently denies the batch without claiming
+delivery. Neither terminal state reopens through retry.
+
+Recipient record apply, immutable receipt and maximum observed stream sequence
+commit together. Out-of-order batches remain admissible through per-event fences;
+the maximum is an observation, not completeness. Exact duplicate delivery returns
+the original receipt even after a fresh authenticated projection scope, while
+applying observations to that scope. Retained approvals do not supply original
+authority, keys or a deadline. The journal has 100,000 lifetime references and
+incoming receipts/progress each have 8,192. Core102 and private1–20 remain frozen.
+
+Private revision22 separately retains at most8,192 immutable acknowledgments
+keyed by stable policy, group, canonical batch digest and authenticated peer
+projection generation. An older global acknowledgment is not coverage of a new
+projection generation. Generation acknowledgment and the original global receipt
+commit atomically under original before/tail checks; global terminal payload is
+never reopened. The read returns receipt metadata only, including absence for an
+unacknowledged generation. That absence grants no replay authority: App must
+freshly encode current source records through a freshly authorized channel.
+Denied batches, revoked policies, owner mismatch and conflicting receipts are
+refused. The lifetime budget survives encrypted reopen. Core102 and private1–21
+are unchanged; no keys, deadlines, plaintext duplicates or original owners are
+retained by this table.
+
+Experimental paired-chat presentation reads accept at most128 caller-validated
+source scopes and return at most128 total observations across them. Catalog
+pages use canonical group order; message pages use canonical event time/ID.
+Ordinary stored groups and live event identities take precedence over mirrors.
+Cross-source terminal and restrictive expiry fences still hide mirrored payloads.
+These read-only scopes and cursors carry no membership, consent or media grant.
+See `docs/account-chat-presentation-storage-verification.json` for the synthetic
+storage controls; App worker and native presentation require separate qualification.
+
+The experimental account conversation observation window selects at most128
+rows total across actual ordinary timeline and eligible mirrored scopes in one
+canonical event-time/ID query. Local event identity wins; block filtering occurs
+before LIMIT. Materialized edits/deletions, retention and reply/media privacy
+remain observational, with no canonical schema change or synthesized group.
+App window and synthetic storage proof boundaries are recorded in
+`docs/account-chat-presentation-app-windows-verification.json`.
+
+Private revision23 retains ordinary-chat user-acceptance lineage separately from
+MLS and presentation rows. At most8,192 lifetime origin references bind configured
+account, local signer, canonical group and Created or actual Welcome origin. Each
+origin progresses Pending→Accepted→Denied; denied origins cannot reaccept. Fresh
+Welcome origins begin Pending, and stale observations cannot move the current
+origin pointer backward. Atomic batches of at most128 changes validate their
+original before mutation and again at transaction tail, allowing App projections
+and acceptance to roll back together. SQL guards reject identity replacement,
+regression and deletion. Local hiding does not remove lineage. These rows contain
+no channel owner, consent capability, key or membership; positive source admission
+still requires fresh Core and original-channel validation. Core102 and private1–22
+remain unchanged.

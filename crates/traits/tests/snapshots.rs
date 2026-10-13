@@ -1201,3 +1201,123 @@ fn snapshot_private_settlement_metadata_is_not_admission() {
         serde_json::json!({"state":state,"fact":fact})
     );
 }
+
+#[test]
+fn snapshot_mirrored_chat_observations_are_not_membership() {
+    use cgka_traits::mirrored_chat_catalog::*;
+    let scope = MirroredChatScope {
+        account: [1; 32],
+        local_device: [2; 32],
+        source_device: [3; 32],
+        policy_digest: [4; 32],
+        protected_group: gid(),
+        protected_generation: 5,
+    };
+    let entry = MirroredChatEntry {
+        group_id: GroupId::new(vec![6; 16]),
+        source_epoch: 7,
+        source_sequence: 8,
+        source_digest: [9; 32],
+        profile: ProtocolProfile::Current,
+        name: "Test chat".into(),
+        description: String::new(),
+        state: MirroredChatState::Active,
+
+        accepted_origin: None,
+
+        same_account_source_count: None,
+    };
+    insta::assert_json_snapshot!(
+        "mirrored_chat_observations",
+        serde_json::json!({"scope":scope,"entry":entry})
+    );
+}
+
+#[test]
+fn approved_account_sharing_policy_fact() {
+    use cgka_traits::approved_account_sharing_policy::ApprovedAccountSharingPolicy;
+    insta::assert_json_snapshot!(ApprovedAccountSharingPolicy {
+        account: [1; 32],
+        local_device: [2; 32],
+        peer_device: [3; 32],
+        protected_group: GroupId::new(vec![5; 16]),
+        approval_id: [4; 32],
+        version: 1,
+        capabilities: 0x0f,
+        created_at: 100,
+        approved_protected_epoch: 2,
+        revoked: false,
+    });
+}
+
+#[test]
+fn mirrored_chat_logical_record_and_cursor() {
+    use cgka_traits::mirrored_chat_messages::{MirroredChatCursor, MirroredChatRecord};
+    insta::assert_json_snapshot!((
+        MirroredChatRecord {
+            event_id: [8; 32],
+            author: [7; 32],
+            created_at: 10,
+            kind: 9,
+            payload: Vec::new(),
+            content_digest: None,
+            expires_at: Some(20),
+            deleted: true,
+            source_epoch: 1,
+            source_sequence: 2,
+            source_digest: [8; 32],
+
+            accepted_origin: None,
+        },
+        MirroredChatCursor {
+            created_at: 10,
+            event_id: [8; 32]
+        }
+    ));
+}
+
+#[test]
+fn account_chat_send_intent_route_receipt_and_retry_cursor() {
+    use cgka_traits::account_chat_send_queue::*;
+    let route = AccountChatSendRoute {
+        policy_id: [4; 32],
+        local_device: [2; 32],
+        peer_device: [3; 32],
+    };
+    let intent = AccountChatSendIntent {
+        intent_id: [5; 32],
+        account: [1; 32],
+        originating_device: [2; 32],
+        group: GroupId::new(vec![8; 16]),
+        ordinary_event_id: [6; 32],
+        event_payload: vec![7, 8],
+        payload_digest: [9; 32],
+        created_at: 100,
+    };
+    let receipt = AccountChatSendReceipt {
+        intent_id: intent.intent_id,
+        route: route.clone(),
+        actual_member_device: [3; 32],
+        state: AccountChatSendState::Published {
+            event_id: intent.ordinary_event_id,
+        },
+    };
+    insta::assert_json_snapshot!((
+        AccountChatQueuedSend {
+            intent: intent.clone(),
+            route: route.clone(),
+            state: AccountChatSendState::Queued
+        },
+        receipt,
+        AccountChatSendCursor {
+            intent_id: [5; 32],
+            policy_id: route.policy_id
+        },
+        AccountChatSendState::Received,
+        AccountChatSendState::Denied,
+        AccountChatSendIntentObservation {
+            intent,
+            state: AccountChatSendState::Queued
+        }
+    ));
+}

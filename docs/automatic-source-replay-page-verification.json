@@ -1,0 +1,166 @@
+{
+  "status": "qualified bounded raw source paging; automatic wire records and native presentation still unfinished",
+  "source_cohorts": [
+    {
+      "source": "4681ea90bb2596ae6ff05ae0910213670f66d8c1",
+      "base": "b8518b70d38db5d549fc4ae276c3f229e4e8688b",
+      "inputs": 2576,
+      "manifest_sha256": "81dd076d14994aa6b38ff0d25e5a53254134a2b88ffb865d5a2381c9230087cb"
+    },
+    {
+      "source": "1c6a776efc8777402eae555078ece51d83f85bff",
+      "base": "b8518b70d38db5d549fc4ae276c3f229e4e8688b",
+      "inputs": 2576,
+      "manifest_sha256": "2381d3785c1f774cdab192547547b929791309f2321a039e4c45635140015f22"
+    }
+  ],
+  "verification": "Both complete frozen Git source trees independently reconstructed and hashed on M1. All six copied raw logs match. Final five owned files match tested v2; v2 changes v1 only by lib.rs formatting and two storage documents.",
+  "focused_acceptance": {
+    "passed": 4,
+    "failed": 0,
+    "ignored": 0,
+    "source": "4681ea90bb2596ae6ff05ae0910213670f66d8c1",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "storage-sqlite",
+      "--lib",
+      "--features",
+      "experimental-device-sync",
+      "app_messages_page_",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit_code": 0,
+    "seconds": 27.692777156829834,
+    "log_sha256": "35457a0faf549b6153fe2806ad14dbfaf8296f0c26c5c7a209c88fa6b8a7070b"
+  },
+  "gates": [
+    {
+      "name": "projection-experimental",
+      "source": "1c6a776efc8777402eae555078ece51d83f85bff",
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "--features",
+        "experimental-device-sync",
+        "-E",
+        "test(account_projection::tests::)",
+        "--no-fail-fast"
+      ],
+      "exit_code": 0,
+      "seconds": 37.309966802597046,
+      "log_sha256": "37bcb3bc1e4f9582acac60c34b02a29887258e0240111e00b2cbcc53ae59b784"
+    },
+    {
+      "name": "projection-default",
+      "source": "1c6a776efc8777402eae555078ece51d83f85bff",
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "-E",
+        "test(account_projection::tests::)",
+        "--no-fail-fast"
+      ],
+      "exit_code": 0,
+      "seconds": 28.730824947357178,
+      "log_sha256": "b2b7780b4198864e86e10f1d38845e8c30d3ae3f7fac2a903f546a50a5b4eb2a"
+    },
+    {
+      "name": "clippy-experimental",
+      "source": "1c6a776efc8777402eae555078ece51d83f85bff",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 14.58221697807312,
+      "log_sha256": "4d6f27704848e3c785ef2af0fed6c42b82d8ea80b7837a5c9cd7a2adf42e5998"
+    },
+    {
+      "name": "clippy-default",
+      "source": "1c6a776efc8777402eae555078ece51d83f85bff",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 7.408679962158203,
+      "log_sha256": "6091a094219411e288eeeb261b4669d0d27ac3ea7e8290aba89c185b76a57b77"
+    },
+    {
+      "name": "fmt",
+      "source": "1c6a776efc8777402eae555078ece51d83f85bff",
+      "command": [
+        "rustfmt",
+        "--edition",
+        "2024",
+        "--config",
+        "skip_children=true",
+        "--check",
+        "crates/storage-sqlite/src/account_projection.rs",
+        "crates/storage-sqlite/src/account_projection/tests.rs",
+        "crates/storage-sqlite/src/lib.rs"
+      ],
+      "exit_code": 0,
+      "seconds": 0.05427980422973633,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "component_profiles": [
+    {
+      "profile": "experimental",
+      "passed": 80,
+      "failed": 0,
+      "not_executed": 1063
+    },
+    {
+      "profile": "default",
+      "passed": 80,
+      "failed": 0,
+      "not_executed": 907
+    }
+  ],
+  "acceptance": [
+    "301 rows over three bounded pages, oldest records and same-time cross-group IDs preserve exact full-key order",
+    "invalidated/expired raw rows remain available; group/kind filters apply before limit",
+    "encrypted reopen keeps continuation; closing handle remains terminal; fresh scan detects late older insert",
+    "reject missing/zero/oversize limits, oversized kind filters and unrepresentable cursors/kinds"
+  ],
+  "limits": [
+    "No schema, transport, engine authority or membership changed",
+    "Row-count bound is not a serialized-byte bound; exporter separately bounds bodies",
+    "Cursor is per-local-database observation, not authorization or complete coverage; late older inserts/retention changes require fresh scans",
+    "Full storage suite not rerun for this query-only slice; prior record-stream full suites remain separately scoped evidence",
+    "No actor, SDK, installed-app or three-device-demo completion claim"
+  ],
+  "raw_artifacts": "parent build/results/automatic-source-replay-page (ignored); M5 build/automatic-source-replay-page-v1/v2-*"
+}

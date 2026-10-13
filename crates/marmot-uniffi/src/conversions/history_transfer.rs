@@ -28,3 +28,25 @@ impl From<marmot_app::HistoryTransferSnapshot> for HistoryTransferSnapshotFfi {
         }
     }
 }
+
+/// Current Core-derived recipient observation, never an original action or grant.
+#[derive(Clone, PartialEq, Eq, uniffi::Record)]
+pub struct HistoryTransferRecipientFfi {
+    pub leaf_index: u32,
+    pub device: Vec<u8>,
+}
+impl std::fmt::Debug for HistoryTransferRecipientFfi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HistoryTransferRecipientFfi")
+            .field("leaf_index", &self.leaf_index)
+            .finish_non_exhaustive()
+    }
+}
+impl From<marmot_app::HistoryTransferRecipient> for HistoryTransferRecipientFfi {
+    fn from(value: marmot_app::HistoryTransferRecipient) -> Self {
+        Self {
+            leaf_index: value.leaf_index,
+            device: value.device,
+        }
+    }
+}

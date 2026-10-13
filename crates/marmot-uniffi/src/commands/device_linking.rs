@@ -152,6 +152,18 @@ impl DeviceLinkingSession {
     pub async fn cancel(&self) -> Result<(), MarmotKitError> {
         Ok(self.inner.cancel().await?)
     }
+    /// Explicitly approve sharing existing/future chats, history and messaging
+    /// while continuing this exact original pairing action. Retained metadata
+    /// and ordinary linking completion cannot grant this policy.
+    pub async fn continue_linking_and_share_chats(
+        &self,
+        displayed_revision: u64,
+    ) -> Result<(), MarmotKitError> {
+        Ok(self
+            .inner
+            .continue_linking_and_share_chats(displayed_revision)
+            .await?)
+    }
     /// Continue original singleton actions after genuine verification of the displayed revision.
     pub async fn continue_linking(&self, displayed_revision: u64) -> Result<(), MarmotKitError> {
         Ok(self.inner.continue_linking(displayed_revision).await?)
@@ -173,6 +185,17 @@ impl DeviceLinkingApproval {
     /// Explicit human approval bound to the revision displayed on this device.
     pub async fn approve(&self, displayed_revision: u64) -> Result<(), MarmotKitError> {
         Ok(self.inner.approve(displayed_revision).await?)
+    }
+    /// Approve this original enrollment and sharing existing and future chats
+    /// with the joining device. Ordinary approval cannot be upgraded later.
+    pub async fn approve_and_share_chats(
+        &self,
+        displayed_revision: u64,
+    ) -> Result<(), MarmotKitError> {
+        Ok(self
+            .inner
+            .approve_and_share_chats(displayed_revision)
+            .await?)
     }
     /// Validate the complete packet through the same original approval action.
     pub async fn receive_enrollment_packet(
@@ -197,6 +220,8 @@ impl DeviceLinkingSubscription {
         Ok(self.inner.next().await?.into())
     }
     /// Close this stream without granting permission or cancelling another session.
+    /// Foreign hosts use closeStream, distinct from Kotlin object disposal's close.
+    #[uniffi::method(name = "close_stream")]
     pub fn close(&self) {
         self.inner.close();
     }

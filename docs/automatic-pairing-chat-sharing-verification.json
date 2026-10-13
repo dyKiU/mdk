@@ -1,0 +1,112 @@
+{
+  "candidate_stash": "cef4fc3f023d904915c9da4def0df67b4bc965ec",
+  "base": "1bc2fb61ca602f5b461412c286c41c5d91500407",
+  "verified_frozen_inputs": 2540,
+  "input_manifest_sha256": "f6439b0a99d85917927e129213ac77c53c6ca944cc8360b35dc41087f0fcf1a3",
+  "mismatches": [],
+  "counts": {
+    "pairing": [
+      [
+        "ok",
+        "1",
+        "0",
+        "0"
+      ]
+    ],
+    "ordinary-pairing": [
+      [
+        "ok",
+        "3",
+        "0",
+        "0"
+      ]
+    ],
+    "core": [
+      [
+        "ok",
+        "4",
+        "0",
+        "0"
+      ]
+    ],
+    "default-refusal": [
+      [
+        "ok",
+        "2",
+        "0",
+        "0"
+      ]
+    ],
+    "clippy": [],
+    "default": [],
+    "fmt": []
+  },
+  "gates": [
+    {
+      "gate": "pairing",
+      "exit": 0,
+      "seconds": 99.85944771766663,
+      "log": "/Users/pj/project/build/automatic-pairing-chat-approval-v2-pairing.log",
+      "log_sha256": "dd1dc8fe44036c5231ef2931609a0e0b28cfb0dcbeedc76fa3344f64cf50f1cc"
+    },
+    {
+      "gate": "ordinary-pairing",
+      "exit": 0,
+      "seconds": 34.65161108970642,
+      "log": "/Users/pj/project/build/automatic-pairing-chat-approval-v2-ordinary-pairing.log",
+      "log_sha256": "1a3e1d07e9e69c02b1e71470fd04e30fd34c34eb3ca1a97f37c97029794bdaa9"
+    },
+    {
+      "gate": "core",
+      "exit": 0,
+      "seconds": 33.3421151638031,
+      "log": "/Users/pj/project/build/automatic-pairing-chat-approval-v2-core.log",
+      "log_sha256": "6c4ca4318b923cc7130c1e3b08581124013184315cae63c4f4499de4a116631d"
+    },
+    {
+      "gate": "default-refusal",
+      "exit": 0,
+      "seconds": 75.54529404640198,
+      "log": "/Users/pj/project/build/automatic-pairing-chat-approval-v2-default-refusal.log",
+      "log_sha256": "aa34f429a5be14beaa9ff13c7d6e59db1332eab08117bf20f1abb6cf26ee0c45"
+    },
+    {
+      "gate": "clippy",
+      "exit": 0,
+      "seconds": 56.85284090042114,
+      "log": "/Users/pj/project/build/automatic-pairing-chat-approval-v2-clippy.log",
+      "log_sha256": "33ba23de353206fbdd5214ec50f7d4fb5426c5d160be079f0cf9c85f1c51c707"
+    },
+    {
+      "gate": "default",
+      "exit": 0,
+      "seconds": 40.06033396720886,
+      "log": "/Users/pj/project/build/automatic-pairing-chat-approval-v2-default.log",
+      "log_sha256": "98db6b8ac8abef29c9464c31f03561bc86f64b383e743fe7444d1e51425f4abb"
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.6236836910247803,
+      "log": "/Users/pj/project/build/automatic-pairing-chat-approval-v2-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "runtime_paths": [
+    "crates/cgka-engine/src/account_chat_sharing.rs",
+    "crates/cgka-session/src/lib.rs",
+    "crates/cgka-session/src/account_chat_sharing.rs",
+    "crates/marmot-app/src/client/device_linking.rs",
+    "crates/marmot-app/src/client/device_linking/native_enrollment.rs",
+    "crates/marmot-app/src/client/device_linking/setup.rs",
+    "crates/marmot-app/src/device_linking/owner.rs",
+    "crates/marmot-app/src/device_linking/settlement.rs",
+    "crates/marmot-app/src/native_device_linking.rs",
+    "crates/marmot-app/src/native_device_linking/enabled.rs",
+    "crates/marmot-app/src/native_device_linking/tests.rs",
+    "crates/marmot-app/src/runtime/device_linking/setup.rs"
+  ],
+  "classification": "New feature acceptance; no artificial failing baseline. v1 passed; v2 strengthens completion handoff and no implicit C approval.",
+  "scope": "Original A/B pairing explicit action and same SDK settlement durable approval only. Automatic actors, mirrored presentation and bridge send remain pending. Old pairs require a separate fresh explicit approval; ordinary continuation grants no broad policy.",
+  "post_freeze_delta": "README, AGENTS and proof documentation only"
+}

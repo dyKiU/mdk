@@ -1,0 +1,135 @@
+{
+  "scope": "Read-only local authenticated account chat catalog foundation; automatic transport, policy, bridge projections and send forwarding remain unimplemented",
+  "base": "c9bc674aa08c18502dee6b2c1db59d60d550756a",
+  "candidate_stash": "a5803c7db2ff85967feef431a078af67cd006d02",
+  "source_count": 2521,
+  "cache": "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+  "toolchain": "1.97.1-aarch64-apple-darwin",
+  "jobs": 1,
+  "incremental": false,
+  "cohorts": [
+    {
+      "prefix": "/Users/pj/project/build/automatic-account-chat-catalog-v1",
+      "inputs_sha256": "9046ed4b5245eb113050411795a7cdf0ef4c8c605261d364140da6bcffc9fc83",
+      "gates": [
+        {
+          "gate": "catalog",
+          "exit": 101,
+          "seconds": 31.963926076889038,
+          "log": "/Users/pj/project/build/automatic-account-chat-catalog-v1-catalog.log",
+          "log_sha256": "7eaf5ed0da555e9607900e014f588d81b0698a426bbcd5c1e09517080c1db991"
+        }
+      ],
+      "interpretation": "compile-only failure; no runtime tests"
+    },
+    {
+      "prefix": "/Users/pj/project/build/automatic-account-chat-catalog-v2",
+      "inputs_sha256": "30847851e38a985d615670a9ee8acfadd53bbcf961ca56161e808c50acbb4f47",
+      "gates": [
+        {
+          "gate": "catalog",
+          "exit": 101,
+          "seconds": 14.287966012954712,
+          "log": "/Users/pj/project/build/automatic-account-chat-catalog-v2-catalog.log",
+          "log_sha256": "97ec6f562f11f5beb6e77fc0567f6d7cff07ea962d163e26c94c1834ce9abc0a"
+        }
+      ],
+      "interpretation": "compile-only failure; no runtime tests"
+    },
+    {
+      "prefix": "/Users/pj/project/build/automatic-account-chat-catalog-v3",
+      "inputs_sha256": "462004f121bf5b508ae918094b4090e1c31ac5167ff91c6df5de6b2dea458f8b",
+      "gates": [
+        {
+          "gate": "catalog",
+          "exit": 101,
+          "seconds": 31.253114938735962,
+          "log": "/Users/pj/project/build/automatic-account-chat-catalog-v3-catalog.log",
+          "log_sha256": "9e419622b440de66bf8101eb8b9577170381e90b675161ad42cfa65e7329e89b"
+        }
+      ],
+      "interpretation": "actual 1 pass/1 failure: fixture observed Remove before canonical convergence"
+    },
+    {
+      "prefix": "/Users/pj/project/build/automatic-account-chat-catalog-v4",
+      "inputs_sha256": "280374b6d47f19441f783ce38431645932af4156b51d603b4d5dfaf27e68c1d1",
+      "gates": [
+        {
+          "gate": "catalog",
+          "exit": 0,
+          "seconds": 27.75484800338745,
+          "log": "/Users/pj/project/build/automatic-account-chat-catalog-v4-catalog.log",
+          "log_sha256": "45b68b4c2420af6f2478fbbd1db2070d2e49a27d1bc89c6a83f253c0c66d1d26"
+        },
+        {
+          "gate": "history",
+          "exit": 0,
+          "seconds": 25.224735975265503,
+          "log": "/Users/pj/project/build/automatic-account-chat-catalog-v4-history.log",
+          "log_sha256": "8207db72092c6562a42a4e26ab0e5a904637190eb99d9b07273f3c0de43abb86"
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 26.137792110443115,
+          "log": "/Users/pj/project/build/automatic-account-chat-catalog-v4-default.log",
+          "log_sha256": "ca945dcd8a08afcb0f55e0bc9a1ce3bf0ac7c49c1814399dba8d8374ceae3706"
+        },
+        {
+          "gate": "clippy",
+          "exit": 0,
+          "seconds": 21.488746404647827,
+          "log": "/Users/pj/project/build/automatic-account-chat-catalog-v4-clippy.log",
+          "log_sha256": "2c58ce67bf10d78eaf976e5f069cc7f724ae1c8527ccfbd8ec8f7411b8d5b5cc"
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "seconds": 3.6561920642852783,
+          "log": "/Users/pj/project/build/automatic-account-chat-catalog-v4-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "interpretation": "catalog2/history16/defaultcheck/strictClippy/fmt all pass"
+    },
+    {
+      "prefix": "/Users/pj/project/build/automatic-account-chat-catalog-v5",
+      "inputs_sha256": "0c35b8eec8a2b690eb143dcacc47e73f8a1ce02d80abdbe345e5b320df0d12bf",
+      "gates": [
+        {
+          "gate": "catalog",
+          "exit": 0,
+          "seconds": 25.961323022842407,
+          "log": "/Users/pj/project/build/automatic-account-chat-catalog-v5-catalog.log",
+          "log_sha256": "358597e44e545ad01ac134e7fdac7825c54d08ae894b25ba99c652fa6bd1f13f"
+        },
+        {
+          "gate": "clippy",
+          "exit": 0,
+          "seconds": 20.07423496246338,
+          "log": "/Users/pj/project/build/automatic-account-chat-catalog-v5-clippy.log",
+          "log_sha256": "3aaf02aaf2b50acf00cec60d7ef017567dc4a7dfac4d03e0dce1d73e1c9deefb"
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "seconds": 3.7091739177703857,
+          "log": "/Users/pj/project/build/automatic-account-chat-catalog-v5-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "interpretation": "test-only fresh Pending generation negative added; catalog2/strictClippy/fmt pass; runtime unchanged fromv4"
+    }
+  ],
+  "limits": [
+    "Real OpenMLS/independent SQLite stores with passthrough peeler; no relay/native/installed-app automatic sharing claim",
+    "Initial page query scans storage metadata; no steady-state catalog journal implemented",
+    "Fresh Completed roster required; returned structs are observations, no consent or membership grants",
+    "Core API is feature-gated; feature-off all-target compilation qualified, no default callable native factory yet"
+  ],
+  "v4_to_v5_test_diff": "--- crates/cgka-engine/src/history_transfer/tests.rs\n+++ crates/cgka-engine/src/history_transfer/tests.rs\n@@ -163,6 +163,9 @@\n             .iter()\n             .all(|entry| entry.group_id != incoming)\n     );\n+    // A retained identical tree does not replace a fresh Completed round.\n+    a.select_private_roster_settlement(&protected).unwrap();\n+    assert!(a.account_chat_catalog(&protected, None, 128).is_err());\n }\n \n #[tokio::test]\n",
+  "post_gate_docs": [
+    "docs/automatic-account-chat-catalog-verification.json",
+    "crates/cgka-engine/AGENTS.md"
+  ]
+}

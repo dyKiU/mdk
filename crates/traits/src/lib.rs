@@ -141,7 +141,12 @@ const _: fn(Box<dyn TransportAdapter + Send + Sync>) = |_| {};
 
 pub mod reporting;
 
+pub mod account_chat_record_stream;
+pub mod account_chat_send_queue;
+pub mod approved_account_sharing_policy;
 pub mod device_linking_key_package;
+pub mod mirrored_chat_catalog;
+pub mod mirrored_chat_messages;
 pub mod selected_chat_key_package;
 
 pub mod roster_ack_capture;
@@ -152,5 +157,6 @@ pub mod accepted_device_group_anchor;
 pub mod existing_device_group_anchor;
 pub mod private_device_invite;
 pub mod private_group_privacy;
+pub mod revoked_device_group_anchor;
 
 pub mod private_roster_settlement;

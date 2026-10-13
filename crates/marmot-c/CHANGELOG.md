@@ -5,6 +5,11 @@ All notable changes to the Marmot C bindings.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
+## Unreleased exact-device revocation
+
+- Adds opaque original device-revocation factory, clone, snapshot, approve, cancel and free functions; review records contain captured and completed group IDs.
+- Appends status values 151–157. New symbols/layout require the matching generated header and library; default builds refuse before input/account effects.
+
 ## [Unreleased]
 
 - Upstream moderation keeps C statuses 96–100. The private experimental sync
@@ -13,6 +18,32 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
   with the matching header and library. Published upstream statuses are unchanged.
 
 ### Added
+
+- Add bounded paired chat pages and cancellable account chat/conversation windows.
+  Snapshot tagged unions keep ordinary MLS authority distinct from paired-source
+  observations. Root snapshots/pages deep-free all owned union payloads; cursors
+  are borrowed on input. The experimental feature is required; default builds
+  refuse before reading inputs or opening a window.
+
+- Original enrollment approval can explicitly include existing and future chats
+  through `marmot_device_linking_approval_approve_and_share_chats`. The borrowed
+  original-action handle and displayed revision are required; ordinary approval
+  cannot be upgraded later. This additive export requires the matching generated
+  header and library and preserves default-build refusal. Source qualification
+  does not establish a released SDK or installed automatic delivery.
+
+- Account-wide original sharing review handles, authenticated current protected
+  peer inventory and owned review snapshots. Pending entries are list-owned;
+  clone before releasing the list. Status values 146–150 append typed account-
+  sharing errors. The named pairing continuation approves existing/future-chat,
+  history and messaging scope; ordinary continuation retains its narrower scope.
+  Use matching generated headers and libraries. Policy completion does not
+  establish automatic installed chat delivery.
+
+- Read-only linked history-recipient choices with an owned list of actual leaf
+  indices and public device byte buffers. The list deep-free owns every embedded
+  entry; listing creates no consent or channel. Required outputs are preflighted
+  and default builds refuse before input reads. Use matching headers and libraries.
 
 - Bounded committed-history query and owned source-attested pages, logical tags,
   ordered media verdicts and message-ID cursor. Page deep-free releases embedded

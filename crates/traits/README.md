@@ -34,6 +34,9 @@ between engine, peeler, transport adapter, storage, and caller imports from here
   `GroupCapabilities`, `FeatureStatus`.
 - `GroupContextSnapshot` — the cross-boundary group-context view.
 - Durable convergence-pass and maintenance/publication-recovery records.
+- `MirroredChatScope`, `MirroredChatEntry`, and optional `MirroredChatCatalogStorage`
+  store paired-source chat observations separately from MLS membership. Stored
+  metadata never restores approval or authorizes message delivery.
 - Agent text stream preview values: QUIC policy/component state (`AgentTextStreamQuicPolicyV1`), role/feature bits,
   length-delimited records (`AgentTextStreamRecordV1`), and key-context/transcript-hash helpers
   (`AgentTextStreamKeyContextV1`, `AgentTextStreamTranscriptV1`).
@@ -111,9 +114,42 @@ buffering; the complete batch and actual MLS tree remain independently validated
 
 Experimental anchored roster settlement is a separate optional persistence capability
 (`private_roster_settlement.rs`), not generic ACK capture or authorization. It stores
-one checked-generation owner-bound round, at most128 occupied leaf facts, exact
+one checked-generation owner-bound round, at most 128 occupied leaf facts, exact
 prepared ciphertext/outbound retries and atomic last-slot completion. Completed
 metadata never mints live admission; Engine must independently validate protected
 origin/current tree and a fixed monotonic live round. No deadline or SDK permission
 is serialized. The account owner must explicitly abandon unfinished rounds on
 authoritative exclusive startup; storage does not run that lifecycle hook itself.
+
+The experimental `revoked_device_group_anchor` contract retains bounded authenticated
+single-Remove successor metadata and permanent denial references. Its optional
+storage accessor defaults unavailable. Retained rows and serialized drafts never
+restore original consent, a deadline, or settlement admission.
+
+`approved_account_sharing_policy` stores immutable explicit pairing approvals,
+permanent revocations and a bounded local-source sequence journal. Stable policy
+identity is symmetric and independent of ephemeral encryption channels. Retained
+facts only schedule fresh authenticated Core checks; they never restore a grant.
+
+`mirrored_chat_messages` carries bounded source-attested logical content/tags and
+chronological cursors. Active bodies retain a verified SHA256 content digest;
+empty terminal records may have an unknown digest and permanently fence the
+ordinary event ID. These records remain separate from confirmed MLS events.
+
+`account_chat_send_queue` retains exact original inner events, independent approved
+routes and genuine ordinary-ID receipts. No Debug, live permission or queue-ID
+alias. Retry observations retain original time/digest after terminal payload erase.
+Fair intent/route and receipt-digest cursors are separate from message chronology.
+Optional storage defaults unavailable; Core still validates original authority.
+
+`account_chat_record_stream` retains canonical logical batches until an actual
+authenticated peer receipt. Record sequences, outbox digest cursors and message
+chronology are separate. Source expiry/deletion can permanently deny a queued
+batch and erase bytes without claiming delivery. Metadata carries no restored
+keys, deadlines or original authority; the storage capability defaults unavailable.
+
+Generation-specific record acknowledgment separates stable batch identity from
+coverage of the actual peer projection generation authenticated by Core. Its
+bounded metadata read and atomic acknowledgment require original before/tail
+validation. Global terminal receipts remain immutable; missing coverage never
+restores payload, channel keys or authority to replay.

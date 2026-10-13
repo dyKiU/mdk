@@ -1574,6 +1574,8 @@ impl<S: StorageProvider> Engine<S> {
                 #[cfg(feature = "experimental-device-sync")]
                 Some(&self.enrollment_intake),
                 #[cfg(feature = "experimental-device-sync")]
+                Some(&self.revocation_transition),
+                #[cfg(feature = "experimental-device-sync")]
                 existing_transition.as_ref(),
             )?;
             #[cfg(feature = "experimental-device-sync")]
@@ -1640,6 +1642,16 @@ impl<S: StorageProvider> Engine<S> {
                 guard
                     .check_applied(storage, group_id)
                     .map_err(crate::openmls_projection::capture_effect_error)?;
+            }
+            #[cfg(feature = "experimental-device-sync")]
+            if output
+                .staged_settlement_admission
+                .as_ref()
+                .is_some_and(|admission| !admission.is_live())
+            {
+                return Err(OpenMlsProjectionError::Replay(
+                    "original Remove admission expired at transaction tail".into(),
+                ));
             }
             Ok::<_, OpenMlsProjectionError>((
                 output.group_changes,

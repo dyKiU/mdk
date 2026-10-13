@@ -39,6 +39,8 @@ Each module's top-level rustdoc is the source of truth; this is an index.
 | Module | Owns |
 | --- | --- |
 | `engine.rs` | `Engine<S>`, `EngineBuilder`, `CgkaEngine` impl, `drain_events` / `drain_auto_publish` / `drain_auto_proposals` queues |
+| `account_chat_catalog.rs` | Experimental read-only initial paged discovery from fresh Completed protected roster and actual local ordinary membership; observations only, no automatic sharing policy, transport or remote membership |
+| `account_chat_sharing.rs` | Experimental original fixed-lease two-device signed policy transcript and recipient-only HPKE bodies; actual Completed roster/generation/Engine custody, bounded exact retries and actual protected MLS carrier/source-leaf intake; no automatic actor or ordinary membership grant |
 | `history_transfer.rs` | Default-off original fixed-lease recipient-only HPKE channel; exact signed request/consent/context and Engine ownership; one immutable archive/ACK body, no MLS transport or history import permission |
 | `identity.rs` | Local signer + credential bundle; `member_id_of_processed_message` / `member_id_of_sender` chokepoints |
 | `device_group_lineage.rs` | Default-off permanent109/confirmed110 denial from the actual applied indexed tree, scoped owner/group/generation and full successor; no probe revocation or permission |
@@ -658,3 +660,29 @@ consent. Retire/drop clears ciphertext/peer state and zeroizes the HPKE secret.
 Core receipt framing cannot prove committed import; trusted App importer must
 validate manifest/count/receipt semantics. Production Nostr size remains a
 separate actual-wrapper gate; Passthrough tests do not qualify relay envelopes.
+
+Exact device-leaf review capture derives the Current/Stable ordinary full indexed tree, actual admin/own leaf, epoch authenticator and same-account non-self target under a fresh protected Completed roster/generation read. The opaque selection is tied to the originating Engine; every review read revalidates all captured state. Public review metadata grants no Remove and cannot reconstruct the original. Reuse the canonical selected-chat indexed leaf validator rather than inventing a host tree inlet.
+
+Exact ordinary sibling removal now stages one real Remove under a fresh Core selection and trusted original runtime lease. Pending and confirmed validators require exact indexed successor, unchanged survivor identities/leaf commitments (sender path may refresh), original protected Completed generation and originating Engine. The generic account removal path remains separate; no selected Invite or protected-group removal grant is created.
+
+
+### Exact-device captured-scope removal checkpoint
+
+Device-wide exact-leaf removal captures fresh protected Completed generation and actual indexed trees. Ordinary groups precede the protected group; ordinary-only selection still refuses protected groups. Pending protected predecessor validation requires the same original memory lease and exact staged single Remove. It never fabricates Existing/Add provenance. Fresh successor settlement is a separate required step.
+
+### Original protected Remove successor settlement
+
+`device_leaf_revocation/transition.rs` stages Revoked metadata and the actual live settlement admission atomically with the authenticated sole Remove. Source admission retains the explicitly approved original admin action; recipient admission requires its exact live transport receipt and canonical MLS digest after durable content dedup. Stored canonical replay after Engine/encrypted reopen can apply negative membership but cannot allocate a new positive deadline/guard. Every old origin remains permanently denied. The actual public survivor history import and restart refusal pass; same-client transient storage retry and post-revocation new-device enrollment remain separate. See `docs/device-sync-revocation-successor-settlement-verification.json`.
+
+Same-client protected Remove storage retry is now qualified: a negative observer requires the already captured live received intent plus its exact retained receipt/deadline, unresolved input, and actual Completed predecessor/tree/generation. It creates no permission. The worker preserves this originating Engine across typed Storage rollback; encrypted reopen still cannot reconstruct its original receipt. See `docs/device-sync-revocation-storage-retry-verification.json`.
+
+### Original enrollment sharing terms
+
+`private_enrollment_endorsement` keeps ordinary v1 byte shape and a distinct
+signed sharing protocol/domain for the named broader received-request action.
+Bind fixed policy version/capabilities, exact request and indexed signer; preserve
+the same original owner/deadline/cancellation. Changing terms requires a new
+protocol/domain, not reinterpretation of old signatures. All-leaf and original
+recipient `sharing_devices()` are authenticated observations only, never policy
+or admission. `private_enrollment_sharing_tests.rs` reuses genuine received B
+fixtures and real private carrier; portable A signatures are explicitly metadata.

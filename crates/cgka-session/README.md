@@ -138,3 +138,11 @@ The experimental Session endorsement methods are thin Core forwards: source-boun
 Feature-only endorsement wrapping, actual receipt draining and original local
 proposal signature/collection are thin Core forwards. The caller retains opaque
 original actions; Session provides no SDK evidence or transition permission.
+
+Experimental `account_chat_sharing` methods forward the actual Core-owned policy channel, fresh validation, signed control authentication and wrapping. Session owns neither broad approval nor a relay actor; durable policy data never reconstructs an old channel.
+
+The feature-only `endorse_private_enrollment_request_and_share_chats` forwards
+the named original Core action. Its signed broader terms are separate from the
+ordinary unmarked enrollment endorsement. Original recipient evidence reports
+verified sharing signers without granting a bilateral policy or join. Native
+approval and policy handoff must still preserve both actual originals.

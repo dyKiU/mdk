@@ -40,6 +40,8 @@ use storage_sqlite::{
 };
 
 #[cfg(feature = "experimental-device-sync")]
+mod account_chat_sharing;
+#[cfg(feature = "experimental-device-sync")]
 mod history_transfer;
 
 const TRACE_TARGET: &str = "cgka_session::session";
@@ -702,6 +704,23 @@ impl AccountDeviceSession {
     {
         self.engine
             .endorse_private_enrollment_request(request, artifact, package, context_digest)
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn endorse_private_enrollment_request_and_share_chats(
+        &self,
+        request: &cgka_engine::private_enrollment_request::AuthenticatedEnrollmentRequest,
+        artifact: &[u8],
+        package: &KeyPackage,
+        context_digest: &[u8; 32],
+    ) -> Result<cgka_engine::private_enrollment_endorsement::OwnedEnrollmentEndorsement, EngineError>
+    {
+        self.engine
+            .endorse_private_enrollment_request_and_share_chats(
+                request,
+                artifact,
+                package,
+                context_digest,
+            )
     }
     #[cfg(feature = "experimental-device-sync")]
     pub fn validate_owned_private_enrollment_endorsement(
@@ -1859,6 +1878,11 @@ impl AccountDeviceSession {
         Ok(self.engine.group_authority(group_id)?)
     }
 
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn retained_local_group_creation(&self, group_id: &GroupId) -> SessionResult<bool> {
+        Ok(self.engine.retained_local_group_creation(group_id)?)
+    }
+
     /// Canonical leaf membership for device-scoped projection and token reconciliation.
     pub fn canonical_group_membership(
         &self,
@@ -2246,6 +2270,83 @@ fn delivery_plane_label(plane: TransportDeliveryPlane) -> &'static str {
 
 #[cfg(feature = "experimental-device-sync")]
 impl AccountDeviceSession {
+    pub fn capture_device_revocation_selections(
+        &self,
+        target: &[u8],
+    ) -> Result<Vec<cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection>, EngineError>
+    {
+        self.engine.capture_device_revocation_selections(target)
+    }
+    pub fn confirmed_device_revocation_scope(
+        &self,
+        originals: &[&cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection],
+    ) -> Result<(), EngineError> {
+        self.engine.confirmed_device_revocation_scope(originals)
+    }
+    pub fn capture_device_leaf_revocation_selection(
+        &self,
+        group: &GroupId,
+        target_device: &[u8],
+    ) -> Result<cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection, EngineError>
+    {
+        self.engine
+            .capture_device_leaf_revocation_selection(group, target_device)
+    }
+    pub fn validate_device_leaf_revocation_selection(
+        &self,
+        original: &cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection,
+    ) -> Result<(), EngineError> {
+        self.engine
+            .validate_device_leaf_revocation_selection(original)
+    }
+    pub async fn prepare_device_leaf_revocation(
+        &mut self,
+        original: &cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection,
+        lease: &mut dyn cgka_engine::device_leaf_revocation::DeviceLeafRevocationLease,
+    ) -> Result<cgka_traits::SendResult, EngineError> {
+        self.engine
+            .prepare_device_leaf_revocation(original, lease)
+            .await
+    }
+    pub fn validate_prepared_device_leaf_revocation(
+        &self,
+        original: &cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection,
+        pending: cgka_traits::PendingStateRef,
+        origin: &cgka_traits::MessageId,
+    ) -> Result<(), EngineError> {
+        self.engine
+            .validate_prepared_device_leaf_revocation(original, pending, origin)
+    }
+    pub async fn retire_device_leaf_revocation_pending(
+        &mut self,
+        pending: cgka_traits::PendingStateRef,
+        origin: &cgka_traits::MessageId,
+        group: &GroupId,
+    ) -> Result<(), EngineError> {
+        self.engine
+            .retire_device_leaf_revocation_pending(pending, origin, group)
+            .await
+    }
+    pub fn device_revocation_storage_retry_groups(&self) -> Result<Vec<GroupId>, EngineError> {
+        self.engine.device_revocation_storage_retry_groups()
+    }
+    pub fn device_revocation_settlement_control(
+        &self,
+    ) -> Result<
+        Option<
+            std::sync::Arc<cgka_engine::device_leaf_revocation::DeviceRevocationSettlementControl>,
+        >,
+        cgka_traits::EngineError,
+    > {
+        self.engine.device_revocation_settlement_control()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn confirmed_device_leaf_revocation(
+        &self,
+        original: &cgka_engine::device_leaf_revocation::DeviceLeafRevocationSelection,
+    ) -> Result<(), EngineError> {
+        self.engine.confirmed_device_leaf_revocation(original)
+    }
     pub fn install_trusted_selected_chat_welcome_policy(
         &mut self,
         policy: std::sync::Arc<dyn cgka_engine::selected_chat_consent::SelectedChatWelcomePolicy>,

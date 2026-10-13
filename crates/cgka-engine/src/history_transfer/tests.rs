@@ -1,5 +1,6 @@
 //! Real MLS/SQL plus injected fixed actor leases; not native consent or archive delivery.
 use super::*;
+use cgka_traits::GroupStorage;
 use cgka_traits::engine::{CgkaEngine, CreateGroupRequest, SendResult};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -73,6 +74,154 @@ fn channels(
     a.bind_history_consent(&mut source, &recipient.consent_packet().unwrap())
         .unwrap();
     (source, recipient, al, bl)
+}
+
+#[tokio::test]
+async fn account_chat_catalog_discovers_actual_nonadmin_membership_without_grant() {
+    let (mut a, b, protected, ordinary) = fixture().await;
+    // Same-account siblings share account administrator identity. A separate
+    // account must create the incoming chat to exercise actual non-admin scope.
+    let mut d = crate::device_group_genesis::tests::current_test_engine_with_key(
+        SqliteAccountStorage::in_memory().unwrap(),
+        k256::schnorr::SigningKey::random(&mut rand::thread_rng()),
+    );
+    let package = a.fresh_key_package().await.unwrap();
+    let (incoming, result) = d
+        .create_group(CreateGroupRequest {
+            name: "incoming fixture".into(),
+            description: String::new(),
+            members: vec![package],
+            required_features: vec![],
+            app_components: vec![],
+            initial_admins: vec![],
+        })
+        .await
+        .unwrap();
+    let SendResult::FoundingGroupCreated { mut welcomes } = result else {
+        panic!("actual incoming group")
+    };
+    assert_eq!(a.join_welcome(welcomes.remove(0)).await.unwrap(), incoming);
+    let before = b.storage.list_group_records().unwrap();
+    let source = a.account_chat_catalog(&protected, None, 128).unwrap();
+    let recipient = b.account_chat_catalog(&protected, None, 128).unwrap();
+    assert_eq!(source.entries.len(), 2);
+    assert_eq!(recipient.entries.len(), 1);
+    assert_eq!(recipient.entries[0].group_id, ordinary);
+    let own = source
+        .entries
+        .iter()
+        .find(|entry| entry.group_id == ordinary)
+        .unwrap();
+    let nonadmin = source
+        .entries
+        .iter()
+        .find(|entry| entry.group_id == incoming)
+        .unwrap();
+    assert!(own.local_is_admin);
+    assert!(!nonadmin.local_is_admin);
+    assert!(recipient.entries[0].local_is_admin);
+    assert_ne!(own.local_leaf_index, recipient.entries[0].local_leaf_index);
+    assert_eq!(recipient.protected.account, b.self_id());
+    assert_eq!(before, b.storage.list_group_records().unwrap());
+    assert!(b.account_chat_catalog(&ordinary, None, 128).is_err());
+    assert!(b.account_chat_catalog(&protected, None, 0).is_err());
+    assert!(b.account_chat_catalog(&protected, None, 129).is_err());
+    assert!(
+        b.account_chat_catalog(&protected, Some(&GroupId::new(vec![])), 1)
+            .is_err()
+    );
+    assert!(d.account_chat_catalog(&protected, None, 1).is_err());
+    let unpaired = crate::device_group_genesis::tests::current_test_engine(
+        SqliteAccountStorage::in_memory().unwrap(),
+    );
+    assert!(unpaired.account_chat_catalog(&protected, None, 1).is_err());
+
+    let removal = d
+        .send(cgka_traits::SendIntent::RemoveMembers {
+            group_id: incoming.clone(),
+            members: vec![a.self_id()],
+        })
+        .await
+        .unwrap();
+    let SendResult::GroupEvolution { msg, pending, .. } = removal else {
+        panic!("actual removal commit")
+    };
+    d.confirm_published(pending).await.unwrap();
+    a.ingest(msg).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !a.group_record(&incoming).unwrap().removed {
+            a.advance_convergence(&incoming).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("actual received removal must become canonical");
+    assert!(
+        a.account_chat_catalog(&protected, None, 128)
+            .unwrap()
+            .entries
+            .iter()
+            .all(|entry| entry.group_id != incoming)
+    );
+    let journal = a
+        .account_chat_catalog_journal(&protected, None, 128)
+        .unwrap();
+    assert!(journal.entries.iter().any(|entry| matches!(entry,
+        crate::account_chat_catalog::AccountChatCatalogObservation::Withdrawn {
+            group_id, disbanded: false, ..
+        } if group_id == &incoming)));
+    assert!(journal.entries.iter().any(|entry| matches!(entry,
+        crate::account_chat_catalog::AccountChatCatalogObservation::Active(entry)
+        if entry.group_id == ordinary)));
+    assert!(a.account_chat_catalog_journal(&protected, None, 0).is_err());
+    assert!(
+        a.account_chat_catalog_journal(&protected, None, 129)
+            .is_err()
+    );
+    assert!(d.account_chat_catalog_journal(&protected, None, 1).is_err());
+    // A retained identical tree does not replace a fresh Completed round.
+    a.select_private_roster_settlement(&protected).unwrap();
+    assert!(a.account_chat_catalog(&protected, None, 128).is_err());
+    assert!(
+        a.account_chat_catalog_journal(&protected, None, 128)
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn account_chat_catalog_pages_same_title_chats_by_canonical_identity() {
+    let (mut a, mut b, protected, first) = fixture().await;
+    let kp = b.fresh_key_package().await.unwrap();
+    let (second, result) = a
+        .create_group(CreateGroupRequest {
+            name: "history fixture".into(),
+            description: String::new(),
+            members: vec![kp],
+            required_features: vec![],
+            app_components: vec![],
+            initial_admins: vec![],
+        })
+        .await
+        .unwrap();
+    let SendResult::FoundingGroupCreated { mut welcomes } = result else {
+        panic!("ordinary founding group")
+    };
+    assert_eq!(b.join_welcome(welcomes.remove(0)).await.unwrap(), second);
+    assert_ne!(first, second);
+    let page = b.account_chat_catalog(&protected, None, 1).unwrap();
+    assert_eq!(page.entries.len(), 1);
+    let next = b
+        .account_chat_catalog(&protected, Some(&page.entries[0].group_id), 1)
+        .unwrap();
+    assert_eq!(next.entries.len(), 1);
+    assert_ne!(page.entries[0].group_id, next.entries[0].group_id);
+    assert!(page.entries[0].group_id.as_slice() < next.entries[0].group_id.as_slice());
+    assert!(
+        b.account_chat_catalog(&protected, Some(&next.entries[0].group_id), 1)
+            .unwrap()
+            .entries
+            .is_empty()
+    );
 }
 #[tokio::test]
 async fn history_channel_real_pair_encrypts_body_and_ack_with_exact_retry() {
@@ -725,5 +874,78 @@ async fn history_channel_snapshot_descriptor_is_original_signed_context_and_frag
             &|_| Ok(invalid.clone())
         )
         .is_err()
+    );
+}
+
+#[tokio::test]
+async fn history_recipients_observe_exact_remote_leaf_without_creating_consent() {
+    let (a, b, protected, ordinary) = fixture().await;
+    let choices = a
+        .history_recipients(&ordinary, &protected)
+        .expect("eligible linked recipients must be observable");
+    assert_eq!(choices.len(), 1);
+    assert!(choices[0].device == b.identity.signer.public());
+    assert!(choices[0].device != a.identity.signer.public());
+    let actual = a
+        .validated_settled_device_roster(&protected)
+        .unwrap()
+        .unwrap();
+    assert!(
+        actual
+            .candidate()
+            .leaves
+            .iter()
+            .any(|leaf| leaf.leaf_index == choices[0].leaf_index
+                && leaf.signature_public_key == choices[0].device)
+    );
+    struct NoConsent;
+    impl TrustedHistoryLease for NoConsent {}
+    assert!(
+        a.begin_history_channel(
+            &ordinary,
+            &protected,
+            &choices[0].device,
+            Arc::new(NoConsent)
+        )
+        .is_err()
+    );
+}
+
+#[tokio::test]
+async fn history_recipients_refuse_invalid_groups_and_unsettled_selection() {
+    let (a, _, protected, ordinary) = fixture().await;
+    assert!(a.history_recipients(&protected, &protected).is_err());
+    assert!(a.history_recipients(&ordinary, &ordinary).is_err());
+    let absent = GroupId::new(vec![9; 16]);
+    assert!(a.history_recipients(&absent, &protected).is_err());
+    assert!(a.history_recipients(&ordinary, &absent).is_err());
+    assert_eq!(
+        a.history_recipients(&ordinary, &protected).unwrap().len(),
+        1
+    );
+    a.select_private_roster_settlement(&protected).unwrap();
+    assert!(a.history_recipients(&ordinary, &protected).is_err());
+}
+
+#[tokio::test]
+async fn history_recipients_do_not_keep_a_stale_ordinary_selection_alive() {
+    let (mut a, b, protected, ordinary) = fixture().await;
+    let choices = a.history_recipients(&ordinary, &protected).unwrap();
+    let source = a
+        .begin_history_channel(&ordinary, &protected, &choices[0].device, Lease::new())
+        .unwrap();
+    let SendResult::GroupEvolution { pending, .. } =
+        a.do_send_self_update(ordinary.clone()).await.unwrap()
+    else {
+        panic!("actual ordinary update");
+    };
+    assert!(a.history_recipients(&ordinary, &protected).is_err());
+    a.confirm_published(pending).await.unwrap();
+    assert!(a.validate_history_channel(&source).is_err());
+    let fresh = a.history_recipients(&ordinary, &protected).unwrap();
+    assert!(fresh[0].device == b.identity.signer.public());
+    assert!(
+        a.begin_history_channel(&ordinary, &protected, &fresh[0].device, Lease::new())
+            .is_ok()
     );
 }

@@ -780,3 +780,41 @@ call can create its original process owner. Retain the genuine encrypted reopen
 control using a new outer MLS frame from the unchanged original source, plus the
 distinct fresh request acceptance control. Capacity is cumulative128 and fails
 closed; this experimental fence is not an unbounded sync journal.
+
+One-group device revocation begins as an opaque original administrator review in `device_revocation`, with serial child RPC/client modules. Target device bytes are a selector only. Keep exact originating account/client identity, fixed original600-second deadline, fresh Core full-tree/epoch/generation checks, cancel/Drop/abandoned-reply retirement and one active original. Snapshot success is not removal, publication, protected-roster revocation or a per-group completion result.
+
+The original one-group revocation review now supports approve(displayed revision), real direct relay ACK, ordinary confirmation and actual sender projection. Account owner retains one exact negative pending identity across cancellation/drop; rows never recreate the action. Qualified actual A/B/C/D regression removes C only and verifies A/B/D messages plus C realized-eviction refusal. Blocked-publication/lost-reply/expiry/reopen controls and full protected/multigroup revocation remain pending; see docs/device-sync-exact-device-leaf-removal-verification.json.
+
+
+### Exact-device captured-scope removal checkpoint
+
+DeviceRevocation retains one original fixed deadline across captured groups, with exact current pending negative cleanup. Completed-group snapshots observe local confirmed commits. Actual protected ABC and two ordinary ABCD removals, peer convergence and survivor messages are qualified; wider lifecycle and native acceptance remain separate.
+
+### Protected Remove successor publication
+
+The actor dispatches only its original in-memory Revoked settlement control through the private publisher, under the same fixed source/receipt deadline; retained SQL facts never construct a control. Actual protected ABC→AB and fresh A→B approved history import pass, while removed C and pre-restart retained Remove permission are refused. Generic received storage failures can still reopen this owner; qualifying same-client transient retry is a separate required follow-up. Existing SDK/native outputs are unchanged by this focused checkpoint.
+
+Typed received Remove storage rollback now retains the same client only when Core observes its exact live receipt and captured intent plus actual unresolved input and Completed predecessor. Schedule retained canonical convergence; never reopen and rebuild positive consent from SQL. The unchanged retry reaches fresh explicit survivor history import; retained encrypted-reopen replay stays negative. Other successor lifecycle/native boundaries remain separate.
+
+### Original pairing-wide sharing approval
+
+Capture explicit sharing intent before taking the genuine verified SDK original. Persist only under its unchanged deadline, matching SDK context and fresh Completed settlement guard, with validation before and at the SQL transaction tail. Public EnrollmentComplete must synchronously finish the durable handoff before an app can close the original. Ordinary continuation and new third-device enrollment cannot create implicit broad policy.
+
+### Existing-pair broad approval originals
+
+`account_chat_sharing` owns the fresh source/recipient action; the worker and client children retain actual Core channels. Authenticate the real protected source proof before constructing recipient review. Bind immutable metadata, fixed600-second original and displayedrevision; do not manufacture approval from stored policy or old SDK context. Durable writes validate the same channel before/tail SQL. Observe private controls identically on direct/replay paths, and keep them hidden from ordinary projection. Retain process-lifetime negative request IDs at the128-owner bound; this checkpoint does not claim restart denial or automatic channel renewal.
+
+Source-qualified automatic chat presentation lives in
+`account_chat_presentation.rs`, `client/account_chat_sharing/presentation.rs`, and
+`runtime/account_chat_{presentation,windows}.rs` /
+`runtime/account_conversation_windows.rs`. Accept cursors, never caller approval
+scopes. Keep current-policy/Completed checks before and at the worker read tail,
+explicit LocalMls/PairedSource headers, total SQL bounds, ordinary precedence,
+canonical event chronology, unsupported-kind placeholders and ordered media
+outcomes without download authority. Subscribe to wake/reset/shutdown before
+initial reads; exact sequence and owner cancellation fence later replies. Mirror
+wakes follow SQL commit only; protected lifecycle wakes remain observations in
+the hidden-event path. Expired payloads refresh immediately, hidden rows do not
+spin, failed reads retry at a bounded interval. List metadata rows are not another
+visible lane. Keep real fixture tests separate from synthetic storage/scheduling
+controls; native/Records/send integration is not proved by catalog-only success.

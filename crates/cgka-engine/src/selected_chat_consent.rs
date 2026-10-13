@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 pub const MAX_SELECTED_CHAT_PACKET_BYTES: usize = 16_384;
 const REQUEST: &str = "whitenoise.selected-chat-request-observation.v1";
 const CONSENT: &str = "whitenoise.selected-chat-consent-observation.v1";
-mod invite;
+pub(crate) mod invite;
 mod offer;
 mod package;
 mod welcome;
@@ -22,11 +22,11 @@ fn denied() -> EngineError {
 }
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct IndexedOrdinaryLeaf {
-    index: u32,
-    account: Vec<u8>,
-    signer: Vec<u8>,
-    hash: [u8; 32],
+pub(crate) struct IndexedOrdinaryLeaf {
+    pub(crate) index: u32,
+    pub(crate) account: Vec<u8>,
+    pub(crate) signer: Vec<u8>,
+    pub(crate) hash: [u8; 32],
 }
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

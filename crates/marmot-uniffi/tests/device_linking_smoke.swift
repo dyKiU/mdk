@@ -34,6 +34,22 @@ struct DeviceLinkingSmoke {
         let targetCopy = try FfiConverterTypeDeviceLinkingTargetFfi.lift(
             FfiConverterTypeDeviceLinkingTargetFfi.lower(target))
         precondition(targetCopy == target)
+        let sharingTargets = AccountSharingTargetsFfi(
+            protectedGroupIdHex: String(repeating: "08", count: 16),
+            protectedEpoch: UInt64.max,
+            targets: [AccountSharingTargetFfi(leafIndex: 2, device: Data(repeating: 3, count: 32)),
+                      AccountSharingTargetFfi(leafIndex: 7, device: Data(repeating: 4, count: 32))])
+        let sharingTargetsCopy = try FfiConverterTypeAccountSharingTargetsFfi.lift(
+            FfiConverterTypeAccountSharingTargetsFfi.lower(sharingTargets))
+        precondition(sharingTargetsCopy == sharingTargets)
+        let sharingReview = AccountSharingSnapshotFfi(
+            protectedGroupIdHex: sharingTargets.protectedGroupIdHex,
+            protectedEpoch: UInt64.max, sourceDevice: Data(repeating: 2, count: 32),
+            recipientDevice: Data(repeating: 3, count: 32), revision: UInt64.max,
+            approved: false, complete: false)
+        let sharingReviewCopy = try FfiConverterTypeAccountSharingSnapshotFfi.lift(
+            FfiConverterTypeAccountSharingSnapshotFfi.lower(sharingReview))
+        precondition(sharingReviewCopy == sharingReview)
         let packet = DeviceLinkingOutgoingPacketFfi(acknowledgementId: "frame/probe", bytes: Data([0, 255, 0, 1]))
         let packetCopy = try FfiConverterTypeDeviceLinkingOutgoingPacketFfi.lift(
             FfiConverterTypeDeviceLinkingOutgoingPacketFfi.lower(packet))
@@ -54,6 +70,12 @@ struct DeviceLinkingSmoke {
                 FfiConverterTypeSelectedChatConsentSnapshotFfi.lower(value))
             precondition(copy == value)
         }
+        let revocation = DeviceRevocationSnapshotFfi(revision: UInt64.max, complete: false,
+            protectedGroupIdHex: "00ff", ordinaryGroupIdsHex: ["01", "aabb"],
+            completedGroupIdsHex: ["01"], targetDevice: Data([0, 255, 0, 1]))
+        let revocationCopy = try FfiConverterTypeDeviceRevocationSnapshotFfi.lift(
+            FfiConverterTypeDeviceRevocationSnapshotFfi.lower(revocation))
+        precondition(revocationCopy == revocation)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let kit = try Marmot.newWithConfiguration(rootPath: root.path,
@@ -89,6 +111,21 @@ struct DeviceLinkingSmoke {
             precondition(caps.verificationSupported)
         }
         let accounts = try kit.listAccounts()
+        for action in 0..<3 {
+            do {
+                switch action {
+                case 0: _ = try await kit.accountChatSharingTargets(accountRef: "missing")
+                case 1: _ = try await kit.beginAccountChatSharing(
+                    accountRef: "missing", recipientDevice: Data(repeating: 0, count: 32))
+                default: _ = try await kit.pendingAccountChatSharing(accountRef: "missing")
+                }
+                preconditionFailure("missing account must not expose sharing originals")
+            } catch MarmotKitError.AccountSharingUnsupported {
+                precondition(!caps.verificationSupported)
+            } catch MarmotKitError.AccountSharingRuntimeUnavailable {
+                precondition(caps.verificationSupported)
+            }
+        }
         do {
             _ = try await kit.beginSelectedChatCopy(accountRef: "missing", groupIdHex: "01", linkedRosterSelector: Data([2]))
             preconditionFailure("missing account must not create a selected-chat request")
@@ -105,8 +142,16 @@ struct DeviceLinkingSmoke {
         } catch MarmotKitError.SelectedChatCopyRuntimeUnavailable {
             precondition(caps.verificationSupported)
         }
+        do {
+            _ = try await kit.beginDeviceRevocation(accountRef: "missing", targetDevice: Data(repeating: 1, count: 32))
+            preconditionFailure("missing account must not create an original revocation")
+        } catch MarmotKitError.DeviceRevocationUnsupported {
+            precondition(!caps.verificationSupported)
+        } catch MarmotKitError.DeviceRevocationRuntimeUnavailable {
+            precondition(caps.verificationSupported)
+        }
         precondition(accounts.isEmpty)
         try await kit.shutdownAndClose()
-        print("Swift device linking ABI: 18 session + 6 approval snapshots, 5 selected request + 5 selected consent snapshots, binary selectors/target/packet round trips, capability, typed factory/observation gates and shutdown passed; experimental=\(caps.verificationSupported)")
+        print("Swift device linking ABI: session/approval/selected-chat and account-sharing DTO round trips, ordered device inventory, capability, typed factory/observation gates and shutdown passed; experimental=\(caps.verificationSupported)")
     }
 }
