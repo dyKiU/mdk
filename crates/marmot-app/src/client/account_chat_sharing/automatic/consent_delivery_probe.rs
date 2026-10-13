@@ -57,6 +57,7 @@ enum Observation {
         Outcome,
     ),
     Dispatch([u8; 32], Vec<u8>, [u8; 32], Outcome),
+    Automatic([u8; 32], Vec<u8>, [u8; 32], bool),
 }
 #[derive(Default)]
 struct Progress {
@@ -166,6 +167,8 @@ impl ConsentDeliveryProbe {
                 authentication: None,
                 authenticated_nonce_matches: false,
                 dispatch: None,
+                automatic_matched: false,
+                consent_bound: false,
             };
             for (_, observation) in progress
                 .observations
@@ -204,6 +207,17 @@ impl ConsentDeliveryProbe {
                     {
                         record.dispatch = Some(*outcome);
                     }
+                    Observation::Automatic(nonce, signer, digest, bound)
+                        if nonce == &publication.nonce
+                            && signer.as_slice() == publication.local_device
+                            && digest == &publication.inner_wire_sha256 =>
+                    {
+                        if *bound {
+                            record.consent_bound = true;
+                        } else {
+                            record.automatic_matched = true;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -229,6 +243,8 @@ pub(crate) struct ObservedPublication {
     pub(crate) authentication: Option<Outcome>,
     pub(crate) authenticated_nonce_matches: bool,
     pub(crate) dispatch: Option<Outcome>,
+    pub(crate) automatic_matched: bool,
+    pub(crate) consent_bound: bool,
 }
 pub(crate) struct Snapshot {
     pub(crate) records: Vec<ObservedPublication>,
@@ -250,6 +266,8 @@ pub(crate) struct Summary {
     pub(crate) authenticated_nonce_matches: usize,
     pub(crate) authentication: [usize; 5],
     pub(crate) dispatch: [usize; 5],
+    pub(crate) automatic_matched: usize,
+    pub(crate) consent_bound: usize,
 }
 impl Snapshot {
     pub(crate) fn summary(&self) -> Summary {
@@ -265,8 +283,12 @@ impl Snapshot {
             authenticated_nonce_matches: 0,
             authentication: [0; 5],
             dispatch: [0; 5],
+            automatic_matched: 0,
+            consent_bound: 0,
         };
         for record in &self.records {
+            summary.automatic_matched += usize::from(record.automatic_matched);
+            summary.consent_bound += usize::from(record.consent_bound);
             summary.raw_id_seen += usize::from(record.raw_id_seen);
             summary.raw_payload_hash_matches += usize::from(record.raw_payload_hash_matches);
             summary.event_seen += usize::from(record.event_seen);
@@ -368,6 +390,38 @@ pub(crate) fn dispatched(
         probe.record(
             root,
             Observation::Dispatch(received.nonce, received.signer.clone(), digest, outcome),
+        );
+    }
+}
+
+/// Exact automatic nonce lookup; this is an observation, not a bind or approval.
+pub(crate) fn automatic_matched(
+    root: &Path,
+    received: &ReceivedAccountSharingControl,
+    digest: [u8; 32],
+) {
+    observe_automatic(root, received, digest, false);
+}
+/// Call only after the real existing Core Consent bind succeeds and sets ready.
+pub(crate) fn consent_bound(
+    root: &Path,
+    received: &ReceivedAccountSharingControl,
+    digest: [u8; 32],
+) {
+    observe_automatic(root, received, digest, true);
+}
+fn observe_automatic(
+    root: &Path,
+    received: &ReceivedAccountSharingControl,
+    digest: [u8; 32],
+    bound: bool,
+) {
+    if received.control == AccountSharingControl::Consent
+        && let Some(probe) = current(root)
+    {
+        probe.record(
+            root,
+            Observation::Automatic(received.nonce, received.signer.clone(), digest, bound),
         );
     }
 }
