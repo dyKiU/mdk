@@ -1,6 +1,48 @@
 # Account-wide departure source checkpoint
 
 
+## Typed Records cut-refusal checkpoint (2026-10-13)
+
+Component-qualified product source `c4c32b25f19563d0e7efabbff3074ddb418b1487`
+is retained in frozen tested source `d8855cd82306d6076b730d25478d5d221d0b7da8`.
+A real authenticated Records batch refused by an account-wide departure cut had
+remained at the projection retry head, preventing a later genuine B Consent from
+binding. The precise baseline reached the actual typed SQL denial and timed out;
+the same functional oracle passes with the narrow negative disposition. Explicit
+peer/channel-nonce joins strengthen the passing fixture's captured-input proof.
+
+The SQL transaction checks the original, approved scope and configured owner
+before testing each incoming origin against the actual cut. Its typed denial
+creates no message, progress or import receipt. App revalidates the same original
+at the negative tail, clears only the completed Records assembly and finishes the
+hidden event without a RecordReceipt or presentation wake. Missing catalog,
+other invalid observations and storage/original failures retain their existing
+retry behavior. No metadata creates permission or membership.
+
+All prefixes are under `/Users/pj/project/build/results/`:
+
+- `records-cut-6c0027ba-red-v2`: actual0/1, with complete authenticated input,
+  public cut, peer Consent ACK, exact retained event/nonce/batch, unexpired probe
+  and typed negative SQL refusal established before the unchanged30-second oracle.
+- `records-cut-c4c32b25-green-v3`: actual1/0, with hardened peer/nonce binding,
+  the same negative cut, no committed record receipt and real later Consent bind.
+- `records-cut-d8855cd8-affected-v5`: actual24/0/0 selected executions: SQL19,
+  real Records regression1, original offline departure1, both fresh accepted
+  sources/old-intent replay/new operation1, ordinary Records1 and retained
+  same-original authentication1. Traits/SQLite/App default and experimental
+  all-target Clippy `-D warnings` and whole-workspace fmt exited0, no exemptions.
+- `records-cut-d8855cd8-native-v6`: matched App/C build exited0 (zero runtime
+  tests); actual C→UniFFI→App consumer1 and independent same-root producer1
+  passed with unchanged binaries and positive closures. This uses the existing
+  4 MiB minimum test stack/8 MiB composed thread, not a shipping-stack claim.
+
+The initial Records v1 timeout lacked an exact SQL-branch observation and remains
+nonqualifying. Affected v4 selected zero SQL tests because its feature was absent;
+the driver rejected it, and no passing gate is claimed. Prior failed full cohorts
+remain preserved. Final unchanged-source fast-ci, backend and SDK gates are still
+required before host adoption and Dev deployment; Production remains untouched.
+
+
 ## Exact rejected-reference security checkpoint (2026-10-13)
 
 Component-qualified Core source `8a114134feee73e9fbc0269f940ffbc3c4e880ac`
