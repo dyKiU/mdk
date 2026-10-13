@@ -1,4 +1,6 @@
 //! Synthetic SQL acceptance; original channel authentication remains Core-owned.
+#[path = "cut_refusal.rs"]
+mod cut_refusal;
 #[path = "generation_receipts.rs"]
 mod generation_receipts;
 use super::*;
