@@ -2267,6 +2267,7 @@ mod actual {
                 }
                 return;
             }
+            let revision_before_consent = transfer.snapshot().await.unwrap().revision;
             consent.approve(review.revision).await.unwrap();
             if matches!(
                 scenario,
@@ -2281,7 +2282,20 @@ mod actual {
                 );
                 let _release_on_drop = ReleaseSelectedWelcome(release.clone());
                 let transfer = std::sync::Arc::new(transfer);
-                let revision = transfer.snapshot().await.unwrap().revision;
+                // Recipient approval publishes asynchronously. Wait for this original
+                // source to authenticate Consent before reading its action revision.
+                // Otherwise queued consent can invalidate the revision before dispatch.
+                let revision = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    loop {
+                        let snapshot = transfer.snapshot().await.unwrap();
+                        if snapshot.revision > revision_before_consent {
+                            break snapshot.revision;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .expect("source must authenticate actual Consent before chunk continuation");
                 let operation = transfer.clone();
                 let mut continuation =
                     tokio::spawn(async move { operation.continue_transfer(revision).await });
