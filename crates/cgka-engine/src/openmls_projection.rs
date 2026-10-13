@@ -239,6 +239,7 @@ impl ReplayBudget {
 #[derive(Clone, Debug)]
 enum CandidatePathProbeResult {
     Materialized(Option<OpenMlsMaterializedCandidate>),
+    MissingReferencedProposal,
     RejectedProposal {
         message_id: String,
         category: cgka_traits::ingest::ProposalRejectionCategory,
@@ -381,6 +382,8 @@ pub enum OpenMlsProjectionError {
     MissingGroup,
     Snapshot(String),
     Replay(String),
+    /// Negative dependency hint only; leaf/path/authority validation has not completed.
+    MissingReferencedProposal,
     RejectedProposal {
         message_id: String,
         category: cgka_traits::ingest::ProposalRejectionCategory,
@@ -427,6 +430,9 @@ impl std::fmt::Display for OpenMlsProjectionError {
             OpenMlsProjectionError::MissingGroup => write!(f, "MLS group not found"),
             OpenMlsProjectionError::Snapshot(e) => write!(f, "snapshot failed: {e}"),
             OpenMlsProjectionError::Replay(e) => write!(f, "OpenMLS replay failed: {e}"),
+            OpenMlsProjectionError::MissingReferencedProposal => {
+                write!(f, "referenced proposal unavailable")
+            }
             OpenMlsProjectionError::RejectedProposal {
                 message_id,
                 category,
@@ -2592,6 +2598,7 @@ fn build_stored_openmls_candidate_paths_reference<S: StorageProvider>(
                         replay_rejected_commit_ids.insert(commit.message.id.to_string());
                         continue;
                     }
+                    CandidatePathProbeResult::MissingReferencedProposal => continue,
                     CandidatePathProbeResult::RejectedProposal {
                         message_id,
                         category,
@@ -2762,8 +2769,45 @@ fn probe_candidate_path<S: StorageProvider>(
             message_id,
             rejection_category,
         }),
+        Err(OpenMlsProjectionError::MissingReferencedProposal) => {
+            Ok(CandidatePathProbeResult::MissingReferencedProposal)
+        }
         Err(OpenMlsProjectionError::Replay(_)) => Ok(CandidatePathProbeResult::Materialized(None)),
         Err(err) => Err(err),
+    }
+}
+
+/// Re-prove dependency absence, then full commit validity with the actual new
+/// authenticated proposal. No result here installs a branch or grants authority.
+pub(crate) fn authenticated_proposal_enables_parked_commit<S: StorageProvider>(
+    storage: &S,
+    group: &GroupId,
+    commit: &TransportMessage,
+    proposal: &TransportMessage,
+    reference: &str,
+    profile: ReplayProfilePolicy,
+) -> Result<bool, OpenMlsProjectionError> {
+    let own = PrevalidatedOwnCommits::default();
+    match replay_openmls_messages_prevalidated_output(
+        storage,
+        group,
+        std::slice::from_ref(commit),
+        &own,
+        profile,
+    ) {
+        Err(OpenMlsProjectionError::MissingReferencedProposal) => {}
+        Err(error @ (OpenMlsProjectionError::Storage(_) | OpenMlsProjectionError::Snapshot(_))) => {
+            return Err(error);
+        }
+        _ => return Ok(false),
+    }
+    match replay_openmls_messages_prevalidated_output(storage, group, &[proposal.clone(), commit.clone()], &own, profile) {
+        Ok(replay) => Ok(replay.observations.iter().any(|observation| matches!(observation,
+            OpenMlsReplayObservation::CommitStaged { message_id, consumed_proposal_refs, .. }
+                if message_id == &commit.id.to_string() && consumed_proposal_refs.iter().any(|consumed| consumed == reference)
+        ))),
+        Err(error @ (OpenMlsProjectionError::Storage(_) | OpenMlsProjectionError::Snapshot(_))) => Err(error),
+        _ => Ok(false),
     }
 }
 
@@ -4640,6 +4684,14 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                         _ => "other",
                     },
                 );
+                if matches!(
+                    &err,
+                    ProcessMessageError::InvalidCommit(
+                        openmls::group::StageCommitError::MissingProposal
+                    )
+                ) {
+                    return Err(OpenMlsProjectionError::MissingReferencedProposal);
+                }
                 if let Some(category) = crate::app_components::classify_process_message_rejection(
                     &err,
                     ContentType::Commit,

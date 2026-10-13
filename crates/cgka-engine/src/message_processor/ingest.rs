@@ -1881,8 +1881,24 @@ impl<S: StorageProvider> Engine<S> {
                         self.convergence_now_ms(),
                     )?;
                 }
+                let authenticated_reference = hex::encode(
+                    queued
+                        .proposal_reference_ref()
+                        .tls_serialize_detached()
+                        .map_err(|_| {
+                            EngineError::Backend(
+                                "authenticated proposal reference unavailable".into(),
+                            )
+                        })?,
+                );
                 self.return_mls_group(&group_id, mls_group);
                 self.valid_proposal_groups.insert(group_id.clone());
+                self.wake_commit_for_authenticated_proposal(
+                    &group_id,
+                    &openmls_msg,
+                    &authenticated_reference,
+                    msg_epoch,
+                )?;
                 // The proposal already passed MLS authentication and standalone
                 // authorization. Its retained row must also join an existing
                 // collecting pass before that pass freezes a by-reference

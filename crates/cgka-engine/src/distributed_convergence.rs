@@ -579,6 +579,106 @@ impl<S: StorageProvider> Engine<S> {
         Ok(())
     }
 
+    pub(crate) fn wake_commit_for_authenticated_proposal(
+        &mut self,
+        group: &GroupId,
+        proposal: &TransportMessage,
+        reference: &str,
+        source_epoch: EpochId,
+    ) -> Result<(), cgka_traits::EngineError> {
+        let tip = self
+            .convergence_tip_epoch(group)
+            .map_err(|error| cgka_traits::EngineError::Backend(error.to_string()))?;
+        let policy = self
+            .convergence_policy_for_group(group)
+            .map_err(|error| cgka_traits::EngineError::Backend(error.to_string()))?;
+        if source_epoch > tip
+            || tip.0.saturating_sub(source_epoch.0) > policy.convergence.max_rewind_commits
+        {
+            return Ok(());
+        }
+        let mut records = Vec::new();
+        let mut visited = 0usize;
+        self.storage.visit_messages_in_states(
+            group,
+            &[MessageState::ConvergenceDeferred],
+            source_epoch,
+            &mut |record| {
+                visited += 1;
+                if record.epoch == source_epoch {
+                    records.push(record);
+                }
+                visited < 64
+            },
+        )?;
+        let started = web_time::Instant::now();
+        let profile = ReplayProfilePolicy {
+            reject_legacy_group_additions: self.new_protocol_profile
+                == cgka_traits::group::ProtocolProfile::Current,
+        };
+        for record in records {
+            if started.elapsed() >= std::time::Duration::from_millis(500) {
+                break;
+            }
+            let Some((commit, projection)) =
+                crate::openmls_projection::decode_openmls_wire_projection(&record.payload)
+            else {
+                continue;
+            };
+            if projection.kind != OpenMlsContentKind::Commit
+                || projection.source_epoch != Some(source_epoch.0)
+                || commit.id != record.id
+                || record.id.as_slice() != projection.message_digest
+            {
+                continue;
+            }
+            let attempt = || {
+                crate::openmls_projection::authenticated_proposal_enables_parked_commit(
+                    &self.storage,
+                    group,
+                    &commit,
+                    proposal,
+                    reference,
+                    profile,
+                )
+                .map_err(|error| {
+                    crate::openmls_projection::enrollment_replay_error(
+                        error,
+                        "proposal dependency probe",
+                    )
+                })
+            };
+            let enabled = if source_epoch == tip {
+                attempt()?
+            } else {
+                crate::openmls_projection::with_retained_anchor_group(
+                    &self.storage,
+                    &self.crypto,
+                    group,
+                    source_epoch,
+                    crate::snapshot_guard::RewindSite::Replay,
+                    "proposal-dependency",
+                    |_, _| attempt().map(Some),
+                )?
+                .unwrap_or(false)
+            };
+            if enabled {
+                self.storage.with_transaction(|storage| {
+                    let current = storage.get_message(&record.id)?;
+                    if current.group_id == *group
+                        && current.state == MessageState::ConvergenceDeferred
+                        && current.payload == record.payload
+                    {
+                        storage.update_message_state(&record.id, MessageState::Retryable)?;
+                    }
+                    Ok::<_, cgka_traits::EngineError>(())
+                })?;
+                self.schedule_pending_convergence_group(group);
+            }
+        }
+        Ok(())
+    }
+
     fn admit_stored_message_to_convergence_pass(
         &self,
         group_id: &GroupId,

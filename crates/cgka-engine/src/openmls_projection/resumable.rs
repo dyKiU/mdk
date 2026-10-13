@@ -153,6 +153,7 @@ impl CandidateSearch {
                             .insert(commit.message.id.to_string());
                         continue;
                     }
+                    CandidatePathProbeResult::MissingReferencedProposal => continue,
                     CandidatePathProbeResult::RejectedProposal {
                         message_id,
                         category,
