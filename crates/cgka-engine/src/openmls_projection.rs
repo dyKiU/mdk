@@ -2803,6 +2803,9 @@ pub(crate) fn authenticated_proposal_enables_parked_commit<S: StorageProvider>(
     }
     match replay_openmls_messages_prevalidated_output(storage, group, &[proposal.clone(), commit.clone()], &own, profile) {
         Ok(replay) => Ok(replay.observations.iter().any(|observation| matches!(observation,
+            OpenMlsReplayObservation::ProposalStored { message_id, proposal_ref, .. }
+                if message_id == &proposal.id.to_string() && proposal_ref == reference
+        )) && replay.observations.iter().any(|observation| matches!(observation,
             OpenMlsReplayObservation::CommitStaged { message_id, consumed_proposal_refs, .. }
                 if message_id == &commit.id.to_string() && consumed_proposal_refs.iter().any(|consumed| consumed == reference)
         ))),
@@ -4692,6 +4695,11 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                 ) {
                     return Err(OpenMlsProjectionError::MissingReferencedProposal);
                 }
+                if matches!(&err, ProcessMessageError::StorageError(_)) {
+                    return Err(OpenMlsProjectionError::Storage(
+                        "MLS commit replay storage failure".into(),
+                    ));
+                }
                 if let Some(category) = crate::app_components::classify_process_message_rejection(
                     &err,
                     ContentType::Commit,
@@ -4751,6 +4759,11 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                         kind: projection.kind,
                     });
                     continue;
+                }
+                if matches!(&err, ProcessMessageError::StorageError(_)) {
+                    return Err(OpenMlsProjectionError::Storage(
+                        "MLS proposal replay storage failure".into(),
+                    ));
                 }
                 if let Some(category) = crate::app_components::classify_process_message_rejection(
                     &err,

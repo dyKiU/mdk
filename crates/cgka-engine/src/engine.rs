@@ -2370,7 +2370,15 @@ impl<S: StorageProvider> Engine<S> {
             && self
                 .disband_request_pending(group_id)
                 .map_err(|_| GroupHydrationQuarantineReason::GroupRecordLoadFailed)?;
+        let has_proposal_dependency_wakes = !group.is_terminal()
+            && !group.unrecoverable
+            && self
+                .storage
+                .convergence_pass(group_id)
+                .map_err(|_| GroupHydrationQuarantineReason::GroupRecordLoadFailed)?
+                .is_some_and(|pass| !pass.proposal_dependency_wakes.is_empty());
         if has_queued_intents
+            || has_proposal_dependency_wakes
             || has_convergence_inputs
             || has_canonical_applications
             || has_deferred_peels

@@ -214,7 +214,7 @@ impl<S: StorageProvider> Engine<S> {
             Some(pass) if pass.phase == ConvergencePassPhase::Collecting => {
                 Some(pass.cutoff_monotonic_ms().saturating_sub(now.monotonic_ms))
             }
-            Some(pass) if pass.is_active() => Some(0),
+            Some(pass) if pass.is_active() || !pass.proposal_dependency_wakes.is_empty() => Some(0),
             // RawTransport applications do not open a convergence pass. A
             // failed post-confirmation replay still needs a scheduler edge,
             // after existing pass deadlines and pending-publication gates.
@@ -597,28 +597,106 @@ impl<S: StorageProvider> Engine<S> {
         {
             return Ok(());
         }
+        let Some(mut pass) = self.storage.convergence_pass(group)? else {
+            return Ok(());
+        };
+        if !pass
+            .proposal_dependency_wakes
+            .iter()
+            .any(|wake| wake.proposal_id == proposal.id)
+        {
+            if pass.proposal_dependency_wakes.len() >= 64 {
+                return Err(cgka_traits::EngineError::Backend(
+                    "proposal dependency wake capacity exceeded".into(),
+                ));
+            }
+            pass.proposal_dependency_wakes.push(
+                cgka_traits::convergence_pass::ProposalDependencyWake {
+                    proposal_id: proposal.id.clone(),
+                    proposal_ref: reference.into(),
+                    source_epoch,
+                    after: None,
+                },
+            );
+            self.storage.put_convergence_pass(&pass)?;
+        }
+        self.resume_proposal_dependency_wakes(group)
+    }
+
+    pub(crate) fn resume_proposal_dependency_wakes(
+        &mut self,
+        group: &GroupId,
+    ) -> Result<(), cgka_traits::EngineError> {
+        let Some(mut pass) = self.storage.convergence_pass(group)? else {
+            return Ok(());
+        };
+        let Some(mut wake) = pass.proposal_dependency_wakes.first().cloned() else {
+            return Ok(());
+        };
+        let tip = self
+            .convergence_tip_epoch(group)
+            .map_err(|error| cgka_traits::EngineError::Backend(error.to_string()))?;
+        let policy = self
+            .convergence_policy_for_group(group)
+            .map_err(|error| cgka_traits::EngineError::Backend(error.to_string()))?;
+        let source_epoch = wake.source_epoch;
+        if source_epoch > tip
+            || tip.0.saturating_sub(source_epoch.0) > policy.convergence.max_rewind_commits
+        {
+            pass.proposal_dependency_wakes.remove(0);
+            self.storage.put_convergence_pass(&pass)?;
+            if !pass.proposal_dependency_wakes.is_empty() {
+                self.schedule_pending_convergence_group(group);
+            }
+            return Ok(());
+        }
+        let proposal_record = self.storage.get_message(&wake.proposal_id)?;
+        let Some((proposal, projection)) =
+            crate::openmls_projection::decode_openmls_wire_projection(&proposal_record.payload)
+        else {
+            return Err(cgka_traits::EngineError::Backend(
+                "proposal dependency wire unavailable".into(),
+            ));
+        };
+        if proposal_record.group_id != *group
+            || proposal_record.epoch != source_epoch
+            || projection.kind != OpenMlsContentKind::Proposal
+            || projection.source_epoch != Some(source_epoch.0)
+            || proposal.id != proposal_record.id
+            || proposal.id.as_slice() != projection.message_digest
+        {
+            return Err(cgka_traits::EngineError::Backend(
+                "proposal dependency wire mismatch".into(),
+            ));
+        }
+        let reference = wake.proposal_ref.as_str();
         let mut records = Vec::new();
-        let mut visited = 0usize;
-        self.storage.visit_messages_in_states(
+        self.storage.visit_messages_in_states_after(
             group,
             &[MessageState::ConvergenceDeferred],
             source_epoch,
+            wake.after.as_ref(),
+            64,
             &mut |record| {
-                visited += 1;
-                if record.epoch == source_epoch {
-                    records.push(record);
-                }
-                visited < 64
+                records.push(record);
+                true
             },
         )?;
+        let page_complete = records.len() < 64;
+        let mut consumed = 0usize;
         let started = web_time::Instant::now();
         let profile = ReplayProfilePolicy {
             reject_legacy_group_additions: self.new_protocol_profile
                 == cgka_traits::group::ProtocolProfile::Current,
         };
-        for record in records {
+        for record in &records {
             if started.elapsed() >= std::time::Duration::from_millis(500) {
                 break;
+            }
+            consumed += 1;
+            wake.after = Some(record.id.clone());
+            if record.epoch != source_epoch {
+                continue;
             }
             let Some((commit, projection)) =
                 crate::openmls_projection::decode_openmls_wire_projection(&record.payload)
@@ -637,7 +715,7 @@ impl<S: StorageProvider> Engine<S> {
                     &self.storage,
                     group,
                     &commit,
-                    proposal,
+                    &proposal,
                     reference,
                     profile,
                 )
@@ -663,16 +741,41 @@ impl<S: StorageProvider> Engine<S> {
                 .unwrap_or(false)
             };
             if enabled {
-                self.storage.with_transaction(|storage| {
+                let changed = self.storage.with_transaction(|storage| {
                     let current = storage.get_message(&record.id)?;
                     if current.group_id == *group
+                        && current.epoch == source_epoch
                         && current.state == MessageState::ConvergenceDeferred
                         && current.payload == record.payload
                     {
                         storage.update_message_state(&record.id, MessageState::Retryable)?;
+                        return Ok::<_, cgka_traits::EngineError>(true);
                     }
-                    Ok::<_, cgka_traits::EngineError>(())
+                    Ok(false)
                 })?;
+                if changed {
+                    self.schedule_pending_convergence_group(group);
+                }
+            }
+        }
+        // Preserve progress independently of pass membership/cutoffs. A restart
+        // reconstructs the immutable proposal and repeats authenticated replay.
+        let mut current = self.storage.convergence_pass(group)?.ok_or_else(|| {
+            cgka_traits::EngineError::Backend("proposal dependency pass disappeared".into())
+        })?;
+        if current
+            .proposal_dependency_wakes
+            .first()
+            .is_some_and(|job| job.proposal_id == wake.proposal_id)
+        {
+            if page_complete && consumed == records.len() {
+                current.proposal_dependency_wakes.remove(0);
+            } else {
+                current.proposal_dependency_wakes[0] = wake;
+            }
+            let pending = !current.proposal_dependency_wakes.is_empty();
+            self.storage.put_convergence_pass(&current)?;
+            if pending {
                 self.schedule_pending_convergence_group(group);
             }
         }
@@ -824,9 +927,18 @@ impl<S: StorageProvider> Engine<S> {
         pass: &DurableConvergencePass,
         tip: EpochId,
     ) -> Result<(), OpenMlsProjectionError> {
-        self.storage
-            .delete_convergence_pass(&pass.group_id)
-            .map_err(storage_projection_error)?;
+        if pass.proposal_dependency_wakes.is_empty() {
+            self.storage
+                .delete_convergence_pass(&pass.group_id)
+                .map_err(storage_projection_error)?;
+        } else {
+            let mut retained = pass.clone();
+            retained.phase = ConvergencePassPhase::Completed;
+            retained.fairness_slot_available = false;
+            self.storage
+                .put_convergence_pass(&retained)
+                .map_err(storage_projection_error)?;
+        }
         self.audit_group(
             &pass.group_id,
             marmot_forensics::AuditEventKind::ConvergencePassDiscarded {
@@ -931,6 +1043,9 @@ impl<S: StorageProvider> Engine<S> {
             frozen_at_wall_ms: None,
             cutoff_cause: None,
             fairness_slot_available: false,
+            proposal_dependency_wakes: previous
+                .as_ref()
+                .map_or_else(Vec::new, |pass| pass.proposal_dependency_wakes.clone()),
         };
         self.storage
             .put_convergence_pass(&pass)

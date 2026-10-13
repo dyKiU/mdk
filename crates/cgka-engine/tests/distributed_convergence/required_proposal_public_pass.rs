@@ -22,6 +22,14 @@ fn proposal_refs(group: &MlsGroup) -> Vec<String> {
 }
 
 async fn required_proposal_public_pass(processed_first: bool, late_proposal: bool) {
+    required_proposal_public_pass_with_tail(processed_first, late_proposal, false).await;
+}
+
+async fn required_proposal_public_pass_with_tail(
+    processed_first: bool,
+    late_proposal: bool,
+    reopen_tail: bool,
+) {
     let (mut first, first_storage) = build_client(b"alice");
     let (mut second, second_storage) = build_client(b"carol");
     let (mut leaver, _) = build_client(b"bob");
@@ -130,6 +138,26 @@ async fn required_proposal_public_pass(processed_first: bool, late_proposal: boo
         first_mls.own_leaf_index().u32(),
         content_id(&rival),
     );
+    // Storage-only opaque transport decoys exercise the cursor budget, never
+    // MLS membership or authenticated graph input. Keep them inert until the
+    // genuine public pass has completed.
+    let mut decoys = Vec::new();
+    if reopen_tail {
+        for index in 0u16..65 {
+            let id = MessageId::new([b"wake-decoy-".as_slice(), &index.to_be_bytes()].concat());
+            first_storage
+                .put_message(&MessageRecord {
+                    id: id.clone(),
+                    group_id: group.clone(),
+                    epoch: EpochId(first_mls.epoch().as_u64()),
+                    state: MessageState::PeelDeferred,
+                    payload: vec![0xff],
+                    deferred_peel: None,
+                })
+                .unwrap();
+            decoys.push(id);
+        }
+    }
     first.ingest(rival.clone()).await.unwrap();
     let pass = first_storage
         .convergence_pass(&group)
@@ -202,6 +230,11 @@ async fn required_proposal_public_pass(processed_first: bool, late_proposal: boo
                 .any(|member| member.id == leaver.self_id()),
             "the incomplete commit must not invent removal before its real proposal arrives"
         );
+        for id in &decoys {
+            first_storage
+                .update_message_state(id, MessageState::ConvergenceDeferred)
+                .unwrap();
+        }
         let outcome = first.ingest(leave.clone()).await.unwrap();
         assert!(
             matches!(outcome, IngestOutcome::Processed),
@@ -220,6 +253,25 @@ async fn required_proposal_public_pass(processed_first: bool, late_proposal: boo
         eprintln!(
             "required_proposal_late_actual_authenticated_reference_matched=true completed_before_arrival=true"
         );
+        if reopen_tail {
+            let pass = first_storage.convergence_pass(&group).unwrap().unwrap();
+            assert_eq!(
+                pass.proposal_dependency_wakes.len(),
+                1,
+                "bounded scan must persist its unfinished job"
+            );
+            assert!(
+                pass.proposal_dependency_wakes[0].after.is_some(),
+                "first page must persist a cursor"
+            );
+            assert!(
+                !probe.snapshot().target_eligible,
+                "the genuine target lies beyond the first bounded page"
+            );
+            drop(first);
+            first = build_client_with_storage(b"alice", first_storage.clone());
+            eprintln!("required_proposal_tail_cursor_reopened=true decoys=65");
+        }
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
         while tokio::time::Instant::now() < deadline {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
@@ -236,6 +288,24 @@ async fn required_proposal_public_pass(processed_first: bool, late_proposal: boo
                 break;
             }
         }
+    }
+    if reopen_tail {
+        for id in &decoys {
+            assert_ne!(
+                first_storage.get_message(id).unwrap().state,
+                MessageState::Retryable,
+                "opaque decoy must never gain activation"
+            );
+        }
+        assert!(
+            first_storage
+                .convergence_pass(&group)
+                .unwrap()
+                .unwrap()
+                .proposal_dependency_wakes
+                .is_empty(),
+            "complete scan must retire its durable wake job"
+        );
     }
     let observation = probe.snapshot();
     eprintln!("required_proposal_public_pass_observation={observation:?}");
@@ -266,4 +336,9 @@ async fn processed_required_proposal_is_collected_for_public_rival_pass() {
 #[tokio::test]
 async fn required_proposal_arriving_after_public_pass_completion_reconsiders_its_commit() {
     required_proposal_public_pass(false, true).await;
+}
+
+#[tokio::test]
+async fn late_required_proposal_wake_resumes_beyond_page_after_engine_reopen() {
+    required_proposal_public_pass_with_tail(false, true, true).await;
 }

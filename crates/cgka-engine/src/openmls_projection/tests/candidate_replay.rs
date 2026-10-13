@@ -1557,3 +1557,262 @@ async fn uncontested_peel_skips_replay_state_fingerprint() {
 
 #[path = "unconsumed_tip_proposals.rs"]
 mod unconsumed_tip_proposals;
+
+/// Actual signed SelfRemove traffic and a distinct genuine same-epoch proposal.
+/// The observer never receives either proposal before the commit is parked.
+async fn parked_reference_fixture() -> (
+    SqliteAccountStorage,
+    GroupId,
+    TransportMessage,
+    TransportMessage,
+    TransportMessage,
+    String,
+) {
+    let (mut committer, _) = build_client(b"parked-reference-committer");
+    let (mut observer, storage) = build_client(b"parked-reference-observer");
+    let (mut leaver, _) = build_client(b"parked-reference-leaver");
+    let (mut unrelated, _) = build_client(b"parked-reference-unrelated");
+    let group = group_with(
+        &mut committer,
+        &mut [&mut observer, &mut leaver, &mut unrelated],
+    )
+    .await;
+    let SendResult::Proposal { msg: required } = leaver
+        .send(SendIntent::Leave {
+            group_id: group.clone(),
+        })
+        .await
+        .unwrap()
+    else {
+        panic!("actual nonadministrator Leave must emit a proposal")
+    };
+    let SendResult::Proposal { msg: other } = unrelated
+        .send(SendIntent::Leave {
+            group_id: group.clone(),
+        })
+        .await
+        .unwrap()
+    else {
+        panic!("independent actual Leave must emit a proposal")
+    };
+    committer.ingest(required.clone()).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+    committer.advance_convergence(&group).await.unwrap();
+    let mut publications = committer.drain_auto_publish();
+    assert_eq!(publications.len(), 1);
+    let publication = publications.pop().unwrap();
+    let commit = publication.msg;
+    committer
+        .confirm_published(publication.pending)
+        .await
+        .unwrap();
+    let required_projection = super::replay_openmls_messages_prevalidated_output(
+        &storage,
+        &group,
+        std::slice::from_ref(&required),
+        &super::PrevalidatedOwnCommits::default(),
+        ReplayProfilePolicy::default(),
+    )
+    .unwrap();
+    let reference = required_projection
+        .observations
+        .iter()
+        .find_map(|observation| {
+            if let super::OpenMlsReplayObservation::ProposalStored {
+                message_id,
+                proposal_ref,
+                ..
+            } = observation
+            {
+                (message_id == &required.id.to_string()).then(|| proposal_ref.clone())
+            } else {
+                None
+            }
+        })
+        .expect("actual required proposal authenticates independently");
+    assert!(matches!(
+        super::replay_openmls_messages_prevalidated_output(
+            &storage,
+            &group,
+            std::slice::from_ref(&commit),
+            &super::PrevalidatedOwnCommits::default(),
+            ReplayProfilePolicy::default(),
+        ),
+        Err(super::OpenMlsProjectionError::MissingReferencedProposal)
+    ));
+    observer
+        .buffer_openmls_convergence_message_at(&group, commit.clone(), 1_000)
+        .unwrap();
+    observer
+        .converge_stored_openmls_messages_at(&group, 1_000_000)
+        .unwrap();
+    assert!(
+        storage.get_message(&commit.id).unwrap().state == MessageState::ConvergenceDeferred,
+        "only the genuine missing-reference commit is parked"
+    );
+    (storage, group, commit, required, other, reference)
+}
+
+/// The backend fingerprint includes the actual group-scoped OpenMLS values.
+/// It is secret-derived: compare privately and never include it in assertions.
+#[derive(PartialEq, Eq)]
+struct ParkedProbeState {
+    fingerprint: Option<[u8; 32]>,
+    ledger: Vec<MessageRecord>,
+    canonical: (Vec<u8>, String, Vec<String>),
+}
+
+fn parked_probe_state(storage: &SqliteAccountStorage, group: &GroupId) -> ParkedProbeState {
+    let name = "parked-proposal-negative-control";
+    storage.create_group_state_snapshot(group, name).unwrap();
+    let fingerprint = storage.group_snapshot_fingerprint(group, name).unwrap();
+    assert!(fingerprint.is_some());
+    ParkedProbeState {
+        fingerprint,
+        ledger: storage.list_messages(group, EpochId(0)).unwrap(),
+        canonical: replay_state(storage, group),
+    }
+}
+
+#[tokio::test]
+async fn unrelated_authenticated_proposal_does_not_enable_parked_commit() {
+    let (storage, group, commit, required, other, reference) = parked_reference_fixture().await;
+    let before = parked_probe_state(&storage, &group);
+    let other_projection = super::replay_openmls_messages_prevalidated_output(
+        &storage,
+        &group,
+        std::slice::from_ref(&other),
+        &super::PrevalidatedOwnCommits::default(),
+        ReplayProfilePolicy::default(),
+    )
+    .unwrap();
+    assert!(other_projection.observations.iter().any(|observation| matches!(observation,
+        super::OpenMlsReplayObservation::ProposalStored { proposal_ref, .. } if proposal_ref != &reference
+    )), "the negative input must be a distinct authenticated same-epoch proposal");
+    assert!(
+        !super::authenticated_proposal_enables_parked_commit(
+            &storage,
+            &group,
+            &commit,
+            &other,
+            &reference,
+            ReplayProfilePolicy::default(),
+        )
+        .unwrap()
+    );
+    assert!(
+        parked_probe_state(&storage, &group) == before,
+        "unrelated probe changed live state"
+    );
+    assert!(
+        super::authenticated_proposal_enables_parked_commit(
+            &storage,
+            &group,
+            &commit,
+            &required,
+            &reference,
+            ReplayProfilePolicy::default(),
+        )
+        .unwrap(),
+        "the actual consumed proposal remains the positive control"
+    );
+    assert!(
+        parked_probe_state(&storage, &group) == before,
+        "positive proof installed scratch state"
+    );
+}
+
+#[tokio::test]
+async fn rejected_parked_dependency_probe_preserves_opaque_live_state() {
+    let (storage, group, commit, required, _, reference) = parked_reference_fixture().await;
+    let before = parked_probe_state(&storage, &group);
+    let mut corrupt_proposal = required.clone();
+    let last = corrupt_proposal.payload.last_mut().unwrap();
+    *last ^= 1;
+    corrupt_proposal.id = MessageId::new(Sha256::digest(&corrupt_proposal.payload).to_vec());
+    assert!(
+        super::replay_openmls_messages_prevalidated_output(
+            &storage,
+            &group,
+            std::slice::from_ref(&corrupt_proposal),
+            &super::PrevalidatedOwnCommits::default(),
+            ReplayProfilePolicy::default(),
+        )
+        .is_err(),
+        "actual corrupted signed proposal must be rejected"
+    );
+    assert!(
+        !super::authenticated_proposal_enables_parked_commit(
+            &storage,
+            &group,
+            &commit,
+            &corrupt_proposal,
+            &reference,
+            ReplayProfilePolicy::default(),
+        )
+        .unwrap()
+    );
+    assert!(
+        parked_probe_state(&storage, &group) == before,
+        "rejected proposal changed live state"
+    );
+    let mut corrupt_commit = commit.clone();
+    corrupt_commit.payload = vec![0xff];
+    corrupt_commit.id = MessageId::new(Sha256::digest(&corrupt_commit.payload).to_vec());
+    assert!(
+        !super::authenticated_proposal_enables_parked_commit(
+            &storage,
+            &group,
+            &corrupt_commit,
+            &required,
+            &reference,
+            ReplayProfilePolicy::default(),
+        )
+        .unwrap()
+    );
+    assert!(
+        parked_probe_state(&storage, &group) == before,
+        "decode-error probe changed live state"
+    );
+}
+
+#[tokio::test]
+async fn parked_dependency_probe_unwind_restores_live_state_and_releases_owner() {
+    let (storage, group, commit, required, _, reference) = parked_reference_fixture().await;
+    let before = parked_probe_state(&storage, &group);
+    PANIC_AFTER_REPLAY.set(true);
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        super::authenticated_proposal_enables_parked_commit(
+            &storage,
+            &group,
+            &commit,
+            &required,
+            &reference,
+            ReplayProfilePolicy::default(),
+        )
+    }));
+    assert!(
+        caught.is_err(),
+        "actual replay hook must execute before unwinding"
+    );
+    assert!(
+        parked_probe_state(&storage, &group) == before,
+        "unwind changed live state"
+    );
+    assert!(
+        super::authenticated_proposal_enables_parked_commit(
+            &storage,
+            &group,
+            &commit,
+            &required,
+            &reference,
+            ReplayProfilePolicy::default(),
+        )
+        .unwrap(),
+        "a fresh actual proof must work after owner cleanup"
+    );
+    assert!(
+        parked_probe_state(&storage, &group) == before,
+        "fresh proof changed live state"
+    );
+}
