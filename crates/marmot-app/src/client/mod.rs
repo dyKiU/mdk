@@ -2380,6 +2380,11 @@ impl AppClient {
         // drive the engine-retained Welcome. The detailed API converts the
         // missing row into a typed, non-retryable creation result.
         let local_projection_started_at = Instant::now();
+        // Sync source errors must stay inside this post-canonical Result boundary.
+        #[cfg_attr(
+            not(feature = "experimental-device-sync"),
+            allow(clippy::redundant_closure_call)
+        )]
         let local_projection = if cfg!(feature = "test-policy-overrides")
             && self.app.config.dev_fail_create_local_projection
         {
