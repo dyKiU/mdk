@@ -1840,3 +1840,158 @@ async fn parked_dependency_probe_unwind_restores_live_state_and_releases_owner()
         "fresh proof changed live state"
     );
 }
+
+#[tokio::test]
+async fn failed_row_metadata_does_not_refute_authenticated_authorized_reference() {
+    let (storage, group, commit, required, _, _) = parked_reference_fixture().await;
+    // An actual valid proposal mislabeled Failed is not an authorization refusal.
+    let id = MessageId::new(Sha256::digest(&required.payload).to_vec());
+    storage
+        .put_message(&MessageRecord {
+            id,
+            group_id: group.clone(),
+            epoch: EpochId(
+                super::project_mls_message(&required.payload)
+                    .unwrap()
+                    .source_epoch
+                    .unwrap(),
+            ),
+            state: MessageState::Failed,
+            payload: StoredMessagePayload::openmls_wire(required.clone())
+                .encode()
+                .unwrap(),
+            deferred_peel: None,
+        })
+        .unwrap();
+    let before = parked_probe_state(&storage, &group);
+    let mut cursor = super::RejectedDependencyCursor::default();
+    assert!(
+        matches!(
+            super::replay_openmls_messages_prevalidated_output_with_refutation(
+                &storage,
+                &group,
+                std::slice::from_ref(&commit),
+                &super::PrevalidatedOwnCommits::default(),
+                ReplayProfilePolicy::default(),
+                Some(&mut cursor),
+            ),
+            Err(super::OpenMlsProjectionError::MissingReferencedProposal)
+        ),
+        "Failed metadata must not substitute for actual current authorization rejection"
+    );
+    assert!(
+        parked_probe_state(&storage, &group) == before,
+        "negative reference lookup changed opaque state or the durable ledger"
+    );
+    assert!(
+        super::authenticated_proposal_enables_parked_commit(
+            &storage,
+            &group,
+            &commit,
+            &required,
+            &super::replay_openmls_messages_prevalidated_output(
+                &storage,
+                &group,
+                std::slice::from_ref(&required),
+                &super::PrevalidatedOwnCommits::default(),
+                ReplayProfilePolicy::default(),
+            )
+            .unwrap()
+            .observations
+            .iter()
+            .find_map(|observation| match observation {
+                super::OpenMlsReplayObservation::ProposalStored { proposal_ref, .. } =>
+                    Some(proposal_ref.clone()),
+                _ => None,
+            })
+            .unwrap(),
+            ReplayProfilePolicy::default(),
+        )
+        .unwrap(),
+        "the same actual authorized wire remains the genuine positive control"
+    );
+    assert!(parked_probe_state(&storage, &group) == before);
+}
+
+#[tokio::test]
+async fn rejected_reference_scan_unwind_preserves_live_state_and_uncommitted_cursor() {
+    let (storage, group, commit, required, _, _) = parked_reference_fixture().await;
+    let epoch = EpochId(
+        super::project_mls_message(&commit.payload)
+            .unwrap()
+            .source_epoch
+            .unwrap(),
+    );
+    for index in 0u16..65 {
+        let id =
+            MessageId::new([b"refutation-unwind-page".as_slice(), &index.to_be_bytes()].concat());
+        storage
+            .put_message(&MessageRecord {
+                id: id.clone(),
+                group_id: group.clone(),
+                epoch,
+                state: MessageState::Failed,
+                payload: StoredMessagePayload::raw_transport(TransportMessage {
+                    id,
+                    ..required.clone()
+                })
+                .encode()
+                .unwrap(),
+                deferred_peel: None,
+            })
+            .unwrap();
+    }
+    let before = parked_probe_state(&storage, &group);
+    let mut cursor = super::RejectedDependencyCursor::default();
+    PANIC_AFTER_REPLAY.with(|flag| flag.set(true));
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        super::replay_openmls_messages_prevalidated_output_with_refutation(
+            &storage,
+            &group,
+            std::slice::from_ref(&commit),
+            &super::PrevalidatedOwnCommits::default(),
+            ReplayProfilePolicy::default(),
+            Some(&mut cursor),
+        )
+    }));
+    assert!(panic.is_err());
+    assert!(
+        cursor.commit.is_none() && cursor.after.is_none() && cursor.reference.is_empty(),
+        "unwind published a scratch cursor before restoration"
+    );
+    assert!(
+        parked_probe_state(&storage, &group) == before,
+        "unwind changed opaque live state or the complete durable ledger"
+    );
+    assert!(matches!(
+        super::replay_openmls_messages_prevalidated_output_with_refutation(
+            &storage,
+            &group,
+            std::slice::from_ref(&commit),
+            &super::PrevalidatedOwnCommits::default(),
+            ReplayProfilePolicy::default(),
+            Some(&mut cursor),
+        ),
+        Err(super::OpenMlsProjectionError::RejectedDependencyScanPending)
+    ));
+    assert!(
+        cursor.after.is_some(),
+        "a restored completed page must publish its continuation"
+    );
+    assert!(parked_probe_state(&storage, &group) == before);
+    assert!(matches!(
+        super::replay_openmls_messages_prevalidated_output_with_refutation(
+            &storage,
+            &group,
+            std::slice::from_ref(&commit),
+            &super::PrevalidatedOwnCommits::default(),
+            ReplayProfilePolicy::default(),
+            Some(&mut cursor),
+        ),
+        Err(super::OpenMlsProjectionError::MissingReferencedProposal)
+    ));
+    assert!(
+        parked_probe_state(&storage, &group) == before,
+        "resumed negative scan changed the live state"
+    );
+}
