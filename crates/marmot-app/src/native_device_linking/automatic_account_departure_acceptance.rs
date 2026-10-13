@@ -185,15 +185,27 @@ pub(super) async fn verify(
             let mut published_branch = None;
             let mut canonical_probe = None;
             let mut administrator_canonical_probe = None;
+            let mut administrator_publication_observation = None;
             let mut leave_reproposal_hold = None;
             let mut reopened_after_branch_switch = false;
             let mut requested_before_reanchor = None;
-            if duplicate_probe.is_some() {
+            if !ordered {
                 let administrator = peer.app.account_storage("test").unwrap();
                 let identity = cgka_traits::MemberId::new(hex::decode(peer.app.account_home().account("test").unwrap().account_id_hex).unwrap());
                 let content = actual_confirmed_commit_content(&administrator,&peer.group,epoch_before,&identity);
                 canonical_probe = Some(cgka_engine::canonical_probe_observer::Probe::arm(peer.group.clone(),peer.b_index,content));
-                eprintln!("account_departure_duplicate_actual_administrator_commit_observer_armed=true");
+                let own_leaf = administrator.with_read_snapshot(|storage| -> Result<_, cgka_traits::StorageError> {
+                    let group = openmls::group::MlsGroup::load(storage.mls_storage(), &openmls::group::GroupId::from_slice(peer.group.as_slice()))
+                        .map_err(|_|cgka_traits::StorageError::Backend("fixture MLS read failed".into()))?
+                        .ok_or(cgka_traits::StorageError::NotFound)?;
+                    Ok(group.own_leaf_index().u32())
+                }).unwrap();
+                let source_account = cgka_traits::MemberId::new(hex::decode(reopened_app.account_home().account("test").unwrap().account_id_hex).unwrap());
+                administrator_publication_observation = Some(reopened.relay_plane_for_test().observe_next_ordinary_commit(
+                    source_account, peer.group.clone(), epoch_before.0, own_leaf,
+                    reopened_app.account_storage("test").unwrap(),
+                ));
+                eprintln!("account_departure_nonordered_commit_observers_armed=true");
             }
             reopened.reconcile_accounts().await.unwrap();
             if ordered {
@@ -305,6 +317,26 @@ pub(super) async fn verify(
             let indices = stored_indices(&peer.app, &peer.group);
             if let Some(probe) = &canonical_probe { eprintln!("account_departure_timeout_canonical_probe={:?}",probe.snapshot()); }
             if let Some(probe) = &administrator_canonical_probe { eprintln!("account_departure_timeout_administrator_canonical_probe={:?}",probe.snapshot()); }
+            if let Some(observation) = &administrator_publication_observation {
+                eprintln!("account_departure_timeout_administrator_publication_probe={:?}", observation.snapshot());
+            }
+            for (index, app) in [(1, &reopened_app), (3, &peer.app)] {
+                use cgka_traits::storage::ConvergencePassStorage;
+                let pass = app.account_storage("test").map_err(|_| "Unknown")
+                    .and_then(|store| store.convergence_pass(&peer.group).map_err(|_| "Unknown"));
+                eprintln!("account_departure_timeout_convergence_pass_peer={index} observation={:?}", pass.map(|pass| pass.map(|pass| {
+                    let mut roles = [0usize; 3];
+                    for member in &pass.members {
+                        let index = match member.role {
+                            cgka_traits::convergence_pass::ConvergencePassMemberRole::CommitEdge => 0,
+                            cgka_traits::convergence_pass::ConvergencePassMemberRole::ProposalDependency => 1,
+                            cgka_traits::convergence_pass::ConvergencePassMemberRole::AppWitnessCandidate => 2,
+                        };
+                        roles[index] += 1;
+                    }
+                    (pass.phase, pass.generation, pass.base_epoch.0, roles, pass.fairness_slot_available)
+                })));
+            }
             if let Some(id) = &held_commit_id {
                 use cgka_traits::storage::MessageStorage;
                 let event = nostr_relay_builder::prelude::EventId::from_slice(id.as_slice()).unwrap();

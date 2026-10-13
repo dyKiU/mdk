@@ -47,6 +47,12 @@ mod directory;
     feature = "test-policy-overrides"
 ))]
 mod ordinary_commit_gate;
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+mod ordinary_commit_observation;
 #[cfg(test)]
 pub(crate) mod publish_accounting_tests;
 mod safety;
@@ -127,6 +133,12 @@ struct MarmotRelayPlaneInner {
         feature = "test-policy-overrides"
     ))]
     ordinary_commit_gate: std::sync::Mutex<Option<ordinary_commit_gate::Gate>>,
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    ordinary_commit_observation: std::sync::Mutex<Option<Arc<ordinary_commit_observation::Watch>>>,
     #[cfg(all(
         test,
         feature = "experimental-device-sync",
@@ -1536,6 +1548,12 @@ impl MarmotRelayPlane {
                     feature = "test-policy-overrides"
                 ))]
                 ordinary_commit_gate: std::sync::Mutex::new(None),
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                ordinary_commit_observation: std::sync::Mutex::new(None),
                 #[cfg(all(
                     test,
                     feature = "experimental-device-sync",
@@ -4623,6 +4641,12 @@ impl TransportAdapter for MarmotRelayPlaneAccountAdapter {
             feature = "test-policy-overrides"
         ))]
         ordinary_commit_gate::hold(self, &request).await?;
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        ordinary_commit_observation::observe(self, &request);
         self.publish_with_local_mirror(request, true).await
     }
 
