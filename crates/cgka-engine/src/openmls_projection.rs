@@ -4582,6 +4582,61 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                         }
                         ProcessMessageError::ValidationError(_) => "other_validation",
                         ProcessMessageError::GroupStateError(_) => "group_state",
+                        ProcessMessageError::InvalidCommit(error) => match error {
+                            openmls::group::StageCommitError::MissingProposal => "missing_proposal",
+                            openmls::group::StageCommitError::OwnCommitMismatch => {
+                                "own_commit_mismatch"
+                            }
+                            openmls::group::StageCommitError::EpochMismatch => {
+                                "commit_epoch_mismatch"
+                            }
+                            openmls::group::StageCommitError::ConfirmationTagMismatch => {
+                                "confirmation_tag_mismatch"
+                            }
+                            openmls::group::StageCommitError::ConfirmationTagMissing => {
+                                "confirmation_tag_missing"
+                            }
+                            openmls::group::StageCommitError::RequiredPathNotFound => {
+                                "required_path_missing"
+                            }
+                            openmls::group::StageCommitError::OwnKeyNotFound => "own_key_missing",
+                            openmls::group::StageCommitError::MissingDecryptionKey => {
+                                "decryption_key_missing"
+                            }
+                            openmls::group::StageCommitError::AttemptedSelfRemoval => {
+                                "attempted_self_removal"
+                            }
+                            openmls::group::StageCommitError::PathLeafNodeVerificationFailure => {
+                                "path_leaf_verification"
+                            }
+                            openmls::group::StageCommitError::UpdatePathError(_) => {
+                                "apply_update_path"
+                            }
+                            openmls::group::StageCommitError::VerifiedUpdatePathError(_) => {
+                                "verify_update_path"
+                            }
+                            openmls::group::StageCommitError::ProposalValidationError(_) => {
+                                "proposal_validation"
+                            }
+                            openmls::group::StageCommitError::AppDataUpdateValidationError(_) => {
+                                "app_data_validation"
+                            }
+                            openmls::group::StageCommitError::ApplyAppDataUpdateError(_) => {
+                                "apply_app_data"
+                            }
+                            openmls::group::StageCommitError::LibraryError(_) => "commit_library",
+                            _ => "other_invalid_commit",
+                        },
+                        ProcessMessageError::StorageError(_) => "storage",
+                        ProcessMessageError::LibraryError(_) => "library",
+                        ProcessMessageError::IncompatibleWireFormat => "incompatible_wire_format",
+                        ProcessMessageError::UnauthorizedExternalApplicationMessage => {
+                            "unauthorized_external_application"
+                        }
+                        ProcessMessageError::UnauthorizedExternalCommitMessage => {
+                            "unauthorized_external_commit"
+                        }
+                        ProcessMessageError::UnsupportedProposalType => "unsupported_proposal",
                         _ => "other",
                     },
                 );

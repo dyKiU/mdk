@@ -206,6 +206,7 @@ pub(super) async fn verify(
                     reopened_app.account_storage("test").unwrap(),
                 ));
                 eprintln!("account_departure_nonordered_commit_observers_armed=true");
+                if duplicate_probe.is_some() { eprintln!("account_departure_duplicate_actual_administrator_commit_observer_armed=true"); }
             }
             reopened.reconcile_accounts().await.unwrap();
             if ordered {
