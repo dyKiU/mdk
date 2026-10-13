@@ -246,7 +246,7 @@ impl AppClient {
         ) {
             return Err(AccountSharingError::NotReady);
         }
-        let receipt = storage
+        let applied = storage
             .account_chat_record_stream_storage()
             .ok_or(AccountSharingError::NotReady)?
             .apply_account_chat_record_batch(
@@ -255,8 +255,10 @@ impl AppClient {
                 &batch,
                 crate::unix_now_seconds(),
                 &|| self.automatic_record_original(entry),
-            )
-            .map_err(|error| {
+            );
+        let receipt = match applied {
+            Ok(receipt) => receipt,
+            Err(error) => {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 records_cut_acceptance::observe_record_failure(
                     self.app.account_home().root(),
@@ -275,9 +277,20 @@ impl AppClient {
                     diagnostics::storage_category(&error),
                     None,
                 );
-                let _ = error;
-                AccountSharingError::RuntimeUnavailable
-            })?;
+                if matches!(
+                    error,
+                    cgka_traits::storage::StorageError::MirroredRecordDeniedByDeparture
+                ) {
+                    // Revalidate the original at this negative disposition's tail.
+                    // A refused batch creates neither an import nor a receipt.
+                    self.automatic_record_original(entry)
+                        .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+                    entry.records.assembly = None;
+                    return Ok(());
+                }
+                return Err(AccountSharingError::RuntimeUnavailable);
+            }
+        };
         #[cfg(all(test, feature = "test-policy-overrides"))]
         records_cut_acceptance::observe_committed_record_receipt(
             self.app.account_home().root(),
