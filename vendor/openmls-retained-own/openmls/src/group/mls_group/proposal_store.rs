@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, hash_map::Entry};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use openmls_traits::crypto::OpenMlsCrypto;
 use openmls_traits::types::Ciphersuite;
@@ -348,7 +348,7 @@ impl ProposalQueue {
                         None => {
                             return Err(FromCommittedProposalsError::ProposalNotFound(
                                 crate::group::errors::MissingProposalReference::new(
-                                    proposal_reference.clone(),
+                                    *proposal_reference.clone(),
                                 ),
                             ));
                         }

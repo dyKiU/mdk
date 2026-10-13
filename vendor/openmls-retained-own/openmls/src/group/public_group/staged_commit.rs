@@ -1,12 +1,12 @@
 use super::{super::errors::*, diff::apply_proposals::ApplyProposalsValues, *};
 use crate::{
-    framing::{Sender, mls_auth_content::AuthenticatedContent, mls_content::FramedContentBody},
+    framing::{mls_auth_content::AuthenticatedContent, mls_content::FramedContentBody, Sender},
     group::{
-        StagedCommit, mls_group::staged_commit::StagedCommitState, proposal_store::ProposalQueue,
+        mls_group::staged_commit::StagedCommitState, proposal_store::ProposalQueue, StagedCommit,
     },
     messages::{
-        Commit,
         proposals::{ProposalOrRef, ProposalType},
+        Commit,
     },
     treesync::errors::LeafNodeValidationError,
 };
