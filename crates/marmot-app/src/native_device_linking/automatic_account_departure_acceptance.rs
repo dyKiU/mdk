@@ -483,6 +483,10 @@ pub(super) async fn verify(
                 assert!(indices.len()==1 && !indices.contains(&peer.a_index) && !indices.contains(&peer.b_index),"real public removals must precede the completion receipt assertion");
                 assert!(!duplicate_deadline_expired,"authenticated duplicate cut must not prevent actual completion receipt delivery within 30s");
             }
+            if !ordered {
+                eprintln!("account_departure_nonordered_d_commit_at_b={:?}", canonical_probe.as_ref().map(|probe| probe.snapshot()));
+                eprintln!("account_departure_nonordered_b_commit_at_d={:?}", administrator_publication_observation.as_ref().map(|observation| observation.snapshot()));
+            }
             completion
                 .expect("both genuine ordinary removals and peer receipts must precede completion");
             tokio::time::timeout(std::time::Duration::from_secs(30), async {
