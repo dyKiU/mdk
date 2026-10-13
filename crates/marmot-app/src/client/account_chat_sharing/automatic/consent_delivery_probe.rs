@@ -229,6 +229,7 @@ impl ConsentDeliveryProbe {
             dropped: progress.dropped,
             receive_attempts: progress.receive_attempts,
             receive_dropped: progress.receive_dropped,
+            expired: Instant::now() >= self.deadline,
         }
     }
 }
@@ -252,6 +253,7 @@ pub(crate) struct Snapshot {
     dropped: [usize; 3],
     receive_attempts: [usize; 3],
     receive_dropped: [usize; 3],
+    pub(crate) expired: bool,
 }
 #[derive(Debug)]
 pub(crate) struct Summary {
@@ -260,6 +262,8 @@ pub(crate) struct Summary {
     pub(crate) receive_attempts: [usize; 3],
     pub(crate) receive_dropped: [usize; 3],
     pub(crate) published: usize,
+    pub(crate) expired: bool,
+    pub(crate) observation_incomplete: usize,
     pub(crate) raw_id_seen: usize,
     pub(crate) raw_payload_hash_matches: usize,
     pub(crate) event_seen: usize,
@@ -277,6 +281,8 @@ impl Snapshot {
             receive_attempts: self.receive_attempts,
             receive_dropped: self.receive_dropped,
             published: self.records.len(),
+            expired: self.expired,
+            observation_incomplete: 0,
             raw_id_seen: 0,
             raw_payload_hash_matches: 0,
             event_seen: 0,
@@ -287,6 +293,7 @@ impl Snapshot {
             consent_bound: 0,
         };
         for record in &self.records {
+            summary.observation_incomplete += usize::from(record.observation_incomplete);
             summary.automatic_matched += usize::from(record.automatic_matched);
             summary.consent_bound += usize::from(record.consent_bound);
             summary.raw_id_seen += usize::from(record.raw_id_seen);
