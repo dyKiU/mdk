@@ -256,6 +256,16 @@ impl AppClient {
             )
             .map_err(|error| {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
+                records_cut_acceptance::observe_record_failure(
+                    self.app.account_home().root(),
+                    &group,
+                    batch.batch_digest,
+                    matches!(
+                        &error,
+                        cgka_traits::storage::StorageError::MirroredRecordDeniedByDeparture
+                    ),
+                );
+                #[cfg(all(test, feature = "test-policy-overrides"))]
                 self.test_trace_catalog_stage(
                     "record_sql",
                     diagnostics::storage_category(&error),

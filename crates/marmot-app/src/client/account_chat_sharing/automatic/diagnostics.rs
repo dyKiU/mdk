@@ -2,6 +2,7 @@
 use cgka_traits::storage::StorageError;
 pub(super) fn storage_category(error: &StorageError) -> &'static str {
     match error {
+        StorageError::MirroredRecordDeniedByDeparture => "record_denied_by_departure",
         StorageError::Serialization(message)
             if message == "conflicting mirrored chat observation" =>
         {
