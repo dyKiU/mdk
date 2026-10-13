@@ -1,5 +1,51 @@
 # Account-wide departure source checkpoint
 
+## Core collecting-pass dependency repair (2026-10-13)
+
+Qualified Core runtime source `6b369606c787ea65d1b5a567752b0934471b36fc`
+admits an already-retained, authenticated and authorized standalone proposal into
+an existing Collecting pass. The normal admission owner, immutable cutoff,
+bounds, digest verification and quarantine handling remain authoritative.
+Existing same-group graph inputs retain their original state/payload; terminal
+and foreign-group rows remain excluded. Pass-opening states were not widened.
+No MLS validation, wire, schema, binding or production stack setting changed.
+
+The unchanged genuine public-ingest fixture privately binds the exact SelfRemove
+packet to the actual committer's authenticated queued ProposalRef and confirmed
+consumed reference. Baseline `b23baf3a1c7efd1c21f03aaff7972a26d8affe97`
+proved direct authentication but omitted that dependency from Collecting
+membership; the completed pass rejected the real commit as MissingProposal.
+The same fixture on 6b admits the dependency and proves rival eligibility and
+actual ordinary-member removal. No pass, proposal, membership or winner is forged.
+
+All prefixes below are under `/Users/pj/project/build/results/`.
+
+| Frozen scope | Actual result | Prefix |
+|---|---|---|
+| Baseline direct authenticated collecting intake |0 passed,1 failed; processed-before-rival control 1 passed|`core-b23baf3a-required-proposal-direct-red-v6`|
+| Identical fixture after repair |2 passed,0 failed/ignored|`core-6b369606-required-proposal-direct-green-v7`|
+| Core consumed/by-reference winner+loser, dedup, frozen integrity, retained anchors, strict reference/authentication controls, default consumed-record |11 passed,0 failed/ignored|`core-6b369606-required-proposal-affected-v8`|
+| Effective cutoff, absolute cap, stale unconsumed proposal |3 passed,0 failed/ignored|`core-6b369606-required-proposal-cutoff-v9`|
+
+Core experimental/default all-target Clippy passed with `-D warnings` and no
+exemptions in `core-6b369606-required-proposal-statics-v8b`. App strict initially
+found one test-only provenance tuple type-complexity lint. The only later source
+delta, `306288ed6a97046d4389eb4aa1685e357189fe12`, names that tuple; all runtime
+and test bodies remain byte-identical. App experimental/default all-target
+Clippy and whole-workspace formatting passed in
+`core-306288ed-required-proposal-statics-v10`. Compilation/static gates execute
+zero tests. Focused tests used Rust 1.97.1, jobs 1, debug 0, incremental 0, 4 MiB minimum
+test stack and one test thread; the composed App fixture owns its 8 MiB thread.
+
+The real original account-wide departure also passed 1/0 on 6b. The second
+fresh-both-source case failed its INITIAL departure, before any fresh Welcome
+or replay body: B/D canonical epoch 3 authenticator/head matched, but B remained
+Available with no departure journal/leave request while C's intent outboxes
+remained pending. Historical MissingProposal observations do not establish its
+current cause. Full final backend, the sibling retained-authentication retry,
+SDK and Dev deployment remain open. Earlier compile/prerequisite failures and
+the insufficient existing-row-only attempt are retained, not qualifying REDs.
+
 ## Account-owned submission repair (2026-10-13)
 
 Signed runtime/test source `a750af7e27ed8af14cd55d24c9ae7bb53f7a6b68`
