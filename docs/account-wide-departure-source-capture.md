@@ -1,5 +1,52 @@
 # Account-wide departure source checkpoint
 
+## Core late required-proposal recovery (2026-10-13)
+
+Component-qualified source `33d2cc44a49e714bf66598206b12e0c39869ecee`
+retains only actual MissingProposal candidate failures as deferred work. An
+actual authenticated standalone proposal can wake a parked commit only after
+rollback replay proves that exact proposal reference is consumed by the fully
+validated commit. Invalid references, authorization and structural failures
+remain strict; no global Deferred/EpochInvalidated pass-opening rule changed.
+
+Bounded wake jobs live in the existing durable convergence-pass JSON record.
+Each maintenance command scans at most 64 rows/500 ms and persists its cursor;
+restart reconstructs the immutable proposal wire and repeats full validation.
+Jobs survive pass replacement without changing frozen membership or cutoffs.
+The final row transition pins group, source epoch, state and payload, and only
+a successful transition schedules canonical work. No public wire, SQL migration,
+binding declaration or production stack setting changed.
+
+The genuine late-arrival baseline `0e4ed5dd` completed a pass with MissingProposal,
+then authenticated the exact required packet but left its real commit ineligible
+(0/1). The unchanged functional fixture passed on prototype `407b8ca2`; the
+bounded/restart candidate below preserves that eligibility/removal oracle.
+All prefixes below are under `/Users/pj/project/build/results/`.
+
+| Frozen scope | Actual result | Prefix |
+|---|---|---|
+| Genuine late arrival; target beyond 65 inert pagination decoys and same-storage Engine reopen |2 passed,0 failed/ignored|`core-19145d60-late-proposal-continuation-v16`|
+| SQLite cursor state/epoch/group/limit/early-stop/missing-cursor controls |4 passed,0 failed/ignored|`core-19145d60-late-proposal-controls-v17`|
+| Consumed/by-reference, Frozen, dedup, retained-anchor, reference/authentication, cutoff/cap controls and both actual departure journeys |15 passed,0 failed/ignored|`core-19145d60-late-proposal-affected-v18`|
+| Actual Collecting and already-Processed dependency positives |2 passed,0 failed/ignored|`core-19145d60-required-proposal-positive-v20`|
+| Genuine unrelated/rejected/unwind rollback controls, stale proposal and pass JSON roundtrip |5 passed,0 failed/ignored|`core-33d2cc44-late-proposal-negative-controls-v21`|
+
+These are 28 selected executions, not a distinct-case or whole-suite count.
+Core/App experimental/default all-target Clippy passed with `-D warnings` in
+v18; traits/SQLite default/experimental strict passed in
+`core-19145d60-wake-storage-statics-v19`. After the sole test-fixture registry
+correction (191→33), Core strict default/experimental and whole-workspace fmt
+passed again in v21. No warning exemptions were used; static gates execute zero
+tests. Rust 1.97.1, jobs1/debug0/incremental0, minimum test stack4 MiB and one
+thread were used; the composed App fixture owns its existing 8 MiB thread.
+
+Earlier prototype budget gaps, the corrupt-decoy prerequisite failure and the
+negative-fixture missing-SelfRemove setup failures remain nonqualifying attempts.
+The latest two App journeys reached their actual removal/receipt and fresh-both
+origin/replay/new-operation assertions, but do not establish universal scheduling
+recovery. Retained sibling-auth retry, final full backend/fast-ci, SDK and Dev
+build/deployment remain open; there is no shipping promotion claim.
+
 ## Core collecting-pass dependency repair (2026-10-13)
 
 Qualified Core runtime source `6b369606c787ea65d1b5a567752b0934471b36fc`
