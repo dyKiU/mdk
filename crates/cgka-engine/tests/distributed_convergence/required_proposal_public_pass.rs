@@ -138,7 +138,7 @@ async fn required_proposal_public_pass(processed_first: bool) {
     assert_eq!(pass.phase, ConvergencePassPhase::Collecting);
     if !processed_first {
         first.ingest(leave.clone()).await.unwrap();
-        assert_message_state(&first_storage, &leave, MessageState::Processed);
+        assert_message_state(&first_storage, &leave, MessageState::Created);
     }
     let retained = first_storage.get_message(&content_id(&leave)).unwrap();
     assert!(
