@@ -108,8 +108,8 @@ pub(super) fn observe(adapter: &MarmotRelayPlaneAccountAdapter, request: &Transp
     {
         return;
     }
-    // account/group visits, no fanout, kind mismatch, no own stamp,
-    // wrong committer, no MLS wire, not Commit, wrong source epoch.
+    // account/group visits, no fanout, kind mismatch, missing pending owner,
+    // wrong frozen request, no MLS wire, not Commit, wrong source epoch.
     let note = |index: usize| {
         let mut stages = watch.stages.lock().unwrap_or_else(|e| e.into_inner());
         stages[index] = stages[index].saturating_add(1);
@@ -130,9 +130,21 @@ pub(super) fn observe(adapter: &MarmotRelayPlaneAccountAdapter, request: &Transp
             note(2);
             return Ok(None);
         }
+        if fanout.request() != request {
+            note(4);
+            return Ok(None);
+        }
+        if fanout.pending_ref().is_none() {
+            note(3);
+            return Ok(None);
+        }
+        let Some(origin) = fanout.pending_origin_message_id() else {
+            note(3);
+            return Ok(None);
+        };
         let row = watch
             .storage
-            .get_message(&request.message.id)
+            .get_message(origin)
             .map_err(|_| "canonical_row_read_failed")?;
         if row.group_id != watch.group {
             return Err("canonical_row_group_mismatch");
@@ -156,14 +168,6 @@ pub(super) fn observe(adapter: &MarmotRelayPlaneAccountAdapter, request: &Transp
         }
         if protocol.epoch().as_u64() != watch.source_epoch {
             note(7);
-            return Ok(None);
-        }
-        let Some(stamp) = payload.own_commit_stamp() else {
-            note(3);
-            return Ok(None);
-        };
-        if stamp.committer != watch.account {
-            note(4);
             return Ok(None);
         }
         Ok(Some(MessageId::new(Sha256::digest(&wire.payload).to_vec())))

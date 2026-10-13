@@ -484,6 +484,7 @@ pub(super) async fn verify(
                 assert!(indices.len()==1 && !indices.contains(&peer.a_index) && !indices.contains(&peer.b_index),"real public removals must precede the completion receipt assertion");
                 assert!(!duplicate_deadline_expired,"authenticated duplicate cut must not prevent actual completion receipt delivery within 30s");
             }
+            eprintln!("account_departure_required_proposal_provenance={:?}", observed_required_proposal_provenance(&reopened_app,&peer.app,&peer.group,epoch_before));
             if !ordered {
                 eprintln!("account_departure_nonordered_d_commit_at_b={:?}", canonical_probe.as_ref().map(|probe| probe.snapshot()));
                 eprintln!("account_departure_nonordered_b_commit_at_d={:?}", administrator_publication_observation.as_ref().map(|observation| observation.snapshot()));
@@ -540,6 +541,108 @@ pub(super) async fn verify(
         std::panic::resume_unwind(original);
     }
     assert!(closed, "reopened B owner must positively close");
+}
+
+// Observation only: no packet/permission is reconstructed from these references.
+fn observed_required_proposal_provenance(
+    source: &MarmotApp,
+    administrator: &MarmotApp,
+    group: &cgka_traits::GroupId,
+    epoch: cgka_traits::EpochId,
+) -> Result<(Option<[usize; 3]>, Option<bool>, [usize; 8]), &'static str> {
+    use cgka_traits::{
+        message::{MessageState, StoredMessagePayload},
+        storage::MessageStorage,
+    };
+    use openmls::prelude::{ContentType, MlsMessageBodyIn, MlsMessageIn, ProtocolMessage};
+    use tls_codec::Deserialize;
+    let mut reference_sets = Vec::new();
+    let mut proposal_states = [0usize; 8];
+    for (index, app) in [source, administrator].into_iter().enumerate() {
+        let identity = cgka_traits::MemberId::new(
+            hex::decode(
+                app.account_home()
+                    .account("test")
+                    .map_err(|_| "account_read_failed")?
+                    .account_id_hex,
+            )
+            .map_err(|_| "account_decode_failed")?,
+        );
+        let rows = app
+            .account_storage("test")
+            .map_err(|_| "storage_open_failed")?
+            .list_messages(group, epoch)
+            .map_err(|_| "message_read_failed")?;
+        if rows.len() > 128 {
+            return Err("observation_capacity");
+        }
+        let mut refs = None;
+        for row in rows {
+            let payload =
+                StoredMessagePayload::decode(&row.payload).map_err(|_| "stored_decode_failed")?;
+            let Some(wire) = payload.as_openmls_wire() else {
+                continue;
+            };
+            let message = MlsMessageIn::tls_deserialize_exact(&wire.payload)
+                .map_err(|_| "MLS_decode_failed")?;
+            let protocol: ProtocolMessage = match message.extract() {
+                MlsMessageBodyIn::PublicMessage(message) => message.into(),
+                MlsMessageBodyIn::PrivateMessage(message) => message.into(),
+                _ => continue,
+            };
+            if protocol.epoch().as_u64() != epoch.0 {
+                continue;
+            }
+            if index == 0 && protocol.content_type() == ContentType::Proposal {
+                let state = match row.state {
+                    MessageState::Sent => 0,
+                    MessageState::Created => 1,
+                    MessageState::Processed => 2,
+                    MessageState::Failed => 3,
+                    MessageState::Retryable => 4,
+                    MessageState::ConvergenceDeferred => 5,
+                    MessageState::PeelDeferred => 6,
+                    MessageState::EpochInvalidated => 7,
+                };
+                proposal_states[state] += 1;
+            }
+            if protocol.content_type() != ContentType::Commit {
+                continue;
+            }
+            let Some(stamp) = payload.own_commit_stamp() else {
+                continue;
+            };
+            if stamp.committer != identity
+                || stamp.checkpoint_id.is_none()
+                || stamp.resulting_epoch_authenticator.is_none()
+            {
+                continue;
+            }
+            if refs.is_some() {
+                return Err("ambiguous_confirmed_commit");
+            }
+            refs = Some(
+                stamp
+                    .consumed_proposal_refs
+                    .iter()
+                    .cloned()
+                    .collect::<std::collections::BTreeSet<_>>(),
+            );
+        }
+        reference_sets.push(refs);
+    }
+    match (&reference_sets[0], &reference_sets[1]) {
+        (Some(source), Some(administrator)) => Ok((
+            Some([
+                source.len(),
+                administrator.len(),
+                source.intersection(administrator).count(),
+            ]),
+            Some(source == administrator),
+            proposal_states,
+        )),
+        _ => Ok((None, None, proposal_states)),
+    }
 }
 
 fn actual_confirmed_commit_content(
