@@ -1,0 +1,91 @@
+name: Experimental sync CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: experimental-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  RUST_MIN_STACK: "4194304"
+  SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
+
+jobs:
+  experimental-test-build:
+    name: Build experimental sync tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+      - name: Install Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: experimental-sync-tests
+      - name: Verify complete experimental partition coverage
+        run: bash scripts/check_ci_partitions.sh 5 --workspace --features "$SYNC_FEATURES" --locked
+      - name: Archive experimental workspace tests
+        run: cargo nextest archive --workspace --features "$SYNC_FEATURES" --locked --archive-file experimental-tests.tar.zst
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: experimental-sync-tests
+          path: experimental-tests.tar.zst
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  experimental-test:
+    name: Experimental sync tests (${{ matrix.partition }}/5)
+    needs: experimental-test-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+      - name: Install Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: experimental-sync-tests
+      - name: Run experimental workspace partition without retries
+        run: cargo nextest run --archive-file experimental-tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile m5-bounded --partition count:${{ matrix.partition }}/5 --no-fail-fast

@@ -77,3 +77,50 @@ slow-timeout = { period = "60s" }
 filter = 'package(wn-cli) & binary(cli)'
 retries = 2
 slow-timeout = { period = "60s", terminate-after = 4 }
+
+# M5 and experimental CI shards: six scheduler slots, no automatic retries. Heavy
+# suites consume three slots so separate test groups cannot collectively exceed
+# two simultaneous relay/runtime setups. CI profiles and their partitions stay
+# unchanged; invoke this profile explicitly from the supported host runner.
+[test-groups.m5-app-relay]
+max-threads = 2
+
+[test-groups.m5-relay-runtime]
+max-threads = 1
+
+[profile.m5-bounded]
+test-threads = 6
+retries = 0
+
+# Specific serial cases precede the shared App rule. relay_runtime also reserves
+# all six slots, matching its upstream dedicated serial execution lane.
+[[profile.m5-bounded.overrides]]
+filter = 'package(marmot-app) & binary(relay_runtime)'
+test-group = 'm5-relay-runtime'
+threads-required = 6
+retries = 0
+
+[[profile.m5-bounded.overrides]]
+filter = 'package(cgka-conformance-simulator) & binary(process_orchestrator)'
+test-group = 'process-orchestrator'
+threads-required = 6
+retries = 0
+priority = 90
+
+[[profile.m5-bounded.overrides]]
+filter = 'package(wn-cli) & binary(cli)'
+test-group = 'cli-e2e'
+threads-required = 3
+retries = 0
+
+[[profile.m5-bounded.overrides]]
+filter = 'package(cgka-conformance-simulator) & (binary(app_runtime_journeys) | binary(app_runtime_interaction_journeys))'
+test-group = 'app-runtime-journeys'
+threads-required = 3
+retries = 0
+
+[[profile.m5-bounded.overrides]]
+filter = 'package(marmot-app)'
+test-group = 'm5-app-relay'
+threads-required = 3
+retries = 0
