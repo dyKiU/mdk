@@ -241,6 +241,8 @@ impl AppClient {
             self.app.account_home().root(),
             &group,
             batch.batch_digest,
+            entry.policy.peer_device,
+            entry.channel.scope().nonce,
         ) {
             return Err(AccountSharingError::NotReady);
         }
@@ -260,6 +262,8 @@ impl AppClient {
                     self.app.account_home().root(),
                     &group,
                     batch.batch_digest,
+                    entry.policy.peer_device,
+                    entry.channel.scope().nonce,
                     matches!(
                         &error,
                         cgka_traits::storage::StorageError::MirroredRecordDeniedByDeparture
