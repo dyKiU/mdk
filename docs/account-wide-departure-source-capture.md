@@ -1,5 +1,31 @@
 # Account-wide departure source checkpoint
 
+## Combined component/native checkpoint (2026-10-13)
+
+Frozen tested source `3c527fc999f6df4350e94b61991011c73d793492` adds only
+exact injected-item authentication-route diagnostics to the qualified component
+below. The existing same-original retained-retry assertion and deadlines remain
+unchanged. Its isolated test passed 1/0/0 and observed the captured actual Consent
+through genuine retained Core authentication (normal0, retained1). This does not
+establish the cause or universal resolution of the earlier full-cohort failure.
+
+All prefixes are under `/Users/pj/project/build/results/`:
+
+| Scope | Actual result | Prefix |
+|---|---|---|
+| Exact same-original retained-auth control |1 passed,0 failed/ignored|`sibling-3c527fc9-exact-auth-route-v22`|
+| App experimental/default all-target Clippy `-D warnings`; whole-workspace fmt |all exit0; zero tests; no exemptions|`sibling-3c527fc9-auth-route-statics-v23`|
+| Matched App/C test artifact build |exit0; zero runtime tests|`account-wide-departure-3c527fc9-native-ffi-v24`|
+| Genuine C→UniFFI→App consumer and independent same-root producer |consumer1+producer1 passed,0 failed/ignored; both binaries unchanged|`account-wide-departure-3c527fc9-native-ffi-v24`|
+
+The native journey proves actual public ordinary removals, receipt completion,
+same-root reopen and explicit client/producer closure under its existing test
+profile (minimum test stack4 MiB; composed App thread8 MiB). It is not a shipping
+default-stack or SDK/deployment claim. No authentication assertion was relaxed.
+Full fast-ci, the unchanged-candidate six-gate backend matrix and ten SDK gates
+must pass before host adoption/build/deployment. Earlier failed full e070 evidence
+is preserved; Dev apps remain stopped and Production apps remain untouched.
+
 ## Core late required-proposal recovery (2026-10-13)
 
 Component-qualified source `33d2cc44a49e714bf66598206b12e0c39869ecee`
