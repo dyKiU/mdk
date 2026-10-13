@@ -2345,9 +2345,7 @@ impl NostrSdkRelayClient {
             let forwarder_event_entered = loss.forwarder_event_entered.clone();
             let classifier = loss.clone();
             let mut worker = tokio::spawn(async move {
-                while let Some((notification, capture)) = event_rx.recv().await {
-                    #[cfg(not(feature = "experimental-device-sync"))]
-                    let _ = capture;
+                while let Some((notification, _capture)) = event_rx.recv().await {
                     #[cfg(test)]
                     if matches!(notification, ClientNotification::Event { .. }) {
                         forwarder_event_entered.store(true, Ordering::SeqCst);
@@ -2371,7 +2369,7 @@ impl NostrSdkRelayClient {
                                 };
                                 #[cfg(feature = "experimental-device-sync")]
                                 let _ = adapter
-                                    .handle_captured_live_relay_event(None, relay_event, capture)
+                                    .handle_captured_live_relay_event(None, relay_event, _capture)
                                     .await;
                                 #[cfg(not(feature = "experimental-device-sync"))]
                                 let _ = adapter.handle_relay_event(relay_event).await;
