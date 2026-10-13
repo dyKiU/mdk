@@ -244,6 +244,7 @@ pub(super) mod actual {
         AutomaticTwoLegitimateSources,
         AutomaticDelayedRequestCollision,
         AutomaticPendingRequestRestart,
+        AutomaticRecordsCutConsent,
         AutomaticDepartureFfiFixture,
         AutomaticAccountDeparture,
         AutomaticAccountDepartureOrdering,
@@ -294,6 +295,7 @@ pub(super) mod actual {
             scenario,
             ApprovalScenario::AutomaticHeldThreeBInitiates
                 | ApprovalScenario::AutomaticHeldThreeCInitiates
+                | ApprovalScenario::AutomaticRecordsCutConsent
         ) {
             super::automatic_held_three_original_acceptance::order_actual_signers(
                 &mut apps,
@@ -307,6 +309,7 @@ pub(super) mod actual {
             scenario,
             ApprovalScenario::AutomaticDelayedRequestCollision
                 | ApprovalScenario::AutomaticPendingRequestRestart
+                | ApprovalScenario::AutomaticRecordsCutConsent
                 | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
                 | ApprovalScenario::AutomaticAccountDeparture
@@ -338,6 +341,7 @@ pub(super) mod actual {
             scenario,
             ApprovalScenario::AutomaticDelayedRequestCollision
                 | ApprovalScenario::AutomaticPendingRequestRestart
+                | ApprovalScenario::AutomaticRecordsCutConsent
         ) {
             assert!(
                 two_source_peer.is_some(),
@@ -448,6 +452,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticHeldRecipientInitiates
                 | ApprovalScenario::AutomaticDelayedRequestCollision
                 | ApprovalScenario::AutomaticPendingRequestRestart
+                | ApprovalScenario::AutomaticRecordsCutConsent
                 | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
                 | ApprovalScenario::AutomaticAccountDeparture
@@ -797,6 +802,7 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticHeldThreeCInitiates
                 | ApprovalScenario::AutomaticDelayedRequestCollision
                 | ApprovalScenario::AutomaticPendingRequestRestart
+                | ApprovalScenario::AutomaticRecordsCutConsent
                 | ApprovalScenario::AutomaticTwoLegitimateSources
                 | ApprovalScenario::AutomaticDepartureFfiFixture
                 | ApprovalScenario::AutomaticAccountDeparture
@@ -917,6 +923,7 @@ pub(super) mod actual {
                         | ApprovalScenario::AutomaticHeldThreeCInitiates
                         | ApprovalScenario::AutomaticDelayedRequestCollision
                         | ApprovalScenario::AutomaticPendingRequestRestart
+                        | ApprovalScenario::AutomaticRecordsCutConsent
                         | ApprovalScenario::AutomaticTwoLegitimateSources
                         | ApprovalScenario::AutomaticDepartureFfiFixture
                         | ApprovalScenario::AutomaticAccountDeparture
@@ -1055,7 +1062,8 @@ pub(super) mod actual {
         if let Some(peer) = two_source_peer {
             let departure_scenario = matches!(
                 scenario,
-                ApprovalScenario::AutomaticDepartureFfiFixture
+                ApprovalScenario::AutomaticRecordsCutConsent
+                    | ApprovalScenario::AutomaticDepartureFfiFixture
                     | ApprovalScenario::AutomaticAccountDeparture
                     | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
                     | ApprovalScenario::AutomaticAccountDepartureOrdering
@@ -1123,6 +1131,7 @@ pub(super) mod actual {
                 scenario,
                 ApprovalScenario::AutomaticDelayedRequestCollision
                     | ApprovalScenario::AutomaticPendingRequestRestart
+                    | ApprovalScenario::AutomaticRecordsCutConsent
             ) {
                 use futures::FutureExt;
                 let result = std::panic::AssertUnwindSafe(async {
@@ -1138,6 +1147,19 @@ pub(super) mod actual {
                         Box::pin(
                             crate::AppClient::test_pending_lower_request_survives_higher_restart(
                                 [dirs[0].path(), dirs[1].path()],
+                                &url,
+                                &peer.group,
+                                &peer.initial_ids[0],
+                            ),
+                        )
+                        .await;
+                    } else if scenario == ApprovalScenario::AutomaticRecordsCutConsent {
+                        let roots = apps
+                            .each_ref()
+                            .map(|app| app.account_home().root().to_path_buf());
+                        Box::pin(
+                            crate::AppClient::test_records_cut_does_not_block_peer_consent(
+                                [roots[0].as_path(), roots[1].as_path(), roots[2].as_path()],
                                 &url,
                                 &peer.group,
                                 &peer.initial_ids[0],
@@ -2635,6 +2657,20 @@ fn pending_lower_request_recovers_after_higher_restarts_before_consent() {
     crate::tests::run_composed_app_runtime_test("pending-real-lower-request", || async {
         Box::pin(actual::run_native_public_three_device_enrollment(
             actual::ApprovalScenario::AutomaticPendingRequestRestart,
+        ))
+        .await;
+    });
+}
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[test]
+fn actual_records_after_departure_cut_do_not_block_peer_consent() {
+    crate::tests::run_composed_app_runtime_test("records-cut-peer-consent", || async {
+        Box::pin(actual::run_native_public_three_device_enrollment(
+            actual::ApprovalScenario::AutomaticRecordsCutConsent,
         ))
         .await;
     });

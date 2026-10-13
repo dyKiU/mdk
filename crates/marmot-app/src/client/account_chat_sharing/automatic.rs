@@ -13,6 +13,9 @@ pub(super) mod duplicate_departure_probe;
 mod pending_restart_acceptance;
 mod records;
 #[cfg(all(test, feature = "test-policy-overrides"))]
+#[path = "../../sync/records_cut_acceptance.rs"]
+pub(super) mod records_cut_acceptance;
+#[cfg(all(test, feature = "test-policy-overrides"))]
 mod restart_acceptance;
 mod sends;
 use crate::account_chat_sharing::enabled::OriginalLease;

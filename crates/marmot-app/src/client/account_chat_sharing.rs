@@ -175,6 +175,10 @@ impl AppClient {
             }
         };
         #[cfg(all(test, feature = "test-policy-overrides"))]
+        automatic::records_cut_acceptance::observe_authenticated_records(
+            self.app.account_home().root(), event, &received,
+        );
+        #[cfg(all(test, feature = "test-policy-overrides"))]
         let Some(received) = self.test_defer_delayed_higher_request(wire, received) else {
             return Ok(());
         };

@@ -236,6 +236,14 @@ impl AppClient {
             .app
             .account_storage(&self.state.label)
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if records_cut_acceptance::hold_complete_records(
+            self.app.account_home().root(),
+            &group,
+            batch.batch_digest,
+        ) {
+            return Err(AccountSharingError::NotReady);
+        }
         let receipt = storage
             .account_chat_record_stream_storage()
             .ok_or(AccountSharingError::NotReady)?
@@ -256,6 +264,11 @@ impl AppClient {
                 let _ = error;
                 AccountSharingError::RuntimeUnavailable
             })?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        records_cut_acceptance::observe_committed_record_receipt(
+            self.app.account_home().root(),
+            batch.batch_digest,
+        );
         // Wake observation owners only after the original-checked SQL commit.
         // Their worker reads still revalidate current policy at publication.
         self.notify_mirrored_presentation_changed();
