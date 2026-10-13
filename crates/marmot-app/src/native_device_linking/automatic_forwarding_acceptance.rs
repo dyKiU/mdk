@@ -1,5 +1,6 @@
 //! Real client-token send from a paired mirror through an actual member.
 use super::*;
+use crate::AppError;
 use cgka_traits::StorageProvider;
 
 #[tokio::test]
