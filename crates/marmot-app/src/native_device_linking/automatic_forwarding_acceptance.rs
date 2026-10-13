@@ -132,6 +132,9 @@ pub(super) async fn verify_cancelled_host_admission(
         .unwrap();
     let token = "forwarded-cancelled-host-token".to_owned();
     let text = "forwarded after host cancellation".to_owned();
+    let classification_entered = runtime
+        .shared_services()
+        .arm_submission_classification_for_test(&account.account_id_hex, &token);
     let waiter = {
         let runtime = runtime.clone();
         let group = group.clone();
@@ -140,10 +143,7 @@ pub(super) async fn verify_cancelled_host_admission(
         tokio::spawn(async move { runtime.submit_text("test", &group, text, token).await })
     };
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        while !runtime
-            .shared_services()
-            .local_submission_admission_held_for_test(&account.account_id_hex)
-        {
+        while !classification_entered.load(std::sync::atomic::Ordering::Acquire) {
             tokio::time::sleep(std::time::Duration::from_millis(1)).await;
         }
     })

@@ -376,6 +376,17 @@ pub(crate) struct RecoverySelectionWitnessTarget {
     pub(crate) sink: Arc<StdMutex<Vec<crate::client::TestRecoverySelection>>>,
 }
 
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+struct SubmissionClassificationProbe {
+    account: String,
+    token: String,
+    entered: Arc<std::sync::atomic::AtomicBool>,
+}
+
 #[derive(Clone)]
 pub struct RuntimeSharedServices {
     /// Every production runtime points at the same process capacity. The
@@ -399,6 +410,12 @@ pub struct RuntimeSharedServices {
     // Private bounded observations and weak per-account gate lookup. This
     // global mutex is never held during storage, engine, or network work.
     local_submission_queue: Arc<StdMutex<local_submission_queue::LocalSubmissionQueue>>,
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    submission_classification_probe: Arc<StdMutex<Option<SubmissionClassificationProbe>>>,
     attachment_transfer: Arc<tokio::sync::Semaphore>,
     attachment_updates: watch::Sender<()>,
     attachment_cancellations: watch::Sender<()>,
@@ -515,6 +532,12 @@ impl Default for RuntimeSharedServices {
             attachment_transfer: Arc::new(tokio::sync::Semaphore::new(1)),
             local_submission_wakeups: watch::channel(()).0,
             local_submission_queue: Arc::new(StdMutex::new(Default::default())),
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            submission_classification_probe: Arc::new(StdMutex::new(None)),
             attachment_updates: watch::channel(()).0,
             attachment_cancellations: watch::channel(()).0,
             attachment_permissions: attachment_permission::Permissions::default(),
@@ -550,8 +573,45 @@ impl RuntimeSharedServices {
         feature = "experimental-device-sync",
         feature = "test-policy-overrides"
     ))]
-    pub(crate) fn local_submission_admission_held_for_test(&self, account: &str) -> bool {
-        self.local_submission_gate(account).try_lock().is_err()
+    pub(crate) fn arm_submission_classification_for_test(
+        &self,
+        account: &str,
+        token: &str,
+    ) -> Arc<std::sync::atomic::AtomicBool> {
+        let mut slot = self
+            .submission_classification_probe
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        assert!(
+            slot.is_none(),
+            "only one caller classification probe may be armed"
+        );
+        let entered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        *slot = Some(SubmissionClassificationProbe {
+            account: account.to_owned(),
+            token: token.to_owned(),
+            entered: entered.clone(),
+        });
+        entered
+    }
+
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    fn observe_submission_classification_for_test(&self, account: &str, token: &str) {
+        let slot = self
+            .submission_classification_probe
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(probe) = slot.as_ref() {
+            if probe.account == account && probe.token == token {
+                probe
+                    .entered
+                    .store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
     }
 
     fn local_submission_gate(&self, account: &str) -> Arc<Mutex<()>> {
@@ -623,6 +683,12 @@ impl RuntimeSharedServices {
             attachment_updates: watch::channel(()).0,
             local_submission_wakeups: watch::channel(()).0,
             local_submission_queue: Arc::new(StdMutex::new(Default::default())),
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            submission_classification_probe: Arc::new(StdMutex::new(None)),
             attachment_cancellations: watch::channel(()).0,
             attachment_permissions: attachment_permission::Permissions::default(),
             relay_plane: app.relay_plane.clone(),

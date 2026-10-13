@@ -275,6 +275,12 @@ impl MarmotAppRuntime {
                 let gate = shared.local_submission_gate(&account.account_id_hex);
                 let admission = gate.blocking_lock();
                 shared.lifecycle().ensure_running()?;
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                shared.observe_submission_classification_for_test(&account.account_id_hex, &token);
                 #[cfg(feature = "experimental-device-sync")]
                 {
                     use cgka_traits::storage::GroupStorage;
