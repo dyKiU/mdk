@@ -1724,6 +1724,15 @@ pub(super) mod actual {
                     &mirror,
                 )
                 .await;
+                if scenario == ApprovalScenario::AutomaticForwarding {
+                    super::automatic_forwarding_acceptance::verify_cancelled_host_admission(
+                        &apps,
+                        &runtimes[2],
+                        initial_shared_chat.as_ref().unwrap(),
+                        &mirror,
+                    )
+                    .await;
+                }
             }
             if let Some(peer) = &incoming_peer {
                 peer.verify_forwarded_receipt(&runtimes[2]).await;

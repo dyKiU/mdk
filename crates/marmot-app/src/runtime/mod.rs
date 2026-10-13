@@ -545,6 +545,15 @@ impl Default for RuntimeSharedServices {
 }
 
 impl RuntimeSharedServices {
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn local_submission_admission_held_for_test(&self, account: &str) -> bool {
+        self.local_submission_gate(account).try_lock().is_err()
+    }
+
     fn local_submission_gate(&self, account: &str) -> Arc<Mutex<()>> {
         self.local_submission_queue
             .lock()

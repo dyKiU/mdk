@@ -75,6 +75,122 @@ pub(super) async fn verify(
     );
 }
 
+struct HeldForwardingDatabase {
+    release: Option<std::sync::mpsc::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<Result<(), AppError>>>,
+}
+
+impl HeldForwardingDatabase {
+    fn release(mut self) {
+        self.release.take().unwrap().send(()).unwrap();
+        self.thread.take().unwrap().join().unwrap().unwrap();
+    }
+}
+
+impl Drop for HeldForwardingDatabase {
+    fn drop(&mut self) {
+        if let Some(release) = self.release.take() {
+            let _ = release.send(());
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+pub(super) async fn verify_cancelled_host_admission(
+    apps: &[MarmotApp; 3],
+    runtime: &MarmotAppRuntime,
+    group: &crate::GroupId,
+    scope: &cgka_traits::mirrored_chat_catalog::MirroredChatScope,
+) {
+    use cgka_traits::storage::GroupStorage;
+    let storage = apps[2].account_storage("test").unwrap();
+    assert!(matches!(
+        storage.get_group(group),
+        Err(cgka_traits::StorageError::NotFound)
+    ));
+    let account = apps[2].account_home().account("test").unwrap();
+    let (entered, entered_wait) = tokio::sync::oneshot::channel();
+    let (release, release_wait) = std::sync::mpsc::channel();
+    let thread = std::thread::spawn(move || {
+        StorageProvider::with_transaction(&storage, |_| {
+            let _ = entered.send(());
+            release_wait
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("fixture must release the caller database");
+            Ok::<_, AppError>(())
+        })
+    });
+    let held = HeldForwardingDatabase {
+        release: Some(release),
+        thread: Some(thread),
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(2), entered_wait)
+        .await
+        .unwrap()
+        .unwrap();
+    let token = "forwarded-cancelled-host-token".to_owned();
+    let text = "forwarded after host cancellation".to_owned();
+    let waiter = {
+        let runtime = runtime.clone();
+        let group = group.clone();
+        let token = token.clone();
+        let text = text.clone();
+        tokio::spawn(async move { runtime.submit_text("test", &group, text, token).await })
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while !runtime
+            .shared_services()
+            .local_submission_admission_held_for_test(&account.account_id_hex)
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("the real forwarded caller must own blocking admission before cancellation");
+    waiter.abort();
+    match waiter.await {
+        Err(error) => assert!(error.is_cancelled()),
+        Ok(_) => panic!("the host waiter must be cancelled before releasing admission"),
+    }
+    held.release();
+    tokio::time::timeout(std::time::Duration::from_secs(90), async {
+        loop {
+            if let Some(crate::LocalSendStatus::Completed(summary)) =
+                runtime.local_send_status("test", group, &token).unwrap()
+            {
+                assert_eq!(summary.published, 1);
+                assert_eq!(summary.message_ids.len(), 1);
+                let id = &summary.message_ids[0];
+                let source = apps[0].account_storage("test").unwrap();
+                let row = source
+                    .app_message(&hex::encode(group.as_slice()), id)
+                    .unwrap();
+                let receiver = apps[2].account_storage("test").unwrap();
+                let rows = receiver
+                    .mirrored_chat_message_storage()
+                    .unwrap()
+                    .mirrored_chat_message_page(scope, group, None, 128, crate::unix_now_seconds())
+                    .unwrap();
+                if let Some(row) = row
+                    && rows.iter().any(|row| hex::encode(row.event_id) == *id)
+                {
+                    assert!(row.plaintext == text);
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect(
+        "cancelled host wait must retain actual source publication and canonical mirror import",
+    );
+    assert!(apps[2].load_state("test").unwrap().groups.is_empty());
+    eprintln!("forwarded_cancelled_host_admission_body_executed=true");
+}
+
 #[tokio::test]
 async fn automatic_forwarding_preserves_actual_reply_reference_and_canonical_id() {
     actual::run_native_public_three_device_enrollment(
