@@ -52,6 +52,7 @@ mod ordinary_commit_gate;
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
+#[path = "tests/ordinary_commit_observation.rs"]
 mod ordinary_commit_observation;
 #[cfg(test)]
 pub(crate) mod publish_accounting_tests;

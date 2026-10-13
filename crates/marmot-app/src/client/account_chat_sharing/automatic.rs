@@ -6,16 +6,19 @@ mod departure;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) mod departure_replay_probe;
 #[cfg(all(test, feature = "test-policy-overrides"))]
+#[path = "automatic/tests/diagnostics.rs"]
 pub(super) mod diagnostics;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) mod duplicate_departure_probe;
 #[cfg(all(test, feature = "test-policy-overrides"))]
+#[path = "automatic/tests/pending_restart_acceptance.rs"]
 mod pending_restart_acceptance;
 mod records;
 #[cfg(all(test, feature = "test-policy-overrides"))]
-#[path = "../sync/records_cut_acceptance.rs"]
+#[path = "../sync/tests/records_cut_acceptance.rs"]
 pub(super) mod records_cut_acceptance;
 #[cfg(all(test, feature = "test-policy-overrides"))]
+#[path = "automatic/tests/restart_acceptance.rs"]
 mod restart_acceptance;
 mod sends;
 use crate::account_chat_sharing::enabled::OriginalLease;
@@ -215,7 +218,7 @@ impl AppClient {
                     old.is_some_and(|old| incoming.source_epoch >= old.source_epoch)
                 )))
             },
-            |line| eprintln!("{line}, owner={owner}"),
+            |line| diagnostics::emit(line, owner),
         );
         seen.insert(key);
     }

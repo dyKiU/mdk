@@ -812,4 +812,5 @@ mod tests {
 }
 
 #[cfg(all(test, feature = "experimental-device-sync"))]
+#[path = "tests/account_chat_departure_acceptance_tests.rs"]
 mod account_chat_departure_acceptance_tests;

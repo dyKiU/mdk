@@ -2540,7 +2540,7 @@ pub(super) mod actual {
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-#[path = "sibling_sharing_acceptance.rs"]
+#[path = "tests/sibling_sharing_acceptance.rs"]
 mod sibling_sharing_acceptance;
 
 #[cfg(all(
@@ -2561,7 +2561,7 @@ mod automatic_records_acceptance;
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-#[path = "automatic_forwarding_acceptance.rs"]
+#[path = "tests/automatic_forwarding_acceptance.rs"]
 mod automatic_forwarding_acceptance;
 
 #[cfg(all(
@@ -2603,35 +2603,35 @@ mod automatic_held_three_original_acceptance;
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-#[path = "automatic_two_source_leave_acceptance.rs"]
+#[path = "tests/automatic_two_source_leave_acceptance.rs"]
 mod automatic_two_source_leave_acceptance;
 
 #[cfg(all(
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-#[path = "account_departure_ffi_fixture.rs"]
+#[path = "tests/account_departure_ffi_fixture.rs"]
 mod account_departure_ffi_fixture;
 
 #[cfg(all(
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-#[path = "automatic_account_departure_acceptance.rs"]
+#[path = "tests/automatic_account_departure_acceptance.rs"]
 mod automatic_account_departure_acceptance;
 
 #[cfg(all(
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-#[path = "automatic_fresh_rejoin_acceptance.rs"]
+#[path = "tests/automatic_fresh_rejoin_acceptance.rs"]
 mod automatic_fresh_rejoin_acceptance;
 
 #[cfg(all(
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-#[path = "automatic_account_departure_rejoin_acceptance.rs"]
+#[path = "tests/automatic_account_departure_rejoin_acceptance.rs"]
 mod automatic_account_departure_rejoin_acceptance;
 
 #[cfg(all(

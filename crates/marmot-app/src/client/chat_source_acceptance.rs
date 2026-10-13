@@ -11,7 +11,7 @@ use storage_sqlite::account_chat_source::{
 };
 
 #[cfg(test)]
-#[path = "chat_source_privacy_acceptance.rs"]
+#[path = "tests/chat_source_privacy_acceptance.rs"]
 mod privacy_acceptance;
 #[cfg(test)]
 #[path = "chat_source_acceptance_tests.rs"]

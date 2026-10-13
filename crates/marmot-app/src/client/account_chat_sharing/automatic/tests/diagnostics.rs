@@ -174,3 +174,7 @@ pub(crate) fn sharing_category(error: &crate::AccountSharingError) -> &'static s
         crate::AccountSharingError::RuntimeUnavailable => "runtime_unavailable",
     }
 }
+
+pub(super) fn emit(line: &str, owner: &str) {
+    eprintln!("{line}, owner={owner}");
+}
