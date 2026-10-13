@@ -26,6 +26,15 @@ struct Probe {
     deadline: Instant,
     held: Mutex<Held>,
 }
+impl Probe {
+    fn matches_context(&self, held: &Held, peer: [u8; 32], nonce: [u8; 32]) -> bool {
+        peer == self.source
+            && held.nonce == Some(nonce)
+            && matches!(&held.event,
+                Some(GroupEvent::MessageReceived { group_id, source_leaf: Some(source), .. })
+                if group_id == &self.protected && source.signature_public_key.as_slice() == peer)
+    }
+}
 type Registry = BTreeMap<PathBuf, Weak<Probe>>;
 fn registry() -> &'static Mutex<Registry> {
     static ROOTS: OnceLock<Mutex<Registry>> = OnceLock::new();
@@ -84,6 +93,8 @@ pub(crate) fn hold_complete_records(
     root: &Path,
     group: &crate::GroupId,
     batch_digest: [u8; 32],
+    actual_peer: [u8; 32],
+    actual_nonce: [u8; 32],
 ) -> bool {
     let Some(probe) = current(root) else {
         return false;
@@ -92,7 +103,7 @@ pub(crate) fn hold_complete_records(
         return false;
     }
     let mut held = probe.held.lock().unwrap_or_else(|e| e.into_inner());
-    if held.released || held.event.is_none() {
+    if held.released || !probe.matches_context(&held, actual_peer, actual_nonce) {
         return false;
     }
     if held.batch.is_none() {
@@ -114,6 +125,8 @@ pub(crate) fn observe_record_failure(
     root: &Path,
     group: &crate::GroupId,
     batch_digest: [u8; 32],
+    actual_peer: [u8; 32],
+    actual_nonce: [u8; 32],
     negative_cut: bool,
 ) {
     let Some(probe) = current(root) else { return };
@@ -121,7 +134,8 @@ pub(crate) fn observe_record_failure(
         return;
     }
     let mut held = probe.held.lock().unwrap_or_else(|e| e.into_inner());
-    if held.batch != Some(batch_digest) {
+    if held.batch != Some(batch_digest) || !probe.matches_context(&held, actual_peer, actual_nonce)
+    {
         return;
     }
     held.failure_count = held.failure_count.saturating_add(1);
