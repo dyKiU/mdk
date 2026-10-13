@@ -323,7 +323,7 @@ mod actual {
             .create_group(
                 "test",
                 "Selected ordinary chat",
-                &[d_account.account_id_hex.clone()],
+                std::slice::from_ref(&d_account.account_id_hex),
                 None,
             )
             .await
@@ -1007,7 +1007,7 @@ mod actual {
             .unwrap()
             .stored_key_package_bundles()
             .unwrap();
-        let directory_reader = nostr_sdk::prelude::Client::builder().build();
+        let directory_reader = crate::network_proxy::nostr_builder().build();
         directory_reader
             .add_relay(fixture.url.clone())
             .capabilities(nostr_sdk::prelude::RelayCapabilities::READ)
