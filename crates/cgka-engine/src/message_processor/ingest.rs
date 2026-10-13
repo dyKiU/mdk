@@ -1882,7 +1882,21 @@ impl<S: StorageProvider> Engine<S> {
                     )?;
                 }
                 self.return_mls_group(&group_id, mls_group);
-                self.valid_proposal_groups.insert(group_id);
+                self.valid_proposal_groups.insert(group_id.clone());
+                // The proposal already passed MLS authentication and standalone
+                // authorization. Its retained row must also join an existing
+                // collecting pass before that pass freezes a by-reference
+                // commit without the dependency. Use normal admission, including
+                // its stable-owner, cutoff, digest and quarantine guards.
+                self.buffer_openmls_convergence_message_with_time(
+                    &group_id,
+                    openmls_msg.clone(),
+                    self.convergence_now(),
+                    Some(&raw_msg_id),
+                )
+                .map_err(|error| {
+                    EngineError::Backend(format!("admit authenticated proposal: {error}"))
+                })?;
                 reported(IngestOutcome::Processed)
             }
             DirectProcessedContent::Other(
