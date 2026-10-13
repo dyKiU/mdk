@@ -15,6 +15,10 @@ struct Held {
     nonce: Option<[u8; 32]>,
     batch: Option<[u8; 32]>,
     committed: bool,
+    failure_count: usize,
+    negative_cut: bool,
+    catalog_unavailable: bool,
+    negative_catalog_failure: bool,
 }
 struct Probe {
     root: PathBuf,
@@ -105,6 +109,28 @@ pub(crate) fn observe_committed_record_receipt(root: &Path, batch_digest: [u8; 3
             held.committed = true;
         }
     }
+}
+
+/// Observation only: parent calls after an actual SQL error and actual cut read.
+pub(crate) fn observe_record_failure(
+    root: &Path,
+    group: &crate::GroupId,
+    batch_digest: [u8; 32],
+    negative_cut: bool,
+    catalog_unavailable: bool,
+) {
+    let Some(probe) = current(root) else { return };
+    if group != &probe.ordinary {
+        return;
+    }
+    let mut held = probe.held.lock().unwrap_or_else(|e| e.into_inner());
+    if held.batch != Some(batch_digest) {
+        return;
+    }
+    held.failure_count = held.failure_count.saturating_add(1);
+    held.negative_cut |= negative_cut;
+    held.catalog_unavailable |= catalog_unavailable;
+    held.negative_catalog_failure |= negative_cut && catalog_unavailable;
 }
 
 impl AppClient {
@@ -203,6 +229,10 @@ impl AppClient {
                     nonce: None,
                     batch: None,
                     committed: false,
+                    failure_count: 0,
+                    negative_cut: false,
+                    catalog_unavailable: false,
+                    negative_catalog_failure: false,
                 }),
             });
             {
@@ -245,9 +275,11 @@ impl AppClient {
             })
             .await
             .expect("real complete A Records occupies projection retry head");
+            eprintln!("records_cut_actual_authenticated_complete_batch_held=true");
             let cut = clients[2].leave_account_chat(ordinary_group).await.unwrap();
             assert_eq!(cut.status, crate::AccountChatDepartureStatus::Pending);
             assert!(cut.operation_id.is_some());
+            eprintln!("records_cut_actual_public_cut_pending_with_operation=true");
             let id_c = Self::automatic_policy_id(&bc[1]).unwrap();
             clients[2]
                 .begin_automatic_channel(bc[1].clone(), None)
@@ -276,12 +308,13 @@ impl AppClient {
             })
             .await
             .expect("actual B Consent published behind held Records");
+            eprintln!("records_cut_actual_peer_consent_publication_acknowledged=true");
             probe
                 .held
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .released = true;
-            tokio::time::timeout(Duration::from_secs(30), async {
+            let functional = tokio::time::timeout(Duration::from_secs(30), async {
                 loop {
                     let result = clients[2].sync().await;
                     if result.is_ok() {
@@ -303,8 +336,16 @@ impl AppClient {
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
             })
-            .await
-            .expect("permanent cut refusal cannot block actual later B Consent bind");
+            .await;
+            {
+                let held = probe.held.lock().unwrap_or_else(|e| e.into_inner());
+                let retained = held.event.is_some() && held.nonce.is_some() && held.batch.is_some();
+                let expired = Instant::now() >= probe.deadline;
+                eprintln!("records_cut_causal_observation: exact_event_nonce_batch_retained={}, probe_expired={}, sql_failure_seen={}, actual_negative_cut={}, catalog_unavailable={}, same_failure_negative_catalog={}", retained, expired, held.failure_count > 0, held.negative_cut, held.catalog_unavailable, held.negative_catalog_failure);
+                assert!(retained && !expired, "exact original event and batch must remain within fixed probe lifetime");
+                assert!(held.failure_count > 0 && held.negative_cut && held.catalog_unavailable && held.negative_catalog_failure, "actual SQL refusal must follow the same negative-cut/catalog-unavailable observation");
+            }
+            functional.expect("permanent cut refusal cannot block actual later B Consent bind");
             assert!(
                 !probe
                     .held
