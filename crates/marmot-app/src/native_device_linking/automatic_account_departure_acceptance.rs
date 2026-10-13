@@ -103,10 +103,12 @@ pub(super) async fn verify(
         "Consent diagnostics must observe the actual same-account protected group"
     );
     let consent_devices = std::array::from_fn(|index| consent_rounds[index].anchor.local_device);
+    let consent_roots: [std::path::PathBuf; 3] =
+        std::array::from_fn(|index| apps[index].account_home().root().to_path_buf());
     let consent_probe = crate::AppClient::test_capture_automatic_consent_delivery(
         consent_rounds[0].anchor.account,
         consent_rounds[0].anchor.group_id.clone(),
-        std::array::from_fn(|index| apps[index].account_home().root()),
+        std::array::from_fn(|index| consent_roots[index].as_path()),
         consent_devices,
     );
     eprintln!("account_departure_actual_consent_observer_armed=true");
