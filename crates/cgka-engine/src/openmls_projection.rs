@@ -2838,6 +2838,12 @@ fn probe_candidate_path<S: StorageProvider>(
     profile_policy: ReplayProfilePolicy,
     cursor: &mut RejectedDependencyCursor,
 ) -> Result<CandidatePathProbeResult, OpenMlsProjectionError> {
+    if cursor.path != digests {
+        *cursor = RejectedDependencyCursor {
+            path: digests.to_vec(),
+            ..Default::default()
+        };
+    }
     let path = OpenMlsCandidatePath {
         branch_id: branch_id_for_path_digests(digests),
         messages,
@@ -4586,6 +4592,7 @@ fn replayed_commit_establishes_proposal_epoch(
 /// Never queue the refused proposal, merge a commit, or read private handshakes.
 #[derive(Clone, Default)]
 struct RejectedDependencyCursor {
+    path: Vec<[u8; 32]>,
     commit: Option<MessageId>,
     reference: String,
     epoch: u64,
@@ -4606,12 +4613,10 @@ fn rejected_referenced_proposal<S: StorageProvider>(
         || cursor.reference != reference
         || cursor.epoch != epoch
     {
-        *cursor = RejectedDependencyCursor {
-            commit: Some(commit.id.clone()),
-            reference: reference.into(),
-            epoch,
-            after: None,
-        };
+        cursor.commit = Some(commit.id.clone());
+        cursor.reference = reference.into();
+        cursor.epoch = epoch;
+        cursor.after = None;
     }
     let mut records = Vec::new();
     storage
