@@ -17,11 +17,11 @@ use crate::{
     framing::errors::MessageDecryptionError,
     group::commit_builder::external_commits::ExternalCommitBuilderError,
     key_packages::errors::{KeyPackageExtensionSupportError, KeyPackageVerifyError},
-    messages::{group_info::GroupInfoError, GroupSecretsError},
+    messages::{GroupSecretsError, group_info::GroupInfoError},
     prelude::ExtensionType,
     schedule::{
-        errors::{KeyScheduleError, PskError},
         PreSharedKeyId,
+        errors::{KeyScheduleError, PskError},
     },
     treesync::errors::*,
 };
@@ -66,7 +66,9 @@ pub enum WelcomeError<StorageError> {
     #[error("We don't support all capabilities of the group.")]
     UnsupportedCapability,
     /// The crypto provider doesn't support the ciphersuite of the group we are trying to join.
-    #[error("Ciphersuite {0:?} of the group we are trying to join is not supported by the crypto provider.")]
+    #[error(
+        "Ciphersuite {0:?} of the group we are trying to join is not supported by the crypto provider."
+    )]
     UnsupportedCiphersuite(Ciphersuite),
     /// Sender not found in tree.
     #[error("Sender not found in tree.")]
@@ -131,7 +133,9 @@ pub enum ExternalCommitError<StorageError> {
     #[error("No external_pub extension available to join group by external commit.")]
     MissingExternalPub,
     /// We don't support the ciphersuite of the group we are trying to join.
-    #[error("Ciphersuite {0:?} of the group we are trying to join is not supported by the crypto provider.")]
+    #[error(
+        "Ciphersuite {0:?} of the group we are trying to join is not supported by the crypto provider."
+    )]
     UnsupportedCiphersuite(Ciphersuite),
     /// Sender not found in tree.
     #[error("Sender not found in tree.")]
@@ -306,6 +310,28 @@ impl<StorageError> From<ExternalCommitBuilderFinalizeError<StorageError>>
     }
 }
 
+/// Exact missing dependency from an authenticated commit lookup. This is a
+/// negative hint, not evidence that the proposal or commit is authorized.
+#[derive(PartialEq, Clone)]
+pub struct MissingProposalReference(crate::ciphersuite::hash_ref::ProposalRef);
+
+impl MissingProposalReference {
+    pub(crate) fn new(reference: crate::ciphersuite::hash_ref::ProposalRef) -> Self {
+        Self(reference)
+    }
+
+    /// Read the reference privately for exact dependency matching.
+    pub fn reference(&self) -> &crate::ciphersuite::hash_ref::ProposalRef {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for MissingProposalReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("MissingProposalReference(<redacted>)")
+    }
+}
+
 /// Stage Commit error
 #[derive(Error, Debug, PartialEq, Clone)]
 pub enum StageCommitError {
@@ -343,6 +369,9 @@ pub enum StageCommitError {
     /// The proposal queue is missing a proposal for the commit.
     #[error("The proposal queue is missing a proposal for the commit.")]
     MissingProposal,
+    /// Exact absent dependency, captured only after commit authentication.
+    #[error("The proposal queue is missing a referenced proposal for the commit.")]
+    MissingProposalReference(MissingProposalReference),
     /// Missing own key to apply proposal.
     #[error("Missing own key to apply proposal.")]
     OwnKeyNotFound,
@@ -505,7 +534,9 @@ pub enum ValidationError {
     #[error("The PublicMessage is not a Commit despite the sender begin of type NewMemberCommit.")]
     NotACommit,
     /// The PublicMessage is not an External Add Proposal despite the sender begin of type [NewMemberProposal](crate::prelude::Sender::NewMemberProposal).
-    #[error("The PublicMessage is not an external Add proposal despite the sender begin of type NewMemberProposal.")]
+    #[error(
+        "The PublicMessage is not an external Add proposal despite the sender begin of type NewMemberProposal."
+    )]
     NotAnExternalAddProposal,
     /// The Commit doesn't have a path despite the sender being of type NewMemberCommit.
     #[error("The Commit doesn't have a path despite the sender being of type NewMemberCommit.")]
@@ -703,7 +734,7 @@ pub(crate) enum FromCommittedProposalsError {
     LibraryError(#[from] LibraryError),
     /// Not all proposals in the Commit were found locally.
     #[error("Not all proposals in the Commit were found locally.")]
-    ProposalNotFound,
+    ProposalNotFound(MissingProposalReference),
     /// The sender of a Commit tried to remove themselves.
     #[error("The sender of a Commit tried to remove themselves.")]
     SelfRemoval,
@@ -767,7 +798,9 @@ pub enum AppDataUpdateValidationError {
     /// Attempted to update the [`AppDataDictionary`](crate::extensions::AppDataDictionary)
     /// in the
     /// [`GroupContextExtensionsProposal`](crate::messages::proposals::GroupContextExtensionProposal) directly.
-    #[error("Attempted to update the AppDataDictionary in the GroupContextExtensions proposal directly.")]
+    #[error(
+        "Attempted to update the AppDataDictionary in the GroupContextExtensions proposal directly."
+    )]
     CannotUpdateDictionaryDirectly,
     /// More than one [`AppDataUpdate]` proposal per [`ComponentId`] had a Remove operation.
     ///

@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 
 use openmls_traits::crypto::OpenMlsCrypto;
 use openmls_traits::types::Ciphersuite;
@@ -8,7 +8,7 @@ use crate::{
     binary_tree::array_representation::LeafNodeIndex,
     ciphersuite::hash_ref::ProposalRef,
     error::LibraryError,
-    framing::{mls_auth_content::AuthenticatedContent, mls_content::FramedContentBody, Sender},
+    framing::{Sender, mls_auth_content::AuthenticatedContent, mls_content::FramedContentBody},
     group::errors::*,
     messages::proposals::{
         AddProposal, PreSharedKeyProposal, Proposal, ProposalOrRef, ProposalOrRefType,
@@ -345,7 +345,13 @@ impl ProposalQueue {
 
                             queued_proposal.clone()
                         }
-                        None => return Err(FromCommittedProposalsError::ProposalNotFound),
+                        None => {
+                            return Err(FromCommittedProposalsError::ProposalNotFound(
+                                crate::group::errors::MissingProposalReference::new(
+                                    proposal_reference.clone(),
+                                ),
+                            ));
+                        }
                     }
                 }
             };

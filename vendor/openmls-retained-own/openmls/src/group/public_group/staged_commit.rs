@@ -1,12 +1,12 @@
 use super::{super::errors::*, diff::apply_proposals::ApplyProposalsValues, *};
 use crate::{
-    framing::{mls_auth_content::AuthenticatedContent, mls_content::FramedContentBody, Sender},
+    framing::{Sender, mls_auth_content::AuthenticatedContent, mls_content::FramedContentBody},
     group::{
-        mls_group::staged_commit::StagedCommitState, proposal_store::ProposalQueue, StagedCommit,
+        StagedCommit, mls_group::staged_commit::StagedCommitState, proposal_store::ProposalQueue,
     },
     messages::{
-        proposals::{ProposalOrRef, ProposalType},
         Commit,
+        proposals::{ProposalOrRef, ProposalType},
     },
     treesync::errors::LeafNodeValidationError,
 };
@@ -136,7 +136,9 @@ impl PublicGroup {
             log::error!("Error building the proposal queue for the commit ({e:?})");
             match e {
                 FromCommittedProposalsError::LibraryError(e) => StageCommitError::LibraryError(e),
-                FromCommittedProposalsError::ProposalNotFound => StageCommitError::MissingProposal,
+                FromCommittedProposalsError::ProposalNotFound(reference) => {
+                    StageCommitError::MissingProposalReference(reference)
+                }
                 FromCommittedProposalsError::SelfRemoval => StageCommitError::AttemptedSelfRemoval,
                 FromCommittedProposalsError::DuplicatePskId(psk_id) => {
                     StageCommitError::DuplicatePskId(psk_id)

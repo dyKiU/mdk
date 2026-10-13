@@ -4474,6 +4474,68 @@ fn replayed_commit_establishes_proposal_epoch(
     })
 }
 
+/// Re-authenticate retained public wire against this exact replay candidate.
+/// Failed state selects rows to inspect; only the authenticated reference and
+/// current standalone authorization refusal can refute the commit dependency.
+/// Never queue the refused proposal, merge a commit, or read private handshakes.
+fn rejected_referenced_proposal<S: StorageProvider>(
+    storage: &S,
+    crypto: &RustCrypto,
+    group: &mut MlsGroup,
+    group_id: &GroupId,
+    epoch: u64,
+    reference: &str,
+) -> Result<Option<cgka_traits::ingest::ProposalRejectionCategory>, OpenMlsProjectionError> {
+    let provider = EngineOpenMlsProvider::<S>::new(crypto, storage.mls_storage());
+    for record in storage
+        .list_messages_in_states(group_id, &[MessageState::Failed], epoch)
+        .map_err(|_| OpenMlsProjectionError::Storage("rejected dependency lookup failed".into()))?
+    {
+        if record.group_id != *group_id || record.epoch != epoch {
+            continue;
+        }
+        let Ok(payload) = StoredMessagePayload::decode(&record.payload) else {
+            continue;
+        };
+        let Some(wire) = payload.as_openmls_wire() else {
+            continue;
+        };
+        if record.id.as_slice() != Sha256::digest(&wire.payload).as_slice() {
+            continue;
+        }
+        let Ok(Some(protocol)) = protocol_message_from_bytes(&wire.payload) else {
+            continue;
+        };
+        if !matches!(&protocol, ProtocolMessage::PublicMessage(_))
+            || protocol.epoch().as_u64() != epoch
+            || protocol.group_id().as_slice() != group_id.as_slice()
+            || protocol.content_type() != ContentType::Proposal
+        {
+            continue;
+        }
+        let processed = match group.process_message(&provider, protocol) {
+            Ok(processed) => processed,
+            Err(ProcessMessageError::StorageError(_)) => {
+                return Err(OpenMlsProjectionError::Storage(
+                    "rejected dependency authentication storage failure".into(),
+                ));
+            }
+            Err(_) => continue,
+        };
+        let ProcessedMessageContent::ProposalMessage(queued) = processed.into_content() else {
+            continue;
+        };
+        if tls_hex(queued.proposal_reference_ref())? != reference {
+            continue;
+        }
+        if let Err(rejection) = crate::app_components::authorize_standalone_proposal(group, &queued)
+        {
+            return Ok(Some(rejection.category));
+        }
+    }
+    Ok(None)
+}
+
 fn process_openmls_messages_inner<S: StorageProvider>(
     storage: &S,
     group_id: &GroupId,
@@ -4630,7 +4692,10 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                         ProcessMessageError::ValidationError(_) => "other_validation",
                         ProcessMessageError::GroupStateError(_) => "group_state",
                         ProcessMessageError::InvalidCommit(error) => match error {
-                            openmls::group::StageCommitError::MissingProposal => "missing_proposal",
+                            openmls::group::StageCommitError::MissingProposal
+                            | openmls::group::StageCommitError::MissingProposalReference(_) => {
+                                "missing_proposal"
+                            }
                             openmls::group::StageCommitError::OwnCommitMismatch => {
                                 "own_commit_mismatch"
                             }
@@ -4687,10 +4752,30 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                         _ => "other",
                     },
                 );
+                if let ProcessMessageError::InvalidCommit(
+                    openmls::group::StageCommitError::MissingProposalReference(missing),
+                ) = &err
+                    && let Some(category) = rejected_referenced_proposal(
+                        storage,
+                        &crypto,
+                        &mut mls_group,
+                        group_id,
+                        source_epoch,
+                        &tls_hex(missing.reference())?,
+                    )?
+                {
+                    return Err(OpenMlsProjectionError::InvalidCommit {
+                        message_id,
+                        reason: crate::app_components::proposal_rejection_category_tag(category)
+                            .into(),
+                        rejection_category: Some(category),
+                    });
+                }
                 if matches!(
                     &err,
                     ProcessMessageError::InvalidCommit(
                         openmls::group::StageCommitError::MissingProposal
+                            | openmls::group::StageCommitError::MissingProposalReference(_)
                     )
                 ) {
                     return Err(OpenMlsProjectionError::MissingReferencedProposal);
