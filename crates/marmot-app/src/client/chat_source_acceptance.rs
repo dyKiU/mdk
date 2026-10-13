@@ -120,6 +120,15 @@ impl AppClient {
                 "chat source origin unavailable".into(),
             ))
         })?;
+        // A daemon or short-lived CLI client can still have this pending group
+        // seeded by deferred open. Hydrate before the atomic acceptance write;
+        // its read-only authority checks must keep rejecting unhydrated state.
+        // Denial remains valid after self-removal and does not require live MLS.
+        if !denied && !self.runtime.session_mut().ensure_group_hydrated(group)? {
+            return Err(AppError::Storage(StorageError::Serialization(
+                "chat source membership unavailable".into(),
+            )));
+        }
         let operation = if denied {
             AccountChatSourceOperation::Deny
         } else {

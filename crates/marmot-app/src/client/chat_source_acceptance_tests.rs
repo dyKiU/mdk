@@ -4,7 +4,7 @@ use crate::{MarmotApp, MarmotAppRuntime};
 use std::time::Duration;
 
 #[test]
-fn actual_pending_invites_need_acceptance_and_hidden_decisions_survive_reopen() {
+fn actual_pending_invites_need_acceptance_and_hidden_decisions_survive_deferred_reopen() {
     crate::tests::run_composed_app_runtime_test("chat-source-pending-reopen", || async {
         let relay =
             nostr_relay_builder::LocalRelay::new(nostr_relay_builder::RelayBuilder::default());
@@ -54,12 +54,26 @@ fn actual_pending_invites_need_acceptance_and_hidden_decisions_survive_reopen() 
         }
         assert!(apps.iter().all(MarmotApp::storage_is_closed));
         let app = MarmotApp::with_relay(roots[0].path(), &url);
-        let mut client = app.client("test").await.unwrap();
+        let mut client = app
+            .local_client_with_relay_plane_and_hydration("test", &app.relay_plane, None, true, None)
+            .await
+            .unwrap();
+        assert!(
+            client
+                .runtime
+                .session()
+                .unhydrated_group_ids()
+                .contains(&groups[0]),
+            "acceptance must exercise the real deferred-open group, not an already hydrated fixture"
+        );
         for group in &groups {
             assert!(!client.automatic_chat_source_accepted(group).unwrap());
         }
         client.accept_group_invite(&groups[0]).unwrap();
         assert!(client.automatic_chat_source_accepted(&groups[0]).unwrap());
+        // Acceptance above must work before transport activation. Later hide
+        // and decline actions use the actual relay and need its registration.
+        client.prepare_transport().await.unwrap();
         client.delete_group_local(&groups[0]).await.unwrap();
         client.delete_group_local(&groups[1]).await.unwrap();
         assert!(client.automatic_chat_source_accepted(&groups[0]).unwrap());
