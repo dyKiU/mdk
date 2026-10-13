@@ -137,7 +137,21 @@ async fn required_proposal_public_pass(processed_first: bool) {
         .expect("actual commit must open a public pass");
     assert_eq!(pass.phase, ConvergencePassPhase::Collecting);
     if !processed_first {
-        first.ingest(leave.clone()).await.unwrap();
+        let outcome = first.ingest(leave.clone()).await.unwrap();
+        assert!(
+            matches!(outcome, IngestOutcome::Processed),
+            "the exact packet must pass actual direct Core authentication"
+        );
+        let collecting = first_storage.convergence_pass(&group).unwrap().unwrap();
+        assert_eq!(collecting.phase, ConvergencePassPhase::Collecting);
+        eprintln!(
+            "required_proposal_direct_authenticated=true collecting_dependency_admitted={} members={}",
+            collecting
+                .members
+                .iter()
+                .any(|member| member.message_id == content_id(&leave)),
+            collecting.members.len()
+        );
         assert_message_state(&first_storage, &leave, MessageState::Created);
     }
     let retained = first_storage.get_message(&content_id(&leave)).unwrap();
