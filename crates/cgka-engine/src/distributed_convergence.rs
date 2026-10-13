@@ -490,8 +490,19 @@ impl<S: StorageProvider> Engine<S> {
         // content id) or a direct caller, so a re-wrapped duplicate maps to the
         // same convergence row.
         let content_id = crate::message_processor::content_dedup_id(&message.payload);
-        match self.storage.get_message(&content_id) {
-            Ok(record) if record.state == MessageState::PeelDeferred => {}
+        let already_retained = match self.storage.get_message(&content_id) {
+            Ok(record) if record.state == MessageState::PeelDeferred => false,
+            Ok(record)
+                if record.group_id == *group_id
+                    && crate::openmls_projection::OPENMLS_GRAPH_INPUT_STATES
+                        .contains(&record.state) =>
+            {
+                // Direct intake can retain a proposal before routing it here.
+                // An existing row is not evidence that the current collecting
+                // pass admitted it. Preserve its state/payload and run normal
+                // admission; frozen cutoffs and pass-opening rules still apply.
+                true
+            }
             Ok(_) => {
                 if let Some(transport_id) = processed_transport_id {
                     self.storage
@@ -500,9 +511,9 @@ impl<S: StorageProvider> Engine<S> {
                 }
                 return Ok(());
             }
-            Err(StorageError::NotFound) => {}
+            Err(StorageError::NotFound) => false,
             Err(e) => return Err(OpenMlsProjectionError::Storage(format!("{e:?}"))),
-        }
+        };
 
         let projection = project_mls_message(&message.payload)?;
         let Some(source_epoch) = projection.source_epoch else {
@@ -539,7 +550,9 @@ impl<S: StorageProvider> Engine<S> {
         // boundary. A crash may leave an unassigned row only when admission is
         // intentionally blocked by an unstable local mutation owner.
         let (admission, opened) = self.storage.with_transaction(|storage| {
-            storage.put_message(&record)?;
+            if !already_retained {
+                storage.put_message(&record)?;
+            }
             if let Some(transport_id) = processed_transport_id {
                 storage.put_processed_transport_id(group_id, transport_id)?;
             }
