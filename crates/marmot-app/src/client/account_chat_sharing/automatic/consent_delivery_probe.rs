@@ -26,6 +26,32 @@ pub(crate) struct Publication {
     pub(crate) input_outer_payload_sha256: [u8; 32],
     pub(crate) inner_wire_sha256: [u8; 32],
 }
+/// Frozen, validated Consent metadata before publisher await; no ACK/report identity.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct PreparedConsent {
+    pub(crate) account: [u8; 32],
+    pub(crate) protected_group: GroupId,
+    pub(crate) local_device: [u8; 32],
+    pub(crate) peer_device: [u8; 32],
+    pub(crate) nonce: [u8; 32],
+    pub(crate) content_id: MessageId,
+    pub(crate) input_outer_payload_sha256: [u8; 32],
+    pub(crate) inner_wire_sha256: [u8; 32],
+}
+impl From<&Publication> for PreparedConsent {
+    fn from(publication: &Publication) -> Self {
+        Self {
+            account: publication.account,
+            protected_group: publication.protected_group.clone(),
+            local_device: publication.local_device,
+            peer_device: publication.peer_device,
+            nonce: publication.nonce,
+            content_id: publication.content_id.clone(),
+            input_outer_payload_sha256: publication.input_outer_payload_sha256,
+            inner_wire_sha256: publication.inner_wire_sha256,
+        }
+    }
+}
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Outcome {
     Success,
@@ -65,7 +91,7 @@ struct Progress {
     dropped: [usize; 3],
     receive_attempts: [usize; 3],
     receive_dropped: [usize; 3],
-    records: Vec<ObservedPublication>,
+    records: Vec<Attempt>,
     observations: Vec<(usize, Observation)>,
 }
 pub(crate) struct ConsentDeliveryProbe {
@@ -171,13 +197,23 @@ impl ConsentDeliveryProbe {
     pub(crate) fn snapshot(&self) -> Snapshot {
         let progress = self.progress.lock().unwrap_or_else(|e| e.into_inner());
         let expired = Instant::now() >= self.deadline;
-        let mut records = progress.records.clone();
+        let mut records: Vec<_> = progress
+            .records
+            .iter()
+            .filter_map(Attempt::published_record)
+            .collect();
         for record in &mut records {
             let receiver = self.index(&record.receiver_root).unwrap();
             record.observation_incomplete |= progress.receive_dropped[receiver] > 0 || expired;
         }
         Snapshot {
             records,
+            prepared: progress.records.len(),
+            ack_unseen: progress
+                .records
+                .iter()
+                .filter(|attempt| attempt.outer_id.is_none())
+                .count(),
             attempts: progress.attempts,
             dropped: progress.dropped,
             receive_attempts: progress.receive_attempts,
@@ -201,48 +237,91 @@ pub(crate) struct ObservedPublication {
     pub(crate) automatic_matched: bool,
     pub(crate) consent_bound: bool,
 }
-impl ObservedPublication {
+#[derive(Default, Clone)]
+struct Evidence {
+    raw_id_seen: bool,
+    raw_payload_hash_matches: bool,
+    event_seen: bool,
+    observation_incomplete: bool,
+    authentication: Option<Outcome>,
+    authenticated_nonce_matches: bool,
+    dispatch: Option<Outcome>,
+    automatic_matched: bool,
+    consent_bound: bool,
+}
+struct Attempt {
+    prepared: PreparedConsent,
+    outer_id: Option<MessageId>,
+    receiver_root: PathBuf,
+    evidence: Evidence,
+}
+impl Attempt {
+    fn published_record(&self) -> Option<ObservedPublication> {
+        Some(ObservedPublication {
+            publication: Publication {
+                account: self.prepared.account,
+                protected_group: self.prepared.protected_group.clone(),
+                local_device: self.prepared.local_device,
+                peer_device: self.prepared.peer_device,
+                nonce: self.prepared.nonce,
+                content_id: self.prepared.content_id.clone(),
+                outer_id: self.outer_id.clone()?,
+                input_outer_payload_sha256: self.prepared.input_outer_payload_sha256,
+                inner_wire_sha256: self.prepared.inner_wire_sha256,
+            },
+            receiver_root: self.receiver_root.clone(),
+            raw_id_seen: self.evidence.raw_id_seen,
+            raw_payload_hash_matches: self.evidence.raw_payload_hash_matches,
+            event_seen: self.evidence.event_seen,
+            observation_incomplete: self.evidence.observation_incomplete,
+            authentication: self.evidence.authentication,
+            authenticated_nonce_matches: self.evidence.authenticated_nonce_matches,
+            dispatch: self.evidence.dispatch,
+            automatic_matched: self.evidence.automatic_matched,
+            consent_bound: self.evidence.consent_bound,
+        })
+    }
     /// Accumulate only exact boundary matches; unrelated traffic cannot erase them.
     fn observe(&mut self, expected_group: &GroupId, observation: &Observation) -> bool {
         match observation {
-            Observation::Raw(id, digest) if id == &self.publication.outer_id => {
-                self.raw_id_seen = true;
+            Observation::Raw(id, digest) if self.outer_id.as_ref() == Some(id) => {
+                self.evidence.raw_id_seen = true;
                 // Adapter signing may change payload bytes; mismatch is not absence.
-                self.raw_payload_hash_matches |=
-                    digest == &self.publication.input_outer_payload_sha256;
+                self.evidence.raw_payload_hash_matches |=
+                    digest == &self.prepared.input_outer_payload_sha256;
             }
             Observation::Event(group, content, source, digest)
                 if group == expected_group
-                    && content == &self.publication.content_id
-                    && source.signature_public_key.as_slice() == self.publication.local_device
-                    && digest == &self.publication.inner_wire_sha256 =>
+                    && content == &self.prepared.content_id
+                    && source.signature_public_key.as_slice() == self.prepared.local_device
+                    && digest == &self.prepared.inner_wire_sha256 =>
             {
-                self.event_seen = true;
+                self.evidence.event_seen = true;
             }
             Observation::Auth(group, source, digest, nonce, outcome)
                 if group == expected_group
-                    && source.signature_public_key.as_slice() == self.publication.local_device
-                    && digest == &self.publication.inner_wire_sha256 =>
+                    && source.signature_public_key.as_slice() == self.prepared.local_device
+                    && digest == &self.prepared.inner_wire_sha256 =>
             {
-                self.authentication = Some(*outcome);
-                self.authenticated_nonce_matches |= *nonce == Some(self.publication.nonce);
+                self.evidence.authentication = Some(*outcome);
+                self.evidence.authenticated_nonce_matches |= *nonce == Some(self.prepared.nonce);
             }
             Observation::Dispatch(nonce, signer, digest, outcome)
-                if nonce == &self.publication.nonce
-                    && signer.as_slice() == self.publication.local_device
-                    && digest == &self.publication.inner_wire_sha256 =>
+                if nonce == &self.prepared.nonce
+                    && signer.as_slice() == self.prepared.local_device
+                    && digest == &self.prepared.inner_wire_sha256 =>
             {
-                self.dispatch = Some(*outcome);
+                self.evidence.dispatch = Some(*outcome);
             }
             Observation::Automatic(nonce, signer, digest, bound)
-                if nonce == &self.publication.nonce
-                    && signer.as_slice() == self.publication.local_device
-                    && digest == &self.publication.inner_wire_sha256 =>
+                if nonce == &self.prepared.nonce
+                    && signer.as_slice() == self.prepared.local_device
+                    && digest == &self.prepared.inner_wire_sha256 =>
             {
                 if *bound {
-                    self.consent_bound = true;
+                    self.evidence.consent_bound = true;
                 } else {
-                    self.automatic_matched = true;
+                    self.evidence.automatic_matched = true;
                 }
             }
             _ => return false,
@@ -251,6 +330,8 @@ impl ObservedPublication {
     }
 }
 pub(crate) struct Snapshot {
+    prepared: usize,
+    ack_unseen: usize,
     pub(crate) records: Vec<ObservedPublication>,
     attempts: [usize; 3],
     dropped: [usize; 3],
@@ -260,6 +341,8 @@ pub(crate) struct Snapshot {
 }
 #[derive(Debug)]
 pub(crate) struct Summary {
+    pub(crate) prepared: usize,
+    pub(crate) ack_unseen: usize,
     pub(crate) attempts: [usize; 3],
     pub(crate) dropped: [usize; 3],
     pub(crate) receive_attempts: [usize; 3],
@@ -279,6 +362,8 @@ pub(crate) struct Summary {
 impl Snapshot {
     pub(crate) fn summary(&self) -> Summary {
         let mut summary = Summary {
+            prepared: self.prepared,
+            ack_unseen: self.ack_unseen,
             attempts: self.attempts,
             dropped: self.dropped,
             receive_attempts: self.receive_attempts,
@@ -313,60 +398,84 @@ impl Snapshot {
         summary
     }
 }
-pub(crate) fn published(root: &Path, publication: &Publication) {
-    let Some(probe) = current(root) else { return };
-    let Some(index) = probe.index(root) else {
-        return;
-    };
-    if publication.account != probe.account
-        || publication.protected_group != probe.group
-        || publication.local_device != probe.peers[index].device
+fn register_attempt(
+    probe: &ConsentDeliveryProbe,
+    root: &Path,
+    prepared: &PreparedConsent,
+    progress: &mut Progress,
+) -> Option<usize> {
+    let index = probe.index(root)?;
+    if prepared.account != probe.account
+        || prepared.protected_group != probe.group
+        || prepared.local_device != probe.peers[index].device
         || !probe
             .peers
             .iter()
-            .any(|peer| peer.device == publication.peer_device && peer.root != root)
+            .any(|peer| peer.device == prepared.peer_device && peer.root != root)
     {
-        return;
+        return None;
     }
-    let mut progress = probe.progress.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(existing) = progress
+        .records
+        .iter()
+        .position(|attempt| attempt.prepared == *prepared)
+    {
+        return Some(existing);
+    }
     if progress.attempts[index] >= 64 {
-        progress.dropped[index] += 1;
-        return;
+        progress.dropped[index] = progress.dropped[index].saturating_add(1);
+        return None;
     }
     progress.attempts[index] += 1;
-    if progress.records.iter().any(|old| {
-        old.publication.outer_id == publication.outer_id
-            && old.publication.nonce == publication.nonce
-    }) {
-        return;
-    }
     let receiver = probe
         .peers
         .iter()
-        .position(|peer| peer.device == publication.peer_device)
+        .position(|peer| peer.device == prepared.peer_device)
         .unwrap();
-    let mut record = ObservedPublication {
-        publication: publication.clone(),
+    let mut attempt = Attempt {
+        prepared: prepared.clone(),
+        outer_id: None,
         receiver_root: probe.peers[receiver].root.clone(),
-        raw_id_seen: false,
-        raw_payload_hash_matches: false,
-        event_seen: false,
-        observation_incomplete: progress.receive_dropped[receiver] > 0,
-        authentication: None,
-        authenticated_nonce_matches: false,
-        dispatch: None,
-        automatic_matched: false,
-        consent_bound: false,
+        evidence: Evidence {
+            observation_incomplete: progress.receive_dropped[receiver] > 0,
+            ..Evidence::default()
+        },
     };
-    // ACK completion may follow actual receipt; join the bounded rolling buffer.
     for (_, observation) in progress
         .observations
         .iter()
         .filter(|(index, _)| *index == receiver)
     {
-        record.observe(&probe.group, observation);
+        attempt.observe(&probe.group, observation);
     }
-    progress.records.push(record);
+    progress.records.push(attempt);
+    Some(progress.records.len() - 1)
+}
+/// Call after existing original/route checks, using only actual frozen metadata.
+pub(crate) fn prepared(root: &Path, prepared: &PreparedConsent) {
+    let Some(probe) = current(root) else { return };
+    let mut progress = probe.progress.lock().unwrap_or_else(|e| e.into_inner());
+    register_attempt(&probe, root, prepared, &mut progress);
+}
+/// Only actual successful publication/ACK and original validation tail supply report ID.
+pub(crate) fn published(root: &Path, publication: &Publication) {
+    let Some(probe) = current(root) else { return };
+    let mut progress = probe.progress.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(index) = register_attempt(&probe, root, &publication.into(), &mut progress) else {
+        return;
+    };
+    let receiver = probe.index(&progress.records[index].receiver_root).unwrap();
+    let Progress {
+        records,
+        observations,
+        ..
+    } = &mut *progress;
+    let attempt = &mut records[index];
+    attempt.outer_id = Some(publication.outer_id.clone());
+    // Raw receive may precede the adapter report; match its actual ID only now.
+    for (_, observation) in observations.iter().filter(|(index, _)| *index == receiver) {
+        attempt.observe(&probe.group, observation);
+    }
 }
 
 pub(crate) fn raw_received(root: &Path, id: &MessageId, digest: [u8; 32]) {
