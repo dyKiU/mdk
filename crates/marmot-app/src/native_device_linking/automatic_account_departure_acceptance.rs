@@ -517,7 +517,12 @@ pub(super) async fn verify(
                 eprintln!("account_departure_nonordered_b_commit_at_d={:?}", administrator_publication_observation.as_ref().map(|observation| observation.snapshot()));
             }
             let consent_snapshot = consent_probe.snapshot();
-            eprintln!("account_departure_actual_consent_summary={:?}", consent_snapshot.summary());
+            let consent_summary = consent_snapshot.summary();
+            eprintln!("account_departure_actual_consent_summary prepared={} ack_unseen={} attempts={:?} dropped={:?} receive_attempts={:?} receive_dropped={:?} published={} expired={} details={consent_summary:?}",
+                consent_summary.prepared, consent_summary.ack_unseen,
+                consent_summary.attempts, consent_summary.dropped,
+                consent_summary.receive_attempts, consent_summary.receive_dropped,
+                consent_summary.published, consent_summary.expired);
             for (attempt, observed) in consent_snapshot.records.iter().enumerate() {
                 let sender = consent_devices.iter().position(|device| *device == observed.publication.local_device).unwrap();
                 let receiver = consent_devices.iter().position(|device| *device == observed.publication.peer_device).unwrap();
