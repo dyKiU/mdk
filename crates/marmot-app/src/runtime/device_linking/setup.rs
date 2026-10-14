@@ -6,6 +6,20 @@ use crate::device_linking::{LinkError, OwnerError};
 use cgka_traits::{GroupId, device_linking_key_package::PurposeAttemptScope};
 
 pub(crate) enum SetupCommand {
+    PairingMetadata {
+        scope: PurposeAttemptScope,
+        tags: Vec<Vec<String>>,
+        respond: Reply<()>,
+    },
+    ApprovalPairingMetadata {
+        binding: [u8; 32],
+        attach: Option<Vec<Vec<String>>>,
+        respond: Reply<Vec<Vec<String>>>,
+    },
+    SiblingPairingMetadata {
+        scope: PurposeAttemptScope,
+        respond: Reply<Vec<Vec<Vec<String>>>>,
+    },
     CaptureSharingChoice {
         scope: PurposeAttemptScope,
         respond: Reply<
@@ -103,6 +117,23 @@ pub(super) async fn handle(
     publication_control: &crate::runtime::private_commit::PublicationControl,
 ) {
     match command {
+        SetupCommand::PairingMetadata {
+            scope,
+            tags,
+            respond,
+        } => {
+            let _ = respond.send(client.prepare_pairing_metadata(&scope, tags));
+        }
+        SetupCommand::ApprovalPairingMetadata {
+            binding,
+            attach,
+            respond,
+        } => {
+            let _ = respond.send(client.approval_pairing_metadata(&binding, attach));
+        }
+        SetupCommand::SiblingPairingMetadata { scope, respond } => {
+            let _ = respond.send(client.sibling_pairing_metadata(&scope));
+        }
         SetupCommand::CaptureSharingChoice { scope, respond } => {
             let result = client.capture_owned_native_sharing_choice(&scope);
             if let Err(result) = respond.send(result) {
@@ -221,6 +252,50 @@ pub(super) async fn handle(
 }
 
 impl AccountManager {
+    pub(crate) async fn native_pairing_metadata(
+        &self,
+        account: &str,
+        scope: &PurposeAttemptScope,
+        tags: Vec<Vec<String>>,
+    ) -> Result<(), ClientLinkingError> {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::PairingMetadata {
+                scope: scope.clone(),
+                tags,
+                respond,
+            })
+        })
+        .await
+    }
+    pub(crate) async fn native_approval_pairing_metadata(
+        &self,
+        account: &str,
+        binding: &[u8; 32],
+        attach: Option<Vec<Vec<String>>>,
+    ) -> Result<Vec<Vec<String>>, ClientLinkingError> {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::ApprovalPairingMetadata {
+                binding: *binding,
+                attach,
+                respond,
+            })
+        })
+        .await
+    }
+    pub(crate) async fn native_sibling_pairing_metadata(
+        &self,
+        account: &str,
+        scope: &PurposeAttemptScope,
+    ) -> Result<Vec<Vec<Vec<String>>>, ClientLinkingError> {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::SiblingPairingMetadata {
+                scope: scope.clone(),
+                respond,
+            })
+        })
+        .await
+    }
+
     pub(crate) async fn native_capture_sharing_choice(
         &self,
         account: &str,

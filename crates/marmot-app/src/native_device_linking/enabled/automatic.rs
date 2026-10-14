@@ -2,7 +2,7 @@
 use super::*;
 use crate::device_linking::network::delivery::{Inbound, Receiver, Sender};
 use crate::device_linking::network::{
-    Bootstrap, Channel, Error as WireError, Message, MessageKind,
+    Bootstrap, Channel, Error as WireError, Message, MessageKind, PeerHint,
 };
 use crate::relay_plane::pairing::{PairingMailbox, PairingRelayError};
 use nostr::prelude::{Event, Keys, PublicKey, Timestamp};
@@ -20,6 +20,102 @@ fn relay_error(error: PairingRelayError) -> DeviceLinkingError {
         PairingRelayError::Expired => DeviceLinkingError::Closed,
         PairingRelayError::Invalid => DeviceLinkingError::InvalidPacket,
         _ => DeviceLinkingError::RuntimeUnavailable,
+    }
+}
+/// Only an actual explicit sibling approval adopts this mailbox. Its address
+/// was authenticated in the genuine MLS proposal, not a portable snapshot.
+pub(super) struct SiblingDriver {
+    channel: Channel,
+    peer: PublicKey,
+    mailbox: PairingMailbox,
+    receiver: Receiver,
+}
+impl SiblingDriver {
+    pub(super) async fn prepare(
+        state: &Arc<ApprovalState>,
+    ) -> Result<Option<Self>, DeviceLinkingError> {
+        let tags = state
+            .manager
+            .native_approval_pairing_metadata(&state.account, &state.binding, None)
+            .await
+            .map_err(map_error)?;
+        let Some(hint) =
+            PeerHint::from_tags(&tags, Timestamp::now().as_secs()).map_err(wire_error)?
+        else {
+            return Ok(None);
+        };
+        let channel = Channel::for_hint(
+            Keys::generate(),
+            &hint,
+            Timestamp::now().as_secs(),
+            state.deadline,
+        )
+        .map_err(wire_error)?;
+        let (plane, endpoints) = state.manager.device_pairing_transport();
+        let mailbox = plane
+            .pairing_mailbox(endpoints, channel.public_key(), state.deadline)
+            .await
+            .map_err(relay_error)?;
+        state.check_open()?;
+        state
+            .manager
+            .native_approval_pairing_metadata(
+                &state.account,
+                &state.binding,
+                Some(channel.hint().tags()),
+            )
+            .await
+            .map_err(map_error)?;
+        state.check_open()?;
+        Ok(Some(Self {
+            channel,
+            peer: hint.public_key,
+            mailbox,
+            receiver: Receiver::new(hint.binding),
+        }))
+    }
+    pub(super) fn spawn(mut self, state: &Arc<ApprovalState>) {
+        let weak = Arc::downgrade(state);
+        let cancellation = state.transport_cancel.clone();
+        state.runtime.spawn(async move {
+            let run = async {
+                loop {
+                    if weak.upgrade().is_none() { return Ok::<(), DeviceLinkingError>(()); }
+                    let event = tokio::time::timeout(std::time::Duration::from_millis(100), self.mailbox.next()).await;
+                    let Ok(result) = event else { continue; };
+                    let Some(event) = result.map_err(relay_error)? else { continue; };
+                    let Ok(message) = self.channel.open(self.peer, &event, Timestamp::now().as_secs()) else { continue; };
+                    let receipt = match self.receiver.receive(message).map_err(wire_error)? {
+                        Inbound::Receipt(receipt) => receipt,
+                        Inbound::Deferred => continue,
+                        Inbound::Packet { kind: MessageKind::Enrollment, bytes, sequence } => {
+                            let Some(state) = weak.upgrade() else { return Ok(()); };
+                            state.check_open()?;
+                            let original = DeviceLinkingApproval { inner: state };
+                            let revision = original.snapshot().await?.revision;
+                            match original.receive_enrollment_packet(revision, bytes.to_vec()).await {
+                                Ok(()) => {},
+                                Err(DeviceLinkingError::NotReady | DeviceLinkingError::StaleRevision) => continue,
+                                Err(error) => return Err(error),
+                            }
+                            self.receiver.commit(sequence).map_err(wire_error)?
+                        }
+                        _ => return Err(DeviceLinkingError::InvalidPacket),
+                    };
+                    let event = self.channel.seal(self.peer, &receipt, Timestamp::now().as_secs()).map_err(wire_error)?;
+                    let _ = self.mailbox.publish(&event).await;
+                }
+            };
+            tokio::select! {
+                _ = cancellation.cancelled() => {},
+                result = run => {
+                    if let Err(error) = result {
+                        tracing::warn!(target: "marmot_app::device_linking", category = ?error, "automatic sibling transport ended");
+                        #[cfg(test)] eprintln!("automatic sibling transport ended: {error:?}");
+                    }
+                }
+            }
+        });
     }
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -58,6 +154,8 @@ pub(super) struct Driver {
     last_send: std::time::Instant,
     deadline: std::time::Instant,
     enrollment_delivered: bool,
+    siblings: Vec<(PublicKey, Sender)>,
+    siblings_prepared: bool,
 }
 impl Driver {
     async fn open(
@@ -90,6 +188,8 @@ impl Driver {
             last_send: std::time::Instant::now() - std::time::Duration::from_secs(1),
             deadline,
             enrollment_delivered: false,
+            siblings: Vec::new(),
+            siblings_prepared: false,
         };
         if scanner {
             driver
@@ -116,6 +216,18 @@ impl Driver {
         event: Event,
         original: Option<&DeviceLinkingSession>,
     ) -> Result<Option<Zeroizing<Vec<u8>>>, DeviceLinkingError> {
+        if let Some((peer, sender)) = self
+            .siblings
+            .iter_mut()
+            .find(|(peer, _)| *peer == event.pubkey)
+        {
+            if let Ok(message) = self.channel.open(*peer, &event, Timestamp::now().as_secs())
+                && message.kind == MessageKind::Receipt
+            {
+                let _ = sender.receive_receipt(&message).map_err(wire_error)?;
+            }
+            return Ok(None);
+        }
         let peer = self.peer.unwrap_or(event.pubkey);
         let message = match self.channel.open(peer, &event, Timestamp::now().as_secs()) {
             Ok(message) => message,
@@ -219,6 +331,15 @@ impl Driver {
             return Ok(());
         };
         self.last_send = std::time::Instant::now();
+        for (sibling, sender) in &self.siblings {
+            for message in sender.outgoing() {
+                let event = self
+                    .channel
+                    .seal(*sibling, message, Timestamp::now().as_secs())
+                    .map_err(wire_error)?;
+                let _ = self.mailbox.publish(&event).await;
+            }
+        }
         for message in self.sender.outgoing() {
             // Fresh encryption on each retry avoids relay/SDK event deduplication.
             let event = self
@@ -267,7 +388,12 @@ impl Driver {
                         && authorized
                         && !finalized
                     {
-                        if self.enrollment_delivered {
+                        if self.enrollment_delivered
+                            && self
+                                .siblings
+                                .iter()
+                                .all(|(_, sender)| sender.outgoing().next().is_none())
+                        {
                             match original.finalize_automatic_enrollment().await {
                                 Ok(())
                                 | Err(
@@ -276,10 +402,48 @@ impl Driver {
                                 ) => {}
                                 Err(error) => return Err(error),
                             }
-                        } else {
+                        } else if !self.enrollment_delivered {
                             let revision = original.snapshot().await?.revision;
                             match original.enrollment_packet(revision).await {
                                 Ok(packet) => {
+                                    if !self.siblings_prepared {
+                                        let metadata = original
+                                            .inner
+                                            .manager
+                                            .native_sibling_pairing_metadata(
+                                                &original.inner.account,
+                                                &original.inner.scope,
+                                            )
+                                            .await
+                                            .map_err(map_error)?;
+                                        let mut siblings = Vec::new();
+                                        for tags in metadata {
+                                            let hint = PeerHint::from_tags(
+                                                &tags,
+                                                Timestamp::now().as_secs(),
+                                            )
+                                            .map_err(wire_error)?
+                                            .ok_or(DeviceLinkingError::Unsupported)?;
+                                            let ours = self.channel.hint();
+                                            if hint.binding != ours.binding
+                                                || hint.expires_at != ours.expires_at
+                                                || hint.public_key == self.channel.public_key()
+                                                || Some(hint.public_key) == self.peer
+                                                || siblings
+                                                    .iter()
+                                                    .any(|(key, _)| *key == hint.public_key)
+                                            {
+                                                return Err(DeviceLinkingError::InvalidPacket);
+                                            }
+                                            let mut sender = Sender::new(hint.binding);
+                                            sender
+                                                .queue(MessageKind::Enrollment, &packet)
+                                                .map_err(wire_error)?;
+                                            siblings.push((hint.public_key, sender));
+                                        }
+                                        self.siblings = siblings;
+                                        self.siblings_prepared = true;
+                                    }
                                     self.sender
                                         .queue(MessageKind::Enrollment, &packet)
                                         .map_err(wire_error)?;
@@ -434,6 +598,19 @@ impl DeviceLinkingSession {
             }
             (current.revision, choice.share_chats)
         };
+        let tags = self
+            .inner
+            .transport_hint
+            .lock()
+            .expect("pairing transport hint")
+            .as_ref()
+            .ok_or(DeviceLinkingError::NotReady)?
+            .tags();
+        self.inner
+            .manager
+            .native_pairing_metadata(&self.inner.account, &self.inner.scope, tags)
+            .await
+            .map_err(map_error)?;
         self.continue_original_linking(revision, share_chats).await
     }
     async fn finalize_automatic_enrollment(&self) -> Result<(), DeviceLinkingError> {
@@ -500,6 +677,11 @@ impl DeviceLinkingSession {
         )
         .await?;
         self.inner.check_open()?;
+        *self
+            .inner
+            .transport_hint
+            .lock()
+            .expect("pairing transport hint") = Some(driver.channel.hint());
         *bootstrap_code = Some(code.clone());
         driver.spawn(&self.inner);
         Ok(code)
@@ -531,6 +713,11 @@ impl AccountManager {
             .map_err(wire_error)?;
         driver.receipt(receipt).await?;
         driver.stage = Stage::SendResponse;
+        *original
+            .inner
+            .transport_hint
+            .lock()
+            .expect("pairing transport hint") = Some(driver.channel.hint());
         *original.inner.transport_bootstrap.lock().await = Some(code);
         let mut pending = original
             .inner

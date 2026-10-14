@@ -1,6 +1,7 @@
 //! Private account-client ownership, with identities read from the live session.
 mod enrollment;
 pub(crate) mod native_enrollment;
+mod pairing_metadata;
 pub(crate) mod setup;
 pub(crate) mod sibling_sharing;
 use super::AppClient;
@@ -52,6 +53,8 @@ pub(crate) struct AccountLinkingOwner {
     native_setup_request: Option<setup::NewDeviceSetup>,
     native_enrollment: Option<native_enrollment::NativeEnrollmentIntent>,
     sharing_approval: Option<Arc<sibling_sharing::OriginalEnrollmentSharingChoice>>,
+    pairing_metadata: Option<(PurposeAttemptScope, Vec<Vec<String>>)>,
+    pub(super) approval_pairing_metadata: Option<([u8; 32], Vec<Vec<String>>)>,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     sibling_projection_observations:
         Arc<std::sync::Mutex<std::collections::HashMap<cgka_traits::MessageId, [usize; 6]>>>,
@@ -125,6 +128,8 @@ impl AccountLinkingOwner {
             native_setup_request: None,
             native_enrollment: None,
             sharing_approval: None,
+            pairing_metadata: None,
+            approval_pairing_metadata: None,
             #[cfg(all(test, feature = "test-policy-overrides"))]
             sibling_projection_observations: Arc::default(),
             sibling_channels: Vec::new(),
@@ -742,11 +747,19 @@ impl AppClient {
                 .map_err(ClientLinkingError::Engine)?;
             return Ok(());
         }
-        let proposal = self
+        let mut proposal = self
             .runtime
             .session_mut()
             .prepare_private_enrollment_proposal(&attempt.group, attempt.package.clone())
             .map_err(ClientLinkingError::Engine)?;
+        if let Some((owner, tags)) = &self.linking_owner.pairing_metadata
+            && owner == scope
+        {
+            self.runtime
+                .session()
+                .set_owned_local_enrollment_metadata(&mut proposal, tags.clone())
+                .map_err(ClientLinkingError::Engine)?;
+        }
         attempt.proposal = Some(proposal);
         Ok(())
     }
@@ -1320,6 +1333,8 @@ impl AppClient {
     pub(crate) async fn cancel_device_linking(&mut self) -> Result<(), ClientLinkingError> {
         self.linking_owner.native_setup_request = None;
         self.linking_owner.native_enrollment = None;
+        self.linking_owner.pairing_metadata = None;
+        self.linking_owner.approval_pairing_metadata = None;
         if let Some(choice) = &self.linking_owner.sharing_approval {
             choice.cancel();
         }

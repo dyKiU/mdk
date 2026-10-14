@@ -31,6 +31,7 @@ pub(super) struct SessionState {
     runtime: tokio::runtime::Handle,
     transport_cancel: tokio_util::sync::CancellationToken,
     transport_bootstrap: AsyncMutex<Option<String>>,
+    transport_hint: Mutex<Option<crate::device_linking::network::PeerHint>>,
     transport_deadline: std::time::Instant,
     pending_transport: Mutex<Option<automatic::Driver>>,
 }
@@ -399,6 +400,7 @@ impl DeviceLinkingSession {
             runtime: tokio::runtime::Handle::current(),
             transport_cancel: tokio_util::sync::CancellationToken::new(),
             transport_bootstrap: AsyncMutex::new(None),
+            transport_hint: Mutex::new(None),
             transport_deadline,
             pending_transport: Mutex::new(None),
         });
@@ -837,6 +839,9 @@ pub(super) struct ApprovalState {
         Option<Arc<crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval>>,
     >,
     snapshot: Mutex<DeviceLinkingApprovalSnapshot>,
+    transport_started: AtomicBool,
+    transport_cancel: tokio_util::sync::CancellationToken,
+    deadline: std::time::Instant,
     closed: AtomicBool,
     runtime: tokio::runtime::Handle,
 }
@@ -877,6 +882,7 @@ impl ApprovalState {
         Ok(snapshot.clone())
     }
     fn close(&self) {
+        self.transport_cancel.cancel();
         self.closed.store(true, Ordering::Release);
         if let Some(original) = self
             .sharing_original
@@ -964,6 +970,9 @@ impl AccountManager {
                         account: account.clone(),
                         binding,
                         operation: AsyncMutex::new(None),
+                        transport_started: AtomicBool::new(false),
+                        transport_cancel: tokio_util::sync::CancellationToken::new(),
+                        deadline,
                         sharing_original: Mutex::new(None),
                         snapshot: Mutex::new(DeviceLinkingApprovalSnapshot {
                             revision: 1,
@@ -1062,6 +1071,11 @@ impl DeviceLinkingApproval {
         ) {
             return Err(DeviceLinkingError::NotReady);
         }
+        let transport = if self.inner.transport_started.load(Ordering::Acquire) {
+            None
+        } else {
+            automatic::SiblingDriver::prepare(&self.inner).await?
+        };
         if share_chats {
             let original = self
                 .inner
@@ -1090,6 +1104,10 @@ impl DeviceLinkingApproval {
                 .map_err(map_error)?;
         }
         self.inner.check_open()?;
+        if let Some(transport) = transport {
+            self.inner.transport_started.store(true, Ordering::Release);
+            transport.spawn(&self.inner);
+        }
         self.inner
             .manager
             .publish_received_enrollment_endorsement(&self.inner.account, &self.inner.binding)

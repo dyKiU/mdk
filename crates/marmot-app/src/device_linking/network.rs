@@ -167,7 +167,78 @@ pub(crate) struct Channel {
     expires_at: u64,
     deadline: Instant,
 }
+const HINT_TAG: &str = "whitenoise-pairing-mailbox-v1";
+/// Only a transport address. Callers must authenticate its actual MLS origin.
+#[derive(Clone)]
+pub(crate) struct PeerHint {
+    pub(crate) public_key: PublicKey,
+    pub(crate) binding: [u8; 32],
+    pub(crate) expires_at: u64,
+}
+impl PeerHint {
+    pub(crate) fn tags(&self) -> Vec<Vec<String>> {
+        vec![vec![
+            HINT_TAG.into(),
+            self.public_key.to_hex(),
+            URL_SAFE_NO_PAD.encode(self.binding),
+            self.expires_at.to_string(),
+        ]]
+    }
+    pub(crate) fn from_tags(tags: &[Vec<String>], now: u64) -> Result<Option<Self>> {
+        let mut found = tags
+            .iter()
+            .filter(|tag| tag.first().is_some_and(|s| s == HINT_TAG));
+        let Some(tag) = found.next() else {
+            return Ok(None);
+        };
+        if found.next().is_some() || tag.len() != 4 {
+            return Err(Error::Invalid);
+        }
+        let hint = Self {
+            public_key: PublicKey::from_hex(&tag[1]).map_err(|_| Error::Invalid)?,
+            binding: URL_SAFE_NO_PAD
+                .decode(&tag[2])
+                .map_err(|_| Error::Invalid)?
+                .try_into()
+                .map_err(|_| Error::Invalid)?,
+            expires_at: tag[3].parse().map_err(|_| Error::Invalid)?,
+        };
+        if hint.expires_at <= now {
+            return Err(Error::Expired);
+        }
+        if hint.expires_at - now > 600 || hint.binding == [0; 32] || hint.tags()[0] != *tag {
+            return Err(Error::Invalid);
+        }
+        Ok(Some(hint))
+    }
+}
 impl Channel {
+    pub(crate) fn hint(&self) -> PeerHint {
+        PeerHint {
+            public_key: self.public_key(),
+            binding: self.binding,
+            expires_at: self.expires_at,
+        }
+    }
+    pub(crate) fn for_hint(
+        keys: Keys,
+        hint: &PeerHint,
+        now: u64,
+        deadline: Instant,
+    ) -> Result<Self> {
+        let validated = PeerHint::from_tags(&hint.tags(), now)?.ok_or(Error::Invalid)?;
+        let deadline =
+            deadline.min(Instant::now() + Duration::from_secs(validated.expires_at - now));
+        if Instant::now() >= deadline {
+            return Err(Error::Expired);
+        }
+        Ok(Self {
+            keys,
+            binding: validated.binding,
+            expires_at: validated.expires_at,
+            deadline,
+        })
+    }
     pub(crate) fn new(
         keys: Keys,
         bootstrap: &Bootstrap,
