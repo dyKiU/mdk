@@ -10,6 +10,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use tokio::sync::{Mutex as AsyncMutex, Notify, watch};
+mod automatic;
 
 pub(super) struct SessionState {
     manager: AccountManager,
@@ -27,6 +28,10 @@ pub(super) struct SessionState {
     updates: watch::Sender<DeviceLinkingSnapshot>,
     closed: AtomicBool,
     runtime: tokio::runtime::Handle,
+    transport_cancel: tokio_util::sync::CancellationToken,
+    transport_bootstrap: AsyncMutex<Option<String>>,
+    transport_deadline: std::time::Instant,
+    pending_transport: Mutex<Option<automatic::Driver>>,
 }
 #[derive(Default)]
 struct PacketProgress {
@@ -146,6 +151,11 @@ impl SessionState {
     }
     fn close(&self) {
         self.closed.store(true, Ordering::Release);
+        self.transport_cancel.cancel();
+        self.pending_transport
+            .lock()
+            .expect("pending pairing transport")
+            .take();
         if let Some(choice) = self.sharing_choice.lock().expect("sharing choice").take() {
             choice.cancel();
         }
@@ -167,6 +177,7 @@ impl AccountManager {
         &self,
         account_ref: &str,
     ) -> Result<DeviceLinkingSession, DeviceLinkingError> {
+        let transport_deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
         let account = self
             .resolve(account_ref)
             .map_err(|_| DeviceLinkingError::RuntimeUnavailable)?
@@ -180,6 +191,7 @@ impl AccountManager {
             account,
             packet,
             true,
+            transport_deadline,
         ))
     }
     pub async fn approve_device_linking_session(
@@ -188,6 +200,7 @@ impl AccountManager {
         request: Vec<u8>,
         target: Option<Vec<u8>>,
     ) -> Result<DeviceLinkingSession, DeviceLinkingError> {
+        let transport_deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
         if target
             .as_ref()
             .is_some_and(|selector| selector.is_empty() || selector.len() > 256)
@@ -211,10 +224,20 @@ impl AccountManager {
             account,
             packet,
             false,
+            transport_deadline,
         ))
     }
 }
 impl DeviceLinkingSession {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn automatic_retirement_probe_for_test(&self) -> impl Fn() -> bool + use<> {
+        let state = self.inner.clone();
+        move || {
+            state.closed.load(Ordering::Acquire)
+                && state.transport_cancel.is_cancelled()
+                && state.check_open().is_err()
+        }
+    }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn sibling_projection_aggregates_for_test(&self) -> Option<[usize; 4]> {
         self.inner
@@ -343,6 +366,7 @@ impl DeviceLinkingSession {
         account: String,
         packet: SetupPacket,
         new_device: bool,
+        transport_deadline: std::time::Instant,
     ) -> Self {
         let snapshot = DeviceLinkingSnapshot {
             revision: 1,
@@ -366,6 +390,10 @@ impl DeviceLinkingSession {
             updates,
             closed: AtomicBool::new(false),
             runtime: tokio::runtime::Handle::current(),
+            transport_cancel: tokio_util::sync::CancellationToken::new(),
+            transport_bootstrap: AsyncMutex::new(None),
+            transport_deadline,
+            pending_transport: Mutex::new(None),
         });
         let weak = Arc::downgrade(&inner);
         inner.runtime.spawn(async move {
@@ -385,7 +413,10 @@ impl DeviceLinkingSession {
                 }
             }
         });
-        Self { inner }
+        Self {
+            inner,
+            owns_lifetime: true,
+        }
     }
     pub fn setup_packet(&self) -> Vec<u8> {
         self.inner.setup.clone()
@@ -741,8 +772,10 @@ impl DeviceLinkingSession {
 }
 impl Drop for DeviceLinkingSession {
     fn drop(&mut self) {
-        self.inner.close();
-        self.inner.defer_cleanup();
+        if self.owns_lifetime {
+            self.inner.close();
+            self.inner.defer_cleanup();
+        }
     }
 }
 impl DeviceLinkingSubscription {

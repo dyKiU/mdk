@@ -54,6 +54,8 @@ mod ordinary_commit_gate;
 ))]
 #[path = "tests/ordinary_commit_observation.rs"]
 mod ordinary_commit_observation;
+#[cfg(feature = "experimental-device-sync")]
+pub(crate) mod pairing;
 #[cfg(test)]
 pub(crate) mod publish_accounting_tests;
 mod safety;

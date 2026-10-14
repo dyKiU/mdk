@@ -112,11 +112,14 @@ fn resource_and_fragment_bounds_reject_before_encryption() {
     let (bootstrap, _, _) = fixture();
     let binding = bootstrap.binding().unwrap();
     assert!(
-        Message::new(binding, 0, MessageKind::Verification, 0, 1, &vec![
-            0;
-            MAX_CHUNK_BYTES
-                + 1
-        ])
+        Message::new(
+            binding,
+            0,
+            MessageKind::Verification,
+            0,
+            1,
+            &vec![0; MAX_CHUNK_BYTES + 1]
+        )
         .is_err()
     );
     assert!(Message::new(binding, MAX_SEQUENCE, MessageKind::Verification, 0, 1, b"").is_err());

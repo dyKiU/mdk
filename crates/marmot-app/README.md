@@ -751,6 +751,23 @@ the revision actually displayed. They cannot supply context, purpose generation,
 protected predecessor or proof. The actor retains the original SDK/request;
 packet acknowledgement is transport progress only.
 
+Experimental native callers can use `DeviceLinkingSession::automatic_pairing_code`
+on the joining device and import that one code with
+`AccountManager::approve_automatic_device_linking_session`. The bootstrap binds a
+fresh ephemeral transport key and the exact native request, without an account
+private key. Setup and SAS packets travel through signed NIP-44 envelopes over
+host-configured, safety-filtered relays. Fragments are bounded and ordered; native
+packet acknowledgement follows authenticated processing receipts, not relay ACKs.
+The relay can still deny service and observe transport metadata.
+
+The scanner factory returns an original with its response transport paused.
+After admitting that exact original into a still-live host account scope, call
+`automatic_pairing_code` on it to activate the response transport; do not display
+or scan the returned bootstrap again. Dropping or canceling an unadopted original
+retires its pending transport. Each device must still confirm the displayed SAS
+revision. Automatic verification does not enroll a device, approve chat sharing
+or transport enrollment packets; those remain separate explicit original actions.
+
 Subscriptions coalesce observations and `close()` wakes pending reads. Exact
 session cancellation revokes native operations before waiting for actor cleanup;
 drop schedules the same cleanup. A one-second probe observes the original SDK and bounded purpose checks for

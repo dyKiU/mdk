@@ -11,6 +11,21 @@ use cgka_traits::device_linking_key_package::PurposeAttemptScope;
 use tokio::sync::oneshot;
 
 type Reply<T> = oneshot::Sender<Result<T, ClientLinkingError>>;
+impl AccountManager {
+    pub(crate) fn device_pairing_transport(
+        &self,
+    ) -> (crate::MarmotRelayPlane, Vec<cgka_traits::TransportEndpoint>) {
+        (
+            self.shared.relay_plane().clone(),
+            self.app
+                .relay_urls
+                .iter()
+                .cloned()
+                .map(cgka_traits::TransportEndpoint)
+                .collect(),
+        )
+    }
+}
 pub(crate) enum VerifierCommand {
     #[cfg(all(
         test,

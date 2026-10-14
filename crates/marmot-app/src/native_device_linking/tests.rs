@@ -7,6 +7,18 @@ async fn default_native_verification_is_unsupported_before_account_or_worker_eff
     let dir = tempfile::tempdir().unwrap();
     let runtime = MarmotAppRuntime::new(MarmotApp::with_relay(dir.path(), "wss://relay.example"));
     let accounts = runtime.accounts();
+    assert!(matches!(
+        accounts
+            .approve_automatic_device_linking_session("missing", "invalid bootstrap".into(), None)
+            .await,
+        Err(DeviceLinkingError::Unsupported)
+    ));
+    assert!(matches!(
+        DeviceLinkingSession { _private: () }
+            .automatic_pairing_code()
+            .await,
+        Err(DeviceLinkingError::Unsupported)
+    ));
     assert_eq!(
         accounts.device_linking_capabilities(),
         DeviceLinkingCapabilities {

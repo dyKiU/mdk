@@ -60,6 +60,8 @@ pub struct DeviceLinkingSession {
     _private: (),
     #[cfg(feature = "experimental-device-sync")]
     inner: std::sync::Arc<enabled::SessionState>,
+    #[cfg(feature = "experimental-device-sync")]
+    owns_lifetime: bool,
 }
 pub struct DeviceLinkingSubscription {
     #[cfg(not(feature = "experimental-device-sync"))]
@@ -79,6 +81,14 @@ impl AccountManager {
 
 #[cfg(not(feature = "experimental-device-sync"))]
 impl AccountManager {
+    pub async fn approve_automatic_device_linking_session(
+        &self,
+        _account_ref: &str,
+        _code: String,
+        _target: Option<Vec<u8>>,
+    ) -> Result<DeviceLinkingSession, DeviceLinkingError> {
+        Err(DeviceLinkingError::Unsupported)
+    }
     pub async fn begin_device_linking_session(
         &self,
         _account_ref: &str,
@@ -96,6 +106,9 @@ impl AccountManager {
 }
 #[cfg(not(feature = "experimental-device-sync"))]
 impl DeviceLinkingSession {
+    pub async fn automatic_pairing_code(&self) -> Result<String, DeviceLinkingError> {
+        Err(DeviceLinkingError::Unsupported)
+    }
     pub fn setup_packet(&self) -> Vec<u8> {
         Vec::new()
     }
@@ -152,6 +165,13 @@ impl DeviceLinkingSubscription {
 ))]
 mod tests;
 
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "native_device_linking/tests/automatic_pairing_acceptance.rs"]
+mod automatic_pairing_acceptance;
 #[cfg(feature = "experimental-device-sync")]
 mod enabled;
 #[cfg(feature = "experimental-device-sync")]

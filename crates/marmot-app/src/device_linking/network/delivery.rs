@@ -18,14 +18,14 @@ fn receipt(message: &Message) -> Result<Message> {
     )
 }
 
-pub(super) struct Sender {
+pub(crate) struct Sender {
     binding: [u8; 32],
     next: u32,
     pending: Vec<Message>,
     acknowledged: Vec<bool>,
 }
 impl Sender {
-    pub(super) fn new(binding: [u8; 32]) -> Self {
+    pub(crate) fn new(binding: [u8; 32]) -> Self {
         Self {
             binding,
             next: 0,
@@ -33,7 +33,7 @@ impl Sender {
             acknowledged: Vec::new(),
         }
     }
-    pub(super) fn queue(&mut self, kind: MessageKind, bytes: &[u8]) -> Result<()> {
+    pub(crate) fn queue(&mut self, kind: MessageKind, bytes: &[u8]) -> Result<()> {
         if !self.pending.is_empty()
             || bytes.len() > MAX_PACKET_BYTES
             || kind == MessageKind::Receipt
@@ -63,14 +63,14 @@ impl Sender {
         self.pending = messages;
         Ok(())
     }
-    pub(super) fn outgoing(&self) -> impl Iterator<Item = &Message> {
+    pub(crate) fn outgoing(&self) -> impl Iterator<Item = &Message> {
         self.pending
             .iter()
             .zip(&self.acknowledged)
             .filter_map(|(message, acknowledged)| (!acknowledged).then_some(message))
     }
     /// True only when every fragment of the original queued packet was receipted.
-    pub(super) fn receive_receipt(&mut self, message: &Message) -> Result<bool> {
+    pub(crate) fn receive_receipt(&mut self, message: &Message) -> Result<bool> {
         if message.binding != self.binding
             || message.kind != MessageKind::Receipt
             || message.part != 0
@@ -100,7 +100,7 @@ impl Sender {
     }
 }
 
-pub(super) enum Inbound {
+pub(crate) enum Inbound {
     Receipt(Message),
     /// An out-of-order packet needs retransmission; no state or receipt changed.
     Deferred,
@@ -117,14 +117,20 @@ struct Assembly {
     next_part: u16,
     bytes: Zeroizing<Vec<u8>>,
 }
-pub(super) struct Receiver {
+pub(crate) struct Receiver {
     binding: [u8; 32],
     accepted: Vec<[u8; 32]>,
     assembly: Option<Assembly>,
     pending: Option<(Message, Zeroizing<Vec<u8>>)>,
 }
 impl Receiver {
-    pub(super) fn new(binding: [u8; 32]) -> Self {
+    pub(crate) fn pending_sequence(&self) -> Result<u32> {
+        self.pending
+            .as_ref()
+            .map(|(message, _)| message.sequence)
+            .ok_or(Error::Invalid)
+    }
+    pub(crate) fn new(binding: [u8; 32]) -> Self {
         Self {
             binding,
             accepted: Vec::new(),
@@ -132,7 +138,7 @@ impl Receiver {
             pending: None,
         }
     }
-    pub(super) fn receive(&mut self, message: Message) -> Result<Inbound> {
+    pub(crate) fn receive(&mut self, message: Message) -> Result<Inbound> {
         if message.binding != self.binding
             || message.domain != DOMAIN
             || message.kind == MessageKind::Receipt
@@ -202,7 +208,7 @@ impl Receiver {
         }
     }
     /// Called after the original native consumer accepts this exact pending packet.
-    pub(super) fn commit(&mut self, sequence: u32) -> Result<Message> {
+    pub(crate) fn commit(&mut self, sequence: u32) -> Result<Message> {
         let (message, _) = self.pending.as_ref().ok_or(Error::Invalid)?;
         if message.sequence != sequence || sequence as usize != self.accepted.len() {
             return Err(Error::Invalid);
