@@ -218,6 +218,8 @@ pub struct DeviceLinkingApproval {
     _private: (),
     #[cfg(feature = "experimental-device-sync")]
     inner: std::sync::Arc<enabled::ApprovalState>,
+    #[cfg(feature = "experimental-device-sync")]
+    owns_lifetime: bool,
 }
 #[cfg(not(feature = "experimental-device-sync"))]
 fn unavailable_enrollment() -> DeviceLinkingError {

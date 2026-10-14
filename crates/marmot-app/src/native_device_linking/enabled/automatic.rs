@@ -91,7 +91,7 @@ impl SiblingDriver {
                         Inbound::Packet { kind: MessageKind::Enrollment, bytes, sequence } => {
                             let Some(state) = weak.upgrade() else { return Ok(()); };
                             state.check_open()?;
-                            let original = DeviceLinkingApproval { inner: state };
+                            let original = DeviceLinkingApproval { inner: state, owns_lifetime: false };
                             let revision = original.snapshot().await?.revision;
                             match original.receive_enrollment_packet(revision, bytes.to_vec()).await {
                                 Ok(()) => {},

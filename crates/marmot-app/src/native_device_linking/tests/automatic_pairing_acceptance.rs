@@ -89,6 +89,13 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
         Err(DeviceLinkingError::StaleRevision)
     ));
     approval.review_metadata(reviewed.revision).await.unwrap();
+    let alias = managers[1]
+        .pending_device_linking_approvals("test")
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    let background_borrow = approval.automatic_retirement_probe_for_test();
     approval
         .approve_and_share_chats(reviewed.revision)
         .await
@@ -126,7 +133,17 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
     }));
     a.cancel().await.unwrap();
     c.cancel().await.unwrap();
-    approval.cancel().await.unwrap();
+    drop(approval);
+    assert!(
+        !background_borrow(),
+        "the public alias still owns this approval"
+    );
+    drop(alias);
+    assert!(
+        background_borrow(),
+        "background transport must not keep the dropped original live"
+    );
+    drop(background_borrow);
     let targets = managers[0].device_linking_targets("test").await.unwrap();
     assert_eq!(targets[0].device_count, 3);
     let d = managers[3]

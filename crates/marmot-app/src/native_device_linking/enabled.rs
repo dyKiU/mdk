@@ -7,7 +7,7 @@ use crate::device_linking::{
 use cgka_traits::device_linking_key_package::PurposeAttemptScope;
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use tokio::sync::{Mutex as AsyncMutex, Notify, watch};
 mod automatic;
@@ -831,6 +831,10 @@ pub(crate) struct ApprovalRegistryEntry {
 pub(crate) type ApprovalRegistry =
     std::collections::HashMap<(String, [u8; 32]), ApprovalRegistryEntry>;
 pub(super) struct ApprovalState {
+    // Background transport borrows must not delay the final public handle's
+    // negative fence, or allow a polled alias to resurrect a dropped action.
+    public_handles: AtomicUsize,
+    cleanup_scheduled: AtomicBool,
     manager: AccountManager,
     account: String,
     binding: [u8; 32],
@@ -902,9 +906,11 @@ impl ApprovalState {
         }
     }
 }
-impl Drop for ApprovalState {
-    fn drop(&mut self) {
-        self.close();
+impl ApprovalState {
+    fn defer_cleanup(&self) {
+        if self.cleanup_scheduled.swap(true, Ordering::AcqRel) {
+            return;
+        }
         let manager = self.manager.clone();
         let account = self.account.clone();
         let binding = self.binding;
@@ -915,6 +921,21 @@ impl Drop for ApprovalState {
         });
     }
 }
+impl Drop for DeviceLinkingApproval {
+    fn drop(&mut self) {
+        if self.owns_lifetime && self.inner.public_handles.fetch_sub(1, Ordering::AcqRel) == 1 {
+            self.inner.close();
+            self.inner.defer_cleanup();
+        }
+    }
+}
+impl Drop for ApprovalState {
+    fn drop(&mut self) {
+        self.close();
+        self.defer_cleanup();
+    }
+}
+
 impl AccountManager {
     pub async fn device_linking_targets(
         &self,
@@ -962,10 +983,21 @@ impl AccountManager {
                     let Some(state) = entry.get().handle.upgrade() else {
                         continue;
                     };
+                    if state
+                        .public_handles
+                        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                            count.checked_add(1).filter(|_| count != 0)
+                        })
+                        .is_err()
+                    {
+                        continue;
+                    }
                     state
                 }
                 std::collections::hash_map::Entry::Vacant(entry) => {
                     let state = Arc::new(ApprovalState {
+                        public_handles: AtomicUsize::new(1),
+                        cleanup_scheduled: AtomicBool::new(false),
                         manager: self.clone(),
                         account: account.clone(),
                         binding,
@@ -988,14 +1020,28 @@ impl AccountManager {
                     state
                 }
             };
-            if !state.closed.load(Ordering::Acquire) {
-                result.push(DeviceLinkingApproval { inner: state });
+            let approval = DeviceLinkingApproval {
+                inner: state,
+                owns_lifetime: true,
+            };
+            if !approval.inner.closed.load(Ordering::Acquire) {
+                result.push(approval);
             }
         }
         Ok(result)
     }
 }
 impl DeviceLinkingApproval {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn automatic_retirement_probe_for_test(
+        &self,
+    ) -> impl Fn() -> bool + Send + Sync + use<> {
+        let background_borrow = self.inner.clone();
+        move || {
+            background_borrow.closed.load(Ordering::Acquire)
+                && background_borrow.transport_cancel.is_cancelled()
+        }
+    }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn sharing_original_for_test(
         &self,
