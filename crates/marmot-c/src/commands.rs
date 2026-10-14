@@ -880,8 +880,9 @@ c_cmd! {
     /// `marmot_send_summary_free`.
     async fn marmot_delete_message(account_ref: str, group_id_hex: str, target_message_id: str) -> rec(MarmotSendSummary) = delete_message;
 
-    /// Edit an own message's content. Free with
-    /// `marmot_send_summary_free`.
+    /// Edit an own message's content. Returns
+    /// `MARMOT_STATUS_INVALID_EDIT_TARGET` unless the target is an available
+    /// chat message this account sent. Free with `marmot_send_summary_free`.
     async fn marmot_edit_message(account_ref: str, group_id_hex: str, target_message_id: str, content: str) -> rec(MarmotSendSummary) = edit_message;
 
     /// Securely delete this group's expired disappearing messages now.

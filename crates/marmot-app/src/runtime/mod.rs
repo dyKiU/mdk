@@ -3655,9 +3655,13 @@ impl MarmotAppRuntime {
 
     /// Edit a prior message: publish a kind-1009 event whose single `e` tag
     /// references `target_message_id` and whose content is the replacement
-    /// text. Authorship is enforced on read (an edit is only honored when its
-    /// authenticated author matches the target's author), and the chat-list
-    /// preview is intentionally left untouched so an edit doesn't reorder the
+    /// text. Recipients honor an edit only when its authenticated author
+    /// matches the target's author. As a fail-fast check against this device's
+    /// current view, the send refuses with [`AppError::InvalidEditTarget`]
+    /// unless the target is an available chat message this account sent;
+    /// recipients remain authoritative. Competing edits resolve by `created_at`,
+    /// then the larger event id. The chat-list preview is
+    /// intentionally left untouched so an edit doesn't reorder the
     /// conversation list.
     pub async fn edit_message(
         &self,

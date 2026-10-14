@@ -1500,6 +1500,7 @@ fn read_marker_error_code(error: &AppError) -> &'static str {
         AppError::ModerationReportRateLimited => {
             "read_marker_failed:moderation_report_rate_limited"
         }
+        AppError::InvalidEditTarget => "read_marker_failed:invalid_edit_target",
     }
 }
 

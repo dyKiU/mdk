@@ -11,6 +11,7 @@ versioning through the workspace version in the root `Cargo.toml`.
 
 ### Fixed
 
+- `wn messages edit` refuses, publishing nothing, unless the target is an available chat message this account sent, and reports `invalid_edit_target` in JSON output. Before, it published an edit of another account's message, a reaction or a deleted message that every recipient ignored.
 - Invites and key-package lookups whose relay lookup ran out of time or relay coverage now fail
   with JSON code `directory_lookup_incomplete` and the affected `account_id` instead of
   `relay_directory_failed` (mdk#2302). Retry; nothing is known to be missing.

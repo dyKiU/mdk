@@ -853,6 +853,13 @@ fn app_error_json(err: &AppError) -> Value {
             "message": err.to_string(),
             "repair": { "action": "retry the original account setup operation" },
         }),
+        AppError::InvalidEditTarget => json!({
+            "code": "invalid_edit_target",
+            "message": err.to_string(),
+            "repair": {
+                "action": "edit only an available chat message this account sent; nothing was published",
+            },
+        }),
         other => json!({
             "code": "command_failed",
             "message": other.to_string(),
@@ -947,6 +954,18 @@ mod tests {
         let rendered = json.to_string();
         assert!(!rendered.contains("127.0.0.1"));
         assert!(!rendered.contains("cert"));
+    }
+
+    #[test]
+    fn invalid_edit_target_has_a_distinct_code() {
+        let invalid = wn_error_json(&WnError::App(AppError::InvalidEditTarget));
+        assert_eq!(invalid["code"], "invalid_edit_target");
+        assert!(
+            invalid["repair"]["action"]
+                .as_str()
+                .unwrap()
+                .contains("this account sent")
+        );
     }
 
     #[test]

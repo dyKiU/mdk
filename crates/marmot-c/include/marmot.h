@@ -211,6 +211,11 @@ enum MarmotStatus
    * nothing is known to be missing. Retry.
    */
   MARMOT_STATUS_DIRECTORY_LOOKUP_INCOMPLETE = 104,
+  /**
+   * The edit target is missing, not a chat message, sent by another
+   * account, deleted, or withdrawn by convergence; nothing was published.
+   */
+  MARMOT_STATUS_INVALID_EDIT_TARGET = 105,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -7433,8 +7438,9 @@ MarmotStatus marmot_delete_message(const struct MarmotClient *client,
                                    struct MarmotSendSummary **out);
 
 /**
- * Edit an own message's content. Free with
- * `marmot_send_summary_free`.
+ * Edit an own message's content. Returns
+ * `MARMOT_STATUS_INVALID_EDIT_TARGET` unless the target is an available
+ * chat message this account sent. Free with `marmot_send_summary_free`.
  *
  * # Safety
  * `client` must be a live handle; string arguments must be valid
