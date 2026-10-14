@@ -126,6 +126,83 @@ pub(super) mod actual {
         }
         (dirs, runtimes)
     }
+    #[tokio::test]
+    async fn cancelled_first_setup_allows_fresh_first_setup_approval() {
+        fresh_first_setup_after_cancel(false).await;
+    }
+
+    #[tokio::test]
+    async fn reopened_cancelled_first_setup_requires_fresh_comparison() {
+        fresh_first_setup_after_cancel(true).await;
+    }
+
+    async fn fresh_first_setup_after_cancel(reopen: bool) {
+        let (dirs, mut runtimes) = workers().await;
+        let recipient = runtimes[0].accounts();
+        let approver = runtimes[1].accounts();
+        let first = recipient
+            .begin_device_linking_session("test")
+            .await
+            .unwrap();
+        let response = approver
+            .approve_device_linking_session("test", first.setup_packet(), None)
+            .await
+            .unwrap();
+        response.cancel().await.unwrap();
+        first.cancel().await.unwrap();
+        let retired_response = response.setup_packet();
+        drop(response);
+        drop(first);
+        drop(recipient);
+        drop(approver);
+        if reopen {
+            for runtime in &runtimes {
+                runtime.shutdown_and_close().await.unwrap();
+            }
+            runtimes = std::array::from_fn(|i| {
+                MarmotAppRuntime::new(
+                    MarmotApp::with_relay(dirs[i].path(), "wss://relay.example")
+                        .with_test_relay_client(Arc::new(
+                            crate::tests::ScriptedPushRelayClient::default(),
+                        )),
+                )
+            });
+            for runtime in &runtimes {
+                runtime.reconcile_accounts().await.unwrap();
+            }
+        }
+        let recipient = runtimes[0].accounts();
+        let approver = runtimes[1].accounts();
+        assert!(
+            approver
+                .device_linking_targets("test")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let fresh = recipient
+            .begin_device_linking_session("test")
+            .await
+            .unwrap();
+        let retry = approver
+            .approve_device_linking_session("test", fresh.setup_packet(), None)
+            .await;
+        if let Ok(session) = &retry {
+            assert!(fresh.receive_setup_packet(retired_response).await.is_err());
+            verify_public_pair(session, &fresh).await;
+            session.cancel().await.unwrap();
+        }
+        fresh.cancel().await.unwrap();
+        for runtime in runtimes {
+            runtime.shutdown_and_close().await.unwrap();
+        }
+        assert!(
+            retry.is_ok(),
+            "fresh approval after cancellation: {:?}",
+            retry.err()
+        );
+    }
+
     async fn drain(from: &DeviceLinkingSession, to: &DeviceLinkingSession) {
         for packet in from.outgoing_packets().await.unwrap() {
             to.receive_packet(packet.bytes).await.unwrap();

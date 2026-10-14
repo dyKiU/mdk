@@ -336,10 +336,7 @@ impl AppClient {
         }
         let group = match target {
             Some(group) => group.clone(),
-            None => self
-                .create_private_device_group_genesis()?
-                .group_id()
-                .clone(),
+            None => self.first_setup_genesis()?,
         };
         let (version, predecessor, artifact) = match self
             .runtime
@@ -412,6 +409,34 @@ impl AppClient {
             scope: scope.clone(),
             packet,
         })
+    }
+
+    fn first_setup_genesis(&mut self) -> Result<GroupId, ClientLinkingError> {
+        let storage = self
+            .app
+            .account_storage(&self.state.label)
+            .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
+        let selection = storage
+            .device_group_genesis_storage()
+            .ok_or_else(invalid)?
+            .genesis_selection()
+            .map_err(|error| ClientLinkingError::Genesis(error.into()))?;
+        if let Some(selection) = selection.filter(|selection| !selection.active_denied) {
+            // A cancelled comparison leaves birth provenance, never consent.
+            // Revalidate the unchanged one-device tree before a fresh attempt.
+            let group = selection.fact.birth.group_id;
+            let origin = self
+                .runtime
+                .session()
+                .validated_private_device_group_genesis(&group)
+                .map_err(ClientLinkingError::Genesis)?
+                .ok_or_else(invalid)?;
+            return Ok(origin.group_id().clone());
+        }
+        Ok(self
+            .create_private_device_group_genesis()?
+            .group_id()
+            .clone())
     }
 
     pub(crate) async fn accept_linking_setup_challenge(
