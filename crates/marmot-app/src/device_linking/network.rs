@@ -27,6 +27,7 @@ pub(crate) enum Error {
     Crypto,
 }
 type Result<T> = std::result::Result<T, Error>;
+mod delivery;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
