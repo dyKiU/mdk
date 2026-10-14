@@ -1446,6 +1446,7 @@ mod actual {
             assert_device_roster_removal(
                 &fixture,
                 &managers,
+                &directory_reader,
                 matches!(
                     scenario,
                     RecipientAdmissionScenario::DeviceRosterSuccessor
@@ -2783,6 +2784,7 @@ mod actual {
     async fn assert_device_roster_removal(
         fixture: &SelectedChatFixture,
         managers: &[crate::runtime::AccountManager; 3],
+        relay_reader: &nostr_sdk::prelude::Client,
         require_fresh_successor: bool,
         retained_remove_reopen: bool,
         retained_remove_storage_retry: bool,
@@ -3219,7 +3221,10 @@ mod actual {
             let mut begin_not_ready = 0;
             let fresh = tokio::time::timeout(std::time::Duration::from_secs(25), async {
                 loop {
-                    let choices = match managers[0].history_transfer_recipients("test", &fixture.chat).await {
+                    let choices = match managers[0]
+                        .history_transfer_recipients("test", &fixture.chat)
+                        .await
+                    {
                         Ok(choices) => choices,
                         Err(crate::HistoryTransferError::NotReady) => {
                             recipient_not_ready += 1;
@@ -3228,23 +3233,41 @@ mod actual {
                         }
                         Err(error) => panic!("fresh successor recipient query failed: {error:?}"),
                     };
-                    assert_eq!(choices.len(), 1, "only the surviving linked B device is eligible");
-                    assert!(choices.iter().all(|choice| choice.device != target_device), "removed C cannot remain a public history recipient choice");
-                    let chosen = choices.into_iter().find(|choice| choice.device == recipient)
+                    assert_eq!(
+                        choices.len(),
+                        1,
+                        "only the surviving linked B device is eligible"
+                    );
+                    assert!(
+                        choices.iter().all(|choice| choice.device != target_device),
+                        "removed C cannot remain a public history recipient choice"
+                    );
+                    let chosen = choices
+                        .into_iter()
+                        .find(|choice| choice.device == recipient)
                         .expect("public query must return the actual surviving B leaf");
-                    match managers[0].begin_history_transfer("test", &fixture.chat, chosen.device).await {
+                    match managers[0]
+                        .begin_history_transfer("test", &fixture.chat, chosen.device)
+                        .await
+                    {
                         Ok(original) => break original,
                         Err(crate::HistoryTransferError::NotReady) => {
                             begin_not_ready += 1;
                             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-                        },
-                        Err(error) => panic!("fresh successor history authority failed before settlement: {error:?}"),
+                        }
+                        Err(error) => panic!(
+                            "fresh successor history authority failed before settlement: {error:?}"
+                        ),
                     }
                 }
-            }).await.unwrap_or_else(|error| {
-                // Failure-only structural observations distinguish discovery from
-                // original construction without emitting keys, packets or payloads.
-                let rounds = fixture.apps[..2].iter().map(|app| -> Result<_, &'static str> {
+            })
+            .await;
+            let fresh = match fresh {
+                Ok(fresh) => fresh,
+                Err(error) => {
+                    // Failure-only structural observations distinguish discovery from
+                    // original construction without emitting keys, packets or payloads.
+                    let rounds = fixture.apps[..2].iter().map(|app| -> Result<_, &'static str> {
                     let storage = app.account_storage("test").map_err(|_| "account storage unavailable")?;
                     let roster = storage.private_roster_settlement_storage().ok_or("roster storage unavailable")?;
                     let round = roster.read_round().map_err(|_| "roster observation failed")?;
@@ -3258,8 +3281,101 @@ mod actual {
                         (round.generation, phase, facts, round.deferred_acks.len())
                     }))
                 }).collect::<Vec<_>>();
-                panic!("surviving A/B must regain fresh original history authority from an actually settled protected Remove successor, while every old origin remains denied: {error:?}; recipient_not_ready={recipient_not_ready}; begin_not_ready={begin_not_ready}; rounds(generation,phase,facts,deferred)={rounds:?}");
-            });
+                    // Snapshot before the bounded post-deadline relay observation.
+                    // A local confirmation precedes publication; it is not an ACK.
+                    let delivery = (|| -> Result<_, &'static str> {
+                        let a = fixture.apps[0]
+                            .account_storage("test")
+                            .map_err(|_| "source storage unavailable")?;
+                        let b = fixture.apps[1]
+                            .account_storage("test")
+                            .map_err(|_| "recipient storage unavailable")?;
+                        let roster = a
+                            .private_roster_settlement_storage()
+                            .ok_or("source roster unavailable")?;
+                        let round = roster
+                            .read_round()
+                            .map_err(|_| "source round unavailable")?
+                            .ok_or("source round absent")?;
+                        let fact = roster
+                            .read_facts()
+                            .map_err(|_| "source facts unavailable")?
+                            .into_iter()
+                            .find(|fact| {
+                                fact.generation == round.generation
+                                    && Some(fact.leaf_index) == round.coordinator_leaf_index
+                                    && fact.signature_public_key == round.anchor.coordinator
+                            });
+                        let received = fact
+                            .as_ref()
+                            .map(|fact| match b.get_message(&fact.message_id) {
+                                Ok(row) => {
+                                    Ok(Some((row.group_id == round.anchor.group_id, row.state)))
+                                }
+                                Err(cgka_traits::storage::StorageError::NotFound) => Ok(None),
+                                Err(_) => Err("recipient row unavailable"),
+                            })
+                            .transpose()?;
+                        let outbound = round
+                            .outbound
+                            .as_ref()
+                            .map(|bytes| {
+                                serde_json::from_slice::<cgka_traits::engine::SendResult>(bytes)
+                                    .map_err(|_| "outbound decode unavailable")
+                            })
+                            .transpose()?;
+                        let event_id = match outbound {
+                            Some(cgka_traits::engine::SendResult::ApplicationMessage {
+                                msg,
+                                group_id,
+                                source_epoch,
+                                ..
+                            }) if group_id == round.anchor.group_id
+                                && source_epoch == round.anchor.successor.epoch =>
+                            {
+                                Some(
+                                    nostr_sdk::prelude::EventId::from_slice(msg.id.as_slice())
+                                        .map_err(|_| "outbound event unavailable")?,
+                                )
+                            }
+                            Some(_) => return Err("outbound scope unavailable"),
+                            None => None,
+                        };
+                        Ok((
+                            (
+                                round.prepared_ciphertext.is_some(),
+                                round.outbound.is_some(),
+                                round.round_nonce.is_some(),
+                                fact.is_some(),
+                                received,
+                            ),
+                            event_id,
+                        ))
+                    })();
+                    let (delivery_state, relay_seen) = match delivery {
+                        Ok((state, Some(event_id))) => {
+                            let observed = relay_reader
+                                .fetch_events(nostr_sdk::prelude::ReqTarget::single(
+                                    fixture.url.as_str(),
+                                    [nostr_sdk::prelude::Filter::new().ids([event_id])],
+                                ))
+                                .timeout(std::time::Duration::from_secs(2))
+                                .await;
+                            (
+                                Ok(state),
+                                observed
+                                    .map(|events| events.iter().any(|event| event.id == event_id))
+                                    .map_err(|_| "relay observation unavailable"),
+                            )
+                        }
+                        Ok((state, None)) => (Ok(state), Err("outbound absent")),
+                        Err(error) => (Err(error), Err("relay observation unavailable")),
+                    };
+                    panic!(
+                        "surviving A/B must regain fresh original history authority from an actually settled protected Remove successor, while every old origin remains denied: {error:?}; recipient_not_ready={recipient_not_ready}; begin_not_ready={begin_not_ready}; rounds(generation,phase,facts,deferred)={rounds:?}; source(prepared,outbound,nonce,coordinator_fact,recipient_row_scope_state)={delivery_state:?}; exact_outbound_relay_seen={relay_seen:?}"
+                    );
+                }
+            };
             assert!(
                 matches!(
                     managers[0]
