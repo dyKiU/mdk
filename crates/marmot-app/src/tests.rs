@@ -4154,10 +4154,19 @@ async fn account_local_ready_before_subscribe_body() {
         .with_test_relay_client(relay.clone());
     let runtime = MarmotAppRuntime::new(app);
 
-    tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        runtime.reconcile_accounts(),
-    )
+    // Check ordering against the actual blocked registration, rather than a
+    // five-second SQLCipher startup budget that depends on runner contention.
+    // The outer deadline still bounds a local-startup hang. Poll readiness
+    // first when both it and the background registration signal are ready.
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        tokio::select! {
+            biased;
+            result = runtime.reconcile_accounts() => result,
+            () = relay.wait_for_blocked_subscribe() => {
+                panic!("local account readiness waited for relay registration");
+            }
+        }
+    })
     .await
     .expect("local account readiness must not wait for relay registration")
     .unwrap();
