@@ -1018,6 +1018,11 @@ mod actual {
     async fn device_revocation_original_receipt_survives_incoming_storage_rollback_retry() {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry).await;
     }
+    #[tokio::test]
+    async fn device_revocation_challenge_published_before_storage_retry_preserves_fresh_authority()
+    {
+        selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry).await;
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
         None,
@@ -1034,6 +1039,7 @@ mod actual {
         DeviceRosterSuccessor,
         DeviceRosterSuccessorReopen,
         DeviceRosterSuccessorStorageRetry,
+        DeviceRosterChallengeBeforeRetry,
         HistoryTransfer,
         HistoryRecipientQuery,
         HistoryRequestReplay,
@@ -1440,6 +1446,7 @@ mod actual {
                 | RecipientAdmissionScenario::DeviceRosterSuccessor
                 | RecipientAdmissionScenario::DeviceRosterSuccessorReopen
                 | RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
+                | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
         ) {
             request.cancel().await.unwrap();
             drop(original_consents);
@@ -1451,9 +1458,15 @@ mod actual {
                     scenario,
                     RecipientAdmissionScenario::DeviceRosterSuccessor
                         | RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
+                        | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
                 ),
                 scenario == RecipientAdmissionScenario::DeviceRosterSuccessorReopen,
-                scenario == RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry,
+                matches!(
+                    scenario,
+                    RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
+                        | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
+                ),
+                scenario == RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry,
             )
             .await;
             directory_reader.shutdown().await;
@@ -2781,6 +2794,133 @@ mod actual {
         }
     }
 
+    async fn observe_challenge_while_successor_rolled_back(
+        fixture: &SelectedChatFixture,
+        relay_reader: &nostr_sdk::prelude::Client,
+        protected: &cgka_traits::GroupId,
+    ) -> Result<bool, &'static str> {
+        let source = fixture.apps[0]
+            .account_storage("test")
+            .map_err(|_| "source storage unavailable")?;
+        let recipient = fixture.apps[1]
+            .account_storage("test")
+            .map_err(|_| "recipient storage unavailable")?;
+        let (message, canonical, ciphertext) =
+            tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                loop {
+                    let roster = source
+                        .private_roster_settlement_storage()
+                        .ok_or("source roster unavailable")?;
+                    let round = roster
+                        .read_round()
+                        .map_err(|_| "source round unavailable")?
+                        .ok_or("source round absent")?;
+                    if round.anchor.group_id != *protected
+                        || !matches!(
+                            round.anchor.origin,
+                            cgka_traits::private_device_invite::PrivateInviteOrigin::Revoked(_)
+                        )
+                    {
+                        return Err("source successor scope mismatch");
+                    }
+                    if let (Some(bytes), Some(ciphertext)) =
+                        (&round.outbound, &round.prepared_ciphertext)
+                    {
+                        let actual = openmls::group::MlsGroup::load(
+                            source.mls_storage(),
+                            &openmls::group::GroupId::from_slice(protected.as_slice()),
+                        )
+                        .map_err(|_| "source MLS observation unavailable")?
+                        .ok_or("source MLS group absent")?;
+                        if actual.epoch().as_u64() != round.anchor.successor.epoch.0
+                            || !actual.own_leaf_node().is_some_and(|leaf| {
+                                leaf.signature_key().as_slice() == round.anchor.coordinator
+                            })
+                        {
+                            return Err("source current successor mismatch");
+                        }
+                        let result: cgka_traits::engine::SendResult = serde_json::from_slice(bytes)
+                            .map_err(|_| "outbound decode unavailable")?;
+                        let cgka_traits::engine::SendResult::ApplicationMessage {
+                            msg,
+                            group_id,
+                            source_epoch,
+                            ..
+                        } = result
+                        else {
+                            return Err("outbound kind mismatch");
+                        };
+                        if group_id != *protected || source_epoch != round.anchor.successor.epoch {
+                            return Err("outbound successor mismatch");
+                        }
+                        let fact = roster
+                            .read_facts()
+                            .map_err(|_| "source facts unavailable")?
+                            .into_iter()
+                            .find(|fact| {
+                                fact.generation == round.generation
+                                    && Some(fact.leaf_index) == round.coordinator_leaf_index
+                                    && fact.signature_public_key == round.anchor.coordinator
+                            })
+                            .ok_or("exact coordinator fact absent")?;
+                        let event_id = nostr_sdk::prelude::EventId::from_slice(msg.id.as_slice())
+                            .map_err(|_| "outbound event unavailable")?;
+                        let events = relay_reader
+                            .fetch_events(nostr_sdk::prelude::ReqTarget::single(
+                                fixture.url.as_str(),
+                                [nostr_sdk::prelude::Filter::new().ids([event_id])],
+                            ))
+                            .timeout(std::time::Duration::from_secs(2))
+                            .await
+                            .map_err(|_| "relay observation unavailable")?;
+                        if events
+                            .iter()
+                            .any(|event| event.id == event_id && event.verify().is_ok())
+                        {
+                            break Ok((msg, fact.message_id, ciphertext.clone()));
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .map_err(|_| "challenge publication prerequisite timed out")??;
+        // A transport wrapper may be parked before MLS keys are available. A
+        // canonical row instead proves exact peeled ciphertext receipt. Neither
+        // row state grants a live original or a settled roster.
+        let observed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                for id in [&message.id, &canonical] {
+                    match recipient.get_message(id) {
+                        Ok(row) => {
+                            let payload = cgka_traits::StoredMessagePayload::decode(&row.payload)
+                                .map_err(|_| "recipient payload unavailable")?;
+                            let exact_outer = payload.as_exact_transport().is_some_and(|stored| {
+                                stored.id == message.id && stored.payload == message.payload
+                            });
+                            let exact_inner = row.id == canonical
+                                && row.group_id == *protected
+                                && payload
+                                    .as_openmls_wire()
+                                    .is_some_and(|stored| stored.payload == ciphertext);
+                            if exact_outer || exact_inner {
+                                return Ok(true);
+                            }
+                        }
+                        Err(cgka_traits::storage::StorageError::NotFound) => {}
+                        Err(_) => return Err("recipient row unavailable"),
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        match observed {
+            Ok(result) => result,
+            Err(_) => Ok(false), // Publication is known; arrival remains unproved.
+        }
+    }
+
     async fn assert_device_roster_removal(
         fixture: &SelectedChatFixture,
         managers: &[crate::runtime::AccountManager; 3],
@@ -2788,6 +2928,7 @@ mod actual {
         require_fresh_successor: bool,
         retained_remove_reopen: bool,
         retained_remove_storage_retry: bool,
+        challenge_before_retry: bool,
     ) {
         use cgka_traits::{GroupStorage, StorageProvider};
         let d = fixture.d_app.account_home().account("test").unwrap();
@@ -2978,6 +3119,23 @@ mod actual {
                 .into_iter()
                 .collect()
         );
+        let predecessor_settlement = if challenge_before_retry {
+            let storage = fixture.apps[1].account_storage("test").unwrap();
+            let roster = storage.private_roster_settlement_storage().unwrap();
+            let round = roster.read_round().unwrap().unwrap();
+            assert!(
+                round.phase
+                    == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed,
+                "actual retry predecessor must already be Completed"
+            );
+            Some((
+                round.generation,
+                round.phase,
+                roster.read_facts().unwrap().len(),
+            ))
+        } else {
+            None
+        };
         let mut b_errors = fixture.runtimes[1].subscribe();
         let fault = if retained_remove_reopen || retained_remove_storage_retry {
             let app = &fixture.apps[1];
@@ -3037,6 +3195,60 @@ mod actual {
                 before.epoch().as_u64(),
                 before_epochs[&hex::encode(protected.as_slice())]
             );
+            let challenge_observation = if challenge_before_retry {
+                let observed = observe_challenge_while_successor_rolled_back(
+                    fixture,
+                    relay_reader,
+                    &protected,
+                )
+                .await;
+                // Recheck after the observation, before releasing the real SQL fault.
+                // Relay publication alone never establishes B receipt or permission.
+                assert!(
+                    b_storage
+                        .revoked_device_group_anchor_storage()
+                        .unwrap()
+                        .revoked_anchor()
+                        .unwrap()
+                        .is_none()
+                );
+                let still_before = openmls::group::MlsGroup::load(
+                    b_storage.mls_storage(),
+                    &openmls::group::GroupId::from_slice(protected.as_slice()),
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(
+                    still_before.epoch().as_u64(),
+                    before_epochs[&hex::encode(protected.as_slice())]
+                );
+                let roster = b_storage.private_roster_settlement_storage().unwrap();
+                let round = roster.read_round().unwrap().unwrap();
+                let facts = roster.read_facts().unwrap().len();
+                let before = predecessor_settlement.unwrap();
+                let phase = match round.phase {
+                    cgka_traits::private_roster_settlement::PrivateSettlementPhase::Pending => {
+                        "pending"
+                    }
+                    cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed => {
+                        "completed"
+                    }
+                    cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied => {
+                        "denied"
+                    }
+                };
+                eprintln!(
+                    "revocation_held_rollback_round generation={} phase={phase} facts={facts}",
+                    round.generation
+                );
+                assert!(
+                    round.generation == before.0 && round.phase == before.1 && facts == before.2,
+                    "failed successor transaction must retain exact Completed predecessor generation/phase/fact count"
+                );
+                Some(observed)
+            } else {
+                None
+            };
             if retained_remove_reopen {
                 fixture.runtimes[1].shutdown_and_close().await.unwrap();
             }
@@ -3044,6 +3256,12 @@ mod actual {
                 .execute_batch("DROP TRIGGER reject_revoked_successor;")
                 .unwrap();
             drop(connection);
+            if let Some(observed) = challenge_observation {
+                let received = observed.expect("genuine current successor challenge must be published while B's actual Remove is rolled back");
+                eprintln!(
+                    "revocation_challenge_before_retry relay_seen=true recipient_exact_wire_seen={received} recipient_old_epoch=true recipient_successor_anchor_absent=true"
+                );
+            }
             if retained_remove_reopen {
                 let reopened_app = MarmotApp::with_relay(fixture.dirs[1].path(), &fixture.url);
                 let reopened = MarmotAppRuntime::new(reopened_app.clone());

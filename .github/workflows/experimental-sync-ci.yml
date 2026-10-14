@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -233,7 +233,7 @@ jobs:
           cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --partition count:2/5 --no-fail-fast -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
 
   core-regressions:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering"]'), inputs.scope)
     name: Focused regressions (${{ inputs.scope }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -270,12 +270,14 @@ jobs:
           if [[ "$REGRESSION_SCOPE" == connector-regression ]]; then
             args=(--locked -p agent-connector -p marmot-app -p cgka-engine --lib --features "$features")
             filter='test(connector_relay_list_edit_preserves_entries_the_request_did_not_name)'
-          elif [[ "$REGRESSION_SCOPE" == revocation-regression || "$REGRESSION_SCOPE" == revocation-family ]]; then
+          elif [[ "$REGRESSION_SCOPE" == revocation-regression || "$REGRESSION_SCOPE" == revocation-family || "$REGRESSION_SCOPE" == revocation-challenge-ordering ]]; then
             features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
             args=(--locked -p marmot-app -p cgka-engine --lib --features "$features")
             filter='package(marmot-app) & test(device_revocation_original_receipt_survives_incoming_storage_rollback_retry)'
             if [[ "$REGRESSION_SCOPE" == revocation-family ]]; then
-              filter='package(marmot-app) & test(selected_chat_copy::tests::actual::) & test(device_revocation_)'
+              filter='package(marmot-app) & test(selected_chat_copy::tests::actual::) & test(device_revocation_) & not test(device_revocation_challenge_published_before_storage_retry_preserves_fresh_authority)'
+            elif [[ "$REGRESSION_SCOPE" == revocation-challenge-ordering ]]; then
+              filter='package(marmot-app) & test(device_revocation_challenge_published_before_storage_retry_preserves_fresh_authority)'
             fi
           elif [[ "$REGRESSION_SCOPE" == campaign-regression ]]; then
             features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
@@ -294,6 +296,9 @@ jobs:
               expected = 1
           elif os.environ["REGRESSION_SCOPE"] == "revocation-regression":
               required = ["device_revocation_original_receipt_survives_incoming_storage_rollback_retry"]
+              expected = 1
+          elif os.environ["REGRESSION_SCOPE"] == "revocation-challenge-ordering":
+              required = ["device_revocation_challenge_published_before_storage_retry_preserves_fresh_authority"]
               expected = 1
           elif os.environ["REGRESSION_SCOPE"] == "revocation-family":
               required = [
@@ -315,7 +320,11 @@ jobs:
           assert len(selected) == expected, f"unexpected actual regression count: {len(selected)}"
           print("qualification-selected-core-regression-cases:", len(selected))
           PYGUARD
-          cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads 6 --retries 0 --no-fail-fast
+          output_args=()
+          if [[ "$REGRESSION_SCOPE" == revocation-challenge-ordering ]]; then
+            output_args=(--success-output immediate)
+          fi
+          cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads 6 --retries 0 --no-fail-fast "${output_args[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
