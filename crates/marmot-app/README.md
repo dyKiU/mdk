@@ -765,8 +765,15 @@ After admitting that exact original into a still-live host account scope, call
 `automatic_pairing_code` on it to activate the response transport; do not display
 or scan the returned bootstrap again. Dropping or canceling an unadopted original
 retires its pending transport. Each device must still confirm the displayed SAS
-revision. Automatic verification does not enroll a device, approve chat sharing
-or transport enrollment packets; those remain separate explicit original actions.
+revision. Verification alone does not enroll a device or approve chat sharing.
+`continue_automatic_linking(displayed_revision, share_chats)` captures a separate
+explicit choice on that exact original. It waits for the stock SAS done packets
+to drain, then continues the original SDK action. Singleton enrollment uses Core's
+existing automatic Add/Welcome path. Existing-roster setup uses bounded encrypted
+recipient artifacts and authenticated processing receipts; independent existing
+device approvals remain required. An original automatic finalization choice never
+replaces Core's fresh live-owner and protected-roster checks. Full third-device
+automatic transport requires separate qualification from first-pair enrollment.
 
 Subscriptions coalesce observations and `close()` wakes pending reads. Exact
 session cancellation revokes native operations before waiting for actor cleanup;

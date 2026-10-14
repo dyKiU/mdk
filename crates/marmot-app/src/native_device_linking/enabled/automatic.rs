@@ -36,6 +36,15 @@ enum Sent {
     Request,
     Response,
     Verification(String),
+    Enrollment,
+}
+/// Scheduling intent from an explicit revision-bound approval, never a proof.
+/// The serial worker must still validate its retained original on finalization.
+pub(super) struct OriginalAutomaticEnrollmentChoice {
+    scope: PurposeAttemptScope,
+    approved_revision: u64,
+    deadline: std::time::Instant,
+    share_chats: bool,
 }
 pub(super) struct Driver {
     channel: Channel,
@@ -48,6 +57,7 @@ pub(super) struct Driver {
     sent: Option<Sent>,
     last_send: std::time::Instant,
     deadline: std::time::Instant,
+    enrollment_delivered: bool,
 }
 impl Driver {
     async fn open(
@@ -79,6 +89,7 @@ impl Driver {
             sent: None,
             last_send: std::time::Instant::now() - std::time::Duration::from_secs(1),
             deadline,
+            enrollment_delivered: false,
         };
         if scanner {
             driver
@@ -136,6 +147,7 @@ impl Driver {
                         self.stage = Stage::AwaitResponse
                     }
                     Some(Sent::Response) => self.stage = Stage::Verifying,
+                    Some(Sent::Enrollment) => self.enrollment_delivered = true,
                     _ => {}
                 }
             }
@@ -176,6 +188,20 @@ impl Driver {
                             .ok_or(DeviceLinkingError::NotReady)?
                             .receive_packet(bytes.to_vec())
                             .await?
+                    }
+                    MessageKind::Enrollment => {
+                        let original = original.ok_or(DeviceLinkingError::NotReady)?;
+                        let revision = original.snapshot().await?.revision;
+                        match original
+                            .receive_enrollment_packet(revision, bytes.to_vec())
+                            .await
+                        {
+                            Ok(()) => {}
+                            Err(
+                                DeviceLinkingError::NotReady | DeviceLinkingError::StaleRevision,
+                            ) => return Ok(None),
+                            Err(error) => return Err(error),
+                        }
                     }
                     _ => return Err(DeviceLinkingError::InvalidPacket),
                 }
@@ -224,9 +250,49 @@ impl Driver {
                 self.sent = Some(Sent::Response);
             }
             Stage::Verifying => {
-                // Enrollment transfer is a separate following slice. Never call
-                // verifier operations after the original proof has moved.
-                if original.inner.operation.lock().await.enrollment_started {
+                let (enrolling, authorized, finalized) = {
+                    let progress = original.inner.operation.lock().await;
+                    (
+                        progress.enrollment_started,
+                        progress.automatic_enrollment.is_some(),
+                        progress.finalized,
+                    )
+                };
+                if enrolling {
+                    // Singleton continuation already owns automatic Add/Welcome
+                    // publication. Only an actually accepted existing-roster setup
+                    // has the endorsed recipient artifact transport phase.
+                    if !original.inner.new_device
+                        && original.inner.endorsed_setup
+                        && authorized
+                        && !finalized
+                    {
+                        if self.enrollment_delivered {
+                            match original.finalize_automatic_enrollment().await {
+                                Ok(())
+                                | Err(
+                                    DeviceLinkingError::NotReady
+                                    | DeviceLinkingError::StaleRevision,
+                                ) => {}
+                                Err(error) => return Err(error),
+                            }
+                        } else {
+                            let revision = original.snapshot().await?.revision;
+                            match original.enrollment_packet(revision).await {
+                                Ok(packet) => {
+                                    self.sender
+                                        .queue(MessageKind::Enrollment, &packet)
+                                        .map_err(wire_error)?;
+                                    self.sent = Some(Sent::Enrollment);
+                                }
+                                Err(
+                                    DeviceLinkingError::NotReady
+                                    | DeviceLinkingError::StaleRevision,
+                                ) => {}
+                                Err(error) => return Err(error),
+                            }
+                        }
+                    }
                     return Ok(());
                 }
                 if let Some(packet) = original.outgoing_packets().await?.into_iter().next() {
@@ -234,6 +300,17 @@ impl Driver {
                         .queue(MessageKind::Verification, &packet.bytes)
                         .map_err(wire_error)?;
                     self.sent = Some(Sent::Verification(packet.acknowledgement_id));
+                } else if authorized {
+                    match original.drive_automatic_enrollment_choice().await {
+                        Ok(())
+                        | Err(DeviceLinkingError::NotReady | DeviceLinkingError::StaleRevision) => {
+                        }
+                        Err(error) => {
+                            #[cfg(test)]
+                            eprintln!("automatic enrollment continuation failed: {error:?}");
+                            return Err(error);
+                        }
+                    }
                 }
             }
             _ => {}
@@ -288,7 +365,10 @@ impl Driver {
             tokio::select! {
                 _ = cancellation.cancelled() => {}
                 result = result => {
-                    if result.is_err() && let Some(state) = weak.upgrade() {
+                    if let Err(error) = result && let Some(state) = weak.upgrade() {
+                        tracing::warn!(target: "marmot_app::device_linking", method = "automatic_transport", category = ?error, "automatic pairing transport ended");
+                        #[cfg(test)]
+                        eprintln!("automatic pairing transport ended: {error:?}");
                         state.update(DeviceLinkingPhase::Failed, None);
                         state.close();
                         state.defer_cleanup();
@@ -299,6 +379,84 @@ impl Driver {
     }
 }
 impl DeviceLinkingSession {
+    /// Explicit approval of the exact displayed original, including automatic
+    /// packet transfer and finalization after authenticated recipient processing.
+    pub async fn continue_automatic_linking(
+        &self,
+        revision: u64,
+        share_chats: bool,
+    ) -> Result<(), DeviceLinkingError> {
+        self.inner.check_open()?;
+        if self.inner.transport_bootstrap.lock().await.is_none() {
+            return Err(DeviceLinkingError::NotReady);
+        }
+        let mut progress = self.inner.operation.lock().await;
+        self.inner.check_open()?;
+        let current = self.inner.refresh().await?;
+        self.inner.check_open()?;
+        if current.revision != revision {
+            return Err(DeviceLinkingError::StaleRevision);
+        }
+        if current.phase != DeviceLinkingPhase::VerificationCompleteEnrollmentPending {
+            return Err(DeviceLinkingError::NotReady);
+        }
+        if let Some(choice) = &progress.automatic_enrollment {
+            return if choice.share_chats == share_chats {
+                Ok(())
+            } else {
+                Err(DeviceLinkingError::NotReady)
+            };
+        }
+        // Preserve this original human action while the last stock SAS done
+        // packet drains. Taking the SDK proof earlier is correctly NotReady.
+        progress.automatic_enrollment = Some(OriginalAutomaticEnrollmentChoice {
+            scope: self.inner.scope.clone(),
+            approved_revision: revision,
+            deadline: self.inner.transport_deadline,
+            share_chats,
+        });
+        Ok(())
+    }
+    async fn drive_automatic_enrollment_choice(&self) -> Result<(), DeviceLinkingError> {
+        let (revision, share_chats) = {
+            let progress = self.inner.operation.lock().await;
+            self.inner.check_open()?;
+            let choice = progress
+                .automatic_enrollment
+                .as_ref()
+                .ok_or(DeviceLinkingError::NotReady)?;
+            if choice.scope != self.inner.scope || std::time::Instant::now() >= choice.deadline {
+                return Err(DeviceLinkingError::Closed);
+            }
+            let current = self.inner.refresh().await?;
+            if current.revision < choice.approved_revision {
+                return Err(DeviceLinkingError::StaleRevision);
+            }
+            (current.revision, choice.share_chats)
+        };
+        self.continue_original_linking(revision, share_chats).await
+    }
+    async fn finalize_automatic_enrollment(&self) -> Result<(), DeviceLinkingError> {
+        let revision = {
+            let progress = self.inner.operation.lock().await;
+            self.inner.check_open()?;
+            let choice = progress
+                .automatic_enrollment
+                .as_ref()
+                .ok_or(DeviceLinkingError::NotReady)?;
+            if choice.scope != self.inner.scope || std::time::Instant::now() >= choice.deadline {
+                return Err(DeviceLinkingError::Closed);
+            }
+            let current = self.inner.refresh().await?;
+            if current.revision < choice.approved_revision {
+                return Err(DeviceLinkingError::StaleRevision);
+            }
+            current.revision
+        };
+        // This revision only fences stale dispatch. Consent came from the held
+        // original choice above, and Core still checks its live owned action.
+        self.finalize_linking(revision).await
+    }
     /// Starts one automatic mailbox for this exact original. QR contains no raw key.
     pub async fn automatic_pairing_code(&self) -> Result<String, DeviceLinkingError> {
         let mut bootstrap_code = self.inner.transport_bootstrap.lock().await;

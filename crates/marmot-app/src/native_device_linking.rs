@@ -106,6 +106,13 @@ impl AccountManager {
 }
 #[cfg(not(feature = "experimental-device-sync"))]
 impl DeviceLinkingSession {
+    pub async fn continue_automatic_linking(
+        &self,
+        _revision: u64,
+        _share_chats: bool,
+    ) -> Result<(), DeviceLinkingError> {
+        Err(DeviceLinkingError::Unsupported)
+    }
     pub async fn automatic_pairing_code(&self) -> Result<String, DeviceLinkingError> {
         Err(DeviceLinkingError::Unsupported)
     }

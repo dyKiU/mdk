@@ -18,6 +18,7 @@ pub(super) struct SessionState {
     scope: PurposeAttemptScope,
     setup: Vec<u8>,
     new_device: bool,
+    endorsed_setup: bool,
     operation: AsyncMutex<PacketProgress>,
     sharing_choice: Mutex<
         Option<
@@ -35,6 +36,7 @@ pub(super) struct SessionState {
 }
 #[derive(Default)]
 struct PacketProgress {
+    automatic_enrollment: Option<automatic::OriginalAutomaticEnrollmentChoice>,
     offer_acknowledged: bool,
     started: bool,
     enrollment_started: bool,
@@ -192,6 +194,7 @@ impl AccountManager {
             packet,
             true,
             transport_deadline,
+            false,
         ))
     }
     pub async fn approve_device_linking_session(
@@ -211,6 +214,7 @@ impl AccountManager {
             .resolve(account_ref)
             .map_err(|_| DeviceLinkingError::RuntimeUnavailable)?
             .label;
+        let endorsed_setup = target.is_some();
         let packet = self
             .approve_device_linking_setup(
                 account_ref,
@@ -225,6 +229,7 @@ impl AccountManager {
             packet,
             false,
             transport_deadline,
+            endorsed_setup,
         ))
     }
 }
@@ -367,6 +372,7 @@ impl DeviceLinkingSession {
         packet: SetupPacket,
         new_device: bool,
         transport_deadline: std::time::Instant,
+        endorsed_setup: bool,
     ) -> Self {
         let snapshot = DeviceLinkingSnapshot {
             revision: 1,
@@ -384,6 +390,7 @@ impl DeviceLinkingSession {
             scope: packet.scope,
             setup: packet.packet,
             new_device,
+            endorsed_setup,
             operation: AsyncMutex::new(PacketProgress::default()),
             sharing_choice: Mutex::new(None),
             snapshot: Mutex::new(snapshot),

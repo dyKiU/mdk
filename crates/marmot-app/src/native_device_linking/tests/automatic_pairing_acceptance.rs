@@ -3,6 +3,152 @@ use crate::{MarmotApp, MarmotAppRuntime};
 use marmot_account::AccountHome;
 
 #[tokio::test]
+async fn automatic_pairing_requires_explicit_enrollment_and_shares_existing_and_later_chats() {
+    use cgka_traits::StorageProvider;
+    let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+    let url = relay.url().await.to_string();
+    let keys = nostr::prelude::Keys::generate();
+    let dirs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+    let apps = std::array::from_fn::<_, 2, _>(|index| {
+        AccountHome::open(dirs[index].path())
+            .import_account("test", &keys.secret_key().to_secret_hex())
+            .unwrap();
+        MarmotApp::with_relay(dirs[index].path(), &url)
+    });
+    let runtimes = apps.clone().map(MarmotAppRuntime::new);
+    for runtime in &runtimes {
+        runtime.reconcile_accounts().await.unwrap();
+    }
+    let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
+    let old_chat = managers[0]
+        .create_group("test", "Existing automatic chat", &[], None)
+        .await
+        .unwrap();
+    let history = managers[0]
+        .send_message("test", &old_chat, b"Existing private message".to_vec())
+        .await
+        .unwrap();
+    assert_eq!(history.message_ids.len(), 1);
+    let recipient = managers[1]
+        .begin_device_linking_session("test")
+        .await
+        .unwrap();
+    let source = managers[0]
+        .approve_automatic_device_linking_session(
+            "test",
+            recipient.automatic_pairing_code().await.unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+    source.automatic_pairing_code().await.unwrap();
+    wait_for_automatic_phase(&source, &recipient, DeviceLinkingPhase::ComparisonAvailable).await;
+    let a = source.snapshot().await.unwrap();
+    let b = recipient.snapshot().await.unwrap();
+    assert!(a.decimals == b.decimals && a.decimals.is_some());
+    assert!(matches!(
+        source.continue_automatic_linking(a.revision, true).await,
+        Err(DeviceLinkingError::NotReady)
+    ));
+    source.confirm_comparison(a.revision).await.unwrap();
+    recipient.confirm_comparison(b.revision).await.unwrap();
+    wait_for_automatic_phase(
+        &source,
+        &recipient,
+        DeviceLinkingPhase::VerificationCompleteEnrollmentPending,
+    )
+    .await;
+    let no_policy = || {
+        apps.iter().all(|app| {
+            app.account_storage("test")
+                .unwrap()
+                .approved_account_sharing_policy_storage()
+                .unwrap()
+                .approved_account_sharing_policies()
+                .unwrap()
+                .is_empty()
+        })
+    };
+    assert!(no_policy());
+    let revision = source.snapshot().await.unwrap().revision;
+    assert!(matches!(
+        source.continue_automatic_linking(revision + 1, true).await,
+        Err(DeviceLinkingError::StaleRevision)
+    ));
+    source
+        .continue_automatic_linking(revision, true)
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    assert!(no_policy(), "one side's approval cannot approve its peer");
+    recipient
+        .continue_automatic_linking(recipient.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
+    wait_for_automatic_phase(&source, &recipient, DeviceLinkingPhase::EnrollmentComplete).await;
+    assert!(apps.iter().all(|app| {
+        app.account_storage("test")
+            .unwrap()
+            .approved_account_sharing_policy_storage()
+            .unwrap()
+            .approved_account_sharing_policies()
+            .unwrap()
+            .len()
+            == 1
+    }));
+    let history_id = hex::decode(&history.message_ids[0]).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            let chats = managers[1]
+                .paired_chat_list_page("test", None, 128)
+                .await
+                .unwrap();
+            let messages = managers[1]
+                .paired_chat_message_page("test", old_chat.clone(), None, 128)
+                .await;
+            if chats.chats.iter().any(|chat| chat.group_id == old_chat)
+                && let Ok(messages) = messages
+                && messages
+                    .messages
+                    .iter()
+                    .any(|message| message.event_id.as_slice() == history_id)
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("one-scan approved pair did not discover existing chat and history");
+    let later = managers[0]
+        .create_group("test", "Later automatic chat", &[], None)
+        .await
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            if managers[1]
+                .paired_chat_list_page("test", None, 128)
+                .await
+                .unwrap()
+                .chats
+                .iter()
+                .any(|chat| chat.group_id == later)
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("one-scan approved pair did not discover a later chat");
+    source.cancel().await.unwrap();
+    recipient.cancel().await.unwrap();
+    for runtime in runtimes {
+        runtime.shutdown_and_close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn dropped_scanner_factory_cannot_export_a_response_before_host_adoption() {
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();
@@ -125,18 +271,24 @@ async fn wait_for_automatic_phase(
         loop {
             let ap = a.snapshot().await.unwrap().phase;
             let bp = b.snapshot().await.unwrap().phase;
-            assert!(!matches!(
-                ap,
-                DeviceLinkingPhase::Failed
-                    | DeviceLinkingPhase::Cancelled
-                    | DeviceLinkingPhase::Expired
-            ));
-            assert!(!matches!(
-                bp,
-                DeviceLinkingPhase::Failed
-                    | DeviceLinkingPhase::Cancelled
-                    | DeviceLinkingPhase::Expired
-            ));
+            assert!(
+                !matches!(
+                    ap,
+                    DeviceLinkingPhase::Failed
+                        | DeviceLinkingPhase::Cancelled
+                        | DeviceLinkingPhase::Expired
+                ),
+                "left expected={phase:?} observed={ap:?}"
+            );
+            assert!(
+                !matches!(
+                    bp,
+                    DeviceLinkingPhase::Failed
+                        | DeviceLinkingPhase::Cancelled
+                        | DeviceLinkingPhase::Expired
+                ),
+                "right expected={phase:?} observed={bp:?}"
+            );
             if ap == phase && bp == phase {
                 break;
             }
