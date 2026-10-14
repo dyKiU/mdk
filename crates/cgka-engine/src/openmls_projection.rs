@@ -3943,6 +3943,15 @@ fn apply_selected_private_capture_candidates<S: StorageProvider>(
                     &message_id,
                 ));
             } else if settlement_control {
+                #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+                if !can_settle {
+                    crate::private_settlement_test_observation::record(
+                        group_id,
+                        crate::private_settlement_test_observation::recipient(&group),
+                        &message_id,
+                        crate::private_settlement_test_observation::Category::SelectedScope,
+                    );
+                }
                 if can_settle {
                     let effect = crate::private_roster_settlement_receive::stage_settlement_effect(
                         settlement_source,
@@ -3950,6 +3959,8 @@ fn apply_selected_private_capture_candidates<S: StorageProvider>(
                         &payload,
                         sender.as_ref(),
                         &message_id,
+                        #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+                        crate::private_settlement_test_observation::recipient(&group),
                     );
                     positive = crate::private_roster_settlement_receive::apply_settlement_effect(
                         storage, group_id, effect,
@@ -5477,6 +5488,11 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                                 &payload,
                                 sender_id.as_ref(),
                                 &message.id,
+                                #[cfg(any(
+                                    test,
+                                    all(feature = "test-crash-hooks", debug_assertions)
+                                ))]
+                                crate::private_settlement_test_observation::recipient(&mls_group),
                             );
                         effects.settlement.push(effect);
                     }

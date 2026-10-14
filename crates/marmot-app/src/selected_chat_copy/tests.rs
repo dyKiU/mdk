@@ -3202,6 +3202,27 @@ mod actual {
         } else {
             None
         };
+        let settlement_intake = retained_remove_storage_retry.then(|| {
+            (|| -> Result<_, &'static str> {
+                let storage = fixture.apps[1]
+                    .account_storage("test")
+                    .map_err(|_| "intake observer storage unavailable")?;
+                let group = openmls::group::MlsGroup::load(
+                    storage.mls_storage(),
+                    &openmls::group::GroupId::from_slice(protected.as_slice()),
+                )
+                .map_err(|_| "intake observer group unavailable")?
+                .ok_or("intake observer group absent")?;
+                let recipient: [u8; 32] = group
+                    .own_leaf_node()
+                    .ok_or("intake observer recipient absent")?
+                    .signature_key()
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| "intake observer recipient unavailable")?;
+                cgka_engine::private_settlement_test_observation::arm(&protected, recipient)
+            })()
+        });
         let mut a_errors = fixture.runtimes[0].subscribe();
         let mut b_errors = fixture.runtimes[1].subscribe();
         let fault = if retained_remove_reopen || retained_remove_storage_retry {
@@ -3666,9 +3687,15 @@ mod actual {
                             received,
                         ),
                         event_id,
+                        fact.map(|fact| fact.message_id),
                     ))
                 };
                 let delivery = observe_delivery();
+                let exact_challenge = delivery.as_ref().ok().and_then(|(_, _, id)| id.clone());
+                let intake = settlement_intake.as_ref().map(|observer| match observer {
+                    Ok(observer) => Ok(observer.summary(exact_challenge.as_ref())),
+                    Err(error) => Err(*error),
+                });
                 let source_original = match tokio::time::timeout(
                     std::time::Duration::from_secs(2),
                     original.snapshot(),
@@ -3718,7 +3745,7 @@ mod actual {
                     (counts, incomplete)
                 });
                 let (delivery_state, relay_seen) = match delivery {
-                    Ok((state, Some(event_id))) => {
+                    Ok((state, Some(event_id), _)) => {
                         let observed = relay_reader
                             .fetch_events(nostr_sdk::prelude::ReqTarget::single(
                                 fixture.url.as_str(),
@@ -3733,19 +3760,19 @@ mod actual {
                                 .map_err(|_| "relay observation unavailable"),
                         )
                     }
-                    Ok((state, None)) => (Ok(state), Err("outbound absent")),
+                    Ok((state, None, _)) => (Ok(state), Err("outbound absent")),
                     Err(error) => (Err(error), Err("relay observation unavailable")),
                 };
                 match &fresh {
                     Ok(_) => eprintln!(
-                        "revocation_original_progress fresh_wait_ms={fresh_wait_ms} rounds(generation,phase,facts,deferred)={rounds:?}; source(prepared,outbound,nonce,coordinator_fact,recipient_row_scope_state)={delivery_state:?}; exact_outbound_relay_seen={relay_seen:?}; actual_source_original_complete_groups={source_original:?}; shared_anchor(account,group,successor,roster,enrollment,context,coordinator,nonce_present,nonce_equal)={shared_anchor:?}; source_recipient_errors(receive_storage,receive_other,convergence_storage,convergence_other,maintenance,restart,other;incomplete)={error_observations:?}"
+                        "revocation_original_progress fresh_wait_ms={fresh_wait_ms} rounds(generation,phase,facts,deferred)={rounds:?}; source(prepared,outbound,nonce,coordinator_fact,recipient_row_scope_state)={delivery_state:?}; exact_outbound_relay_seen={relay_seen:?}; actual_source_original_complete_groups={source_original:?}; shared_anchor(account,group,successor,roster,enrollment,context,coordinator,nonce_present,nonce_equal)={shared_anchor:?}; exact_challenge_intake={intake:?}; source_recipient_errors(receive_storage,receive_other,convergence_storage,convergence_other,maintenance,restart,other;incomplete)={error_observations:?}"
                     ),
                     Err(error) => {
                         // The original fixed-deadline failure is irrevocable. This
                         // observation cannot construct fresh authority or turn it into
                         // a pass; it only distinguishes delayed settlement from a stall.
                         eprintln!(
-                            "revocation_original_deadline_failed fresh_wait_ms={fresh_wait_ms}; shared_anchor={shared_anchor:?}; rounds={rounds:?}; source={delivery_state:?}; relay={relay_seen:?}"
+                            "revocation_original_deadline_failed fresh_wait_ms={fresh_wait_ms}; shared_anchor={shared_anchor:?}; rounds={rounds:?}; source={delivery_state:?}; relay={relay_seen:?}; exact_challenge_intake={intake:?}"
                         );
                         let later_started = tokio::time::Instant::now();
                         let later = tokio::time::timeout(
@@ -3770,7 +3797,7 @@ mod actual {
                         ).await;
                         let later_delivery = observe_delivery();
                         let later_relay = match &later_delivery {
-                            Ok((_, Some(event_id))) => relay_reader
+                            Ok((_, Some(event_id), _)) => relay_reader
                                 .fetch_events(nostr_sdk::prelude::ReqTarget::single(
                                     fixture.url.as_str(),
                                     [nostr_sdk::prelude::Filter::new().ids([*event_id])],
@@ -3781,17 +3808,22 @@ mod actual {
                                 .map_err(|_| "later relay observation unavailable"),
                             _ => Err("later outbound unavailable"),
                         };
-                        // Remove the retained event identifier before safe formatting.
-                        let later_delivery = later_delivery.map(|(state, _)| state);
+                        let later_intake =
+                            settlement_intake.as_ref().map(|observer| match observer {
+                                Ok(observer) => Ok(observer.summary(exact_challenge.as_ref())),
+                                Err(error) => Err(*error),
+                            });
+                        // Remove retained identifiers before safe formatting.
+                        let later_delivery = later_delivery.map(|(state, _, _)| state);
                         eprintln!(
-                            "revocation_original_post_failure observation_ms={} both_rounds_completed={} rounds={:?} shared_anchor={:?} source={later_delivery:?} relay={later_relay:?}; original_failure_preserved=true",
+                            "revocation_original_post_failure observation_ms={} both_rounds_completed={} rounds={:?} shared_anchor={:?} source={later_delivery:?} relay={later_relay:?} exact_challenge_intake={later_intake:?}; original_failure_preserved=true",
                             later_started.elapsed().as_millis(),
                             later.is_ok(),
                             observe_rounds(),
                             observe_shared_anchor()
                         );
                         panic!(
-                            "surviving A/B must regain fresh original history authority from an actually settled protected Remove successor, while every old origin remains denied: {error:?}; recipient_not_ready={recipient_not_ready}; begin_not_ready={begin_not_ready}; rounds(generation,phase,facts,deferred)={rounds:?}; source(prepared,outbound,nonce,coordinator_fact,recipient_row_scope_state)={delivery_state:?}; exact_outbound_relay_seen={relay_seen:?}; actual_source_original_complete_groups={source_original:?}; shared_anchor(account,group,successor,roster,enrollment,context,coordinator,nonce_present,nonce_equal)={shared_anchor:?}; source_recipient_errors(receive_storage,receive_other,convergence_storage,convergence_other,maintenance,restart,other;incomplete)={error_observations:?}"
+                            "surviving A/B must regain fresh original history authority from an actually settled protected Remove successor, while every old origin remains denied: {error:?}; recipient_not_ready={recipient_not_ready}; begin_not_ready={begin_not_ready}; rounds(generation,phase,facts,deferred)={rounds:?}; source(prepared,outbound,nonce,coordinator_fact,recipient_row_scope_state)={delivery_state:?}; exact_outbound_relay_seen={relay_seen:?}; actual_source_original_complete_groups={source_original:?}; shared_anchor(account,group,successor,roster,enrollment,context,coordinator,nonce_present,nonce_equal)={shared_anchor:?}; exact_challenge_intake={intake:?}; source_recipient_errors(receive_storage,receive_other,convergence_storage,convergence_other,maintenance,restart,other;incomplete)={error_observations:?}"
                         );
                     }
                 }

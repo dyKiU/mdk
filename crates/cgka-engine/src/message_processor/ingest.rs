@@ -1398,6 +1398,11 @@ impl<S: StorageProvider> Engine<S> {
                                 &payload,
                                 sender.as_ref(),
                                 &msg.id,
+                                #[cfg(any(
+                                    test,
+                                    all(feature = "test-crash-hooks", debug_assertions)
+                                ))]
+                                crate::private_settlement_test_observation::recipient(&mls_group),
                             );
                         settlement_positive =
                             crate::private_roster_settlement_receive::apply_settlement_effect(

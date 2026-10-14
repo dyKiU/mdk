@@ -127,6 +127,16 @@ mod private_linking_join;
 
 #[cfg(feature = "experimental-device-sync")]
 mod private_roster_settlement_receive;
+#[cfg(all(
+    feature = "experimental-device-sync",
+    any(
+        test,
+        feature = "test-policy-overrides",
+        all(feature = "test-crash-hooks", debug_assertions)
+    )
+))]
+#[doc(hidden)]
+pub mod private_settlement_test_observation;
 
 #[cfg(feature = "experimental-device-sync")]
 pub mod private_enrollment_request;
