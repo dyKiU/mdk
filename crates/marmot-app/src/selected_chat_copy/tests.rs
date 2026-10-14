@@ -3486,7 +3486,8 @@ mod actual {
             if fresh.is_err() || retained_remove_storage_retry {
                 // Failure-only structural observations distinguish discovery from
                 // original construction without emitting keys, packets or payloads.
-                let rounds = fixture.apps[..2].iter().map(|app| -> Result<_, &'static str> {
+                let observe_rounds = || {
+                    fixture.apps[..2].iter().map(|app| -> Result<_, &'static str> {
                     let storage = app.account_storage("test").map_err(|_| "account storage unavailable")?;
                     let roster = storage.private_roster_settlement_storage().ok_or("roster storage unavailable")?;
                     let round = roster.read_round().map_err(|_| "roster observation failed")?;
@@ -3499,10 +3500,41 @@ mod actual {
                         };
                         (round.generation, phase, facts, round.deferred_acks.len())
                     }))
-                }).collect::<Vec<_>>();
+                }).collect::<Vec<_>>()
+                };
+                let rounds = observe_rounds();
+                // These are comparisons of retained observations, never live admission.
+                // Account/group and shared successor fields must match; local_device is
+                // deliberately excluded because A and B are distinct surviving leaves.
+                let observe_shared_anchor = || -> Result<_, &'static str> {
+                    let read = |index: usize| {
+                        fixture.apps[index]
+                            .account_storage("test")
+                            .map_err(|_| "anchor storage unavailable")?
+                            .private_roster_settlement_storage()
+                            .ok_or("anchor roster unavailable")?
+                            .read_round()
+                            .map_err(|_| "anchor round unavailable")?
+                            .ok_or("anchor round absent")
+                    };
+                    let a = read(0)?;
+                    let b = read(1)?;
+                    Ok((
+                        a.anchor.account == b.anchor.account,
+                        a.anchor.group_id == b.anchor.group_id,
+                        a.anchor.successor == b.anchor.successor,
+                        a.anchor.roster_commitment == b.anchor.roster_commitment,
+                        a.anchor.enrollment_nonce == b.anchor.enrollment_nonce,
+                        a.anchor.context_digest == b.anchor.context_digest,
+                        a.anchor.coordinator == b.anchor.coordinator,
+                        (a.round_nonce.is_some(), b.round_nonce.is_some()),
+                        a.round_nonce.zip(b.round_nonce).map(|(a, b)| a == b),
+                    ))
+                };
+                let shared_anchor = observe_shared_anchor();
                 // Snapshot before the bounded post-deadline relay observation.
                 // A local confirmation precedes publication; it is not an ACK.
-                let delivery = (|| -> Result<_, &'static str> {
+                let observe_delivery = || -> Result<_, &'static str> {
                     let a = fixture.apps[0]
                         .account_storage("test")
                         .map_err(|_| "source storage unavailable")?;
@@ -3568,7 +3600,8 @@ mod actual {
                         ),
                         event_id,
                     ))
-                })();
+                };
+                let delivery = observe_delivery();
                 let source_original = match tokio::time::timeout(
                     std::time::Duration::from_secs(2),
                     original.snapshot(),
@@ -3638,11 +3671,60 @@ mod actual {
                 };
                 match &fresh {
                     Ok(_) => eprintln!(
-                        "revocation_original_progress fresh_wait_ms={fresh_wait_ms} rounds(generation,phase,facts,deferred)={rounds:?}; source(prepared,outbound,nonce,coordinator_fact,recipient_row_scope_state)={delivery_state:?}; exact_outbound_relay_seen={relay_seen:?}; actual_source_original_complete_groups={source_original:?}; source_recipient_errors(receive_storage,receive_other,convergence_storage,convergence_other,maintenance,restart,other;incomplete)={error_observations:?}"
+                        "revocation_original_progress fresh_wait_ms={fresh_wait_ms} rounds(generation,phase,facts,deferred)={rounds:?}; source(prepared,outbound,nonce,coordinator_fact,recipient_row_scope_state)={delivery_state:?}; exact_outbound_relay_seen={relay_seen:?}; actual_source_original_complete_groups={source_original:?}; shared_anchor(account,group,successor,roster,enrollment,context,coordinator,nonce_present,nonce_equal)={shared_anchor:?}; source_recipient_errors(receive_storage,receive_other,convergence_storage,convergence_other,maintenance,restart,other;incomplete)={error_observations:?}"
                     ),
                     Err(error) => {
+                        // The original fixed-deadline failure is irrevocable. This
+                        // observation cannot construct fresh authority or turn it into
+                        // a pass; it only distinguishes delayed settlement from a stall.
+                        eprintln!(
+                            "revocation_original_deadline_failed fresh_wait_ms={fresh_wait_ms}; shared_anchor={shared_anchor:?}; rounds={rounds:?}; source={delivery_state:?}; relay={relay_seen:?}"
+                        );
+                        let later_started = tokio::time::Instant::now();
+                        let later = tokio::time::timeout(
+                            std::time::Duration::from_secs(55),
+                            async {
+                                loop {
+                                    let completed = fixture.apps[..2].iter().all(|app| {
+                                        app.account_storage("test")
+                                            .ok()
+                                            .and_then(|storage| {
+                                                storage.private_roster_settlement_storage()
+                                                    .and_then(|roster| roster.read_round().ok().flatten())
+                                            })
+                                            .is_some_and(|round| round.phase == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed)
+                                    });
+                                    if completed {
+                                        break;
+                                    }
+                                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                                }
+                            },
+                        ).await;
+                        let later_delivery = observe_delivery();
+                        let later_relay = match &later_delivery {
+                            Ok((_, Some(event_id))) => relay_reader
+                                .fetch_events(nostr_sdk::prelude::ReqTarget::single(
+                                    fixture.url.as_str(),
+                                    [nostr_sdk::prelude::Filter::new().ids([*event_id])],
+                                ))
+                                .timeout(std::time::Duration::from_secs(2))
+                                .await
+                                .map(|events| events.iter().any(|event| event.id == *event_id))
+                                .map_err(|_| "later relay observation unavailable"),
+                            _ => Err("later outbound unavailable"),
+                        };
+                        // Remove the retained event identifier before safe formatting.
+                        let later_delivery = later_delivery.map(|(state, _)| state);
+                        eprintln!(
+                            "revocation_original_post_failure observation_ms={} both_rounds_completed={} rounds={:?} shared_anchor={:?} source={later_delivery:?} relay={later_relay:?}; original_failure_preserved=true",
+                            later_started.elapsed().as_millis(),
+                            later.is_ok(),
+                            observe_rounds(),
+                            observe_shared_anchor()
+                        );
                         panic!(
-                            "surviving A/B must regain fresh original history authority from an actually settled protected Remove successor, while every old origin remains denied: {error:?}; recipient_not_ready={recipient_not_ready}; begin_not_ready={begin_not_ready}; rounds(generation,phase,facts,deferred)={rounds:?}; source(prepared,outbound,nonce,coordinator_fact,recipient_row_scope_state)={delivery_state:?}; exact_outbound_relay_seen={relay_seen:?}; actual_source_original_complete_groups={source_original:?}; source_recipient_errors(receive_storage,receive_other,convergence_storage,convergence_other,maintenance,restart,other;incomplete)={error_observations:?}"
+                            "surviving A/B must regain fresh original history authority from an actually settled protected Remove successor, while every old origin remains denied: {error:?}; recipient_not_ready={recipient_not_ready}; begin_not_ready={begin_not_ready}; rounds(generation,phase,facts,deferred)={rounds:?}; source(prepared,outbound,nonce,coordinator_fact,recipient_row_scope_state)={delivery_state:?}; exact_outbound_relay_seen={relay_seen:?}; actual_source_original_complete_groups={source_original:?}; shared_anchor(account,group,successor,roster,enrollment,context,coordinator,nonce_present,nonce_equal)={shared_anchor:?}; source_recipient_errors(receive_storage,receive_other,convergence_storage,convergence_other,maintenance,restart,other;incomplete)={error_observations:?}"
                         );
                     }
                 }
