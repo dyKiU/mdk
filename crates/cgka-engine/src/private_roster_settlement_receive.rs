@@ -273,7 +273,15 @@ pub(crate) fn apply_settlement_effect<S: StorageProvider>(
             }
         }
     }
-    store.record_remote_confirmation(&confirmation)?;
+    #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+    let confirmation_result = store
+        .record_remote_confirmation(&confirmation)
+        .inspect_err(|_| {
+            observe(Category::ConfirmationWriteError);
+        });
+    #[cfg(not(any(test, all(feature = "test-crash-hooks", debug_assertions))))]
+    let confirmation_result = store.record_remote_confirmation(&confirmation);
+    confirmation_result?;
     if matches!(frame.phase, SettlementPhase::Challenge) {
         // Only the actual coordinator's sealed Challenge binds the nonce.
         // Promote matching earlier receipts inside this same crypto SQL unit;

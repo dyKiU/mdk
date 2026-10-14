@@ -116,6 +116,13 @@ async fn private_roster_settlement_completed_encrypted_reopen_preserves_roster_w
             == &expected
     );
     assert!(reopened.settlement_admission_for(&group).unwrap().is_none());
+    assert!(
+        reopened
+            .device_revocation_storage_retry_groups()
+            .unwrap()
+            .is_empty(),
+        "durable completed facts cannot restore a revoked retry owner"
+    );
     assert!(reopened.linking_welcome_policy.is_none());
     assert!(
         reopened.prepare_private_roster_ack(&group).await.is_err(),
@@ -2920,3 +2927,68 @@ async fn private_enrollment_local_proposal_handoff_preserves_original_lease_and_
 
 #[path = "private_enrollment_sharing_tests.rs"]
 mod sharing_endorsement;
+
+#[tokio::test]
+async fn revoked_successor_retry_scope_refuses_terminal_mismatch_expiry_and_cancellation() {
+    let (initiator, responder, group) =
+        complete_pair(SqliteAccountStorage::in_memory().unwrap()).await;
+    let mut round = responder
+        .storage
+        .private_roster_settlement_storage()
+        .unwrap()
+        .read_round()
+        .unwrap()
+        .unwrap();
+    // Predicate-only negative scope model based on a real joined/settled tree.
+    // These local copies are never installed in an Engine, written to SQL, or
+    // used to grant a revoked original. Genuine Revoked ownership is proved by
+    // the separate App confirmation-fault journey.
+    round.anchor.origin = cgka_traits::private_device_invite::PrivateInviteOrigin::Revoked(7);
+    round.phase = PrivateSettlementPhase::Pending;
+    let mut admission = LiveSettlementAdmission {
+        anchor: round.anchor.clone(),
+        generation: round.generation,
+        deadline: Instant::now() + Duration::from_secs(30),
+        cancelled: AtomicBool::new(false),
+        guard: None,
+    };
+    let matches =
+        crate::device_leaf_revocation::transition::pending_revoked_successor_round_matches;
+    assert!(matches(&admission, &round));
+    for phase in [
+        PrivateSettlementPhase::Denied,
+        PrivateSettlementPhase::Completed,
+    ] {
+        let mut terminal = round.clone();
+        terminal.phase = phase;
+        assert!(!matches(&admission, &terminal));
+    }
+    let mut mismatched = round.clone();
+    mismatched.generation += 1;
+    assert!(!matches(&admission, &mismatched));
+    mismatched = round.clone();
+    mismatched.anchor.context_digest[0] ^= 1;
+    assert!(!matches(&admission, &mismatched));
+    admission.cancel();
+    assert!(!matches(&admission, &round));
+    admission.cancelled.store(false, Ordering::SeqCst);
+    admission.deadline = Instant::now() - Duration::from_secs(1);
+    assert!(!matches(&admission, &round));
+    // Real durable completed facts and an invited owner's live metadata do not
+    // manufacture the missing Revoked in-memory capability.
+    assert!(
+        initiator
+            .device_revocation_storage_retry_groups()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        responder
+            .device_revocation_storage_retry_groups()
+            .unwrap()
+            .is_empty()
+    );
+    drop(initiator);
+    drop(responder);
+    let _ = group;
+}

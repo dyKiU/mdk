@@ -116,12 +116,25 @@ pub struct MarmotRelayPlane {
     inner: Arc<MarmotRelayPlaneInner>,
 }
 
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+mod private_confirmation_gate;
+
 struct MarmotRelayPlaneInner {
     subscription_rebuild_lookback: Option<Duration>,
     relay_safety: RelaySafetyPolicy,
     transport: Arc<RelayPlaneTransport>,
     directory: DirectoryRelayPlane,
     directory_subscription_sync: Mutex<()>,
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    private_confirmation_gate: std::sync::Mutex<Option<private_confirmation_gate::Gate>>,
     #[cfg(all(
         test,
         feature = "experimental-device-sync",
@@ -1537,6 +1550,12 @@ impl MarmotRelayPlane {
                 transport,
                 directory: DirectoryRelayPlane::new(directory_fetcher),
                 directory_subscription_sync: Mutex::new(()),
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                private_confirmation_gate: std::sync::Mutex::new(None),
                 #[cfg(all(
                     test,
                     feature = "experimental-device-sync",
@@ -3826,6 +3845,12 @@ impl MarmotRelayPlaneAccountAdapter {
         &self,
         request: TransportPublishRequest,
     ) -> Result<TransportPublishReport, TransportAdapterError> {
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        private_confirmation_gate::hold(self, &request).await;
         self.publish_with_local_mirror(request, false).await
     }
 

@@ -23,6 +23,7 @@ mod enabled {
         ChallengeBinding,
         AckBinding,
         Accepted,
+        ConfirmationWriteError,
     }
     impl Category {
         fn label(self) -> &'static str {
@@ -41,6 +42,7 @@ mod enabled {
                 Self::ChallengeBinding => "challenge_binding",
                 Self::AckBinding => "ack_binding",
                 Self::Accepted => "accepted",
+                Self::ConfirmationWriteError => "confirmation_write_error",
             }
         }
     }
