@@ -1023,6 +1023,19 @@ mod actual {
     {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry).await;
     }
+    #[tokio::test]
+    async fn device_revocation_challenge_initial_peel_before_storage_retry_preserves_fresh_authority()
+     {
+        selected_chat_delivery(
+            RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry,
+        )
+        .await;
+    }
+    #[derive(Clone, Copy)]
+    enum ChallengeBeforeRetry {
+        Receipt,
+        InitialPeel,
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
         None,
@@ -1040,6 +1053,7 @@ mod actual {
         DeviceRosterSuccessorReopen,
         DeviceRosterSuccessorStorageRetry,
         DeviceRosterChallengeBeforeRetry,
+        DeviceRosterChallengeInitialPeelBeforeRetry,
         HistoryTransfer,
         HistoryRecipientQuery,
         HistoryRequestReplay,
@@ -1447,6 +1461,7 @@ mod actual {
                 | RecipientAdmissionScenario::DeviceRosterSuccessorReopen
                 | RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
                 | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
+                | RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
         ) {
             request.cancel().await.unwrap();
             drop(original_consents);
@@ -1459,14 +1474,24 @@ mod actual {
                     RecipientAdmissionScenario::DeviceRosterSuccessor
                         | RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
                         | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
+                        | RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
                 ),
                 scenario == RecipientAdmissionScenario::DeviceRosterSuccessorReopen,
                 matches!(
                     scenario,
                     RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
                         | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
+                        | RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
                 ),
-                scenario == RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry,
+                match scenario {
+                    RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry => {
+                        Some(ChallengeBeforeRetry::Receipt)
+                    }
+                    RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry => {
+                        Some(ChallengeBeforeRetry::InitialPeel)
+                    }
+                    _ => None,
+                },
             )
             .await;
             directory_reader.shutdown().await;
@@ -2798,6 +2823,7 @@ mod actual {
         fixture: &SelectedChatFixture,
         relay_reader: &nostr_sdk::prelude::Client,
         protected: &cgka_traits::GroupId,
+        observation: ChallengeBeforeRetry,
     ) -> Result<bool, &'static str> {
         let source = fixture.apps[0]
             .account_storage("test")
@@ -2805,6 +2831,21 @@ mod actual {
         let recipient = fixture.apps[1]
             .account_storage("test")
             .map_err(|_| "recipient storage unavailable")?;
+        let predecessor_epoch = if matches!(observation, ChallengeBeforeRetry::InitialPeel) {
+            let actual = openmls::group::MlsGroup::load(
+                recipient.mls_storage(),
+                &openmls::group::GroupId::from_slice(protected.as_slice()),
+            )
+            .map_err(|_| "recipient predecessor MLS unavailable")?
+            .ok_or("recipient predecessor MLS absent")?;
+            let epoch = actual.epoch().as_u64();
+            if epoch == 0 {
+                return Err("initial peel discriminator requires nonzero actual predecessor epoch");
+            }
+            Some(epoch)
+        } else {
+            None
+        };
         let (message, canonical, ciphertext) =
             tokio::time::timeout(std::time::Duration::from_secs(20), async {
                 loop {
@@ -2888,6 +2929,7 @@ mod actual {
         // A transport wrapper may be parked before MLS keys are available. A
         // canonical row instead proves exact peeled ciphertext receipt. Neither
         // row state grants a live original or a settled roster.
+        let mut exact_attempt_observation = None;
         let observed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 for id in [&message.id, &canonical] {
@@ -2903,7 +2945,25 @@ mod actual {
                                 && payload
                                     .as_openmls_wire()
                                     .is_some_and(|stored| stored.payload == ciphertext);
-                            if exact_outer || exact_inner {
+                            if matches!(observation, ChallengeBeforeRetry::InitialPeel) {
+                                if exact_outer || exact_inner {
+                                    exact_attempt_observation = Some((row.state,
+                                        Some(row.epoch.0) == predecessor_epoch));
+                                }
+                                // These bytes and epoch come from the real handler's
+                                // persisted row, not a fixture rewrite. The only two raw
+                                // PeelDeferred writes stamp epoch0 before quarantine,
+                                // or current_epoch after completed peel/fallback refusal.
+                                // A nonzero exact predecessor stamp distinguishes the
+                                // latter; it does not prove private-frame decryption.
+                                if exact_outer && row.group_id == *protected
+                                    && row.state == cgka_traits::MessageState::PeelDeferred
+                                    && Some(row.epoch.0) == predecessor_epoch
+                                {
+                                    eprintln!("revocation_challenge_initial_peel exact_outer=true state=peel_deferred persisted_epoch_matches_actual_nonzero_predecessor=true private_frame_decryption_proven=false");
+                                    return Ok(true);
+                                }
+                            } else if exact_outer || exact_inner {
                                 return Ok(true);
                             }
                         }
@@ -2917,6 +2977,12 @@ mod actual {
         .await;
         match observed {
             Ok(result) => result,
+            Err(_) if matches!(observation, ChallengeBeforeRetry::InitialPeel) => {
+                eprintln!(
+                    "revocation_challenge_initial_peel_prerequisite_unmet exact_state_epoch_matches_predecessor={exact_attempt_observation:?}"
+                );
+                Err("exact challenge initial peel epoch prerequisite timed out")
+            }
             Err(_) => Ok(false), // Publication is known; arrival remains unproved.
         }
     }
@@ -2928,7 +2994,7 @@ mod actual {
         require_fresh_successor: bool,
         retained_remove_reopen: bool,
         retained_remove_storage_retry: bool,
-        challenge_before_retry: bool,
+        challenge_before_retry: Option<ChallengeBeforeRetry>,
     ) {
         use cgka_traits::{GroupStorage, StorageProvider};
         let d = fixture.d_app.account_home().account("test").unwrap();
@@ -3119,7 +3185,7 @@ mod actual {
                 .into_iter()
                 .collect()
         );
-        let predecessor_settlement = if challenge_before_retry {
+        let predecessor_settlement = if challenge_before_retry.is_some() {
             let storage = fixture.apps[1].account_storage("test").unwrap();
             let roster = storage.private_roster_settlement_storage().unwrap();
             let round = roster.read_round().unwrap().unwrap();
@@ -3196,11 +3262,12 @@ mod actual {
                 before.epoch().as_u64(),
                 before_epochs[&hex::encode(protected.as_slice())]
             );
-            let challenge_observation = if challenge_before_retry {
+            let challenge_observation = if let Some(observation) = challenge_before_retry {
                 let observed = observe_challenge_while_successor_rolled_back(
                     fixture,
                     relay_reader,
                     &protected,
+                    observation,
                 )
                 .await;
                 // Recheck after the observation, before releasing the real SQL fault.
