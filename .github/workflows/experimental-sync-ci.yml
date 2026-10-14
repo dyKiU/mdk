@@ -321,7 +321,7 @@ jobs:
           print("qualification-selected-core-regression-cases:", len(selected))
           PYGUARD
           output_args=()
-          if [[ "$REGRESSION_SCOPE" == revocation-challenge-ordering ]]; then
+          if [[ "$REGRESSION_SCOPE" == revocation-challenge-ordering || "$REGRESSION_SCOPE" == revocation-regression ]]; then
             output_args=(--success-output immediate)
           fi
           cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads 6 --retries 0 --no-fail-fast "${output_args[@]}"

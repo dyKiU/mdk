@@ -3136,6 +3136,7 @@ mod actual {
         } else {
             None
         };
+        let mut a_errors = fixture.runtimes[0].subscribe();
         let mut b_errors = fixture.runtimes[1].subscribe();
         let fault = if retained_remove_reopen || retained_remove_storage_retry {
             let app = &fixture.apps[1];
@@ -3437,6 +3438,7 @@ mod actual {
                 .to_vec();
             let mut recipient_not_ready = 0;
             let mut begin_not_ready = 0;
+            let fresh_started = std::time::Instant::now();
             let fresh = tokio::time::timeout(std::time::Duration::from_secs(25), async {
                 loop {
                     let choices = match managers[0]
@@ -3480,12 +3482,11 @@ mod actual {
                 }
             })
             .await;
-            let fresh = match fresh {
-                Ok(fresh) => fresh,
-                Err(error) => {
-                    // Failure-only structural observations distinguish discovery from
-                    // original construction without emitting keys, packets or payloads.
-                    let rounds = fixture.apps[..2].iter().map(|app| -> Result<_, &'static str> {
+            let fresh_wait_ms = fresh_started.elapsed().as_millis();
+            if fresh.is_err() || retained_remove_storage_retry {
+                // Failure-only structural observations distinguish discovery from
+                // original construction without emitting keys, packets or payloads.
+                let rounds = fixture.apps[..2].iter().map(|app| -> Result<_, &'static str> {
                     let storage = app.account_storage("test").map_err(|_| "account storage unavailable")?;
                     let roster = storage.private_roster_settlement_storage().ok_or("roster storage unavailable")?;
                     let round = roster.read_round().map_err(|_| "roster observation failed")?;
@@ -3499,101 +3500,155 @@ mod actual {
                         (round.generation, phase, facts, round.deferred_acks.len())
                     }))
                 }).collect::<Vec<_>>();
-                    // Snapshot before the bounded post-deadline relay observation.
-                    // A local confirmation precedes publication; it is not an ACK.
-                    let delivery = (|| -> Result<_, &'static str> {
-                        let a = fixture.apps[0]
-                            .account_storage("test")
-                            .map_err(|_| "source storage unavailable")?;
-                        let b = fixture.apps[1]
-                            .account_storage("test")
-                            .map_err(|_| "recipient storage unavailable")?;
-                        let roster = a
-                            .private_roster_settlement_storage()
-                            .ok_or("source roster unavailable")?;
-                        let round = roster
-                            .read_round()
-                            .map_err(|_| "source round unavailable")?
-                            .ok_or("source round absent")?;
-                        let fact = roster
-                            .read_facts()
-                            .map_err(|_| "source facts unavailable")?
-                            .into_iter()
-                            .find(|fact| {
-                                fact.generation == round.generation
-                                    && Some(fact.leaf_index) == round.coordinator_leaf_index
-                                    && fact.signature_public_key == round.anchor.coordinator
-                            });
-                        let received = fact
-                            .as_ref()
-                            .map(|fact| match b.get_message(&fact.message_id) {
-                                Ok(row) => {
-                                    Ok(Some((row.group_id == round.anchor.group_id, row.state)))
-                                }
-                                Err(cgka_traits::storage::StorageError::NotFound) => Ok(None),
-                                Err(_) => Err("recipient row unavailable"),
-                            })
-                            .transpose()?;
-                        let outbound = round
-                            .outbound
-                            .as_ref()
-                            .map(|bytes| {
-                                serde_json::from_slice::<cgka_traits::engine::SendResult>(bytes)
-                                    .map_err(|_| "outbound decode unavailable")
-                            })
-                            .transpose()?;
-                        let event_id = match outbound {
-                            Some(cgka_traits::engine::SendResult::ApplicationMessage {
-                                msg,
-                                group_id,
-                                source_epoch,
-                                ..
-                            }) if group_id == round.anchor.group_id
-                                && source_epoch == round.anchor.successor.epoch =>
-                            {
-                                Some(
-                                    nostr_sdk::prelude::EventId::from_slice(msg.id.as_slice())
-                                        .map_err(|_| "outbound event unavailable")?,
-                                )
-                            }
-                            Some(_) => return Err("outbound scope unavailable"),
-                            None => None,
-                        };
-                        Ok((
-                            (
-                                round.prepared_ciphertext.is_some(),
-                                round.outbound.is_some(),
-                                round.round_nonce.is_some(),
-                                fact.is_some(),
-                                received,
-                            ),
-                            event_id,
-                        ))
-                    })();
-                    let (delivery_state, relay_seen) = match delivery {
-                        Ok((state, Some(event_id))) => {
-                            let observed = relay_reader
-                                .fetch_events(nostr_sdk::prelude::ReqTarget::single(
-                                    fixture.url.as_str(),
-                                    [nostr_sdk::prelude::Filter::new().ids([event_id])],
-                                ))
-                                .timeout(std::time::Duration::from_secs(2))
-                                .await;
-                            (
-                                Ok(state),
-                                observed
-                                    .map(|events| events.iter().any(|event| event.id == event_id))
-                                    .map_err(|_| "relay observation unavailable"),
+                // Snapshot before the bounded post-deadline relay observation.
+                // A local confirmation precedes publication; it is not an ACK.
+                let delivery = (|| -> Result<_, &'static str> {
+                    let a = fixture.apps[0]
+                        .account_storage("test")
+                        .map_err(|_| "source storage unavailable")?;
+                    let b = fixture.apps[1]
+                        .account_storage("test")
+                        .map_err(|_| "recipient storage unavailable")?;
+                    let roster = a
+                        .private_roster_settlement_storage()
+                        .ok_or("source roster unavailable")?;
+                    let round = roster
+                        .read_round()
+                        .map_err(|_| "source round unavailable")?
+                        .ok_or("source round absent")?;
+                    let fact = roster
+                        .read_facts()
+                        .map_err(|_| "source facts unavailable")?
+                        .into_iter()
+                        .find(|fact| {
+                            fact.generation == round.generation
+                                && Some(fact.leaf_index) == round.coordinator_leaf_index
+                                && fact.signature_public_key == round.anchor.coordinator
+                        });
+                    let received = fact
+                        .as_ref()
+                        .map(|fact| match b.get_message(&fact.message_id) {
+                            Ok(row) => Ok(Some((row.group_id == round.anchor.group_id, row.state))),
+                            Err(cgka_traits::storage::StorageError::NotFound) => Ok(None),
+                            Err(_) => Err("recipient row unavailable"),
+                        })
+                        .transpose()?;
+                    let outbound = round
+                        .outbound
+                        .as_ref()
+                        .map(|bytes| {
+                            serde_json::from_slice::<cgka_traits::engine::SendResult>(bytes)
+                                .map_err(|_| "outbound decode unavailable")
+                        })
+                        .transpose()?;
+                    let event_id = match outbound {
+                        Some(cgka_traits::engine::SendResult::ApplicationMessage {
+                            msg,
+                            group_id,
+                            source_epoch,
+                            ..
+                        }) if group_id == round.anchor.group_id
+                            && source_epoch == round.anchor.successor.epoch =>
+                        {
+                            Some(
+                                nostr_sdk::prelude::EventId::from_slice(msg.id.as_slice())
+                                    .map_err(|_| "outbound event unavailable")?,
                             )
                         }
-                        Ok((state, None)) => (Ok(state), Err("outbound absent")),
-                        Err(error) => (Err(error), Err("relay observation unavailable")),
+                        Some(_) => return Err("outbound scope unavailable"),
+                        None => None,
                     };
-                    panic!(
-                        "surviving A/B must regain fresh original history authority from an actually settled protected Remove successor, while every old origin remains denied: {error:?}; recipient_not_ready={recipient_not_ready}; begin_not_ready={begin_not_ready}; rounds(generation,phase,facts,deferred)={rounds:?}; source(prepared,outbound,nonce,coordinator_fact,recipient_row_scope_state)={delivery_state:?}; exact_outbound_relay_seen={relay_seen:?}"
-                    );
+                    Ok((
+                        (
+                            round.prepared_ciphertext.is_some(),
+                            round.outbound.is_some(),
+                            round.round_nonce.is_some(),
+                            fact.is_some(),
+                            received,
+                        ),
+                        event_id,
+                    ))
+                })();
+                let source_original = match tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    original.snapshot(),
+                )
+                .await
+                {
+                    Ok(Ok(snapshot)) => Ok((snapshot.complete, snapshot.completed_groups.len())),
+                    Ok(Err(_)) => Err("original snapshot refused"),
+                    Err(_) => Err("original snapshot unavailable"),
+                };
+                let error_observations = [&mut a_errors, &mut b_errors].map(|subscription| {
+                    let mut counts = [0usize; 7];
+                    let mut incomplete = true;
+                    for _ in 0..256 {
+                        match subscription.try_recv() {
+                            Ok(crate::MarmotAppEvent::AccountError(error)) => {
+                                let bucket = match error.message.as_str() {
+                                    "runtime receive failed: storage_backend" => 0,
+                                    message if message.starts_with("runtime receive failed:") => 1,
+                                    "scheduled convergence failed: storage_backend"
+                                    | "scheduled convergence sync failed: storage_backend" => 2,
+                                    message if message.starts_with("scheduled convergence") => 3,
+                                    message
+                                        if message.starts_with("scheduled maintenance failed:") =>
+                                    {
+                                        4
+                                    }
+                                    message
+                                        if message.starts_with("runtime startup")
+                                            || message.starts_with("runtime restart") =>
+                                    {
+                                        5
+                                    }
+                                    _ => 6,
+                                };
+                                counts[bucket] += 1;
+                            }
+                            Ok(_) => {}
+                            Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
+                                incomplete = false;
+                                break;
+                            }
+                            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_))
+                            | Err(tokio::sync::broadcast::error::TryRecvError::Closed) => break,
+                        }
+                    }
+                    (counts, incomplete)
+                });
+                let (delivery_state, relay_seen) = match delivery {
+                    Ok((state, Some(event_id))) => {
+                        let observed = relay_reader
+                            .fetch_events(nostr_sdk::prelude::ReqTarget::single(
+                                fixture.url.as_str(),
+                                [nostr_sdk::prelude::Filter::new().ids([event_id])],
+                            ))
+                            .timeout(std::time::Duration::from_secs(2))
+                            .await;
+                        (
+                            Ok(state),
+                            observed
+                                .map(|events| events.iter().any(|event| event.id == event_id))
+                                .map_err(|_| "relay observation unavailable"),
+                        )
+                    }
+                    Ok((state, None)) => (Ok(state), Err("outbound absent")),
+                    Err(error) => (Err(error), Err("relay observation unavailable")),
+                };
+                match &fresh {
+                    Ok(_) => eprintln!(
+                        "revocation_original_progress fresh_wait_ms={fresh_wait_ms} rounds(generation,phase,facts,deferred)={rounds:?}; source(prepared,outbound,nonce,coordinator_fact,recipient_row_scope_state)={delivery_state:?}; exact_outbound_relay_seen={relay_seen:?}; actual_source_original_complete_groups={source_original:?}; source_recipient_errors(receive_storage,receive_other,convergence_storage,convergence_other,maintenance,restart,other;incomplete)={error_observations:?}"
+                    ),
+                    Err(error) => {
+                        panic!(
+                            "surviving A/B must regain fresh original history authority from an actually settled protected Remove successor, while every old origin remains denied: {error:?}; recipient_not_ready={recipient_not_ready}; begin_not_ready={begin_not_ready}; rounds(generation,phase,facts,deferred)={rounds:?}; source(prepared,outbound,nonce,coordinator_fact,recipient_row_scope_state)={delivery_state:?}; exact_outbound_relay_seen={relay_seen:?}; actual_source_original_complete_groups={source_original:?}; source_recipient_errors(receive_storage,receive_other,convergence_storage,convergence_other,maintenance,restart,other;incomplete)={error_observations:?}"
+                        );
+                    }
                 }
-            };
+            }
+            let fresh =
+                fresh.expect("fresh authority failure already reported with safe observations");
             assert!(
                 matches!(
                     managers[0]
