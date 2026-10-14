@@ -3215,11 +3215,14 @@ mod actual {
                 .signature_key()
                 .as_slice()
                 .to_vec();
+            let mut recipient_not_ready = 0;
+            let mut begin_not_ready = 0;
             let fresh = tokio::time::timeout(std::time::Duration::from_secs(25), async {
                 loop {
                     let choices = match managers[0].history_transfer_recipients("test", &fixture.chat).await {
                         Ok(choices) => choices,
                         Err(crate::HistoryTransferError::NotReady) => {
+                            recipient_not_ready += 1;
                             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                             continue;
                         }
@@ -3231,11 +3234,32 @@ mod actual {
                         .expect("public query must return the actual surviving B leaf");
                     match managers[0].begin_history_transfer("test", &fixture.chat, chosen.device).await {
                         Ok(original) => break original,
-                        Err(crate::HistoryTransferError::NotReady) => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
+                        Err(crate::HistoryTransferError::NotReady) => {
+                            begin_not_ready += 1;
+                            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                        },
                         Err(error) => panic!("fresh successor history authority failed before settlement: {error:?}"),
                     }
                 }
-            }).await.expect("surviving A/B must regain fresh original history authority from an actually settled protected Remove successor, while every old origin remains denied");
+            }).await.unwrap_or_else(|error| {
+                // Failure-only structural observations distinguish discovery from
+                // original construction without emitting keys, packets or payloads.
+                let rounds = fixture.apps[..2].iter().map(|app| -> Result<_, &'static str> {
+                    let storage = app.account_storage("test").map_err(|_| "account storage unavailable")?;
+                    let roster = storage.private_roster_settlement_storage().ok_or("roster storage unavailable")?;
+                    let round = roster.read_round().map_err(|_| "roster observation failed")?;
+                    let facts = roster.read_facts().map_err(|_| "fact observation failed")?.len();
+                    Ok(round.map(|round| {
+                        let phase = match round.phase {
+                            cgka_traits::private_roster_settlement::PrivateSettlementPhase::Pending => "pending",
+                            cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed => "completed",
+                            cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied => "denied",
+                        };
+                        (round.generation, phase, facts, round.deferred_acks.len())
+                    }))
+                }).collect::<Vec<_>>();
+                panic!("surviving A/B must regain fresh original history authority from an actually settled protected Remove successor, while every old origin remains denied: {error:?}; recipient_not_ready={recipient_not_ready}; begin_not_ready={begin_not_ready}; rounds(generation,phase,facts,deferred)={rounds:?}");
+            });
             assert!(
                 matches!(
                     managers[0]
