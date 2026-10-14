@@ -1101,8 +1101,8 @@ default builds return typed Unsupported, and experimental builds support
 verification with revision-bound singleton continuation through the original
 actor-owned actions. Opaque target selection, existing-device approval and
 packet/finalization methods support ready-account protected three-device
-enrollment. Enrollment capability remains false pending matched artifacts and
-application acceptance. Completed verification or continuation alone does
+enrollment. The experimental profile exposes enrollment capability; matched artifacts and
+application acceptance remain separate requirements. Completed verification or continuation alone does
 not report synchronized messages or history.
 
 ## Exact-device revocation

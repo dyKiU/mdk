@@ -4,7 +4,8 @@
 builds expose the same public shapes and return `DeviceLinkingUnsupported` before
 account lookup or purpose reservation. The experimental feature supports
 verification and revision-bound singleton continuation: `enrollment_supported`
-remains false pending matched artifacts and application acceptance. Ready-account
+is true in the experimental profile; matched artifacts and application acceptance
+are separate qualification gates. Ready-account
 three-device enrollment is available through the original opaque actions. After genuine
 verification, `continue_linking` schedules the original actor-owned singleton
 actions; before verification it returns `DeviceLinkingNotReady`. `VerificationCompleteEnrollmentPending` describes the
