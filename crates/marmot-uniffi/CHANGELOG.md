@@ -4,6 +4,7 @@
 
 ### Breaking changes
 
+- `MarmotKitError` adds `InvalidPublicEventReferences`: a cached public event preview read named more than 16 references. Regenerate bindings and update exhaustive Swift `switch` / Kotlin `when` handling.
 - `MarmotKitError::MissingKeyPackage` adds `reason: MissingKeyPackageReasonFfi`. `ObsoleteOnly`
   means the recipient has published only obsolete KeyPackages and must update their app;
   these recipients previously surfaced as `InvalidKeyPackageEvent` (mdk#1975). `NotFound`
@@ -18,6 +19,8 @@
 - `MarmotKitError` adds `GroupCommitUndelivered`: a group change was refused because the group's last change has not reached every group relay yet (mdk#2255). Regenerate bindings and update exhaustive Swift `switch` / Kotlin `when` handling.
 
 ### Added
+
+- `Marmot::cached_public_event_previews` and `Marmot::resolve_public_event_preview` cache verified public Nostr events referenced from message content (mdk#1547). Cached reads are network-free and survive restarts; resolve fetches missing or stale previews. See [public event previews](README.md#public-event-previews).
 
 - Account-wide attachment candidate pages, group/sender/date queries and opaque account/query-bound cursor/version handles. Filtered empty pages can continue; source changes require restart. Existing group history and acquisition primitives are unchanged.
 
