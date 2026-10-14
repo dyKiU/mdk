@@ -24,7 +24,7 @@ per feature.
 - [Committed synchronized history](#committed-synchronized-history)
 - [Account chat views](#account-chat-views)
 - Feature notes: [runtime construction](#runtime-construction), [local sends](#local-sends),
-  [file-backed media upload](#file-backed-media-upload),
+  [file-backed media upload](#file-backed-media-upload), [account attachment history](#account-attachment-history),
   [public event verification](#public-event-verification), [host performance stages](#host-performance-stages),
   [Markdown rendering](#markdown-rendering), [identity references and pseudonyms](#identity-references-and-pseudonyms),
   [KeyPackage inventory](#keypackage-inventory), [selected chat-list presentation](#selected-chat-list-presentation),
@@ -397,6 +397,10 @@ on `MARMOT_EVENT_HISTORY_NOTICES_CHANGED`; a group's own occurrences also set
 `marmot_group_recovery_status_free`. See the
 [shared contract](../marmot-uniffi/README.md#history-may-be-incomplete-notices) for when notices appear,
 disappear and return.
+Group changes for a group whose unresolved epoch-gap recovery covers its current local epoch
+return `MARMOT_STATUS_GROUP_CATCHING_UP`. Retry after it syncs, or, once the user accepts that
+the change may split the group, call `marmot_acknowledge_group_catching_up` and retry. See the
+[shared contract](../marmot-uniffi/README.md#history-may-be-incomplete-notices).
 
 ## Group reporting
 
@@ -613,3 +617,6 @@ call; default builds refuse before inspecting them.
 ## Exact-device revocation
 
 The [shared exact-device contract](../marmot-uniffi/DEVICE-REVOCATION.md) applies to the blocking `marmot_begin_device_revocation` factory and opaque original handle. Retain aliases with `marmot_device_revocation_clone`; deep-free review snapshots and free each handle separately. Required outputs precede effects, and default builds refuse before input reads. Status values 151–157 append typed revocation outcomes after account-sharing statuses146–150.
+## Account attachment history
+
+`marmot_account_attachment_history_page` blocks off the UI thread and borrows its query arrays and cursor. Deep-free the result with `marmot_account_attachment_page_read_free`; its cursor and version are borrowed fields and must not be freed separately. Clone a version baseline with `marmot_account_attachment_version_clone` when it must outlive a page. Query flags use `uint8_t`, and arrays are capped at 100 before decoding. See the [shared contract](../marmot-uniffi/ACCOUNT-ATTACHMENT-HISTORY.md).

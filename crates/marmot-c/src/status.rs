@@ -144,7 +144,10 @@ pub enum MarmotStatus {
     CannotReportSelf = 99,
     /// Local per-account moderation-report cap; retry later.
     ModerationReportRateLimited = 100,
-    // Private experimental ABI: upstream moderation owns 96–100.
+    /// The group moved past this device and recovery has not caught it up;
+    /// group changes would fork it. Retry once it has synced (mdk#2258).
+    GroupCatchingUp = 101,
+    // Private experimental ABI: upstream moderation owns 96–100 and catch-up owns 101.
     DeviceLinkingUnsupported = 121,
     DeviceLinkingClosed = 122,
     DeviceLinkingInvalidPacket = 123,
@@ -378,6 +381,7 @@ pub(crate) fn status_from_error(err: &MarmotKitError) -> MarmotStatus {
         MarmotKitError::DisbandingNotEnabled { .. } => MarmotStatus::DisbandingNotEnabled,
         MarmotKitError::GroupDisbanding { .. } => MarmotStatus::GroupDisbanding,
         MarmotKitError::GroupRemoved { .. } => MarmotStatus::GroupRemoved,
+        MarmotKitError::GroupCatchingUp { .. } => MarmotStatus::GroupCatchingUp,
         MarmotKitError::StorageClosed { .. } => MarmotStatus::StorageClosed,
         MarmotKitError::GroupSendQueueFull { .. } => MarmotStatus::GroupSendQueueFull,
         MarmotKitError::CreatedGroupProjectionUnavailable { .. } => {
@@ -423,6 +427,12 @@ mod tests {
 
     #[test]
     fn upstream_moderation_and_private_sync_errors_keep_separate_abi_ranges() {
+        assert_eq!(
+            status_from_error(&MarmotKitError::GroupCatchingUp {
+                group_id_hex: "aa".into()
+            }) as i32,
+            101
+        );
         let moderation = [
             (MarmotKitError::ModerationReportingNotConfigured, 96),
             (
@@ -626,6 +636,9 @@ mod tests {
             MarmotKitError::GroupRemoved {
                 group_id_hex: "aa".into(),
             },
+            MarmotKitError::GroupCatchingUp {
+                group_id_hex: "aa".into(),
+            },
             MarmotKitError::MemberNotInGroup {
                 group_id_hex: "aa".into(),
                 member_id_hex: "bb".into(),
@@ -713,7 +726,7 @@ mod tests {
         ];
         assert_eq!(
             variants.len(),
-            128,
+            129,
             "list every MarmotKitError variant exactly once (update this count with the enum)"
         );
         assert_eq!(status_from_error(&MarmotKitError::UserBlocked) as i32, 78);

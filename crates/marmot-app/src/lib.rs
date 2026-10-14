@@ -2126,6 +2126,7 @@ impl MarmotApp {
             recovery_job_admission_expired: false,
             pending_epoch_stall_escalations: Vec::new(),
             pending_convergence_groups: std::collections::HashSet::new(),
+            stale_commit_acknowledgements: std::collections::HashMap::new(),
             pending_local_group_deletion_frontier_clears: std::collections::HashMap::new(),
             pending_application_event_acks: std::collections::HashSet::new(),
             fail_next_published_app_message_acknowledgement: cfg!(
@@ -8173,4 +8174,9 @@ pub use runtime::{
     AttachmentTransferState, AttachmentTransferStatus, AutomaticAttachmentRequest,
     MAX_ATTACHMENT_ASSET_LOOKUPS, MAX_ATTACHMENT_HISTORY_PAGE, MAX_ATTACHMENT_LOCAL_READ_BYTES,
     RetainedAttachmentAsset, RuntimeAttachmentTransferSubscription,
+};
+
+pub use runtime::{
+    AccountAttachmentCursor, AccountAttachmentEntry, AccountAttachmentPage,
+    AccountAttachmentPageRead, AccountAttachmentQuery, AccountAttachmentVersion,
 };

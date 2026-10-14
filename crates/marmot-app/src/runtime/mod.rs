@@ -2458,6 +2458,24 @@ impl MarmotAppRuntime {
         self.accounts.history_notices(account_ref).await
     }
 
+    /// Record that the user accepts the risk of changing a group that is still
+    /// catching up, after a group change failed with
+    /// [`AppError::GroupCatchingUp`] (mdk#2258). The device may be behind its
+    /// group, so the change can split the group for everyone. Retry the change
+    /// afterwards. The acknowledgement admits one group change attempt at the
+    /// device's current epoch, consumed even if that attempt fails, and is not
+    /// persisted. Returns false, recording nothing, when the group is not
+    /// catching up.
+    pub async fn acknowledge_group_catching_up(
+        &self,
+        account_ref: &str,
+        group_id: &GroupId,
+    ) -> Result<bool, AppError> {
+        self.accounts
+            .acknowledge_group_catching_up(account_ref, group_id)
+            .await
+    }
+
     /// Dismiss one notice after the user accepts that this history may be
     /// incomplete. The dismissal is durable and is recorded as its own
     /// outcome, never as recovered history. Returns false, changing nothing,
@@ -9113,3 +9131,9 @@ fn group_contributes_co_members(group: &AppGroupRecord) -> bool {
 }
 
 mod moderation;
+
+mod account_attachment_history;
+pub use account_attachment_history::{
+    AccountAttachmentCursor, AccountAttachmentEntry, AccountAttachmentPage,
+    AccountAttachmentPageRead, AccountAttachmentQuery, AccountAttachmentVersion,
+};

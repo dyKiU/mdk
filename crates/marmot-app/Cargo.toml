@@ -78,6 +78,7 @@ openmls_rust_crypto.workspace = true
 openmls_traits.workspace = true
 tls_codec.workspace = true
 criterion.workspace = true
+storage-sqlite = { workspace = true, features = ["test-support"] }
 tokio-tungstenite.workspace = true
 keyring-core.workspace = true
 marmot-forensics.workspace = true

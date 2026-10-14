@@ -192,6 +192,11 @@ enum MarmotStatus
    * Local per-account moderation-report cap; retry later.
    */
   MARMOT_STATUS_MODERATION_REPORT_RATE_LIMITED = 100,
+  /**
+   * The group moved past this device and recovery has not caught it up;
+   * group changes would fork it. Retry once it has synced (mdk#2258).
+   */
+  MARMOT_STATUS_GROUP_CATCHING_UP = 101,
   MARMOT_STATUS_DEVICE_LINKING_UNSUPPORTED = 121,
   MARMOT_STATUS_DEVICE_LINKING_CLOSED = 122,
   MARMOT_STATUS_DEVICE_LINKING_INVALID_PACKET = 123,
@@ -1018,6 +1023,7 @@ typedef enum MarmotAttachmentTransferState {
   MARMOT_ATTACHMENT_TRANSFER_STATE_PREVIOUSLY_ACQUIRED_UNAVAILABLE,
   MARMOT_ATTACHMENT_TRANSFER_STATE_COMPLETED_UNRETAINED,
   MARMOT_ATTACHMENT_TRANSFER_STATE_RETRY_EXHAUSTED,
+  MARMOT_ATTACHMENT_TRANSFER_STATE_STORAGE_BLOCKED,
 } MarmotAttachmentTransferState;
 
 typedef enum MarmotChatListView {
@@ -1272,6 +1278,10 @@ typedef enum MarmotModerationReportOrigin {
   MARMOT_MODERATION_REPORT_ORIGIN_REPORT,
   MARMOT_MODERATION_REPORT_ORIGIN_BLOCK_AND_REPORT,
 } MarmotModerationReportOrigin;
+
+typedef struct MarmotAccountAttachmentCursor MarmotAccountAttachmentCursor;
+
+typedef struct MarmotAccountAttachmentVersion MarmotAccountAttachmentVersion;
 
 /**
  * Free before its client. Concurrent next and commands are supported; never free during a call.
@@ -2020,6 +2030,73 @@ typedef struct MarmotAccountSharingSnapshot {
   bool complete;
 } MarmotAccountSharingSnapshot;
 
+typedef struct MarmotAttachmentEntry {
+  char *message_id_hex;
+  char *source_message_id_hex;
+  char *sender;
+  uint64_t timeline_at;
+  uint64_t received_at;
+  bool has_source_epoch;
+  /**
+   *Only meaningful when the matching `has_` flag is set.
+   */
+  uint64_t source_epoch;
+  enum MarmotAttachmentCategory category;
+  enum MarmotAttachmentRole role;
+  struct MarmotMediaAttachmentOutcome attachment;
+} MarmotAttachmentEntry;
+
+typedef struct MarmotAccountAttachmentEntry {
+  bool metadata_limited;
+  char *group_id_hex;
+  struct MarmotAttachmentEntry entry;
+} MarmotAccountAttachmentEntry;
+
+/**
+ * Owned result fields; borrow handles only while the result is live, or clone the version baseline.
+ */
+typedef struct MarmotAccountAttachmentPage {
+  struct MarmotAccountAttachmentEntry *entries;
+  uintptr_t entries_len;
+  struct MarmotAccountAttachmentVersion *version;
+  struct MarmotAccountAttachmentCursor *next_cursor;
+  bool has_next_expiry;
+  uint64_t next_expiry;
+} MarmotAccountAttachmentPage;
+
+typedef enum MarmotAccountAttachmentPageRead_Tag {
+  MARMOT_ACCOUNT_ATTACHMENT_PAGE_READ_PAGE,
+  MARMOT_ACCOUNT_ATTACHMENT_PAGE_READ_RESTART_REQUIRED,
+  MARMOT_ACCOUNT_ATTACHMENT_PAGE_READ_CURSOR_MISMATCH,
+  MARMOT_ACCOUNT_ATTACHMENT_PAGE_READ_INVALID_QUERY,
+  MARMOT_ACCOUNT_ATTACHMENT_PAGE_READ_INVALID_LIMIT,
+} MarmotAccountAttachmentPageRead_Tag;
+
+typedef struct MarmotAccountAttachmentPageRead_Page_Body {
+  struct MarmotAccountAttachmentPage page;
+} MarmotAccountAttachmentPageRead_Page_Body;
+
+typedef struct MarmotAccountAttachmentPageRead {
+  MarmotAccountAttachmentPageRead_Tag tag;
+  union {
+    MarmotAccountAttachmentPageRead_Page_Body PAGE;
+  };
+} MarmotAccountAttachmentPageRead;
+
+/**
+ * Borrowed arrays, at most 100 entries each. Empty means all; has_min_timeline_at/has_max_timeline_at are uint8_t flags.
+ */
+typedef struct MarmotAccountAttachmentQuery {
+  const char *const *groups;
+  uintptr_t groups_len;
+  const char *const *senders;
+  uintptr_t senders_len;
+  uint8_t has_min_timeline_at;
+  uint64_t min_timeline_at;
+  uint8_t has_max_timeline_at;
+  uint64_t max_timeline_at;
+} MarmotAccountAttachmentQuery;
+
 /**
  * NULL reference means unavailable, with byte_count zero. A non-NULL reference
  * with byte_count zero is a verified empty file. References are opaque.
@@ -2056,22 +2133,6 @@ typedef struct MarmotAttachmentLocalTarget {
   const char *source_message_id_hex;
   uint32_t attachment_index;
 } MarmotAttachmentLocalTarget;
-
-typedef struct MarmotAttachmentEntry {
-  char *message_id_hex;
-  char *source_message_id_hex;
-  char *sender;
-  uint64_t timeline_at;
-  uint64_t received_at;
-  bool has_source_epoch;
-  /**
-   *Only meaningful when the matching `has_` flag is set.
-   */
-  uint64_t source_epoch;
-  enum MarmotAttachmentCategory category;
-  enum MarmotAttachmentRole role;
-  struct MarmotMediaAttachmentOutcome attachment;
-} MarmotAttachmentEntry;
 
 /**
  * All fields, including opaque handles, are owned by this page's result.
@@ -6419,6 +6480,58 @@ MarmotStatus marmot_account_sharing_approval_approve(const struct MarmotAccountS
 MarmotStatus marmot_account_sharing_approval_cancel(const struct MarmotAccountSharingApproval *handle);
 
 /**
+ * Deep-free the page result, including its borrowed cursor/version fields. NULL is a no-op.
+ * # Safety
+ * Value must be NULL or an owned, unfreed result with no outstanding borrows.
+ */
+void marmot_account_attachment_page_read_free(struct MarmotAccountAttachmentPageRead *value);
+
+/**
+ * Free a standalone version, never a field of a page result. NULL is a no-op.
+ * # Safety
+ * Value must be NULL or an owned standalone version with no outstanding borrows.
+ */
+void marmot_account_attachment_version_free(struct MarmotAccountAttachmentVersion *value);
+
+/**
+ * Clone a borrowed version into an independently owned baseline.
+ * # Safety
+ * Value must be live and out writable.
+ */
+MarmotStatus marmot_account_attachment_version_clone(const struct MarmotAccountAttachmentVersion *value,
+                                                     struct MarmotAccountAttachmentVersion **out);
+
+/**
+ * Blocking local read; call off the UI thread. Limit is 1..=100 candidates, not a filtered row target.
+ * # Safety
+ * Client, strings and query arrays must be valid, cursor NULL or live, and out writable.
+ */
+MarmotStatus marmot_account_attachment_history_page(const struct MarmotClient *client,
+                                                    const char *account_ref,
+                                                    const struct MarmotAccountAttachmentQuery *query,
+                                                    uint32_t limit,
+                                                    const struct MarmotAccountAttachmentCursor *cursor,
+                                                    struct MarmotAccountAttachmentPageRead **out);
+
+/**
+ * Read a constant-work account change token, owned independently from any page.
+ * # Safety
+ * Client and string must be live and out writable.
+ */
+MarmotStatus marmot_account_attachment_history_version(const struct MarmotClient *client,
+                                                       const char *account_ref,
+                                                       struct MarmotAccountAttachmentVersion **out);
+
+/**
+ * Compare against the retained baseline; outputs a MarmotAttachmentHistoryChange discriminant, not a count.
+ * # Safety
+ * Both versions must be live and out writable.
+ */
+MarmotStatus marmot_account_attachment_version_change_since(const struct MarmotAccountAttachmentVersion *current,
+                                                            const struct MarmotAccountAttachmentVersion *previous,
+                                                            uint32_t *out);
+
+/**
  * Free a list returned by this library. NULL is a no-op.
  *
  * # Safety
@@ -7252,6 +7365,23 @@ MarmotStatus marmot_group_app_component(const struct MarmotClient *client,
                                         const char *group_id_hex,
                                         uint16_t component_id,
                                         struct MarmotGroupAppComponent **out);
+
+/**
+ * After a group change returns `MARMOT_STATUS_GROUP_CATCHING_UP`, record
+ * that the user accepts the risk of splitting the group, then retry the
+ * change. Admits one attempt at the current epoch, consumed even if it
+ * fails; not persisted. Writes false when the group is not catching up.
+ *
+ * # Safety
+ * `client` must be a live handle; string arguments must be valid
+ * NUL-terminated strings (nullable ones may be NULL); array
+ * arguments must hold their stated length (or be NULL with
+ * length 0); out-pointers must be valid.
+ */
+MarmotStatus marmot_acknowledge_group_catching_up(const struct MarmotClient *client,
+                                                  const char *account_ref,
+                                                  const char *group_id_hex,
+                                                  bool *out);
 
 /**
  * Query advisory membership health and pending rejoin offers.

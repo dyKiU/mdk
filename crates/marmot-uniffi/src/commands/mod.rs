@@ -66,6 +66,7 @@ pub use history_transfer::{HistoryConsent, HistoryTransfer};
 
 mod synchronized_history;
 
+mod account_attachment_history;
 mod account_chat_sharing;
 mod startup_diagnostics;
 pub use account_chat_sharing::AccountSharingApproval;

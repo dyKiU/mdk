@@ -90,6 +90,8 @@ pub use attachment_acquisition::{
     MAX_RETAINED_FILE_ATTACHMENT_BYTES, RetainedAttachmentAsset,
 };
 pub use attachment_history::{
+    AccountAttachmentCursor, AccountAttachmentEntry, AccountAttachmentHistoryError,
+    AccountAttachmentPage, AccountAttachmentQuery, AccountAttachmentVersion,
     AttachmentHistoryCursor, AttachmentHistoryEntry, AttachmentHistoryError, AttachmentHistoryPage,
     AttachmentHistoryVersion, MAX_ATTACHMENT_HISTORY_PAGE,
 };
@@ -179,7 +181,7 @@ pub use timeline::reports::{
 
 pub use attachment_acquisition::{
     AttachmentDownloadPolicy, AttachmentTransferFrame, AttachmentTransferState,
-    AttachmentTransferStatus,
+    AttachmentTransferStatus, STORAGE_PARKED_PREFIX_MAX_AGE_SECONDS, STORAGE_READMIT_MARGIN_BYTES,
 };
 
 #[cfg(feature = "experimental-device-sync")]

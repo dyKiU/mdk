@@ -33,6 +33,7 @@ Read the documentation at the tag matching your binaries; `master` can describe 
   [moderation reports to the operator](#moderation-reports-to-the-operator),
   [history may be incomplete notices](#history-may-be-incomplete-notices)
 - Media: [file-backed media upload](#file-backed-media-upload),
+  [account attachment history](#account-attachment-history),
   [bounded attachment history](#bounded-attachment-history), [local attachment access](#local-attachment-access)
 - Audit logs: [audit v5 recording and delivery](#audit-v5-recording-and-delivery),
   [legacy audit v4 upload](#legacy-audit-v4-upload)
@@ -893,6 +894,24 @@ full-history repair remains available and can still complete parked history that
 comparison of the retained window certifies. Notices carry no relay, message or key identities; keep them out of
 analytics. C callers: see the [C guide](../marmot-c/README.md#history-may-be-incomplete-notices).
 
+While unresolved epoch-gap recovery covers a group's current local epoch, the group may
+have moved past this device. Group changes (invite, remove, admin changes, profile, image,
+retention, disbanding and app components) then fail with `MarmotKitError::GroupCatchingUp`:
+a change committed from a stale epoch can split the group for everyone. Messages and
+leaving are not affected.
+
+The check is advisory, because the evidence behind it cannot be authenticated. Ask the
+user, for example: "This chat may be out of date on this device. Changing the group now
+could split it for everyone. Wait for it to sync, or continue anyway?" To continue, call
+`acknowledge_group_catching_up(account_ref, group_id_hex)` and retry the change. The
+acknowledgement admits one change attempt at the device's current epoch, is consumed even
+if that attempt fails, and is not persisted. Use the
+strongest wording for invites: a member invited onto a branch that later loses is left
+with a Welcome that no longer works. Without an acknowledgement, the check lifts once
+recovery catches the group up or the device moves past that epoch. Dismissing the group's
+history notice does not lift it. Scheduled self-updates wait up to a day for the group to
+catch up, then proceed.
+
 ## File-backed media upload
 
 Use `uploadMediaFiles` for private regular-file inputs instead of sending a
@@ -1186,3 +1205,6 @@ not report synchronized messages or history.
 ## Exact-device revocation
 
 The default-off experimental `begin_device_revocation` factory returns a held original administrator action. Review its captured groups and target, approve the exact displayed revision, and observe per-group confirmed outcomes. See [Exact-device revocation](DEVICE-REVOCATION.md) for lifetime, cancellation, incomplete progress and target-inventory limits.
+## Account attachment history
+
+`account_attachment_history_page` reads bounded indexed attachment candidates across one local account. Original album slots retain source identity and shared-parser metadata; group/sender selections and inclusive dates bind the cursor. Empty filtered pages may still continue, and destructive source changes require replacing loaded rows; additions offer a separate head refresh. Reads perform no acquisition or decryption. See [Account attachment history](ACCOUNT-ATTACHMENT-HISTORY.md) for integration and bounds.
