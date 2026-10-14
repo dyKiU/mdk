@@ -7874,6 +7874,15 @@ async fn connector_relay_list_edit_preserves_entries_the_request_did_not_name() 
     )
     .await;
 
+    assert!(
+        app.account_relay_list_status(&account.label)
+            .unwrap()
+            .inbox
+            .relays
+            .contains(&inbox_url),
+        "fixture must establish the inbox entry before editing"
+    );
+
     // Give both seeded replaceable kinds an older timestamp than their first
     // edit. Same-second event-id ordering could otherwise keep the seed on
     // the relay, just as the removal below needs a newer second than the add.
@@ -7900,6 +7909,16 @@ async fn connector_relay_list_edit_preserves_entries_the_request_did_not_name() 
         })
         .await
         .unwrap();
+    assert!(
+        connector
+            .app
+            .account_relay_list_status(&account.label)
+            .unwrap()
+            .inbox
+            .relays
+            .contains(&inbox_url),
+        "editing NIP-65 must preserve the seeded inbox entry"
+    );
     connector
         .relay_list_edit_response(crate::relays::RelayListEdit {
             account_id_hex: account.account_id_hex.clone(),
