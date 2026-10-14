@@ -1,6 +1,8 @@
 name: Experimental sync CI
 
 on:
+  push:
+    branches: [develop_dy]
   pull_request:
   workflow_dispatch:
 
