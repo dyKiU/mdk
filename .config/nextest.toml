@@ -82,8 +82,9 @@ slow-timeout = { period = "60s", terminate-after = 4 }
 # suites consume three slots so separate test groups cannot collectively exceed
 # two simultaneous relay/runtime setups. CI profiles and their partitions stay
 # unchanged; invoke this profile explicitly from the supported host runner.
+# Group slots are weighted too: two three-slot App fixtures need six slots.
 [test-groups.m5-app-relay]
-max-threads = 2
+max-threads = 6
 
 [test-groups.m5-relay-runtime]
 max-threads = 1
