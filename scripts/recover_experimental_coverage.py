@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+from collections import defaultdict
 from pathlib import Path
 import re
 
@@ -51,6 +52,69 @@ def recover(inventory, logs):
     return passed, remaining
 
 
+def replacement(row):
+    """Name required follow-up evidence; this does not mark a case passing."""
+    if row["package"] == "wn-cli":
+        return "latest-experimental-cli-component"
+    if row["package"] == "cgka-engine" and (
+        row["binary"] == "crash_recovery_sqlite"
+        or row["test"].endswith(
+            "account_sharing_peer_generation_uses_authenticated_role_and_live_original")
+        or row["test"] == "confirmed_publish_retries_failed_inbound_replay_through_normal_advance"
+    ):
+        return "latest-core-regressions"
+    if row["package"] == "agent-connector" and row["test"] == (
+        "tests::connector_relay_list_edit_preserves_entries_the_request_did_not_name"
+    ):
+        return "latest-connector-regression"
+    if row["package"] == "cgka-conformance-simulator" and row["test"] == (
+        "tests::kills_and_reaps_a_worker_that_exceeds_its_timeout"
+    ):
+        return "latest-campaign-regression"
+    return None
+
+
+def make_plan(remaining, partitions=12):
+    if partitions < 1:
+        raise ValueError("Partition count must be positive")
+    buckets = [[] for _ in range(partitions)]
+    replacements = []
+    seen = set()
+    for row in remaining:
+        key = (row["suite"], row["test"])
+        if key in seen:
+            raise ValueError("Duplicate remaining case")
+        seen.add(key)
+        role = replacement(row)
+        if role:
+            replacements.append(dict(row, required_followup=role, qualified=False))
+        else:
+            identifier = "\0".join(key).encode()
+            bucket = int.from_bytes(hashlib.sha256(identifier).digest()[:8], "big") % partitions
+            buckets[bucket].append(row)
+    plan = []
+    for index, rows in enumerate(buckets):
+        groups = defaultdict(list)
+        for row in rows:
+            if not re.fullmatch(r"[A-Za-z0-9_:]+", row["test"]):
+                raise ValueError("Unsupported test identifier in filter")
+            for field in ("package", "binary"):
+                if not re.fullmatch(r"[A-Za-z0-9_-]+", row[field]):
+                    raise ValueError("Unsupported suite identifier in filter")
+            groups[(row["package"], row["binary"])].append(row["test"])
+        clauses = []
+        for (package, binary), names in sorted(groups.items()):
+            tests = " | ".join(f"test(={name})" for name in sorted(names))
+            clauses.append(f"(package(={package}) & binary(={binary}) & ({tests}))")
+        expression = " | ".join(clauses) if clauses else "none()"
+        if len(expression.encode()) > 100_000:
+            raise ValueError("Partition filter exceeds argument budget")
+        plan.append(dict(partition=index + 1, count=len(rows), cases=rows, filter=expression))
+    if sum(row["count"] for row in plan) + len(replacements) != len(remaining):
+        raise ValueError("Remaining coverage was lost")
+    return plan, replacements
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inventory", type=Path, required=True)
@@ -73,9 +137,14 @@ def main():
     args.output.mkdir(exist_ok=False)
     for name, value in [("passed-cases.json", passed), ("remaining-cases.json", remaining)]:
         (args.output / name).write_text(json.dumps(value, indent=2) + "\n")
+    plan, replacements = make_plan(remaining)
+    (args.output / "execution-plan.json").write_text(json.dumps(plan, indent=2) + "\n")
+    (args.output / "required-followups.json").write_text(json.dumps(replacements, indent=2) + "\n")
     summary = dict(source=SOURCE, run=RUN, inventory_sha256=hashlib.sha256(
         args.inventory.read_bytes()).hexdigest(), original_log_hashes=LOGS,
         clean_passes=len(passed), needs_execution=len(remaining), **counts,
+        archive_cases_to_execute=sum(row["count"] for row in plan),
+        cases_requiring_latest_followups=len(replacements),
         scope="Recovered coverage only; no new execution or backend qualification")
     (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps(summary))

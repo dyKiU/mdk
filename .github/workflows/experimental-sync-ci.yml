@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -233,8 +233,8 @@ jobs:
           cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --partition count:2/5 --no-fail-fast -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
 
   core-regressions:
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'core-regressions'
-    name: Affected Core and relay-list regressions
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression"]'), inputs.scope)
+    name: Focused regressions (${{ inputs.scope }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -246,7 +246,7 @@ jobs:
         run: |
           echo "qualification-source: $(git rev-parse HEAD)"
           echo "qualification-tree: $(git rev-parse HEAD^{tree})"
-          echo "qualification-scope: core-regressions"
+          echo "qualification-scope: ${{ inputs.scope }}"
       - name: Install Rust toolchain
         run: |
           set -euo pipefail
@@ -259,20 +259,37 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: core-regressions
-      - name: Run affected libraries and external crash/replay cases without retries
+      - name: Run selected affected regressions without retries
+        env:
+          REGRESSION_SCOPE: ${{ inputs.scope }}
         run: |
           set -euo pipefail
           features=agent-connector/otlp-export,agent-connector/product-analytics-export,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
           filter='test(connector_relay_list_edit_preserves_entries_the_request_did_not_name) | test(account_sharing_peer_generation_uses_authenticated_role_and_live_original) | test(=confirmed_publish_retries_failed_inbound_replay_through_normal_advance) | binary(crash_recovery_sqlite)'
           args=(--locked -p agent-connector -p marmot-app -p cgka-engine --lib --test crash_recovery_sqlite --test publish_lifecycle --features "$features")
+          if [[ "$REGRESSION_SCOPE" == connector-regression ]]; then
+            args=(--locked -p agent-connector -p marmot-app -p cgka-engine --lib --features "$features")
+            filter='test(connector_relay_list_edit_preserves_entries_the_request_did_not_name)'
+          elif [[ "$REGRESSION_SCOPE" == campaign-regression ]]; then
+            features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
+            args=(--locked -p cgka-conformance-simulator -p marmot-app -p cgka-engine --bin cgka-conformance-campaign --features "$features")
+            filter='test(kills_and_reaps_a_worker_that_exceeds_its_timeout) | test(preserves_a_workers_nonzero_exit_code)'
+          fi
           cargo nextest list "${args[@]}" -E "$filter" --message-format json > core-regression-inventory.json
           python3 - <<'PYGUARD'
-          import json
+          import json, os
           inventory = json.load(open("core-regression-inventory.json"))
           selected = {name for suite in inventory["rust-suites"].values() for name, case in suite["testcases"].items() if case["filter-match"]["status"] == "matches" and not case["ignored"]}
           required = ["connector_relay_list_edit_preserves_entries_the_request_did_not_name", "account_sharing_peer_generation_uses_authenticated_role_and_live_original", "confirmed_publish_retries_failed_inbound_replay_through_normal_advance", "h5_kill_before_historical_apply_commit_preserves_live_inputs", "h6_kill_after_retained_anchor_rewind_recovers_live_snapshot"]
+          expected = 14
+          if os.environ["REGRESSION_SCOPE"] == "connector-regression":
+              required = ["connector_relay_list_edit_preserves_entries_the_request_did_not_name"]
+              expected = 1
+          elif os.environ["REGRESSION_SCOPE"] == "campaign-regression":
+              required = ["kills_and_reaps_a_worker_that_exceeds_its_timeout", "preserves_a_workers_nonzero_exit_code"]
+              expected = 2
           assert all(any(name.endswith(case) for name in selected) for case in required), "required regression missing"
-          assert len(selected) == 14, f"unexpected actual regression count: {len(selected)}"
+          assert len(selected) == expected, f"unexpected actual regression count: {len(selected)}"
           print("qualification-selected-core-regression-cases:", len(selected))
           PYGUARD
           cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads 6 --retries 0 --no-fail-fast
@@ -341,7 +358,7 @@ jobs:
           cargo nextest list --archive-file experimental-tests.tar.zst --workspace-remap "$GITHUB_WORKSPACE" --message-format json > full-inventory.json
           mkdir original-logs
           for job in 115684849829 115684849834 115684849847 115684849872 115684849960; do
-            gh api "repos/dyKiU/mdk/actions/jobs/$job/logs" > "original-logs/$job.log"
+            gh api --allow-escape-sequences "repos/dyKiU/mdk/actions/jobs/$job/logs" > "original-logs/$job.log"
           done
           python3 -m unittest discover -s scripts -p test_recover_experimental_coverage.py -v
           python3 scripts/recover_experimental_coverage.py --inventory full-inventory.json --logs original-logs --output recovered-coverage
@@ -356,5 +373,105 @@ jobs:
             original-logs
             archive-sha256.txt
             recovered-coverage
+          retention-days: 7
+          if-no-files-found: error
+
+  experimental-gap:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'experimental-gap'
+    name: Unfinished experimental archive (${{ matrix.partition }}/12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Install pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: experimental-sync-tests
+          run-id: 38511641089
+          repository: dyKiU/mdk
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: recovered-experimental-coverage
+          run-id: 38524890717
+          repository: dyKiU/mdk
+          github-token: ${{ github.token }}
+          path: coverage-inputs
+      - name: Verify original archive and reconstruct disjoint missing-only selection
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARTITION: ${{ matrix.partition }}
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' 7c9a2c769b74c3a8d97a91fb03481fa34035713f338d4c650cd94474f6e170e6 experimental-tests.tar.zst | sha256sum -c -
+          printf '%s  %s\n' b2622d14041356ad8648d04cb94cbc95505ba54b2401b188c7c81ec5ddf202e2 coverage-inputs/full-inventory.json | sha256sum -c -
+          python3 - <<'PYGUARD'
+          import json
+          run = json.load(open("coverage-inputs/original-run.json"))
+          artifact = json.load(open("coverage-inputs/original-artifact.json"))
+          assert run["id"] == 38511641089 and run["run_attempt"] == 1
+          assert run["head_sha"] == "0cbff718b3d6dfe4d95b4a1966fe8e139423140c"
+          assert artifact["id"] == 11870926515
+          assert artifact["workflow_run"]["head_sha"] == run["head_sha"]
+          PYGUARD
+          mkdir original-logs
+          for job in 115684849829 115684849834 115684849847 115684849872 115684849960; do
+            gh api --allow-escape-sequences "repos/dyKiU/mdk/actions/jobs/$job/logs" > "original-logs/$job.log"
+          done
+          python3 -m unittest discover -s scripts -p test_recover_experimental_coverage.py -v
+          python3 scripts/recover_experimental_coverage.py --inventory coverage-inputs/full-inventory.json --logs original-logs --output recovered-coverage
+          python3 - <<'PYGUARD'
+          import json, os
+          plan = json.load(open("recovered-coverage/execution-plan.json"))
+          row = plan[int(os.environ["PARTITION"]) - 1]
+          assert row["partition"] == int(os.environ["PARTITION"]) and row["count"] > 0
+          with open("selected-plan.json", "w") as output:
+              json.dump(row, output, indent=2)
+          with open("selected-filter.txt", "w") as output:
+              output.write(row["filter"])
+          print("qualification-selected-archive-gap-cases:", row["count"])
+          PYGUARD
+          echo "runner-source: $(git rev-parse HEAD)"
+          echo "archive-source: 0cbff718b3d6dfe4d95b4a1966fe8e139423140c"
+          echo "qualification-scope: unfinished-experimental-archive"
+      - name: Verify exact runnable cases and execute only this missing coverage
+        run: |
+          set -euo pipefail
+          filter="$(cat selected-filter.txt)"
+          cargo nextest list --archive-file experimental-tests.tar.zst --workspace-remap "$GITHUB_WORKSPACE" -E "$filter" --message-format json > selected-inventory.json
+          python3 - <<'PYGUARD'
+          import json
+          plan = json.load(open("selected-plan.json"))
+          inventory = json.load(open("selected-inventory.json"))
+          expected = {(row["suite"], row["test"]) for row in plan["cases"]}
+          actual = {(suite_id, name) for suite_id, suite in inventory["rust-suites"].items() for name, case in suite["testcases"].items() if case["filter-match"]["status"] == "matches" and not case["ignored"]}
+          assert actual == expected and len(actual) == plan["count"], "missing-only execution selection mismatch"
+          PYGUARD
+          cargo nextest run --archive-file experimental-tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile m5-bounded --test-threads 6 --retries 0 --no-fail-fast -E "$filter"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: experimental-gap-${{ matrix.partition }}
+          path: |
+            selected-plan.json
+            selected-filter.txt
+            selected-inventory.json
+            recovered-coverage/summary.json
+            recovered-coverage/required-followups.json
           retention-days: 7
           if-no-files-found: error
