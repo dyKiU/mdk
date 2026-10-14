@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions]
+        options: [full, cli-only, core-regressions, experimental-inventory]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -281,5 +281,80 @@ jobs:
         with:
           name: core-regression-inventory
           path: core-regression-inventory.json
+          retention-days: 7
+          if-no-files-found: error
+
+  experimental-inventory:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'experimental-inventory'
+    name: Recover unfinished experimental archive inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Verify immutable original run and artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/dyKiU/mdk/actions/runs/38511641089 > original-run.json
+          gh api repos/dyKiU/mdk/actions/artifacts/11870926515 > original-artifact.json
+          python3 - <<'PYGUARD'
+          import json
+          run = json.load(open("original-run.json"))
+          artifact = json.load(open("original-artifact.json"))
+          assert run["head_sha"] == "0cbff718b3d6dfe4d95b4a1966fe8e139423140c"
+          assert run["id"] == 38511641089 and run["run_attempt"] == 1
+          assert run["status"] == "completed" and run["conclusion"] == "cancelled"
+          assert run["path"] == ".github/workflows/experimental-sync-ci.yml"
+          assert artifact["id"] == 11870926515 and not artifact["expired"]
+          assert artifact["name"] == "experimental-sync-tests"
+          assert artifact["workflow_run"]["id"] == 38511641089
+          assert artifact["workflow_run"]["head_sha"] == run["head_sha"]
+          PYGUARD
+          echo "inventory-tool-source: $(git rev-parse HEAD)"
+          echo "archive-source: 0cbff718b3d6dfe4d95b4a1966fe8e139423140c"
+          echo "archive-run: 38511641089"
+      - name: Install pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: experimental-sync-tests
+          run-id: 38511641089
+          repository: dyKiU/mdk
+          github-token: ${{ github.token }}
+      - name: List archive and recover exact remaining cases without executing tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha256sum experimental-tests.tar.zst > archive-sha256.txt
+          cargo nextest list --archive-file experimental-tests.tar.zst --workspace-remap "$GITHUB_WORKSPACE" --message-format json > full-inventory.json
+          mkdir original-logs
+          for job in 115684849829 115684849834 115684849847 115684849872 115684849960; do
+            gh api "repos/dyKiU/mdk/actions/jobs/$job/logs" > "original-logs/$job.log"
+          done
+          python3 -m unittest discover -s scripts -p test_recover_experimental_coverage.py -v
+          python3 scripts/recover_experimental_coverage.py --inventory full-inventory.json --logs original-logs --output recovered-coverage
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: recovered-experimental-coverage
+          path: |
+            full-inventory.json
+            original-run.json
+            original-artifact.json
+            original-logs
+            archive-sha256.txt
+            recovered-coverage
           retention-days: 7
           if-no-files-found: error
