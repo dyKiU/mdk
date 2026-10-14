@@ -380,10 +380,10 @@ async fn account_sharing_peer_generation_uses_authenticated_role_and_live_origin
     source.retire();
     assert!(source.authenticated_peer_generation().is_err());
 
-    let expiry = Arc::new(Lease {
-        deadline: Instant::now() + Duration::from_millis(200),
-        live: AtomicBool::new(true),
-    });
+    // Complete the real handshake within the normal fixture lease. A 200ms
+    // lease made this an assertion about setup throughput on loaded runners,
+    // rather than rejection after an authenticated original actually expires.
+    let expiry = Lease::new();
     let mut expiring = a
         .begin_account_sharing_policy(&protected, b.identity.signer.public(), expiry)
         .unwrap();
@@ -399,7 +399,13 @@ async fn account_sharing_peer_generation_uses_authenticated_role_and_live_origin
         expiring.authenticated_peer_generation().unwrap(),
         b_generation
     );
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    tokio::time::sleep(
+        expiring
+            .original_deadline()
+            .saturating_duration_since(Instant::now())
+            + Duration::from_millis(10),
+    )
+    .await;
     assert!(expiring.authenticated_peer_generation().is_err());
 
     let (owned, _, _, _) = channels(&a, &b, &protected);
