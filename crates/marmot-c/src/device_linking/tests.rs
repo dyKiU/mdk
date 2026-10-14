@@ -90,6 +90,43 @@ fn device_binding_null_outputs_precede_handle_or_input_access() {
             marmot_device_linking_approval_approve_and_share_chats(std::ptr::null(), u64::MAX),
             MarmotStatus::NullPointer
         );
+        assert_eq!(
+            marmot_approve_automatic_device_linking_session(
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::dangling(),
+                usize::MAX,
+                std::ptr::null(),
+                0,
+                std::ptr::null_mut()
+            ),
+            MarmotStatus::NullPointer
+        );
+        assert_eq!(
+            marmot_device_linking_session_automatic_pairing_code(
+                std::ptr::null(),
+                std::ptr::null_mut()
+            ),
+            MarmotStatus::NullPointer
+        );
+        let mut bytes = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_device_linking_session_automatic_pairing_code(std::ptr::null(), &mut bytes),
+            MarmotStatus::NullPointer
+        );
+        assert!(bytes.is_null());
+        assert_eq!(
+            marmot_device_linking_session_continue_automatic_linking(
+                std::ptr::null(),
+                u64::MAX,
+                255
+            ),
+            MarmotStatus::NullPointer
+        );
+        assert!(matches!(
+            packet(std::ptr::dangling(), 1025, 1024),
+            Err(MarmotStatus::DeviceLinkingInvalidPacket)
+        ));
         // The bounded copier refuses before dereferencing caller memory.
         assert!(matches!(
             packet(std::ptr::dangling(), usize::MAX, 512 * 1024),
@@ -113,6 +150,20 @@ fn default_device_binding_is_typed_unsupported_and_clears_output() {
             MarmotStatus::DeviceLinkingUnsupported
         );
         assert!(out.is_null());
+        let mut automatic = std::ptr::dangling_mut();
+        assert_eq!(
+            marmot_approve_automatic_device_linking_session(
+                &client,
+                account.as_ptr(),
+                std::ptr::dangling(),
+                usize::MAX,
+                std::ptr::null(),
+                0,
+                &mut automatic
+            ),
+            MarmotStatus::DeviceLinkingUnsupported
+        );
+        assert!(automatic.is_null());
         let mut targets = std::ptr::dangling_mut();
         assert_eq!(
             marmot_device_linking_targets(&client, account.as_ptr(), &mut targets),

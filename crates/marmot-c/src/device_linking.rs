@@ -156,6 +156,62 @@ pub unsafe extern "C" fn marmot_approve_device_linking_session(
     })
 }
 
+/// Scan a bounded UTF-8 one-scan bootstrap. NULL/zero target means singleton.
+/// The returned original remains paused until automatic_pairing_code after exact host adoption.
+/// # Safety
+/// Borrowed byte buffers must be valid for their lengths; out/account/client must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_approve_automatic_device_linking_session(
+    client: *const MarmotClient,
+    account: *const c_char,
+    code: *const u8,
+    code_len: usize,
+    target: *const u8,
+    target_len: usize,
+    out: *mut *mut MarmotDeviceLinkingSession,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        arg!(unsafe { preflight_out_ptr(out) });
+        let client = arg!(unsafe { client_ref(client) });
+        let account = arg!(unsafe { required_str(account) });
+        if !client
+            .marmot
+            .device_linking_capabilities()
+            .verification_supported
+        {
+            return MarmotStatus::DeviceLinkingUnsupported;
+        }
+        let bytes = arg!(unsafe { packet(code, code_len, 1024) });
+        let code = match String::from_utf8(bytes) {
+            Ok(code) => code,
+            Err(_) => return MarmotStatus::DeviceLinkingInvalidPacket,
+        };
+        let target = if target.is_null() && target_len == 0 {
+            None
+        } else {
+            Some(arg!(unsafe {
+                packet(target, target_len, MAX_PACKET_BYTES)
+            }))
+        };
+        match client.block_on(
+            client
+                .marmot
+                .approve_automatic_device_linking_session(account, code, target),
+        ) {
+            Ok(inner) => {
+                unsafe {
+                    *out = boxed(MarmotDeviceLinkingSession {
+                        inner,
+                        runtime: client.runtime.handle().clone(),
+                    })
+                };
+                MarmotStatus::Ok
+            }
+            Err(error) => status_from_error(&error),
+        }
+    })
+}
+
 /// Read verification setup packet; no proof or permission is exported.
 /// # Safety
 /// handle must be live, out writable; free the returned record with its matching free.
@@ -168,6 +224,45 @@ pub unsafe extern "C" fn marmot_device_linking_session_setup_packet(
         arg!(unsafe { preflight_out_ptr(out) });
         let session = arg!(unsafe { session(handle) });
         unsafe { deliver(Ok(session.inner.setup_packet()), out) }
+    })
+}
+
+/// Activate this adopted original and return its UTF-8 bootstrap as owned bytes.
+/// Display only on the initiating device; the scanner activates without a response QR.
+/// # Safety
+/// Handle must be live and out writable; free with marmot_device_linking_bytes_free.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_session_automatic_pairing_code(
+    handle: *const MarmotDeviceLinkingSession,
+    out: *mut *mut MarmotDeviceLinkingBytes,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        arg!(unsafe { preflight_out_ptr(out) });
+        let session = arg!(unsafe { session(handle) });
+        let result = block_on_handle(&session.runtime, session.inner.automatic_pairing_code())
+            .map(String::into_bytes);
+        unsafe { deliver(result, out) }
+    })
+}
+
+/// Explicit comparison-complete enrollment choice; nonzero share_chats approves chat sharing.
+/// Automatic processing receipts never replace comparison or existing-device approval.
+/// # Safety
+/// Handle must remain live for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_device_linking_session_continue_automatic_linking(
+    handle: *const MarmotDeviceLinkingSession,
+    displayed_revision: u64,
+    share_chats: u8,
+) -> MarmotStatus {
+    ffi_guard(|| {
+        let session = arg!(unsafe { session(handle) });
+        unit(block_on_handle(
+            &session.runtime,
+            session
+                .inner
+                .continue_automatic_linking(displayed_revision, crate::memory::c_bool(share_chats)),
+        ))
     })
 }
 

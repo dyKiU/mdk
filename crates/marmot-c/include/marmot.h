@@ -9913,12 +9913,45 @@ MarmotStatus marmot_approve_device_linking_session(const struct MarmotClient *cl
                                                    struct MarmotDeviceLinkingSession **out);
 
 /**
+ * Scan a bounded UTF-8 one-scan bootstrap. NULL/zero target means singleton.
+ * The returned original remains paused until automatic_pairing_code after exact host adoption.
+ * # Safety
+ * Borrowed byte buffers must be valid for their lengths; out/account/client must be valid.
+ */
+MarmotStatus marmot_approve_automatic_device_linking_session(const struct MarmotClient *client,
+                                                             const char *account,
+                                                             const uint8_t *code,
+                                                             uintptr_t code_len,
+                                                             const uint8_t *target,
+                                                             uintptr_t target_len,
+                                                             struct MarmotDeviceLinkingSession **out);
+
+/**
  * Read verification setup packet; no proof or permission is exported.
  * # Safety
  * handle must be live, out writable; free the returned record with its matching free.
  */
 MarmotStatus marmot_device_linking_session_setup_packet(const struct MarmotDeviceLinkingSession *handle,
                                                         struct MarmotDeviceLinkingBytes **out);
+
+/**
+ * Activate this adopted original and return its UTF-8 bootstrap as owned bytes.
+ * Display only on the initiating device; the scanner activates without a response QR.
+ * # Safety
+ * Handle must be live and out writable; free with marmot_device_linking_bytes_free.
+ */
+MarmotStatus marmot_device_linking_session_automatic_pairing_code(const struct MarmotDeviceLinkingSession *handle,
+                                                                  struct MarmotDeviceLinkingBytes **out);
+
+/**
+ * Explicit comparison-complete enrollment choice; nonzero share_chats approves chat sharing.
+ * Automatic processing receipts never replace comparison or existing-device approval.
+ * # Safety
+ * Handle must remain live for the call.
+ */
+MarmotStatus marmot_device_linking_session_continue_automatic_linking(const struct MarmotDeviceLinkingSession *handle,
+                                                                      uint64_t displayed_revision,
+                                                                      uint8_t share_chats);
 
 /**
  * Read verification outgoing packets; no proof or permission is exported.

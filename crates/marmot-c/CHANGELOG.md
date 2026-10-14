@@ -14,6 +14,10 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- Experimental one-scan pairing adds bounded UTF-8 bootstrap activation, automatic
+  scan factory and revision-bound enrollment/sharing symbols. Use the matching
+  generated header and library; visual comparison and sibling approvals remain required.
+
 - Account-wide chat departure state/leave methods support ordinary and paired-only
   callers with pending, administrator and source-readiness reasons. State results
   own their optional operation strings and use the matching deep-free. Appends

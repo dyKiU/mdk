@@ -473,6 +473,16 @@ device approvals have a separate phase enum and report `Settled`. The shared
 contract explains revision-bound packet handling and finalization. Positive
 actions close after settlement; historical completion is not chat/history sync.
 
+For one-scan enrollment, `marmot_approve_automatic_device_linking_session`
+accepts bounded UTF-8 bootstrap bytes. After exact host adoption,
+`marmot_device_linking_session_automatic_pairing_code` activates the retained
+original and returns owned UTF-8 bytes, freed with `marmot_device_linking_bytes_free`.
+Only the initiating host displays that bootstrap. The blocking
+`marmot_device_linking_session_continue_automatic_linking` submits the displayed
+revision and explicit sharing choice. Keep visual comparison and sibling approvals;
+see [shared one-scan semantics](../marmot-uniffi/DEVICE-LINKING.md#one-scan-automatic-transport).
+
+
 ## Selected-chat copies
 
 The [shared selected-chat contract](../marmot-uniffi/SELECTED-CHAT-COPY.md)
