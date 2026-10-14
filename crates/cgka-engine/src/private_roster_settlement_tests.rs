@@ -2205,6 +2205,7 @@ impl crate::private_device_invite::PrivateInviteLease for LocalProposalLease {
 }
 
 enum LocalProposalOwnerControl {
+    Metadata,
     HandoffClocks,
     Retain,
     Reopen,
@@ -2291,6 +2292,24 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
     let mut proposal = result.unwrap();
     assert_eq!(proposal.original_deadline(), deadline);
     let binding = proposal.binding_digest().unwrap();
+    let metadata_tags = vec![vec!["transport".into(), "public-key".into()]];
+    if matches!(control, LocalProposalOwnerControl::Metadata) {
+        assert!(
+            a.set_owned_local_enrollment_metadata(&mut proposal, vec![vec!["x".repeat(2049)]])
+                .is_err()
+        );
+        assert!(
+            b.set_owned_local_enrollment_metadata(&mut proposal, metadata_tags.clone())
+                .is_err()
+        );
+        a.set_owned_local_enrollment_metadata(&mut proposal, metadata_tags.clone())
+            .unwrap();
+        assert_eq!(proposal.binding_digest().unwrap(), binding);
+        assert!(
+            a.set_owned_local_enrollment_metadata(&mut proposal, vec![vec!["different".into()]])
+                .is_err()
+        );
+    }
     assert!(
         b.wrap_private_enrollment_proposal(&mut proposal)
             .await
@@ -2363,6 +2382,11 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
         "actual encrypted proposal must reach the private opaque inlet"
     );
     assert_eq!(requests[0].binding_digest().unwrap(), binding);
+    if matches!(control, LocalProposalOwnerControl::Metadata) {
+        assert_eq!(requests[0].metadata_tags(), metadata_tags);
+        a.set_owned_local_enrollment_metadata(&mut proposal, metadata_tags.clone())
+            .unwrap();
+    }
     assert_eq!(
         requests[0].key_package_reference(),
         expected.key_package_reference
@@ -2379,7 +2403,9 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
     );
     if matches!(
         control,
-        LocalProposalOwnerControl::Retain | LocalProposalOwnerControl::HandoffClocks
+        LocalProposalOwnerControl::Retain
+            | LocalProposalOwnerControl::HandoffClocks
+            | LocalProposalOwnerControl::Metadata
     ) {
         let mut b_owned = b
             .endorse_private_enrollment_request(&requests[0], &artifact, &package, &[10; 32])
@@ -2594,6 +2620,11 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
 #[tokio::test]
 async fn private_enrollment_local_proposal_real_encryption_preserves_original_owner_and_retry() {
     exercise_local_enrollment_proposal(LocalProposalOwnerControl::Retain).await;
+}
+
+#[tokio::test]
+async fn private_enrollment_local_proposal_metadata_is_immutable_authenticated_and_not_authority() {
+    exercise_local_enrollment_proposal(LocalProposalOwnerControl::Metadata).await;
 }
 #[tokio::test]
 async fn private_enrollment_local_proposal_reopened_shared_policy_cannot_use_original_owner() {

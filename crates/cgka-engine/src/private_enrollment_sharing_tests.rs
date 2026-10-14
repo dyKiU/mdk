@@ -2,6 +2,56 @@
 use super::*;
 use crate::private_enrollment_endorsement::{PROTOCOL, SHARING_PROTOCOL};
 
+#[tokio::test]
+async fn private_enrollment_metadata_is_mls_authenticated_without_changing_signed_terms() {
+    let mut f = endorsement_fixture(None).await;
+    let a = coordinator_wire(&f);
+    let mut b =
+        f.b.endorse_private_enrollment_request(&f.request, &f.artifact, &f.package, &[10; 32])
+            .unwrap();
+    let original_wire = b.wire().unwrap().to_vec();
+    let tags = vec![
+        vec!["share_chats".into(), "true".into()],
+        vec!["transport".into(), "public-key".into()],
+    ];
+    assert!(
+        f.b.set_owned_enrollment_metadata(&mut b, vec![vec!["x".repeat(2049)]])
+            .is_err()
+    );
+    f.b.set_owned_enrollment_metadata(&mut b, tags.clone())
+        .unwrap();
+    assert_eq!(b.wire().unwrap(), original_wire);
+    f.b.set_owned_enrollment_metadata(&mut b, tags.clone())
+        .unwrap();
+    assert!(
+        f.b.set_owned_enrollment_metadata(&mut b, vec![vec!["different".into()]])
+            .is_err()
+    );
+    let message =
+        f.b.wrap_private_enrollment_endorsement(&mut b)
+            .await
+            .unwrap();
+    f.a.ingest_private_enrollment_delivery(message)
+        .await
+        .unwrap();
+    let received = f.a.drain_authenticated_enrollment_endorsements().unwrap();
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0].metadata_tags(), tags);
+    let proof =
+        f.a.authenticate_all_private_enrollment_endorsements(
+            &f.authenticated,
+            &f.request.binding_digest().unwrap(),
+            &[&a, &received[0].wire],
+        )
+        .unwrap();
+    assert!(
+        proof.sharing_devices().is_empty(),
+        "outer tags cannot upgrade signed sharing terms"
+    );
+    b.cancellation_handle().cancel();
+    assert!(f.b.set_owned_enrollment_metadata(&mut b, tags).is_err());
+}
+
 fn coordinator_wire(f: &EndorsementFixture) -> Vec<u8> {
     // A portable signature fixture does not simulate A's SDK sharing choice.
     crate::private_enrollment_endorsement::sign_public_packet_for_test(

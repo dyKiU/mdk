@@ -141,6 +141,7 @@ pub struct OwnedEnrollmentEndorsement {
     wire: Vec<u8>,
     ciphertext: Option<Vec<u8>>,
     wrapped: Option<cgka_traits::TransportMessage>,
+    metadata_tags: Option<Vec<Vec<String>>>,
 }
 impl OwnedEnrollmentEndorsement {
     pub fn cancellation_handle(&self) -> EnrollmentEndorsementCancellation {
@@ -174,8 +175,13 @@ pub struct AuthenticatedEnrollmentEndorsement {
     pub(crate) source_index: u32,
     pub(crate) source_signer: [u8; 32],
     pub(crate) wire: Vec<u8>,
+    metadata_tags: Vec<Vec<String>>,
 }
 impl AuthenticatedEnrollmentEndorsement {
+    /// Actual outer MLS source metadata; not part of a portable signature grant.
+    pub fn metadata_tags(&self) -> &[Vec<String>] {
+        &self.metadata_tags
+    }
     pub fn observed_deadline(&self) -> Instant {
         self.deadline
     }
@@ -185,12 +191,16 @@ impl AuthenticatedEnrollmentEndorsement {
 }
 pub(crate) fn received_observation(
     content: &str,
+    metadata_tags: &[Vec<String>],
     index: u32,
     signer: [u8; 32],
     state: &cgka_traits::private_roster_settlement::PrivateSettlementState,
     deadline: Instant,
 ) -> Option<AuthenticatedEnrollmentEndorsement> {
-    if content.len() > MAX_PACKET_BYTES || Instant::now() >= deadline {
+    if content.len() > MAX_PACKET_BYTES
+        || Instant::now() >= deadline
+        || !crate::private_enrollment_request::bounded_enrollment_metadata(metadata_tags)
+    {
         return None;
     }
     let packet: Packet = serde_json::from_str(content).ok()?;
@@ -211,6 +221,7 @@ pub(crate) fn received_observation(
         source_index: index,
         source_signer: signer,
         wire: content.as_bytes().to_vec(),
+        metadata_tags: metadata_tags.to_vec(),
     })
 }
 pub(crate) fn sign_packet<S: StorageProvider>(
@@ -434,6 +445,7 @@ impl<S: StorageProvider> Engine<S> {
             wire,
             ciphertext: None,
             wrapped: None,
+            metadata_tags: None,
         })
     }
     /// Fresh local validation for later existing-member handoff, never wire restore.
@@ -476,6 +488,31 @@ impl<S: StorageProvider> Engine<S> {
         state.lifetime.wake();
         Ok(())
     }
+    /// Attach immutable bounded outer MLS metadata to the same live B action.
+    /// Signed endorsement terms and binding are unchanged; no authority is added.
+    pub fn set_owned_enrollment_metadata(
+        &self,
+        endorsement: &mut OwnedEnrollmentEndorsement,
+        tags: Vec<Vec<String>>,
+    ) -> Result<(), EngineError> {
+        self.validate_owned_private_enrollment_endorsement(endorsement)?;
+        if tags.is_empty() || !crate::private_enrollment_request::bounded_enrollment_metadata(&tags)
+        {
+            return Err(denied());
+        }
+        if let Some(previous) = &endorsement.metadata_tags {
+            return if previous == &tags {
+                Ok(())
+            } else {
+                Err(denied())
+            };
+        }
+        if endorsement.ciphertext.is_some() || endorsement.wrapped.is_some() {
+            return Err(denied());
+        }
+        endorsement.metadata_tags = Some(tags);
+        Ok(())
+    }
     /// Encrypt the original B action once. A failed wrap retains exact cipher;
     /// failed SQL rolls back the send ratchet. Cached retries recheck selection.
     pub async fn wrap_private_enrollment_endorsement(
@@ -504,7 +541,7 @@ impl<S: StorageProvider> Engine<S> {
                 hex::encode(self.identity.self_id().as_slice()),
                 0,
                 ENDORSEMENT_KIND,
-                vec![],
+                endorsement.metadata_tags.clone().unwrap_or_default(),
                 String::from_utf8(endorsement.wire.clone()).map_err(|_| denied())?,
             )
             .encode()

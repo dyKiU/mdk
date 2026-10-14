@@ -19,6 +19,14 @@ pub(crate) const PROPOSAL_PROTOCOL: &str = "whitenoise.experimental.enrollment-r
 const LIMIT: usize = 128;
 const PAYLOAD_LIMIT: usize = 16 * 1024;
 
+pub(crate) fn bounded_enrollment_metadata(tags: &[Vec<String>]) -> bool {
+    tags.len() <= 8
+        && tags
+            .iter()
+            .all(|tag| tag.len() <= 8 && tag.iter().all(|value| value.len() <= 512))
+        && tags.iter().flatten().map(String::len).sum::<usize>() <= 2048
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct RequestLeaf {
@@ -74,8 +82,13 @@ pub struct AuthenticatedEnrollmentRequest {
     observed_deadline: Instant,
     protected_origin: cgka_traits::private_device_invite::PrivateInviteOrigin,
     settlement_generation: u64,
+    metadata_tags: Vec<Vec<String>>,
 }
 impl AuthenticatedEnrollmentRequest {
+    /// Authenticated outer MLS metadata, never portable endorsement or consent.
+    pub fn metadata_tags(&self) -> &[Vec<String>] {
+        &self.metadata_tags
+    }
     pub(crate) fn matches_protected_selection(
         &self,
         origin: &cgka_traits::private_device_invite::PrivateInviteOrigin,
@@ -583,6 +596,7 @@ pub(crate) fn stage(
     if event.kind == crate::private_enrollment_endorsement::ENDORSEMENT_KIND {
         effect.observation = crate::private_enrollment_endorsement::received_observation(
             &event.content,
+            &event.tags,
             index,
             signer,
             &state,
@@ -604,6 +618,7 @@ pub(crate) fn stage(
         _ => false,
     };
     if !valid_protocol
+        || !bounded_enrollment_metadata(&event.tags)
         || frame.account != state.anchor.account
         || frame.group_id != state.anchor.group_id.as_slice()
         || frame.group_id.is_empty()
@@ -644,6 +659,7 @@ pub(crate) fn stage(
             settlement_generation: generation,
             frame,
             observed_deadline,
+            metadata_tags: event.tags.clone(),
         },
     )));
     effect
