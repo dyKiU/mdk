@@ -13,7 +13,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use cgka_engine::canonicalization::{CanonicalizationPolicy, CanonicalizationState};
@@ -50,6 +50,95 @@ const CRASH_POINT_ENV: &str = "MDK_CGKA_TEST_CRASH_POINT";
 const CRASH_OCCURRENCE_ENV: &str = "MDK_CGKA_TEST_CRASH_OCCURRENCE";
 const DATABASE_KEY: &str = "cgka convergence crash recovery key";
 const READY_PREFIX: &str = "MDK_CGKA_TEST_CRASH_READY:";
+const CRITICAL_OPERATION_MARKER: &str = "crash-child-phase: critical-operation";
+
+struct CrashPointWait {
+    deadline: Instant,
+    critical_started: bool,
+}
+
+impl CrashPointWait {
+    fn new(now: Instant) -> Self {
+        Self {
+            deadline: now + Duration::from_secs(120),
+            critical_started: false,
+        }
+    }
+
+    fn remaining(&self, now: Instant) -> Option<Duration> {
+        self.deadline
+            .checked_duration_since(now)
+            .filter(|left| !left.is_zero())
+    }
+
+    fn observe(&mut self, line: &str, expected_ready: &str, now: Instant) -> bool {
+        if self.remaining(now).is_none() {
+            return false;
+        }
+        if line == CRITICAL_OPERATION_MARKER && !self.critical_started {
+            self.critical_started = true;
+            self.deadline = now + Duration::from_secs(30);
+        }
+        self.critical_started && line == expected_ready
+    }
+}
+
+#[test]
+fn crash_phase_wait_separates_setup_and_critical_deadlines() {
+    let start = Instant::now();
+    let mut wait = CrashPointWait::new(start);
+    assert_eq!(
+        wait.remaining(start + Duration::from_secs(90)),
+        Some(Duration::from_secs(30))
+    );
+    assert!(!wait.observe(
+        CRITICAL_OPERATION_MARKER,
+        "ready",
+        start + Duration::from_secs(90)
+    ));
+    assert_eq!(
+        wait.remaining(start + Duration::from_secs(100)),
+        Some(Duration::from_secs(20))
+    );
+    assert!(wait.observe("ready", "ready", start + Duration::from_secs(119)));
+    assert_eq!(wait.remaining(start + Duration::from_secs(120)), None);
+}
+
+#[test]
+fn crash_phase_wait_progress_and_duplicate_markers_never_renew_deadlines() {
+    let start = Instant::now();
+    let mut wait = CrashPointWait::new(start);
+    assert!(!wait.observe("setup progress", "ready", start + Duration::from_secs(119)));
+    assert_eq!(wait.remaining(start + Duration::from_secs(120)), None);
+    assert!(!wait.observe(
+        CRITICAL_OPERATION_MARKER,
+        "ready",
+        start + Duration::from_secs(120)
+    ));
+    let mut wait = CrashPointWait::new(start);
+    assert!(!wait.observe(
+        CRITICAL_OPERATION_MARKER,
+        "ready",
+        start + Duration::from_secs(10)
+    ));
+    assert!(!wait.observe(
+        CRITICAL_OPERATION_MARKER,
+        "ready",
+        start + Duration::from_secs(39)
+    ));
+    assert_eq!(wait.remaining(start + Duration::from_secs(40)), None);
+}
+
+#[test]
+fn crash_phase_wait_requires_critical_stage_before_ready() {
+    let start = Instant::now();
+    let mut wait = CrashPointWait::new(start);
+    assert!(!wait.observe("ready", "ready", start));
+    assert!(!wait.observe(CRITICAL_OPERATION_MARKER, "ready", start));
+    assert!(!wait.observe("unrelated ready", "ready", start));
+    assert!(wait.observe("ready", "ready", start));
+}
+
 const H5_POINT: &str = "historical-apply-before-commit";
 const H6_POINT: &str = "retained-anchor-after-rewind";
 const CANDIDATE_BRANCH_POINT: &str = "candidate-branch-after-rewind";
@@ -238,6 +327,23 @@ fn run_parent_case(point: &str, stranded_epoch: EpochId, snapshot_prefix: &str) 
         .expect("spawn crash child");
 
     let stdout = child.stdout.take().expect("child stdout");
+    // Drain stderr while the child runs so diagnostics cannot fill its pipe
+    // and prevent it from reaching the selected crash point. Retain bounded
+    // failure evidence, continuing to discard excess output until child exit.
+    let mut stderr = child.stderr.take().expect("child stderr");
+    let stderr_reader = std::thread::spawn(move || {
+        let mut retained = Vec::new();
+        let mut chunk = [0; 4096];
+        loop {
+            let count = stderr.read(&mut chunk).expect("read child stderr");
+            if count == 0 {
+                break;
+            }
+            let keep = count.min(65_536usize.saturating_sub(retained.len()));
+            retained.extend_from_slice(&chunk[..keep]);
+        }
+        String::from_utf8_lossy(&retained).into_owned()
+    });
     let (line_tx, line_rx) = mpsc::channel();
     let reader = std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
@@ -249,10 +355,14 @@ fn run_parent_case(point: &str, stranded_epoch: EpochId, snapshot_prefix: &str) 
 
     let expected_ready = format!("{READY_PREFIX}{point}");
     let mut child_output = Vec::new();
+    let mut phase_wait = CrashPointWait::new(Instant::now());
     let ready = loop {
-        match line_rx.recv_timeout(Duration::from_secs(30)) {
+        let Some(remaining) = phase_wait.remaining(Instant::now()) else {
+            break false;
+        };
+        match line_rx.recv_timeout(remaining) {
             Ok(Ok(line)) => {
-                let is_ready = line == expected_ready;
+                let is_ready = phase_wait.observe(&line, &expected_ready, Instant::now());
                 child_output.push(line);
                 if is_ready {
                     break true;
@@ -270,8 +380,9 @@ fn run_parent_case(point: &str, stranded_epoch: EpochId, snapshot_prefix: &str) 
         let _ = child.wait();
         drop(line_rx);
         let _ = reader.join();
+        let stderr = stderr_reader.join().expect("stderr reader exits");
         panic!(
-            "child did not reach {point}; stdout:\n{}",
+            "child did not reach {point}; stdout:\n{}\nstderr (at most 64 KiB):\n{stderr}",
             child_output.join("\n")
         );
     }
@@ -282,13 +393,7 @@ fn run_parent_case(point: &str, stranded_epoch: EpochId, snapshot_prefix: &str) 
     drop(line_rx);
     reader.join().expect("stdout reader exits");
 
-    let mut stderr = String::new();
-    child
-        .stderr
-        .take()
-        .expect("child stderr")
-        .read_to_string(&mut stderr)
-        .expect("read child stderr");
+    let stderr = stderr_reader.join().expect("stderr reader exits");
     assert!(
         database.exists(),
         "child database missing after kill; stderr:\n{stderr}"
@@ -585,11 +690,13 @@ async fn run_child_case(database: &Path) {
     );
     let (mut david, _david_storage) = build_memory_client(b"david-crash");
     let (mut eve, _eve_storage) = build_memory_client(b"eve-crash");
+    println!("crash-child-phase: engines-created");
 
     let key = SqlCipherKey::new(DATABASE_KEY).expect("child SQLCipher key");
     let carol_storage =
         SqliteAccountStorage::open_encrypted(database, &key).expect("open child database");
     let mut carol = build_client_with_storage(CAROL_SEED, carol_storage.clone());
+    println!("crash-child-phase: encrypted-engine-created");
 
     let bob_kp = bob.fresh_key_package().await.expect("bob key package");
     let carol_kp = carol.fresh_key_package().await.expect("carol key package");
@@ -619,6 +726,7 @@ async fn run_child_case(database: &Path) {
         .join_welcome(welcome_for(&welcomes, CAROL_SEED))
         .await
         .expect("carol joins");
+    println!("crash-child-phase: initial-welcomes-joined");
 
     let david_kp = david.fresh_key_package().await.expect("david key package");
     let (alice_commit, _) = evolution(
@@ -673,9 +781,13 @@ async fn run_child_case(database: &Path) {
     // convergence input: the collecting-phase hook fires during admission, so
     // the opposite order never actually exercised queued-intent durability at
     // that earliest kill point.
+    // Expensive engine/SQLCipher/MLS setup has its own bound. The original
+    // 30-second hook guard begins before admitting the late competing input.
+    println!("{CRITICAL_OPERATION_MARKER}");
     carol
         .buffer_openmls_convergence_message_at(&group_id, route(bob_commit, &group_id), 2_000)
         .expect("buffer late competing commit");
+    println!("crash-child-phase: late-commit-buffered");
 
     let _ = alice_seed;
     let crash_point = std::env::var(CRASH_POINT_ENV).ok();
@@ -728,6 +840,7 @@ async fn run_child_case(database: &Path) {
     }
 
     if crash_point.as_deref() == Some(H5_POINT) {
+        println!("crash-child-phase: historical-canonicalization");
         let policy = CanonicalizationPolicy::default();
         let state = CanonicalizationState {
             current_tip_epoch: 2,

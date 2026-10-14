@@ -124,3 +124,10 @@ filter = 'package(marmot-app)'
 test-group = 'm5-app-relay'
 threads-required = 3
 retries = 0
+
+# Crash fixtures launch an encrypted multi-engine child and then kill it at an
+# exact transaction hook. Reserve the full budget for parent plus child setup.
+[[profile.m5-bounded.overrides]]
+filter = 'package(cgka-engine) & binary(crash_recovery_sqlite)'
+threads-required = 6
+retries = 0
