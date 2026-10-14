@@ -26,6 +26,9 @@ versioning through the workspace version in the root `Cargo.toml`.
 
 ### Fixed
 
+- All daemon-hosted commands share the original app and account runtime, avoiding
+  competing database opens during group changes, chat subscriptions and reads.
+
 - Daemon-hosted stream start, finish, watch and verification use the daemon's
   existing account runtime rather than reopening a competing account database.
 
