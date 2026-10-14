@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       scope:
-        description: Qualification scope (CLI-only is affected-component evidence)
+        description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only]
+        options: [full, cli-only, core-regressions]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -21,7 +21,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: experimental-sync-${{ github.ref }}
+  group: experimental-sync-${{ github.ref }}-${{ inputs.scope || 'full' }}
   cancel-in-progress: true
 
 env:
@@ -107,13 +107,14 @@ jobs:
 
   cli-component:
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'cli-only'
-    name: CLI affected component (${{ matrix.cohort }})
+    name: CLI affected component (${{ matrix.cohort }}, ${{ matrix.partition }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         cohort: [default, experimental]
+        partition: [1, 2, 3]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -139,9 +140,11 @@ jobs:
       - name: Run all CLI library and integration cases without retries
         env:
           COHORT: ${{ matrix.cohort }}
+          PARTITION: ${{ matrix.partition }}
         run: |
           set -euo pipefail
-          args=(--locked -p wn-cli --lib --test cli)
+          echo "qualification-partition: count:$PARTITION/3"
+          args=(--locked -p wn-cli --lib --test cli --partition "count:$PARTITION/3")
           if [[ "$COHORT" == experimental ]]; then
             args+=(-p marmot-app -p cgka-engine --features wn-cli/otlp-export,wn-cli/product-analytics-export,wn-cli/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks)
           else
@@ -165,7 +168,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: cli-affected-inventory-${{ matrix.cohort }}
+          name: cli-affected-inventory-${{ matrix.cohort }}-${{ matrix.partition }}
           path: cli-inventory.json
           retention-days: 7
           if-no-files-found: error
@@ -228,3 +231,55 @@ jobs:
           print("qualification-selected-baseline-cases:", selected)
           PYGUARD
           cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --partition count:2/5 --no-fail-fast -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
+
+  core-regressions:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'core-regressions'
+    name: Affected Core and relay-list regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Record affected-component source and scope
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+          echo "qualification-scope: core-regressions"
+      - name: Install Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: core-regressions
+      - name: Run affected libraries and external crash/replay cases without retries
+        run: |
+          set -euo pipefail
+          features=agent-connector/otlp-export,agent-connector/product-analytics-export,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
+          filter='test(connector_relay_list_edit_preserves_entries_the_request_did_not_name) | test(account_sharing_peer_generation_uses_authenticated_role_and_live_original) | test(=confirmed_publish_retries_failed_inbound_replay_through_normal_advance) | binary(crash_recovery_sqlite)'
+          args=(--locked -p agent-connector -p marmot-app -p cgka-engine --lib --test crash_recovery_sqlite --test publish_lifecycle --features "$features")
+          cargo nextest list "${args[@]}" -E "$filter" --message-format json > core-regression-inventory.json
+          python3 - <<'PYGUARD'
+          import json
+          inventory = json.load(open("core-regression-inventory.json"))
+          selected = {name for suite in inventory["rust-suites"].values() for name, case in suite["testcases"].items() if case["filter-match"]["status"] == "matches" and not case["ignored"]}
+          required = ["connector_relay_list_edit_preserves_entries_the_request_did_not_name", "account_sharing_peer_generation_uses_authenticated_role_and_live_original", "confirmed_publish_retries_failed_inbound_replay_through_normal_advance", "h5_kill_before_historical_apply_commit_preserves_live_inputs", "h6_kill_after_retained_anchor_rewind_recovers_live_snapshot"]
+          assert all(any(name.endswith(case) for name in selected) for case in required), "required regression missing"
+          assert len(selected) == 14, f"unexpected actual regression count: {len(selected)}"
+          print("qualification-selected-core-regression-cases:", len(selected))
+          PYGUARD
+          cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads 6 --retries 0 --no-fail-fast
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: core-regression-inventory
+          path: core-regression-inventory.json
+          retention-days: 7
+          if-no-files-found: error
