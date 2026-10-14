@@ -7930,10 +7930,24 @@ async fn connector_relay_list_edit_preserves_entries_the_request_did_not_name() 
         .await
         .unwrap();
 
+    // Publication requires one relay ACK, not an ACK from the seed specifically.
+    // Read across its routes so a slower seed cannot stand in for the published
+    // state while another relay already acknowledged the complete replacement.
+    let publication_routes = [
+        &relay_url,
+        &read_url,
+        &write_url,
+        &inbox_url,
+        &added_url,
+        &inbox_added_url,
+    ]
+    .into_iter()
+    .map(|url| crate::validation::endpoint(url))
+    .collect::<Vec<_>>();
     let published = app
         .fetch_current_account_relay_list_status_for_account_id(
             &account.account_id_hex,
-            vec![relay_endpoint.clone()],
+            publication_routes.clone(),
             Some("nip65"),
         )
         .await
@@ -8002,7 +8016,7 @@ async fn connector_relay_list_edit_preserves_entries_the_request_did_not_name() 
     let published = app
         .fetch_current_account_relay_list_status_for_account_id(
             &account.account_id_hex,
-            vec![relay_endpoint.clone()],
+            publication_routes.clone(),
             Some("nip65"),
         )
         .await
