@@ -316,8 +316,9 @@ jobs:
                   "device_revocation_survivors_regain_fresh_original_history_authority",
                   "device_revocation_retained_remove_cannot_restore_positive_guard_after_encrypted_reopen",
                   "device_revocation_original_receipt_survives_incoming_storage_rollback_retry",
+                  "device_revocation_confirmation_fact_rollback_preserves_owned_successor_authority",
               ]
-              expected = 9
+              expected = 10
           elif os.environ["REGRESSION_SCOPE"] == "campaign-regression":
               required = ["kills_and_reaps_a_worker_that_exceeds_its_timeout", "preserves_a_workers_nonzero_exit_code"]
               expected = 2
