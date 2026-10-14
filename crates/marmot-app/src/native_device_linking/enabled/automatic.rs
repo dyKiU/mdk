@@ -9,6 +9,18 @@ use nostr::prelude::{Event, Keys, PublicKey, Timestamp};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
+// Stable diagnostic codes never format peer or runtime error contents.
+fn error_kind(error: &DeviceLinkingError) -> &'static str {
+    match error {
+        DeviceLinkingError::Unsupported => "unsupported",
+        DeviceLinkingError::Closed => "closed",
+        DeviceLinkingError::InvalidPacket => "invalid_packet",
+        DeviceLinkingError::NotReady => "not_ready",
+        DeviceLinkingError::StaleRevision => "stale_revision",
+        DeviceLinkingError::RuntimeUnavailable => "runtime_unavailable",
+    }
+}
+
 fn wire_error(error: WireError) -> DeviceLinkingError {
     match error {
         WireError::Expired => DeviceLinkingError::Closed,
@@ -110,8 +122,7 @@ impl SiblingDriver {
                 _ = cancellation.cancelled() => {},
                 result = run => {
                     if let Err(error) = result {
-                        tracing::warn!(target: "marmot_app::device_linking", category = ?error, "automatic sibling transport ended");
-                        #[cfg(test)] eprintln!("automatic sibling transport ended: {error:?}");
+                        tracing::warn!(target: "marmot_app::device_linking", method = "automatic_sibling_transport", error_kind = error_kind(&error), "automatic sibling transport ended");
                     }
                 }
             }
@@ -470,8 +481,6 @@ impl Driver {
                         | Err(DeviceLinkingError::NotReady | DeviceLinkingError::StaleRevision) => {
                         }
                         Err(error) => {
-                            #[cfg(test)]
-                            eprintln!("automatic enrollment continuation failed: {error:?}");
                             return Err(error);
                         }
                     }
@@ -530,9 +539,7 @@ impl Driver {
                 _ = cancellation.cancelled() => {}
                 result = result => {
                     if let Err(error) = result && let Some(state) = weak.upgrade() {
-                        tracing::warn!(target: "marmot_app::device_linking", method = "automatic_transport", category = ?error, "automatic pairing transport ended");
-                        #[cfg(test)]
-                        eprintln!("automatic pairing transport ended: {error:?}");
+                        tracing::warn!(target: "marmot_app::device_linking", method = "automatic_transport", error_kind = error_kind(&error), "automatic pairing transport ended");
                         state.update(DeviceLinkingPhase::Failed, None);
                         state.close();
                         state.defer_cleanup();

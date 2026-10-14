@@ -339,8 +339,7 @@ async fn ordinary_one_scan_enrollment_has_original_cancellation_without_chat_sha
             .unwrap()
             .approved_account_sharing_policies()
             .unwrap()
-            .len()
-            == 0
+            .is_empty()
     }));
     a.cancel().await.unwrap();
     c.cancel().await.unwrap();
