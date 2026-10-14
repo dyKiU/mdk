@@ -1095,7 +1095,7 @@ integration changes, and unresolved release questions.
 ## Device verification
 
 [Native device verification](DEVICE-LINKING.md) describes opaque original-purpose
-sessions, bounded packet exchange, standard SAS decimals, revision-bound human
+sessions, one-scan automatic encrypted packet exchange, standard SAS decimals, revision-bound human
 confirmation and closeable observations. Inspect actual runtime capabilities:
 default builds return typed Unsupported, and experimental builds support
 verification with revision-bound singleton continuation through the original

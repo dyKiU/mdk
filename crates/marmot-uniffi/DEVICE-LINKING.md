@@ -29,6 +29,36 @@ expiry or runtime restart. Keep transport buffers bounded and private; do not
 log packet content, verification identity or account secrets. The protocol is a
 private experimental profile, with no claimed interoperability.
 
+## One-scan automatic transport
+
+Use `automatic_pairing_code()` after adopting the initiating original into its
+current host account/runtime scope. Display the compact `WNPAIR1` bootstrap once.
+The other device scans it and calls `approve_automatic_device_linking_session`.
+After exact host adoption it calls `automatic_pairing_code()` to activate the
+paused response, without displaying a second QR. Native App transport exchanges
+setup, verifier packets, bounded fragments and authenticated processing receipts
+using separate ephemeral NIP-44 keys and app-configured safe relays. A relay ACK
+is never a recipient-processing ACK. QR carries public attempt binding, digest
+and expiry, never the account private key or arbitrary network endpoints.
+
+Continue to display and compare standard SAS numbers and explicitly confirm on
+both devices. Sending these numbers over the same channel is not an independent
+human comparison. After comparison, display enrollment/sharing terms and submit
+`continue_automatic_linking(displayed_revision, share_chats)`. Existing protected
+devices retain their own explicit revision-bound review and approval. Genuine MLS
+proposal/endorsement metadata authenticates temporary sibling mailbox addresses;
+metadata never changes inner signed terms or grants enrollment/sharing. Native
+transport waits for every required device to process the enrollment artifact
+before finalizing. It never manufactures approval from a transport receipt.
+
+Do not expose manual packet receive/export/delivery buttons in this flow. The
+lower-level transport APIs below remain supported for controlled integrations.
+Original cancellation, drop, account/runtime retirement and the original bounded
+deadline retire mailboxes and keys. Retries cannot renew that deadline or restore
+an original after restart. Keep all packet/QR buffers out of logs and analytics.
+The experimental source tests are separate from matched Apple artifacts and the
+installed three-device demo; those gates are required before claiming app readiness.
+
 ## Human comparison and observations
 
 Display the standard three SAS decimal values from `snapshot()` and retain that

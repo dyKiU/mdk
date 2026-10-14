@@ -20,6 +20,20 @@ pub struct DeviceLinkingSubscription {
 }
 #[uniffi::export(async_runtime = "tokio")]
 impl Marmot {
+    /// Scan one bounded bootstrap; the returned original is paused until host adoption.
+    pub async fn approve_automatic_device_linking_session(
+        &self,
+        account_ref: String,
+        code: String,
+        target: Option<Vec<u8>>,
+    ) -> Result<Arc<DeviceLinkingSession>, MarmotKitError> {
+        let inner = self
+            .runtime
+            .accounts()
+            .approve_automatic_device_linking_session(&account_ref, code, target)
+            .await?;
+        Ok(Arc::new(DeviceLinkingSession { inner }))
+    }
     /// Actual runtime capabilities; verification completion is never enrollment readiness.
     pub fn device_linking_capabilities(&self) -> DeviceLinkingCapabilitiesFfi {
         self.runtime.accounts().device_linking_capabilities().into()
@@ -81,6 +95,23 @@ impl Marmot {
 }
 #[uniffi::export(async_runtime = "tokio")]
 impl DeviceLinkingSession {
+    /// Activate only after exact host account-scope adoption. Display this compact
+    /// bootstrap only on the initiating device; the scanner needs no response QR.
+    pub async fn automatic_pairing_code(&self) -> Result<String, MarmotKitError> {
+        Ok(self.inner.automatic_pairing_code().await?)
+    }
+    /// Explicit comparison-complete enrollment choice. Native transport forwards
+    /// packets and receipts; this never confirms comparison or sibling approvals.
+    pub async fn continue_automatic_linking(
+        &self,
+        displayed_revision: u64,
+        share_chats: bool,
+    ) -> Result<(), MarmotKitError> {
+        Ok(self
+            .inner
+            .continue_automatic_linking(displayed_revision, share_chats)
+            .await?)
+    }
     /// Copy the original bounded setup packet; it cannot restore a live session.
     pub fn setup_packet(&self) -> Vec<u8> {
         self.inner.setup_packet()
