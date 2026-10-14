@@ -176,13 +176,25 @@ pub(crate) async fn stream_command_app(
     command: StreamCommand,
     account_flag: Option<String>,
 ) -> Result<CommandOutput, WnError> {
+    // Standalone commands retain their cold projection preflight. Hosted daemon
+    // callers bypass this wrapper and use the account runtime they already own.
+    if matches!(
+        &command,
+        StreamCommand::Start { .. }
+            | StreamCommand::Finish { .. }
+            | StreamCommand::Verify { .. }
+            | StreamCommand::Watch { .. }
+    ) {
+        let account = resolve_account(account_home, account_flag.clone())?;
+        ensure_local_signing(&account)?;
+        app.status(&account.label)?;
+    }
     let runtime = app.runtime();
-    stream_command_app_with_runtime(account_home, app, &runtime, command, account_flag).await
+    stream_command_app_with_runtime(account_home, &runtime, command, account_flag).await
 }
 
 pub(crate) async fn stream_command_app_with_runtime(
     account_home: &AccountHome,
-    app: &MarmotApp,
     runtime: &MarmotAppRuntime,
     command: StreamCommand,
     account_flag: Option<String>,
@@ -195,7 +207,6 @@ pub(crate) async fn stream_command_app_with_runtime(
         } => {
             let account = resolve_account(account_home, account_flag)?;
             ensure_local_signing(&account)?;
-            app.status(&account.label)?;
             let group_id = GroupId::new(hex::decode(group)?);
             let stream_id = stream_id
                 .map(hex::decode)
@@ -239,7 +250,6 @@ pub(crate) async fn stream_command_app_with_runtime(
         } => {
             stream_watch_command_app_with_runtime(
                 account_home,
-                app,
                 runtime,
                 StreamCommand::Watch {
                     group,
@@ -373,7 +383,6 @@ pub(crate) async fn stream_command_app_with_runtime(
             }
             let account = resolve_account(account_home, account_flag)?;
             ensure_local_signing(&account)?;
-            app.status(&account.label)?;
             let group_id = GroupId::new(hex::decode(group)?);
             let stream_id = hex::decode(stream_id)?;
             let transcript_hash = transcript_hash_from_hex(&transcript_hash)?;
@@ -419,11 +428,10 @@ pub(crate) async fn stream_command_app_with_runtime(
         } => {
             let account = resolve_account(account_home, account_flag)?;
             ensure_local_signing(&account)?;
-            app.status(&account.label)?;
             let group_id_hex = normalize_group_id_hex(&group)?;
             let stream_id_hex = normalize_hex(&stream_id)?;
             let transcript_hash_hex = hex::encode(transcript_hash_from_hex(&transcript_hash)?);
-            let messages = app.messages_with_query(
+            let messages = runtime.messages_with_query(
                 &account.label,
                 AppMessageQuery {
                     group_id_hex: Some(group_id_hex.clone()),
@@ -486,7 +494,6 @@ pub(crate) async fn stream_command_app_with_runtime(
 
 pub(crate) async fn stream_watch_command_app_with_runtime<F>(
     account_home: &AccountHome,
-    app: &MarmotApp,
     runtime: &MarmotAppRuntime,
     command: StreamCommand,
     account_flag: Option<String>,
@@ -507,10 +514,9 @@ where
     };
     let account = resolve_account(account_home, account_flag.clone())?;
     ensure_local_signing(&account)?;
-    app.status(&account.label)?;
     let group_id_hex = normalize_group_id_hex(&group)?;
     let expected_stream_id_hex = stream_id.map(|value| normalize_hex(&value)).transpose()?;
-    let messages = app.messages_with_query(
+    let messages = runtime.messages_with_query(
         &account.label,
         AppMessageQuery {
             group_id_hex: Some(group_id_hex.clone()),

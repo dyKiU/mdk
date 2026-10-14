@@ -26,6 +26,9 @@ versioning through the workspace version in the root `Cargo.toml`.
 
 ### Fixed
 
+- Daemon-hosted stream start, finish, watch and verification use the daemon's
+  existing account runtime rather than reopening a competing account database.
+
 - A sent message the engine queued while the group was converging is no longer
   marked failed when an unrelated publish in the same batch fails, and a sent
   row already marked failed revives once a relay accepts its fanout. Before,

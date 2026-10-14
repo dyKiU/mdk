@@ -223,7 +223,6 @@ async fn dispatch_hosted_runtime_command(
         crate::Command::Stream { command } => {
             crate::commands::stream::stream_command_app_with_runtime(
                 &account_home,
-                &app,
                 runtime,
                 command,
                 cli.account.clone(),
@@ -743,15 +742,6 @@ pub(crate) async fn auto_watch_agent_stream_starts(
             Ok(account_home) => account_home,
             Err(_) => return,
         };
-    let app = match crate::app_for(
-        defaults.home.clone(),
-        defaults.relay.clone(),
-        defaults.discovery_relays.clone(),
-        account_home.clone(),
-    ) {
-        Ok(app) => app,
-        Err(_) => return,
-    };
     for message in &summary.messages {
         let Some(start) = marmot_app::StreamStartView::from_event(message.kind, &message.tags)
         else {
@@ -794,7 +784,6 @@ pub(crate) async fn auto_watch_agent_stream_starts(
         if let Ok((report, handle)) = spawn_stream_watch(
             cli,
             account_home.clone(),
-            app.clone(),
             runtime.clone(),
             stream_manager.clone(),
         ) {
