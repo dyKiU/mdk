@@ -11,6 +11,13 @@ versioning through the workspace version in the root `Cargo.toml`.
 
 ### Fixed
 
+- `wn-claude`, `wn-codex`, `wn-goose`, `wn-opencode` and `wn-pi` now bound
+  each backend turn's output: 4 MiB per stdout record, 64 MiB of stdout, 1 MiB
+  of assistant text and 256 reply chunks. A backend that exceeds a limit is
+  stopped with its process group, and nothing more from that turn is sent.
+  Before, one newline-free record or an endless stream of replies could exhaust
+  connector memory or flood the chat. See the
+  [terminal harness output limits](../../integrations/terminal-harness/README.md#output-limits).
 - Group changes on a group that may have moved past this device now fail with the JSON error code
   `group_catching_up` (carrying `group_id`) instead of committing from the stale epoch and forking
   the group (mdk#2258). Retry once the group has synced, or pass `--accept-stale` to `wn groups` to
