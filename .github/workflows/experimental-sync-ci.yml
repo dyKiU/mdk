@@ -5,9 +5,20 @@ on:
     branches: [develop_dy]
   pull_request:
   workflow_dispatch:
+    inputs:
+      scope:
+        description: Qualification scope (CLI-only is affected-component evidence)
+        type: choice
+        options: [full, cli-only]
+        default: full
+      baseline_gap:
+        description: Also complete the fixed 0cbff718 default archive partition 2/5
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: experimental-sync-${{ github.ref }}
@@ -23,6 +34,7 @@ env:
 
 jobs:
   experimental-test-build:
+    if: github.event_name != 'workflow_dispatch' || inputs.scope == 'full'
     name: Build experimental sync tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -60,6 +72,7 @@ jobs:
           if-no-files-found: error
 
   experimental-test:
+    if: github.event_name != 'workflow_dispatch' || inputs.scope == 'full'
     name: Experimental sync tests (${{ matrix.partition }}/5)
     needs: experimental-test-build
     runs-on: ubuntu-latest
@@ -91,3 +104,127 @@ jobs:
           name: experimental-sync-tests
       - name: Run experimental workspace partition without retries
         run: cargo nextest run --archive-file experimental-tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile m5-bounded --partition count:${{ matrix.partition }}/5 --no-fail-fast
+
+  cli-component:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'cli-only'
+    name: CLI affected component (${{ matrix.cohort }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [default, experimental]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Record affected-component source and scope
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+          echo "qualification-scope: cli-only"
+      - name: Install Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: cli-affected-${{ matrix.cohort }}
+      - name: Run all CLI library and integration cases without retries
+        env:
+          COHORT: ${{ matrix.cohort }}
+        run: |
+          set -euo pipefail
+          args=(--locked -p wn-cli --lib --test cli)
+          if [[ "$COHORT" == experimental ]]; then
+            args+=(-p marmot-app -p cgka-engine --features wn-cli/otlp-export,wn-cli/product-analytics-export,wn-cli/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks)
+          else
+            args+=(--features test-policy-overrides)
+          fi
+          cargo nextest list "${args[@]}" -E 'package(wn-cli)' --message-format json > cli-inventory.json
+          python3 - <<'PYGUARD'
+          import json
+          inventory = json.load(open("cli-inventory.json"))
+          counts = {}
+          for suite in inventory["rust-suites"].values():
+              matching = sum(case["filter-match"]["status"] == "matches" for case in suite["testcases"].values())
+              if matching:
+                  assert suite["package-name"] == "wn-cli", "non-CLI execution selected"
+                  counts[suite["binary-name"]] = counts.get(suite["binary-name"], 0) + matching
+          assert counts.get("cli", 0) > 0, "empty CLI integration cohort"
+          assert sum(count for name, count in counts.items() if name != "cli") > 0, "empty CLI library cohort"
+          print("qualification-selected-cli-cases:", json.dumps(counts, sort_keys=True))
+          PYGUARD
+          cargo nextest run "${args[@]}" -E 'package(wn-cli)' --profile m5-bounded --test-threads 6 --retries 0 --no-fail-fast
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: cli-affected-inventory-${{ matrix.cohort }}
+          path: cli-inventory.json
+          retention-days: 7
+          if-no-files-found: error
+
+  baseline-default-gap:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'cli-only' && inputs.baseline_gap
+    name: Preserved 0cbff718 default archive (2/5)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: 0cbff718b3d6dfe4d95b4a1966fe8e139423140c
+      - name: Verify preserved archive run source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/dyKiU/mdk/actions/runs/38511640509 > baseline-run.json
+          python3 - <<'PYGUARD'
+          import json
+          run = json.load(open("baseline-run.json"))
+          assert run["id"] == 38511640509
+          assert run["head_sha"] == "0cbff718b3d6dfe4d95b4a1966fe8e139423140c"
+          assert run["path"] == ".github/workflows/ci.yml"
+          assert run["status"] == "completed", "baseline writer still active"
+          PYGUARD
+          test "$(git rev-parse HEAD)" = 0cbff718b3d6dfe4d95b4a1966fe8e139423140c
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+          echo "qualification-scope: preserved-default-partition-2-of-5"
+          echo "archive-source: 0cbff718b3d6dfe4d95b4a1966fe8e139423140c"
+          echo "archive-run: 38511640509"
+      - name: Install Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rust-test
+          run-id: 38511640509
+          repository: dyKiU/mdk
+          github-token: ${{ github.token }}
+      - name: Run only the preserved default partition without retries
+        run: |
+          set -euo pipefail
+          sha256sum tests.tar.zst
+          cargo nextest list --archive-file tests.tar.zst --workspace-remap "$GITHUB_WORKSPACE" --partition count:2/5 -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))' --message-format json > baseline-inventory.json
+          python3 - <<'PYGUARD'
+          import json
+          inventory = json.load(open("baseline-inventory.json"))
+          selected = sum(case["filter-match"]["status"] == "matches" for suite in inventory["rust-suites"].values() for case in suite["testcases"].values())
+          assert selected > 0, "empty preserved baseline partition"
+          print("qualification-selected-baseline-cases:", selected)
+          PYGUARD
+          cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --partition count:2/5 --no-fail-fast -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
