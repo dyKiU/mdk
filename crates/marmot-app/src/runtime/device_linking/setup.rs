@@ -6,6 +6,11 @@ use crate::device_linking::{LinkError, OwnerError};
 use cgka_traits::{GroupId, device_linking_key_package::PurposeAttemptScope};
 
 pub(crate) enum SetupCommand {
+    ApprovalCancellation {
+        binding: [u8; 32],
+        respond:
+            Reply<cgka_engine::private_enrollment_endorsement::EnrollmentEndorsementCancellation>,
+    },
     PairingMetadata {
         scope: PurposeAttemptScope,
         tags: Vec<Vec<String>>,
@@ -117,6 +122,11 @@ pub(super) async fn handle(
     publication_control: &crate::runtime::private_commit::PublicationControl,
 ) {
     match command {
+        SetupCommand::ApprovalCancellation { binding, respond } => {
+            if let Err(Ok(control)) = respond.send(client.native_approval_cancellation(&binding)) {
+                control.cancel();
+            }
+        }
         SetupCommand::PairingMetadata {
             scope,
             tags,
@@ -252,6 +262,23 @@ pub(super) async fn handle(
 }
 
 impl AccountManager {
+    pub(crate) async fn native_approval_cancellation(
+        &self,
+        account: &str,
+        binding: &[u8; 32],
+    ) -> Result<
+        cgka_engine::private_enrollment_endorsement::EnrollmentEndorsementCancellation,
+        ClientLinkingError,
+    > {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::ApprovalCancellation {
+                binding: *binding,
+                respond,
+            })
+        })
+        .await
+    }
+
     pub(crate) async fn native_pairing_metadata(
         &self,
         account: &str,

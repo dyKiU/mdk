@@ -835,6 +835,9 @@ pub(super) struct ApprovalState {
     // negative fence, or allow a polled alias to resurrect a dropped action.
     public_handles: AtomicUsize,
     cleanup_scheduled: AtomicBool,
+    original_cancellation: Mutex<
+        Option<cgka_engine::private_enrollment_endorsement::EnrollmentEndorsementCancellation>,
+    >,
     manager: AccountManager,
     account: String,
     binding: [u8; 32],
@@ -887,6 +890,14 @@ impl ApprovalState {
     }
     fn close(&self) {
         self.transport_cancel.cancel();
+        if let Some(control) = self
+            .original_cancellation
+            .lock()
+            .expect("original approval cancellation")
+            .take()
+        {
+            control.cancel();
+        }
         self.closed.store(true, Ordering::Release);
         if let Some(original) = self
             .sharing_original
@@ -998,6 +1009,7 @@ impl AccountManager {
                     let state = Arc::new(ApprovalState {
                         public_handles: AtomicUsize::new(1),
                         cleanup_scheduled: AtomicBool::new(false),
+                        original_cancellation: Mutex::new(None),
                         manager: self.clone(),
                         account: account.clone(),
                         binding,
@@ -1148,6 +1160,24 @@ impl DeviceLinkingApproval {
                 .native_approve_received_proposal(&self.inner.account, &self.inner.binding)
                 .await
                 .map_err(map_error)?;
+        }
+        let control = self
+            .inner
+            .manager
+            .native_approval_cancellation(&self.inner.account, &self.inner.binding)
+            .await
+            .map_err(map_error)?;
+        {
+            let mut held = self
+                .inner
+                .original_cancellation
+                .lock()
+                .expect("original approval cancellation");
+            if self.inner.closed.load(Ordering::Acquire) {
+                control.cancel();
+                return Err(DeviceLinkingError::Closed);
+            }
+            *held = Some(control);
         }
         self.inner.check_open()?;
         if let Some(transport) = transport {

@@ -390,6 +390,33 @@ impl AppClient {
         Ok(())
     }
 
+    /// Only negative control over the actual already-owned original. Never
+    /// reconstruct an action from its binding, packet or retained observation.
+    pub(crate) fn native_approval_cancellation(
+        &self,
+        binding: &[u8; 32],
+    ) -> Result<
+        cgka_engine::private_enrollment_endorsement::EnrollmentEndorsementCancellation,
+        ClientLinkingError,
+    > {
+        let attempt = self
+            .linking_owner
+            .received_endorsement
+            .as_ref()
+            .ok_or_else(rejected)?;
+        if attempt.binding != *binding
+            || attempt.cancelled
+            || std::time::Instant::now() >= attempt.deadline
+        {
+            return Err(rejected());
+        }
+        self.runtime
+            .session()
+            .validate_owned_private_enrollment_endorsement(&attempt.owned)
+            .map_err(ClientLinkingError::Engine)?;
+        Ok(attempt.owned.cancellation_handle())
+    }
+
     pub(crate) fn cancel_received_enrollment_endorsement(
         &mut self,
         binding: &[u8; 32],
