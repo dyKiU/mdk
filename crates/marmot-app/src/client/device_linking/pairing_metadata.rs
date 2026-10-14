@@ -53,10 +53,14 @@ impl AppClient {
         if let Some(attach) = attach {
             validate(&attach)?;
             if let Some((owner, prior)) = &self.linking_owner.approval_pairing_metadata
-                && (owner != binding || prior != &attach)
+                && owner == binding
+                && prior != &attach
             {
                 return Err(rejected());
             }
+            // A later genuine observed request may replace routing metadata.
+            // This slot grants no action; any already-owned endorsement retains
+            // its immutable original tags and still checks its own binding.
             self.linking_owner.approval_pairing_metadata = Some((*binding, attach));
         }
         Ok(tags)

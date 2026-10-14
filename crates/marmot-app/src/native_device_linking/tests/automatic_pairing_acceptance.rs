@@ -3,13 +3,13 @@ use crate::{MarmotApp, MarmotAppRuntime};
 use marmot_account::AccountHome;
 
 #[tokio::test]
-async fn third_device_enrollment_needs_no_extra_qr_or_manual_artifact_transfer() {
+async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts() {
     use cgka_traits::StorageProvider;
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();
     let keys = nostr::prelude::Keys::generate();
-    let dirs: [tempfile::TempDir; 3] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
-    let apps = std::array::from_fn::<_, 3, _>(|index| {
+    let dirs: [tempfile::TempDir; 4] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
+    let apps = std::array::from_fn::<_, 4, _>(|index| {
         AccountHome::open(dirs[index].path())
             .import_account("test", &keys.secret_key().to_secret_hex())
             .unwrap();
@@ -97,7 +97,7 @@ async fn third_device_enrollment_needs_no_extra_qr_or_manual_artifact_transfer()
     wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
-            if apps.iter().all(|app| {
+            if apps[..3].iter().all(|app| {
                 let storage = app.account_storage("test").unwrap();
                 let store = storage.private_roster_settlement_storage().unwrap();
                 store.read_round().unwrap().is_some_and(|round| {
@@ -114,7 +114,7 @@ async fn third_device_enrollment_needs_no_extra_qr_or_manual_artifact_transfer()
     })
     .await
     .expect("automatic transport must settle all three real device leaves");
-    assert!(apps.iter().all(|app| {
+    assert!(apps[..3].iter().all(|app| {
         app.account_storage("test")
             .unwrap()
             .approved_account_sharing_policy_storage()
@@ -127,6 +127,75 @@ async fn third_device_enrollment_needs_no_extra_qr_or_manual_artifact_transfer()
     a.cancel().await.unwrap();
     c.cancel().await.unwrap();
     approval.cancel().await.unwrap();
+    let targets = managers[0].device_linking_targets("test").await.unwrap();
+    assert_eq!(targets[0].device_count, 3);
+    let d = managers[3]
+        .begin_device_linking_session("test")
+        .await
+        .unwrap();
+    let a = managers[0]
+        .approve_automatic_device_linking_session(
+            "test",
+            d.automatic_pairing_code().await.unwrap(),
+            Some(targets[0].selector.clone()),
+        )
+        .await
+        .unwrap();
+    a.automatic_pairing_code().await.unwrap();
+    compare_and_confirm_pair(&a, &d).await;
+    d.continue_automatic_linking(d.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
+    a.continue_automatic_linking(a.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
+    let mut approvals = Vec::new();
+    for manager in &managers[1..3] {
+        let approval = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                if let Some(approval) = manager
+                    .pending_device_linking_approvals("test")
+                    .await
+                    .unwrap()
+                    .pop()
+                {
+                    break approval;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let revision = approval.snapshot().await.unwrap().revision;
+        approval.review_metadata(revision).await.unwrap();
+        approval.approve_and_share_chats(revision).await.unwrap();
+        approvals.push(approval);
+    }
+    wait_for_automatic_phase(&a, &d, DeviceLinkingPhase::EnrollmentComplete).await;
+    tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        loop {
+            if apps.iter().all(|app| {
+                let storage = app.account_storage("test").unwrap();
+                let store = storage.private_roster_settlement_storage().unwrap();
+                store.read_round().unwrap().is_some_and(|round| {
+                    round.phase
+                        == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed
+                        && round.anchor.successor.leaves.len() == 4
+                        && store.read_facts().unwrap().len() == 4
+                })
+            }) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("later pairing must process every existing device automatically");
+    a.cancel().await.unwrap();
+    d.cancel().await.unwrap();
+    for approval in approvals {
+        approval.cancel().await.unwrap();
+    }
     for runtime in runtimes {
         runtime.shutdown_and_close().await.unwrap();
     }
