@@ -1,9 +1,10 @@
 {
-  "phase": "red",
+  "phase": "green",
   "baseline": "ef9a7689f67bb010dc3d188cf91dfd9ad4862675",
   "owner_commit": "31f57b9634a369c2fa606aef60642e64a00c76cf",
   "source_sha256": {
-    "crates/marmot-account/src/runtime.rs": "d8149494a2a2ad982c196f08979f1bd78c5a2ebbee2acbf815aae779a30470e3",
+    "crates/marmot-account/src/runtime.rs": "ad6d34b9a33b42e0238f99c1d76389a14153862fc94be845c07095b083ef42ef",
     "crates/marmot-account/tests/runtime.rs": "7909099a158ab78961db559599a5728cad8a18bbabb240e6e1b480f756ff696c"
-  }
+  },
+  "guard_omission_sha256": "d8149494a2a2ad982c196f08979f1bd78c5a2ebbee2acbf815aae779a30470e3"
 }
