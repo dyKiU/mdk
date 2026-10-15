@@ -22,6 +22,7 @@ fn accepted_record(storage: &SqliteAccountStorage) -> MirroredChatRecord {
                 state: MirroredChatState::Active,
                 accepted_origin: Some(origin),
                 same_account_source_count: Some(1),
+                direct_peer_account: None,
             }],
             &|| Ok(()),
         )

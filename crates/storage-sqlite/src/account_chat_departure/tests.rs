@@ -840,6 +840,7 @@ fn departure_cut_removes_live_disclosure_and_blocks_late_records_but_not_fresh_l
         state: MirroredChatState::Active,
         accepted_origin: Some(intent.targets[0].accepted_origin),
         same_account_source_count: Some(1),
+        direct_peer_account: None,
     };
     storage
         .apply_mirrored_chat_catalog(&scope, &[catalog.clone()], &|| Ok(()))

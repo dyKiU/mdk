@@ -1226,6 +1226,8 @@ fn snapshot_mirrored_chat_observations_are_not_membership() {
         accepted_origin: None,
 
         same_account_source_count: None,
+
+        direct_peer_account: None,
     };
     insta::assert_json_snapshot!(
         "mirrored_chat_observations",
@@ -1320,4 +1322,21 @@ fn account_chat_send_intent_route_receipt_and_retry_cursor() {
             state: AccountChatSendState::Queued
         }
     ));
+}
+
+#[test]
+fn mirrored_direct_peer_is_optional_and_legacy_encoding_is_unchanged() {
+    use cgka_traits::mirrored_chat_catalog::MirroredChatEntry;
+    let legacy = serde_json::json!({
+        "group_id": [6], "source_epoch": 7, "source_sequence": 8,
+        "source_digest": vec![9; 32], "profile": "current", "name": "Test",
+        "description": "", "state": "Active"
+    });
+    let mut entry: MirroredChatEntry = serde_json::from_value(legacy.clone()).unwrap();
+    assert!(entry.direct_peer_account.is_none());
+    assert_eq!(serde_json::to_value(&entry).unwrap(), legacy);
+    entry.direct_peer_account = Some([42; 32]);
+    let encoded = serde_json::to_value(&entry).unwrap();
+    let decoded: MirroredChatEntry = serde_json::from_value(encoded).unwrap();
+    assert!(decoded == entry);
 }

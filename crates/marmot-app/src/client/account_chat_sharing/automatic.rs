@@ -1491,6 +1491,7 @@ impl AppClient {
             accepted_origin,
 
             same_account_source_count,
+            direct_peer_account: None,
         };
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if self.test_uses_legacy_account_chat_encoding() {

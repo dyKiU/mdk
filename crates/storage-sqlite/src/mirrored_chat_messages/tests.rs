@@ -53,6 +53,8 @@ fn catalog(storage: &SqliteAccountStorage, s: &MirroredChatScope) {
                 accepted_origin: None,
 
                 same_account_source_count: None,
+
+                direct_peer_account: None,
             }],
             &|| Ok(()),
         )
@@ -475,6 +477,7 @@ fn mirrored_records_require_current_catalog_origin_and_hide_prior_lineage() {
         state: MirroredChatState::Active,
         accepted_origin: Some(a),
         same_account_source_count: Some(1),
+        direct_peer_account: None,
     };
     storage
         .apply_mirrored_chat_catalog(&scope(), &[active.clone()], &|| Ok(()))
@@ -550,6 +553,7 @@ fn origin_bound_record(storage: &SqliteAccountStorage) -> MirroredChatRecord {
                 state: MirroredChatState::Active,
                 accepted_origin: Some(origin),
                 same_account_source_count: Some(1),
+                direct_peer_account: None,
             }],
             &|| Ok(()),
         )

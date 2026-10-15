@@ -142,6 +142,12 @@ and 8,192 retained rows, including terminal references. Database reopen does not
 restore a channel, approval or permission. Automatic transport and normal app
 projection remain separate integration work.
 
+Private revision27 adds an indexed, optional source-attested direct-peer account
+for resolving an existing paired-source conversation. Reads accept only the
+caller's freshly validated scope set, retain live-catalog departure/terminal
+fences, and return source provenance without creating MLS membership. Legacy
+records remain unknown; migration does not infer a peer from titles or content.
+
 The default-off `experimental-device-sync` feature exposes a bounded account-history archive importer on
 `SqliteAccountStorage`. This storage integration is not a pairing protocol, a continuous replication journal, or an
 end-to-end multi-device client implementation. The caller must authenticate the device-group roster, user consent,

@@ -66,6 +66,8 @@ fn catalog(
             accepted_origin: None,
 
             same_account_source_count: None,
+
+            direct_peer_account: None,
         })
         .collect::<Vec<_>>();
     storage

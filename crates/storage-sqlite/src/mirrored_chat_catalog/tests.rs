@@ -49,6 +49,8 @@ fn entry(id: u8, sequence: u64) -> MirroredChatEntry {
         accepted_origin: None,
 
         same_account_source_count: None,
+
+        direct_peer_account: None,
     }
 }
 
@@ -574,5 +576,174 @@ fn mirrored_catalog_stale_active_cannot_advance_current_origin_and_replace_canno
     assert!(
         conn.execute("DELETE FROM mirrored_chat_origin_fences", [])
             .is_err()
+    );
+}
+
+#[test]
+fn direct_peer_lookup_requires_exact_current_scope_and_never_joins_mls() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    configure(&storage);
+    let peer = [42; 32];
+    let mut direct = entry(7, 1);
+    direct.direct_peer_account = Some(peer);
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[entry(6, 1), direct.clone()], &|| Ok(()))
+        .unwrap();
+    let found = storage
+        .mirrored_direct_conversation_observation(&[scope()], &peer)
+        .unwrap()
+        .unwrap();
+    assert!(found.entry == direct && found.scope == scope());
+    assert!(storage.list_group_records().unwrap().is_empty());
+    assert!(
+        storage
+            .mirrored_direct_conversation_observation(&[], &peer)
+            .unwrap()
+            .is_none()
+    );
+    let mut stale = scope();
+    stale.policy_digest = [43; 32];
+    assert!(
+        storage
+            .mirrored_direct_conversation_observation(&[stale], &peer)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        storage
+            .mirrored_direct_conversation_observation(&[scope()], &[44; 32])
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        storage
+            .mirrored_direct_conversation_observation(&[scope()], &[0; 32])
+            .is_err()
+    );
+    assert!(
+        storage
+            .mirrored_direct_conversation_observation(&[scope()], &scope().account)
+            .is_err()
+    );
+}
+
+#[test]
+fn direct_peer_changes_and_terminal_fences_retire_the_old_lookup() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    configure(&storage);
+    let peer = [42; 32];
+    let mut direct = entry(7, 1);
+    direct.direct_peer_account = Some(peer);
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[direct.clone()], &|| Ok(()))
+        .unwrap();
+    direct.source_sequence = 2;
+    direct.direct_peer_account = None;
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[direct.clone()], &|| Ok(()))
+        .unwrap();
+    assert!(
+        storage
+            .mirrored_direct_conversation_observation(&[scope()], &peer)
+            .unwrap()
+            .is_none()
+    );
+    direct.source_sequence = 3;
+    direct.direct_peer_account = Some(peer);
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[direct.clone()], &|| Ok(()))
+        .unwrap();
+    let mut terminal = entry(7, 4);
+    terminal.state = MirroredChatState::Left;
+    terminal.name.clear();
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[terminal], &|| Ok(()))
+        .unwrap();
+    assert!(
+        storage
+            .mirrored_direct_conversation_observation(&[scope()], &peer)
+            .unwrap()
+            .is_none()
+    );
+    let mut renewed = scope();
+    renewed.policy_digest = [43; 32];
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&renewed, &[direct], &|| Ok(()))
+            .is_err()
+    );
+    assert!(
+        storage
+            .mirrored_direct_conversation_observation(&[renewed], &peer)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn direct_peer_original_tail_failure_rolls_back_the_index_and_observation() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    configure(&storage);
+    let peer = [42; 32];
+    let mut direct = entry(7, 1);
+    direct.direct_peer_account = Some(peer);
+    let checks = Cell::new(0);
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[direct.clone()], &|| {
+                checks.set(checks.get() + 1);
+                if checks.get() == 2 {
+                    Err(invalid())
+                } else {
+                    Ok(())
+                }
+            })
+            .is_err()
+    );
+    assert_eq!(checks.get(), 2);
+    assert!(
+        storage
+            .mirrored_direct_conversation_observation(&[scope()], &peer)
+            .unwrap()
+            .is_none()
+    );
+    storage
+        .apply_mirrored_chat_catalog(&scope(), &[direct], &|| Ok(()))
+        .unwrap();
+    assert!(
+        storage
+            .mirrored_direct_conversation_observation(&[scope()], &peer)
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
+fn direct_peer_metadata_rejects_self_zero_and_terminal_values() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    configure(&storage);
+    for peer in [[0; 32], scope().account] {
+        let mut direct = entry(7, 1);
+        direct.direct_peer_account = Some(peer);
+        assert!(
+            storage
+                .apply_mirrored_chat_catalog(&scope(), &[direct], &|| Ok(()))
+                .is_err()
+        );
+    }
+    let mut terminal = entry(7, 1);
+    terminal.state = MirroredChatState::Deleted;
+    terminal.name.clear();
+    terminal.direct_peer_account = Some([42; 32]);
+    assert!(
+        storage
+            .apply_mirrored_chat_catalog(&scope(), &[terminal], &|| Ok(()))
+            .is_err()
+    );
+    assert!(
+        storage
+            .mirrored_chat_catalog_page(&scope(), None, 128)
+            .unwrap()
+            .is_empty()
     );
 }
