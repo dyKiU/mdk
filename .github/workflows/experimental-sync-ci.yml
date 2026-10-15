@@ -79,6 +79,8 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: pairing-replay
+      - name: Check pairing scope dispatch without compiling protocol code
+        run: python3 scripts/test_pairing_replay_dispatch.py
       - name: Run actual enrollment and authority retirement bodies without retries
         env:
           SLOTS: ${{ matrix.slots }}
@@ -88,9 +90,7 @@ jobs:
           features=otlp-export,product-analytics-export,test-policy-overrides,experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
           filter='package(marmot-app) & (test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts) | test(=native_device_linking::automatic_pairing_acceptance::automatic_transport_cannot_keep_dropped_original_authority_alive) | test(=native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer) | test(=native_device_linking::automatic_pairing_acceptance::automatic_sync_does_not_block_foreground_enrollment_completion))'
           if [[ "$REPLAY_SCOPE" == pairing-diagnostic ]]; then
-            elif [[ "$REPLAY_SCOPE" == pairing-consent-fairness ]]; then
-            filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer)'
-          filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts)'
+            filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts)'
           elif [[ "$REPLAY_SCOPE" == pairing-consent-fairness ]]; then
             filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer)'
           fi
