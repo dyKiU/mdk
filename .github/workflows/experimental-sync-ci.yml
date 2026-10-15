@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, latest-three, latest-controls, latest-spill, latest-static, latest-format, latest-convergence, latest-passive]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -33,6 +33,168 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  latest-convergence:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'latest-convergence'
+    name: Incoming witness filtering and content indexes (${{ matrix.cohort }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [default, experimental]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: true
+      - name: Execute upstream and private controls without retries
+        env:
+          CARGO_INCREMENTAL: "1"
+          SAVEPOINT_SCOPE: convergence
+          SAVEPOINT_COHORT: ${{ matrix.cohort }}
+        run: python3 scripts/verify_upstream_b76_controls.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: latest-convergence-${{ matrix.cohort }}
+          path: savepoint-evidence/result.json
+          if-no-files-found: error
+  latest-controls:
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'latest-controls' || inputs.scope == 'latest-three' || inputs.scope == 'latest-passive')
+    name: Combined exact original publication and lifecycle controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+      - name: Execute exact selected original bodies without retries
+        env:
+          CARGO_INCREMENTAL: "1"
+          RECONCILED_SCOPE: ${{ inputs.scope }}
+          RECONCILED_COHORT: experimental
+          WN_UPSTREAM_PUBLICATION_DIAGNOSTICS: "1"
+          WN_SIBLING_PASSIVE_TRACE: ${{ inputs.scope == 'latest-passive' && '1' || '0' }}
+        run: python3 scripts/verify_upstream_reconciled_controls.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: latest-original-controls
+          path: latest-evidence/result.json
+          if-no-files-found: error
+  latest-lock-format:
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'latest-static' || inputs.scope == 'latest-format')
+    name: Reconciled locked workspace, exact format and helper syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check locked resolution and preserve exact formatting evidence
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          mkdir latest-static
+          git rev-parse HEAD > latest-static/source-sha.txt
+          python3 -m py_compile scripts/verify_upstream_reconciled_controls.py
+          python3 -m py_compile scripts/verify_upstream_b76_controls.py
+          sha256sum Cargo.lock > latest-static/lock-before.sha256
+          cargo metadata --locked --all-features --no-deps --format-version 1 > "$RUNNER_TEMP/latest-metadata.json"
+          sha256sum Cargo.lock > latest-static/lock-after.sha256
+          cmp latest-static/lock-before.sha256 latest-static/lock-after.sha256
+          cargo fmt --all
+          git diff --binary -- '*.rs' > latest-static/formatting.patch
+          test ! -s latest-static/formatting.patch
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: latest-lock-and-format
+          path: latest-static/
+          if-no-files-found: error
+  latest-affected-clippy:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'latest-static'
+    name: Reconciled affected clippy (${{ matrix.cohort }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [default, experimental]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+      - name: Check changed app, media and optional media API compilation
+        env:
+          CARGO_INCREMENTAL: "1"
+          COHORT: ${{ matrix.cohort }}
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal --component clippy
+          rustup default "$toolchain"
+          features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,storage-sqlite/media-store-benchmarks
+          if [[ "$COHORT" == experimental ]]; then
+            features="$features,marmot-app/experimental-device-sync"
+          fi
+          cargo clippy --locked -p marmot-app -p media-store -p storage-sqlite --all-targets --features "$features" -- -D warnings
+  latest-spill:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'latest-spill'
+    name: Real ordinary spill controls (${{ matrix.cohort }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [default]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+      - name: Execute seven real spill bodies without retries
+        env:
+          CARGO_INCREMENTAL: "1"
+          RECONCILED_SCOPE: latest-spill
+          RECONCILED_COHORT: ${{ matrix.cohort }}
+          WN_UPSTREAM_PUBLICATION_DIAGNOSTICS: "1"
+        run: python3 scripts/verify_upstream_reconciled_controls.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: latest-spill-controls-${{ matrix.cohort }}
+          path: latest-evidence/result.json
+          if-no-files-found: error
   withdrawal-stack:
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'withdrawal-stack'
     name: Unchanged withdrawal function-only stack diagnostic
