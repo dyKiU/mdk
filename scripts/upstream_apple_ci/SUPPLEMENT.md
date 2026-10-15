@@ -111,3 +111,22 @@ SDK labels, stage and RPC counts, existing reply counts and positive worker
 closure counts. No IDs, IPC fields, raw SDK stderr or account data are exported.
 The first attempt failed offline-invitation replay in the published-sponsor
 cohort; earlier steps do not count as a completed direction.
+
+
+The separate `automatic-history` lane is a representative 205-record acceptance
+for the automatic AccountRecords path. It seeds actual ordinary messages before
+pairing, retains comparison and bilateral sharing approval, checks absence on an
+unenrolled companion, and verifies the exact history on both approved B/C devices
+through chronological paired pages of 37. It then reopens C's original store,
+checks a future message and discovers a later chat absent from both companions.
+Read-only derived commands bind message source evidence to the current paired
+catalog. The existing automatic controller's 90-second per-message observation
+bound and original RPC/owner deadlines remain unchanged. Only aggregate evidence
+and source hashes leave the private runner; all workers must close positively.
+
+This lane uses the automatic replay cursor and original channel renewal, not the
+explicit archive importer. It does not change or bypass the explicit 200-record
+snapshot refusal. Automatic storage also has finite journal/outbox/receipt/byte
+quotas; 205 records do not establish unbounded history, every user/topology, or
+transferred retention/deletion equivalence. Select and qualify this lane only
+against the exact new SDK artifact intended by the integration owner.

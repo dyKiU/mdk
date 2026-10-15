@@ -29,7 +29,7 @@ for key in ['sdk_sha', 'mac_sha', 'ios_sha']:
 require(isinstance(cohort['sdk_run_id'], str) and re.fullmatch('[1-9][0-9]+', cohort['sdk_run_id']), 'Numeric SDK run required')
 cohort['tools_sha'] = head
 lanes = json.loads(Path('scripts/upstream_apple_ci/acceptance-lanes.json').read_text())
-allowed = {'published-interop', 'hosted-history', 'final-ios', 'final-mac', 'one-scan', 'history-pagination'}
+allowed = {'published-interop', 'hosted-history', 'final-ios', 'final-mac', 'one-scan', 'history-pagination', 'automatic-history'}
 if os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch':
     selection = os.environ['REQUESTED_LANE']
     require(selection == 'all' or selection in allowed, 'Known manual lane required')

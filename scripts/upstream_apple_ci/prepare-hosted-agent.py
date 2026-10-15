@@ -18,6 +18,8 @@ def main() -> None:
                         help="Fresh source directory in the runner's temporary workspace")
     parser.add_argument("--history-pagination", action="store_true",
                         help="Add a read-only history cursor command with a fixed page limit of 37")
+    parser.add_argument("--automatic-history", action="store_true",
+                        help="Add read-only paired chronological pagination and complete bounded live observations")
     args = parser.parse_args()
     source = Path(__file__).resolve().parent / "native"
     manifest = json.loads((source / "SOURCE.json").read_text())
@@ -26,7 +28,7 @@ def main() -> None:
     args.output.mkdir(parents=True, exist_ok=False, mode=0o700)
     provenance = {"frozen_workspace_commit": manifest["workspace_commit"],
                   "adapter_sha256": digest(Path(__file__).read_bytes()), "files": {},
-                  "history_pagination": args.history_pagination,
+                  "history_pagination": args.history_pagination, "automatic_history": args.automatic_history,
                   "adaptation": "Optionally add read-only bounded cursor and exact-ID observation commands; classify non-SDK failures by fixed cases and the closed no-Tokio-runtime panic category; never emit descriptions or payloads."}
     for name in ("build.sh", "Acceptance.swift", "Agent.swift", "StoreControls.swift"):
         original = (source / name).read_bytes()
@@ -108,6 +110,29 @@ def main() -> None:
                 return ["seen": matching.contains { $0.plaintext == request.text }]
 """
                 text = text[:end] + cursor_page + observed_id + text[end:]
+            if args.automatic_history:
+                fragment = Path(__file__).with_name("automatic-history-commands.swift.txt")
+                fragment_bytes = fragment.read_bytes()
+                additions = json.loads(Path(__file__).with_name("HOSTED-SOURCE.json").read_text())
+                if digest(fragment_bytes) != additions["files"][fragment.name]["sha256"]:
+                    raise ValueError("Read-only automatic-history command hash mismatch")
+                fields = "    let token: String?\n"
+                if text.count(fields) != 1:
+                    raise ValueError("Expected one original native IPC field anchor")
+                text = text.replace(fields, fields + "    let afterCreatedAt: UInt64?\n    let afterMessage: String?\n")
+                anchor = '        case "automatic-list":'
+                if text.count(anchor) != 1:
+                    raise ValueError("Expected one original automatic observation anchor")
+                text = text.replace(anchor, fragment_bytes.decode() + anchor)
+                start = text.index('        case "message-seen":')
+                end = text.index('        case "targets":', start)
+                observed = text[start:end].replace('case "message-seen":', 'case "message-seen-256":')
+                observed = observed.replace('stage = "actual-delivered-message"', 'stage = "actual-complete-bounded-live-message"')
+                observed = observed.replace('limit: 128, kinds: nil)', 'limit: 257, kinds: [9])')
+                observed = observed.replace('            return ["seen":',
+                    '            guard actual.count <= 256 else { throw AcceptanceFailure.unexpectedAccount }\n            return ["seen":')
+                text = text[:end] + observed + text[end:]
+                provenance["automatic_commands_sha256"] = digest(fragment_bytes)
             derived = text.encode()
         (args.output / name).write_bytes(derived)
         provenance["files"][name] = {"original_sha256": digest(original), "derived_sha256": digest(derived)}

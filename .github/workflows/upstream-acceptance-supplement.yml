@@ -16,6 +16,7 @@ on:
         options:
           - all
           - history-pagination
+          - automatic-history
           - published-interop
           - hosted-history
           - final-ios
@@ -151,6 +152,9 @@ jobs:
       - name: Native original history, cancellation, departure and revocation
         if: matrix.lane == 'hosted-history'
         run: bash scripts/upstream_apple_ci/hosted-history.sh
+      - name: Native automatic 205-record history, original-store reopen and later missing-chat discovery
+        if: matrix.lane == 'automatic-history'
+        run: bash scripts/upstream_apple_ci/hosted-automatic-history.sh
       - name: Native bounded 199-record history cursor pagination
         if: matrix.lane == 'history-pagination'
         run: bash scripts/upstream_apple_ci/hosted-history-pagination.sh
@@ -244,6 +248,7 @@ jobs:
             ${{ runner.temp }}/interop-evidence/published-provenance.json
             ${{ runner.temp }}/hosted-history-evidence/result.json
             ${{ runner.temp }}/hosted-history-pagination-evidence/result.json
+            ${{ runner.temp }}/hosted-automatic-history-evidence/result.json
             ${{ runner.temp }}/hosted-one-scan/result.json
             ${{ runner.temp }}/localization-mutation/result.json
             ${{ runner.temp }}/ios-storage-mutations/result.json
@@ -263,6 +268,7 @@ jobs:
             ${{ runner.temp }}/missing-key-mutations-ios/ios-obsolete-direct-chat-restored-control.log
             ${{ runner.temp }}/history-agent-source/DERIVED-SOURCE.json
             ${{ runner.temp }}/pagination-agent-source/DERIVED-SOURCE.json
+            ${{ runner.temp }}/automatic-history-agent-source/DERIVED-SOURCE.json
             ${{ runner.temp }}/one-scan-agent-source/DERIVED-SOURCE.json
             ${{ runner.temp }}/final-ios.xcresult
             ${{ runner.temp }}/final-ios-summary.json

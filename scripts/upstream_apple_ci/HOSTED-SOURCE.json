@@ -16,6 +16,16 @@
       "source": "new hosted-only native fixture using frozen selected-chat consent actions",
       "sha256": "7cbda7cd690067cf03646fa85e68be4eff83fa6644235233ad1aeadd665ede3a",
       "scope": "199 actual prejoin records plus one live record at existing 200-record source cap; fixed37 cursor pages, no SDK behavior changes"
+    },
+    "hosted_automatic_history.py": {
+      "source": "new hosted-only automatic AccountRecords history observation fixture",
+      "sha256": "401286d9aca0de036951d1d9a123a0954ae76c7d0d09b7cb9ff38ddb98226f34",
+      "scope": "Actual205prepairmessages; read-only chronological paired pagination/catalog source bindings; existing explicit archive200cap unchanged"
+    },
+    "automatic-history-commands.swift.txt": {
+      "source": "new hosted-only automatic AccountRecords history observation fixture",
+      "sha256": "e2f55baa508bfec21063eb509ce27f5adf2b5c56c291e857c04b453b727eb9bc",
+      "scope": "Actual205prepairmessages; read-only chronological paired pagination/catalog source bindings; existing explicit archive200cap unchanged"
     }
   },
   "scope": "Additional hosted helpers and explicit adaptations; native/SOURCE.json remains authoritative for unchanged frozen sources."
