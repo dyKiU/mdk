@@ -46,6 +46,76 @@ enum HeldPublication {
     Automatic,
 }
 
+async fn public_onboarded_accounts(
+    apps: &[MarmotApp; 4],
+    runtimes: &[MarmotAppRuntime; 4],
+    relay: &str,
+) -> (String, String) {
+    let request = || crate::AccountSetupRequest {
+        identity: None,
+        import_nsec: None,
+        default_relays: vec![relay.into()],
+        bootstrap_relays: vec![relay.into()],
+        inbox_relays: vec![relay.into()],
+        discovery_relays: vec![relay.into()],
+        publish_missing_relay_lists: true,
+        publish_initial_key_package: true,
+    };
+    let source = runtimes[0].create_identity(request()).await.unwrap();
+    let keys = apps[0]
+        .account_home()
+        .load_signing_keys(&source.account.label)
+        .unwrap();
+    for runtime in &runtimes[1..3] {
+        let accounts = runtime.accounts();
+        let mut observation = accounts
+            .begin_onboarding(
+                zeroize::Zeroizing::new(keys.secret_key().to_secret_hex()),
+                crate::OnboardingOptions {
+                    default_relays: vec![relay.into()],
+                    discovery_relays: vec![relay.into()],
+                    inbox_relays: vec![relay.into()],
+                },
+            )
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(90), async {
+            while !observation.ready {
+                observation = if observation.steps.iter().any(|step| {
+                    step.step == crate::OnboardingStep::SingleDevice
+                        && step
+                            .actions
+                            .contains(&crate::OnboardingAction::ContinueAnyway)
+                }) {
+                    accounts
+                        .acknowledge_onboarding_single_device(
+                            &observation.account_id_hex,
+                            observation.revision,
+                        )
+                        .await
+                        .unwrap()
+                } else {
+                    accounts
+                        .run_onboarding(&observation.account_id_hex)
+                        .await
+                        .unwrap()
+                };
+                if !observation.ready {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            }
+        })
+        .await
+        .expect("supported companion onboarding must become ready");
+        assert!(observation.account_id_hex == source.account.account_id_hex);
+    }
+    let contact = runtimes[3].create_identity(request()).await.unwrap();
+    (
+        source.account.account_id_hex,
+        contact.account.account_id_hex,
+    )
+}
+
 async fn four_device_enrollment(
     held_publication: HeldPublication,
     public_relay: Option<&str>,
@@ -72,9 +142,11 @@ async fn four_device_enrollment(
     let keys = nostr::prelude::Keys::generate();
     let dirs: [tempfile::TempDir; 4] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
     let apps = std::array::from_fn::<_, 4, _>(|index| {
-        AccountHome::open(dirs[index].path())
-            .import_account("test", &keys.secret_key().to_secret_hex())
-            .unwrap();
+        if public_relay.is_none() {
+            AccountHome::open(dirs[index].path())
+                .import_account("test", &keys.secret_key().to_secret_hex())
+                .unwrap();
+        }
         if public_relay.is_some() {
             // Use the production constructor: the relay-only test convenience
             // constructor silently selects zero-quiescence convergence.
@@ -96,19 +168,53 @@ async fn four_device_enrollment(
     });
     let runtimes = apps.clone().map(MarmotAppRuntime::new);
     for runtime in &runtimes {
-        runtime.reconcile_accounts().await.unwrap();
+        if public_relay.is_some() {
+            runtime.start().await.unwrap();
+        } else {
+            runtime.reconcile_accounts().await.unwrap();
+        }
     }
+    let (account, contact) = if public_relay.is_some() {
+        public_onboarded_accounts(&apps, &runtimes, &url).await
+    } else {
+        ("test".to_owned(), "test".to_owned())
+    };
     let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
     let existing_chat = if public_relay.is_some() {
         let group = managers[0]
-            .create_group("test", "Synthetic deployment chat", &[], None)
+            .create_group(&account, "", std::slice::from_ref(&contact), None)
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            while !apps[3]
+                .group(&contact, &hex::encode(group.as_slice()))
+                .unwrap()
+                .is_some_and(|row| row.pending_confirmation)
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("ordinary peer must receive the invitation");
+        managers[3]
+            .accept_group_invite(&contact, &group)
             .await
             .unwrap();
         let sent = managers[0]
-            .send_message("test", &group, b"Synthetic pre-pairing message".to_vec())
+            .send_message(&account, &group, b"Synthetic pre-pairing message".to_vec())
             .await
             .unwrap();
         assert_eq!(sent.message_ids.len(), 1);
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            while !apps[3].messages(&contact).unwrap().iter().any(|message| {
+                message.message_id_hex == sent.message_ids[0]
+                    && message.plaintext == "Synthetic pre-pairing message"
+            }) {
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("ordinary peer must receive the pre-pairing message");
         Some((group, hex::decode(&sent.message_ids[0]).unwrap()))
     } else {
         None
@@ -116,12 +222,12 @@ async fn four_device_enrollment(
     let initial_display = usize::from(!reverse_initial_roles);
     let initial_scanner = 1 - initial_display;
     let display = managers[initial_display]
-        .begin_device_linking_session("test")
+        .begin_device_linking_session(&account)
         .await
         .unwrap();
     let scanner = managers[initial_scanner]
         .approve_automatic_device_linking_session(
-            "test",
+            &account,
             display.automatic_pairing_code().await.unwrap(),
             None,
         )
@@ -150,11 +256,11 @@ async fn four_device_enrollment(
         tokio::time::timeout(std::time::Duration::from_secs(30), async {
             loop {
                 let chats = managers[1]
-                    .paired_chat_list_page("test", None, 128)
+                    .paired_chat_list_page(&account, None, 128)
                     .await
                     .unwrap();
                 let messages = managers[1]
-                    .paired_chat_message_page("test", group.clone(), None, 128)
+                    .paired_chat_message_page(&account, group.clone(), None, 128)
                     .await;
                 if chats.chats.iter().any(|chat| &chat.group_id == group)
                     && let Ok(messages) = messages
@@ -174,16 +280,16 @@ async fn four_device_enrollment(
     }
     a.cancel().await.unwrap();
     b.cancel().await.unwrap();
-    let targets = managers[0].device_linking_targets("test").await.unwrap();
+    let targets = managers[0].device_linking_targets(&account).await.unwrap();
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0].device_count, 2);
     let c = managers[2]
-        .begin_device_linking_session("test")
+        .begin_device_linking_session(&account)
         .await
         .unwrap();
     let a = managers[0]
         .approve_automatic_device_linking_session(
-            "test",
+            &account,
             c.automatic_pairing_code().await.unwrap(),
             Some(targets[0].selector.clone()),
         )
@@ -201,7 +307,7 @@ async fn four_device_enrollment(
     let approval = tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             if let Some(approval) = managers[1]
-                .pending_device_linking_approvals("test")
+                .pending_device_linking_approvals(&account)
                 .await
                 .unwrap()
                 .pop()
@@ -222,7 +328,7 @@ async fn four_device_enrollment(
     ));
     approval.review_metadata(reviewed.revision).await.unwrap();
     let alias = managers[1]
-        .pending_device_linking_approvals("test")
+        .pending_device_linking_approvals(&account)
         .await
         .unwrap()
         .pop()
@@ -251,7 +357,7 @@ async fn four_device_enrollment(
                 approval.snapshot().await.map(|snapshot| snapshot.phase)
             );
             for (index, app) in apps[..3].iter().enumerate() {
-                let storage = app.account_storage("test").unwrap();
+                let storage = app.account_storage(&account).unwrap();
                 let settlement = storage.private_roster_settlement_storage().unwrap();
                 let round = settlement.read_round().unwrap();
                 let facts = settlement.read_facts().unwrap();
@@ -281,7 +387,7 @@ async fn four_device_enrollment(
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             if apps[..3].iter().all(|app| {
-                let storage = app.account_storage("test").unwrap();
+                let storage = app.account_storage(&account).unwrap();
                 let store = storage.private_roster_settlement_storage().unwrap();
                 store.read_round().unwrap().is_some_and(|round| {
                     round.phase
@@ -298,7 +404,7 @@ async fn four_device_enrollment(
     .await
     .expect("automatic transport must settle all three real device leaves");
     assert!(apps[..3].iter().all(|app| {
-        app.account_storage("test")
+        app.account_storage(&account)
             .unwrap()
             .approved_account_sharing_policy_storage()
             .unwrap()
@@ -320,7 +426,7 @@ async fn four_device_enrollment(
         "background transport must not keep the dropped original live"
     );
     drop(background_borrow);
-    let targets = managers[0].device_linking_targets("test").await.unwrap();
+    let targets = managers[0].device_linking_targets(&account).await.unwrap();
     assert_eq!(targets[0].device_count, 3);
     if public_relay.is_some() {
         for runtime in runtimes {
@@ -329,12 +435,12 @@ async fn four_device_enrollment(
         return;
     }
     let d = managers[3]
-        .begin_device_linking_session("test")
+        .begin_device_linking_session(&account)
         .await
         .unwrap();
     let a = managers[0]
         .approve_automatic_device_linking_session(
-            "test",
+            &account,
             d.automatic_pairing_code().await.unwrap(),
             Some(targets[0].selector.clone()),
         )
@@ -368,7 +474,7 @@ async fn four_device_enrollment(
         let approval = tokio::time::timeout(std::time::Duration::from_secs(20), async {
             loop {
                 if let Some(approval) = manager
-                    .pending_device_linking_approvals("test")
+                    .pending_device_linking_approvals(&account)
                     .await
                     .unwrap()
                     .pop()
@@ -399,7 +505,7 @@ async fn four_device_enrollment(
         let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
             loop {
                 if apps[1..3].iter().any(|app| {
-                    app.account_storage("test")
+                    app.account_storage(&account)
                         .unwrap()
                         .approved_account_sharing_policy_storage()
                         .unwrap()
@@ -443,7 +549,7 @@ async fn four_device_enrollment(
             release.notify_one();
         }
         for (index, app) in apps.iter().enumerate() {
-            if let Ok(storage) = app.account_storage("test")
+            if let Ok(storage) = app.account_storage(&account)
                 && let Some(store) = storage.private_roster_settlement_storage()
                 && let Ok(Some(round)) = store.read_round()
                 && let Ok(facts) = store.read_facts()
@@ -551,7 +657,7 @@ async fn four_device_enrollment(
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             if apps.iter().all(|app| {
-                let storage = app.account_storage("test").unwrap();
+                let storage = app.account_storage(&account).unwrap();
                 let store = storage.private_roster_settlement_storage().unwrap();
                 store.read_round().unwrap().is_some_and(|round| {
                     round.phase
