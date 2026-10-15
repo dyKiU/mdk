@@ -680,15 +680,25 @@ fn private_settlement_decode_memo_clears_absent_invalid_and_oversized_rows() {
     for size in [65537, 262144] {
         let mut above_memo_budget = raw.clone();
         above_memo_budget.resize(size, b' ');
-        storage.lock().unwrap().execute(
-            "UPDATE private_roster_settlement SET state=?1", [&above_memo_budget]
-        ).unwrap();
+        storage
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE private_roster_settlement SET state=?1",
+                [&above_memo_budget],
+            )
+            .unwrap();
         let before = storage.connection.private_settlement_decode_counts().0;
-        assert!(storage.read_round().unwrap().unwrap() == original,
-            "legal SQL JSON above the memo budget remains readable");
+        assert!(
+            storage.read_round().unwrap().unwrap() == original,
+            "legal SQL JSON above the memo budget remains readable"
+        );
         assert!(storage.read_round().unwrap().unwrap() == original);
-        assert_eq!(storage.connection.private_settlement_decode_counts(), (before + 2, false),
-            "above-budget JSON performs both actual serde decodes without retention");
+        assert_eq!(
+            storage.connection.private_settlement_decode_counts(),
+            (before + 2, false),
+            "above-budget JSON performs both actual serde decodes without retention"
+        );
     }
     storage
         .lock()
