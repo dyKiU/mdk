@@ -114,6 +114,9 @@ pub struct MarmotAppConfig {
     /// delivery. Empty preserves the historical behavior of falling back to
     /// the operational relay set.
     pub directory_relay_urls: Vec<String>,
+    /// Explicit relays for encrypted one-scan pairing. Empty preserves operational
+    /// relay routing. These never change account relay lists or ordinary chats.
+    pub pairing_relay_urls: Vec<String>,
     /// Relays this deployment operates. A route's history certifies once its
     /// operated relays finish an untruncated comparison; every other relay on
     /// the route is best effort and never blocks completion. A route with no
@@ -279,6 +282,7 @@ impl Default for MarmotAppConfig {
             usage_diagnostics_silent: false,
             directory_max_future_skew: DEFAULT_DIRECTORY_MAX_FUTURE_SKEW,
             directory_relay_urls: Vec::new(),
+            pairing_relay_urls: Vec::new(),
             recovery_operated_relays: DEFAULT_RECOVERY_OPERATED_RELAYS
                 .iter()
                 .map(|relay| (*relay).to_owned())
@@ -327,6 +331,11 @@ impl MarmotAppConfig {
     /// Configure relays used only for Nostr directory and KeyPackage reads.
     pub fn with_directory_relay_urls(mut self, relay_urls: Vec<String>) -> Self {
         self.directory_relay_urls = relay_urls;
+        self
+    }
+
+    pub fn with_pairing_relay_urls(mut self, relay_urls: Vec<String>) -> Self {
+        self.pairing_relay_urls = relay_urls;
         self
     }
 

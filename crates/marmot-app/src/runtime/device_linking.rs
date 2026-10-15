@@ -17,12 +17,15 @@ impl AccountManager {
     ) -> (crate::MarmotRelayPlane, Vec<cgka_traits::TransportEndpoint>) {
         (
             self.shared.relay_plane().clone(),
-            self.app
-                .relay_urls
-                .iter()
-                .cloned()
-                .map(cgka_traits::TransportEndpoint)
-                .collect(),
+            if self.app.config.pairing_relay_urls.is_empty() {
+                &self.app.relay_urls
+            } else {
+                &self.app.config.pairing_relay_urls
+            }
+            .iter()
+            .cloned()
+            .map(cgka_traits::TransportEndpoint)
+            .collect(),
         )
     }
 }

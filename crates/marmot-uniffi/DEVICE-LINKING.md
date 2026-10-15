@@ -42,6 +42,20 @@ using separate ephemeral NIP-44 keys and app-configured safe relays. A relay ACK
 is never a recipient-processing ACK. QR carries public attempt binding, digest
 and expiry, never the account private key or arbitrary network endpoints.
 
+Configure `MarmotOptions.pairingRelayUrls` with matching general-purpose relays
+on the participating devices when their operational inbox relays restrict event
+kinds. The private pairing transport uses kind 21194; White Noise's EU/US inbox
+relays reject this kind. Omitted/empty pairing routes retain operational routing,
+so custom isolated runtimes do not silently acquire public fallback endpoints.
+App host-safety validation still applies to every configured endpoint. This
+option does not publish relay lists or change ordinary chat routing.
+
+Mailbox setup waits for actual subscription acceptance. A `CLOSED` rejection
+removes that route; losing every route reports transport unavailability. An
+offline or rejecting route must not discard another relay's successful publish
+acknowledgement. None of these transport results substitute for authenticated
+peer receipts, human number comparison or explicit enrollment/sharing approval.
+
 Continue to display and compare standard SAS numbers and explicitly confirm on
 both devices. Sending these numbers over the same channel is not an independent
 human comparison. After comparison, display enrollment/sharing terms and submit
