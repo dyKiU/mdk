@@ -1243,11 +1243,13 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
     Migration {
         version: 26,
         name: "0026_account_chat_departure",
+        suspend_foreign_keys: &[],
         apply: private_migration_0026_account_chat_departure::apply,
     },
     Migration {
         version: 27,
         name: "0027_mirrored_direct_peer",
+        suspend_foreign_keys: &[],
         apply: private_migration_0027_mirrored_direct_peer::apply,
     },
 ];
