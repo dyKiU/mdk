@@ -34,6 +34,14 @@ pub(crate) struct OriginalSiblingSharingApproval {
     cancellation: cgka_engine::private_enrollment_endorsement::EnrollmentEndorsementCancellation,
 }
 impl OriginalSiblingSharingApproval {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn lifecycle_snapshot_for_test(&self, start: std::time::Instant) -> serde_json::Value {
+        self.state.lifecycle_snapshot_for_test(start)
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn lifecycle_nonce_for_test(&self) -> Option<[u8; 32]> {
+        self.state.scope.lock().expect("sibling lifecycle scope").as_ref().map(|scope| scope.nonce)
+    }
     pub(crate) fn cancel(&self) {
         self.state.cancel();
         self.cancellation.cancel();

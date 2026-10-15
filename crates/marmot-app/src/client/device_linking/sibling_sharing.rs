@@ -378,6 +378,12 @@ struct ChoiceProgress {
 }
 impl OriginalEnrollmentSharingChoice {
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn lifecycle_child_for_test(&self, nonce: [u8; 32], start: Instant) -> Option<serde_json::Value> {
+        self.children.lock().expect("sibling lifecycle children").iter().find(|state|
+            state.scope.lock().expect("sibling lifecycle scope").as_ref().is_some_and(|scope| scope.nonce == nonce))
+            .map(|state| state.lifecycle_snapshot_for_test(start))
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn record_observation_stage_for_test(&self, stage: NativeObservationStage) {
         let mut probe = self
             .native_observation_probe
@@ -1331,6 +1337,8 @@ struct SiblingPublication {
     proof: bool,
     task: tokio::task::JoinHandle<()>,
     result: tokio::sync::oneshot::Receiver<Result<(), ClientLinkingError>>,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    result_observed: Arc<std::sync::atomic::AtomicUsize>,
 }
 impl Drop for SiblingPublication {
     fn drop(&mut self) {
@@ -1338,6 +1346,19 @@ impl Drop for SiblingPublication {
     }
 }
 const MAX_SIBLING_PUBLICATIONS: usize = 4;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+fn observe_sibling_lifecycle(entry: &SiblingChannel, stage: u8) {
+    let bits = [entry.original.live(), entry.state.live(), entry.ready, entry.handshake_published,
+        entry.policy_committed, entry.proof_published, entry.peer_committed,
+        entry.state.progress.lock().expect("sibling progress").complete];
+    let flags = bits.into_iter().enumerate().fold(0, |mask, (index, value)| mask | (usize::from(value) << index));
+    let pending = entry.publication.as_ref().map(|pending| (pending.proof, pending.result_observed.clone()));
+    let ready = pending.as_ref().map_or(0, |(_, status)| status.load(Ordering::Acquire) as u8);
+    let mut diagnostic = entry.state.sibling_diagnostics.lock().expect("sibling lifecycle");
+    diagnostic.lifecycle_event(stage, Some(flags), pending.as_ref().map(|value| value.0), ready);
+    diagnostic.lifecycle_pending = pending;
+}
+
 
 pub(super) struct SiblingChannel {
     original: Arc<SiblingOriginal>,
@@ -1712,6 +1733,8 @@ impl AppClient {
                 .pending_controls
                 .push((received.control, received.signer.clone(), wire.to_vec()));
         }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        observe_sibling_lifecycle(&entry, 7);
         self.linking_owner.sibling_channels.push(entry);
         result
     }
@@ -1761,11 +1784,13 @@ impl AppClient {
         let slots_before = in_flight;
         let mut failure = None;
         for entry in &mut channels {
-            if entry.publication.is_some()
-                && let Err(error) = self.advance_sibling_sharing(entry, &mut in_flight).await
-                && failure.is_none()
-            {
-                failure = Some(error);
+            if entry.publication.is_some() {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                observe_sibling_lifecycle(entry, 2);
+                let result = self.advance_sibling_sharing(entry, &mut in_flight).await;
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                observe_sibling_lifecycle(entry, 3);
+                if let Err(error) = result && failure.is_none() { failure = Some(error); }
             }
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -1822,7 +1847,12 @@ impl AppClient {
                     .expect("sibling diagnostics")
                     .visits += 1;
             }
-            if let Err(error) = self.advance_sibling_sharing(entry, &mut in_flight).await {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            observe_sibling_lifecycle(entry, 0);
+            let result = self.advance_sibling_sharing(entry, &mut in_flight).await;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            observe_sibling_lifecycle(entry, 1);
+            if let Err(error) = result {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 {
                     use crate::account_chat_sharing::enabled::SiblingMaintenanceFailure as Failure;
@@ -1969,6 +1999,8 @@ impl AppClient {
         if !entry.policy_committed {
             self.persist_sibling_policy(entry)?;
             entry.policy_committed = true;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            observe_sibling_lifecycle(entry, 4);
         }
         if !entry.proof_published
             || (!entry.peer_committed
@@ -2231,6 +2263,12 @@ impl AppClient {
         let consent = entry.recipient && !proof;
         let (result_tx, result) = tokio::sync::oneshot::channel();
         let wakeup = self.linking_owner.sibling_publication_wakeup.clone();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let result_observed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let result_from_task = result_observed.clone();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let diagnostic_state = state.clone();
         let task = tokio::spawn(async move {
             let outcome = async move {
             let revoked = state.revoked.notified();
@@ -2280,15 +2318,26 @@ impl AppClient {
             let acknowledged = outcome.is_ok();
             // Publish the owned result first: a different runtime thread can
             // service the signal before this task's JoinHandle is finished.
-            if result_tx.send(outcome).is_ok() && acknowledged {
-                wakeup.notify_one();
+            if result_tx.send(outcome).is_ok() {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                {
+                    let status = if acknowledged { 1 } else { 2 };
+                    result_from_task.store(status, Ordering::Release);
+                    diagnostic_state.sibling_diagnostics.lock().expect("sibling result observation")
+                        .lifecycle_event(6, None, Some(proof), status as u8);
+                }
+                if acknowledged { wakeup.notify_one(); }
             }
         });
         entry.publication = Some(SiblingPublication {
             proof,
             task,
             result,
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            result_observed,
         });
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        observe_sibling_lifecycle(entry, 5);
         Ok(())
     }
     fn validate_sibling_parent(

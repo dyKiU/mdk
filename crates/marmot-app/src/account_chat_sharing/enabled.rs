@@ -42,6 +42,9 @@ pub(crate) struct SiblingMaintenanceDiagnostics {
     pub(crate) failures: usize,
     pub(crate) last_failure: Option<SiblingMaintenanceFailure>,
     pub(crate) publication_stage: Option<SiblingPublicationStage>,
+    pub(crate) lifecycle: Vec<(Instant, u8, Option<usize>, Option<bool>, u8)>,
+    pub(crate) lifecycle_dropped: usize,
+    pub(crate) lifecycle_pending: Option<(bool, Arc<AtomicUsize>)>,
 }
 
 #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -54,6 +57,13 @@ pub(crate) type SiblingMaintenanceSnapshot = (
 );
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl SiblingMaintenanceDiagnostics {
+    pub(crate) fn lifecycle_event(&mut self, stage: u8, flags: Option<usize>, pending: Option<bool>, ready: u8) {
+        if self.lifecycle.len() == 64 {
+            self.lifecycle.remove(0);
+            self.lifecycle_dropped += 1;
+        }
+        self.lifecycle.push((Instant::now(), stage, flags, pending, ready));
+    }
     pub(crate) fn snapshot(&self) -> SiblingMaintenanceSnapshot {
         (
             self.channel_bits,
@@ -86,6 +96,16 @@ pub(crate) struct Progress {
     pub(crate) complete: bool,
 }
 impl State {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn lifecycle_snapshot_for_test(&self, start: Instant) -> serde_json::Value {
+        let diagnostic = self.sibling_diagnostics.lock().expect("sibling lifecycle");
+        let records: Vec<_> = diagnostic.lifecycle.iter().filter(|row| row.0 >= start)
+            .map(|row| serde_json::json!([row.0.duration_since(start).as_millis() as u64, row.1, row.2, row.3, row.4])).collect();
+        serde_json::json!({"records": records, "before_window": diagnostic.lifecycle.iter().filter(|row| row.0 < start).count(),
+            "dropped": diagnostic.lifecycle_dropped,
+            "pending": diagnostic.lifecycle_pending.as_ref().map(|(proof, ready)| (*proof, ready.load(Ordering::Acquire))),
+            "owner_state_live": self.live()})
+    }
     pub(crate) fn new(owner: &Arc<AtomicBool>, approval_id: [u8; 32]) -> Arc<Self> {
         Self::new_until(
             owner,

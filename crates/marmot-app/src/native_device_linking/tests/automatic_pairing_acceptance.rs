@@ -751,6 +751,8 @@ async fn wait_for_automatic_phase_with_approvals(
     phase: DeviceLinkingPhase,
     approvals: &[DeviceLinkingApproval],
 ) {
+    #[cfg(feature = "test-policy-overrides")]
+    let lifecycle_start = std::time::Instant::now();
     let mut observed = None;
     tokio::time::timeout(std::time::Duration::from_secs(15), async {
         loop {
@@ -810,6 +812,18 @@ async fn wait_for_automatic_phase_with_approvals(
                     .sharing_original_for_test()
                     .map(|original| original.channel_diagnostics_for_test()),
             );
+        }
+        #[cfg(feature = "test-policy-overrides")]
+        if approvals.len() == 2 {
+            for (peer, approval) in approvals.iter().take(2).enumerate() {
+                let original = approval.sharing_original_for_test();
+                let source = original.as_ref().map(|original| original.lifecycle_snapshot_for_test(lifecycle_start));
+                let child = original.as_ref().and_then(|original| original.lifecycle_nonce_for_test())
+                    .and_then(|nonce| b.lifecycle_child_for_test(nonce, lifecycle_start));
+                for (role, snapshot) in [(0, source), (1, child)] {
+                    eprintln!("sibling-fourth-lifecycle {}", serde_json::json!({"peer": peer, "role": role, "snapshot": snapshot}));
+                }
+            }
         }
         #[cfg(not(feature = "test-policy-overrides"))]
         let _ = approvals;

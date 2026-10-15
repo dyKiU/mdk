@@ -250,6 +250,11 @@ impl AccountManager {
 }
 impl DeviceLinkingSession {
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn lifecycle_child_for_test(&self, nonce: [u8; 32], start: std::time::Instant) -> Option<serde_json::Value> {
+        self.inner.sharing_choice.lock().expect("sibling lifecycle choice").as_ref()
+            .and_then(|choice| choice.lifecycle_child_for_test(nonce, start))
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn automatic_retirement_probe_for_test(&self) -> impl Fn() -> bool + use<> {
         let state = self.inner.clone();
         move || {
