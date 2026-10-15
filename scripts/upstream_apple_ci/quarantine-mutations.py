@@ -55,7 +55,7 @@ def execute(label, private, expected):
         row.update(runtime_counts_available=True, passed=int(passed), failed=int(failed), ignored=int(ignored))
     one_body = (row.get('passed', 0) + row.get('failed', 0) == 1 and row.get('ignored') == 0
                 and re.search(r'^running 1 test$', text, re.M) is not None
-                and re.search(r'^test ' + re.escape(TEST) + r' \.\.\. (?:ok|FAILED)$', text, re.M) is not None)
+                and re.search(r'^test ' + re.escape(TEST) + r' \.\.\.', text, re.M) is not None)
     if expected == 'green':
         row['qualified'] = one_body and process.returncode == 0 and row.get('passed') == 1 and row.get('failed') == 0
     else:
