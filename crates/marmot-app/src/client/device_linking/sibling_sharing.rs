@@ -1749,9 +1749,14 @@ impl AppClient {
     }
     /// A completion wake harvests only already-owned results. It does not admit
     /// channels, retry publications, or start another policy/proof operation.
-    pub(crate) async fn harvest_completed_sibling_publications(&mut self) -> Result<(), ClientLinkingError> {
+    pub(crate) async fn harvest_completed_sibling_publications(
+        &mut self,
+    ) -> Result<(), ClientLinkingError> {
         let mut channels = std::mem::take(&mut self.linking_owner.sibling_channels);
-        let mut in_flight = channels.iter().filter(|entry| entry.publication.is_some()).count();
+        let mut in_flight = channels
+            .iter()
+            .filter(|entry| entry.publication.is_some())
+            .count();
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let slots_before = in_flight;
         let mut failure = None;
@@ -1765,7 +1770,10 @@ impl AppClient {
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if std::env::var("WN_UPSTREAM_PUBLICATION_DIAGNOSTICS").as_deref() == Ok("1") {
-            eprintln!("sibling-harvest-control slots_before={slots_before} slots_remaining={in_flight} error={}", failure.is_some());
+            eprintln!(
+                "sibling-harvest-control slots_before={slots_before} slots_remaining={in_flight} error={}",
+                failure.is_some()
+            );
         }
         self.linking_owner.sibling_channels = channels;
         failure.map_or(Ok(()), Err)
@@ -2276,7 +2284,11 @@ impl AppClient {
                 wakeup.notify_one();
             }
         });
-        entry.publication = Some(SiblingPublication { proof, task, result });
+        entry.publication = Some(SiblingPublication {
+            proof,
+            task,
+            result,
+        });
         Ok(())
     }
     fn validate_sibling_parent(
