@@ -9,19 +9,19 @@ import subprocess
 import sys
 import time
 MODE = sys.argv[1]
-assert MODE in {"controls", "consistency-mutant", "performance-mutant"}
+assert MODE in {"controls", "consistency-mutant", "performance-mutant", "origin-mutant"}
 OUT = Path("settlement-read-evidence")
 OUT.mkdir(exist_ok=True)
 os.umask(0o077)
 FEATURES = "marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks"
 CORE_FEATURES = "cgka-engine/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,storage-sqlite/experimental-device-sync"
 SQL_TESTS = ["private_settlement_combined_read_matches_validated_round_and_facts", "private_settlement_combined_read_preserves_typed_corruption_error", "private_settlement_legacy_combined_read_never_eagerly_loads_facts", "private_settlement_combined_read_rejects_indexed_generation_mismatch"]
-CORE_TESTS = ["private_roster_settlement_fresh_read_rejects_foreign_mls_tree_deletion", "private_roster_settlement_fresh_read_rechecks_foreign_confirmation_facts", "private_roster_settlement_fresh_read_rechecks_foreign_denial", "private_roster_settlement_fresh_read_rechecks_foreign_generation", "private_roster_settlement_fresh_read_rechecks_foreign_origin_denial", "private_roster_settlement_loaded_facts_stay_inside_pinned_snapshot", "private_roster_settlement_fresh_read_rejects_missing_nonlocal_confirmation"]
+CORE_TESTS = ["private_successor_snapshot_reuse_rejects_different_anchor", "private_roster_settlement_fresh_read_rejects_foreign_mls_tree_deletion", "private_roster_settlement_fresh_read_rechecks_foreign_confirmation_facts", "private_roster_settlement_fresh_read_rechecks_foreign_denial", "private_roster_settlement_fresh_read_rechecks_foreign_generation", "private_roster_settlement_fresh_read_rechecks_foreign_origin_denial", "private_roster_settlement_loaded_facts_stay_inside_pinned_snapshot", "private_roster_settlement_fresh_read_rejects_missing_nonlocal_confirmation"]
 APP_TESTS = ["third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts", "blocked_sibling_consent_does_not_starve_another_approved_peer", "automatic_sync_does_not_block_foreground_enrollment_completion"]
 report = {"source": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(), "mode": MODE,
           "baseline": "46230f5744139d7f46c1ba266784919361fdcd1d", "features": FEATURES,
           "stack_bytes":4194304, "test_threads":1, "automatic_retries":0,
-          "full_qualification_passed":False, "qualification_scope":"eleven safety controls and three original enrollment bodies, or one independent runtime mutation",
+          "full_qualification_passed":False, "qualification_scope":"twelve safety controls and three original enrollment bodies, or one independent runtime mutation",
           "qualification_passed":False, "checks":{}, "mutant_killed":False,
           "environment":{key:os.environ.get(key) for key in ["CARGO_INCREMENTAL","CARGO_PROFILE_DEV_DEBUG","CARGO_PROFILE_TEST_DEBUG","RUSTFLAGS","CARGO_ENCODED_RUSTFLAGS","RUSTC_BOOTSTRAP","CARGO_PROFILE_TEST_OPT_LEVEL","CARGO_PROFILE_DEV_OPT_LEVEL"]}}
 def save(): (OUT/"result.json").write_text(json.dumps(report,indent=2)+"\n")
@@ -102,6 +102,7 @@ def run(names,label):
         case["observed_completion_phase"]=case["completion_markers"][-1].split("-",1)[0] if case["completion_markers"] else None
         case["nonlocal_consistency_oracle"]=("missing genuine non-local receipt retains the exact completed-facts corruption error" in raw and len(case["panic_locations"])==1 and any(item["file"]=="crates/cgka-engine/src/private_roster_settlement_tests.rs" and item["line"]==report.get("consistency_assertion_line") for item in case["panic_locations"]))
         assert fingerprint()==starting_inputs
+        case["origin_gate_oracle"]=("different original anchor must use full legacy origin matching" in raw and len(case["panic_locations"])==1 and any(item["file"]=="crates/cgka-engine/src/private_successor_tests.rs" and item["line"]==report.get("origin_assertion_line") for item in case["panic_locations"]))
         proof["cases"].append(case)
         save()
     return all(case.get("executed_nonignored")==1 and case.get("passed")==1 and case.get("failed")==0 and case.get("ignored")==0 and case["exit_code"]==0 for case in proof["cases"])
@@ -111,8 +112,8 @@ if MODE=="controls":
     report["originals_passed"]=run(APP_TESTS,"originals") if safe else False
     report["qualification_passed"]=safe and report["originals_passed"]
 else:
-    names=[CORE_TESTS[-1]] if MODE=="consistency-mutant" else [APP_TESTS[0]]
-    target=Path("crates/storage-sqlite/src/private_roster_settlement.rs" if MODE=="consistency-mutant" else "crates/cgka-engine/src/private_roster_settlement.rs")
+    names=[CORE_TESTS[-1]] if MODE=="consistency-mutant" else [CORE_TESTS[0]] if MODE=="origin-mutant" else [APP_TESTS[0]]
+    target=Path("crates/storage-sqlite/src/private_roster_settlement.rs" if MODE=="consistency-mutant" else "crates/cgka-engine/src/private_successor.rs" if MODE=="origin-mutant" else "crates/cgka-engine/src/private_roster_settlement.rs")
     before=target.read_bytes()
     report["other_source_before_sha256"]=fingerprint(exclude=(str(target),))
     test_source=Path("crates/cgka-engine/src/private_roster_settlement_tests.rs").read_text()
@@ -120,6 +121,13 @@ else:
     assertion=test_source.rfind("\n    assert!(",0,marker)+1
     assert assertion>0
     report["consistency_assertion_line"]=test_source.count("\n",0,assertion)+1
+    origin_test=Path("crates/cgka-engine/src/private_successor_tests.rs").read_text()
+    origin_marker=origin_test.index("different original anchor must use full legacy origin matching")
+    origin_assertions=list(re.finditer(r"(?m)^[ \t]*assert!\(",origin_test[:origin_marker]))
+    origin_assertion=origin_assertions[-1].start() if origin_assertions else -1
+    # Locate the actual nearest assertion after remote formatting.
+    assert origin_assertion>0
+    report["origin_assertion_line"]=origin_test.count("\n",0,origin_assertion)+1
     report["performance_oracle_scope"]="unchanged third OR fourth 15-second completion; no phase-specific fourth claim"
     report["mutation_source_before_sha256"]=digest(target)
     if not run(names,"baseline"):
@@ -128,11 +136,18 @@ else:
     if MODE=="consistency-mutant":
         anchor="(state.phase == PrivateSettlementPhase::Completed) != complete\n        || (complete && state.prepared_ciphertext.is_none())"
         replacement="complete && state.prepared_ciphertext.is_none()"
+    elif MODE=="origin-mutant":
+        anchor="if anchor != evidence.settlement_anchor()"
+        replacement="if anchor != evidence.settlement_anchor() && false"
     else:
-        anchor="completed_round_for_tree_in_snapshot(storage, group, &actual)"
+        anchor=""
         replacement="completed_round_for_tree(storage, group, &actual)"
     source=before.decode()
     try:
+        if MODE=="performance-mutant":
+            selected=list(re.finditer(r"completed_round_for_tree_in_snapshot\(\s*storage,\s*group,\s*&actual,\s*&evidence,?\s*\)",source))
+            assert len(selected)==1
+            anchor=selected[0].group(0)
         assert source.count(anchor)==1
         expected=source.replace(anchor,replacement,1).encode()
         report["expected_mutant_source_sha256"]=hashlib.sha256(expected).hexdigest()
@@ -144,7 +159,7 @@ else:
         cases=report["checks"]["mutant"]["cases"]
         if len(cases)==1:
             case=cases[0]
-            oracle=case.get("nonlocal_consistency_oracle",False) if MODE=="consistency-mutant" else case.get("original_phase_oracle",False) and bool(case.get("completion_markers"))
+            oracle=case.get("nonlocal_consistency_oracle",False) if MODE=="consistency-mutant" else case.get("origin_gate_oracle",False) if MODE=="origin-mutant" else case.get("original_phase_oracle",False) and bool(case.get("completion_markers"))
             report["mutant_killed"]=(not mutant_green and case.get("executed_nonignored")==1 and case.get("passed")==0 and case.get("failed")==1 and case.get("ignored")==0 and case.get("exit_code")==101 and oracle)
     except Exception as error:
         # Exception names only: dynamic messages may contain runtime identifiers.

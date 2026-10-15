@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, latest-settlement-read-format, latest-settlement-read-controls, latest-settlement-read-consistency-mutant, latest-settlement-read-performance-mutant]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, latest-settlement-read-format, latest-settlement-read-controls, latest-settlement-read-consistency-mutant, latest-settlement-read-performance-mutant, latest-settlement-read-origin-mutant]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -34,7 +34,7 @@ env:
 
 jobs:
   settlement-read-controls:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["latest-settlement-read-controls","latest-settlement-read-consistency-mutant","latest-settlement-read-performance-mutant"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["latest-settlement-read-controls","latest-settlement-read-consistency-mutant","latest-settlement-read-performance-mutant","latest-settlement-read-origin-mutant"]'), inputs.scope)
     name: Scoped settlement read runtime controls
     runs-on: ubuntu-latest
     timeout-minutes: 55
