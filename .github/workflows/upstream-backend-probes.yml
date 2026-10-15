@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       scope:
-        description: Run selected unchanged archived controls without duplicating other lanes
+        description: Run remaining unchanged convergence/withdrawal controls or the default backend controls
         type: choice
         options: [experimental, default, all]
         default: experimental
@@ -93,14 +93,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - case: profile-edits
-            package: cgka-conformance-simulator
-            binary: app_runtime_interaction_journeys
-            test: public_app_08_concurrent_admin_profile_edits_are_never_lost
-          - case: later-enrollment
+          # Earlier profile-edit and later-enrollment controls already executed
+          # against this archive. Pushes select only these remaining failures.
+          - case: absolute-cap
+            package: cgka-engine
+            binary: distributed_convergence
+            test: convergence_pass_freezes_at_absolute_cap_under_continuous_selection_input
+          - case: nonadmin-withdrawal
             package: marmot-app
             binary: marmot_app
-            test: native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts
+            test: native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
