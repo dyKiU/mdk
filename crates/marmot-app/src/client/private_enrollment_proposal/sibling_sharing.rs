@@ -34,7 +34,9 @@ impl AppClient {
     }
     pub(crate) fn begin_completed_sibling_sharing(&mut self) -> Result<(), ClientLinkingError> {
         #[cfg(feature = "test-policy-overrides")]
-        let _sync_cost = cgka_engine::enrollment_sync_cost::Probe::start(cgka_engine::enrollment_sync_cost::Bucket::AppBegin);
+        let _sync_cost = cgka_engine::enrollment_sync_cost::Probe::start(
+            cgka_engine::enrollment_sync_cost::Bucket::AppBegin,
+        );
         use cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard;
         let Some(action) = self.linking_owner.received_endorsement.as_ref() else {
             return Ok(());

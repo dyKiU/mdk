@@ -31,7 +31,9 @@ impl<S: StorageProvider> Engine<S> {
         group: &GroupId,
     ) -> Result<Option<ValidatedPrivateSuccessor>, EngineError> {
         #[cfg(feature = "test-policy-overrides")]
-        let _sync_cost = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::Successor);
+        let _sync_cost = crate::enrollment_sync_cost::Probe::start(
+            crate::enrollment_sync_cost::Bucket::Successor,
+        );
         self.ensure_group_live(group)?;
         self.storage.with_read_snapshot(|storage| {
             let Some(candidate) = self.candidate_device_group_snapshot(group)? else {

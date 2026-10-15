@@ -526,8 +526,9 @@ pub(crate) fn validate_leaf_account_identity_proof_for_member(
     expected_member_id: &MemberId,
     context: &str,
 ) -> Result<ProtocolProfile, EngineError> {
-        #[cfg(feature = "test-policy-overrides")]
-        let _sync_cost = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::LeafProof);
+    #[cfg(feature = "test-policy-overrides")]
+    let _sync_cost =
+        crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::LeafProof);
     let actual_member_id = crate::identity::validated_member_id_of_leaf(leaf)?;
     let profile = validate_leaf_account_identity_proof(leaf, ciphersuite)?;
     if actual_member_id != *expected_member_id {

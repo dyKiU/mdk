@@ -37,6 +37,7 @@ def inputs():
     return {"tracked_count": count, "manifest_sha256": manifest.hexdigest(),
             "tracked_pristine": subprocess.run(["git", "diff", "--quiet", "HEAD"]).returncode==0}
 report["inputs_before"] = inputs()
+save()
 report["diagnostic_source_hashes"] = {name: hashlib.sha256(Path(name).read_bytes()).hexdigest()
     for name in subprocess.check_output(["git", "diff", "--name-only", report["product_baseline"], "HEAD"], text=True).splitlines()}
 assert os.environ["RUST_MIN_STACK"] == "4194304" and not os.environ.get("RUSTFLAGS")

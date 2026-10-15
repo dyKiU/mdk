@@ -130,7 +130,9 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     // No enrollment_packet/receive_enrollment_packet/finalize calls by the host.
     eprintln!("automatic-enrollment-control stage=third-device-completion");
     #[cfg(feature = "test-policy-overrides")]
-    let sync_cost_phase = cgka_engine::enrollment_sync_cost::PhaseGuard::begin(cgka_engine::enrollment_sync_cost::Phase::Third);
+    let sync_cost_phase = cgka_engine::enrollment_sync_cost::PhaseGuard::begin(
+        cgka_engine::enrollment_sync_cost::Phase::Third,
+    );
     wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
     eprintln!("automatic-enrollment-control stage=third-device-completed");
     #[cfg(feature = "test-policy-overrides")]
@@ -288,7 +290,9 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     };
     eprintln!("automatic-enrollment-control stage=fourth-device-completion");
     #[cfg(feature = "test-policy-overrides")]
-    let sync_cost_phase = cgka_engine::enrollment_sync_cost::PhaseGuard::begin(cgka_engine::enrollment_sync_cost::Phase::Fourth);
+    let sync_cost_phase = cgka_engine::enrollment_sync_cost::PhaseGuard::begin(
+        cgka_engine::enrollment_sync_cost::Phase::Fourth,
+    );
     wait_for_automatic_phase_with_approvals(
         &a,
         &d,
