@@ -90,6 +90,11 @@ def freeze_sdk(package, source_sha):
         "otlp-export", "product-analytics-export", "experimental-device-sync"
     ]:
         raise ValueError("sdk-cohort-mismatch")
+    swift = package / "Sources/MarmotKit/MarmotKit.swift"
+    if digest(swift) != data.get("installed_swift_sha256"):
+        raise ValueError("installed-generated-Swift-drift")
+    if "mdk-sha: " + source_sha + "\n" not in (package / "MARMOT_VERSION").read_text():
+        raise ValueError("installed-SDK-version-source-mismatch")
     framework = package / "Artifacts/MarmotKit.xcframework"
     for name, value in data["artifacts"].items():
         if name.startswith("MarmotKit.xcframework/"):
@@ -246,6 +251,11 @@ def main():
     os.umask(0o077)
     source, products, prefix, bridge = [p.absolute() for p in
         (args.source, args.products, args.prefix, args.bridge)]
+    expected_package = source / ("Packages/MarmotKit" if args.platform == "ios" else "Vendored/MarmotKit")
+    if args.sdk_package.resolve(strict=True) != expected_package.resolve(strict=True):
+        raise ValueError("SDK-package-must-be-the-actual-app-overlay")
+    if args.sdk_source != os.environ["SOURCE_SHA"]:
+        raise ValueError("SDK-source-must-match-the-qualified-workflow-cohort")
     reserve_paths(prefix, bridge)
     frozen = freeze_source(source, args.source_commit)
     sdk = freeze_sdk(args.sdk_package, args.sdk_source)
