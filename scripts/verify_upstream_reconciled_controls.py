@@ -30,7 +30,13 @@ QUARANTINE = [
 ]]
 assert os.environ["RUST_MIN_STACK"] == "4194304"
 subprocess.run(["git", "merge-base", "--is-ancestor", UPSTREAM, "HEAD"], check=True)
-assert not subprocess.check_output(["git", "diff", BASELINE, "HEAD", "--", "crates", "Cargo.toml", "Cargo.lock"]), "controller branch must not import product experiments"
+test_file = "crates/marmot-app/src/client/sync/projection_retry_tests.rs"
+source_paths = ["crates", "Cargo.toml", "Cargo.lock"]
+if os.environ["RECONCILED_SCOPE"] == "private":
+    original = subprocess.check_output(["git", "show", BASELINE + ":" + test_file])
+    assert Path(test_file).read_bytes().startswith(original), "existing upstream tests must remain exact"
+    source_paths.append(":!" + test_file)
+assert not subprocess.check_output(["git", "diff", BASELINE, "HEAD", "--", *source_paths]), "controller branch must not import product experiments"
 root = Path("reconciled-evidence")
 root.mkdir()
 report = {"source": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(), "product_baseline": BASELINE, "upstream_master": UPSTREAM, "scope": os.environ["RECONCILED_SCOPE"], "cohort": os.environ.get("RECONCILED_COHORT", "experimental"), "rust_min_stack_bytes": 4194304, "test_threads": 1, "automatic_retries": 0, "controls": {}, "qualification_passed": False, "lock_sha256": hashlib.sha256(Path("Cargo.lock").read_bytes()).hexdigest()}
@@ -158,13 +164,14 @@ scope = report["scope"]
 features = FEATURES if report["cohort"] == "experimental" else FEATURES.replace(",marmot-app/experimental-device-sync", "")
 args = ["--locked", "-p", "marmot-app", "--lib", "--features", features]
 if scope in {"native", "quarantine", "experimental"}:
-    quarantine_ok = True
+    quarantine_ok = None
     if scope in {"quarantine", "experimental"}:
         selected = "package(marmot-app) & (" + " | ".join("test(=" + case + ")" for case in QUARANTINE) + ")"
         proof, _ = run("seven-new-upstream-quarantine-controls", selected, 7, args)
         quarantine_ok = proof["passed"] == 7 and proof["failed"] == 0
-    native_ok = True
+    native_ok = None
     if scope in {"native", "experimental"}:
+        native_ok = True
         for case in NATIVE:
             proof, _ = run(case, "package(marmot-app) & test(=" + case + ")", 1, args)
             native_ok = native_ok and proof["passed"] == 1 and proof["failed"] == 0
@@ -172,7 +179,14 @@ if scope in {"native", "quarantine", "experimental"}:
     report["quarantine_controls_passed"] = quarantine_ok
     report["native_controls_passed"] = native_ok
     save()
-    assert quarantine_ok and native_ok, "reconciled unchanged scoped controls remain failing"
+    assert quarantine_ok is not False and native_ok is not False, "reconciled unchanged scoped controls remain failing"
+elif scope == "private":
+    assert report["cohort"] == "experimental"
+    case = "client::sync::projection_retry_tests::quarantined_private_group_does_not_retain_or_expose_chat_projection"
+    proof, _ = run(case, "package(marmot-app) & test(=" + case + ")", 1, args)
+    report["scoped_controls_passed"] = proof["passed"] == 1 and proof["failed"] == 0
+    save()
+    assert report["scoped_controls_passed"], "private quarantine coverage failed"
 elif scope == "media":
     proof, _ = run("new-media-store-crate-suite", "package(media-store)", None, ["--locked", "-p", "media-store", "--all-targets"])
     docs = subprocess.run(["cargo", "test", "--locked", "-p", "media-store", "--doc"], capture_output=True, text=True)

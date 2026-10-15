@@ -2032,3 +2032,104 @@ async fn failed_drained_checkpoint_counts_toward_stall_warning() {
     assert!(!client.has_pending_effect_projections());
     assert_eq!(client.retained_projection_failures, 0);
 }
+
+/// A real protected account group must remain hidden while its ambiguous apply
+/// snapshots are quarantined, without retaining unrelated account projection.
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn quarantined_private_group_does_not_retain_or_expose_chat_projection() {
+    use cgka_traits::storage::MessageStorage;
+
+    let dir = tempfile::tempdir().unwrap();
+    AccountHome::open(dir.path())
+        .create_account("alice")
+        .unwrap();
+    let relay = Arc::new(ScriptedPushRelayClient::default());
+    let app = MarmotApp::with_relay(dir.path(), "wss://relay.example")
+        .with_test_relay_client(relay.clone());
+    let mut client = app.client("alice").await.unwrap();
+    let broken = client
+        .create_private_device_group_genesis()
+        .unwrap()
+        .group_id()
+        .clone();
+    let healthy = client.create_group("healthy", &[]).await.unwrap();
+    let private_hex = hex::encode(broken.as_slice());
+    assert!(client.state_group_record(&broken).is_none());
+    assert!(
+        app.groups("alice")
+            .unwrap()
+            .iter()
+            .all(|group| group.group_id_hex != private_hex)
+    );
+    drop(client);
+
+    let storage = app.account_storage("alice").unwrap();
+    storage
+        .create_group_snapshot(&broken, "openmls-apply-incident-a")
+        .unwrap();
+    storage
+        .create_group_snapshot(&broken, "openmls-apply-incident-b")
+        .unwrap();
+
+    for _restart in 0..2 {
+        let mut client = app.client("alice").await.unwrap();
+        assert_eq!(client.quarantined_groups().len(), 1);
+        assert_eq!(
+            client.quarantined_groups()[0].reason,
+            crate::AppGroupHydrationQuarantineReason::GroupRecordLoadFailed
+        );
+        let before = relay.published_event_ids().len();
+        client
+            .send(&healthy, b"healthy outgoing before drain")
+            .await
+            .unwrap();
+        assert!(relay.published_event_ids().len() > before);
+        client.drain_pending_session_events().await.unwrap();
+        assert!(!client.has_pending_effect_projections());
+        for _ in 0..3 {
+            client
+                .retry_pending_runtime_group_subscription_refresh()
+                .await
+                .unwrap();
+            assert!(!client.has_pending_effect_projections());
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), client.next_event())
+                .await
+                .is_err()
+        );
+        let before = relay.published_event_ids().len();
+        client.send(&healthy, b"healthy outgoing").await.unwrap();
+        assert!(relay.published_event_ids().len() > before);
+        assert!(!client.has_pending_effect_projections());
+        assert!(client.state_group_record(&broken).is_none());
+        assert!(
+            app.groups("alice")
+                .unwrap()
+                .iter()
+                .all(|group| group.group_id_hex != private_hex)
+        );
+    }
+
+    storage
+        .release_group_snapshot(&broken, "openmls-apply-incident-a")
+        .unwrap();
+    storage
+        .release_group_snapshot(&broken, "openmls-apply-incident-b")
+        .unwrap();
+    let mut client = app.client("alice").await.unwrap();
+    client.drain_pending_session_events().await.unwrap();
+    assert!(client.quarantined_groups().is_empty());
+    assert!(!client.has_pending_effect_projections());
+    assert!(client.state_group_record(&broken).is_none());
+    assert!(
+        app.groups("alice")
+            .unwrap()
+            .iter()
+            .all(|group| group.group_id_hex != private_hex)
+    );
+    let before = relay.published_event_ids().len();
+    client.send(&healthy, b"healthy after recovery").await.unwrap();
+    assert!(relay.published_event_ids().len() > before);
+}
