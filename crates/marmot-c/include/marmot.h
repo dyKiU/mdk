@@ -1496,6 +1496,7 @@ typedef struct MarmotPairedChatSummary {
   char *name;
   char *description;
   struct MarmotPairedChatSource source;
+  char *direct_peer_account_id_hex;
 } MarmotPairedChatSummary;
 
 typedef struct MarmotPairedChatListPage {

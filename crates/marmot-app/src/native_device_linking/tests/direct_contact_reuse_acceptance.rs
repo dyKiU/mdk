@@ -123,6 +123,10 @@ async fn one_scan_direct_contact_reuses_source_chat_without_another_peer_invitat
                     .unwrap();
                 if let Some(ExistingAccountDirectConversation::PairedSource(row)) = found {
                     assert!(row.group_id == group);
+                    assert_eq!(
+                        row.direct_peer_account.map(hex::encode),
+                        Some(peer_account.account_id_hex.clone())
+                    );
                     break;
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(25)).await;

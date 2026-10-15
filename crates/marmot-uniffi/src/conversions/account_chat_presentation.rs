@@ -63,6 +63,8 @@ pub struct PairedChatSummaryFfi {
     pub name: String,
     pub description: String,
     pub source: PairedChatSourceFfi,
+    #[uniffi(default = None)]
+    pub direct_peer_account_id_hex: Option<String>,
 }
 redact!(PairedChatSummaryFfi);
 impl From<PairedChatSummary> for PairedChatSummaryFfi {
@@ -72,6 +74,7 @@ impl From<PairedChatSummary> for PairedChatSummaryFfi {
             name: value.name,
             description: value.description,
             source: value.source.into(),
+            direct_peer_account_id_hex: value.direct_peer_account.map(hex::encode),
         }
     }
 }
@@ -173,6 +176,7 @@ mod direct_route_tests {
                 group_id: cgka_traits::GroupId::new(vec![7; 16]),
                 name: "private title".into(),
                 description: "private description".into(),
+                direct_peer_account: Some([9; 32]),
                 source: marmot_app::PairedChatSource {
                     device: [1; 32],
                     policy_digest: [2; 32],
@@ -187,9 +191,14 @@ mod direct_route_tests {
         let debug = format!("{ffi:?}");
         assert!(!debug.contains("private title"));
         assert!(!debug.contains(&"01".repeat(32)));
+        assert!(!debug.contains(&"09".repeat(32)));
         match ffi {
             ExistingAccountDirectConversationFfi::PairedSource { conversation } => {
                 assert_eq!(conversation.group_id_hex, "07".repeat(16));
+                assert_eq!(
+                    conversation.direct_peer_account_id_hex,
+                    Some("09".repeat(32))
+                );
                 assert_eq!(conversation.source.protected_generation, 3);
                 assert_eq!(conversation.source.source_sequence, 5);
             }

@@ -361,3 +361,42 @@ async fn paired_presentation_actual_original_approval_catalog_without_fake_mls_g
             .is_err()
     );
 }
+
+#[cfg(feature = "experimental-device-sync")]
+#[test]
+fn paired_summary_keeps_source_attested_peer_and_preserves_unknown_legacy_peer() {
+    use cgka_traits::mirrored_chat_catalog::{
+        MirroredChatEntry, MirroredChatScope, MirroredChatState,
+    };
+    for peer in [None, Some([9; 32])] {
+        let observation = storage_sqlite::MirroredCatalogObservation {
+            scope: MirroredChatScope {
+                account: [1; 32],
+                local_device: [2; 32],
+                source_device: [3; 32],
+                policy_digest: [4; 32],
+                protected_group: GroupId::new(vec![5]),
+                protected_generation: 6,
+            },
+            entry: MirroredChatEntry {
+                group_id: GroupId::new(vec![7]),
+                source_epoch: 8,
+                source_sequence: 10,
+                source_digest: [11; 32],
+                profile: cgka_traits::group::ProtocolProfile::Current,
+                name: String::new(),
+                description: String::new(),
+                state: MirroredChatState::Active,
+                accepted_origin: None,
+                same_account_source_count: Some(1),
+                direct_peer_account: peer,
+            },
+        };
+        let summary = PairedChatSummary::from(observation);
+        assert_eq!(summary.direct_peer_account, peer);
+        assert!(summary.name.is_empty());
+        assert_eq!(summary.source.device, [3; 32]);
+        assert_eq!(summary.source.protected_generation, 6);
+        assert_eq!(summary.source.source_sequence, 10);
+    }
+}
