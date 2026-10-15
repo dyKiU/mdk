@@ -3702,6 +3702,11 @@ mod actual {
                 .await;
                 // Recheck after the observation, before releasing the real SQL fault.
                 // Relay publication alone never establishes B receipt or permission.
+                if let Some(previous) = preceding_revoked_anchor {
+                    let actual = b_storage.revoked_device_group_anchor_storage().unwrap().revoked_anchor().unwrap();
+                    assert!(actual.as_ref() == Some(previous),
+                        "observing a second Challenge must preserve every field of the actual previous negative anchor");
+                } else {
                 assert!(
                     b_storage
                         .revoked_device_group_anchor_storage()
@@ -3710,6 +3715,7 @@ mod actual {
                         .unwrap()
                         .is_none()
                 );
+                }
                 let still_before = openmls::group::MlsGroup::load(
                     b_storage.mls_storage(),
                     &openmls::group::GroupId::from_slice(protected.as_slice()),
