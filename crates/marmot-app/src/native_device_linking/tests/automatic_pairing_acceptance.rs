@@ -235,7 +235,9 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     if let Some((observed, release)) = held_consent {
         let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
             observed.await.expect("genuine sibling consent publication");
-            eprintln!("automatic-enrollment-control stage=sibling-consent-held-before-peer-progress");
+            eprintln!(
+                "automatic-enrollment-control stage=sibling-consent-held-before-peer-progress"
+            );
             loop {
                 if apps[1..3].iter().any(|app| {
                     app.account_storage("test")
@@ -273,7 +275,9 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
             .await
             .expect("the actual automatic publication must be held before completion")
             .expect("the actual automatic publication must be observed");
-        eprintln!("automatic-enrollment-control stage=automatic-publication-held-before-completion");
+        eprintln!(
+            "automatic-enrollment-control stage=automatic-publication-held-before-completion"
+        );
         Some(release)
     } else {
         None
