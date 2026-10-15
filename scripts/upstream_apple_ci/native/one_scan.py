@@ -15,10 +15,71 @@ from cross_host import GateFailure, Peer, require, supported_companion
 from automatic_chat import accept, exact_mirror, eventually, confirmed
 
 
+PAIRING_PHASES = frozenset((
+    'awaitingSetup', 'awaitingPeer', 'comparisonAvailable', 'awaitingPeerVerification',
+    'verificationCompleteEnrollmentPending', 'cancelled', 'expired', 'failed', 'enrollmentComplete'))
+APPROVAL_PHASES = frozenset((
+    'awaitingApproval', 'approvedAwaitingPacket', 'awaitingSettlement', 'settled', 'cancelled', 'expired'))
+DEVICE_ROLES = frozenset(('source', 'companion', 'third', 'contact'))
+PUBLIC_CHAT_RELAYS = ('wss://relay.eu.whitenoise.chat', 'wss://relay.us.whitenoise.chat')
+
+
+def worker_command(args, root):
+    public_relay = args.public_chat_relay
+    require(public_relay is None or public_relay in PUBLIC_CHAT_RELAYS, 'public-relay-not-allowed')
+    # Always override inherited routing so a local trial cannot publish publicly.
+    return ['/usr/bin/env', 'NATIVE_ACCEPTANCE_RELAY_PORT=' + str(args.port),
+            'NATIVE_ACCEPTANCE_PUBLIC_CHAT_RELAY=' + (public_relay or ''),
+            str(args.agent), 'serve', str(root)]
+
+
+def safe_phase(value, allowed):
+    return value if type(value) is str and value in allowed else 'unrecognized'
+
+
+def pairing_diagnostics(peers):
+    # Use only already observed enum labels. No extra SDK action, identity, SAS or packet is read/exported.
+    rows = []
+    for peer in peers:
+        row = dict(role=getattr(peer, 'diagnostic_role', 'test-device'))
+        if row['role'] not in DEVICE_ROLES:
+            row['role'] = 'test-device'
+        observed = getattr(peer, 'diagnostic_pairing', None)
+        if observed is not None:
+            row.update(expected_phase=safe_phase(observed.get('expected'), PAIRING_PHASES),
+                       last_phase=safe_phase(observed.get('last'), PAIRING_PHASES))
+        if hasattr(peer, 'diagnostic_approval_phase'):
+            row['approval_phase'] = safe_phase(peer.diagnostic_approval_phase, APPROVAL_PHASES)
+        if hasattr(peer, 'diagnostic_current_phase'):
+            row['current_phase_at_failure'] = safe_phase(peer.diagnostic_current_phase, PAIRING_PHASES)
+        if hasattr(peer, 'diagnostic_current_approval'):
+            row['current_approval_at_failure'] = safe_phase(peer.diagnostic_current_approval, APPROVAL_PHASES)
+        if len(row) > 1:
+            rows.append(row)
+    return rows
+
+
+def capture_current_phases(display, scanner, existing):
+    # Read-only observations after failure; never retry an action or extend its deadline.
+    for peer in (display, scanner):
+        try:
+            peer.diagnostic_current_phase = safe_phase(peer.ask('snapshot').get('phase'), PAIRING_PHASES)
+        except (GateFailure, OSError):
+            peer.diagnostic_current_phase = 'unrecognized'
+    if existing is not None:
+        try:
+            existing.diagnostic_current_approval = safe_phase(
+                existing.ask('approval-snapshot').get('phase'), APPROVAL_PHASES)
+        except (GateFailure, OSError):
+            existing.diagnostic_current_approval = 'unrecognized'
+
+
 def wait_phase(peer, phase, timeout=90):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         value = peer.ask('snapshot')
+        peer.diagnostic_pairing = dict(expected=safe_phase(phase, PAIRING_PHASES),
+                                       last=safe_phase(value.get('phase'), PAIRING_PHASES))
         if value['phase'] == phase:
             return value
         require(value['phase'] not in ('cancelled', 'expired', 'failed'), 'pairing-terminal-before-' + phase)
@@ -48,7 +109,9 @@ def approve_existing_device(existing, display, scanner):
         raise GateFailure('existing-device-approval-not-arriving')
     require(all(p.ask('snapshot')['phase'] != 'enrollmentComplete' for p in (display, scanner)),
             'third-device-enrolled-before-existing-device-approval')
-    revision = existing.ask('approval-snapshot')['revision']
+    approval = existing.ask('approval-snapshot')
+    existing.diagnostic_approval_phase = safe_phase(approval.get('phase'), APPROVAL_PHASES)
+    revision = approval['revision']
     reviewed = existing.ask('approval-review', revision=revision)
     require(reviewed.get('review_valid') is True, 'existing-device-review-invalid')
     try:
@@ -85,8 +148,12 @@ def pair(display, scanner, target=None, existing=None):
         peer.ask('one-scan-share', revision=value['revision'])
     if existing is not None:
         approve_existing_device(existing, display, scanner)
-    for peer in (display, scanner):
-        wait_phase(peer, 'enrollmentComplete')
+    try:
+        for peer in (display, scanner):
+            wait_phase(peer, 'enrollmentComplete')
+    except GateFailure:
+        capture_current_phases(display, scanner, existing)
+        raise
     return dict(single_bootstrap=True, automatic_encrypted_exchange=True,
                 both_comparisons_required=True, explicit_bilateral_sharing=True)
 
@@ -176,7 +243,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--agent', type=Path, required=True)
     parser.add_argument('--agent-sha256', required=True)
-    parser.add_argument('--relay', type=Path, required=True)
+    parser.add_argument('--relay', type=Path)
+    parser.add_argument('--public-chat-relay', choices=PUBLIC_CHAT_RELAYS,
+                        help='Opt in to fresh synthetic public-network traffic; pairing uses nos.lol and relay.primal.net')
     parser.add_argument('--sdk-source', required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--port', type=int, default=18485)
@@ -187,6 +256,8 @@ def main():
     parser.add_argument('--direct-chats', action='store_true',
                         help='Use the actual iOS direct-chat creation API and require lookup reuse after sync')
     args = parser.parse_args()
+    if not args.public_chat_relay and args.relay is None:
+        parser.error('--relay is required unless --public-chat-relay is selected')
     if args.three_device_chats and not args.contacts:
         parser.error('--three-device-chats requires --contacts')
     if args.direct_chats and not args.three_device_chats:
@@ -198,22 +269,25 @@ def main():
     args.output.mkdir(parents=True, mode=0o700)
     os.umask(0o077)
     checks, peers, failure = [], [], None
+    completed_initial_pairings = []
     direct_observations = []
+    failure_diagnostics = []
     relay = None
     with (args.output / 'relay.stderr').open('xb') as relay_log:
         try:
-            with socket.socket() as probe:
-                probe.bind(('127.0.0.1', args.port))
-            relay = subprocess.Popen([str(args.relay), '--port', str(args.port)], stdout=subprocess.PIPE, stderr=relay_log)
-            require(bool(select.select([relay.stdout], [], [], 10)[0]), 'relay-ready-timeout')
-            require(bool(relay.stdout.readline()) and relay.poll() is None, 'relay-start-refused')
+            if not args.public_chat_relay:
+                with socket.socket() as probe:
+                    probe.bind(('127.0.0.1', args.port))
+                relay = subprocess.Popen([str(args.relay), '--port', str(args.port)], stdout=subprocess.PIPE, stderr=relay_log)
+                require(bool(select.select([relay.stdout], [], [], 10)[0]), 'relay-ready-timeout')
+                require(bool(relay.stdout.readline()) and relay.poll() is None, 'relay-start-refused')
             for reverse in (False, True):
                 folder = args.output / ('reverse' if reverse else 'forward')
                 folder.mkdir(mode=0o700)
                 created = []
                 for name in ('source', 'companion'):
-                    peer = Peer(['/usr/bin/env', 'NATIVE_ACCEPTANCE_RELAY_PORT=' + str(args.port),
-                                 str(args.agent), 'serve', str(folder / name)], folder / (name + '.stderr'))
+                    peer = Peer(worker_command(args, folder / name), folder / (name + '.stderr'))
+                    peer.diagnostic_role = name
                     peers.append(peer)
                     created.append(peer)
                 a, b = created
@@ -221,13 +295,13 @@ def main():
                 imported = supported_companion(b, identity['secret'])
                 require(identity['account'] == imported['account'], 'same-independent-test-identity')
                 if args.contacts:
-                    third = Peer(['/usr/bin/env', 'NATIVE_ACCEPTANCE_RELAY_PORT=' + str(args.port),
-                                  str(args.agent), 'serve', str(folder / 'third')], folder / 'third.stderr')
+                    third = Peer(worker_command(args, folder / 'third'), folder / 'third.stderr')
+                    third.diagnostic_role = 'third'
                     peers.append(third)
                     third_identity = supported_companion(third, identity['secret'])
                     require(third_identity['account'] == identity['account'], 'third-contact-identity-mismatch')
-                    contact = Peer(['/usr/bin/env', 'NATIVE_ACCEPTANCE_RELAY_PORT=' + str(args.port),
-                                    str(args.agent), 'serve', str(folder / 'contact')], folder / 'contact.stderr')
+                    contact = Peer(worker_command(args, folder / 'contact'), folder / 'contact.stderr')
+                    contact.diagnostic_role = 'contact'
                     peers.append(contact)
                     contact_identity = contact.ask('create')
                     target = contact_identity['account']
@@ -243,6 +317,7 @@ def main():
                     eventually(lambda: contact.ask('message-seen', group=group, message=event, text=text),
                                lambda v: v['seen'], 'ordinary-peer-before-pairing')
                 check = pair(b, a) if reverse else pair(a, b)
+                completed_initial_pairings.append(dict(reverse=reverse, **check))
                 if args.three_device_chats:
                     text, event, later, check['three_devices'] = third_device_chats(
                         a, b, third, contact, target, group, text, event,
@@ -256,8 +331,7 @@ def main():
                     if args.three_device_chats:
                         offline_text = 'native-one-scan-offline-third-chat'
                         offline_event = b.ask('send-text', group=later, text=offline_text)['message']
-                    third = Peer(['/usr/bin/env', 'NATIVE_ACCEPTANCE_RELAY_PORT=' + str(args.port),
-                                  str(args.agent), 'serve', str(folder / 'third')], folder / 'third-restart.stderr')
+                    third = Peer(worker_command(args, folder / 'third'), folder / 'third-restart.stderr')
                     peers.append(third)
                     third.ask('resume')
                     wait_contacts((a, b, third), [])
@@ -274,6 +348,7 @@ def main():
                     peer.close()
                     peers.remove(peer)
         except (GateFailure, OSError, ValueError, subprocess.SubprocessError) as error:
+            failure_diagnostics = pairing_diagnostics(peers)
             failure = str(error) if isinstance(error, GateFailure) else 'controller-refused'
         finally:
             for peer in peers:
@@ -292,8 +367,16 @@ def main():
                 relay.stdout.close()
     value = dict(passed=len(checks) if failure is None else 0, failed=int(failure is not None),
                  failure=failure, checks=checks, sdk_source=args.sdk_source,
-                 agent_sha256=args.agent_sha256, relay_port=args.port,
-                 scope='Actual compiled Apple SDK on isolated native workers and loopback relay. Synthetic identities only; no app UI, platform credential store, iPhone or APNS claim.')
+                 completed_initial_pairings=completed_initial_pairings,
+                 agent_sha256=args.agent_sha256,
+                 relay_port=None if args.public_chat_relay else args.port,
+                 public_chat_relay=args.public_chat_relay,
+                 pairing_relays=['wss://nos.lol', 'wss://relay.primal.net'] if args.public_chat_relay else [],
+                 scope='Actual compiled Apple SDK on isolated native workers and ' +
+                 ('explicit public relays' if args.public_chat_relay else 'loopback relay') +
+                 '. Synthetic identities only; no app UI, platform credential store, iPhone or APNS claim.')
+    if failure_diagnostics:
+        value['pairing_diagnostics'] = failure_diagnostics
     if args.direct_chats:
         value['direct_lookup_observations'] = direct_observations
     (args.output / 'result.json').write_text(json.dumps(value, indent=2) + '\n')

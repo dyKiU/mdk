@@ -16,6 +16,7 @@ from cross_host import GateFailure, Peer
 
 
 PAIRS = []
+CREATED_PEERS = []
 ACTIVE = None
 KNOWN_PHASES = {
     'awaitingSetup', 'awaitingPeer', 'comparisonAvailable', 'awaitingPeerVerification',
@@ -71,6 +72,21 @@ class ObservedPeer(Peer):
     def __init__(self, command, error_log):
         super().__init__(command, error_log)
         self.diagnostic_cohort = error_log.parent.name if error_log.parent.name in {'forward', 'reverse'} else 'unknown'
+        slot = error_log.name.removesuffix('.stderr')
+        self.close_observation = {'cohort': self.diagnostic_cohort,
+            'slot': slot if slot in {'source','companion','third','contact','third-restart'} else 'unknown',
+            'close_calls': 0, 'positive_close': False}
+        CREATED_PEERS.append(self)
+
+    def close(self):
+        self.close_observation['close_calls'] += 1
+        try:
+            return super().close()
+        finally:
+            self.close_observation['positive_close'] = bool(
+                self.closed_successfully and self.process.poll() == 0)
+            self.close_observation['exit_code'] = self.process.poll()
+
 
     def ask(self, command, **fields):
         role = ACTIVE['_roles'].get(id(self)) if ACTIVE else None
@@ -157,7 +173,7 @@ def main():
     provenance_path = Path(sys.argv[provenance_index + 1])
     provenance_bytes = provenance_path.read_bytes()
     provenance = json.loads(provenance_bytes)
-    if provenance['frozen_workspace_commit'] != '3048d444ffe681fbae2dc1fb8e4f49d2a1c14372':
+    if provenance['frozen_workspace_commit'] != 'be04fc60b6a4c40bd85423fbf9e35e8982ae4b84':
         raise ValueError('Unexpected diagnostic agent source cohort')
     del sys.argv[provenance_index:provenance_index + 2]
     frozen.Peer = ObservedPeer
@@ -168,6 +184,7 @@ def main():
     output = Path(sys.argv[sys.argv.index('--output') + 1]) / 'result.json'
     result = json.loads(output.read_text())
     result['phase_diagnostics'] = PAIRS
+    result['original_process_close_observations'] = [peer.close_observation for peer in CREATED_PEERS]
     result['diagnostic_adapter_sha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     result['frozen_controller_sha256'] = hashlib.sha256((HERE / 'native/one_scan.py').read_bytes()).hexdigest()
     result['derived_agent_source'] = provenance
