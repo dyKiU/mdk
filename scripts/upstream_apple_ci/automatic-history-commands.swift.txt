@@ -1,0 +1,43 @@
+        case "automatic-page-37":
+            stage = "read-only-paired-history-cursor-page"
+            let cursor: PairedChatMessageCursorFfi?
+            if let createdAt = request.afterCreatedAt, let message = request.afterMessage {
+                guard createdAt <= UInt64(Int64.max), message.count == 64,
+                    message.allSatisfy({ "0123456789abcdef".contains($0) })
+                else { throw AcceptanceFailure.invalidArguments }
+                cursor = PairedChatMessageCursorFfi(createdAt: createdAt, messageIdHex: message)
+            } else {
+                guard request.afterCreatedAt == nil, request.afterMessage == nil
+                else { throw AcceptanceFailure.invalidArguments }
+                cursor = nil
+            }
+            do {
+                let page = try await runtime.pairedChatMessagePage(
+                    accountRef: requireAccount(), groupIdHex: identifier(request.group), after: cursor, limit: 37)
+                let next: Any
+                if let value = page.next {
+                    next = ["created_at": value.createdAt, "message": value.messageIdHex] as [String: Any]
+                } else { next = NSNull() }
+                return ["ready": true, "next": next, "records": page.messages.map { record -> [String: Any] in
+                    ["message": record.messageIdHex, "author": record.authorHex,
+                     "created_at": record.createdAt, "content": record.content, "tags": record.tags.map(\.values),
+                     "deleted": record.deleted, "expires_at": record.expiresAt.map { $0 as Any } ?? NSNull(),
+                     "kind": record.kind, "canonical_chat": record.canonicalChat,
+                     "media_count": record.mediaAttachments.count,
+                     "source": ["device": record.source.deviceHex, "policy": record.source.policyDigestHex,
+                                "generation": record.source.protectedGeneration, "epoch": record.source.sourceEpoch,
+                                "sequence": record.source.sourceSequence, "digest": record.source.sourceDigestHex]]
+                }]
+            } catch MarmotKitError.AccountSharingNotReady {
+                return ["ready": false, "next": NSNull(), "records": []] as [String: Any]
+            }
+        case "automatic-catalog-sources":
+            stage = "read-only-paired-catalog-source-observations"
+            let page = try await runtime.pairedChatListPage(accountRef: requireAccount(), afterGroupIdHex: nil, limit: 128)
+            guard page.nextGroupIdHex == nil else { throw AcceptanceFailure.unexpectedAccount }
+            return page.chats.map { row -> [String: Any] in
+                ["group": row.groupIdHex,
+                 "source": ["device": row.source.deviceHex, "policy": row.source.policyDigestHex,
+                            "generation": row.source.protectedGeneration, "epoch": row.source.sourceEpoch,
+                            "sequence": row.source.sourceSequence, "digest": row.source.sourceDigestHex]]
+            }

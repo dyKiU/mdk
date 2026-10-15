@@ -12,7 +12,7 @@ parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--app-sha', required=True)
 args = parser.parse_args()
 summary = json.loads(subprocess.check_output(
-    ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(args.result), '--format', 'json'], text=True))
+    ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(args.result)], text=True))
 proof = {'app_sha': args.app_sha, 'sdk_source': os.environ['SOURCE_SHA'],
          'workflow_run_id': os.environ['GITHUB_RUN_ID'],
          'cohort': 'otlp-export,product-analytics-export,experimental-device-sync', 'xcresult_summary': summary}
