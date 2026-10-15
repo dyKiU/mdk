@@ -7,7 +7,7 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental]
+        options: [source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental]
         default: all
 
 permissions:
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   mutation:
-    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-')
+    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -51,5 +51,36 @@ jobs:
         with:
           name: upstream-boundary-${{ matrix.case }}-${{ github.event.pull_request.head.sha || github.sha }}
           path: proof/
+          if-no-files-found: error
+          retention-days: 7
+
+  source-format:
+    if: inputs.case == 'source-format' && startsWith(github.ref_name, 'ci/upstream-develop-dy-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Generate patch with the exact repository formatter, without compiling
+        run: |
+          set -euo pipefail
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          mkdir formatting
+          git rev-parse HEAD > formatting/source-sha.txt
+          git rev-parse HEAD^{tree} > formatting/source-tree.txt
+          cargo fmt --all
+          git diff --binary -- '*.rs' > formatting/formatting.patch
+          sha256sum formatting/formatting.patch > formatting/formatting.patch.sha256
+      - name: Require the original source to have been formatted
+        run: test ! -s formatting/formatting.patch
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-source-format-${{ github.sha }}
+          path: formatting/
           if-no-files-found: error
           retention-days: 7
