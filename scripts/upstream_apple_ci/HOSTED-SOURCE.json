@@ -1,0 +1,10 @@
+{
+  "workspace_commit": "eead00a4ae6214fc624199bcae04a1fb426ae2f5",
+  "files": {
+    "native/revocation_probe.py": {
+      "source": "tools/native-sync-acceptance/revocation_probe.py",
+      "sha256": "39bf6da670fcb24412abc9ccd6a71ee6639fb956dbb2b9d5c1529e2c2a7cde3f"
+    }
+  },
+  "scope": "Additional unchanged scenario helper; native/SOURCE.json remains authoritative for existing vendored sources."
+}

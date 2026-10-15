@@ -1,0 +1,173 @@
+name: Upstream supplemental native acceptance
+
+on:
+  push:
+    branches: ["ci/upstream-acceptance-*"]
+    paths:
+      - ".github/workflows/upstream-acceptance-supplement.yml"
+      - "scripts/upstream_apple_ci/**"
+  workflow_dispatch:
+    inputs:
+      sdk_run_id:
+        description: Existing Apple SDK producer run ID
+        default: "38680692243"
+        required: true
+        type: string
+      sdk_sha:
+        description: Exact existing Apple SDK source commit
+        default: "cb77ea9c0619767518643adda58bf6ae8d42370b"
+        required: true
+        type: string
+      mac_sha:
+        description: Exact Mac candidate commit
+        default: "ae3246aa3f5e0d643443e16cbaa8b908e56694a3"
+        required: true
+        type: string
+      ios_sha:
+        description: Exact final iOS candidate commit
+        default: "c706bb09ebf6677f22693ff4f71bc97ae22b6108"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: upstream-acceptance-${{ github.sha }}-${{ github.event_name }}
+  cancel-in-progress: false
+
+env:
+  WORKFLOW_HEAD_SHA: ${{ github.sha }}
+  CARGO_INCREMENTAL: "1"
+  CARGO_BUILD_JOBS: "2"
+
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    outputs:
+      sdk_sha: ${{ steps.identity.outputs.sdk_sha }}
+      sdk_run_id: ${{ steps.identity.outputs.sdk_run_id }}
+      mac_sha: ${{ steps.identity.outputs.mac_sha }}
+      ios_sha: ${{ steps.identity.outputs.ios_sha }}
+      tools_sha: ${{ steps.identity.outputs.tools_sha }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve supplemental cohort
+        id: identity
+        env:
+          REQUESTED_SDK_RUN_ID: ${{ inputs.sdk_run_id }}
+          REQUESTED_SDK_SHA: ${{ inputs.sdk_sha }}
+          REQUESTED_MAC_SHA: ${{ inputs.mac_sha }}
+          REQUESTED_IOS_SHA: ${{ inputs.ios_sha }}
+        run: python3 scripts/upstream_apple_ci/acceptance-identity.py
+
+  sdk:
+    needs: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ needs.identity.outputs.tools_sha }}
+          persist-credentials: false
+      - name: Wait for existing exact Apple artifact, without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.identity.outputs.sdk_sha }}
+          SDK_RUN_ID: ${{ needs.identity.outputs.sdk_run_id }}
+        run: python3 scripts/upstream_apple_ci/wait-sdk.py
+
+  qualification:
+    needs: [identity, sdk]
+    runs-on: macos-26
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [published-interop, hosted-history, final-ios]
+    env:
+      SOURCE_SHA: ${{ needs.identity.outputs.sdk_sha }}
+      SDK_RUN_ID: ${{ needs.identity.outputs.sdk_run_id }}
+      IOS_SHA: ${{ needs.identity.outputs.ios_sha }}
+      MAC_SHA: ${{ needs.identity.outputs.mac_sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ needs.identity.outputs.tools_sha }}
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: dyKiU/whitenoise-ios
+          ref: ${{ needs.identity.outputs.ios_sha }}
+          path: ios
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26"
+      - name: Download existing exact experimental SDK cohort
+        run: |
+          gh run download "$SDK_RUN_ID" --repo dyKiU/mdk \
+            --name "upstream-experimental-apple-$SOURCE_SHA" --dir packages
+      - name: Build isolated relay fixture
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          cargo +1.97.1 build --locked --manifest-path ios/scripts/test-relay/Cargo.toml --target-dir ios/build/TestRelay
+      - name: Published 0.13 versus experimental iOS native interoperability
+        if: matrix.lane == 'published-interop'
+        run: bash scripts/upstream_apple_ci/published-interop.sh
+      - name: Native original history, cancellation, departure and revocation
+        if: matrix.lane == 'hosted-history'
+        run: bash scripts/upstream_apple_ci/hosted-history.sh
+      - name: Adopt verified final iOS experimental overlay
+        if: matrix.lane == 'final-ios'
+        run: |
+          python3 scripts/upstream_apple_ci/install.py --packages packages \
+            --source "$SOURCE_SHA" --run-id "$SDK_RUN_ID" --platform ios --app ios --app-sha "$IOS_SHA"
+          destination=$(cd ios && bash scripts/pick-simulator.sh)
+          printf 'WN_TEST_DESTINATION=%s\n' "$destination" >> "$GITHUB_ENV"
+          defaults write com.apple.iphonesimulator PasteboardAutomaticSync -bool false
+      - name: Full final iOS experimental suite
+        if: matrix.lane == 'final-ios'
+        working-directory: ios
+        env:
+          WN_EXPERIMENTAL_DEVICE_SYNC: "1"
+          WN_TEST_DERIVED_DATA: ${{ runner.temp }}/final-ios-derived-data
+          WN_TEST_SOURCE_PACKAGES: ${{ runner.temp }}/final-ios-packages
+          WN_TEST_RESULT_BUNDLE: ${{ runner.temp }}/final-ios.xcresult
+          WN_TEST_JOBS: "2"
+        run: bash scripts/test-with-relay.sh
+      - name: Record final iOS execution counts
+        if: always() && matrix.lane == 'final-ios'
+        run: |
+          python3 scripts/upstream_apple_ci/summarize.py --result "$RUNNER_TEMP/final-ios.xcresult" \
+            --app-sha "$IOS_SHA" --output "$RUNNER_TEMP/final-ios-summary.json"
+      - name: Kill localization mutant and verify restored native controls
+        if: matrix.lane == 'final-ios'
+        run: python3 scripts/upstream_apple_ci/localization-mutation.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: upstream-supplement-${{ matrix.lane }}-${{ needs.identity.outputs.sdk_sha }}
+          # No worker stores, private IPC or raw native stderr are uploaded.
+          path: |
+            ${{ runner.temp }}/interop-evidence/result.json
+            ${{ runner.temp }}/interop-evidence/published-provenance.json
+            ${{ runner.temp }}/hosted-history-evidence/result.json
+            ${{ runner.temp }}/localization-mutation/result.json
+            ${{ runner.temp }}/final-ios.xcresult
+            ${{ runner.temp }}/final-ios-summary.json
+            packages/qualification.json
+            scripts/upstream_apple_ci/acceptance-cohort.json
+            scripts/upstream_apple_ci/HOSTED-SOURCE.json
+            scripts/upstream_apple_ci/native/SOURCE.json
+          if-no-files-found: warn
+          retention-days: 7
