@@ -1,0 +1,65 @@
+name: Scoped companion catch-up predicate qualification
+on:
+  push:
+    branches: [ci/upstream-companion-catchup-20261015]
+permissions:
+  contents: read
+concurrency:
+  group: companion-catchup-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [default, experimental]
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component clippy --component rustfmt
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: companion-catchup-${{ matrix.cohort }}
+          cache-on-failure: true
+      - name: Actual exact companion predicate runtime controls
+        env:
+          CARGO_INCREMENTAL: '1'
+          COHORT: ${{ matrix.cohort }}
+        run: |
+          python3 scripts/qualification_build_preflight.py --label companion-catchup-$COHORT
+          python3 scripts/qualify_companion_catchup.py
+      - name: Strict affected checks on GREEN source
+        env:
+          CARGO_INCREMENTAL: '1'
+          COHORT: ${{ matrix.cohort }}
+        run: |
+          set -euo pipefail
+          phase=$(python3 -c 'import json; print(json.load(open("scripts/companion_catchup_cohort.json"))["phase"])')
+          if [ "$phase" != green ]; then exit 0; fi
+          cargo metadata --locked --no-deps --format-version 1 > companion-catchup-proof/metadata.json
+          cargo fmt --all -- --check
+          features=()
+          if [ "$COHORT" = experimental ]; then features=(--features marmot-account/experimental-device-sync); fi
+          cargo clippy --locked -p marmot-account --all-targets "${features[@]}" -- -D warnings
+          git diff --exit-code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: companion-catchup-${{ matrix.cohort }}-${{ github.sha }}
+          path: |
+            companion-catchup-proof/
+            build-capacity-preflight.json
+          retention-days: 7
