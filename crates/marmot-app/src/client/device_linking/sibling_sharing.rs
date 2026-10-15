@@ -1853,12 +1853,18 @@ impl AppClient {
                     .fold(0, |mask, (index, value)| {
                         mask | (usize::from(value) << index)
                     });
-                entry
+                let pending_counts = [
+                    entry.pending_controls.len(),
+                    entry.pending_opaque.lock().expect("sibling opaque controls").len(),
+                    usize::from(entry.publication.is_some()),
+                ];
+                let mut diagnostic = entry
                     .state
                     .sibling_diagnostics
                     .lock()
-                    .expect("sibling diagnostics")
-                    .channel_bits = mask;
+                    .expect("sibling diagnostics");
+                diagnostic.channel_bits = mask;
+                diagnostic.pending_counts = pending_counts;
             }
         }
         self.linking_owner.sibling_channels = channels;
@@ -2131,12 +2137,18 @@ impl AppClient {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         {
             use crate::account_chat_sharing::enabled::SiblingPublicationStage as Stage;
-            entry
+            let index = match kind {
+                AccountSharingControl::Request => 0,
+                AccountSharingControl::Consent => 1,
+                AccountSharingControl::Body(_) => 2,
+            };
+            let mut diagnostic = entry
                 .state
                 .sibling_diagnostics
                 .lock()
-                .expect("sibling diagnostics")
-                .publication_stage = Some(Stage::AfterCoreWrap);
+                .expect("sibling diagnostics");
+            diagnostic.publication_stage = Some(Stage::AfterCoreWrap);
+            diagnostic.transport_prepared[index] += 1;
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if kind == AccountSharingControl::Request
@@ -2257,11 +2269,17 @@ impl AppClient {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 {
                     use crate::account_chat_sharing::enabled::SiblingPublicationStage as Stage;
-                    state
+                    let index = match kind {
+                        AccountSharingControl::Request => 0,
+                        AccountSharingControl::Consent => 1,
+                        AccountSharingControl::Body(_) => 2,
+                    };
+                    let mut diagnostic = state
                         .sibling_diagnostics
                         .lock()
-                        .expect("sibling diagnostics")
-                        .publication_stage = Some(Stage::AfterRelayPublication);
+                        .expect("sibling diagnostics");
+                    diagnostic.publication_stage = Some(Stage::AfterRelayPublication);
+                    diagnostic.transport_acknowledged[index] += 1;
                 }
                 Ok(())
             }

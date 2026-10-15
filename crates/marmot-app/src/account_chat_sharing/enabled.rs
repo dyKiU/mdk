@@ -42,6 +42,11 @@ pub(crate) struct SiblingMaintenanceDiagnostics {
     pub(crate) failures: usize,
     pub(crate) last_failure: Option<SiblingMaintenanceFailure>,
     pub(crate) publication_stage: Option<SiblingPublicationStage>,
+    // Request, Consent, proof; actual Core preparation and relay acknowledgments.
+    pub(crate) transport_prepared: [usize; 3],
+    pub(crate) transport_acknowledged: [usize; 3],
+    // Retained authenticated controls, opaque controls, owned publication present.
+    pub(crate) pending_counts: [usize; 3],
 }
 
 #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -51,6 +56,9 @@ pub(crate) type SiblingMaintenanceSnapshot = (
     usize,
     Option<SiblingMaintenanceFailure>,
     Option<SiblingPublicationStage>,
+    [usize; 3],
+    [usize; 3],
+    [usize; 3],
 );
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl SiblingMaintenanceDiagnostics {
@@ -61,6 +69,9 @@ impl SiblingMaintenanceDiagnostics {
             self.failures,
             self.last_failure,
             self.publication_stage,
+            self.transport_prepared,
+            self.transport_acknowledged,
+            self.pending_counts,
         )
     }
 }

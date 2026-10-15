@@ -129,7 +129,13 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         .unwrap();
     // No enrollment_packet/receive_enrollment_packet/finalize calls by the host.
     eprintln!("automatic-enrollment-control stage=third-device-completion");
-    wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
+    wait_for_automatic_phase_with_approvals(
+        &a,
+        &c,
+        DeviceLinkingPhase::EnrollmentComplete,
+        std::slice::from_ref(&approval),
+    )
+    .await;
     eprintln!("automatic-enrollment-control stage=third-device-completed");
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
