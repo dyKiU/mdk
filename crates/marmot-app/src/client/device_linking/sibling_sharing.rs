@@ -1921,12 +1921,32 @@ impl AppClient {
         if !entry.original.live() || !state.live() {
             return Err(denied());
         }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        {
+            use crate::account_chat_sharing::enabled::SiblingPublicationStage as Stage;
+            entry
+                .state
+                .sibling_diagnostics
+                .lock()
+                .expect("sibling diagnostics")
+                .publication_stage = Some(Stage::BeforeCoreWrap);
+        }
         let message = tokio::select! { biased;
             () = &mut stopping => return Err(denied()),
             () = &mut revoked_wrap => return Err(denied()),
             () = tokio::time::sleep_until(state.deadline.into()) => return Err(denied()),
             message = self.runtime.session_mut().wrap_account_sharing_control(&mut entry.channel, kind) => message.map_err(ClientLinkingError::Engine)?,
         };
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        {
+            use crate::account_chat_sharing::enabled::SiblingPublicationStage as Stage;
+            entry
+                .state
+                .sibling_diagnostics
+                .lock()
+                .expect("sibling diagnostics")
+                .publication_stage = Some(Stage::AfterCoreWrap);
+        }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if kind == AccountSharingControl::Request
             && let Some(probe) = &entry.pre_auth_failure
@@ -1989,6 +2009,16 @@ impl AppClient {
             return Err(denied());
         }
         self.validate_sibling_parent(&entry.original)?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        {
+            use crate::account_chat_sharing::enabled::SiblingPublicationStage as Stage;
+            entry
+                .state
+                .sibling_diagnostics
+                .lock()
+                .expect("sibling diagnostics")
+                .publication_stage = Some(Stage::BeforeRelayPublication);
+        }
         tokio::select! { biased;
             () = &mut stopping => return Err(denied()),
             () = &mut revoked => return Err(denied()),
@@ -1998,6 +2028,16 @@ impl AppClient {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 if kind == AccountSharingControl::Request && let Some(probe) = &entry.pre_auth_failure { probe.transport_counts[1].fetch_add(1, Ordering::AcqRel); }
             }
+        }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        {
+            use crate::account_chat_sharing::enabled::SiblingPublicationStage as Stage;
+            entry
+                .state
+                .sibling_diagnostics
+                .lock()
+                .expect("sibling diagnostics")
+                .publication_stage = Some(Stage::AfterRelayPublication);
         }
         if !entry.original.live() || !entry.state.live() {
             return Err(denied());

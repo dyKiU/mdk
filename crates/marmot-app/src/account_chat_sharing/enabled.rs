@@ -25,6 +25,14 @@ pub(crate) enum SiblingMaintenanceFailure {
     PrivateInvite,
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum SiblingPublicationStage {
+    BeforeCoreWrap,
+    AfterCoreWrap,
+    BeforeRelayPublication,
+    AfterRelayPublication,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
 #[derive(Default)]
 pub(crate) struct SiblingMaintenanceDiagnostics {
     // Original live, state live, ready, handshake published, local policy,
@@ -33,14 +41,27 @@ pub(crate) struct SiblingMaintenanceDiagnostics {
     pub(crate) visits: usize,
     pub(crate) failures: usize,
     pub(crate) last_failure: Option<SiblingMaintenanceFailure>,
+    pub(crate) publication_stage: Option<SiblingPublicationStage>,
 }
 
 #[cfg(all(test, feature = "test-policy-overrides"))]
-pub(crate) type SiblingMaintenanceSnapshot = (usize, usize, usize, Option<SiblingMaintenanceFailure>);
+pub(crate) type SiblingMaintenanceSnapshot = (
+    usize,
+    usize,
+    usize,
+    Option<SiblingMaintenanceFailure>,
+    Option<SiblingPublicationStage>,
+);
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl SiblingMaintenanceDiagnostics {
     pub(crate) fn snapshot(&self) -> SiblingMaintenanceSnapshot {
-        (self.channel_bits, self.visits, self.failures, self.last_failure)
+        (
+            self.channel_bits,
+            self.visits,
+            self.failures,
+            self.last_failure,
+            self.publication_stage,
+        )
     }
 }
 pub(crate) struct State {

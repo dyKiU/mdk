@@ -303,8 +303,11 @@ impl IncomingPeer {
         eprintln!("withdrawal-control stage=old-runtimes-closed");
         assert!(runtimes[0].storage_is_closed() && runtimes[2].storage_is_closed());
         let source = MarmotAppRuntime::new(MarmotApp::with_relay(roots[0], url));
+        eprintln!("withdrawal-control stage=source-runtime-constructed");
         let recipient = MarmotAppRuntime::new(MarmotApp::with_relay(roots[1], url));
+        eprintln!("withdrawal-control stage=recipient-runtime-constructed");
         source.reconcile_accounts().await.unwrap();
+        eprintln!("withdrawal-control stage=source-runtime-reconciled");
         recipient.reconcile_accounts().await.unwrap();
         eprintln!("withdrawal-control stage=reopened-runtimes-reconciled");
         let fresh = source
