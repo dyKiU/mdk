@@ -289,7 +289,9 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         &d,
         DeviceLinkingPhase::EnrollmentComplete,
         &approvals,
-    )).catch_unwind().await;
+    ))
+    .catch_unwind()
+    .await;
     if let Err(failure) = completion {
         // Observe only after the original success window has failed. The reader
         // cannot feed events to an account or grant pairing/sharing authority.
@@ -299,9 +301,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
                 publications.extend(original.publication_for_test());
             }
         }
-        let ids = publications.iter().filter_map(|id| {
-            nostr_sdk::prelude::EventId::from_slice(id.as_slice()).ok()
-        }).collect::<Vec<_>>();
+        let ids = publications
+            .iter()
+            .filter_map(|id| nostr_sdk::prelude::EventId::from_slice(id.as_slice()).ok())
+            .collect::<Vec<_>>();
         let reader = nostr_sdk::prelude::Client::builder().build();
         let observed = tokio::time::timeout(std::time::Duration::from_secs(3), async {
             if ids.is_empty() {
@@ -309,15 +312,31 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
             }
             reader.add_relay(url.as_str()).await.ok()?;
             reader.connect().await;
-            let events = reader.fetch_events(nostr_sdk::prelude::ReqTarget::single(
-                url.as_str(), [nostr_sdk::prelude::Filter::new().ids(ids.clone())],
-            )).timeout(std::time::Duration::from_secs(2)).await.ok()?;
-            Some(ids.iter().map(|id| events.iter().any(|event| {
-                event.id == *id && event.verify().is_ok()
-            })).collect::<Vec<_>>())
-        }).await;
+            let events = reader
+                .fetch_events(nostr_sdk::prelude::ReqTarget::single(
+                    url.as_str(),
+                    [nostr_sdk::prelude::Filter::new().ids(ids.clone())],
+                ))
+                .timeout(std::time::Duration::from_secs(2))
+                .await
+                .ok()?;
+            Some(
+                ids.iter()
+                    .map(|id| {
+                        events
+                            .iter()
+                            .any(|event| event.id == *id && event.verify().is_ok())
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .await;
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), reader.shutdown()).await;
-        eprintln!("automatic-enrollment-control post-failure-publication-count={} relay-retained-valid={observed:?} later-channel-progress={:?}", publications.len(), d.sibling_child_diagnostics_for_test());
+        eprintln!(
+            "automatic-enrollment-control post-failure-publication-count={} relay-retained-valid={observed:?} later-channel-progress={:?}",
+            publications.len(),
+            d.sibling_child_diagnostics_for_test()
+        );
         std::panic::resume_unwind(failure);
     }
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");

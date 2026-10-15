@@ -76,7 +76,8 @@ impl SiblingMaintenanceDiagnostics {
             self.acknowledged,
             [
                 self.pending_kind,
-                self.pending_started.map_or(0, |start| start.elapsed().as_millis() as usize),
+                self.pending_started
+                    .map_or(0, |start| start.elapsed().as_millis() as usize),
                 usize::from(self.pending_task_finished),
             ],
         )

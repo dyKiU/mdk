@@ -428,7 +428,12 @@ impl OriginalEnrollmentSharingChoice {
             .expect("sibling children")
             .iter()
             .filter_map(|state| {
-                state.sibling_diagnostics.lock().expect("sibling diagnostics").last_publication.clone()
+                state
+                    .sibling_diagnostics
+                    .lock()
+                    .expect("sibling diagnostics")
+                    .last_publication
+                    .clone()
             })
             .collect()
     }
@@ -1848,9 +1853,16 @@ impl AppClient {
                     .fold(0, |mask, (index, value)| {
                         mask | (usize::from(value) << index)
                     });
-                let mut diagnostic = entry.state.sibling_diagnostics.lock().expect("sibling diagnostics");
+                let mut diagnostic = entry
+                    .state
+                    .sibling_diagnostics
+                    .lock()
+                    .expect("sibling diagnostics");
                 diagnostic.channel_bits = mask;
-                diagnostic.pending_task_finished = entry.publication.as_ref().is_some_and(|pending| pending.task.is_finished());
+                diagnostic.pending_task_finished = entry
+                    .publication
+                    .as_ref()
+                    .is_some_and(|pending| pending.task.is_finished());
                 if entry.publication.is_none() {
                     diagnostic.pending_kind = 0;
                     diagnostic.pending_started = None;
@@ -2238,8 +2250,17 @@ impl AppClient {
         let consent = entry.recipient && !proof;
         #[cfg(all(test, feature = "test-policy-overrides"))]
         {
-            let mut diagnostic = state.sibling_diagnostics.lock().expect("sibling diagnostics");
-            let index = if proof { 2 } else if consent { 1 } else { 0 };
+            let mut diagnostic = state
+                .sibling_diagnostics
+                .lock()
+                .expect("sibling diagnostics");
+            let index = if proof {
+                2
+            } else if consent {
+                1
+            } else {
+                0
+            };
             diagnostic.prepared[index] += 1;
             diagnostic.pending_kind = index + 1;
             diagnostic.pending_started = Some(Instant::now());
@@ -2283,9 +2304,18 @@ impl AppClient {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             {
                 use crate::account_chat_sharing::enabled::SiblingPublicationStage as Stage;
-                let mut diagnostic = state.sibling_diagnostics.lock().expect("sibling diagnostics");
+                let mut diagnostic = state
+                    .sibling_diagnostics
+                    .lock()
+                    .expect("sibling diagnostics");
                 diagnostic.publication_stage = Some(Stage::AfterRelayPublication);
-                diagnostic.acknowledged[if proof { 2 } else if consent { 1 } else { 0 }] += 1;
+                diagnostic.acknowledged[if proof {
+                    2
+                } else if consent {
+                    1
+                } else {
+                    0
+                }] += 1;
             }
             Ok(())
         });
