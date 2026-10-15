@@ -4,6 +4,16 @@ use marmot_account::AccountHome;
 
 #[tokio::test]
 async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts() {
+    four_device_enrollment(false).await;
+}
+
+#[cfg(feature = "test-policy-overrides")]
+#[tokio::test]
+async fn automatic_sync_does_not_block_foreground_enrollment_completion() {
+    four_device_enrollment(true).await;
+}
+
+async fn four_device_enrollment(hold_automatic: bool) {
     #[cfg(feature = "test-policy-overrides")]
     install_publication_diagnostic_subscriber();
     use cgka_traits::StorageProvider;
@@ -169,6 +179,16 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
     a.automatic_pairing_code().await.unwrap();
     eprintln!("automatic-enrollment-control stage=fourth-device-comparison");
     compare_and_confirm_pair(&a, &d).await;
+    #[cfg(feature = "test-policy-overrides")]
+    let held_automatic = hold_automatic.then(|| {
+        apps[3]
+            .relay_plane
+            .hold_next_automatic_control(cgka_traits::MemberId::new(
+                keys.public_key().to_bytes().to_vec(),
+            ))
+    });
+    #[cfg(not(feature = "test-policy-overrides"))]
+    let _ = hold_automatic;
     d.continue_automatic_linking(d.snapshot().await.unwrap().revision, true)
         .await
         .unwrap();
@@ -197,6 +217,27 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
         approval.approve_and_share_chats(revision).await.unwrap();
         approvals.push(approval);
     }
+    #[cfg(feature = "test-policy-overrides")]
+    let held_release = if let Some((observed, release)) = held_automatic {
+        // Release on unwind as well, without turning a withheld publication into
+        // consent or replacing the real transport. Establish the hold before
+        // asking the unchanged original enrollment-completion predicate.
+        struct HeldPublicationRelease(std::sync::Arc<tokio::sync::Notify>);
+        impl Drop for HeldPublicationRelease {
+            fn drop(&mut self) {
+                self.0.notify_one();
+            }
+        }
+        let release = HeldPublicationRelease(release);
+        tokio::time::timeout(std::time::Duration::from_secs(10), observed)
+            .await
+            .expect("the actual automatic publication must be held before completion")
+            .expect("the actual automatic publication must be observed");
+        eprintln!("automatic-enrollment-control stage=automatic-publication-held-before-completion");
+        Some(release)
+    } else {
+        None
+    };
     eprintln!("automatic-enrollment-control stage=fourth-device-completion");
     wait_for_automatic_phase_with_approvals(
         &a,
@@ -206,6 +247,8 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
     )
     .await;
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
+    #[cfg(feature = "test-policy-overrides")]
+    drop(held_release);
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             if apps.iter().all(|app| {
