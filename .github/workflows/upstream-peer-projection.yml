@@ -1,7 +1,7 @@
 name: Upstream peer projection and strict profile qualification
 on:
   push:
-    branches: [ci/upstream-peer-projection-20261015]
+    branches: [ci/upstream-peer-projection-20261015, ci/upstream-peer-projection-kotlin-20261015]
 permissions:
   contents: read
 concurrency:
@@ -18,15 +18,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - {scope: default, os: ubuntu-latest}
-          - {scope: experimental, os: ubuntu-latest}
-          - {scope: profile, os: ubuntu-latest}
-          - {scope: static, os: ubuntu-latest}
-          - {scope: generate, os: ubuntu-latest}
-          - {scope: swift, os: macos-26}
-          - {scope: kotlin, os: ubuntu-latest}
-    runs-on: ${{ matrix.os }}
+        scope: ${{ fromJSON(contains(github.ref, '-kotlin-') && '["kotlin"]' || '["default","experimental","profile","static","generate","swift","kotlin"]') }}
+    runs-on: ${{ matrix.scope == 'swift' && 'macos-26' || 'ubuntu-latest' }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
@@ -66,12 +59,16 @@ jobs:
           curl --fail --location https://repo.maven.apache.org/maven2/org/jetbrains/annotations/26.0.2/annotations-26.0.2.jar --output "$RUNNER_TEMP/peer-kotlin/annotations.jar"
           curl --fail --location https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.10.2/kotlinx-coroutines-core-jvm-1.10.2.jar --output "$RUNNER_TEMP/peer-kotlin/coroutines.jar"
           python3 - <<'PY'
-          import hashlib,json,os
+          import hashlib,json,os,re
           from pathlib import Path
           root=Path(os.environ['RUNNER_TEMP'])/'peer-kotlin'
           platforms=list(Path(os.environ['ANDROID_HOME']).glob('platforms/android-*/android.jar'))
           assert platforms,'Hosted Android platform jar unavailable'
-          android=max(platforms,key=lambda p:int(p.parent.name.removeprefix('android-')))
+          def platform_version(path):
+              match=re.fullmatch(r'android-([0-9]+)(?:-ext([0-9]+))?',path.parent.name)
+              assert match,'Unrecognized installed Android platform version'
+              return (int(match[1]),int(match[2] or 0))
+          android=max(platforms,key=platform_version)
           jars=[root/'jna.jar',android,root/'annotations.jar',root/'coroutines.jar']
           with open(os.environ['GITHUB_ENV'],'a') as output:
               output.write('MDK_KOTLIN_CLASSPATH='+':'.join(map(str,jars))+'\n')
