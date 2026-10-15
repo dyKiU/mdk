@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build frozen iOS hosted products or execute one attach-only unit/UI pair in CI."""
+"""Build frozen Apple hosted products or execute one attach-only unit/UI pair in CI."""
 import argparse
 import copy
 import hashlib
@@ -19,8 +19,25 @@ SDK_PATHS = (
     "Packages/MarmotKit/Sources/MarmotKit/MarmotKit.swift",
     "Packages/MarmotKit/Sources/MarmotKit/MarmotKitVersion.swift",
     "Packages/MarmotKit/Sources/MarmotKit/Resources/PrivacyInfo.xcprivacy",
+    "Vendored/MarmotKit/MARMOT_VERSION",
+    "Vendored/MarmotKit/Package.swift",
+    "Vendored/MarmotKit/Sources/MarmotKit/MarmotKit.swift",
+    "Vendored/MarmotKit/Sources/MarmotKit/MarmotKitVersion.swift",
+    "Vendored/MarmotKit/Sources/MarmotKit/Resources/PrivacyInfo.xcprivacy",
 )
+CONFIGURATIONS = {
+    "ios": {"directory": "Debug-Staging-iphonesimulator", "target": "whitenoise-ios",
+            "app": "whitenoise-ios.app", "runner": "whitenoise-iosUITests-Runner.app",
+            "plan_glob": "Whitenoise (Hosted Automation)*.xctestrun", "native": "ios-arm64-simulator"},
+    "macos": {"directory": "Debug", "target": "whitenoise-mac",
+              "app": "White Noise Unit Host.app", "runner": "whitenoise-macUITests-Runner.app",
+              "plan_glob": "whitenoise-mac*.xctestrun", "native": "macos-arm64"},
+}
+CONFIG = CONFIGURATIONS["ios"]
 CASES = {
+    "mac-source-picker": ("GenuineHistorySourcePickerTests/testHostedNativePickerButtonsWithExternalDriver",
+                          "HostedHistorySourcePickerUITests/testNativeSourceSelectionRequestAndCancelButtons",
+                          {}, "ready"),
     "control": ("ExternalHostedUIControlTests/testExternalDriverAttachesWithoutReplacingHostedApp",
                 "HostedHistoryApprovalUITests/testExternalHostedControlTap", {"WN_EXTERNAL_UI_CONTROL": "1"}, None),
     "source-picker": ("GenuineHistorySourcePickerTests/testHostedNativeChoiceRequestAndCancelThroughPublicDriver",
@@ -95,14 +112,19 @@ def reserve_paths(prefix, bridge):
 
 
 def freeze_products(products):
-    roots = [products / "Debug-Staging-iphonesimulator" / name for name in
-             ("whitenoise-iosUITests-Runner.app", "whitenoise-ios.app")]
+    roots = [products / CONFIG["directory"] / name for name in (CONFIG["runner"], CONFIG["app"])]
     if any(not root.is_dir() for root in roots):
         raise ValueError("hosted-products-missing")
+    unit_name = CONFIG["target"] + "Tests.xctest"
+    standalone = products / CONFIG["directory"] / unit_name
+    if standalone.is_dir():
+        roots.append(standalone)
+    elif not any(root.name == unit_name for root in roots[1].rglob("*.xctest")):
+        raise ValueError("compiled-unit-test-bundle-missing")
     files = {str(path.relative_to(products)): digest(path)
              for root in roots for path in root.rglob("*") if path.is_file()}
     for name in ("libmarmot_uniffi.a", "include/marmot_uniffiFFI.h"):
-        path = products / "Debug-Staging-iphonesimulator" / name
+        path = products / CONFIG["directory"] / name
         files[str(path.relative_to(products))] = digest(path)
     return files
 
@@ -114,7 +136,7 @@ def verify_build(manifest, frozen, sdk, products):
             or receipt.get("unchanged") is not True or receipt.get("error_category") is not None):
         raise ValueError("successful-hosted-build-required")
     compiled = json.loads(manifest.read_text())
-    plans = {str(path.relative_to(products)): digest(path) for path in products.glob("Whitenoise (Hosted Automation)*.xctestrun")}
+    plans = {str(path.relative_to(products)): digest(path) for path in products.glob(CONFIG["plan_glob"])}
     if (compiled != frozen or receipt.get("sdk") != sdk
             or receipt.get("products") != freeze_products(products) or receipt.get("plans") != plans):
         raise ValueError("compiled-input-mismatch")
@@ -152,7 +174,7 @@ def make_plans(original, case, environment):
             entry.setdefault("EnvironmentVariables", {}).update(environment)
             result = {target_name: entry, "__xctestrun_metadata__": result["__xctestrun_metadata__"]}
         return result
-    return select("whitenoise-iosTests", unit_id), select("whitenoise-iosUITests", driver_id)
+    return select(CONFIG["target"] + "Tests", unit_id), select(CONFIG["target"] + "UITests", driver_id)
 
 
 def exact_pass(summary):
@@ -207,10 +229,18 @@ def main():
     parser.add_argument("--stage", choices=["build", "run"], default="run")
     parser.add_argument("--case", choices=CASES, default="control")
     parser.add_argument("--environment", type=Path, help="Private fixture environment JSON; never uploaded")
-    for name in ("simulator", "sdk-source", "source-commit"):
+    for name in ("sdk-source", "source-commit"):
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--simulator")
+    parser.add_argument("--platform", choices=CONFIGURATIONS, default="ios")
     parser.add_argument("--developer-dir", default="/Applications/Xcode.app/Contents/Developer")
     args = parser.parse_args()
+    global CONFIG
+    CONFIG = CONFIGURATIONS[args.platform]
+    if (args.platform == "macos") != (args.case == "mac-source-picker"):
+        raise ValueError("case-platform-mismatch")
+    if args.platform == "ios" and not args.simulator:
+        raise ValueError("owned-simulator-required")
     if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_OS") != "macOS":
         raise ValueError("hosted-macOS-CI-only")
     os.umask(0o077)
@@ -219,7 +249,8 @@ def main():
     reserve_paths(prefix, bridge)
     frozen = freeze_source(source, args.source_commit)
     sdk = freeze_sdk(args.sdk_package, args.sdk_source)
-    require_owned_simulator(args.simulator, dict(os.environ, DEVELOPER_DIR=args.developer_dir))
+    if args.platform == "ios":
+        require_owned_simulator(args.simulator, dict(os.environ, DEVELOPER_DIR=args.developer_dir))
     subprocess.run(["bash", "-c", 'repo_root=$1; source "$repo_root/scripts/local-device-sync-settings.sh"',
                     "verify-overlay", str(source)], check=True,
                    env=dict(os.environ, WN_EXPERIMENTAL_DEVICE_SYNC="1"))
@@ -231,13 +262,21 @@ def main():
         environment = dict(os.environ, DEVELOPER_DIR=args.developer_dir)
         command = ["xcodebuild", "build-for-testing", "-project", "whitenoise-ios.xcodeproj",
                    "-scheme", "Whitenoise (Hosted Automation)", "-destination",
-                   "platform=iOS Simulator,id=" + args.simulator,
+                   "platform=iOS Simulator,id=" + (args.simulator or ""),
                    "-derivedDataPath", str(products.parent.parent), "-jobs", "2",
                    "-skipPackagePluginValidation", "-skipMacroValidation", "ONLY_ACTIVE_ARCH=YES",
                    "CODE_SIGN_STYLE=Manual", "DEVELOPMENT_TEAM=", "PROVISIONING_PROFILE_SPECIFIER=",
                    "CODE_SIGN_IDENTITY=-", "CODE_SIGNING_ALLOWED=YES",
                    "OTHER_SWIFT_FLAGS=$(inherited) -D WN_EXPERIMENTAL_DEVICE_SYNC"]
         build_error = None
+        if args.platform == "macos":
+            command = ["xcodebuild", "build-for-testing", "-project", "whitenoise-mac.xcodeproj",
+                       "-scheme", "whitenoise-mac", "-configuration", "Debug", "-testPlan", "HostedAutomation",
+                       "-destination", "platform=macOS,arch=arm64", "-derivedDataPath", str(products.parent.parent),
+                       "-jobs", "2", "WN_APP_BUNDLE_IDENTIFIER=dev.ipf.whitenoise.mac.tests",
+                       "WN_APP_PRODUCT_NAME=White Noise Unit Host", "WN_APP_DISPLAY_NAME=White Noise Unit Host",
+                       "WN_APP_URL_SCHEME=marmot-tests", "CODE_SIGNING_ALLOWED=NO",
+                       "OTHER_SWIFT_FLAGS=$(inherited) -D WN_EXPERIMENTAL_DEVICE_SYNC"]
         with Path(str(prefix) + "-build.log").open("x") as log:
             process = subprocess.Popen(command, cwd=source, env=environment, stdout=log,
                                        stderr=subprocess.STDOUT, start_new_session=True)
@@ -250,18 +289,25 @@ def main():
                 build_error = type(error).__name__
                 build_exit = process.returncode
 
+        if args.platform == "macos" and build_exit == 0 and build_error is None:
+            for name in (CONFIG["target"] + "Tests.xctest", CONFIG["app"], CONFIG["runner"]):
+                bundle = products / CONFIG["directory"] / name
+                subprocess.run(["codesign", "--force", "--deep", "--sign", "-", "--timestamp=none", str(bundle)],
+                               env=environment, check=True)
+                subprocess.run(["codesign", "--verify", "--deep", "--strict", str(bundle)],
+                               env=environment, check=True)
         unchanged = freeze_source(source, args.source_commit) == frozen and freeze_sdk(args.sdk_package, args.sdk_source) == sdk
         write_json(Path(str(prefix) + "-results.json"), {"exit_code": build_exit, "error_category": build_error,
                    "source_commit": args.source_commit, "sdk_source": args.sdk_source,
                    "unchanged": unchanged, "command": command, "sdk": sdk,
                    "products": freeze_products(products) if build_exit == 0 else {},
                    "plans": {str(path.relative_to(products)): digest(path)
-                             for path in products.glob("Whitenoise (Hosted Automation)*.xctestrun")}})
+                             for path in products.glob(CONFIG["plan_glob"])}})
         return 0 if build_exit == 0 and unchanged and build_error is None else 1
     if args.build_input is None:
         raise ValueError("successful-frozen-build-input-required")
     verify_build(args.build_input, frozen, sdk, products)
-    plans = list(products.glob("Whitenoise (Hosted Automation)_iphonesimulator*-arm64.xctestrun"))
+    plans = list(products.glob(CONFIG["plan_glob"]))
     if len(plans) != 1:
         raise ValueError("exactly-one-hosted-plan-required")
     input_plan = plans[0]
@@ -283,12 +329,19 @@ def main():
     unit_plan.write_bytes(plistlib.dumps(unit))
     driver_plan.write_bytes(plistlib.dumps(driver))
     plan_files = {str(path): digest(path) for path in (input_plan, unit_plan, driver_plan)}
-    runner = products / "Debug-Staging-iphonesimulator/whitenoise-iosUITests-Runner.app"
-    native_archive = products / "Debug-Staging-iphonesimulator/libmarmot_uniffi.a"
-    native_header = products / "Debug-Staging-iphonesimulator/include/marmot_uniffiFFI.h"
-    if digest(native_archive) != sdk["Artifacts/MarmotKit.xcframework/ios-arm64-simulator/libmarmot_uniffi.a"]:
+    runner = products / CONFIG["directory"] / CONFIG["runner"]
+    if args.platform == "macos":
+        host = products / CONFIG["directory"] / CONFIG["app"]
+        identity = plistlib.loads((host / "Contents/Info.plist").read_bytes())["CFBundleIdentifier"]
+        if identity != "dev.ipf.whitenoise.mac.tests":
+            raise ValueError("dedicated-Mac-test-host-identity-required")
+        for bundle in (products / CONFIG["directory"] / (CONFIG["target"] + "Tests.xctest"), host, runner):
+            subprocess.run(["codesign", "--verify", "--deep", "--strict", str(bundle)], check=True)
+    native_archive = products / CONFIG["directory"] / "libmarmot_uniffi.a"
+    native_header = products / CONFIG["directory"] / "include/marmot_uniffiFFI.h"
+    if digest(native_archive) != sdk["Artifacts/MarmotKit.xcframework/" + CONFIG["native"] + "/libmarmot_uniffi.a"]:
         raise ValueError("compiled-native-archive-mismatch")
-    if digest(native_header) != sdk["Artifacts/MarmotKit.xcframework/ios-arm64-simulator/Headers/marmot_uniffiFFI.h"]:
+    if digest(native_header) != sdk["Artifacts/MarmotKit.xcframework/" + CONFIG["native"] + "/Headers/marmot_uniffiFFI.h"]:
         raise ValueError("compiled-native-header-mismatch")
     product_files = freeze_products(products)
     write_json(Path(str(prefix) + "-input.json"), {"source_commit": args.source_commit,
@@ -298,15 +351,17 @@ def main():
         "build_input_sha256": digest(args.build_input)})
     env = dict(os.environ, DEVELOPER_DIR=args.developer_dir)
     report = {"source_commit": args.source_commit, "sdk_source": args.sdk_source,
-              "sdk_run_id": os.environ["SDK_RUN_ID"], "case": args.case, "source_inputs": len(frozen),
+              "sdk_run_id": os.environ["SDK_RUN_ID"], "case": args.case, "platform": args.platform, "source_inputs": len(frozen),
               "scope": "Actual original source unit + external public UI driver; no build or physical installation",
               "unit_exit_code": None, "driver_exit_code": None}
     start = time.monotonic()
     running = None
     ui = None
     try:
-        subprocess.run(["xcrun", "simctl", "install", args.simulator, str(runner)], env=env, check=True)
-        base = ["xcodebuild", "test-without-building", "-destination", "platform=iOS Simulator,id=" + args.simulator,
+        if args.platform == "ios":
+            subprocess.run(["xcrun", "simctl", "install", args.simulator, str(runner)], env=env, check=True)
+        destination = "platform=iOS Simulator,id=" + args.simulator if args.platform == "ios" else "platform=macOS,arch=arm64"
+        base = ["xcodebuild", "test-without-building", "-destination", destination,
                 "-parallel-testing-enabled", "NO"]
         with Path(str(prefix) + "-unit.log").open("x") as output:
             running = subprocess.Popen(base + ["-xctestrun", str(unit_plan), "-resultBundlePath",
@@ -333,6 +388,12 @@ def main():
                     os.killpg(owned.pid, signal.SIGKILL)
                     owned.wait(timeout=10)
                 report["runner_error_category"] = "OwnedRunnerRequiredTermination"
+        if args.platform == "macos":
+            host = products / CONFIG["directory"] / CONFIG["app"]
+            registration = subprocess.run([
+                "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+                "-u", str(host)], capture_output=True)
+            report["owned_host_registration_cleanup_exit"] = registration.returncode
         report["seconds"] = round(time.monotonic() - start, 2)
         for key, check in [
             ("source_unchanged", lambda: freeze_source(source, args.source_commit) == frozen),
