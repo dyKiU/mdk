@@ -145,6 +145,7 @@ still land on the same epoch and group state. The engine — not relay order or 
 | | [`marmot-markdown`](crates/marmot-markdown/README.md) | CommonMark + Nostr display parser for messages |
 | | [`marmot-forensics`](crates/marmot-forensics/README.md) | Append-only JSONL forensic audit schema |
 | Bindings | [`marmot-uniffi`](crates/marmot-uniffi/README.md) | MarmotKit: Swift and Kotlin bindings |
+| | [`marmot-uniffi-macros`](crates/marmot-uniffi-macros/README.md) | Runs MarmotKit's async exports on its own Tokio runtime |
 | | [`marmot-c`](crates/marmot-c/README.md) | C ABI bindings |
 | Front ends | [`cli`](crates/cli/README.md) (`wn-cli`) | `wn`, `wnd`, and `wn tui` |
 | Agents | [`agent-connector`](crates/agent-connector/README.md) | The `wn-agent` connector daemon |
@@ -181,6 +182,30 @@ just fast-ci                 # formatting, doc/naming gates, compile checks, cli
 cargo test -p <crate>        # targeted tests for the crate you changed
 just ci                      # full local parity with GitHub CI (slow)
 ```
+
+Pull requests run native tests for changed workspace crates and their transitive
+dependents, using the `ci-pr` nextest profile. It retains ordinary regressions and
+focused CLI/runtime journeys while deferring named scale cases and exhaustive
+matrices. Changes to Rust test sources use `ci-full` for the affected crates.
+Direct edits to CLI or app code also run that crate's complete dedicated
+integration suite. Dependency-only consumers retain the focused journeys.
+Shared build inputs and unknown paths fall back to the full workspace. Formatting,
+dependency audit, contract checks and workspace clippy keep their existing coverage.
+This first pass still compiles the workspace test archive with the existing unified
+features; selection reduces test execution, not the workspace compilation gate.
+
+Add `ci:full` and re-run all jobs to request full workspace tests and complete
+Android/Apple candidate packaging. For packaging alone, use `ci:android` or
+`ci:apple`, then re-run all candidate-workflow jobs or push a new commit. Ordinary
+PRs skip complete native candidate packaging, including Android target compilation
+and linking; use the opt-in when a change needs that signal before merging.
+`master`, merge groups and manual
+main-CI runs use `ci-full`; master CI runs are not cancelled by later pushes,
+including while queued. Existing nightly and weekly campaigns retain their wider
+coverage. These profiles do not change local `just test` or `just ci` selection.
+Preserving every master test run can increase queues during merge bursts,
+especially on the shared macOS runners. Broker image publishing stays serialized
+per ref so an older build cannot overwrite a newer `latest` image.
 
 Common targeted runs:
 
