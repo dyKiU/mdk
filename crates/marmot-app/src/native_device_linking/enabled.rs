@@ -112,11 +112,25 @@ impl SessionState {
                 .expect("native observation lock")
                 .clone());
         }
-        match self
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let observer = self.sharing_choice.lock().expect("sharing choice").clone();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Some(observer) = &observer {
+            observer.record_observation_stage_for_test(
+                crate::client::device_linking::sibling_sharing::NativeObservationStage::DispatchStarted,
+            );
+        }
+        let observation = self
             .manager
             .linking_native_observation(&self.account, &self.scope)
-            .await
-        {
+            .await;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Some(observer) = &observer {
+            observer.record_observation_stage_for_test(
+                crate::client::device_linking::sibling_sharing::NativeObservationStage::FacadeReturned,
+            );
+        }
+        match observation {
             Ok((phase, decimals)) => Ok(self.update(phase, decimals)),
             Err(ClientLinkingError::Runtime(error))
                 if matches!(
@@ -349,6 +363,17 @@ impl DeviceLinkingSession {
             .expect("sharing choice")
             .as_ref()
             .map(|choice| choice.recipient_rejections_for_test())
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn native_observation_snapshot_for_test(
+        &self,
+    ) -> Option<crate::client::device_linking::sibling_sharing::NativeObservationSnapshot> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .map(|choice| choice.observation_snapshot_for_test())
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn sibling_child_diagnostics_for_test(

@@ -229,7 +229,21 @@ pub(super) async fn handle(
             }
         }
         SetupCommand::Observe { scope, respond } => {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            let observer = client.native_observation_original_for_test(&scope);
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(observer) = &observer {
+                observer.record_observation_stage_for_test(
+                    crate::client::device_linking::sibling_sharing::NativeObservationStage::WorkerStarted,
+                );
+            }
             let result = client.linking_native_observation(&scope);
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(observer) = &observer {
+                observer.record_observation_stage_for_test(
+                    crate::client::device_linking::sibling_sharing::NativeObservationStage::WorkerReturned,
+                );
+            }
             let _ = respond.send(result);
         }
         SetupCommand::ReserveRequest { respond } => {

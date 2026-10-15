@@ -11,6 +11,47 @@ use std::sync::{
 };
 use std::time::Instant;
 
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum NativeObservationStage {
+    DispatchStarted,
+    WorkerStarted,
+    WorkerReturned,
+    FacadeReturned,
+    AutomaticEntered,
+    AutomaticExited,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum NativeObservationReason {
+    VerifierFallback,
+    NoRound,
+    GuardInvalid,
+    NoSettledRoster,
+    SharingPending,
+    Complete,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) type NativeObservationSnapshot =
+    ([usize; 6], [u64; 6], Option<(NativeObservationReason, u64)>);
+#[cfg(all(test, feature = "test-policy-overrides"))]
+struct NativeObservationProbe {
+    origin: Instant,
+    counts: [usize; 6],
+    elapsed_ms: [u64; 6],
+    reason: Option<(NativeObservationReason, u64)>,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+impl Default for NativeObservationProbe {
+    fn default() -> Self {
+        Self {
+            origin: Instant::now(),
+            counts: [0; 6],
+            elapsed_ms: [0; 6],
+            reason: None,
+        }
+    }
+}
 pub(crate) struct OriginalEnrollmentSharingChoice {
     pub(super) scope: PurposeAttemptScope,
     pub(super) context: LinkingContext,
@@ -22,6 +63,8 @@ pub(crate) struct OriginalEnrollmentSharingChoice {
     children: Mutex<Vec<Arc<State>>>,
     progress: Mutex<ChoiceProgress>,
     pending_controls: Mutex<Vec<PendingSiblingControl>>,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    native_observation_probe: Mutex<NativeObservationProbe>,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     recipient_diagnostics: [std::sync::atomic::AtomicUsize; 19],
     #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -335,6 +378,33 @@ struct ChoiceProgress {
 }
 impl OriginalEnrollmentSharingChoice {
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn record_observation_stage_for_test(&self, stage: NativeObservationStage) {
+        let mut probe = self
+            .native_observation_probe
+            .lock()
+            .expect("native observation probe");
+        let elapsed_ms = probe.origin.elapsed().as_millis() as u64;
+        probe.counts[stage as usize] += 1;
+        probe.elapsed_ms[stage as usize] = elapsed_ms;
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn record_observation_reason_for_test(&self, reason: NativeObservationReason) {
+        let mut probe = self
+            .native_observation_probe
+            .lock()
+            .expect("native observation probe");
+        probe.reason = Some((reason, probe.origin.elapsed().as_millis() as u64));
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn observation_snapshot_for_test(&self) -> NativeObservationSnapshot {
+        let probe = self
+            .native_observation_probe
+            .lock()
+            .expect("native observation probe");
+        (probe.counts, probe.elapsed_ms, probe.reason)
+    }
+
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn child_diagnostics_for_test(
         &self,
     ) -> Vec<crate::account_chat_sharing::enabled::SiblingMaintenanceSnapshot> {
@@ -588,6 +658,17 @@ fn denied() -> ClientLinkingError {
 }
 
 impl AppClient {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn native_observation_original_for_test(
+        &self,
+        scope: &PurposeAttemptScope,
+    ) -> Option<Arc<OriginalEnrollmentSharingChoice>> {
+        self.linking_owner
+            .sharing_approval
+            .as_ref()
+            .filter(|choice| choice.scope == *scope)
+            .cloned()
+    }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn observe_sibling_event_diagnostic_for_test(
         &self,
@@ -1086,6 +1167,8 @@ impl AppClient {
                 expected,
             }),
             pending_controls: Mutex::new(Vec::new()),
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            native_observation_probe: Mutex::default(),
             #[cfg(all(test, feature = "test-policy-overrides"))]
             recipient_diagnostics: std::array::from_fn(|_| std::sync::atomic::AtomicUsize::new(0)),
             #[cfg(all(test, feature = "test-policy-overrides"))]

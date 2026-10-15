@@ -122,6 +122,18 @@ impl AppClient {
         ),
         ClientLinkingError,
     > {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let observer = self.native_observation_original_for_test(scope);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let reason = |reason| {
+            if let Some(observer) = &observer {
+                observer.record_observation_reason_for_test(reason);
+            }
+        };
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        use super::sibling_sharing::NativeObservationReason as Reason;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        reason(Reason::VerifierFallback);
         if let Some(attempt) = self
             .linking_owner
             .settlement_attempt
@@ -138,6 +150,8 @@ impl AppClient {
                 };
                 return Err(ClientLinkingError::Owner(OwnerError::Verifier(error)));
             }
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            reason(Reason::NoRound);
             use cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard;
             let storage = self
                 .app
@@ -148,13 +162,23 @@ impl AppClient {
                 .ok_or_else(invalid)?
                 .read_round()
                 .map_err(|e| ClientLinkingError::Engine(e.into()))?
-                && attempt.guard.validate(&round.anchor).is_ok()
-                && self
-                    .runtime
-                    .session()
-                    .validated_settled_device_roster(&attempt.guard.group())
-                    .map_err(ClientLinkingError::Engine)?
-                    .is_some()
+                && {
+                    let valid = attempt.guard.validate(&round.anchor).is_ok();
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    if !valid {
+                        reason(Reason::GuardInvalid);
+                    }
+                    valid
+                }
+                && {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    reason(Reason::NoSettledRoster);
+                    self.runtime
+                        .session()
+                        .validated_settled_device_roster(&attempt.guard.group())
+                        .map_err(ClientLinkingError::Engine)?
+                        .is_some()
+                }
             {
                 // A host can immediately close its original on this terminal
                 // observation. Complete the explicit durable approval handoff
@@ -166,11 +190,15 @@ impl AppClient {
                     .as_ref()
                     .is_some_and(|choice| choice.scope == *scope && !choice.complete())
                 {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    reason(Reason::SharingPending);
                     return Ok((
                         crate::DeviceLinkingPhase::VerificationCompleteEnrollmentPending,
                         None,
                     ));
                 }
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                reason(Reason::Complete);
                 return Ok((crate::DeviceLinkingPhase::EnrollmentComplete, None));
             }
             return Ok((

@@ -1234,13 +1234,26 @@ impl AppClient {
         })?;
         self.persist_completed_pair_sharing_approval()?;
         self.maintain_sibling_sharing().await?;
-        self.maintain_automatic_account_sharing()
-            .await
-            .map_err(|_| {
-                ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
-                    "automatic sharing maintenance unavailable".into(),
-                )))
-            })?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let observer = self.linking_owner.sharing_approval.clone();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Some(observer) = &observer {
+            observer.record_observation_stage_for_test(
+                sibling_sharing::NativeObservationStage::AutomaticEntered,
+            );
+        }
+        let automatic = self.maintain_automatic_account_sharing().await;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Some(observer) = &observer {
+            observer.record_observation_stage_for_test(
+                sibling_sharing::NativeObservationStage::AutomaticExited,
+            );
+        }
+        automatic.map_err(|_| {
+            ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
+                "automatic sharing maintenance unavailable".into(),
+            )))
+        })?;
         self.prune_native_enrollment_intent();
         self.maintain_received_enrollment_endorsement(now)?;
         let reservation_live = self
