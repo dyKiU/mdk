@@ -538,11 +538,23 @@ impl Driver {
             tokio::select! {
                 _ = cancellation.cancelled() => {}
                 result = result => {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    let observed = weak.upgrade().map(|state| {
+                        let completed = state.snapshot.lock().expect("native observation lock").phase == DeviceLinkingPhase::EnrollmentComplete;
+                        (matches!(&result, Err(DeviceLinkingError::Closed)), completed)
+                    });
                     if let Err(error) = result && let Some(state) = weak.upgrade() {
                         tracing::warn!(target: "marmot_app::device_linking", method = "automatic_transport", error_kind = error_kind(&error), "automatic pairing transport ended");
                         state.update(DeviceLinkingPhase::Failed, None);
                         state.close();
                         state.defer_cleanup();
+                    }
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    if let (Some((closed_error, completed)), Some(state)) = (observed, weak.upgrade()) {
+                        let observer = state.automatic_exit_observer.lock().expect("automatic exit observer").take();
+                        if let Some(observer) = observer {
+                            let _ = observer.send([closed_error, completed, state.closed.load(std::sync::atomic::Ordering::Acquire)]);
+                        }
                     }
                 }
             }
