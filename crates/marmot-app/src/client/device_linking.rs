@@ -59,6 +59,7 @@ pub(crate) struct AccountLinkingOwner {
     sibling_projection_observations:
         Arc<std::sync::Mutex<std::collections::HashMap<cgka_traits::MessageId, [usize; 6]>>>,
     sibling_channels: Vec<sibling_sharing::SiblingChannel>,
+    sibling_publication_wakeup: Arc<tokio::sync::Notify>,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) sibling_pre_auth_probe: Option<(
         std::sync::Weak<super::private_enrollment_proposal::OriginalSiblingSharingApproval>,
@@ -133,6 +134,7 @@ impl AccountLinkingOwner {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             sibling_projection_observations: Arc::default(),
             sibling_channels: Vec::new(),
+            sibling_publication_wakeup: Arc::new(tokio::sync::Notify::new()),
             #[cfg(all(test, feature = "test-policy-overrides"))]
             sibling_pre_auth_probe: None,
             hidden_transport_group: None,

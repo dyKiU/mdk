@@ -1329,7 +1329,8 @@ impl TrustedAccountSharingLease for SiblingLease {
 // Dropping the exact channel cancels its one in-flight publication.
 struct SiblingPublication {
     proof: bool,
-    task: tokio::task::JoinHandle<Result<(), ClientLinkingError>>,
+    task: tokio::task::JoinHandle<()>,
+    result: tokio::sync::oneshot::Receiver<Result<(), ClientLinkingError>>,
 }
 impl Drop for SiblingPublication {
     fn drop(&mut self) {
@@ -1743,6 +1744,32 @@ impl AppClient {
             .ok_or_else(denied)?;
         Ok(())
     }
+    pub(crate) fn sibling_publication_wakeup(&self) -> Arc<tokio::sync::Notify> {
+        self.linking_owner.sibling_publication_wakeup.clone()
+    }
+    /// A completion wake harvests only already-owned results. It does not admit
+    /// channels, retry publications, or start another policy/proof operation.
+    pub(crate) async fn harvest_completed_sibling_publications(&mut self) -> Result<(), ClientLinkingError> {
+        let mut channels = std::mem::take(&mut self.linking_owner.sibling_channels);
+        let mut in_flight = channels.iter().filter(|entry| entry.publication.is_some()).count();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let slots_before = in_flight;
+        let mut failure = None;
+        for entry in &mut channels {
+            if entry.publication.is_some()
+                && let Err(error) = self.advance_sibling_sharing(entry, &mut in_flight).await
+                && failure.is_none()
+            {
+                failure = Some(error);
+            }
+        }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if std::env::var("WN_UPSTREAM_PUBLICATION_DIAGNOSTICS").as_deref() == Ok("1") {
+            eprintln!("sibling-harvest-control slots_before={slots_before} slots_remaining={in_flight} error={}", failure.is_some());
+        }
+        self.linking_owner.sibling_channels = channels;
+        failure.map_or(Ok(()), Err)
+    }
     pub(crate) async fn maintain_sibling_sharing(&mut self) -> Result<(), ClientLinkingError> {
         self.retry_existing_sibling_opaque_controls();
         let mut pending = Vec::new();
@@ -1853,16 +1880,18 @@ impl AppClient {
         entry: &mut SiblingChannel,
         in_flight: &mut usize,
     ) -> Result<(), ClientLinkingError> {
-        if let Some(pending) = entry.publication.as_ref() {
-            if !pending.task.is_finished() {
-                return Ok(());
-            }
-            let mut pending = entry
+        if let Some(pending) = entry.publication.as_mut() {
+            let result = match pending.result.try_recv() {
+                Ok(result) => result,
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => return Ok(()),
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => Err(denied()),
+            };
+            let pending = entry
                 .publication
                 .take()
-                .expect("finished sibling publication");
+                .expect("completed sibling publication");
             *in_flight -= 1;
-            (&mut pending.task).await.map_err(|_| denied())??;
+            result?;
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if !pending.proof
                 && !entry.recipient
@@ -2192,7 +2221,10 @@ impl AppClient {
         let mut shutdown = self.history_owner.runtime_shutdown.clone();
         let proof = body.is_some();
         let consent = entry.recipient && !proof;
+        let (result_tx, result) = tokio::sync::oneshot::channel();
+        let wakeup = self.linking_owner.sibling_publication_wakeup.clone();
         let task = tokio::spawn(async move {
+            let outcome = async move {
             let revoked = state.revoked.notified();
             tokio::pin!(revoked);
             revoked.as_mut().enable();
@@ -2236,8 +2268,15 @@ impl AppClient {
                     .publication_stage = Some(Stage::AfterRelayPublication);
             }
             Ok(())
+            }.await;
+            let acknowledged = outcome.is_ok();
+            // Publish the owned result first: a different runtime thread can
+            // service the signal before this task's JoinHandle is finished.
+            if result_tx.send(outcome).is_ok() && acknowledged {
+                wakeup.notify_one();
+            }
         });
-        entry.publication = Some(SiblingPublication { proof, task });
+        entry.publication = Some(SiblingPublication { proof, task, result });
         Ok(())
     }
     fn validate_sibling_parent(

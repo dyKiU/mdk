@@ -2014,6 +2014,8 @@ async fn run_app_runtime_account_worker(
                 continue 'worker;
             }
         }
+        #[cfg(feature = "experimental-device-sync")]
+        let sibling_publication_wakeup = client.sibling_publication_wakeup();
         let ready_command =
             ready_command_index(&pending, &media_http, comparison_recovery.is_some());
         #[cfg(test)]
@@ -2457,6 +2459,25 @@ async fn run_app_runtime_account_worker(
 
                 if let Some(phase) = phase {
                     phase.finish(TelemetryOutcome::Success);
+                }
+            }
+            // Completed sibling publications own their result independently
+            // of the periodic cleanup clock. Foreground commands retain priority.
+            _ = async {
+                #[cfg(feature = "experimental-device-sync")]
+                { sibling_publication_wakeup.notified().await; }
+                #[cfg(not(feature = "experimental-device-sync"))]
+                std::future::pending::<()>().await;
+            }, if cfg!(feature = "experimental-device-sync") => {
+                #[cfg(feature = "experimental-device-sync")]
+                if !lifecycle.is_stopping()
+                    && client.harvest_completed_sibling_publications().await.is_err()
+                {
+                    tracing::debug!(
+                        target: "marmot_app::device_linking",
+                        method = "worker_sibling_publication_completed",
+                        "owned sibling result deferred"
+                    );
                 }
             }
             received = async {
