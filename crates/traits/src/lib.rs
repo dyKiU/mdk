@@ -160,3 +160,6 @@ pub mod private_group_privacy;
 pub mod revoked_device_group_anchor;
 
 pub mod private_roster_settlement;
+
+// Temporary inert diagnostic recorder: no observer runs until a test arms it.
+pub mod enrollment_sync_cost;

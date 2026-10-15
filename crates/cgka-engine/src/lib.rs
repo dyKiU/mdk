@@ -153,3 +153,6 @@ pub mod account_chat_sharing;
 pub mod history_transfer;
 #[cfg(feature = "experimental-device-sync")]
 pub mod selected_chat_consent;
+
+#[cfg(feature = "test-policy-overrides")]
+pub mod enrollment_sync_cost;

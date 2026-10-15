@@ -28,6 +28,8 @@ impl SettlementDecodeMemo {
             && let Some((raw, state)) = &self.entry
             && raw.as_slice() == bytes
         {
+            #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+            let _sync_cost_memo_hit = cgka_traits::enrollment_sync_cost::Probe::start(cgka_traits::enrollment_sync_cost::Bucket::MemoHitClone);
             return Ok(state.clone());
         }
         // A changed, invalid, or oversized input never retains the old entry.
@@ -36,7 +38,11 @@ impl SettlementDecodeMemo {
         {
             self.serde_calls += 1;
         }
+        #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+        let _sync_cost_memo_serde = cgka_traits::enrollment_sync_cost::Probe::start(cgka_traits::enrollment_sync_cost::Bucket::MemoRealSerde);
         let state: PrivateSettlementState = serde_json::from_slice(bytes).map_err(|_| invalid())?;
+        #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+        drop(_sync_cost_memo_serde);
         if bytes.len() <= MAX_MEMO_BYTES {
             self.entry = Some((bytes.to_vec(), state.clone()));
         }
@@ -174,16 +180,41 @@ fn facts(
     conn: &Connection,
     state: &PrivateSettlementState,
 ) -> StorageResult<Vec<PrivateSettlementFact>> {
+    #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+    let _sync_cost_facts_whole = cgka_traits::enrollment_sync_cost::Probe::start(
+        cgka_traits::enrollment_sync_cost::Bucket::SqlFactsWhole,
+    );
+    #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+    let _sync_cost_facts_query = cgka_traits::enrollment_sync_cost::Probe::start(
+        cgka_traits::enrollment_sync_cost::Bucket::SqlFactsQuerySetup,
+    );
     let mut query=conn.prepare("SELECT leaf_index,record FROM private_roster_settlement_facts ORDER BY leaf_index LIMIT 129").storage()?;
     let rows = query
         .query_map([], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
         })
         .storage()?;
+    #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+    drop(_sync_cost_facts_query);
     let mut result = Vec::new();
     for row in rows {
         let (index, bytes) = row.storage()?;
+        #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+        cgka_traits::enrollment_sync_cost::record_bytes(
+            cgka_traits::enrollment_sync_cost::Bucket::SqlFactDecode,
+            bytes.len(),
+        );
+        #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+        let _sync_cost_fact_decode = cgka_traits::enrollment_sync_cost::Probe::start(
+            cgka_traits::enrollment_sync_cost::Bucket::SqlFactDecode,
+        );
         let fact: PrivateSettlementFact = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+        #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+        drop(_sync_cost_fact_decode);
+        #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+        let _sync_cost_fact_validate = cgka_traits::enrollment_sync_cost::Probe::start(
+            cgka_traits::enrollment_sync_cost::Bucket::SqlFactValidate,
+        );
         validate_fact(state, &fact)?;
         if i64::from(fact.leaf_index) != index {
             return Err(invalid());
@@ -200,6 +231,8 @@ fn facts(
 }
 fn read(conn: &Connection) -> StorageResult<Option<PrivateSettlementState>> {
     read_decoded(conn, |bytes| {
+        #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+        let _sync_cost_canonical_serde = cgka_traits::enrollment_sync_cost::Probe::start(cgka_traits::enrollment_sync_cost::Bucket::CanonicalRealSerde);
         serde_json::from_slice(bytes).map_err(|_| invalid())
     })
 }
@@ -217,6 +250,10 @@ fn read_decoded(
     conn: &Connection,
     decode: impl FnOnce(&[u8]) -> StorageResult<PrivateSettlementState>,
 ) -> StorageResult<Option<PrivateSettlementState>> {
+    #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+    let _sync_cost_state_query = cgka_traits::enrollment_sync_cost::Probe::start(
+        cgka_traits::enrollment_sync_cost::Bucket::SqlStateQuery,
+    );
     let row = conn
         .query_row(SELECT, [], |r| {
             Ok((
@@ -229,10 +266,27 @@ fn read_decoded(
         })
         .optional()
         .storage()?;
+    #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+    drop(_sync_cost_state_query);
     let Some((counter, account, device, group, bytes)) = row else {
         return Ok(None);
     };
+    #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+    cgka_traits::enrollment_sync_cost::record_bytes(
+        cgka_traits::enrollment_sync_cost::Bucket::SqlStateDecode,
+        bytes.len(),
+    );
+    #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+    let _sync_cost_state_decode = cgka_traits::enrollment_sync_cost::Probe::start(
+        cgka_traits::enrollment_sync_cost::Bucket::SqlStateDecode,
+    );
     let state = decode(&bytes)?;
+    #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+    drop(_sync_cost_state_decode);
+    #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+    let _sync_cost_state_validate = cgka_traits::enrollment_sync_cost::Probe::start(
+        cgka_traits::enrollment_sync_cost::Bucket::SqlStateValidate,
+    );
     validate_state(&state)?;
     if generation(state.generation)? != counter
         || account != state.anchor.account
@@ -241,7 +295,13 @@ fn read_decoded(
     {
         return Err(invalid());
     }
+    #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+    drop(_sync_cost_state_validate);
     let slots = facts(conn, &state)?;
+    #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
+    let _sync_cost_consistency = cgka_traits::enrollment_sync_cost::Probe::start(
+        cgka_traits::enrollment_sync_cost::Bucket::SqlReadConsistency,
+    );
     let has_local = slots
         .iter()
         .any(|fact| fact.signature_public_key == state.anchor.local_device);
