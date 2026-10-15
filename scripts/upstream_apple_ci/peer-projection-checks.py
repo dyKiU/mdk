@@ -21,7 +21,8 @@ def sha(path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--scope', choices=('default', 'experimental', 'profile', 'static', 'generate', 'swift', 'kotlin'), required=True)
+    parser.add_argument('--scope', choices=('default', 'experimental', 'default-remaining', 'experimental-remaining',
+                                          'profile', 'static', 'generate', 'verify-generated', 'swift', 'kotlin'), required=True)
     scope = parser.parse_args().scope
     require(os.environ.get('GITHUB_ACTIONS') == 'true', 'remote-ci-only')
     output = Path('peer-projection-proof')
@@ -54,14 +55,23 @@ def main():
         started = time.monotonic()
         with tempfile.TemporaryDirectory(prefix='peer-projection-private-') as private:
             path = Path(private) / 'command.log'
-            with path.open('x') as stream:
-                process = subprocess.run(argv, stdout=stream, stderr=subprocess.STDOUT,
+            errors = Path(private) / 'stderr.log'
+            with path.open('x') as stream, errors.open('x') as error_stream:
+                process = subprocess.run(argv, stdout=stream, stderr=error_stream,
                     timeout=3600, env=dict(os.environ, **(environment or {})))
-            text = path.read_text(errors='replace')
+            stdout, stderr = path.read_bytes(), errors.read_bytes()
+            text = stdout.decode(errors='replace') + '\n' + stderr.decode(errors='replace')
         row = {'name': name, 'argv': argv, 'exit_code': process.returncode,
-               'compile_and_execution_seconds': round(time.monotonic() - started, 3)}
+               'compile_and_execution_seconds': round(time.monotonic() - started, 3),
+               'stdout_sha256': hashlib.sha256(stdout).hexdigest(),
+               'compiler_stderr_sha256': hashlib.sha256(stderr).hexdigest(),
+               'rust_error_codes': sorted(set(re.findall(r'error\[(E[0-9]+)\]', text)))}
         if environment:
             row['command_environment_overrides'] = environment
+        if process.returncode and not re.search(r'(?m)^running [0-9]+ tests?$', text):
+            row['preexecution_category'] = ('rust-compiler-error' if row['rust_error_codes'] else
+                'cargo-feature-selection' if 'features' in text and re.search(r'(?m)^error:', text) else
+                'cargo-or-tool-preexecution-failure')
         report['commands'].append(row)
         if public:
             print(text[-16000:], flush=True)
@@ -72,10 +82,14 @@ def main():
 
     def test(name, package, selector, extra=()):
         exporter = package if package in ('marmot-app', 'marmot-uniffi', 'marmot-c') else 'marmot-app'
-        selected_features = features + [exporter + '/otlp-export', exporter + '/product-analytics-export']
+        selected_features = [exporter + '/otlp-export', exporter + '/product-analytics-export']
+        # Boundary DTO/deep-free controls do not use App test hooks. Cargo's
+        # selected C package has no direct App/Engine dependency feature path.
+        if package not in ('marmot-uniffi', 'marmot-c'):
+            selected_features += features
         if package == 'marmot-c':
             selected_features.append('marmot-c/alloc-audit')
-        if scope == 'experimental':
+        if scope.startswith('experimental'):
             selected_features.append(exporter + '/experimental-device-sync')
         row, text = command(name, ['cargo', 'test', '--locked', '-p', package, *extra,
             '--features', ','.join(selected_features), selector, '--', '--nocapture', '--test-threads=1'])
@@ -94,14 +108,15 @@ def main():
 
     save()
     try:
-        if scope in ('default', 'experimental'):
-            test('uniffi-peer-redaction', 'marmot-uniffi',
-                 'existing_account_direct_conversation_ffi_keeps_paired_provenance_and_redacts_debug', ['--lib'])
+        if scope in ('default', 'experimental', 'default-remaining', 'experimental-remaining'):
+            if not scope.endswith('-remaining'):
+                test('uniffi-peer-redaction', 'marmot-uniffi',
+                     'existing_account_direct_conversation_ffi_keeps_paired_provenance_and_redacts_debug', ['--lib'])
             test('c-direct-deep-free', 'marmot-c',
                  'existing_account_direct_conversation_deep_free_preserves_both_route_tags', ['--lib'])
             test('c-window-deep-free', 'marmot-c',
                  'paired_window_snapshot_deep_free_releases_header_rows_and_cursor', ['--lib'])
-            if scope == 'experimental':
+            if scope.startswith('experimental'):
                 test('core-peer-and-legacy-unknown', 'marmot-app',
                      'paired_summary_keeps_source_attested_peer_and_preserves_unknown_legacy_peer', ['--lib'])
                 test('genuine-both-directions-direct-reuse', 'marmot-app',
@@ -122,7 +137,7 @@ def main():
             for name, argv in checks:
                 row, _ = command(name, argv, public=True)
                 require(row['exit_code'] == 0, 'component-static-failed')
-        elif scope == 'generate':
+        elif scope in ('generate', 'verify-generated'):
             row, _ = command('generate-current-header', ['cbindgen', '--config', 'crates/marmot-c/cbindgen.toml',
                 '--crate', 'marmot-c', '--output', 'crates/marmot-c/include/marmot.h', 'crates/marmot-c'],
                 {'RUSTC_BOOTSTRAP': '1'}, public=True)
@@ -134,7 +149,8 @@ def main():
                 row, _ = command(name, argv, public=True)
                 require(row['exit_code'] == 0, 'generated-surface-gate-failed')
             changed = subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
-            require(changed and set(changed) <= generated, 'unexpected-generated-output-path')
+            require(set(changed) <= generated, 'unexpected-generated-output-path')
+            require(not changed if scope == 'verify-generated' else bool(changed), 'generated-output-cleanliness-mismatch')
             patch = subprocess.check_output(['git', 'diff', '--binary', '--', *sorted(generated)])
             (output / 'generated.patch').write_bytes(patch)
             report['generated'] = {'paths': changed, 'patch_sha256': hashlib.sha256(patch).hexdigest(),
@@ -158,7 +174,7 @@ def main():
             report['host_smoke'] = {'program_executed': True, 'exit_code': 0, 'fixture_sha256': sha(fixture),
                 'host_library_sha256': sha(library), 'scope': 'DTO None/Some and paired-header lift/lower; no SDK/device acceptance'}
         report['source_unchanged'] = all(sha(name) == value for name, value in frozen.items()
-                                       if scope != 'generate' or name not in generated)
+                                       if scope not in ('generate', 'verify-generated') or name not in generated)
         report['lock_sha256_after'] = sha('Cargo.lock')
         require(report['source_unchanged'], 'unexpected-tracked-source-drift')
         report['passed'] = True

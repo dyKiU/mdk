@@ -1,7 +1,7 @@
 name: Upstream peer projection and strict profile qualification
 on:
   push:
-    branches: [ci/upstream-peer-projection-20261015, ci/upstream-peer-projection-kotlin-20261015]
+    branches: [ci/upstream-peer-projection-20261015, ci/upstream-peer-projection-kotlin-20261015, ci/upstream-peer-projection-components-20261015]
 permissions:
   contents: read
 concurrency:
@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scope: ${{ fromJSON(contains(github.ref, '-kotlin-') && '["kotlin"]' || '["default","experimental","profile","static","generate","swift","kotlin"]') }}
+        scope: ${{ fromJSON(contains(github.ref, '-kotlin-') && '["kotlin"]' || contains(github.ref, '-components-') && '["default-remaining","experimental-remaining","static","verify-generated"]' || '["default","experimental","profile","static","generate","swift","kotlin"]') }}
     runs-on: ${{ matrix.scope == 'swift' && 'macos-26' || 'ubuntu-latest' }}
     timeout-minutes: 90
     steps:
@@ -37,7 +37,7 @@ jobs:
           shared-key: upstream-peer-${{ matrix.scope }}
           cache-on-failure: true
       - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
-        if: matrix.scope == 'generate'
+        if: matrix.scope == 'generate' || matrix.scope == 'verify-generated'
         with:
           tool: cbindgen@0.29.4
       - uses: maxim-lobanov/setup-xcode@v1
