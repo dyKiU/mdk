@@ -639,10 +639,12 @@ async fn wait_for_automatic_phase(
     b: &DeviceLinkingSession,
     phase: DeviceLinkingPhase,
 ) {
-    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+    let mut observed = None;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(15), async {
         loop {
             let ap = a.snapshot().await.unwrap().phase;
             let bp = b.snapshot().await.unwrap().phase;
+            observed = Some((ap, bp));
             assert!(
                 !matches!(
                     ap,
@@ -667,8 +669,11 @@ async fn wait_for_automatic_phase(
             tokio::time::sleep(std::time::Duration::from_millis(25)).await;
         }
     })
-    .await
-    .expect("automatic pairing did not reach required phase");
+    .await;
+    assert!(
+        result.is_ok(),
+        "automatic pairing did not reach required phase: expected={phase:?} observed={observed:?}"
+    );
 }
 
 #[tokio::test]
