@@ -46,10 +46,17 @@ pub(crate) mod linking_boundary {
         PeerProofApplied,
     }
     const SITES: [Site; 19] = [
-        Site::WorkerCommand, Site::WorkerReceive, Site::WorkerLinking,
-        Site::MaintainLinking, Site::SiblingMaintenance, Site::SiblingPrelude,
-        Site::BeginCompletedSibling, Site::SiblingAdvance,
-        Site::AutomaticMaintenance, Site::AutomaticPolicyCurrent, Site::ChildAdmitted,
+        Site::WorkerCommand,
+        Site::WorkerReceive,
+        Site::WorkerLinking,
+        Site::MaintainLinking,
+        Site::SiblingMaintenance,
+        Site::SiblingPrelude,
+        Site::BeginCompletedSibling,
+        Site::SiblingAdvance,
+        Site::AutomaticMaintenance,
+        Site::AutomaticPolicyCurrent,
+        Site::ChildAdmitted,
         Site::HandshakeStarted,
         Site::ProofStarted,
         Site::HandshakeAck,
@@ -58,7 +65,6 @@ pub(crate) mod linking_boundary {
         Site::ProofHarvested,
         Site::PeerConsentApplied,
         Site::PeerProofApplied,
-
     ];
     #[derive(Default)]
     struct Trace {
@@ -80,7 +86,11 @@ pub(crate) mod linking_boundary {
         #[cfg(target_os = "linux")]
         {
             std::fs::read_to_string("/proc/thread-self/schedstat")
-                .ok()?.split_whitespace().next()?.parse().ok()
+                .ok()?
+                .split_whitespace()
+                .next()?
+                .parse()
+                .ok()
         }
         #[cfg(not(target_os = "linux"))]
         None
@@ -91,7 +101,12 @@ pub(crate) mod linking_boundary {
             return None;
         }
         let mut trace = trace().lock().expect("boundary trace");
-        *trace = Trace { active: true, origin: Some(Instant::now()), cpu_origin: cpu_ns(), ..Trace::default() };
+        *trace = Trace {
+            active: true,
+            origin: Some(Instant::now()),
+            cpu_origin: cpu_ns(),
+            ..Trace::default()
+        };
         eprintln!("linking-boundary phase=fourth-start");
         Some(Phase)
     }
@@ -120,7 +135,11 @@ pub(crate) mod linking_boundary {
         let row = &mut trace.rows[actor][site as usize];
         row[0] += 1;
         row[2] = elapsed;
-        Some(Span { actor, site, origin: Instant::now() })
+        Some(Span {
+            actor,
+            site,
+            origin: Instant::now(),
+        })
     }
     impl Drop for Span {
         fn drop(&mut self) {
@@ -142,8 +161,14 @@ pub(crate) mod linking_boundary {
             let mut trace = trace().lock().expect("boundary trace");
             trace.active = false;
             let wall_ns = trace.origin.expect("boundary origin").elapsed().as_nanos();
-            let cpu_ns = trace.cpu_origin.zip(cpu_ns()).and_then(|(start, end)| end.checked_sub(start));
-            eprintln!("linking-boundary phase=fourth-end wall_ns={wall_ns} cpu_ns={cpu_ns:?} omitted={}", trace.omitted);
+            let cpu_ns = trace
+                .cpu_origin
+                .zip(cpu_ns())
+                .and_then(|(start, end)| end.checked_sub(start));
+            eprintln!(
+                "linking-boundary phase=fourth-end wall_ns={wall_ns} cpu_ns={cpu_ns:?} omitted={}",
+                trace.omitted
+            );
             for actor in 0..trace.actors.len() {
                 for site in SITES {
                     let values = trace.rows[actor][site as usize];

@@ -337,7 +337,10 @@ impl AppClient {
         policy: &ApprovedAccountSharingPolicy,
     ) -> Result<(), AccountSharingError> {
         #[cfg(all(test, feature = "experimental-device-sync"))]
-        let _boundary = crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::AutomaticPolicyCurrent);
+        let _boundary = crate::test_support::linking_boundary::enter(
+            self as *const Self as usize,
+            crate::test_support::linking_boundary::Site::AutomaticPolicyCurrent,
+        );
         let storage = self
             .app
             .account_storage(&self.state.label)
@@ -1158,7 +1161,10 @@ impl AppClient {
         &mut self,
     ) -> Result<(), AccountSharingError> {
         #[cfg(all(test, feature = "experimental-device-sync"))]
-        let _boundary = crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::AutomaticMaintenance);
+        let _boundary = crate::test_support::linking_boundary::enter(
+            self as *const Self as usize,
+            crate::test_support::linking_boundary::Site::AutomaticMaintenance,
+        );
 
         let storage = self
             .app

@@ -1644,7 +1644,10 @@ impl AppClient {
                 pre_auth_failure: None,
             });
             #[cfg(all(test, feature = "experimental-device-sync"))]
-            let _boundary = crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::ChildAdmitted);
+            let _boundary = crate::test_support::linking_boundary::enter(
+                self as *const Self as usize,
+                crate::test_support::linking_boundary::Site::ChildAdmitted,
+            );
             return Ok(true);
         }
         let Some(index) = self
@@ -1668,7 +1671,10 @@ impl AppClient {
                         .map_err(|_| Error::NotReady)?;
                     entry.ready = true;
                     #[cfg(all(test, feature = "experimental-device-sync"))]
-                    drop(crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::PeerConsentApplied));
+                    drop(crate::test_support::linking_boundary::enter(
+                        self as *const Self as usize,
+                        crate::test_support::linking_boundary::Site::PeerConsentApplied,
+                    ));
                 }
                 AccountSharingControl::Body(_) if entry.ready => {
                     let (kind, _, body) = self
@@ -1697,7 +1703,10 @@ impl AppClient {
                     }
                     entry.peer_committed = true;
                     #[cfg(all(test, feature = "experimental-device-sync"))]
-                    drop(crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::PeerProofApplied));
+                    drop(crate::test_support::linking_boundary::enter(
+                        self as *const Self as usize,
+                        crate::test_support::linking_boundary::Site::PeerProofApplied,
+                    ));
                 }
                 _ => return Err(Error::NotReady),
             }
@@ -1751,9 +1760,15 @@ impl AppClient {
     }
     pub(crate) async fn maintain_sibling_sharing(&mut self) -> Result<(), ClientLinkingError> {
         #[cfg(all(test, feature = "experimental-device-sync"))]
-        let _boundary = crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::SiblingMaintenance);
+        let _boundary = crate::test_support::linking_boundary::enter(
+            self as *const Self as usize,
+            crate::test_support::linking_boundary::Site::SiblingMaintenance,
+        );
         #[cfg(all(test, feature = "experimental-device-sync"))]
-        let _prelude_boundary = crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::SiblingPrelude);
+        let _prelude_boundary = crate::test_support::linking_boundary::enter(
+            self as *const Self as usize,
+            crate::test_support::linking_boundary::Site::SiblingPrelude,
+        );
 
         self.retry_existing_sibling_opaque_controls();
         let mut pending = Vec::new();
@@ -1783,7 +1798,10 @@ impl AppClient {
             .retain(|entry| entry.original.live() && entry.state.live());
         {
             #[cfg(all(test, feature = "experimental-device-sync"))]
-            let _boundary = crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::BeginCompletedSibling);
+            let _boundary = crate::test_support::linking_boundary::enter(
+                self as *const Self as usize,
+                crate::test_support::linking_boundary::Site::BeginCompletedSibling,
+            );
             self.begin_completed_sibling_sharing()?;
         }
         #[cfg(all(test, feature = "experimental-device-sync"))]
@@ -1817,7 +1835,10 @@ impl AppClient {
             }
             let outcome = {
                 #[cfg(all(test, feature = "experimental-device-sync"))]
-                let _boundary = crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::SiblingAdvance);
+                let _boundary = crate::test_support::linking_boundary::enter(
+                    self as *const Self as usize,
+                    crate::test_support::linking_boundary::Site::SiblingAdvance,
+                );
                 self.advance_sibling_sharing(entry, &mut in_flight).await
             };
             // Every waiting sibling gets its normal first opportunity before
@@ -1918,7 +1939,14 @@ impl AppClient {
             *in_flight -= 1;
             (&mut pending.task).await.map_err(|_| denied())??;
             #[cfg(all(test, feature = "experimental-device-sync"))]
-            drop(crate::test_support::linking_boundary::enter(self as *const Self as usize, if pending.proof { crate::test_support::linking_boundary::Site::ProofHarvested } else { crate::test_support::linking_boundary::Site::HandshakeHarvested }));
+            drop(crate::test_support::linking_boundary::enter(
+                self as *const Self as usize,
+                if pending.proof {
+                    crate::test_support::linking_boundary::Site::ProofHarvested
+                } else {
+                    crate::test_support::linking_boundary::Site::HandshakeHarvested
+                },
+            ));
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if !pending.proof
                 && !entry.recipient
@@ -2251,7 +2279,14 @@ impl AppClient {
         #[cfg(all(test, feature = "experimental-device-sync"))]
         let boundary_actor = self as *const Self as usize;
         #[cfg(all(test, feature = "experimental-device-sync"))]
-        drop(crate::test_support::linking_boundary::enter(self as *const Self as usize, if proof { crate::test_support::linking_boundary::Site::ProofStarted } else { crate::test_support::linking_boundary::Site::HandshakeStarted }));
+        drop(crate::test_support::linking_boundary::enter(
+            self as *const Self as usize,
+            if proof {
+                crate::test_support::linking_boundary::Site::ProofStarted
+            } else {
+                crate::test_support::linking_boundary::Site::HandshakeStarted
+            },
+        ));
         let task = tokio::spawn(async move {
             let revoked = state.revoked.notified();
             tokio::pin!(revoked);
@@ -2296,7 +2331,14 @@ impl AppClient {
                     .publication_stage = Some(Stage::AfterRelayPublication);
             }
             #[cfg(all(test, feature = "experimental-device-sync"))]
-            drop(crate::test_support::linking_boundary::enter(boundary_actor, if proof { crate::test_support::linking_boundary::Site::ProofAck } else { crate::test_support::linking_boundary::Site::HandshakeAck }));
+            drop(crate::test_support::linking_boundary::enter(
+                boundary_actor,
+                if proof {
+                    crate::test_support::linking_boundary::Site::ProofAck
+                } else {
+                    crate::test_support::linking_boundary::Site::HandshakeAck
+                },
+            ));
             Ok(())
         });
         entry.publication = Some(SiblingPublication { proof, task });
