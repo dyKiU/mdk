@@ -253,6 +253,7 @@ enum MarmotStatus
   MARMOT_STATUS_DEVICE_REVOCATION_BUSY = 155,
   MARMOT_STATUS_DEVICE_REVOCATION_STALE_REVISION = 156,
   MARMOT_STATUS_DEVICE_REVOCATION_RUNTIME_UNAVAILABLE = 157,
+  MARMOT_STATUS_ACCOUNT_CHAT_DEPARTURE_DENIED = 158,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -572,6 +573,22 @@ typedef enum MarmotSendMaintenanceDisposition {
   MARMOT_SEND_MAINTENANCE_DISPOSITION_READY,
   MARMOT_SEND_MAINTENANCE_DISPOSITION_POST_JOIN_ROTATION_PENDING_RETRYABLE,
 } MarmotSendMaintenanceDisposition;
+
+typedef enum MarmotAccountChatDepartureStatus {
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_STATUS_AVAILABLE,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_STATUS_PENDING,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_STATUS_NEEDS_ADMINISTRATOR,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_STATUS_COMPLETED,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_STATUS_UNAVAILABLE,
+} MarmotAccountChatDepartureStatus;
+
+typedef enum MarmotAccountChatDepartureReason {
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_REASON_NONE,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_REASON_AWAITING_SOURCES,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_REASON_AWAITING_ADMINISTRATOR,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_REASON_SHARING_UNAVAILABLE,
+  MARMOT_ACCOUNT_CHAT_DEPARTURE_REASON_NO_ACCEPTED_CHAT,
+} MarmotAccountChatDepartureReason;
 
 /**
  * Why recovery parked. Current policy parks only the first five;
@@ -2884,6 +2901,12 @@ typedef struct MarmotSendSummary {
   enum MarmotSendAcceptDisposition accept_disposition;
   enum MarmotSendMaintenanceDisposition maintenance_disposition;
 } MarmotSendSummary;
+
+typedef struct MarmotAccountChatDepartureState {
+  enum MarmotAccountChatDepartureStatus status;
+  enum MarmotAccountChatDepartureReason reason;
+  char *operation_id;
+} MarmotAccountChatDepartureState;
 
 /**
  * Opaque application-owned group state. Empty data is distinct from absence.
@@ -7382,6 +7405,36 @@ MarmotStatus marmot_leave_group(const struct MarmotClient *client,
                                 struct MarmotSendSummary **out);
 
 /**
+ * Account-wide local/paired departure readiness; no synthetic MLS management.
+ * Free with marmot_account_chat_departure_state_free.
+ *
+ * # Safety
+ * `client` must be a live handle; string arguments must be valid
+ * NUL-terminated strings (nullable ones may be NULL); array
+ * arguments must hold their stated length (or be NULL with
+ * length 0); out-pointers must be valid.
+ */
+MarmotStatus marmot_account_chat_departure_state(const struct MarmotClient *client,
+                                                 const char *account_ref,
+                                                 const char *group_id_hex,
+                                                 struct MarmotAccountChatDepartureState **out);
+
+/**
+ * Explicit account-wide negative intent. Pending does not mean remote MLS removal.
+ * Free with marmot_account_chat_departure_state_free.
+ *
+ * # Safety
+ * `client` must be a live handle; string arguments must be valid
+ * NUL-terminated strings (nullable ones may be NULL); array
+ * arguments must hold their stated length (or be NULL with
+ * length 0); out-pointers must be valid.
+ */
+MarmotStatus marmot_leave_account_chat(const struct MarmotClient *client,
+                                       const char *account_ref,
+                                       const char *group_id_hex,
+                                       struct MarmotAccountChatDepartureState **out);
+
+/**
  * Delete this group's local app data without an MLS leave. Cancel
  * active UI subscriptions for the group first. MLS state stays
  * intact; a future fresh delivery can recreate a chat row. Writes
@@ -10468,12 +10521,45 @@ MarmotStatus marmot_approve_device_linking_session(const struct MarmotClient *cl
                                                    struct MarmotDeviceLinkingSession **out);
 
 /**
+ * Scan a bounded UTF-8 one-scan bootstrap. NULL/zero target means singleton.
+ * The returned original remains paused until automatic_pairing_code after exact host adoption.
+ * # Safety
+ * Borrowed byte buffers must be valid for their lengths; out/account/client must be valid.
+ */
+MarmotStatus marmot_approve_automatic_device_linking_session(const struct MarmotClient *client,
+                                                             const char *account,
+                                                             const uint8_t *code,
+                                                             uintptr_t code_len,
+                                                             const uint8_t *target,
+                                                             uintptr_t target_len,
+                                                             struct MarmotDeviceLinkingSession **out);
+
+/**
  * Read verification setup packet; no proof or permission is exported.
  * # Safety
  * handle must be live, out writable; free the returned record with its matching free.
  */
 MarmotStatus marmot_device_linking_session_setup_packet(const struct MarmotDeviceLinkingSession *handle,
                                                         struct MarmotDeviceLinkingBytes **out);
+
+/**
+ * Activate this adopted original and return its UTF-8 bootstrap as owned bytes.
+ * Display only on the initiating device; the scanner activates without a response QR.
+ * # Safety
+ * Handle must be live and out writable; free with marmot_device_linking_bytes_free.
+ */
+MarmotStatus marmot_device_linking_session_automatic_pairing_code(const struct MarmotDeviceLinkingSession *handle,
+                                                                  struct MarmotDeviceLinkingBytes **out);
+
+/**
+ * Explicit comparison-complete enrollment choice; nonzero share_chats approves chat sharing.
+ * Automatic processing receipts never replace comparison or existing-device approval.
+ * # Safety
+ * Handle must remain live for the call.
+ */
+MarmotStatus marmot_device_linking_session_continue_automatic_linking(const struct MarmotDeviceLinkingSession *handle,
+                                                                      uint64_t displayed_revision,
+                                                                      uint8_t share_chats);
 
 /**
  * Read verification outgoing packets; no proof or permission is exported.
@@ -13923,6 +14009,16 @@ void marmot_account_conversation_window_snapshot_free(struct MarmotAccountConver
  * this library.
  */
 void marmot_device_revocation_snapshot_free(struct MarmotDeviceRevocationSnapshot *ptr);
+
+/**
+ * Free a value of this type returned by this library. NULL
+ * is a no-op.
+ *
+ * # Safety
+ * The pointer must be NULL or an unfreed pointer returned by
+ * this library.
+ */
+void marmot_account_chat_departure_state_free(struct MarmotAccountChatDepartureState *ptr);
 
 /**
  * Free a value of this type returned by this library. NULL

@@ -53,6 +53,10 @@ jobs:
         run: just c-header
       - name: Exercise merged C status ABI
         run: cargo test --locked -p marmot-c --lib --features experimental-device-sync,alloc-audit status::tests -- --test-threads=2
+      - name: Check mutation detection and restored controls
+        env:
+          RUST_MIN_STACK: "4194304"
+        run: python3 scripts/verify_upstream_merge_mutations.py --output repair/mutations
       - name: Refresh binding signatures and source anchors
         if: always() && steps.header.outcome == 'success'
         run: python3 scripts/check_binding_docs.py --write
