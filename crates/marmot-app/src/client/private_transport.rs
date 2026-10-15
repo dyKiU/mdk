@@ -4,6 +4,39 @@ use crate::AppError;
 use cgka_traits::{TransportEndpoint, TransportGroupSubscription};
 
 impl AppClient {
+    /// Exercise the production route and subscription refresh under the real
+    /// actor owner. The selector and returned booleans never grant authority.
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) async fn refresh_revocation_receive_route_for_test(
+        &mut self,
+        group: &cgka_traits::GroupId,
+    ) -> Result<(bool, bool, bool), AppError> {
+        let original_retry = self
+            .runtime
+            .session()
+            .device_revocation_storage_retry_groups()
+            .map_err(cgka_session::SessionError::from)?
+            .contains(group);
+        let evidence_absent = self
+            .runtime
+            .session()
+            .private_transport_evidence(crate::NOSTR_ROUTING_COMPONENT_ID)
+            .map_err(cgka_session::SessionError::from)?
+            .is_none();
+        self.refresh_private_transport_route()?;
+        // Complete the actual adapter subscription replacement before the
+        // fixture releases its original held source Challenge.
+        self.sync_runtime_groups().await?;
+        let retained_route = self.linking_owner.hidden_transport_group.as_ref() == Some(group)
+            && self
+                .routing
+                .snapshot()
+                .group_routes
+                .iter()
+                .any(|route| &route.group_id == group);
+        Ok((original_retry, evidence_absent, retained_route))
+    }
+
     pub(super) fn private_event_must_remain_hidden(
         &self,
         event: &cgka_traits::GroupEvent,
@@ -25,6 +58,21 @@ impl AppClient {
             .session()
             .private_transport_evidence(crate::NOSTR_ROUTING_COMPONENT_ID)
             .map_err(cgka_session::SessionError::from)?;
+        if evidence.is_none()
+            && let Some(previous) = &self.linking_owner.hidden_transport_group
+        {
+            let retry_groups = self
+                .runtime
+                .session()
+                .device_revocation_storage_retry_groups()
+                .map_err(cgka_session::SessionError::from)?;
+            if retry_groups.contains(previous) {
+                // Keep only this already-selected receive route while Core
+                // retains the actual live rollback original. No new crypto
+                // evidence or permission is reconstructed from its metadata.
+                return Ok(false);
+            }
+        }
         let selected = evidence
             .as_ref()
             .map(|evidence| evidence.group_id().clone());

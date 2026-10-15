@@ -32,6 +32,9 @@
 
 ### Fixed
 
+- Retain the already-selected hidden receive route while Core owns a live
+  protected Remove rollback retry, so successor packets can still reach intake.
+
 - `edit_message` refuses with `AppError::InvalidEditTarget`, publishing nothing, unless the target is an available chat message this account sent. Before, the CLI, bindings and connector could publish an edit of another account's message, a reaction, or a deleted message to the whole group, report it as sent, and have every recipient ignore it. Queued local edits apply the same rule at admission. The check is fail-fast against this device's view when the edit is requested, not a guarantee: recipients stay authoritative, and a delete that lands afterwards still yields an ignored edit. A target whose own publish failed and is awaiting retry stays editable.
 - Accounts in many groups no longer fill a relay connection's REQ limit (mdk#2266).
   Live group subscriptions go out in batches of up to 50 routes per REQ instead of

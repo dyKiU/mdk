@@ -806,6 +806,15 @@ pub(crate) enum AccountWorkerCommand {
     RecoveryRetrySnapshot {
         respond: oneshot::Sender<(storage_sqlite::RecoveryRetryState, Duration, bool)>,
     },
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    RefreshRevocationReceiveRouteForTest {
+        group: GroupId,
+        respond: oneshot::Sender<Result<(bool, bool, bool), AppError>>,
+    },
     #[cfg(test)]
     UnhydratedGroupCount {
         respond: oneshot::Sender<usize>,
@@ -5028,6 +5037,21 @@ fn account_worker_command_future<'a>(
             ));
             true
         }),
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        AccountWorkerCommand::RefreshRevocationReceiveRouteForTest { group, respond } => {
+            Box::pin(async move {
+                let _ = respond.send(
+                    client
+                        .refresh_revocation_receive_route_for_test(&group)
+                        .await,
+                );
+                true
+            })
+        }
         #[cfg(test)]
         AccountWorkerCommand::UnhydratedGroupCount { respond } => Box::pin(async move {
             let count = client.runtime.session().unhydrated_group_ids().len();

@@ -31,6 +31,28 @@ use crate::{
 };
 
 impl AccountManager {
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) async fn refresh_revocation_receive_route_for_test(
+        &self,
+        account_ref: &str,
+        group: &GroupId,
+    ) -> Result<(bool, bool, bool), AppError> {
+        let commands = self.worker_commands(account_ref).await?;
+        let (respond, response) = oneshot::channel();
+        commands
+            .send(AccountWorkerCommand::RefreshRevocationReceiveRouteForTest {
+                group: group.clone(),
+                respond,
+            })
+            .await
+            .map_err(|_| AppError::TransportClosed)?;
+        account_worker_response(response).await
+    }
+
     #[cfg(test)]
     pub(super) async fn unhydrated_group_count_for_test(
         &self,

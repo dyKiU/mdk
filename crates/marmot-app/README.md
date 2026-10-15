@@ -991,3 +991,9 @@ Pruned ambiguous legacy chats need a separate fresh original human approval path
 The current source-terminal mirror fence does not yet allow a fresh accepted
 rejoin after decline; account-wide principal leave remains separate from device
 SelfRemove. No new SDK or installed-app qualification follows from these APIs.
+
+A live protected Remove rollback retry retains only its previously selected
+hidden receive route while current transport evidence is unavailable. Core
+validates the original retry owner; route metadata never creates consent or a
+new subscription after reopen. Normal route retirement resumes without that
+original.
