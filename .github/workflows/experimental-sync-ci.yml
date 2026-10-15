@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression]
         default: full
       recovery_run:
         description: Completed immutable original run for archive-recovery only
@@ -44,6 +44,68 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  pairing-replay:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'pairing-regression'
+    name: Pairing replay (${{ matrix.slots }} slots)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        slots: [3, 6]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Record diagnostic source and resource budget
+        env:
+          SLOTS: ${{ matrix.slots }}
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+          echo "qualification-scope: pairing-regression"
+          echo "qualification-test-slots: $SLOTS"
+      - name: Install pinned toolchain
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: pairing-replay
+      - name: Run actual enrollment and authority retirement bodies without retries
+        env:
+          SLOTS: ${{ matrix.slots }}
+        run: |
+          set -euo pipefail
+          features=otlp-export,product-analytics-export,test-policy-overrides,experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
+          filter='package(marmot-app) & (test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts) | test(=native_device_linking::automatic_pairing_acceptance::automatic_transport_cannot_keep_dropped_original_authority_alive))'
+          args=(--locked -p marmot-app --lib --features "$features")
+          cargo nextest list "${args[@]}" -E "$filter" --message-format json > pairing-inventory.json
+          python3 - <<'PY'
+          import json
+          inventory = json.load(open('pairing-inventory.json'))
+          selected = {name for suite in inventory['rust-suites'].values() for name, case in suite['testcases'].items()
+                      if case['filter-match']['status'] == 'matches' and not case['ignored']}
+          assert selected == {
+              'native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts',
+              'native_device_linking::automatic_pairing_acceptance::automatic_transport_cannot_keep_dropped_original_authority_alive',
+          }
+          print('qualification-selected-pairing-cases:', len(selected))
+          PY
+          cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads "$SLOTS" --retries 0 --no-fail-fast --success-output immediate
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: pairing-replay-${{ matrix.slots }}-slots
+          path: pairing-inventory.json
+          retention-days: 7
+          if-no-files-found: error
+
   archive-recovery-plan:
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'archive-recovery'
     name: Recover immutable archive coverage inventory
