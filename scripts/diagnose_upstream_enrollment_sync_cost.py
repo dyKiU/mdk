@@ -155,7 +155,17 @@ report["diagnostic_complete"] = (report["inputs_pristine"] and report.get("execu
 expected_phases = {marker.split("-", 1)[0] for marker in report["markers"] if marker.endswith("-completion")}
 observed_phases = [boundary["phase"] for boundary in report["phase_boundaries"]]
 report["phase_coverage_valid"] = (set(observed_phases)==expected_phases and len(observed_phases)==len(expected_phases))
+report["sql_probe_presence"] = []
+for phase in observed_phases:
+    phase_rows = {item["bucket"]:item for item in rows if item["phase"]==phase}
+    presence = {"phase":phase,
+        "all_sql_buckets_observed": all(phase_rows.get(bucket,{}).get("count",0)>0 for bucket in BUCKETS if bucket.startswith("sql-")),
+        "state_blob_sizes_observed": phase_rows.get("sql-state-decode",{}).get("byte_observations",0)>0 and phase_rows.get("sql-state-decode",{}).get("bytes_total",0)>0,
+        "fact_blob_sizes_observed": phase_rows.get("sql-fact-decode",{}).get("byte_observations",0)>0 and phase_rows.get("sql-fact-decode",{}).get("bytes_total",0)>0}
+    report["sql_probe_presence"].append(presence)
+report["sql_probes_observed"] = bool(report["sql_probe_presence"]) and all(item["all_sql_buckets_observed"] and item["state_blob_sizes_observed"] and item["fact_blob_sizes_observed"] for item in report["sql_probe_presence"])
 report["cpu_usable"] = (report["diagnostic_complete"] and report["phase_coverage_valid"]
+    and report["sql_probes_observed"]
     and all(item["unknown_cpu"]==0 and item["cpu_read_failures"]==0 and item["active"]==0 and item["cpu_reads"]==2*item["count"] for item in rows))
 report["cpu_usable_limits"] = "collection validity only; kernel resolution/zero-delta quantization and probe overhead remain unknown; bucket call cohorts differ, so do not subtract global nested totals"
 save()
