@@ -92,15 +92,49 @@ impl AppClient {
         error: &crate::AppError,
         delivery: &cgka_traits::TransportDelivery,
     ) -> Option<Arc<cgka_engine::device_leaf_revocation::DeviceRevocationSettlementControl>> {
+        // BEGIN passive successive-revocation diagnostic
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        eprintln!(
+            "revocation_retry_classifier entry=true engine_storage={} payload_within_bound={} group_hint_present={}",
+            revoked_retry_is_engine_storage(error),
+            delivery.message.payload.len() <= 512 * 1024,
+            delivery.group_id_hint.is_some()
+        );
+        // END passive successive-revocation diagnostic
         if delivery.message.payload.len() > 512 * 1024 {
             return None;
         }
         let groups = self.device_revocation_storage_retry_groups(error)?;
+        // BEGIN passive successive-revocation diagnostic
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        eprintln!("revocation_retry_classifier groups_present=true group_count={}", groups.len());
+        // END passive successive-revocation diagnostic
         let control = self
             .runtime
             .session()
             .device_revocation_settlement_control()
             .ok()??;
+        // BEGIN passive successive-revocation diagnostic
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        {
+            use cgka_traits::storage::StorageProvider;
+            let round = self.app.account_storage(&self.state.label).ok().and_then(|storage| {
+                storage.private_roster_settlement_storage()?.read_round().ok().flatten()
+            });
+            let phase = round.as_ref().map(|round| match round.phase {
+                cgka_traits::private_roster_settlement::PrivateSettlementPhase::Pending => "pending",
+                cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed => "completed",
+                cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied => "denied",
+            }).unwrap_or("absent");
+            eprintln!(
+                "revocation_retry_classifier control_present=true live={} exact_delivery_group={} retry_group_contains_control={} stored_phase={phase} stored_group_matches_control={} stored_binding_matches_control={}",
+                control.is_live(), delivery.group_id_hint.as_ref() == Some(control.group()),
+                groups.contains(control.group()),
+                round.as_ref().is_some_and(|round| round.anchor.group_id == *control.group()),
+                round.as_ref().is_some_and(|round| round.anchor.context_digest == control.binding())
+            );
+        }
+        // END passive successive-revocation diagnostic
         (control.is_live()
             && delivery.group_id_hint.as_ref() == Some(control.group())
             && groups.contains(control.group()))

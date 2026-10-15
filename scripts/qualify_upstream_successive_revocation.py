@@ -76,6 +76,7 @@ def execute(name, expected):
                 and re.search(r'^test ' + re.escape(test) + r' \.\.\.', text, re.M))
     panics = re.findall(r'panicked at ([^\n]+):(\d+):\d+:\n([^\n]*)', text)
     row['panic_locations'] = [{'file': name, 'line': int(line)} for name, line, _ in panics]
+    row['passive_classifier_observations'] = re.findall(r'revocation_retry_classifier [^\n]*', text)
     row['compiler_error_codes'] = sorted(set(re.findall(r'error\[(E\d+)\]', text)))
     row['fixture_positive_close_marker'] = 'revocation_runtime_positive_closes=4 original_verdict_preserved=true' in text
     row['actual_previous_live_received_original'] = ('successive_revocation_predecessor actual_four_leaf_enrollment=true first_remove_completed=true previous_received_control_live=true source_only_cancelled=true' in text)
@@ -104,13 +105,15 @@ try:
         raise ValueError('Unexpected or uncommitted qualification source changes')
     production = 'crates/marmot-app/src/client/private_settlement.rs'
     def retry_classifier(text):
-        return text[text.index('    pub(crate) fn revoked_confirmation_storage_retry('):text.index('    pub(crate) fn pending_existing_private_settlement(')]
+        section = text[text.index('    pub(crate) fn revoked_confirmation_storage_retry('):text.index('    pub(crate) fn pending_existing_private_settlement(')]
+        return re.sub(r'        // BEGIN passive successive-revocation diagnostic\n.*?        // END passive successive-revocation diagnostic\n', '', section, flags=re.S)
     previous = subprocess.check_output(['git', 'show', BASELINE + ':' + production], text=True)
     if retry_classifier(previous) != retry_classifier(Path(production).read_text()):
         raise ValueError('The old production retry classifier must remain unchanged for genuine RED')
     report['old_classifier_unchanged'] = True
     report['changed_paths'] = sorted(changed)
-    outcomes = [execute(TESTS[0], 'successive-red')]
+    outcomes = [execute(TESTS[0], 'passive-diagnostic-control')]
+    report['qualification_scope'] = 'passive classifier reachability; no behavioral RED or production guard qualification'
     report['reused_first_remove_control'] = {'source': 'e57745929ecf4ae3da487797190a98bfb9dd2dae', 'run': 'https://github.com/dyKiU/mdk/actions/runs/38789453814', 'test': TESTS[1], 'passed': 1, 'failed': 0, 'ignored': 0, 'reason': 'only new successive-case expectation changed; literal first-remove is_none assertion retained'}
     report['passed'] = all(outcomes) and len(report['executions']) == report['required_executions']
 finally:
