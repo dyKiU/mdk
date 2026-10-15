@@ -305,6 +305,16 @@ pub(crate) fn validate_leaf_account_identity_proof(
     leaf: &LeafNode,
     ciphersuite: Ciphersuite,
 ) -> Result<ProtocolProfile, EngineError> {
+    validate_leaf_account_identity_proof_with_verifier(leaf, ciphersuite, None)
+}
+
+pub(crate) type ProofVerifier<'a> = dyn Fn(&AccountIdentityProofRequest, &[u8; SCHNORR_SIGNATURE_LEN]) -> Result<(), EngineError> + 'a;
+
+fn validate_leaf_account_identity_proof_with_verifier(
+    leaf: &LeafNode,
+    ciphersuite: Ciphersuite,
+    verifier: Option<&ProofVerifier<'_>>,
+) -> Result<ProtocolProfile, EngineError> {
     let credential = BasicCredential::try_from(leaf.credential().clone()).map_err(|e| {
         EngineError::InvalidCredentialIdentity(format!("not a BasicCredential: {e:?}"))
     })?;
@@ -332,7 +342,10 @@ pub(crate) fn validate_leaf_account_identity_proof(
                 .into(),
         )),
         (Some(raw), None) => {
-            validate_legacy_proof(raw.0.as_slice(), leaf, account_identity, ciphersuite)?;
+            match verifier {
+                Some(verify) => validate_legacy_proof_with_verifier(raw.0.as_slice(), leaf, account_identity, ciphersuite, verify)?,
+                None => validate_legacy_proof(raw.0.as_slice(), leaf, account_identity, ciphersuite)?,
+            }
             Ok(ProtocolProfile::Legacy)
         }
         (None, Some(raw)) => {
@@ -343,7 +356,10 @@ pub(crate) fn validate_leaf_account_identity_proof(
                         .into(),
                 ));
             }
-            validate_current_proof(raw, leaf, account_identity, ciphersuite)?;
+            match verifier {
+                Some(verify) => validate_current_proof_with_verifier(raw, leaf, account_identity, ciphersuite, verify)?,
+                None => validate_current_proof(raw, leaf, account_identity, ciphersuite)?,
+            }
             Ok(ProtocolProfile::Current)
         }
     }
@@ -355,9 +371,19 @@ fn validate_legacy_proof(
     account_identity: &[u8],
     ciphersuite: Ciphersuite,
 ) -> Result<(), EngineError> {
+    validate_legacy_proof_with_verifier(raw, leaf, account_identity, ciphersuite, &verify_proof_signature)
+}
+
+fn validate_legacy_proof_with_verifier(
+    raw: &[u8],
+    leaf: &LeafNode,
+    account_identity: &[u8],
+    ciphersuite: Ciphersuite,
+    verify: &ProofVerifier<'_>,
+) -> Result<(), EngineError> {
     let proof = decode_legacy_proof(raw)?;
     validate_proof_bindings(&proof.request, leaf, account_identity, ciphersuite)?;
-    verify_proof_signature(&proof.request, &proof.signature)
+    verify(&proof.request, &proof.signature)
 }
 
 fn validate_current_proof(
@@ -365,6 +391,16 @@ fn validate_current_proof(
     leaf: &LeafNode,
     account_identity: &[u8],
     ciphersuite: Ciphersuite,
+) -> Result<(), EngineError> {
+    validate_current_proof_with_verifier(raw, leaf, account_identity, ciphersuite, &verify_proof_signature)
+}
+
+fn validate_current_proof_with_verifier(
+    raw: &[u8],
+    leaf: &LeafNode,
+    account_identity: &[u8],
+    ciphersuite: Ciphersuite,
+    verify: &ProofVerifier<'_>,
 ) -> Result<(), EngineError> {
     if raw.len() != CURRENT_PROOF_LEN {
         return Err(EngineError::InvalidAccountIdentityProof(format!(
@@ -388,7 +424,7 @@ fn validate_current_proof(
         created_at,
     );
     validate_proof_bindings(&request, leaf, account_identity, ciphersuite)?;
-    verify_proof_signature(&request, &signature)
+    verify(&request, &signature)
 }
 
 fn validate_proof_bindings(
@@ -526,8 +562,21 @@ pub(crate) fn validate_leaf_account_identity_proof_for_member(
     expected_member_id: &MemberId,
     context: &str,
 ) -> Result<ProtocolProfile, EngineError> {
+    validate_leaf_account_identity_proof_for_member_with_verifier(leaf, ciphersuite, expected_member_id, context, None)
+}
+
+pub(crate) fn validate_leaf_account_identity_proof_for_member_with_verifier(
+    leaf: &LeafNode,
+    ciphersuite: Ciphersuite,
+    expected_member_id: &MemberId,
+    context: &str,
+    verifier: Option<&ProofVerifier<'_>>,
+) -> Result<ProtocolProfile, EngineError> {
     let actual_member_id = crate::identity::validated_member_id_of_leaf(leaf)?;
-    let profile = validate_leaf_account_identity_proof(leaf, ciphersuite)?;
+    let profile = match verifier {
+        Some(verify) => validate_leaf_account_identity_proof_with_verifier(leaf, ciphersuite, Some(verify))?,
+        None => validate_leaf_account_identity_proof(leaf, ciphersuite)?,
+    };
     if actual_member_id != *expected_member_id {
         return Err(EngineError::InvalidAccountIdentityProof(format!(
             "{context} credential identity does not match existing member identity"
@@ -871,3 +920,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(feature = "experimental-device-sync")]
+#[path = "account_identity_proof_memo.rs"]
+pub(crate) mod positive_memo;

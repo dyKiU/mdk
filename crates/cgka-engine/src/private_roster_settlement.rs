@@ -166,7 +166,10 @@ impl<S: StorageProvider> Engine<S> {
             else {
                 return Ok(None);
             };
-            let Some(state) = completed_round_for_tree(storage, group, &actual)? else {
+            let verify = |request: &crate::account_identity_proof::AccountIdentityProofRequest, signature: &[u8; 64]| {
+                self.private_proof_signatures.verify(request, signature)
+            };
+            let Some(state) = completed_round_for_tree_with_verifier(storage, group, &actual, Some(&verify))? else {
                 return Ok(None);
             };
             if &state.anchor != evidence.settlement_anchor() {
@@ -714,10 +717,19 @@ pub(crate) fn completed_round_for_tree<S: StorageProvider>(
     group: &GroupId,
     actual: &openmls::group::MlsGroup,
 ) -> Result<Option<PrivateSettlementState>, EngineError> {
+    completed_round_for_tree_with_verifier(storage, group, actual, None)
+}
+
+fn completed_round_for_tree_with_verifier<S: StorageProvider>(
+    storage: &S,
+    group: &GroupId,
+    actual: &openmls::group::MlsGroup,
+    verifier: Option<&crate::account_identity_proof::ProofVerifier<'_>>,
+) -> Result<Option<PrivateSettlementState>, EngineError> {
     if actual.pending_commit().is_some() {
         return Ok(None);
     }
-    completed_round_for_predecessor_tree(storage, group, actual)
+    completed_round_for_predecessor_tree_with_verifier(storage, group, actual, verifier)
 }
 
 /// Protected predecessor metadata only. Pending Add callers must separately
@@ -727,6 +739,15 @@ pub(crate) fn completed_round_for_predecessor_tree<S: StorageProvider>(
     storage: &S,
     group: &GroupId,
     actual: &openmls::group::MlsGroup,
+) -> Result<Option<PrivateSettlementState>, EngineError> {
+    completed_round_for_predecessor_tree_with_verifier(storage, group, actual, None)
+}
+
+fn completed_round_for_predecessor_tree_with_verifier<S: StorageProvider>(
+    storage: &S,
+    group: &GroupId,
+    actual: &openmls::group::MlsGroup,
+    verifier: Option<&crate::account_identity_proof::ProofVerifier<'_>>,
 ) -> Result<Option<PrivateSettlementState>, EngineError> {
     let Some(store) = storage.private_roster_settlement_storage() else {
         return Ok(None);
@@ -768,11 +789,12 @@ pub(crate) fn completed_round_for_predecessor_tree<S: StorageProvider>(
     }
     let account = cgka_traits::MemberId::new(state.anchor.account.to_vec());
     for leaf in actual.export_ratchet_tree().leaves() {
-        if crate::account_identity_proof::validate_leaf_account_identity_proof_for_member(
+        if crate::account_identity_proof::validate_leaf_account_identity_proof_for_member_with_verifier(
             leaf,
             actual.ciphersuite(),
             &account,
             "private completed predecessor",
+            verifier,
         )
         .map_err(|_| {
             EngineError::Other("private completed predecessor leaf proof invalid".into())

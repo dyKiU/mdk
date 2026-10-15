@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [settlement-decode-format, settlement-decode-controls, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
+        options: [public-proof-memo-format, public-proof-memo-controls, settlement-decode-format, settlement-decode-controls, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -33,6 +33,87 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  public-proof-memo-format:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'public-proof-memo-format'
+    name: Pure public proof memo source and formatting preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify cold public verifier and fresh authorization guards
+        run: |
+          python3 scripts/verify_upstream_public_proof_memo_source.py
+          python3 -c 'import ast,pathlib; [ast.parse(pathlib.Path(p).read_text()) for p in ["scripts/verify_upstream_public_proof_memo_source.py","scripts/qualify_upstream_public_proof_memo.py"]]'
+      - name: Preserve exact formatter patch without compiling product
+        run: |
+          cargo fmt --all
+          git diff -- crates > "$RUNNER_TEMP/public-proof-memo-format.patch"
+          git diff --exit-code -- crates
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: public-proof-memo-source-preflight
+          path: |
+            public-proof-memo-source.json
+            ${{ runner.temp }}/public-proof-memo-format.patch
+          if-no-files-found: error
+          retention-days: 14
+  public-proof-memo-controls:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'public-proof-memo-controls'
+    name: Pure public proof memo memo SQL Core lifecycle and original enrollment controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+      - name: Frozen source then scoped original controls with no retries
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Engine-owned public proof memo controls'
+          python3 scripts/verify_upstream_public_proof_memo_source.py
+          python3 scripts/qualify_upstream_public_proof_memo.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: public-proof-memo-runtime-evidence
+          path: |
+            public-proof-memo-evidence/result.json
+            public-proof-memo-source.json
+          if-no-files-found: error
+          retention-days: 14
+  public-proof-memo-static:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'public-proof-memo-controls'
+    name: Pure public proof memo default and experimental affected static checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+      - name: Default and experimental library Clippy with warnings denied
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Pure public proof memo affected static checks'
+          cargo clippy --locked -p storage-sqlite -p cgka-engine --lib -- -D warnings
+          cargo clippy --locked -p storage-sqlite -p cgka-engine --lib --features cgka-engine/experimental-device-sync,storage-sqlite/experimental-device-sync -- -D warnings
   settlement-decode-format:
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'settlement-decode-format'
     name: Pure settlement decode source and formatting preflight
