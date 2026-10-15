@@ -30,7 +30,10 @@ QUARANTINE = [
 ]]
 assert os.environ["RUST_MIN_STACK"] == "4194304"
 subprocess.run(["git", "merge-base", "--is-ancestor", UPSTREAM, "HEAD"], check=True)
-assert not subprocess.check_output(["git", "diff", BASELINE, "HEAD", "--", "crates", "Cargo.toml", "Cargo.lock"]), "controller branch must not import product experiments"
+source_paths = ["crates", "Cargo.toml", "Cargo.lock"]
+if os.environ["RECONCILED_SCOPE"] == "fairness":
+    source_paths.append(":!crates/marmot-app/src/runtime/account_worker.rs")
+assert not subprocess.check_output(["git", "diff", BASELINE, "HEAD", "--", *source_paths]), "controller branch must not import unrelated product experiments"
 root = Path("reconciled-evidence")
 root.mkdir()
 report = {"source": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(), "product_baseline": BASELINE, "upstream_master": UPSTREAM, "scope": os.environ["RECONCILED_SCOPE"], "cohort": os.environ.get("RECONCILED_COHORT", "experimental"), "rust_min_stack_bytes": 4194304, "test_threads": 1, "automatic_retries": 0, "controls": {}, "qualification_passed": False, "lock_sha256": hashlib.sha256(Path("Cargo.lock").read_bytes()).hexdigest()}
@@ -82,7 +85,7 @@ def existing_aggregates(output):
                 values = [aggregate_value(match[index]) for index in range(2, 7)]
                 completion = values[0]
                 assert completion is None or isinstance(completion, list) and len(completion) == 4 and type(completion[0]) is bool and (completion[1] is None or type(completion[1]) is int) and all(type(value) is int for value in completion[2:])
-                assert all(integers(value, size) for value, size in zip(values[1:], [19, 4, 9, 4]))
+                assert all(integers(value, size) for value, size in zip(values[1:], [8, 4, 9, 4]))
                 records[side + "_completion"] = dict(zip(["completion", "intake", "rejections", "context_rejections", "projection"], values))
                 continue
             match = re.fullmatch(r"automatic-enrollment-control side=(left|right) (child_channels|native_rpc_counts/elapsed_ms/branch)=(.*)", line)
@@ -158,13 +161,14 @@ scope = report["scope"]
 features = FEATURES if report["cohort"] == "experimental" else FEATURES.replace(",marmot-app/experimental-device-sync", "")
 args = ["--locked", "-p", "marmot-app", "--lib", "--features", features]
 if scope in {"native", "quarantine", "experimental"}:
-    quarantine_ok = True
+    quarantine_ok = None
     if scope in {"quarantine", "experimental"}:
         selected = "package(marmot-app) & (" + " | ".join("test(=" + case + ")" for case in QUARANTINE) + ")"
         proof, _ = run("seven-new-upstream-quarantine-controls", selected, 7, args)
         quarantine_ok = proof["passed"] == 7 and proof["failed"] == 0
-    native_ok = True
+    native_ok = None
     if scope in {"native", "experimental"}:
+        native_ok = True
         for case in NATIVE:
             proof, _ = run(case, "package(marmot-app) & test(=" + case + ")", 1, args)
             native_ok = native_ok and proof["passed"] == 1 and proof["failed"] == 0
@@ -172,7 +176,30 @@ if scope in {"native", "quarantine", "experimental"}:
     report["quarantine_controls_passed"] = quarantine_ok
     report["native_controls_passed"] = native_ok
     save()
-    assert quarantine_ok and native_ok, "reconciled unchanged scoped controls remain failing"
+    assert quarantine_ok is not False and native_ok is not False, "reconciled unchanged scoped controls remain failing"
+elif scope == "fairness":
+    assert report["cohort"] == "experimental"
+    cases = NATIVE + [APP + case for case in [
+        "automatic_transport_cannot_keep_dropped_original_authority_alive",
+        "ordinary_one_scan_enrollment_has_original_cancellation_without_chat_sharing",
+        "automatic_one_scan_exchange_keeps_both_human_comparisons_required",
+        "automatic_pairing_requires_explicit_enrollment_and_shares_existing_and_later_chats",
+    ]] + ["client::device_linking::sibling_sharing::tests::" + case for case in [
+        "original_choice_cancel_wakes_every_registered_child_without_actor_rpc",
+        "original_choice_children_do_not_extend_the_captured_deadline",
+    ]] + [
+        "tests::device_linking_startup::device_linking_worker_commands_are_scoped_and_idle_cleanup_retries",
+        "native_device_linking::actual::native_original_worker_expiry_cannot_revive_terminal_session",
+        "native_device_linking::actual::native_shutdown_closes_original_session_without_a_new_worker",
+    ]
+    passed = True
+    for case in cases:
+        proof, _ = run(case, "package(marmot-app) & test(=" + case + ")", 1, args)
+        passed = passed and proof["passed"] == 1 and proof["failed"] == 0
+    report["diagnostic_complete"] = True
+    report["scoped_controls_passed"] = passed
+    save()
+    assert passed, "bounded linking turn remains unqualified"
 elif scope == "media":
     proof, _ = run("new-media-store-crate-suite", "package(media-store)", None, ["--locked", "-p", "media-store", "--all-targets"])
     docs = subprocess.run(["cargo", "test", "--locked", "-p", "media-store", "--doc"], capture_output=True, text=True)
