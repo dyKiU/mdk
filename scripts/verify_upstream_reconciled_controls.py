@@ -88,7 +88,7 @@ def existing_aggregates(output):
                 values = [aggregate_value(match[index]) for index in range(2, 7)]
                 completion = values[0]
                 assert completion is None or isinstance(completion, list) and len(completion) == 4 and type(completion[0]) is bool and (completion[1] is None or type(completion[1]) is int) and all(type(value) is int for value in completion[2:])
-                assert all(integers(value, size) for value, size in zip(values[1:], [19, 4, 9, 4]))
+                assert all(integers(value, size) for value, size in zip(values[1:], [8, 4, 9, 4]))
                 records[side + "_completion"] = dict(zip(["completion", "intake", "rejections", "context_rejections", "projection"], values))
                 continue
             match = re.fullmatch(r"automatic-enrollment-control side=(left|right) (child_channels|native_rpc_counts/elapsed_ms/branch)=(.*)", line)

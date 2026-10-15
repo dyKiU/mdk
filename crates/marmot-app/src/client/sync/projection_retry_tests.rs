@@ -2130,6 +2130,9 @@ async fn quarantined_private_group_does_not_retain_or_expose_chat_projection() {
             .all(|group| group.group_id_hex != private_hex)
     );
     let before = relay.published_event_ids().len();
-    client.send(&healthy, b"healthy after recovery").await.unwrap();
+    client
+        .send(&healthy, b"healthy after recovery")
+        .await
+        .unwrap();
     assert!(relay.published_event_ids().len() > before);
 }
