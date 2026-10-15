@@ -283,11 +283,12 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         None
     };
     eprintln!("automatic-enrollment-control stage=fourth-device-completion");
-    wait_for_automatic_phase_with_approvals(
+    wait_for_automatic_phase_with_passive_context(
         &a,
         &d,
         DeviceLinkingPhase::EnrollmentComplete,
         &approvals,
+        Some(&apps),
     )
     .await;
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
@@ -737,6 +738,113 @@ async fn automatic_one_scan_exchange_keeps_both_human_comparisons_required() {
     }
 }
 
+#[cfg(feature = "test-policy-overrides")]
+fn observe_passive_sibling_failure(
+    apps: &[MarmotApp; 4],
+    recipient: &DeviceLinkingSession,
+    approvals: &[DeviceLinkingApproval],
+) {
+    use cgka_traits::storage::{MessageStorage, StorageError};
+    use crate::account_chat_sharing::enabled::SiblingPassiveSnapshot;
+    let cutoff = std::time::Instant::now();
+    // Freeze the real owners before any storage observations. No actor RPC,
+    // network request or retry runs here; this is already the failed timeout.
+    let snapshots: Vec<(Option<SiblingPassiveSnapshot>, Option<SiblingPassiveSnapshot>)> = approvals
+        .iter().take(2).map(|approval| {
+            let source = approval.sharing_original_for_test()
+                .map(|original| original.passive_sibling_snapshot_for_test());
+            let child = source.as_ref().and_then(|snapshot| snapshot.scope.as_ref())
+                .and_then(|scope| recipient.passive_sibling_child_for_test(scope.nonce));
+            (source, child)
+        }).collect();
+    for (peer, (source, child)) in snapshots.iter().enumerate() {
+        let request_facts = source.as_ref().and_then(|snapshot| snapshot.scope.as_ref())
+            .and_then(|scope| recipient.sibling_request_observation_for_test(scope.nonce));
+        eprintln!("sibling-passive {}", serde_json::json!({
+            "record": "peer", "peer": peer, "source_original": source.is_some(),
+            "source_scope": source.as_ref().is_some_and(|snapshot| snapshot.scope.is_some()),
+            "recipient_child": child.is_some(), "request_facts": request_facts,
+            "relay_retention": "Unavailable", "sdk_cache": "Unavailable",
+        }));
+        for (direction, origin, destination, app, kinds) in [
+            (0, source.as_ref(), child.as_ref(), &apps[3], [0, 2]),
+            (1, child.as_ref(), source.as_ref(), &apps[peer + 1], [1, 2]),
+        ] {
+            for kind in kinds {
+                let frame = origin.and_then(|snapshot| snapshot.frames[kind].as_ref());
+                let Some(frame) = frame else {
+                    eprintln!("sibling-passive {}", serde_json::json!({
+                        "record": "control", "peer": peer, "direction": direction,
+                        "kind": kind, "captured": false,
+                        "authenticated_received": destination.map(|snapshot| snapshot.received[kind]),
+                    }));
+                    continue;
+                };
+                let event_id = frame.event_id.as_ref().or(frame.acknowledged_id.as_ref());
+                let storage_status;
+                let mut admitted = None;
+                let mut admission_status = "Unavailable";
+                let mut content_state = "NoContent";
+                if let Ok(storage) = app.account_storage("test") {
+                    storage_status = "Observed";
+                    if let Some(id) = event_id {
+                        match storage.has_processed_transport_id(id) {
+                            Ok(value) => { admitted = Some(value); admission_status = "Observed"; }
+                            Err(_) => admission_status = "ReadFailure",
+                        }
+                    }
+                    if let Some(id) = &frame.content_id {
+                        content_state = match storage.get_message(id) {
+                            Ok(record) => match record.state {
+                                cgka_traits::MessageState::Created => "Created",
+                                cgka_traits::MessageState::Sent => "Sent",
+                                cgka_traits::MessageState::Processed => "Processed",
+                                cgka_traits::MessageState::Failed => "Failed",
+                                cgka_traits::MessageState::Retryable => "Retryable",
+                                cgka_traits::MessageState::ConvergenceDeferred => "ConvergenceDeferred",
+                                cgka_traits::MessageState::PeelDeferred => "PeelDeferred",
+                                cgka_traits::MessageState::EpochInvalidated => "EpochInvalidated",
+                                _ => "Other",
+                            },
+                            Err(StorageError::NotFound) => "NotFound",
+                            Err(_) => "ReadFailure",
+                        };
+                    }
+                } else {
+                    storage_status = "ReadFailure";
+                }
+                let notification = origin.and_then(|snapshot| snapshot.scope.as_ref())
+                    .and_then(|scope| event_id.map(|id| (scope, id)))
+                    .and_then(|(scope, id)| app.relay_plane.account_notification_disposition_for_test(
+                        &cgka_traits::MemberId::new(scope.protected.account.as_slice().to_vec()),
+                        &hex::encode(id.as_slice()),
+                    ));
+                let projection = if direction == 0 {
+                    frame.content_id.as_ref().and_then(|id| recipient.sibling_projection_event_for_test(id))
+                } else { None };
+                eprintln!("sibling-passive {}", serde_json::json!({
+                    "record": "control", "peer": peer, "direction": direction, "kind": kind,
+                    "captured": true,
+                    "counts": [frame.prepared, frame.started, frame.acknowledged, frame.harvested],
+                    "other_identity_counts": frame.other,
+                    "ages_ms": [Some(cutoff.saturating_duration_since(frame.prepared_at).as_millis() as u64),
+                        frame.acknowledged_at.map(|at| cutoff.saturating_duration_since(at).as_millis() as u64),
+                        frame.harvested_at.map(|at| cutoff.saturating_duration_since(at).as_millis() as u64)],
+                    "ids_unchanged": frame.ids_unchanged,
+                    "signed_event_available": frame.event_id.is_some(),
+                    "wrapped_matches_signed": frame.event_id.as_ref().map(|id| id == &frame.wrapped_id),
+                    "ack_matches_signed": frame.acknowledged_id.as_ref().zip(frame.event_id.as_ref()).map(|(a,b)| a == b),
+                    "ack_not_harvested": frame.acknowledged > frame.harvested,
+                    "storage_status": storage_status, "admission_status": admission_status,
+                    "durably_admitted": admitted, "content_state": content_state,
+                    "notification": notification, "projection": projection,
+                    "authenticated_received": destination.map(|snapshot| snapshot.received[kind]),
+                }));
+            }
+        }
+    }
+}
+
 async fn wait_for_automatic_phase(
     a: &DeviceLinkingSession,
     b: &DeviceLinkingSession,
@@ -750,6 +858,16 @@ async fn wait_for_automatic_phase_with_approvals(
     b: &DeviceLinkingSession,
     phase: DeviceLinkingPhase,
     approvals: &[DeviceLinkingApproval],
+) {
+    wait_for_automatic_phase_with_passive_context(a, b, phase, approvals, None).await;
+}
+
+async fn wait_for_automatic_phase_with_passive_context(
+    a: &DeviceLinkingSession,
+    b: &DeviceLinkingSession,
+    phase: DeviceLinkingPhase,
+    approvals: &[DeviceLinkingApproval],
+    _passive_apps: Option<&[MarmotApp; 4]>,
 ) {
     let mut observed = None;
     tokio::time::timeout(std::time::Duration::from_secs(15), async {
@@ -783,6 +901,11 @@ async fn wait_for_automatic_phase_with_approvals(
     })
     .await
     .unwrap_or_else(|_| {
+        #[cfg(feature = "test-policy-overrides")]
+        if crate::account_chat_sharing::enabled::sibling_passive_enabled()
+            && let Some(apps) = _passive_apps {
+            observe_passive_sibling_failure(apps, b, approvals);
+        }
         #[cfg(feature = "test-policy-overrides")]
         for (side, original) in [("left", a), ("right", b)] {
             eprintln!(

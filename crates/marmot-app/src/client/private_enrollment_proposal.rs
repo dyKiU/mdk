@@ -34,6 +34,12 @@ pub(crate) struct OriginalSiblingSharingApproval {
     cancellation: cgka_engine::private_enrollment_endorsement::EnrollmentEndorsementCancellation,
 }
 impl OriginalSiblingSharingApproval {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn passive_sibling_snapshot_for_test(
+        &self,
+    ) -> crate::account_chat_sharing::enabled::SiblingPassiveSnapshot {
+        self.state.sibling_passive_snapshot()
+    }
     pub(crate) fn cancel(&self) {
         self.state.cancel();
         self.cancellation.cancel();

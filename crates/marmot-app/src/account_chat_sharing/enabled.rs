@@ -42,6 +42,38 @@ pub(crate) struct SiblingMaintenanceDiagnostics {
     pub(crate) failures: usize,
     pub(crate) last_failure: Option<SiblingMaintenanceFailure>,
     pub(crate) publication_stage: Option<SiblingPublicationStage>,
+    // Private correlation only; these types deliberately do not implement Debug.
+    pub(crate) passive_frames: [Option<SiblingPassiveFrame>; 3],
+    pub(crate) passive_received: [usize; 3],
+}
+
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Clone)]
+pub(crate) struct SiblingPassiveFrame {
+    pub(crate) wrapped_id: cgka_traits::MessageId,
+    pub(crate) event_id: Option<cgka_traits::MessageId>,
+    pub(crate) content_id: Option<cgka_traits::MessageId>,
+    pub(crate) acknowledged_id: Option<cgka_traits::MessageId>,
+    pub(crate) prepared: usize,
+    pub(crate) started: usize,
+    pub(crate) acknowledged: usize,
+    pub(crate) harvested: usize,
+    pub(crate) other: [usize; 4],
+    pub(crate) ids_unchanged: bool,
+    pub(crate) prepared_at: Instant,
+    pub(crate) acknowledged_at: Option<Instant>,
+    pub(crate) harvested_at: Option<Instant>,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Clone)]
+pub(crate) struct SiblingPassiveSnapshot {
+    pub(crate) scope: Option<AccountSharingScope>,
+    pub(crate) frames: [Option<SiblingPassiveFrame>; 3],
+    pub(crate) received: [usize; 3],
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) fn sibling_passive_enabled() -> bool {
+    std::env::var_os("WN_SIBLING_PASSIVE_TRACE").as_deref() == Some(std::ffi::OsStr::new("1"))
 }
 
 #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -86,6 +118,16 @@ pub(crate) struct Progress {
     pub(crate) complete: bool,
 }
 impl State {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn sibling_passive_snapshot(&self) -> SiblingPassiveSnapshot {
+        let scope = self.scope.lock().expect("passive sibling scope").clone();
+        let diagnostic = self.sibling_diagnostics.lock().expect("passive sibling observation");
+        SiblingPassiveSnapshot {
+            scope,
+            frames: diagnostic.passive_frames.clone(),
+            received: diagnostic.passive_received,
+        }
+    }
     pub(crate) fn new(owner: &Arc<AtomicBool>, approval_id: [u8; 32]) -> Arc<Self> {
         Self::new_until(
             owner,
