@@ -1,6 +1,7 @@
 package dev.ipf.marmotkit
 
 import java.nio.file.Files
+import kotlinx.coroutines.runBlocking
 
 private class OptionsStore : SecretStore {
     override fun hasSecretForLabel(label: String): Boolean = label == "probe"
@@ -10,7 +11,7 @@ private class OptionsStore : SecretStore {
     override fun removeSecret(label: String, accountIdHex: String) {}
 }
 
-fun main() {
+fun main() = runBlocking {
     val defaults = MarmotOptions()
     check(defaults.relayPolicy == null && defaults.cursorPersistence == null)
     check(defaults.clientName == null && defaults.secretStore == null)
@@ -31,6 +32,8 @@ fun main() {
     try {
         Marmot.newWithConfiguration(root.path, listOf("ws://127.0.0.1:1"), copy).use { kit ->
             check(kit.listAccounts().isEmpty())
+            kit.shutdownAndClose()
+            check(kit.storageIsClosed())
         }
     } finally {
         root.deleteRecursively()

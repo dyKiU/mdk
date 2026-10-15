@@ -755,7 +755,9 @@ async fn automatic_comparison_trial(pairing_relays: Vec<String>) {
             runtime.shutdown_and_close().await.unwrap();
         }
     }
-    eprintln!("pairing_native_comparison display_directions=2 bilateral_explicit=true runtime_closes=4");
+    eprintln!(
+        "pairing_native_comparison display_directions=2 bilateral_explicit=true runtime_closes=4"
+    );
 }
 
 async fn wait_for_automatic_phase(
