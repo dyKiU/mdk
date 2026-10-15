@@ -28,6 +28,7 @@ CORE_NAMES = [
     "private_roster_settlement_delete_sql_fault_preserves_crypto_round_and_live_admission",
 ]
 app = [APP + name for name in APP_NAMES] + [OWNER + name for name in ["original_choice_cancel_wakes_every_registered_child_without_actor_rpc", "original_choice_children_do_not_extend_the_captured_deadline"]]
+SAFEGUARDS = ["native_device_linking::tests::sibling_sharing_acceptance::public_broad_sibling_core_authentication_failure_retries_same_original", "native_device_linking::tests::sibling_sharing_acceptance::public_broad_sibling_cancellation_retires_the_exact_shared_original"]
 args = ["--locked", "-p", "marmot-app", "-p", "cgka-engine", "--lib", "--features", FEATURES]
 report = {"source": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(), "rust_min_stack_bytes": 4194304, "test_threads": 1, "automatic_retries": 0, "controls": {}, "qualification_passed": False}
 root = Path("settled-cache-evidence")
@@ -46,7 +47,7 @@ def run(name, selected, expected):
         match = re.search(r"(\d+) " + label, rows[0][1])
         return int(match[1]) if match else 0
     proof = {"executed_nonignored": expected, "passed": count("passed"), "failed": count("failed"), "exit_code": result.returncode}
-    safe_names = app + CORE_NAMES
+    safe_names = app + CORE_NAMES + SAFEGUARDS
     failed_lines = [line for line in output.splitlines() if re.search(r"\bFAIL\b", line)]
     proof["failed_case_names"] = [case for case in safe_names if any(case in line for line in failed_lines)]
     allowed_stages = {"third-device-completion", "fourth-device-completion", "sibling-consent-held-before-peer-progress", "automatic-publication-held-before-completion"}
@@ -66,6 +67,42 @@ def run(name, selected, expected):
     save()
     return proof, output
 import os
+if os.environ.get("SETTLED_CACHE_DIAGNOSTIC") == "second-pass-controls":
+    for case in app[:3]:
+        proof, _ = run(case, "package(marmot-app) & test(=" + case + ")", 1)
+        assert proof["passed"] == 1 and proof["failed"] == 0, "unchanged enrollment bounds must pass first"
+    safeguards = app[7:] + SAFEGUARDS + [app[3]]
+    # Resolve each committed exact name in the actual inventory, never a zero-test filter.
+    for case in safeguards:
+        proof, _ = run(case, "package(marmot-app) & test(=" + case + ")", 1)
+        assert proof["passed"] == 1 and proof["failed"] == 0, "original ownership/authentication safeguards must pass"
+    path = Path("crates/marmot-app/src/client/device_linking/sibling_sharing.rs")
+    original = path.read_bytes()
+    anchor = b"scheduled.push(index);"
+    assert original.count(anchor) == 1
+    report["second_pass_source_sha256_before"] = hashlib.sha256(original).hexdigest()
+    detected = False
+    case = app[1]
+    selected = "package(marmot-app) & test(=" + case + ")"
+    try:
+        path.write_bytes(original.replace(anchor, b"let _ = index;"))
+        proof, output = run("remove-second-pass-mutant", selected, 1)
+        detected = (proof["passed"] == 0 and proof["failed"] == 1
+            and "sibling-consent-held-before-peer-progress" in proof["completion_stage_markers"]
+            and "original-combined-sibling-fairness" in proof["closed_failure_categories"])
+        report["second_pass_mutant_runtime_detected"] = detected
+        save()
+    finally:
+        path.write_bytes(original)
+        report["second_pass_source_sha256_restored"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        save()
+    assert report["second_pass_source_sha256_restored"] == report["second_pass_source_sha256_before"]
+    proof, _ = run("second-pass-restored", selected, 1)
+    assert proof["passed"] == 1 and proof["failed"] == 0
+    report["focused_second_pass_passed"] = detected
+    save()
+    assert detected, "actual held-sibling fairness assertion must kill only second-pass removal"
+    raise SystemExit(0)
 if os.environ.get("SETTLED_CACHE_DIAGNOSTIC") == "three-existing":
     for case in app[:3]:
         run(case, "package(marmot-app) & test(=" + case + ")", 1)

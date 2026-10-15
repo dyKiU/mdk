@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, settled-cache-regressions, settled-cache-static, settled-cache-safety-diagnostic, settled-cache-safety-baseline, settled-cache-denial-controls, settled-cache-format-only, settled-cache-original-variants]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, settled-cache-regressions, settled-cache-static, settled-cache-safety-diagnostic, settled-cache-safety-baseline, settled-cache-denial-controls, settled-cache-format-only, settled-cache-original-variants, sibling-second-pass-controls]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -33,6 +33,33 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  sibling-second-pass-controls:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'sibling-second-pass-controls'
+    name: Bounded sibling second pass unchanged regressions and runtime mutation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+      - name: Require unchanged enrollment, ownership and authenticated retry before exact mutation
+        env:
+          SETTLED_CACHE_DIAGNOSTIC: second-pass-controls
+          WN_UPSTREAM_PUBLICATION_DIAGNOSTICS: "1"
+        run: python3 scripts/verify_settled_roster_cache.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: sibling-second-pass-controls
+          path: settled-cache-evidence/result.json
+          if-no-files-found: error
   settled-cache-original-variants:
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'settled-cache-original-variants'
     name: Classify three unchanged enrollment variants independently
