@@ -335,6 +335,20 @@ struct ChoiceProgress {
 }
 impl OriginalEnrollmentSharingChoice {
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn completion_aggregates_for_test(&self) -> (bool, Option<usize>, usize, usize) {
+        let progress = self.progress.lock().expect("sharing choice");
+        let children = self.children.lock().expect("sibling children");
+        (
+            progress.primary_committed,
+            progress.expected.as_ref().map(Vec::len),
+            children.len(),
+            children
+                .iter()
+                .filter(|state| state.progress.lock().expect("sharing progress").complete)
+                .count(),
+        )
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn projection_aggregates_for_test(&self) -> [usize; 4] {
         let observations = self
             .projection_observations

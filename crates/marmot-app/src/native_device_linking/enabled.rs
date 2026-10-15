@@ -351,6 +351,17 @@ impl DeviceLinkingSession {
             .map(|choice| choice.recipient_rejections_for_test())
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_completion_aggregates_for_test(
+        &self,
+    ) -> Option<(bool, Option<usize>, usize, usize)> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .map(|choice| choice.completion_aggregates_for_test())
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn sibling_recipient_diagnostics_for_test(&self) -> Option<[usize; 8]> {
         self.inner
             .sharing_choice

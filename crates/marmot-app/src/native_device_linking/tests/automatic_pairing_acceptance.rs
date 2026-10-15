@@ -680,6 +680,17 @@ async fn wait_for_automatic_phase(
     })
     .await
     .unwrap_or_else(|_| {
+        #[cfg(feature = "test-policy-overrides")]
+        for (side, original) in [("left", a), ("right", b)] {
+            eprintln!(
+                "automatic-enrollment-control side={side} primary/expected/children/completed={:?} intake={:?} rejections={:?} context_rejections={:?} projection={:?}",
+                original.sibling_completion_aggregates_for_test(),
+                original.sibling_recipient_diagnostics_for_test(),
+                original.sibling_recipient_rejections_for_test(),
+                original.sibling_context_rejections_for_test(),
+                original.sibling_projection_aggregates_for_test(),
+            );
+        }
         panic!("automatic pairing did not reach required phase: expected={phase:?} observed={observed:?}")
     });
 }
