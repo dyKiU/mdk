@@ -48,7 +48,9 @@ def freeze_source(source, commit, sdk_package):
     frozen = {}
     for name in filter(None, names):
         path = source / name
-        if not path.is_file() or path.is_relative_to(sdk_package):
+        if not path.is_file():
+            raise ValueError('Tracked or untracked source file is missing')
+        if path.is_relative_to(sdk_package):
             continue
         data = os.readlink(path).encode() if path.is_symlink() else path.read_bytes()
         if data != subprocess.check_output(['git', 'show', commit + ':' + name], cwd=source):
@@ -144,9 +146,23 @@ def main():
         raise ValueError('Explicit native Mac destination required')
     target = 'whitenoise-iosTests' if args.platform == 'ios-simulator' else 'whitenoise-macTests'
     plan = selected_plan(plistlib.loads(original_plan.read_bytes()), target, args.selector, environment)
-    plan_path = Path(str(args.prefix) + '-unit.xctestrun')
+    plan_path = products / (args.prefix.name + '-unit.xctestrun')
     with plan_path.open('xb') as output:
         output.write(plistlib.dumps(plan))
+    configuration = 'Debug-Staging-iphonesimulator' if args.platform == 'ios-simulator' else 'Debug'
+    slice_name = 'ios-arm64-simulator' if args.platform == 'ios-simulator' else 'macos-arm64'
+    compiled = {
+        'archive': (products / configuration / 'libmarmot_uniffi.a',
+                    'MarmotKit.xcframework/' + slice_name + '/libmarmot_uniffi.a'),
+        'header': (products / configuration / 'include/marmot_uniffiFFI.h',
+                   'MarmotKit.xcframework/' + slice_name + '/Headers/marmot_uniffiFFI.h'),
+    }
+    compiled_hashes = {}
+    for label, (path, sdk_name) in compiled.items():
+        actual = digest(path)
+        if actual != sdk_inputs[sdk_name]:
+            raise ValueError('Compiled native ' + label + ' differs from the matching SDK')
+        compiled_hashes[label] = actual
     # Compilation and its input receipt belong to the calling CI build step.
     # Freeze its prebuilt products here to detect mutation during execution.
     frozen = {str(path.relative_to(products)): digest(path)
@@ -160,7 +176,7 @@ def main():
               'selector': args.selector, 'platform': args.platform, 'prebuilt_product_count': len(frozen),
               'original_plan_sha256': plan_hash, 'run_plan_sha256': run_plan_hash,
               'source_inputs_sha256': hashlib.sha256(json.dumps(source_inputs, sort_keys=True).encode()).hexdigest(),
-              'sdk_inputs': sdk_inputs,
+              'sdk_inputs': sdk_inputs, 'compiled_native_inputs': compiled_hashes,
               'passed': 0, 'scope': 'Existing selected app test against prebuilt products; matching compilation receipt remains required.'}
     started = time.monotonic()
     process = None

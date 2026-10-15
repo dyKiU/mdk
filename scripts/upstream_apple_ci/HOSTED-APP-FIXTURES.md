@@ -11,7 +11,8 @@ Use `prepare-hosted-agent.py --output DERIVED`, then the unchanged
 `DERIVED/build.sh SDK MAC_AGENT` and
 `build-hosted-simulator-agent.sh SDK DERIVED SIM_AGENT`. Set the existing automatic,
 one-scan, history, recipient-query, departure and revocation compile flags to 1.
-The simulator helper also requires `SOURCE_SHA`, `SDK_RUN_ID` and an existing
+The simulator helper also requires `SOURCE_SHA`, `SDK_RUN_ID`,
+`SDK_QUALIFICATION_JSON` pointing to the original packages/qualification.json, and an existing
 `NATIVE_MODULE_CACHE_PATH`; it records SDK/source inputs before compilation and
 requires unchanged inputs afterward. Reuse these agents across the fixture cases
 for that exact cohort. Never copy an account store between platforms.
@@ -60,7 +61,9 @@ python3 scripts/upstream_apple_ci/hosted-app-unit.py
 
 This runner selects one allowlisted existing test, preserves original plan
 metadata/environment, freezes source/SDK/products/plans and uses only
-`test-without-building`. It requires exactly one native pass and zero failures or
+`test-without-building`. Its slim plan stays inside Products so `__TESTROOT__`
+references keep their original meaning. Both compiled native archive and header
+must match the selected platform SDK slice exactly. It requires exactly one native pass and zero failures or
 skips. The calling CI build receipt still establishes compilation provenance;
 freezing prebuilt products alone does not prove which source compiled them.
 For iOS public-button tests, use `hosted-app-ui.py --stage run` with its successful

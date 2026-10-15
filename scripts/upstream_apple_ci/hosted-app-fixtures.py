@@ -101,6 +101,12 @@ class Journey:
     def mark_closed(self, role, peer):
         require(peer.closed_successfully and peer.process.poll() == 0, 'fixture-requires-positive-original-close')
         root = self.roots[role]
+        marker = root / '.native-acceptance'
+        require(not marker.is_symlink() and marker.stat().st_uid == os.getuid()
+                and marker.read_bytes() == b'native-sdk83-test-only-v1\n', 'owned-original-native-marker-required')
+        # Restrict this non-sensitive harness marker independently of the
+        # simulator launch daemon's umask; never alter native account files.
+        marker.chmod(0o600)
         private_json(root / '.hosted-native-fixture.json', {
             'version': 1, 'sdk_source': self.args.sdk_source, 'sdk_run_id': self.args.sdk_run_id,
             'agent_sha256': self.args.sim_sha if self.platforms[role] == 'ios-simulator' else self.args.mac_sha,
