@@ -785,7 +785,11 @@ fn install_publication_diagnostic_subscriber() {
             }
             struct Fields(Vec<String>);
             impl tracing::field::Visit for Fields {
-                fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                fn record_debug(
+                    &mut self,
+                    field: &tracing::field::Field,
+                    value: &dyn std::fmt::Debug,
+                ) {
                     if matches!(field.name(), "method" | "client_ordinal" | "stage") {
                         self.0.push(format!("{}={value:?}", field.name()));
                     }

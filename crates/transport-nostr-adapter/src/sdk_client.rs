@@ -3281,11 +3281,11 @@ impl NostrSdkRelayClient {
         // `JoinSet::abort_all` is non-blocking. Drain aborted tasks before
         // releasing the batch lease so no send future can race cleanup.
         if aborted_publishes {
-        #[cfg(feature = "test-policy-overrides")]
-        self.diagnose_publish_stage("aborted-join-drain-start");
+            #[cfg(feature = "test-policy-overrides")]
+            self.diagnose_publish_stage("aborted-join-drain-start");
             while publishes.join_next().await.is_some() {}
-        #[cfg(feature = "test-policy-overrides")]
-        self.diagnose_publish_stage("aborted-join-drain-returned");
+            #[cfg(feature = "test-policy-overrides")]
+            self.diagnose_publish_stage("aborted-join-drain-returned");
 
             // Quorum cancellation is not an acknowledgement from the losing
             // relays. Do not cache their possibly unfinished transports, but
@@ -3737,7 +3737,6 @@ impl NostrSdkRelayClient {
         self.publish_relay_cache.evict_idle(&mut state).await;
         #[cfg(feature = "test-policy-overrides")]
         self.diagnose_publish_stage("release-eviction-returned");
-
     }
 
     /// Invalidate sockets whose publish result cannot establish whether the
