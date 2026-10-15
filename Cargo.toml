@@ -6,6 +6,7 @@ exclude = [
 ]
 members = [
     "crates/fs-private",
+    "crates/media-store",
     "crates/traits",
     "crates/cgka-engine",
     "crates/cgka-session",
@@ -123,6 +124,7 @@ opentelemetry-proto = { version = "0.32", default-features = false, features = [
 prost = "0.14"
 rusqlite = { version = "0.40.1", default-features = false, features = ["bundled-sqlcipher-vendored-openssl", "cache", "trace"] }
 tempfile = "3"
+flate2 = "1"
 uuid = { version = "1", features = ["v4"] }
 
 # test
@@ -134,6 +136,7 @@ criterion = { version = "0.5", features = ["async_tokio"] }
 
 # workspace-internal
 fs-private = { path = "crates/fs-private" }
+media-store = { path = "crates/media-store" }
 cgka-traits = { path = "crates/traits" }
 cgka-engine = { path = "crates/cgka-engine" }
 cgka-session = { path = "crates/cgka-session" }

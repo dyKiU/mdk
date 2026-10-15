@@ -361,7 +361,17 @@ reservations. The app-side owner supplies validated facts and owns execution pol
 ```sh
 cargo test -p storage-sqlite
 just bench-storage-upgrade   # ignored file-backed format v1 -> v2 operational benchmark
+just bench-media-store       # media file format vs the SQLCipher retained-attachment path
 ```
+
+**Media store benchmark** (`media-store-benchmarks` feature, `examples/media_store_bench.rs`): for 64 KiB, 1 MiB and
+100 MiB bodies it times the file format in memory per cipher backend, writing and reading private files, and today's
+SQLCipher import (`complete_attachment_acquisition_from_reader`) and `read_retained_attachment`, and prints
+`MDK_BENCH media_store ...` lines. `MDK_MEDIA_BENCH_SIZES`, `MDK_MEDIA_BENCH_ITERATIONS` and `MDK_MEDIA_BENCH_DIR`
+override the defaults. The example cross-compiles for Android (`adb push`, run from `/data/local/tmp`), and
+`media_store_bench::run_media_store_benchmark` can be called from a throwaway iOS app. The format itself lives in
+[`media-store`](../media-store/README.md). Results for mdk#2314 step 0
+are recorded on the issue.
 
 **Deferred recovery preparation benchmark** (opt-in, paired, encrypted temporary files):
 

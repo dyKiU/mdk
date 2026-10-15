@@ -49,6 +49,7 @@ not "fix" it into the per-account database.
 | `src/attachment_acquisition/access.rs` | Read-only source-bound retained-asset lookup and opaque reference encoding; no demand registration. |
 | `src/attachment_acquisition/controls.rs` | Durable user intent and coalesced transfer metadata in the job store. |
 | `src/attachment_acquisition/partial.rs` | Attempt-fenced SQLCipher ciphertext checkpoints, combined retained/partial byte accounting, bounded writes and abandoned-partial cleanup. |
+| `src/media_store_bench.rs`, `examples/media_store_bench.rs` | `media-store-benchmarks` feature: the `media-store` file format against the SQLCipher retained path, runnable on devices (mdk#2314 step 0). |
 | `src/attachment_history.rs` | Bounded canonical attachment-slot discovery and per-group revision-fenced cursors; source/visibility triggers maintain the derived index. |
 | `src/timeline.rs` | Materialized message-timeline aggregation; `timeline/` holds capture, edits, opening (`conversation_open` / `conversation_window`), presentation, and reports. |
 | `src/avatar_cache.rs` | Account-scoped encoded avatar storage, source generations, local reads and eviction; `avatar_cache/acquisition.rs` owns durable demand/retry state and `avatar_cache/access.rs` owns opaque screen targets/local metadata. |
@@ -93,6 +94,8 @@ cargo test -p storage-sqlite
 cargo clippy -p storage-sqlite --all-targets -- -D warnings
 # Ignored file-backed v1 -> v2 operational benchmark:
 just bench-storage-upgrade
+# Media file format vs SQLCipher retained path (mdk#2314):
+just bench-media-store
 ```
 
 The separate experimental ledger records private revisions1–9; frozen body file
