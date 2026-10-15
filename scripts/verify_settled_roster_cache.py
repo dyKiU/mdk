@@ -51,7 +51,7 @@ def run(name, selected, expected):
     allowed_stages = {"third-device-completion", "fourth-device-completion"}
     proof["completion_stage_markers"] = [stage for stage in re.findall(r"automatic-enrollment-control stage=([a-z-]+)", output) if stage in allowed_stages]
     proof["closed_failure_categories"] = [category for needle, category in [
-        ("automatic enrollment did not reach", "original-phase-not-reached"),
+        ("automatic pairing did not reach required phase", "original-phase-not-reached"),
         ("reusing parsed MLS state never reuses completed authorization", "fresh-facts-assertion"),
         ("cached parsed state cannot conceal an authoritative foreign tree deletion", "foreign-tree-assertion"),
     ] if needle in output]
