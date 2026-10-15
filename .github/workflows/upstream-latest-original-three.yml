@@ -1,0 +1,45 @@
+name: Frozen latest original enrollment three-body baseline
+on:
+  push:
+    branches: [ci/upstream-latest-original-three-20261015]
+permissions:
+  contents: read
+concurrency:
+  group: latest-original-three-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  original-three:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: completed-pairing-cleanup
+          cache-on-failure: true
+      - name: Compile once and run three originals in isolated processes
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label latest-original-three
+          python3 scripts/qualify_latest_original_three.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: latest-original-three-${{ github.sha }}
+          path: |
+            latest-original-three-proof/
+            build-capacity-preflight.json
+          retention-days: 7
