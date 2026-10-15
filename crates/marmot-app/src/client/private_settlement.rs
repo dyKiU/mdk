@@ -44,10 +44,13 @@ impl AppClient {
         &self,
         group: &cgka_traits::GroupId,
     ) -> Result<Option<[u8; 32]>, crate::AppError> {
-        Ok(self.runtime.session().device_revocation_settlement_control()
+        Ok(self
+            .runtime
+            .session()
+            .device_revocation_settlement_control()
             .map_err(cgka_session::SessionError::from)?
             .filter(|control| control.is_live() && control.group() == group)
-            .map(|control| *control.binding()))
+            .map(|control| control.binding()))
     }
     /// A failed atomic apply must retain the exact live B action. Reopening
     /// destroys that original owner and cannot reconstruct it from stored rows.

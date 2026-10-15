@@ -1038,7 +1038,10 @@ mod actual {
     }
     #[tokio::test]
     async fn successive_device_revocation_rollback_keeps_fresh_challenge_intake() {
-        Box::pin(selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback)).await;
+        Box::pin(selected_chat_delivery(
+            RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback,
+        ))
+        .await;
     }
     #[tokio::test]
     async fn device_revocation_confirmation_fact_rollback_preserves_owned_successor_authority() {
@@ -1489,14 +1492,18 @@ mod actual {
             drop(original_consents);
             use futures::FutureExt;
             let verdict = std::panic::AssertUnwindSafe(async {
-                let _predecessor_owners = if scenario == RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback {
+                let _predecessor_owners = if scenario
+                    == RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback
+                {
                     Some(Box::pin(establish_actual_revoked_predecessor(&fixture, &managers)).await)
-                } else { None };
+                } else {
+                    None
+                };
                 assert_device_roster_removal(
-                &fixture,
-                &managers,
-                &directory_reader,
-                matches!(
+                    &fixture,
+                    &managers,
+                    &directory_reader,
+                    matches!(
                     scenario,
                     RecipientAdmissionScenario::DeviceRosterSuccessor
                         | RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
@@ -1506,8 +1513,8 @@ mod actual {
                 | RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback
                         | RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry
                 ),
-                scenario == RecipientAdmissionScenario::DeviceRosterSuccessorReopen,
-                matches!(
+                    scenario == RecipientAdmissionScenario::DeviceRosterSuccessorReopen,
+                    matches!(
                     scenario,
                     RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
                         | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
@@ -1515,23 +1522,24 @@ mod actual {
                         | RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute
                 | RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback
                 ),
-                match scenario {
-                    RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry => {
-                        Some(ChallengeBeforeRetry::Receipt)
-                    }
-                    RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
-                    | RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback => {
-                        Some(ChallengeBeforeRetry::InitialPeel)
-                    }
-                    RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute => {
-                        Some(ChallengeBeforeRetry::RefreshedRollbackRoute)
-                    }
-                    RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry => {
-                        Some(ChallengeBeforeRetry::ConfirmationWriteAfterSuccessor)
-                    }
-                    _ => None,
-                },
-            ).await;
+                    match scenario {
+                        RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry => {
+                            Some(ChallengeBeforeRetry::Receipt)
+                        }
+                        RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
+                        | RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback => {
+                            Some(ChallengeBeforeRetry::InitialPeel)
+                        }
+                        RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute => {
+                            Some(ChallengeBeforeRetry::RefreshedRollbackRoute)
+                        }
+                        RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry => {
+                            Some(ChallengeBeforeRetry::ConfirmationWriteAfterSuccessor)
+                        }
+                        _ => None,
+                    },
+                )
+                .await;
             })
             .catch_unwind()
             .await;
@@ -3060,8 +3068,13 @@ mod actual {
         fixture._c.cancel().await.unwrap();
         fixture._approval.cancel().await.unwrap();
         let e_dir = tempfile::tempdir().unwrap();
-        let keys = fixture.apps[0].account_home().load_signing_keys("test").unwrap();
-        AccountHome::open(e_dir.path()).import_account("test", &keys.secret_key().to_secret_hex()).unwrap();
+        let keys = fixture.apps[0]
+            .account_home()
+            .load_signing_keys("test")
+            .unwrap();
+        AccountHome::open(e_dir.path())
+            .import_account("test", &keys.secret_key().to_secret_hex())
+            .unwrap();
         let e_app = MarmotApp::with_relay(e_dir.path(), &fixture.url);
         let e_runtime = MarmotAppRuntime::new(e_app.clone());
         e_runtime.reconcile_accounts().await.unwrap();
@@ -3139,7 +3152,10 @@ mod actual {
         }).catch_unwind().await;
         e_runtime.shutdown_and_close().await.unwrap();
         eprintln!("successive_revocation_extra_positive_closes=1 original_verdict_preserved=true");
-        match verdict { Ok(owners) => owners, Err(panic) => std::panic::resume_unwind(panic) }
+        match verdict {
+            Ok(owners) => owners,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
     }
 
     async fn assert_device_roster_removal(
