@@ -408,6 +408,7 @@ jobs:
           regression_threads=6
           if [[ "$REGRESSION_SCOPE" == pairing-regression || "$REGRESSION_SCOPE" == sync-failure-regressions ]]; then
             output_args=(--success-output immediate)
+            export WN_UPSTREAM_PUBLICATION_DIAGNOSTICS=1
           fi
           if [[ "$REGRESSION_SCOPE" == sync-failure-regressions ]]; then
             regression_threads=1

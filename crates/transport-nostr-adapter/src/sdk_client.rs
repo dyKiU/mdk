@@ -745,6 +745,8 @@ impl SubscriptionFloors {
 /// `nostr-sdk` backed implementation of [`NostrRelayClient`].
 #[derive(Clone)]
 pub struct NostrSdkRelayClient {
+    #[cfg(feature = "test-policy-overrides")]
+    publication_diagnostic_ordinal: u64,
     client: Client,
     signer: Option<SdkSigner>,
     account_id: Option<MemberId>,
@@ -990,8 +992,24 @@ struct PreparedPublish {
 }
 
 impl NostrSdkRelayClient {
+    #[cfg(feature = "test-policy-overrides")]
+    fn diagnose_publish_stage(&self, stage: &'static str) {
+        tracing::warn!(
+            target: "transport_nostr_adapter::sdk_client::test_publication",
+            method = "diagnose_publish_stage",
+            client_ordinal = self.publication_diagnostic_ordinal,
+            stage,
+            "test-only publication boundary"
+        );
+    }
+
     pub fn new(client: Client) -> Self {
         Self {
+            #[cfg(feature = "test-policy-overrides")]
+            publication_diagnostic_ordinal: {
+                static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            },
             publish_relay_cache: Arc::new(PublishRelayCache {
                 client: client.clone(),
                 lifecycle: Mutex::new(PublishRelayState::default()),
@@ -3015,6 +3033,8 @@ impl NostrSdkRelayClient {
         // a read lock that blocks registering other concurrent publish targets.
         // `Err(true)` is a handshake that outlived the connect budget, kept
         // apart from immediate dial errors so audit can tell them apart.
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("connect-start");
         let connected = match self.client.relay(endpoint.clone()).await {
             Ok(Some(relay)) => relay
                 .try_connect()
@@ -3023,6 +3043,8 @@ impl NostrSdkRelayClient {
                 .map_err(|error| error.kind() == SdkErrorKind::Timeout),
             Ok(None) | Err(_) => Err(false),
         };
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("connect-returned");
         match connected {
             Ok(()) => Ok(endpoint),
             // Failure reasons never embed the nostr-sdk error Display: it
@@ -3096,7 +3118,12 @@ impl NostrSdkRelayClient {
                     .await
                     .map_err(|_| local_failure("send event failed"))?
                     .ok_or_else(|| local_failure("send event failed"))?;
-                match relay.send_event(event).await {
+                #[cfg(feature = "test-policy-overrides")]
+                self.diagnose_publish_stage("sdk-send-start");
+                let result = relay.send_event(event).await;
+                #[cfg(feature = "test-policy-overrides")]
+                self.diagnose_publish_stage("sdk-send-returned");
+                match result {
                     Ok(output) => Ok(typed_relay_ack_kind(Some(output.status()))),
                     Err(error) if error.kind() == SdkErrorKind::Rejected => {
                         let message = error.to_string();
@@ -3254,7 +3281,12 @@ impl NostrSdkRelayClient {
         // `JoinSet::abort_all` is non-blocking. Drain aborted tasks before
         // releasing the batch lease so no send future can race cleanup.
         if aborted_publishes {
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("aborted-join-drain-start");
             while publishes.join_next().await.is_some() {}
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("aborted-join-drain-returned");
+
             // Quorum cancellation is not an acknowledgement from the losing
             // relays. Do not cache their possibly unfinished transports, but
             // let overlapping leases finish before removing the socket.
@@ -3272,7 +3304,12 @@ impl NostrSdkRelayClient {
                 }
             }
         }
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("ambiguous-reset-start");
         self.reset_ambiguous_publish_relays(&failed).await;
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("ambiguous-reset-returned");
+
         Self::finish_publish_outcome(
             message_id,
             accepted,
@@ -3306,7 +3343,12 @@ impl NostrSdkRelayClient {
         let outcome = self
             .publish_prepared_event(request, &unavailable, true, deadline)
             .await;
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("single-release-start");
         lease.release().await;
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("single-release-returned");
+
         outcome
     }
 
@@ -3585,8 +3627,14 @@ impl NostrSdkRelayClient {
         lease_endpoints: &mut Vec<RelayUrl>,
     ) -> Result<(), TransportEndpointFailure> {
         let transport_endpoint = TransportEndpoint(endpoint.to_string());
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("retain-lock-start");
         let mut state = self.publish_relay_cache.lifecycle.lock().await;
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("retain-lock-acquired");
         self.publish_relay_cache.evict_idle(&mut state).await;
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("retain-eviction-returned");
         if let Some(entry) = state.relays.get_mut(endpoint) {
             entry.leases += 1;
             entry.idle_since = None;
@@ -3655,7 +3703,12 @@ impl NostrSdkRelayClient {
     }
 
     async fn release_publish_relay(&self, endpoints: &mut Vec<RelayUrl>, cancelled: bool) {
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("release-lock-start");
         let mut state = self.publish_relay_cache.lifecycle.lock().await;
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("release-lock-acquired");
+
         #[cfg(test)]
         let mut attempts = self.publish_release_attempts.lock().await;
         // Once popped, the cache owns cleanup. There must be no await between
@@ -3679,7 +3732,12 @@ impl NostrSdkRelayClient {
         }
         entry.idle_since = Some(tokio::time::Instant::now());
         self.publish_relay_cache.start_expiration(&mut state);
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("release-eviction-start");
         self.publish_relay_cache.evict_idle(&mut state).await;
+        #[cfg(feature = "test-policy-overrides")]
+        self.diagnose_publish_stage("release-eviction-returned");
+
     }
 
     /// Invalidate sockets whose publish result cannot establish whether the

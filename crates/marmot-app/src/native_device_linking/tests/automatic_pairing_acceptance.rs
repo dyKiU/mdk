@@ -4,6 +4,8 @@ use marmot_account::AccountHome;
 
 #[tokio::test]
 async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts() {
+    #[cfg(feature = "test-policy-overrides")]
+    install_publication_diagnostic_subscriber();
     use cgka_traits::StorageProvider;
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();
@@ -757,3 +759,43 @@ async fn automatic_transport_cannot_keep_dropped_original_authority_alive() {
 
 #[path = "direct_contact_reuse_acceptance.rs"]
 mod direct_contact_reuse_acceptance;
+
+// The opt-in runner exports only this closed SDK diagnostic target. Never print
+// arbitrary tracing fields: other targets can contain private test data.
+#[cfg(feature = "test-policy-overrides")]
+fn install_publication_diagnostic_subscriber() {
+    if std::env::var("WN_UPSTREAM_PUBLICATION_DIAGNOSTICS").as_deref() != Ok("1") {
+        return;
+    }
+    struct Subscriber;
+    impl tracing::Subscriber for Subscriber {
+        fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
+            metadata.target() == "transport_nostr_adapter::sdk_client::test_publication"
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            if !self.enabled(event.metadata()) {
+                return;
+            }
+            struct Fields(Vec<String>);
+            impl tracing::field::Visit for Fields {
+                fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                    if matches!(field.name(), "method" | "client_ordinal" | "stage") {
+                        self.0.push(format!("{}={value:?}", field.name()));
+                    }
+                }
+            }
+            let mut fields = Fields(Vec::new());
+            event.record(&mut fields);
+            eprintln!("sdk-publication-control {}", fields.0.join(" "));
+        }
+    }
+    tracing::subscriber::set_global_default(Subscriber)
+        .expect("the isolated pairing diagnostic must own its tracing subscriber");
+}
