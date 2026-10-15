@@ -21,7 +21,9 @@ impl SettlementDecodeMemo {
         self.entry = None;
     }
     pub(crate) fn decode(&mut self, bytes: &[u8]) -> StorageResult<PrivateSettlementState> {
-        const MAX_MEMO_BYTES: usize = 262144;
+        // Admission budget only; SQL's independent 262144-byte row limit and
+        // the original parser/validator still accept legal larger inputs.
+        const MAX_MEMO_BYTES: usize = 65536;
         if bytes.len() <= MAX_MEMO_BYTES
             && let Some((raw, state)) = &self.entry
             && raw.as_slice() == bytes

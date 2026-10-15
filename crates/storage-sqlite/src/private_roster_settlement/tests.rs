@@ -677,26 +677,19 @@ fn private_settlement_decode_memo_clears_absent_invalid_and_oversized_rows() {
             .unwrap();
         assert!(storage.read_round().unwrap().unwrap() == original);
     }
-    let mut oversized = raw.clone();
-    oversized.resize(262145, b' ');
-    storage
-        .lock()
-        .unwrap()
-        .execute(
-            "UPDATE private_roster_settlement SET state=?1",
-            [&oversized],
-        )
-        .unwrap();
-    let before = storage.connection.private_settlement_decode_counts().0;
-    assert!(
-        storage.read_round().unwrap().unwrap() == original,
-        "valid oversized legacy JSON is bypassed, never rejected"
-    );
-    assert!(storage.read_round().unwrap().unwrap() == original);
-    assert_eq!(
-        storage.connection.private_settlement_decode_counts(),
-        (before + 2, false)
-    );
+    for size in [65537, 262144] {
+        let mut above_memo_budget = raw.clone();
+        above_memo_budget.resize(size, b' ');
+        storage.lock().unwrap().execute(
+            "UPDATE private_roster_settlement SET state=?1", [&above_memo_budget]
+        ).unwrap();
+        let before = storage.connection.private_settlement_decode_counts().0;
+        assert!(storage.read_round().unwrap().unwrap() == original,
+            "legal SQL JSON above the memo budget remains readable");
+        assert!(storage.read_round().unwrap().unwrap() == original);
+        assert_eq!(storage.connection.private_settlement_decode_counts(), (before + 2, false),
+            "above-budget JSON performs both actual serde decodes without retention");
+    }
     storage
         .lock()
         .unwrap()

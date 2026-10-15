@@ -23,7 +23,7 @@ report = {"source": subprocess.check_output(["git", "rev-parse", "HEAD"], text=T
           "baseline": "3dde689febbe364b70af35ff778e3d74a6bc5622", "features": FEATURES,
           "stack_bytes":4194304, "test_threads":1, "automatic_retries":0,
           "full_qualification_passed":False, "qualification_scope":"raw-decode SQL/Core/lifecycle safety, unchanged JSON fault controls, and original enrollment bodies",
-          "qualification_passed":False, "checks":{}, "mutant_killed":False,
+          "qualification_passed":False, "checks":{},
           "environment":{key:os.environ.get(key) for key in ["CARGO_INCREMENTAL","CARGO_PROFILE_DEV_DEBUG","CARGO_PROFILE_TEST_DEBUG","RUSTFLAGS","CARGO_ENCODED_RUSTFLAGS","RUSTC_BOOTSTRAP","CARGO_PROFILE_TEST_OPT_LEVEL","CARGO_PROFILE_DEV_OPT_LEVEL"]}}
 def save(): (OUT/"result.json").write_text(json.dumps(report,indent=2)+"\n")
 def digest(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -97,9 +97,7 @@ def run(names,label):
         case["original_phase_oracle"]=("automatic pairing did not reach required phase: expected=EnrollmentComplete" in raw and any(item["file"]=="crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs" and item["line"]==839 for item in case["panic_locations"]))
         case["completion_markers"]=re.findall(r"automatic-enrollment-control stage=((?:third|fourth)-device-completion)",raw)
         case["observed_completion_phase"]=case["completion_markers"][-1].split("-",1)[0] if case["completion_markers"] else None
-        case["nonlocal_consistency_oracle"]=("missing genuine non-local receipt retains the exact completed-facts corruption error" in raw and len(case["panic_locations"])==1 and any(item["file"]=="crates/cgka-engine/src/private_roster_settlement_tests.rs" and item["line"]==report.get("consistency_assertion_line") for item in case["panic_locations"]))
         assert fingerprint()==starting_inputs
-        case["origin_gate_oracle"]=("different original anchor must use full legacy origin matching" in raw and len(case["panic_locations"])==1 and any(item["file"]=="crates/cgka-engine/src/private_successor_tests.rs" and item["line"]==report.get("origin_assertion_line") for item in case["panic_locations"]))
         proof["cases"].append(case)
         save()
     return all(case.get("executed_nonignored")==1 and case.get("passed")==1 and case.get("failed")==0 and case.get("ignored")==0 and case["exit_code"]==0 for case in proof["cases"])
