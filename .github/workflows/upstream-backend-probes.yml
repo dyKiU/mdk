@@ -1,0 +1,65 @@
+name: Upstream isolated worker startup diagnostic
+
+on:
+  push:
+    branches: ["ci/upstream-acceptance-*"]
+    paths: [".github/workflows/upstream-backend-probes.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  archived-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: 3090a323ae823de6b213eb60561aec7031f276bc
+          persist-credentials: false
+      - name: Verify existing archive source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir probe
+          gh api repos/dyKiU/mdk/actions/runs/38681649534 > probe/producer.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('probe/producer.json').read_text())
+          assert data['head_sha']=='3090a323ae823de6b213eb60561aec7031f276bc'
+          assert data['path']=='.github/workflows/ci.yml'
+          PY
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: 38681649534
+          name: rust-test
+      - name: Run unchanged strict regression and healthy startup control in isolation
+        run: |
+          set -euo pipefail
+          df -h .
+          sha256sum tests.tar.zst > probe/archive.sha256
+          filter='package(marmot-app) & (test(=runtime::tests::stuck_worker_reap_does_not_block_a_healthy_account) | test(=runtime::tests::a_ready_worker_completes_one_span_per_startup_stage))'
+          cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" \
+            --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --test-threads 1 \
+            --no-fail-fast --success-output immediate -E "$filter" 2>&1 | tee probe/execution.log
+          python3 - <<'PY'
+          import json,re
+          from pathlib import Path
+          log=re.sub(r'\x1b\[[0-9;]*m','',Path('probe/execution.log').read_text())
+          assert re.search(r'Summary.*\b2 tests run: 2 passed',log), 'Expected both real runtime tests to pass'
+          Path('probe/result.json').write_text(json.dumps({'source':'3090a323ae823de6b213eb60561aec7031f276bc','passed':2,'failed':0,'automatic_retries':0,'scheduler_slots':1,'scope':'Same compiled archive, original assertions and deadlines; isolated control does not qualify the failed full shard.'},indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: unchanged-worker-startup-probe
+          path: probe/
+          if-no-files-found: error
+          retention-days: 7
