@@ -1,7 +1,8 @@
 //! Protected all-leaf settlement boundary under construction. No permissions.
 use crate::{Engine, device_group_snapshot::CandidateDeviceGroupSnapshot};
 use cgka_traits::private_roster_settlement::{
-    PrivateRosterSettlementStorage, PrivateSettlementAnchor, PrivateSettlementFact, PrivateSettlementPhase, PrivateSettlementRead, PrivateSettlementState,
+    PrivateRosterSettlementStorage, PrivateSettlementAnchor, PrivateSettlementFact,
+    PrivateSettlementPhase, PrivateSettlementRead, PrivateSettlementState,
 };
 use serde::{Deserialize, Serialize};
 
@@ -734,7 +735,16 @@ pub(crate) fn completed_round_for_predecessor_tree<S: StorageProvider>(
     let Some(state) = store.read_round()? else {
         return Ok(None);
     };
-    validate_completed_round_read(storage, group, actual, store, PrivateSettlementRead { state, loaded_facts: None })
+    validate_completed_round_read(
+        storage,
+        group,
+        actual,
+        store,
+        PrivateSettlementRead {
+            state,
+            loaded_facts: None,
+        },
+    )
 }
 
 /// The sole caller is validated_settled_device_roster, inside its existing
@@ -744,9 +754,15 @@ fn completed_round_for_tree_in_snapshot<S: StorageProvider>(
     group: &GroupId,
     actual: &openmls::group::MlsGroup,
 ) -> Result<Option<PrivateSettlementState>, EngineError> {
-    if actual.pending_commit().is_some() { return Ok(None); }
-    let Some(store) = storage.private_roster_settlement_storage() else { return Ok(None); };
-    let Some(read) = store.read_round_with_loaded_facts()? else { return Ok(None); };
+    if actual.pending_commit().is_some() {
+        return Ok(None);
+    }
+    let Some(store) = storage.private_roster_settlement_storage() else {
+        return Ok(None);
+    };
+    let Some(read) = store.read_round_with_loaded_facts()? else {
+        return Ok(None);
+    };
     validate_completed_round_read(storage, group, actual, store, read)
 }
 

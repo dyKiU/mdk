@@ -161,9 +161,7 @@ fn facts(
 fn read(conn: &Connection) -> StorageResult<Option<PrivateSettlementState>> {
     read_with_facts(conn).map(|value| value.map(|read| read.state))
 }
-fn read_with_facts(
-    conn: &Connection,
-) -> StorageResult<Option<PrivateSettlementRead>> {
+fn read_with_facts(conn: &Connection) -> StorageResult<Option<PrivateSettlementRead>> {
     let row = conn
         .query_row(SELECT, [], |r| {
             Ok((
@@ -202,7 +200,10 @@ fn read_with_facts(
     {
         return Err(invalid());
     }
-    Ok(Some(PrivateSettlementRead { state, loaded_facts: Some(slots) }))
+    Ok(Some(PrivateSettlementRead {
+        state,
+        loaded_facts: Some(slots),
+    }))
 }
 fn write(conn: &Connection, state: &PrivateSettlementState) -> StorageResult<()> {
     validate_state(state)?;

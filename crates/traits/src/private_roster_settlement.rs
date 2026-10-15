@@ -65,10 +65,12 @@ pub trait PrivateRosterSettlementStorage: Send + Sync {
     /// Optional combined read. The conservative default does not read facts:
     /// callers retain their existing early-return and error precedence.
     fn read_round_with_loaded_facts(&self) -> StorageResult<Option<PrivateSettlementRead>> {
-        self.read_round().map(|state| state.map(|state| PrivateSettlementRead {
-            state,
-            loaded_facts: None,
-        }))
+        self.read_round().map(|state| {
+            state.map(|state| PrivateSettlementRead {
+                state,
+                loaded_facts: None,
+            })
+        })
     }
 
     fn select_round(
