@@ -59,7 +59,7 @@ assert 'self.storage.with_read_snapshot' in getter and 'MlsGroup::load' in gette
 assert 'completed_round_for_tree_with_verifier' in getter
 assert 'completed_round_for_tree_with_verifier(storage,group,actual,None)' in compact(b)
 old_getter=a[a.index('    pub fn validated_settled_device_roster('):a.index('    #[cfg(test)]',a.index('    pub fn validated_settled_device_roster('))]
-normalized=re.sub(r'            let verify = .*?\n            };\n', '', getter, flags=re.S)
+normalized=re.sub(r'\s*let verify\s*=\s*.*?\};\n', '', getter, flags=re.S)
 normalized=compact(normalized).replace('completed_round_for_tree_with_verifier(storage,group,&actual,Some(&verify))','completed_round_for_tree(storage,group,&actual)')
 equal_body(old_getter,normalized)
 engine=current('engine.rs')
