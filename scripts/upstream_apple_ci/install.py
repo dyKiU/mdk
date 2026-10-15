@@ -111,11 +111,13 @@ def main():
         manifest['workflow_run_id'] = args.run_id
         (package / 'LOCAL_BUILD.json').write_text(json.dumps(manifest, indent=2) + '\n')
         features = ','.join(FEATURES)
-        (package / 'MARMOT_VERSION').write_text(f'mdk-sha: {args.source}\nmdk-branch: detached\nmdk-tag: ci-{args.source}\nfeatures: {features}\n')
+        # A verified ephemeral overlay follows the app's local-build convention;
+        # the immutable producer identity remains in LOCAL_BUILD.json.
+        (package / 'MARMOT_VERSION').write_text(f'mdk-sha: {args.source}\nmdk-branch: detached\nmdk-tag: local-{args.source}\nfeatures: {features}\n')
         (package / 'Sources/MarmotKit/MarmotKitVersion.swift').write_text(
             'import Foundation\npublic enum MarmotKitVersion {\n'
             f'    public static let mdkSHA = "{args.source}"\n'
-            f'    public static let mdkTag = "ci-{args.source}"\n'
+            f'    public static let mdkTag = "local-{args.source}"\n'
             '    public static let builtAt = "CI artifact"\n'
             f'    public static let uniffiVersion = "{manifest["uniffi_version"]}"\n'
             f'    public static let features = "{features}"\n' + '}\n')
