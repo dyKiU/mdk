@@ -36,6 +36,8 @@ class Debugger:
             for line in self.process.stdout:
                 self.lines.put(line.strip())
         threading.Thread(target=read, daemon=True).start()
+        global LAST_STAGE
+        LAST_STAGE = "attach-wait-initial-stop"
         self.wait_stop()
         self.command("-gdb-set pagination off")
         self.command("-gdb-set mi-async on")
@@ -47,6 +49,9 @@ class Debugger:
             self.stopped = True
             if 'reason="exited' in line:
                 self.exited = True
+        if "ptrace:" in line.lower() or "operation not permitted" in line.lower():
+            global LAST_ERROR
+            LAST_ERROR = "ptrace-denied"
         if line.startswith("*running"):
             self.stopped = False
         return line
@@ -57,6 +62,8 @@ class Debugger:
             self.receive(max(0.01, deadline - time.monotonic()))
 
     def command(self, command):
+        global LAST_STAGE
+        LAST_STAGE = "mi-" + command.split()[0].lstrip("-")
         self.token += 1
         prefix = str(self.token)
         self.process.stdin.write(prefix + command + "\n")
@@ -64,7 +71,16 @@ class Debugger:
         while True:
             line = self.receive()
             if line.startswith(prefix + "^"):
-                assert not line.startswith(prefix + "^error"), "owned debugger command failed"
+                if line.startswith(prefix + "^error"):
+                    global LAST_ERROR
+                    lower = line.lower()
+                    LAST_ERROR = next((category for fragment, category in [
+                        ("ptrace", "ptrace-denied"), ("operation not permitted", "operation-not-permitted"),
+                        ("permission denied", "permission-denied"), ("undefined", "undefined-command"),
+                        ("running", "inferior-running"), ("not supported", "unsupported-command"),
+                        ("not being run", "inferior-not-running"), ("no registers", "no-registers"),
+                    ] if fragment in lower), "other-mi-error")
+                    raise AssertionError("owned debugger command failed")
                 return line
 
     def close(self):
@@ -195,6 +211,8 @@ def main():
         "test": TEST, "selected_nonignored": 1, "rust_min_stack_bytes": 4194304,
         "automatic_retries": 0, "test_threads": 1, "diagnostic_watchdog_seconds": 240, "sampler": "GDB bounded static leaf sampling at 5Hz, highest CPU-delta owned thread",
         "debugger_version": version, "preflight_passed": preflight,
+        "ptrace_scope": Path("/proc/sys/kernel/yama/ptrace_scope").read_text().strip() if Path("/proc/sys/kernel/yama/ptrace_scope").exists() else "unavailable",
+        "proc_task_stat_readable": os.access("/proc/self/task", os.R_OK),
         "qualification_passed": False,
         "scope": "Sampler-influenced diagnostic only; original unchanged normal failure retained. Static symbols only, no callgraph memory capture.",
     }
@@ -241,6 +259,7 @@ def main():
     except (subprocess.TimeoutExpired, AssertionError, queue.Empty):
         report["blocker"] = "owned-attach-or-sampling-control-unavailable"
         report["closed_harness_stage"] = globals().get("LAST_STAGE", "preflight")
+        report["closed_harness_error"] = globals().get("LAST_ERROR", "no-mi-error-observed")
         report["diagnostic_complete"] = False
         args.report.write_text(json.dumps(report, indent=2) + "\n")
         raise SystemExit("Owned attachment/sampling control failed; no raw output exported")
