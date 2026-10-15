@@ -181,6 +181,7 @@ jobs:
       - name: Check prepared harness syntax without building products
         run: |
           python3 -m py_compile \
+            scripts/upstream_apple_ci/acceptance-identity.py \
             scripts/upstream_apple_ci/hosted-app-fixtures.py \
             scripts/upstream_apple_ci/hosted-app-unit.py \
             scripts/upstream_apple_ci/hosted-app-ui.py \
@@ -192,7 +193,7 @@ jobs:
           python3 - <<'PY'
           import hashlib,json,os,subprocess
           from pathlib import Path
-          names=['hosted-app-fixtures.py','hosted-app-unit.py','hosted-app-ui.py',
+          names=['acceptance-identity.py','hosted-app-fixtures.py','hosted-app-unit.py','hosted-app-ui.py',
                  'hosted-root-mutations.py','timestamp-mutations.py','build-hosted-simulator-agent.sh',
                  'run-hosted-app-acceptance.py']
           paths=[Path('scripts/upstream_apple_ci')/name for name in names]

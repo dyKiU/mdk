@@ -1,11 +1,17 @@
 # Supplemental acceptance using an existing Apple SDK
 
-`Upstream supplemental native acceptance` runs only for pushes to dedicated
-`ci/upstream-acceptance-*` branches or an explicit manual dispatch. Opening its
-review PR does not trigger a second supplemental run. The committed
-`acceptance-cohort.json` supplies exact SDK producer, SDK source and app commit
-identities for push mode. Manual inputs can specify a different immutable
-cohort explicitly.
+`Upstream supplemental native acceptance` requires an explicit manual dispatch on
+`ci/upstream-acceptance-*`. Supply the exact existing SDK producer run, SDK source,
+and both app commits; there are no historical cohort defaults. Select `all` for
+final qualification or a named lane for focused iteration. Branch pushes and
+review PRs do not launch supplemental acceptance.
+
+The integration PR producer uses `cohort.json` for the two immutable app commits
+and builds all four SDK inputs plus assembly. Its app/native jobs require an
+explicit manual non-package-only dispatch; final qualification normally uses the
+separate supplemental and native-app workflows against that one existing
+producer. Record the producer run externally after it starts. Do not commit its
+run ID back into the SDK source: that would create a different source commit.
 
 The Linux preparation job waits for the named artifact from the existing SDK
 producer. It does not dispatch, rebuild, cancel or retry that producer. The
@@ -50,10 +56,11 @@ standard app-test evidence. The simulator and native SDK journeys establish no
 installed TestFlight UI, physical-device or APNS claim. See the hosted history
 result's explicit remaining limitations before treating a scenario as qualified.
 
-`acceptance-lanes.json` freezes the explicit lanes selected for this run. A scoped
-repair run is not a full qualification by itself: reuse earlier passing lanes only
-when their product, SDK, test body and relevant configuration are unchanged, and
-retain their exact original source/run identities. The separate pagination push does not rerun the ongoing five-lane cohort.
+The manual dispatch freezes the selected lanes for each run. A scoped repair run
+is not a full qualification by itself: reuse earlier passing lanes only when
+their product, SDK, test body and relevant configuration are unchanged, and
+retain their exact original source/run identities. A focused pagination dispatch
+does not rerun other ongoing lanes.
 One-scan diagnostics observe original commands without changing deadlines,
 comparison, approval or sharing requirements.
 
@@ -81,8 +88,8 @@ This is a representative bounded pagination gate. The SDK rejects the entire
 source snapshot above 200 records with `NotReady`; this lane does not remove that
 limit or establish full-history replacement equivalence, transferred retention,
 expiry or message-deletion behavior. Existing two-record archive scenarios remain
-unchanged. Push scope is frozen in `acceptance-lanes.json`; manual dispatch can
-select one lane or `all` without changing that committed push scope.
+unchanged. Manual dispatch selects one lane or `all` without changing SDK or
+app source commits.
 
 
 Pagination diagnostics retain only a fixed phase, per-role last command names,

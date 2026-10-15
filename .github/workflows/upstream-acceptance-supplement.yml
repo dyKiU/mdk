@@ -1,11 +1,6 @@
 name: Upstream supplemental native acceptance
 
 on:
-  push:
-    branches: ["ci/upstream-acceptance-*"]
-    paths:
-      - ".github/workflows/upstream-acceptance-supplement.yml"
-      - "scripts/upstream_apple_ci/**"
   workflow_dispatch:
     inputs:
       lane:
@@ -24,22 +19,18 @@ on:
           - one-scan
       sdk_run_id:
         description: Existing Apple SDK producer run ID
-        default: "38689678576"
         required: true
         type: string
       sdk_sha:
         description: Exact existing Apple SDK source commit
-        default: "3f18b2d1acac4f87680b35f39bf8dce67dcf28ec"
         required: true
         type: string
       mac_sha:
         description: Exact Mac candidate commit
-        default: "e2cd0c19848bc80cc5cf13651f544cbf15b7588e"
         required: true
         type: string
       ios_sha:
         description: Exact final iOS candidate commit
-        default: "f5f5320c3393f8762e811acd39204b681054c6e5"
         required: true
         type: string
 
