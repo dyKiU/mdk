@@ -1522,7 +1522,7 @@ mod actual {
                         | RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute
                 | RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback
                 ),
-                    match scenario {
+                    (match scenario {
                         RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry => {
                             Some(ChallengeBeforeRetry::Receipt)
                         }
@@ -1540,7 +1540,7 @@ mod actual {
                     },
                     _predecessor_owners
                         .as_ref()
-                        .map(|owners| &owners.previous_b_fact),
+                        .map(|owners| &owners.previous_b_fact)),
                 )
                 .await;
                 _predecessor_owners.map(|owners| {
@@ -3213,11 +3213,12 @@ mod actual {
         require_fresh_successor: bool,
         retained_remove_reopen: bool,
         retained_remove_storage_retry: bool,
-        challenge_before_retry: Option<ChallengeBeforeRetry>,
-        preceding_revoked_anchor: Option<
-            &cgka_traits::revoked_device_group_anchor::RevokedDeviceGroupFact,
-        >,
+        observation: (
+            Option<ChallengeBeforeRetry>,
+            Option<&cgka_traits::revoked_device_group_anchor::RevokedDeviceGroupFact>,
+        ),
     ) {
+        let (challenge_before_retry, preceding_revoked_anchor) = observation;
         use cgka_traits::{GroupStorage, StorageProvider};
         let d = fixture.d_app.account_home().account("test").unwrap();
         fixture.d_runtime.publish_key_package("test").await.unwrap();

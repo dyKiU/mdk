@@ -44,6 +44,10 @@ pub(crate) struct RevocationRetryCustodyStateForTest {
 pub(crate) type RevocationRetryCustodyForTest =
     Arc<std::sync::Mutex<RevocationRetryCustodyStateForTest>>;
 
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) type RevocationBindingObservationForTest =
+    Result<(Option<[u8; 32]>, RevocationRetryCustodyForTest), crate::AppError>;
+
 pub(crate) struct AccountLinkingOwner {
     verifier: LinkingOwner,
     pub(super) received_endorsement:

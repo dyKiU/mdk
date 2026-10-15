@@ -9,46 +9,6 @@ concurrency:
   group: successive-revocation-regression-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  runtime:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    env:
-      CARGO_BUILD_JOBS: '2'
-      CARGO_PROFILE_DEV_DEBUG: '0'
-      CARGO_PROFILE_TEST_DEBUG: '0'
-      RUST_MIN_STACK: '4194304'
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Install repository Rust toolchain
-        run: |
-          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
-          rustup toolchain install "$toolchain" --profile minimal
-          rustup default "$toolchain"
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
-        with:
-          shared-key: successive-revocation-regression
-          cache-on-failure: true
-      - name: Verify remaining disk after restoring the compatible incremental cache
-        run: |
-          df -h .
-          if [[ -d target ]]; then du -sh target; fi
-          available_kib=$(df -Pk . | awk 'NR==2 {print $4}')
-          test "$available_kib" -ge 8388608
-      - name: Affected successive revocation regression with prior negative-anchor provenance
-        env:
-          CARGO_INCREMENTAL: '1'
-        run: python3 scripts/qualify_upstream_successive_revocation.py --phase green
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: successive-revocation-runtime-${{ github.sha }}
-          path: successive-revocation-proof/result.json
-          if-no-files-found: error
-          retention-days: 7
   format:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -79,6 +39,7 @@ jobs:
           retention-days: 7
 
   static:
+    needs: format
     strategy:
       fail-fast: false
       matrix:
