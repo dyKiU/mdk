@@ -22,6 +22,7 @@ QUARANTINE = [
     "tests::quarantine_receive::quarantined_group_does_not_block_account_receives",
     "tests::quarantine_receive::locally_deleted_quarantined_group_does_not_block_account_receives",
 ] + ["client::sync::projection_retry_tests::" + name for name in [
+    "quarantined_group_events_do_not_retain_account_projection",
     "strict_quarantined_group_read_defers_instead_of_holding_receives",
     "ordinary_projection_failure_stays_retained_and_counts_toward_stall_warning",
     "deferral_skips_only_unprojected_events_of_deferred_groups",
@@ -160,8 +161,8 @@ if scope in {"native", "quarantine", "experimental"}:
     quarantine_ok = True
     if scope in {"quarantine", "experimental"}:
         selected = "package(marmot-app) & (" + " | ".join("test(=" + case + ")" for case in QUARANTINE) + ")"
-        proof, _ = run("six-new-upstream-quarantine-controls", selected, 6, args)
-        quarantine_ok = proof["passed"] == 6 and proof["failed"] == 0
+        proof, _ = run("seven-new-upstream-quarantine-controls", selected, 7, args)
+        quarantine_ok = proof["passed"] == 7 and proof["failed"] == 0
     native_ok = True
     if scope in {"native", "experimental"}:
         for case in NATIVE:
