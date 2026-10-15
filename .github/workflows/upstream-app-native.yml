@@ -194,8 +194,12 @@ jobs:
           bash -n scripts/upstream_apple_ci/build-hosted-simulator-agent.sh
           mkdir -p "$RUNNER_TEMP/tools-preflight"
           python3 - <<'PY'
-          import hashlib,json,os,subprocess
+          import hashlib,json,os,runpy,subprocess,sys
           from pathlib import Path
+          helper=Path('scripts/upstream_apple_ci/hosted_history.py').resolve()
+          sys.path.insert(0,str(helper.parent))
+          runpy.run_path(str(helper))['verify_helpers']()
+          native_manifest=json.loads(helper.with_name('native').joinpath('SOURCE.json').read_text())
           names=['acceptance-identity.py','hosted-app-fixtures.py','hosted-app-unit.py','hosted-app-ui.py',
                  'hosted-root-mutations.py','timestamp-mutations.py','sdk-manifest-guards.py','build-hosted-simulator-agent.sh',
                  'run-hosted-app-acceptance.py','paired_direct_mutation.py','paired-direct-mutations.py']
@@ -207,6 +211,10 @@ jobs:
           paths.append(manifest_path)
           report={'tools_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
                   'syntax_checks_passed':True,'hosted_wrapper_manifest_verified':True,'product_tests_executed':0,
+                  'actual_native_helper_metadata_verified':True,
+                  'native_workspace_commit':native_manifest['workspace_commit'],
+                  'frozen_native_files_verified':len(native_manifest['files']),
+                  'additional_hosted_files_verified':len(manifest['files']),
                   'files':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}}
           (Path(os.environ['RUNNER_TEMP'])/'tools-preflight/result.json').write_text(json.dumps(report,indent=2)+'\n')
           PY
