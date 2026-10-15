@@ -29,7 +29,8 @@ pub(crate) fn paired_cursor(
         event_id,
     })
 }
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl Marmot {
     /// Resolve an existing contact conversation without creating an invitation.
     /// Local MLS reuse has precedence; paired routes require current sharing approval.
