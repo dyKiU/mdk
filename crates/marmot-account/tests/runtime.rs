@@ -7048,14 +7048,15 @@ async fn companion_does_not_publish_or_generate_public_key_packages() {
     let dir = tempfile::tempdir().unwrap();
     let key = SqlCipherKey::new("companion publication test").unwrap();
     let publisher = RecordingKeyPackages::default();
-    let mut runtime = AccountDeviceRuntime::new(
+    let runtime = AccountDeviceRuntime::new(
         session(dir.path().join("companion.sqlite"), &key, b"companion"),
         RecordingAdapter::default(),
         StaticTransportRouting::new(vec![])
             .key_package_endpoints(vec![TransportEndpoint("wss://keys.example".into())]),
         publisher.clone(),
-    )
-    .with_public_key_package_publication_disabled();
+    );
+    assert!(runtime.key_package_maintenance_requires_catch_up().unwrap());
+    let mut runtime = runtime.with_public_key_package_publication_disabled();
     assert!(matches!(
         runtime.publish_fresh_key_package().await,
         Err(marmot_account::AccountError::PublicKeyPackagePublicationDisabled)
@@ -7065,6 +7066,7 @@ async fn companion_does_not_publish_or_generate_public_key_packages() {
         Err(marmot_account::AccountError::PublicKeyPackagePublicationDisabled)
     ));
     assert!(!runtime.key_package_network_maintenance_due().unwrap());
+    assert!(!runtime.key_package_maintenance_requires_catch_up().unwrap());
     runtime.run_due_maintenance().await.unwrap();
     runtime.resume_maintenance();
     runtime.run_due_maintenance().await.unwrap();
