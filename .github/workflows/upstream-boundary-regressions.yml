@@ -7,7 +7,7 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack]
+        options: [source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication]
         default: all
 
 permissions:
@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        case: ${{ fromJSON(inputs.case == 'migration-cohorts' && '["migration-default","migration-experimental"]' || inputs.case == 'fixture-adaptations' && '["upload-fixture","migration-default","migration-experimental"]' || inputs.case && inputs.case != 'all' && format('["{0}"]', inputs.case) || '["departure","worker-reap","relay-acquisition","upload-fixture","migration-default","migration-experimental","worker-spawn-stack"]') }}
+        case: ${{ fromJSON(inputs.case == 'migration-cohorts' && '["migration-default","migration-experimental"]' || inputs.case == 'fixture-adaptations' && '["upload-fixture","migration-default","migration-experimental"]' || inputs.case && inputs.case != 'all' && format('["{0}"]', inputs.case) || '["departure","worker-reap","relay-acquisition","upload-fixture","migration-default","migration-experimental","worker-spawn-stack","automatic-publication","sibling-publication"]') }}
     env:
       CARGO_INCREMENTAL: "1"
       CARGO_BUILD_JOBS: "2"
@@ -39,7 +39,7 @@ jobs:
           rustup toolchain install "$toolchain" --profile minimal
           rustup default "$toolchain"
       - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
-        if: matrix.case == 'worker-spawn-stack'
+        if: contains(fromJSON('["worker-spawn-stack","automatic-publication","sibling-publication"]'), matrix.case)
         with:
           tool: cargo-nextest@0.9.132
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32

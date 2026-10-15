@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -295,7 +295,7 @@ jobs:
           cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --partition count:2/5 --no-fail-fast -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
 
   core-regressions:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering","pairing-regression","sync-failure-regressions"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering","pairing-regression","sync-failure-regressions","publication-regressions"]'), inputs.scope)
     name: Focused regressions (${{ inputs.scope }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -350,6 +350,10 @@ jobs:
             if [[ "$REGRESSION_SCOPE" == sync-failure-regressions ]]; then
               filter='package(marmot-app) & (test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts) | test(=native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure))'
             fi
+          elif [[ "$REGRESSION_SCOPE" == publication-regressions ]]; then
+            features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
+            args=(--locked -p marmot-app --lib --features "$features")
+            filter='package(marmot-app) & binary(=marmot_app) & (test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts) | test(=native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer) | test(=native_device_linking::automatic_pairing_acceptance::automatic_sync_does_not_block_foreground_enrollment_completion) | test(=native_device_linking::automatic_pairing_acceptance::automatic_transport_cannot_keep_dropped_original_authority_alive) | test(=native_device_linking::automatic_pairing_acceptance::ordinary_one_scan_enrollment_has_original_cancellation_without_chat_sharing) | test(=native_device_linking::automatic_pairing_acceptance::automatic_one_scan_exchange_keeps_both_human_comparisons_required) | test(=native_device_linking::automatic_pairing_acceptance::automatic_pairing_requires_explicit_enrollment_and_shares_existing_and_later_chats) | test(=client::device_linking::sibling_sharing::tests::original_choice_cancel_wakes_every_registered_child_without_actor_rpc) | test(=client::device_linking::sibling_sharing::tests::original_choice_children_do_not_extend_the_captured_deadline))'
           elif [[ "$REGRESSION_SCOPE" == campaign-regression ]]; then
             features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
             args=(--locked -p cgka-conformance-simulator -p marmot-app -p cgka-engine --bin cgka-conformance-campaign --features "$features")
@@ -394,6 +398,10 @@ jobs:
           elif os.environ["REGRESSION_SCOPE"] == "pairing-regression":
               required = ["third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts"]
               expected = 1
+          elif os.environ["REGRESSION_SCOPE"] == "publication-regressions":
+              required = ['native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts', 'native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer', 'native_device_linking::automatic_pairing_acceptance::automatic_sync_does_not_block_foreground_enrollment_completion', 'native_device_linking::automatic_pairing_acceptance::automatic_transport_cannot_keep_dropped_original_authority_alive', 'native_device_linking::automatic_pairing_acceptance::ordinary_one_scan_enrollment_has_original_cancellation_without_chat_sharing', 'native_device_linking::automatic_pairing_acceptance::automatic_one_scan_exchange_keeps_both_human_comparisons_required', 'native_device_linking::automatic_pairing_acceptance::automatic_pairing_requires_explicit_enrollment_and_shares_existing_and_later_chats', 'client::device_linking::sibling_sharing::tests::original_choice_cancel_wakes_every_registered_child_without_actor_rpc', 'client::device_linking::sibling_sharing::tests::original_choice_children_do_not_extend_the_captured_deadline']
+              expected = 9
+              assert selected == set(required), "publication regression selectors changed"
           elif os.environ["REGRESSION_SCOPE"] == "campaign-regression":
               required = ["kills_and_reaps_a_worker_that_exceeds_its_timeout", "preserves_a_workers_nonzero_exit_code"]
               expected = 2
@@ -410,15 +418,39 @@ jobs:
             output_args=(--success-output immediate)
             export WN_UPSTREAM_PUBLICATION_DIAGNOSTICS=1
           fi
-          if [[ "$REGRESSION_SCOPE" == sync-failure-regressions ]]; then
+          if [[ "$REGRESSION_SCOPE" == sync-failure-regressions || "$REGRESSION_SCOPE" == publication-regressions ]]; then
             regression_threads=1
+          fi
+          if [[ "$REGRESSION_SCOPE" == publication-regressions ]]; then
+            output_args=(--success-output immediate)
+            set +e
+            cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads 1 --retries 0 --no-fail-fast "${output_args[@]}" 2>&1 | tee publication-runtime.log
+            runtime_status=${PIPESTATUS[0]}
+            set -e
+            python3 - <<'PYCOUNTS'
+          import json, re
+          from pathlib import Path
+          output = re.sub(r'\x1b\[[0-9;]*m', '', Path("publication-runtime.log").read_text())
+          summaries = re.findall(r'Summary\s+\[[^\]]*\]\s+(\d+)(?:/\d+)?\s+tests? run:\s*([^\n]*)', output)
+          assert len(summaries) == 1 and summaries[0][0] == "9", "nine actual nonignored executions required"
+          def count(label):
+              match = re.search(r'(\d+) ' + label, summaries[0][1])
+              return int(match[1]) if match else 0
+          proof = {"executed_nonignored": 9, "passed": count("passed"), "failed": count("failed"), "rust_min_stack_bytes": 4194304, "retries": 0, "test_threads": 1}
+          Path("publication-result.json").write_text(json.dumps(proof, indent=2) + "\n")
+          assert proof["passed"] == 9 and proof["failed"] == 0, "publication regressions did not all pass"
+          PYCOUNTS
+            exit "$runtime_status"
           fi
           cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads "$regression_threads" --retries 0 --no-fail-fast "${output_args[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: core-regression-inventory
-          path: core-regression-inventory.json
+          path: |
+            core-regression-inventory.json
+            publication-runtime.log
+            publication-result.json
           retention-days: 7
           if-no-files-found: error
 

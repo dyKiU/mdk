@@ -9,9 +9,13 @@ import re
 import subprocess
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack'], required=True)
+parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'automatic-publication', 'sibling-publication'], required=True)
 parser.add_argument('--output', type=Path, required=True)
 args = parser.parse_args()
+publication_cases = {'automatic-publication', 'sibling-publication'}
+nextest_cases = publication_cases | {'worker-spawn-stack'}
+held_marker = None
+failure_marker = None
 if args.case == 'departure':
     source = Path('crates/marmot-uniffi/src/commands/account_chat_departure.rs')
     old, new = '#[uniffi::export(async_runtime = "tokio")]', '#[uniffi::export]'
@@ -60,6 +64,34 @@ elif args.case == 'worker-spawn-stack':
                '--profile', 'm5-bounded', '--retries', '0', '--test-threads', '1', '--no-fail-fast',
                '--success-output', 'immediate', '-E', 'package(marmot-app) & test(=' + test + ')']
     expected = 1
+elif args.case in publication_cases:
+    if os.environ.get('RUST_MIN_STACK') != '4194304':
+        raise ValueError('The original 4 MiB stack budget is required')
+    prefix = 'native_device_linking::automatic_pairing_acceptance::'
+    if args.case == 'automatic-publication':
+        source = Path('crates/marmot-app/src/client/account_chat_sharing/automatic.rs')
+        old = '        let slot = if matches!(\n            kind,\n            AccountSharingControl::Request | AccountSharingControl::Consent\n        ) {\n            match self\n                .account_sharing_owner\n                .automatic_handshake_slots\n                .clone()\n                .try_acquire_owned()\n            {\n                Ok(slot) => Some(slot),\n                Err(tokio::sync::TryAcquireError::NoPermits) => return Ok(false),\n                Err(tokio::sync::TryAcquireError::Closed) => {\n                    return Err(AccountSharingError::Closed);\n                }\n            }\n        } else {\n            None\n        };\n'
+        # Restore only the guarded synchronous path already used by body sends.
+        new = '        let slot: Option<tokio::sync::OwnedSemaphorePermit> = None;\n'
+        test = prefix + 'automatic_sync_does_not_block_foreground_enrollment_completion'
+        held_marker = 'automatic-enrollment-control stage=automatic-publication-held-before-completion'
+        failure_marker = 'automatic pairing did not reach required phase: expected=EnrollmentComplete'
+    else:
+        source = Path('crates/marmot-app/src/client/device_linking/sibling_sharing.rs')
+        old = '        entry.publication = Some(SiblingPublication { proof, task });'
+        # Retain task output and all authority checks, but block the worker again.
+        new = ('        while !task.is_finished() {\n'
+               '            tokio::task::yield_now().await;\n'
+               '        }\n' + old)
+        test = prefix + 'blocked_sibling_consent_does_not_starve_another_approved_peer'
+        held_marker = 'automatic-enrollment-control stage=sibling-consent-held-before-peer-progress'
+        failure_marker = 'one blocked consent publication must not starve another approved sibling'
+    command = ['cargo', 'nextest', 'run', '--locked', '-p', 'marmot-app', '--lib', '--features',
+               'marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks',
+               '--profile', 'm5-bounded', '--retries', '0', '--test-threads', '1', '--no-fail-fast',
+               '--success-output', 'immediate', '-E',
+               'package(marmot-app) & binary(=marmot_app) & test(=' + test + ')']
+    expected = 1
 else:
     source = Path('crates/storage-sqlite/src/private_migration_ledger.rs')
     old = ('        applied += 1;\n    }\n'
@@ -94,7 +126,7 @@ def execute(phase):
     output = re.sub(r'\x1b\[[0-9;]*m', '', path.read_text())
     counts = re.findall(r'test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored', output)
     runtime_signal = False
-    if args.case == 'worker-spawn-stack':
+    if args.case in nextest_cases:
         summaries = re.findall(r'Summary\s+\[[^\]]*\]\s+(\d+)(?:/\d+)?\s+tests? run:\s*([^\n]*)', output)
         counts = []
         if len(summaries) == 1 and summaries[0][0] == '1':
@@ -113,6 +145,13 @@ def execute(phase):
         row['runtime_signal_observed'] = runtime_signal
         row['rust_min_stack_bytes'] = int(os.environ['RUST_MIN_STACK'])
         row['selected_nonignored_tests'] = 1 if counts else None
+    if args.case in publication_cases:
+        row['held_publication_observed'] = held_marker in output
+        row['liveness_assertion_observed'] = failure_marker in output
+        row['held_before_liveness_assertion'] = (held_marker in output and failure_marker in output
+                                                and output.index(held_marker) < output.index(failure_marker))
+        row['rust_min_stack_bytes'] = int(os.environ['RUST_MIN_STACK'])
+        row['selected_nonignored_tests'] = 1 if counts else None
     proof['runs'].append(row)
     save()
     return row
@@ -123,7 +162,8 @@ def matches(row, passed, failed):
 
 
 baseline = execute('baseline')
-if baseline['exit_code'] != 0 or not matches(baseline, expected, 0):
+if (baseline['exit_code'] != 0 or not matches(baseline, expected, 0)
+        or (args.case in publication_cases and not baseline['held_publication_observed'])):
     raise SystemExit('Baseline did not execute the intended passing regression cohort')
 attempt_error = None
 try:
@@ -132,6 +172,8 @@ try:
     proof['runtime_mutant_killed'] = mutant['exit_code'] != 0 and matches(mutant, 0, expected)
     if args.case == 'worker-spawn-stack':
         proof['runtime_mutant_killed'] &= mutant['runtime_signal_observed']
+    if args.case in publication_cases:
+        proof['runtime_mutant_killed'] &= mutant['held_before_liveness_assertion']
 except (OSError, subprocess.SubprocessError) as error:
     attempt_error = type(error).__name__
     proof['mutation_error_category'] = attempt_error
@@ -142,7 +184,8 @@ finally:
 if not proof['source_restored']:
     raise SystemExit('Exact source restoration failed')
 control = execute('restored-control')
-proof['restored_control_passed'] = control['exit_code'] == 0 and matches(control, expected, 0)
+proof['restored_control_passed'] = (control['exit_code'] == 0 and matches(control, expected, 0)
+                                  and (args.case not in publication_cases or control['held_publication_observed']))
 proof['final_source_sha256'] = hashlib.sha256(source.read_bytes()).hexdigest()
 proof['completed'] = (proof.get('runtime_mutant_killed', False) and proof['restored_control_passed']
                       and proof['final_source_sha256'] == proof['original_sha256'] and attempt_error is None)
