@@ -40,7 +40,11 @@ impl AppClient {
         let Some(original) = action.sharing.as_ref() else {
             return Ok(());
         };
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        original.record_readiness_for_test(0);
         if !original.state.live() || action.cancelled || original.complete() {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            original.record_readiness_for_test(2);
             return Ok(());
         }
         let Some(attempt) = self
@@ -51,6 +55,8 @@ impl AppClient {
                 attempt.guard.binding() == &action.binding && attempt.guard.is_live()
             })
         else {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            original.record_readiness_for_test(3);
             return Ok(());
         };
         let storage = self
@@ -63,12 +69,16 @@ impl AppClient {
             .read_round()
             .map_err(|error| ClientLinkingError::Engine(error.into()))?
         else {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            original.record_readiness_for_test(4);
             return Ok(());
         };
         attempt
             .guard
             .validate(&round.anchor)
             .map_err(ClientLinkingError::Engine)?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        original.record_readiness_for_test(5);
         if self
             .runtime
             .session()
@@ -76,8 +86,12 @@ impl AppClient {
             .map_err(ClientLinkingError::Engine)?
             .is_none()
         {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            original.record_readiness_for_test(6);
             return Ok(());
         }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        original.record_readiness_for_test(7);
         let request = self
             .linking_owner
             .received_enrollment_proposals

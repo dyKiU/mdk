@@ -58,6 +58,20 @@ impl OriginalSiblingSharingApproval {
             .clone()
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    fn record_readiness_for_test(&self, category: u64) {
+        let now = crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
+        let mut diagnostic = self.state.sibling_diagnostics.lock().expect("sibling diagnostics");
+        let readiness = &mut diagnostic.readiness;
+        if category == 0 {
+            readiness[0] += 1;
+            if readiness[6] == 0 { readiness[6] = now; }
+        }
+        readiness[1] = category;
+        readiness[2] = now;
+        if category == 5 && readiness[3] == 0 { readiness[3] = now; }
+        if category == 7 && readiness[4] == 0 { readiness[4] = now; }
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn status_for_test(&self) -> (bool, bool) {
         (self.state.live(), self.complete())
     }
@@ -79,6 +93,12 @@ fn rejected() -> ClientLinkingError {
     ClientLinkingError::Owner(OwnerError::Verifier(LinkError::InvalidContext))
 }
 impl AppClient {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn publication_source_state_for_test(&self) -> Option<std::sync::Weak<crate::account_chat_sharing::enabled::State>> {
+        self.linking_owner.received_endorsement.as_ref()
+            .and_then(|action| action.sharing.as_ref())
+            .map(|original| Arc::downgrade(&original.state))
+    }
     /// Read-only correlation of actual retained observations; not approval.
     pub(crate) fn received_enrollment_proposal_bindings(
         &mut self,
