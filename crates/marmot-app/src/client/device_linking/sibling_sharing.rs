@@ -1802,11 +1802,14 @@ impl AppClient {
             // Every waiting sibling gets its normal first opportunity before
             // a successfully harvested channel can use the freed slot again.
             // At most the four initially owned tasks can add one extra visit;
-            // errors and completed channels never re-enter this turn.
+            // Only ready initial policy/proof work re-enters: errors, retries,
+            // peer-only waits and completed channels never get an extra visit.
             if first_pass
                 && harvested
                 && outcome.is_ok()
                 && entry.publication.is_none()
+                && entry.ready
+                && (!entry.policy_committed || !entry.proof_published)
                 && !entry.state.progress.lock().expect("sibling progress").complete
                 && scheduled.len() < first_pass_len + MAX_SIBLING_PUBLICATIONS
             {
