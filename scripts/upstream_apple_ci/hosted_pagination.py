@@ -122,6 +122,10 @@ def run(journey):
                     "pagination-admission-does-not-disclose-prejoin")
     progress["phase"] = "begin-history-original"
     source = a.ask("history-begin", group=group, member=review["source"])
+    # Already-returned aggregate observations only; no extra SDK command or
+    # positive authority is acquired for diagnostics.
+    progress["source_snapshot"] = {field: source[field] for field in (
+        "records", "encoded_bytes", "fragments", "imported", "complete")}
     require(source["group"] == group and source["recipient"] == review["source"]
             and source["records"] == PREJOIN + 1 and not source["complete"],
             "pagination-entire-200-record-original-snapshot")
@@ -135,6 +139,8 @@ def run(journey):
         require(time.monotonic() < deadline, "pagination-original-request-arrival")
         time.sleep(0.05)
     consent = b.ask("history-consent-snapshot")
+    progress["recipient_review"] = {field: consent[field] for field in (
+        "records", "encoded_bytes", "fragments", "imported", "complete")}
     for field in ("group", "source", "recipient", "records", "encoded_bytes", "fragments", "ceiling"):
         require(consent[field] == source[field], "pagination-exact-original-review")
     require(not consent["complete"] and consent["imported"] == 0,
@@ -147,11 +153,17 @@ def run(journey):
     progress["phase"] = "approve-history-original"
     b.ask("history-approve", revision=consent["revision"])
     progress["phase"] = "continue-history-original"
-    a.ask("history-continue", revision=source["revision"])
+    continued = time.monotonic()
+    try:
+        a.ask("history-continue", revision=source["revision"])
+    finally:
+        progress["continue_elapsed_seconds"] = round(time.monotonic() - continued, 3)
     progress["phase"] = "await-history-import-completion"
     while True:
         sender = a.ask("history-snapshot")
         receiver = b.ask("history-consent-snapshot")
+        progress["source_progress"] = {field: sender[field] for field in ("imported", "complete")}
+        progress["recipient_progress"] = {field: receiver[field] for field in ("imported", "complete")}
         if sender["complete"] and receiver["complete"]:
             break
         require(time.monotonic() < deadline, "pagination-committed-native-import")

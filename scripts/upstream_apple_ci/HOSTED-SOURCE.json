@@ -14,7 +14,7 @@
     },
     "hosted_pagination.py": {
       "source": "new hosted-only native fixture using frozen selected-chat consent actions",
-      "sha256": "c5041eac8ff17c1638629bbfbc3113cea3261232851453cd7e42a9dda7eb8adb",
+      "sha256": "7cbda7cd690067cf03646fa85e68be4eff83fa6644235233ad1aeadd665ede3a",
       "scope": "199 actual prejoin records plus one live record at existing 200-record source cap; fixed37 cursor pages, no SDK behavior changes"
     }
   },
