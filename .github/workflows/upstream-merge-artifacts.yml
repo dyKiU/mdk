@@ -3,6 +3,11 @@ name: Upstream merge artifact repair
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      generation_only:
+        description: Generate canonical source before final qualification without running product tests
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -28,10 +33,13 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Record repair input
+        env:
+          GENERATION_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.generation_only && 'true' || 'false' }}
         run: |
           mkdir -p repair
           git rev-parse HEAD > repair/source-sha.txt
           git rev-parse HEAD^{tree} > repair/source-tree.txt
+          printf '%s\n' "$GENERATION_ONLY" > repair/generation-only.txt
       - name: Install repository toolchain
         run: |
           toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
@@ -45,18 +53,33 @@ jobs:
           shared-key: upstream-merge-artifact-repair
           cache-on-failure: true
       - name: Reconcile lockfile without dependency updates
+        env:
+          CARGO_INCREMENTAL: "1"
         run: |
-          cargo metadata --all-features --format-version 1 > repair/metadata.json
+          cargo metadata --locked --all-features --format-version 1 > repair/metadata.json
           cp Cargo.lock repair/Cargo.lock
       - name: Regenerate C header
         id: header
-        run: just c-header
-      - name: Exercise merged C status ABI
-        run: cargo test --locked -p marmot-c --lib --features experimental-device-sync,alloc-audit status::tests -- --test-threads=2
-      - name: Check mutation detection and restored controls
         env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label generated-c-header --output repair/header-capacity.json
+          just c-header
+      - name: Exercise merged C status ABI
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.generation_only) }}
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label merged-c-status --output repair/status-capacity.json
+          cargo test --locked -p marmot-c --lib --features experimental-device-sync,alloc-audit status::tests -- --test-threads=2
+      - name: Check mutation detection and restored controls
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.generation_only) }}
+        env:
+          CARGO_INCREMENTAL: "1"
           RUST_MIN_STACK: "4194304"
-        run: python3 scripts/verify_upstream_merge_mutations.py --output repair/mutations
+        run: |
+          python3 scripts/qualification_build_preflight.py --label merged-runtime-mutations --output repair/mutations-capacity.json
+          python3 scripts/verify_upstream_merge_mutations.py --output repair/mutations
       - name: Refresh binding signatures and source anchors
         if: always() && steps.header.outcome == 'success'
         run: python3 scripts/check_binding_docs.py --write
