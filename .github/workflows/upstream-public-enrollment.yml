@@ -152,14 +152,26 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: upstream-public-enrollment-*-${{ github.sha }}-${{ inputs.sdk_sha }}
-          path: public-results
+          name: upstream-public-enrollment-eu-${{ github.sha }}-${{ inputs.sdk_sha }}
+          path: public-results/eu
+      - uses: actions/download-artifact@v4
+        with:
+          name: upstream-public-enrollment-us-${{ github.sha }}-${{ inputs.sdk_sha }}
+          path: public-results/us
+      - uses: actions/download-artifact@v4
+        with:
+          name: upstream-public-enrollment-identity-${{ github.sha }}-${{ inputs.sdk_sha }}
+          path: identity-result
       - name: Require both complete deployment journeys from this exact SDK cohort
         run: |
           python3 - <<'PY'
           import json,os
           from pathlib import Path
           assert os.environ['STATUS']=='success'
+          identity=json.loads(Path('identity-result/result.json').read_text())
+          assert identity['sdk_source']==os.environ['SOURCE_SHA'] and identity['sdk_run_id']==os.environ['SDK_RUN_ID']
+          assert identity['tools_sha']==os.environ['GITHUB_SHA']
+          assert identity['sdk_ancestor_of_tools'] and identity['all_non_harness_inputs_identical']
           rows=[json.loads(p.read_text()) for p in Path('public-results').rglob('result.json')]
           assert len(rows)==2
           assert {r['route'] for r in rows}=={'wss://relay.eu.whitenoise.chat','wss://relay.us.whitenoise.chat'}
