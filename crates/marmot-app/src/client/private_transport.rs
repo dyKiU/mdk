@@ -58,6 +58,21 @@ impl AppClient {
             .session()
             .private_transport_evidence(crate::NOSTR_ROUTING_COMPONENT_ID)
             .map_err(cgka_session::SessionError::from)?;
+        if evidence.is_none()
+            && let Some(previous) = &self.linking_owner.hidden_transport_group
+        {
+            let retry_groups = self
+                .runtime
+                .session()
+                .device_revocation_storage_retry_groups()
+                .map_err(cgka_session::SessionError::from)?;
+            if retry_groups.contains(previous) {
+                // Keep only this already-selected receive route while Core
+                // retains the actual live rollback original. No new crypto
+                // evidence or permission is reconstructed from its metadata.
+                return Ok(false);
+            }
+        }
         let selected = evidence
             .as_ref()
             .map(|evidence| evidence.group_id().clone());

@@ -29,7 +29,7 @@ TESTS = (
 )
 report = {'source': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
           'baseline': BASELINE, 'phase': args.phase, 'passed': False, 'executions': [],
-          'required_executions': 2, 'retries': 0, 'rust_min_stack': os.environ.get('RUST_MIN_STACK'),
+          'required_executions': 9 if args.phase == 'green' else 2, 'retries': 0, 'rust_min_stack': os.environ.get('RUST_MIN_STACK'),
           'toolchain': subprocess.check_output(['rustc', '-Vv'], text=True)}
 
 
@@ -99,6 +99,7 @@ def execute(name, expected):
 try:
     allowed = {FIXTURE, 'crates/marmot-app/src/client/private_transport.rs',
                'crates/marmot-app/src/runtime/account_worker.rs', 'crates/marmot-app/src/runtime/commands.rs',
+               'crates/marmot-app/README.md', 'crates/marmot-app/CHANGELOG.md',
                'scripts/qualify_upstream_private_route.py', '.github/workflows/upstream-private-route-regression.yml'}
     changed = set(subprocess.check_output(['git', 'diff', '--name-only', BASELINE, 'HEAD'], text=True).splitlines())
     if not changed.issubset(allowed) or subprocess.run(['git', 'diff', '--quiet', 'HEAD']).returncode:
@@ -106,6 +107,52 @@ try:
     report['changed_paths'] = sorted(changed)
     outcomes = [execute(TESTS[0], 'route-red' if args.phase == 'red' else 'green')]
     outcomes.append(execute(TESTS[1], 'green'))
+    if args.phase == 'green':
+        for name in (
+            'device_revocation_original_receipt_survives_incoming_storage_rollback_retry',
+            'device_revocation_challenge_published_before_storage_retry_preserves_fresh_authority',
+            'device_revocation_challenge_initial_peel_before_storage_retry_preserves_fresh_authority',
+            'device_revocation_confirmation_fact_rollback_preserves_owned_successor_authority',
+            'device_revocation_survivors_regain_fresh_original_history_authority',
+        ):
+            outcomes.append(execute(name, 'green'))
+        if all(outcomes):
+            source = Path('crates/marmot-app/src/client/private_transport.rs')
+            original = source.read_bytes()
+            retained_original = '''        if evidence.is_none()
+            && let Some(previous) = &self.linking_owner.hidden_transport_group
+        {
+            let retry_groups = self
+                .runtime
+                .session()
+                .device_revocation_storage_retry_groups()
+                .map_err(cgka_session::SessionError::from)?;
+            if retry_groups.contains(previous) {
+                // Keep only this already-selected receive route while Core
+                // retains the actual live rollback original. No new crypto
+                // evidence or permission is reconstructed from its metadata.
+                return Ok(false);
+            }
+        }
+'''
+            if original.decode().count(retained_original) != 1:
+                raise ValueError('Original-route mutation anchor is not unique')
+            mutated = original.decode().replace(retained_original, '', 1)
+            report['mutation'] = {'label': 'omit-original-route-retention',
+                                  'baseline_sha256': hashlib.sha256(original).hexdigest(),
+                                  'mutated_sha256': hashlib.sha256(mutated.encode()).hexdigest()}
+            try:
+                source.write_text(mutated)
+                detected = execute(TESTS[0], 'route-red')
+                outcomes.append(detected)
+                report['mutation']['runtime_detected'] = detected
+            finally:
+                source.write_bytes(original)
+                report['mutation']['exact_source_restored'] = source.read_bytes() == original
+                save()
+            restored = execute(TESTS[0], 'green')
+            outcomes.append(restored)
+            report['mutation']['restored_control_passed'] = restored
     report['passed'] = all(outcomes) and len(report['executions']) == report['required_executions']
 finally:
     report['inputs_unchanged'] = source_hashes() == frozen

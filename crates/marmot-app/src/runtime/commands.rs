@@ -31,7 +31,11 @@ use crate::{
 };
 
 impl AccountManager {
-    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     pub(crate) async fn refresh_revocation_receive_route_for_test(
         &self,
         account_ref: &str,

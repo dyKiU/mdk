@@ -1476,7 +1476,7 @@ mod actual {
                 | RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
                 | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
                 | RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
-                        | RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute
+                | RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute
                 | RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry
         ) {
             request.cancel().await.unwrap();
@@ -2862,7 +2862,10 @@ mod actual {
         let recipient = fixture.apps[1]
             .account_storage("test")
             .map_err(|_| "recipient storage unavailable")?;
-        let predecessor_epoch = if matches!(observation, ChallengeBeforeRetry::InitialPeel | ChallengeBeforeRetry::RefreshedRollbackRoute) {
+        let predecessor_epoch = if matches!(
+            observation,
+            ChallengeBeforeRetry::InitialPeel | ChallengeBeforeRetry::RefreshedRollbackRoute
+        ) {
             let actual = openmls::group::MlsGroup::load(
                 recipient.mls_storage(),
                 &openmls::group::GroupId::from_slice(protected.as_slice()),
@@ -3008,7 +3011,13 @@ mod actual {
         .await;
         match observed {
             Ok(result) => result,
-            Err(_) if matches!(observation, ChallengeBeforeRetry::InitialPeel | ChallengeBeforeRetry::RefreshedRollbackRoute) => {
+            Err(_)
+                if matches!(
+                    observation,
+                    ChallengeBeforeRetry::InitialPeel
+                        | ChallengeBeforeRetry::RefreshedRollbackRoute
+                ) =>
+            {
                 eprintln!(
                     "revocation_challenge_initial_peel_prerequisite_unmet exact_state_epoch_matches_predecessor={exact_attempt_observation:?}"
                 );
@@ -3264,7 +3273,8 @@ mod actual {
         let held_route_challenge = matches!(
             challenge_before_retry,
             Some(ChallengeBeforeRetry::RefreshedRollbackRoute)
-        ).then(|| {
+        )
+        .then(|| {
             let account = fixture.apps[0].account_home().account("test").unwrap();
             fixture.apps[0].relay_plane.hold_next_private_confirmation(
                 cgka_traits::MemberId::new(hex::decode(account.account_id_hex).unwrap()),
@@ -3474,21 +3484,42 @@ mod actual {
                     .expect("actual source Challenge must be held before rollback route refresh")
                     .expect("actual source publication observation remains owned");
                 let source = fixture.apps[0].account_storage("test").unwrap();
-                let round = source.private_roster_settlement_storage().unwrap()
-                    .read_round().unwrap().unwrap();
+                let round = source
+                    .private_roster_settlement_storage()
+                    .unwrap()
+                    .read_round()
+                    .unwrap()
+                    .unwrap();
                 let actual: cgka_traits::engine::SendResult =
                     serde_json::from_slice(round.outbound.as_ref().unwrap()).unwrap();
-                let cgka_traits::engine::SendResult::ApplicationMessage { msg, group_id, source_epoch, .. } = actual else {
-                    panic!("held original Challenge must be the actual protected successor publication");
+                let cgka_traits::engine::SendResult::ApplicationMessage {
+                    msg,
+                    group_id,
+                    source_epoch,
+                    ..
+                } = actual
+                else {
+                    panic!(
+                        "held original Challenge must be the actual protected successor publication"
+                    );
                 };
-                assert!(msg.id == actual_wire.id && msg.payload == actual_wire.payload
-                    && group_id == protected && source_epoch == round.anchor.successor.epoch);
+                assert!(
+                    msg.id == actual_wire.id
+                        && msg.payload == actual_wire.payload
+                        && group_id == protected
+                        && source_epoch == round.anchor.successor.epoch
+                );
                 let (original_retry, evidence_absent, retained) = managers[1]
                     .refresh_revocation_receive_route_for_test("test", &protected)
-                    .await.unwrap();
-                assert!(original_retry && evidence_absent,
-                    "actual live rollback original and unavailable current route evidence must be observed before Challenge release");
-                eprintln!("revocation_rollback_route actual_original_retry=true evidence_absent=true actual_subscriptions_refreshed=true retained={retained}");
+                    .await
+                    .unwrap();
+                assert!(
+                    original_retry && evidence_absent,
+                    "actual live rollback original and unavailable current route evidence must be observed before Challenge release"
+                );
+                eprintln!(
+                    "revocation_rollback_route actual_original_retry=true evidence_absent=true actual_subscriptions_refreshed=true retained={retained}"
+                );
                 drop(release);
                 Some(retained)
             } else {
@@ -3577,8 +3608,10 @@ mod actual {
             drop(connection);
             if let Some(observed) = challenge_observation {
                 let received = observed.expect("genuine current successor challenge must be published while B's actual Remove is rolled back");
-                assert!(retained_after_refresh.unwrap_or(true),
-                    "actual live rollback original must retain its existing receive route through subscription refresh");
+                assert!(
+                    retained_after_refresh.unwrap_or(true),
+                    "actual live rollback original must retain its existing receive route through subscription refresh"
+                );
                 eprintln!(
                     "revocation_challenge_before_retry relay_seen=true recipient_exact_wire_seen={received} recipient_old_epoch=true recipient_successor_anchor_absent=true"
                 );
@@ -3614,11 +3647,15 @@ mod actual {
                     round.phase
                         == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied
                 );
-                let (original_retry, evidence_absent, retained) = reopened.accounts()
+                let (original_retry, evidence_absent, retained) = reopened
+                    .accounts()
                     .refresh_revocation_receive_route_for_test("test", &protected)
-                    .await.unwrap();
-                assert!(!original_retry && evidence_absent && !retained,
-                    "encrypted reopen must not reconstruct a private receive route from a retired rollback original");
+                    .await
+                    .unwrap();
+                assert!(
+                    !original_retry && evidence_absent && !retained,
+                    "encrypted reopen must not reconstruct a private receive route from a retired rollback original"
+                );
                 reopened.shutdown_and_close().await.unwrap();
                 return;
             }
