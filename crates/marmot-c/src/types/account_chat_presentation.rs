@@ -30,3 +30,109 @@ c_mirror! { MarmotPairedChatMessagePage from PairedChatMessagePageFfi, free marm
     vec messages/messages_len: MarmotPairedChatMessage,
     opt_rec next: MarmotPairedChatMessageCursor,
 } }
+
+/// A deep-owned local MLS result or source-attested paired route.
+#[repr(C)]
+pub enum MarmotExistingAccountDirectConversation {
+    LocalMls {
+        conversation: *mut super::chat_list::MarmotExistingDirectConversation,
+    },
+    PairedSource {
+        conversation: *mut MarmotPairedChatSummary,
+    },
+}
+impl From<ExistingAccountDirectConversationFfi> for MarmotExistingAccountDirectConversation {
+    fn from(value: ExistingAccountDirectConversationFfi) -> Self {
+        match value {
+            ExistingAccountDirectConversationFfi::LocalMls { conversation } => Self::LocalMls {
+                conversation: crate::memory::boxed(conversation.into()),
+            },
+            ExistingAccountDirectConversationFfi::PairedSource { conversation } => {
+                Self::PairedSource {
+                    conversation: crate::memory::boxed(conversation.into()),
+                }
+            }
+        }
+    }
+}
+impl crate::memory::CFree for MarmotExistingAccountDirectConversation {
+    unsafe fn free_in_place(&mut self) {
+        match self {
+            Self::LocalMls { conversation } => unsafe { crate::memory::free_boxed(*conversation) },
+            Self::PairedSource { conversation } => unsafe {
+                crate::memory::free_boxed(*conversation)
+            },
+        }
+    }
+}
+/// Release an optional existing account direct-conversation result, including its payload.
+/// # Safety
+/// `value` is NULL or an unfreed value returned by this library, with no concurrent access.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn marmot_existing_account_direct_conversation_free(
+    value: *mut MarmotExistingAccountDirectConversation,
+) {
+    crate::memory::free_guard(|| unsafe { crate::memory::free_boxed(value) });
+}
+
+#[cfg(all(test, feature = "alloc-audit"))]
+mod direct_route_tests {
+    use super::*;
+    use crate::memory::{audit, boxed};
+
+    #[test]
+    fn existing_account_direct_conversation_deep_free_preserves_both_route_tags() {
+        let _guard = audit::test_lock();
+        let start = audit::live_allocations();
+        let values = [
+            ExistingAccountDirectConversationFfi::LocalMls {
+                conversation: ExistingDirectConversationFfi {
+                    group_id_hex: "11".into(),
+                    reusable: true,
+                    lifecycle_state: GroupLifecycleStateFfi::Stable,
+                    self_membership: SelfMembershipFfi::Member,
+                    pending_confirmation: false,
+                    leave_request_pending: false,
+                    disbanding: false,
+                    archived: true,
+                    activity_sort_at: 2,
+                },
+            },
+            ExistingAccountDirectConversationFfi::PairedSource {
+                conversation: PairedChatSummaryFfi {
+                    group_id_hex: "22".into(),
+                    name: "Fixture".into(),
+                    description: "Test".into(),
+                    source: PairedChatSourceFfi {
+                        device_hex: "33".repeat(32),
+                        policy_digest_hex: "44".repeat(32),
+                        protected_generation: 1,
+                        source_epoch: 2,
+                        source_sequence: 3,
+                        source_digest_hex: "55".repeat(32),
+                    },
+                },
+            },
+        ];
+        for (index, value) in values.into_iter().enumerate() {
+            let out = boxed(MarmotExistingAccountDirectConversation::from(value));
+            assert!(audit::live_allocations() > start);
+            unsafe {
+                match &*out {
+                    MarmotExistingAccountDirectConversation::LocalMls { conversation } => {
+                        assert_eq!(index, 0);
+                        assert!((**conversation).reusable);
+                        assert!((**conversation).archived);
+                    }
+                    MarmotExistingAccountDirectConversation::PairedSource { conversation } => {
+                        assert_eq!(index, 1);
+                        assert_eq!((**conversation).source.protected_generation, 1);
+                    }
+                }
+                marmot_existing_account_direct_conversation_free(out);
+                marmot_existing_account_direct_conversation_free(std::ptr::null_mut());
+            }
+            assert_eq!(audit::live_allocations(), start);
+        }
+    }
+}

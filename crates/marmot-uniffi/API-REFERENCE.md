@@ -5019,7 +5019,7 @@ pub async fn paired_chat_list_page( &self, account_ref: String, after_group_id_h
 
 Read a bounded authenticated paired-source catalog page without networking or reconstructed MLS membership. Pass the opaque group cursor verbatim. Default builds return Unsupported before decoding inputs.
 
-[Source](src/commands/account_chat_presentation.rs#L34)
+[Source](src/commands/account_chat_presentation.rs#L49)
 
 ### `Marmot::paired_chat_message_page`
 
@@ -5029,7 +5029,7 @@ pub async fn paired_chat_message_page( &self, account_ref: String, group_id_hex:
 
 Read bounded canonical message observations and source provenance using the returned message-ID/time cursor. This local read grants no send, attachment or moderation authority; default builds refuse before decoding inputs.
 
-[Source](src/commands/account_chat_presentation.rs#L55)
+[Source](src/commands/account_chat_presentation.rs#L70)
 
 </details>
 
@@ -5140,5 +5140,20 @@ pub async fn approve_automatic_device_linking_session( &self, account_ref: Strin
 Use a single scanned compact WNPAIR1 bootstrap instead of manual setup and verifier packet exchange. The app-configured safe relay set is used, never a QR-supplied URL. This factory downloads authenticated encrypted setup, validates its digest and delegates to the original native factory. The returned original is paused: validate exact host account/runtime adoption before automatic_pairing_code activates its response. Default builds return Unsupported before account effects.
 
 [Source](src/commands/device_linking.rs#L24)
+
+</details>
+
+<details>
+<summary>New exports — complete and organize before merging</summary>
+
+### `Marmot::existing_account_direct_conversation`
+
+```rust
+pub async fn existing_account_direct_conversation( &self, account_ref: String, peer_account_id: String, ) -> Result<Option<ExistingAccountDirectConversationFfi>, MarmotKitError>
+```
+
+Resolve a public hex key or npub to an observed existing direct conversation without sending an invitation. Prefer this method when a contact can have a paired-source chat: `LocalMls` preserves ordinary reuse/archive metadata and `PairedSource` preserves the approved source header without asserting local MLS membership. Default builds resolve local conversations only. Reads use the current local catalog and are network-free; propagate NotReady/Closed/runtime errors instead of treating them as a missing conversation. A missing observation is not remote catalog-completion or concurrent-creation proof. See [direct-contact routing](CHAT-LIST-ROWS.md#direct-contact-reuse-across-paired-installations).
+
+[Source](src/commands/account_chat_presentation.rs#L36)
 
 </details>

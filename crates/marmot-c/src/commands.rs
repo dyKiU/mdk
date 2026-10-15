@@ -32,6 +32,7 @@ use crate::types::account::{
     MarmotAccountSummaryList, MarmotAccountUnreadList, MarmotIdentityCreationResult,
     MarmotSendSummary, MarmotSignOutOutcome, MarmotUserProfileMetadata, MarmotWipeOutcome,
 };
+use crate::types::account_chat_presentation::MarmotExistingAccountDirectConversation;
 use crate::types::agent_stream::MarmotAgentStreamStart;
 use crate::types::audit::{
     MarmotAuditLogDeleteResult, MarmotAuditLogFileList, MarmotAuditLogSettings,
@@ -1114,6 +1115,10 @@ c_cmd! {
     /// before opening it. Free with
     /// `marmot_existing_direct_conversation_free`.
     async fn marmot_existing_direct_conversation(account_ref: str, peer_account_id: str) -> opt_rec(MarmotExistingDirectConversation) = existing_direct_conversation;
+
+    /// Resolve an existing contact chat with local or paired-source provenance.
+    /// Free the optional owned result with `marmot_existing_account_direct_conversation_free`.
+    async fn marmot_existing_account_direct_conversation(account_ref: str, peer_account_id: str) -> opt_rec(MarmotExistingAccountDirectConversation) = existing_account_direct_conversation;
 
     /// Search public identities cached through any connected account. Follow
     /// flags refer to the selected account. Call off the UI thread and free with

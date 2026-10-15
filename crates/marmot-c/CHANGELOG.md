@@ -14,6 +14,11 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- `marmot_existing_account_direct_conversation` and its deep-free return an
+  optional tagged local-MLS or paired-source route for a contact. Local-only
+  lookup remains available. New symbols and tagged layout require the matching
+  generated header/library; the lookup does not create invitations or membership.
+
 - Experimental one-scan pairing adds bounded UTF-8 bootstrap activation, automatic
   scan factory and revision-bound enrollment/sharing symbols. Use the matching
   generated header and library; visual comparison and sibling approvals remain required.
