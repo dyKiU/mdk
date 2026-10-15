@@ -34,6 +34,8 @@ pub(super) struct SessionState {
     transport_hint: Mutex<Option<crate::device_linking::network::PeerHint>>,
     transport_deadline: std::time::Instant,
     pending_transport: Mutex<Option<automatic::Driver>>,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    automatic_exit_observer: Mutex<Option<tokio::sync::oneshot::Sender<[bool; 3]>>>,
 }
 #[derive(Default)]
 struct PacketProgress {
@@ -250,6 +252,21 @@ impl AccountManager {
 }
 impl DeviceLinkingSession {
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn automatic_transport_exit_probe_for_test(
+        &self,
+    ) -> tokio::sync::oneshot::Receiver<[bool; 3]> {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        assert!(
+            self.inner
+                .automatic_exit_observer
+                .lock()
+                .expect("automatic exit observer")
+                .replace(sender)
+                .is_none()
+        );
+        receiver
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn automatic_retirement_probe_for_test(&self) -> impl Fn() -> bool + use<> {
         let state = self.inner.clone();
         move || {
@@ -450,6 +467,8 @@ impl DeviceLinkingSession {
             transport_hint: Mutex::new(None),
             transport_deadline,
             pending_transport: Mutex::new(None),
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            automatic_exit_observer: Mutex::new(None),
         });
         let weak = Arc::downgrade(&inner);
         inner.runtime.spawn(async move {
