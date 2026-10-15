@@ -167,7 +167,7 @@ impl<S: StorageProvider> Engine<S> {
             else {
                 return Ok(None);
             };
-            let Some(state) = completed_round_for_tree_in_snapshot(storage, group, &actual)? else {
+            let Some(state) = completed_round_for_tree_in_snapshot(storage, group, &actual, &evidence)? else {
                 return Ok(None);
             };
             if &state.anchor != evidence.settlement_anchor() {
@@ -744,6 +744,7 @@ pub(crate) fn completed_round_for_predecessor_tree<S: StorageProvider>(
             state,
             loaded_facts: None,
         },
+        None,
     )
 }
 
@@ -753,6 +754,7 @@ fn completed_round_for_tree_in_snapshot<S: StorageProvider>(
     storage: &S,
     group: &GroupId,
     actual: &openmls::group::MlsGroup,
+    evidence: &crate::private_successor::ValidatedPrivateSuccessor,
 ) -> Result<Option<PrivateSettlementState>, EngineError> {
     if actual.pending_commit().is_some() {
         return Ok(None);
@@ -763,7 +765,7 @@ fn completed_round_for_tree_in_snapshot<S: StorageProvider>(
     let Some(read) = store.read_round_with_loaded_facts()? else {
         return Ok(None);
     };
-    validate_completed_round_read(storage, group, actual, store, read)
+    validate_completed_round_read(storage, group, actual, store, read, Some(evidence))
 }
 
 fn validate_completed_round_read<S: StorageProvider>(
@@ -772,6 +774,7 @@ fn validate_completed_round_read<S: StorageProvider>(
     actual: &openmls::group::MlsGroup,
     store: &dyn PrivateRosterSettlementStorage,
     read: PrivateSettlementRead,
+    snapshot_evidence: Option<&crate::private_successor::ValidatedPrivateSuccessor>,
 ) -> Result<Option<PrivateSettlementState>, EngineError> {
     let state = read.state;
     if state.phase != PrivateSettlementPhase::Completed
@@ -805,10 +808,12 @@ fn validate_completed_round_read<S: StorageProvider>(
     {
         return Ok(None);
     }
-    if !crate::private_successor::anchor_matches_actual_tree(storage, group, actual, &state.anchor)?
-    {
-        return Ok(None);
-    }
+    let anchor_matches = if let Some(evidence) = snapshot_evidence {
+        crate::private_successor::anchor_matches_actual_tree_in_snapshot(storage, group, actual, &state.anchor, evidence)?
+    } else {
+        crate::private_successor::anchor_matches_actual_tree(storage, group, actual, &state.anchor)?
+    };
+    if !anchor_matches { return Ok(None); }
     let account = cgka_traits::MemberId::new(state.anchor.account.to_vec());
     for leaf in actual.export_ratchet_tree().leaves() {
         if crate::account_identity_proof::validate_leaf_account_identity_proof_for_member(

@@ -182,16 +182,9 @@ pub(crate) fn anchor_matches_actual_tree<S: StorageProvider>(
     group: &openmls::group::MlsGroup,
     anchor: &PrivateSettlementAnchor,
 ) -> Result<bool, EngineError> {
-    if anchor.group_id != *group_id {
-        return Ok(false);
-    }
-    let Some(actual) = crate::device_group_lineage::AppliedPrivateTree::read(group_id, group)?
-    else {
+    let Some(actual) = actual_tree_matching_anchor(group_id, group, anchor)? else {
         return Ok(false);
     };
-    if !actual.matches(&anchor.account, &anchor.local_device, &anchor.successor) {
-        return Ok(false);
-    }
     let accepted = storage
         .accepted_device_group_anchor_storage()
         .map(|store| store.accepted_anchor())
@@ -307,6 +300,21 @@ pub(crate) fn anchor_matches_actual_tree<S: StorageProvider>(
     if !matches {
         return Ok(false);
     }
+    Ok(anchor_commitment_matches(group_id, anchor))
+}
+
+fn actual_tree_matching_anchor(
+    group_id: &GroupId,
+    group: &openmls::group::MlsGroup,
+    anchor: &PrivateSettlementAnchor,
+) -> Result<Option<crate::device_group_lineage::AppliedPrivateTree>, EngineError> {
+    if anchor.group_id != *group_id { return Ok(None); }
+    let Some(actual) = crate::device_group_lineage::AppliedPrivateTree::read(group_id, group)? else { return Ok(None); };
+    if !actual.matches(&anchor.account, &anchor.local_device, &anchor.successor) { return Ok(None); }
+    Ok(Some(actual))
+}
+
+fn anchor_commitment_matches(group_id: &GroupId, anchor: &PrivateSettlementAnchor) -> bool {
     let candidate = crate::device_group_snapshot::CandidateDeviceGroupSnapshot {
         account: cgka_traits::MemberId::new(anchor.account.to_vec()),
         group_id: group_id.clone(),
@@ -323,7 +331,24 @@ pub(crate) fn anchor_matches_actual_tree<S: StorageProvider>(
             .collect(),
         roster_commitment: [0; 32],
     };
-    Ok(crate::device_group_snapshot::commitment(&candidate) == anchor.roster_commitment)
+    crate::device_group_snapshot::commitment(&candidate) == anchor.roster_commitment
+}
+
+/// Reuse origin reads only within the same pinned snapshot that produced
+/// `evidence`. The actual directly loaded MLS tree is still validated here.
+/// A different anchor takes the complete legacy path, including its errors.
+pub(crate) fn anchor_matches_actual_tree_in_snapshot<S: StorageProvider>(
+    storage: &S,
+    group_id: &GroupId,
+    group: &openmls::group::MlsGroup,
+    anchor: &PrivateSettlementAnchor,
+    evidence: &ValidatedPrivateSuccessor,
+) -> Result<bool, EngineError> {
+    if anchor != evidence.settlement_anchor() {
+        return anchor_matches_actual_tree(storage, group_id, group, anchor);
+    }
+    if actual_tree_matching_anchor(group_id, group, anchor)?.is_none() { return Ok(false); }
+    Ok(anchor_commitment_matches(group_id, anchor))
 }
 
 #[cfg(test)]
