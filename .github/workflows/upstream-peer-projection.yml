@@ -57,6 +57,7 @@ jobs:
           echo "$RUNNER_TEMP/peer-kotlin/kotlinc/bin" >> "$GITHUB_PATH"
           curl --fail --location https://repo.maven.apache.org/maven2/net/java/dev/jna/jna/5.17.0/jna-5.17.0.jar --output "$RUNNER_TEMP/peer-kotlin/jna.jar"
           curl --fail --location https://repo.maven.apache.org/maven2/org/jetbrains/annotations/26.0.2/annotations-26.0.2.jar --output "$RUNNER_TEMP/peer-kotlin/annotations.jar"
+          curl --fail --location https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-jvm/1.9.1/annotation-jvm-1.9.1.jar --output "$RUNNER_TEMP/peer-kotlin/androidx-annotation.jar"
           curl --fail --location https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.10.2/kotlinx-coroutines-core-jvm-1.10.2.jar --output "$RUNNER_TEMP/peer-kotlin/coroutines.jar"
           python3 - <<'PY'
           import hashlib,json,os
@@ -66,7 +67,7 @@ jobs:
           # installed preview/extension selected by a global version maximum.
           android=Path(os.environ['ANDROID_HOME'])/'platforms/android-35/android.jar'
           assert android.is_file(),'Declared stable Android35 platform jar unavailable'
-          jars=[root/'jna.jar',android,root/'annotations.jar',root/'coroutines.jar']
+          jars=[root/'jna.jar',android,root/'annotations.jar',root/'androidx-annotation.jar',root/'coroutines.jar']
           with open(os.environ['GITHUB_ENV'],'a') as output:
               output.write('MDK_KOTLIN_CLASSPATH='+':'.join(map(str,jars))+'\n')
           (root/'dependencies.json').write_text(json.dumps({str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in jars},indent=2)+'\n')
