@@ -1,0 +1,92 @@
+name: Upstream real pairing relay regression controls
+on:
+  push:
+    branches: [ci/upstream-pairing-relay-deployment-20261015]
+permissions:
+  contents: read
+concurrency:
+  group: pairing-relay-regression-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    outputs:
+      phase: ${{ steps.scope.outputs.phase }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: scope
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=json.loads(Path('scripts/upstream_pairing_relay_cohort.json').read_text())
+          assert r['phase'] in {'red','format'}
+          Path(os.environ['GITHUB_OUTPUT']).write_text('phase='+r['phase']+'\n')
+          PY
+  runtime:
+    needs: identity
+    if: needs.identity.outputs.phase == 'red'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      RUST_MIN_STACK: "4194304"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install pinned toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: upstream-pairing-relay-regressions
+          cache-on-failure: true
+      - name: Execute two exact original-mailbox runtime bodies
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label pairing-relay-original-red
+          python3 scripts/qualify_upstream_pairing_relays.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pairing-relay-original-${{ github.sha }}
+          path: pairing-relay-proof/
+          retention-days: 7
+  format:
+    needs: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Export exact canonical test formatting patch without compiling
+        run: |
+          set -euo pipefail
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          mkdir format-proof
+          git rev-parse HEAD > format-proof/source.txt
+          sha256sum crates/marmot-app/src/relay_plane/pairing/deployment_regressions.rs > format-proof/preimage.txt
+          cargo fmt --all
+          git diff --binary > format-proof/formatting.patch
+          cargo fmt --all --check
+          test ! -s format-proof/formatting.patch
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pairing-relay-format-${{ github.sha }}
+          path: format-proof/
+          retention-days: 7
