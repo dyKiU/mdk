@@ -37,6 +37,18 @@ impl OwnedExistingSettlementAttempt {
     }
 }
 impl AppClient {
+    /// Observe the existing actor-owned original binding; this cannot create
+    /// revocation admission, restore a guard or schedule a retry.
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn live_revocation_settlement_binding_for_test(
+        &self,
+        group: &cgka_traits::GroupId,
+    ) -> Result<Option<[u8; 32]>, crate::AppError> {
+        Ok(self.runtime.session().device_revocation_settlement_control()
+            .map_err(cgka_session::SessionError::from)?
+            .filter(|control| control.is_live() && control.group() == group)
+            .map(|control| *control.binding()))
+    }
     /// A failed atomic apply must retain the exact live B action. Reopening
     /// destroys that original owner and cannot reconstruct it from stored rows.
     pub(crate) fn existing_enrollment_storage_retry_group(

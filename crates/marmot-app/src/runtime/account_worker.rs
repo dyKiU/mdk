@@ -811,6 +811,11 @@ pub(crate) enum AccountWorkerCommand {
         feature = "experimental-device-sync",
         feature = "test-policy-overrides"
     ))]
+    LiveRevocationSettlementBindingForTest {
+        group: GroupId,
+        respond: oneshot::Sender<Result<Option<[u8; 32]>, AppError>>,
+    },
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
     RefreshRevocationReceiveRouteForTest {
         group: GroupId,
         respond: oneshot::Sender<Result<(bool, bool, bool), AppError>>,
@@ -5046,6 +5051,13 @@ fn account_worker_command_future<'a>(
             feature = "experimental-device-sync",
             feature = "test-policy-overrides"
         ))]
+        AccountWorkerCommand::LiveRevocationSettlementBindingForTest { group, respond } => {
+            Box::pin(async move {
+                let _ = respond.send(client.live_revocation_settlement_binding_for_test(&group));
+                true
+            })
+        }
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
         AccountWorkerCommand::RefreshRevocationReceiveRouteForTest { group, respond } => {
             Box::pin(async move {
                 let _ = respond.send(

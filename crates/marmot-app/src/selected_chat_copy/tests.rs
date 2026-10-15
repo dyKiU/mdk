@@ -1037,6 +1037,10 @@ mod actual {
             .await;
     }
     #[tokio::test]
+    async fn successive_device_revocation_rollback_keeps_fresh_challenge_intake() {
+        Box::pin(selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback)).await;
+    }
+    #[tokio::test]
     async fn device_revocation_confirmation_fact_rollback_preserves_owned_successor_authority() {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry)
             .await;
@@ -1067,6 +1071,7 @@ mod actual {
         DeviceRosterChallengeBeforeRetry,
         DeviceRosterChallengeInitialPeelBeforeRetry,
         DeviceRosterRefreshedRollbackRoute,
+        DeviceRosterSuccessiveRevocationRollback,
         DeviceRosterConfirmationStorageRetry,
         HistoryTransfer,
         HistoryRecipientQuery,
@@ -1477,12 +1482,17 @@ mod actual {
                 | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
                 | RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
                 | RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute
+                | RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback
                 | RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry
         ) {
             request.cancel().await.unwrap();
             drop(original_consents);
             use futures::FutureExt;
-            let verdict = std::panic::AssertUnwindSafe(assert_device_roster_removal(
+            let verdict = std::panic::AssertUnwindSafe(async {
+                let _predecessor_owners = if scenario == RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback {
+                    Some(Box::pin(establish_actual_revoked_predecessor(&fixture, &managers)).await)
+                } else { None };
+                assert_device_roster_removal(
                 &fixture,
                 &managers,
                 &directory_reader,
@@ -1493,6 +1503,7 @@ mod actual {
                         | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
                         | RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
                         | RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute
+                | RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback
                         | RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry
                 ),
                 scenario == RecipientAdmissionScenario::DeviceRosterSuccessorReopen,
@@ -1502,12 +1513,14 @@ mod actual {
                         | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
                         | RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
                         | RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute
+                | RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback
                 ),
                 match scenario {
                     RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry => {
                         Some(ChallengeBeforeRetry::Receipt)
                     }
-                    RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry => {
+                    RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
+                    | RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback => {
                         Some(ChallengeBeforeRetry::InitialPeel)
                     }
                     RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute => {
@@ -1518,7 +1531,8 @@ mod actual {
                     }
                     _ => None,
                 },
-            ))
+            ).await;
+            })
             .catch_unwind()
             .await;
             directory_reader.shutdown().await;
@@ -3025,6 +3039,107 @@ mod actual {
             }
             Err(_) => Ok(false), // Publication is known; arrival remains unproved.
         }
+    }
+
+    struct RevokedPredecessorOwners {
+        _source: DeviceLinkingSession,
+        _recipient: DeviceLinkingSession,
+        _approvals: Vec<DeviceLinkingApproval>,
+    }
+
+    /// Create a genuine previous Revoked original through explicit public
+    /// all-leaf enrollment and an actual first Remove. No SQL grants or MLS
+    /// state are copied. This is not automatic fourth-device enrollment proof.
+    async fn establish_actual_revoked_predecessor(
+        fixture: &SelectedChatFixture,
+        managers: &[crate::runtime::AccountManager; 3],
+    ) -> RevokedPredecessorOwners {
+        use cgka_traits::GroupStorage;
+        use futures::FutureExt;
+        fixture._a.cancel().await.unwrap();
+        fixture._c.cancel().await.unwrap();
+        fixture._approval.cancel().await.unwrap();
+        let e_dir = tempfile::tempdir().unwrap();
+        let keys = fixture.apps[0].account_home().load_signing_keys("test").unwrap();
+        AccountHome::open(e_dir.path()).import_account("test", &keys.secret_key().to_secret_hex()).unwrap();
+        let e_app = MarmotApp::with_relay(e_dir.path(), &fixture.url);
+        let e_runtime = MarmotAppRuntime::new(e_app.clone());
+        e_runtime.reconcile_accounts().await.unwrap();
+        let e_manager = e_runtime.accounts();
+        let verdict = std::panic::AssertUnwindSafe(async {
+            let targets = managers[0].device_linking_targets("test").await.unwrap();
+            assert_eq!(targets.len(), 1);
+            assert_eq!(targets[0].device_count, 3);
+            let e = e_manager.begin_device_linking_session("test").await.unwrap();
+            let a = managers[0].approve_device_linking_session("test", e.setup_packet(), Some(targets[0].selector.clone())).await.unwrap();
+            verify_public_pair(&a, &e).await;
+            e.continue_linking(e.snapshot().await.unwrap().revision).await.unwrap();
+            a.continue_linking(a.snapshot().await.unwrap().revision).await.unwrap();
+            let mut approvals = Vec::new();
+            for manager in &managers[1..] {
+                let approval = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    loop {
+                        if let Some(original) = manager.pending_device_linking_approvals("test").await.unwrap().pop() { break original; }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }).await.expect("each actual B/C device must receive the genuine fourth-device proposal");
+                let review = approval.snapshot().await.unwrap();
+                assert_eq!(review.phase, DeviceLinkingApprovalPhase::AwaitingApproval);
+                approval.approve(review.revision).await.unwrap();
+                approvals.push(approval);
+            }
+            assert_eq!(approvals.len(), 2);
+            let packet = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                loop {
+                    if let Ok(packet) = a.enrollment_packet(a.snapshot().await.unwrap().revision).await { break packet; }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            }).await.expect("original A must collect both authentic B/C endorsements");
+            e.receive_enrollment_packet(e.snapshot().await.unwrap().revision, packet.clone()).await.unwrap();
+            for approval in &approvals {
+                approval.receive_enrollment_packet(approval.snapshot().await.unwrap().revision, packet.clone()).await.unwrap();
+            }
+            a.finalize_linking(a.snapshot().await.unwrap().revision).await.unwrap();
+            let enrolled = [fixture.apps[0].clone(), fixture.apps[1].clone(), fixture.apps[2].clone(), e_app.clone()];
+            wait_actual_roster(&enrolled, 4).await;
+            let e_storage = e_app.account_storage("test").unwrap();
+            let before = fixture.apps[0].account_storage("test").unwrap()
+                .private_roster_settlement_storage().unwrap().read_round().unwrap().unwrap();
+            let protected = before.anchor.group_id;
+            let e_group = openmls::group::MlsGroup::load(e_storage.mls_storage(), &openmls::group::GroupId::from_slice(protected.as_slice())).unwrap().unwrap();
+            assert_eq!(e_group.members().count(), 4);
+            let exact_e = e_group.own_leaf_node().unwrap().signature_key().as_slice().to_vec();
+            let first = managers[0].begin_device_revocation("test", exact_e).await.unwrap();
+            let review = first.snapshot().await.unwrap();
+            assert_eq!(review.protected_group, protected);
+            assert!(review.ordinary_groups.is_empty(), "fresh E must not have inherited ordinary MLS state");
+            first.approve(review.revision).await.unwrap();
+            wait_actual_roster(&fixture.apps, 3).await;
+            tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                loop {
+                    if e_storage.get_group(&protected).unwrap().removed { break; }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            }).await.expect("E must actually realize its authenticated protected removal");
+            assert!(first.snapshot().await.unwrap().complete);
+            let b_round = fixture.apps[1].account_storage("test").unwrap()
+                .private_roster_settlement_storage().unwrap().read_round().unwrap().unwrap();
+            assert!(b_round.phase == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed);
+            assert!(matches!(b_round.anchor.origin, cgka_traits::private_device_invite::PrivateInviteOrigin::Revoked(_)));
+            assert_eq!(b_round.anchor.successor.leaves.len(), 3);
+            let before_cancel = managers[1].live_revocation_settlement_binding_for_test("test", &protected).await.unwrap();
+            assert!(before_cancel == Some(b_round.anchor.context_digest), "B must retain its actual Completed Revoked original binding");
+            // Release only the completed A source action's exclusive slot.
+            // B's actual received original is independently owned and stays live.
+            first.cancel();
+            let after_cancel = managers[1].live_revocation_settlement_binding_for_test("test", &protected).await.unwrap();
+            assert!(after_cancel == before_cancel, "cancelling only A must preserve B's independent received original");
+            eprintln!("successive_revocation_predecessor actual_four_leaf_enrollment=true first_remove_completed=true previous_received_control_live=true source_only_cancelled=true");
+            RevokedPredecessorOwners { _source: a, _recipient: e, _approvals: approvals }
+        }).catch_unwind().await;
+        e_runtime.shutdown_and_close().await.unwrap();
+        eprintln!("successive_revocation_extra_positive_closes=1 original_verdict_preserved=true");
+        match verdict { Ok(owners) => owners, Err(panic) => std::panic::resume_unwind(panic) }
     }
 
     async fn assert_device_roster_removal(
