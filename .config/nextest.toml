@@ -72,6 +72,13 @@ filter = 'package(cgka-conformance-simulator) & binary(app_runtime_interaction_j
 threads-required = "num-cpus"
 priority = 90
 
+# The virtual absolute-cap oracle still runs a bounded wall-clock replay slice.
+# Its unchanged isolated control passes; keep unrelated fixtures out of that slice.
+[[profile.default.overrides]]
+filter = 'package(cgka-engine) & binary(distributed_convergence) & test(=convergence_pass_freezes_at_absolute_cap_under_continuous_selection_input)'
+threads-required = "num-cpus"
+priority = 90
+
 # CI profile (`cargo nextest run --profile ci`).
 #
 # Retries are a safety net for transient infrastructure hiccups (mock-relay bind
@@ -152,6 +159,12 @@ filter = 'package(marmot-app)'
 test-group = 'm5-app-relay'
 threads-required = 3
 retries = 0
+
+[[profile.m5-bounded.overrides]]
+filter = 'package(cgka-engine) & binary(distributed_convergence) & test(=convergence_pass_freezes_at_absolute_cap_under_continuous_selection_input)'
+threads-required = 6
+retries = 0
+priority = 90
 
 # Crash fixtures launch an encrypted multi-engine child and then kill it at an
 # exact transaction hook. Reserve the full budget for parent plus child setup.
