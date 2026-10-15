@@ -217,8 +217,7 @@ def finish(process, seconds):
 
 def summary(path, env):
     result = subprocess.run(
-        ["xcrun", "xcresulttool", "get", "test-results", "summary", "--path", str(path),
-         "--format", "json"], env=env, capture_output=True, text=True
+        ["xcrun", "xcresulttool", "get", "test-results", "summary", "--path", str(path)], env=env, capture_output=True, text=True
     )
     if result.returncode:
         return {"summary_exit_code": result.returncode}
