@@ -1,0 +1,158 @@
+name: Upstream public three-device enrollment
+on:
+  workflow_dispatch:
+    inputs:
+      sdk_sha:
+        description: Exact qualified experimental SDK source commit
+        type: string
+        required: true
+      sdk_run_id:
+        description: Existing immutable Apple producer run
+        type: string
+        required: true
+      route:
+        description: Additional deployment acceptance; both routes required before promotion
+        type: choice
+        options: [both, eu, us]
+        default: both
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: public-enrollment-${{ github.sha }}-${{ inputs.sdk_sha }}-${{ inputs.route }}
+  cancel-in-progress: false
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    outputs:
+      routes: ${{ steps.identity.outputs.routes }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: identity
+        env:
+          SDK_SOURCE: ${{ inputs.sdk_sha }}
+          SDK_RUN: ${{ inputs.sdk_run_id }}
+          ROUTE: ${{ inputs.route }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,re
+          from pathlib import Path
+          assert os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch'
+          assert os.environ['GITHUB_REF'].startswith('refs/heads/ci/upstream-acceptance-')
+          assert re.fullmatch('[0-9a-f]{40}',os.environ['SDK_SOURCE'])
+          assert re.fullmatch('[1-9][0-9]+',os.environ['SDK_RUN'])
+          root=Path('scripts/upstream_apple_ci/native')
+          manifest=json.loads((root/'SOURCE.json').read_text())
+          assert manifest['workspace_commit']=='be04fc60b6a4c40bd85423fbf9e35e8982ae4b84'
+          assert all(hashlib.sha256((root/name).read_bytes()).hexdigest()==digest for name,digest in manifest['files'].items())
+          route=os.environ['ROUTE'];assert route in {'both','eu','us'}
+          Path(os.environ['GITHUB_OUTPUT']).write_text('routes='+json.dumps(['eu','us'] if route=='both' else [route])+'\n')
+          PY
+  sdk:
+    needs: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ inputs.sdk_sha }}
+      SDK_RUN_ID: ${{ inputs.sdk_run_id }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - run: python3 scripts/upstream_apple_ci/wait-sdk.py
+  public-enrollment:
+    needs: [identity, sdk]
+    runs-on: macos-26
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        route: ${{ fromJSON(needs.identity.outputs.routes) }}
+    env:
+      SOURCE_SHA: ${{ inputs.sdk_sha }}
+      SDK_RUN_ID: ${{ inputs.sdk_run_id }}
+      PUBLIC_ROUTE: ${{ matrix.route }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26'
+      - name: Download and validate existing exact SDK without rebuilding
+        run: |
+          gh run download "$SDK_RUN_ID" --repo dyKiU/mdk --name "upstream-experimental-apple-$SOURCE_SHA" --dir packages
+          python3 scripts/upstream_apple_ci/install.py --packages packages --source "$SOURCE_SHA" --run-id "$SDK_RUN_ID" --platform ios --output "$RUNNER_TEMP/public-sdk"
+          python3 scripts/upstream_apple_ci/install.py --packages packages --source "$SOURCE_SHA" --run-id "$SDK_RUN_ID" --platform macos --output "$RUNNER_TEMP/public-sdk/macos"
+      - name: Build fresh exact native agent for the existing SDK
+        env:
+          NATIVE_AUTOMATIC_ACCEPTANCE: '1'
+          NATIVE_ONE_SCAN_ACCEPTANCE: '1'
+          NATIVE_HISTORY_ACCEPTANCE: '1'
+          NATIVE_HISTORY_RECIPIENT_QUERY: '1'
+          NATIVE_ACCOUNT_DEPARTURE_ACCEPTANCE: '1'
+          NATIVE_DEVICE_REVOCATION_ACCEPTANCE: '1'
+        run: |
+          python3 scripts/upstream_apple_ci/prepare-hosted-agent.py --output "$RUNNER_TEMP/public-agent-source"
+          bash "$RUNNER_TEMP/public-agent-source/build.sh" "$RUNNER_TEMP/public-sdk" "$RUNNER_TEMP/public-agent"
+      - name: Execute original ninety-second public enrollment and full history/contact journey
+        env:
+          PUBLIC_AGENT: ${{ runner.temp }}/public-agent
+          PUBLIC_AGENT_PROVENANCE: ${{ runner.temp }}/public-agent-source/DERIVED-SOURCE.json
+        run: python3 scripts/upstream_apple_ci/public-enrollment.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-public-enrollment-${{ matrix.route }}-${{ github.sha }}-${{ inputs.sdk_sha }}
+          path: |
+            public-enrollment-proof/
+            ${{ runner.temp }}/public-agent-source/DERIVED-SOURCE.json
+          retention-days: 7
+  public-gates:
+    needs: [identity, public-enrollment]
+    if: always() && inputs.route == 'both'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      STATUS: ${{ needs.public-enrollment.result }}
+      SOURCE_SHA: ${{ inputs.sdk_sha }}
+      SDK_RUN_ID: ${{ inputs.sdk_run_id }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: upstream-public-enrollment-*-${{ github.sha }}-${{ inputs.sdk_sha }}
+          path: public-results
+      - name: Require both complete deployment journeys from this exact SDK cohort
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          assert os.environ['STATUS']=='success'
+          rows=[json.loads(p.read_text()) for p in Path('public-results').rglob('result.json')]
+          assert len(rows)==2
+          assert {r['route'] for r in rows}=={'wss://relay.eu.whitenoise.chat','wss://relay.us.whitenoise.chat'}
+          for r in rows:
+              assert r['qualified'] and r['source_and_agent_unchanged']
+              assert r['sdk_source']==os.environ['SOURCE_SHA'] and r['sdk_run_id']==os.environ['SDK_RUN_ID']
+              assert r['tools_sha']==os.environ['GITHUB_SHA']
+              assert r['frozen_workspace_commit']=='be04fc60b6a4c40bd85423fbf9e35e8982ae4b84'
+              assert r['completed_scan_directions']==r['initial_enrollments']==r['third_device_enrollments']==2
+              assert r['positive_original_process_closes']==10 and r['direct_reuse_observations']==6
+              assert r['automatic_retries']==r['sdk_rebuilds']==0
+          result={'qualified':True,'sdk_source':os.environ['SOURCE_SHA'],'sdk_run_id':os.environ['SDK_RUN_ID'],
+              'tools_sha':os.environ['GITHUB_SHA'],'routes':2,'completed_scan_directions':4,
+              'third_device_enrollments':4,'positive_original_process_closes':20,
+              'scope':'Additional public enrollment/history/contact gate; existing local22+setup1 and7supplement lanes remain required; no physical app UI acceptance claim'}
+          Path('public-gates.json').write_text(json.dumps(result,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: upstream-public-enrollment-gates-${{ github.sha }}-${{ inputs.sdk_sha }}
+          path: public-gates.json

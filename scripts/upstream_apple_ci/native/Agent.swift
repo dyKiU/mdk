@@ -51,11 +51,18 @@ final class AcceptanceAgent {
             try markerBytes.write(to: marker)
         }
         store = try TaskSecretStore(directory: root.appendingPathComponent("credentials", isDirectory: true))
+        let relay = try NativeAcceptance.relayURL()
+        var options = MarmotOptions(
+            relayPolicy: .allowLoopback, clientName: "native-cross-host-acceptance", secretStore: store)
+        #if NATIVE_ONE_SCAN_ACCEPTANCE
+            if relay.hasPrefix("wss://") {
+                options.relayPolicy = .publicOnly
+                options.pairingRelayUrls = ["wss://nos.lol", "wss://relay.primal.net"]
+            }
+        #endif
         runtime = try Marmot.newWithConfiguration(
             rootPath: root.appendingPathComponent("runtime", isDirectory: true).path,
-            relayUrls: [try NativeAcceptance.relayURL()],
-            options: MarmotOptions(
-                relayPolicy: .allowLoopback, clientName: "native-cross-host-acceptance", secretStore: store))
+            relayUrls: [relay], options: options)
     }
 
     static func serve(root: URL) async throws {

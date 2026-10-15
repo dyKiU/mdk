@@ -6,7 +6,7 @@ import hashlib,json
 from pathlib import Path
 root=Path('scripts/upstream_apple_ci/native')
 proof=json.loads((root/'SOURCE.json').read_text())
-if proof['workspace_commit'] != '3048d444ffe681fbae2dc1fb8e4f49d2a1c14372':
+if proof['workspace_commit'] != 'be04fc60b6a4c40bd85423fbf9e35e8982ae4b84':
     raise ValueError('Native acceptance source changed')
 for name, expected in proof['files'].items():
     if hashlib.sha256((root/name).read_bytes()).hexdigest() != expected:
