@@ -158,25 +158,30 @@ impl<S: StorageProvider> Engine<S> {
             let Some(evidence) = self.validated_private_successor(group)? else {
                 return Ok(None);
             };
-            let Some(actual) = openmls::group::MlsGroup::load(
-                storage.mls_storage(),
-                &openmls::group::GroupId::from_slice(group.as_slice()),
-            )
-            .map_err(|_| EngineError::Backend("private settled tree read failed".into()))?
+            // Reuse only the existing generation-validated parsed MLS object.
+            // The successor, round, facts and exact anchor remain fresh reads in
+            // this pinned snapshot; parsed state never carries authorization.
+            let Some(actual) = self
+                .take_mls_group(group)
+                .map_err(|_| EngineError::Backend("private settled tree read failed".into()))?
             else {
                 return Ok(None);
             };
-            let Some(state) = completed_round_for_tree(storage, group, &actual)? else {
-                return Ok(None);
-            };
-            if &state.anchor != evidence.settlement_anchor() {
-                return Ok(None);
-            }
-            Ok(Some(ValidatedSettledDeviceRoster {
-                settlement_generation: state.generation,
-                candidate: evidence.candidate().clone(),
-                origin: evidence.settlement_anchor().origin.clone(),
-            }))
+            let result = (|| {
+                let Some(state) = completed_round_for_tree(storage, group, &actual)? else {
+                    return Ok(None);
+                };
+                if &state.anchor != evidence.settlement_anchor() {
+                    return Ok(None);
+                }
+                Ok(Some(ValidatedSettledDeviceRoster {
+                    settlement_generation: state.generation,
+                    candidate: evidence.candidate().clone(),
+                    origin: evidence.settlement_anchor().origin.clone(),
+                }))
+            })();
+            self.return_unmodified_mls_group(group, actual);
+            result
         })
     }
     #[cfg(test)]

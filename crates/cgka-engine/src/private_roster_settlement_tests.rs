@@ -3032,16 +3032,29 @@ async fn private_roster_settlement_warm_group_cache_rejects_foreign_mls_tree_del
     let key = SqlCipherKey::new("18".repeat(32)).unwrap();
     let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     let (initiator, responder, group) = complete_pair(storage.clone()).await;
-    assert!(responder.validated_settled_device_roster(&group).unwrap().is_some());
+    assert!(
+        responder
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_some()
+    );
     // A real independently opened writer invalidates an already loaded MLS tree.
     let foreign = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     let mls_group = openmls::group::GroupId::from_slice(group.as_slice());
     foreign.mls_storage().delete_tree(&mls_group).unwrap();
     assert!(
-        !matches!(responder.validated_settled_device_roster(&group), Ok(Some(_))),
+        !matches!(
+            responder.validated_settled_device_roster(&group),
+            Ok(Some(_))
+        ),
         "cached parsed state cannot conceal an authoritative foreign tree deletion"
     );
-    assert!(initiator.validated_settled_device_roster(&group).unwrap().is_some());
+    assert!(
+        initiator
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_some()
+    );
 }
 
 #[tokio::test]
@@ -3051,12 +3064,37 @@ async fn private_roster_settlement_warm_group_cache_rechecks_foreign_confirmatio
     let key = SqlCipherKey::new("18".repeat(32)).unwrap();
     let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     let (initiator, responder, group) = complete_pair(storage.clone()).await;
-    assert!(responder.validated_settled_device_roster(&group).unwrap().is_some());
+    assert!(
+        responder
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_some()
+    );
     let foreign = rusqlite::Connection::open(&path).unwrap();
-    storage_sqlite::open_hardened_sqlcipher(&foreign, &key, storage_sqlite::SqlCipherHardening::default()).unwrap();
-    let removed = foreign.execute("DELETE FROM private_roster_settlement_facts", []).unwrap();
-    assert!(removed > 0, "the completed fixture must have actual authenticated leaf receipts");
-    assert!(responder.validated_settled_device_roster(&group).unwrap().is_none(),
-        "reusing parsed MLS state never reuses completed authorization");
-    assert!(initiator.validated_settled_device_roster(&group).unwrap().is_some());
+    storage_sqlite::open_hardened_sqlcipher(
+        &foreign,
+        &key,
+        storage_sqlite::SqlCipherHardening::default(),
+    )
+    .unwrap();
+    let removed = foreign
+        .execute("DELETE FROM private_roster_settlement_facts", [])
+        .unwrap();
+    assert!(
+        removed > 0,
+        "the completed fixture must have actual authenticated leaf receipts"
+    );
+    assert!(
+        responder
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_none(),
+        "reusing parsed MLS state never reuses completed authorization"
+    );
+    assert!(
+        initiator
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_some()
+    );
 }
