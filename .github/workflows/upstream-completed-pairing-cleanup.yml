@@ -23,12 +23,12 @@ jobs:
           import json,os
           from pathlib import Path
           phase=json.loads(Path('scripts/completed_pairing_cleanup_cohort.json').read_text())['phase']
-          assert phase in {'red','format'}
+          assert phase in {'red','green','format'}
           Path(os.environ['GITHUB_OUTPUT']).write_text('phase='+phase+'\n')
           PY
   runtime:
     needs: identity
-    if: needs.identity.outputs.phase == 'red'
+    if: needs.identity.outputs.phase == 'red' || needs.identity.outputs.phase == 'green'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -50,11 +50,11 @@ jobs:
         with:
           shared-key: completed-pairing-cleanup
           cache-on-failure: true
-      - name: Execute one real original completed-session ownership regression
+      - name: Execute exact real ownership baseline, omission and restored controls
         env:
           CARGO_INCREMENTAL: '1'
         run: |
-          python3 scripts/qualification_build_preflight.py --label completed-session-red
+          python3 scripts/qualification_build_preflight.py --label completed-session-runtime
           python3 scripts/qualify_completed_pairing_cleanup.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
@@ -88,4 +88,54 @@ jobs:
         with:
           name: completed-cleanup-format-${{ github.sha }}
           path: format-proof/
+          retention-days: 7
+  affected-static:
+    needs: identity
+    if: needs.identity.outputs.phase == 'green'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [default, experimental]
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install repository Rust toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component clippy --component rustfmt
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: completed-pairing-cleanup-static-${{ matrix.cohort }}
+          cache-on-failure: true
+      - name: Strict affected component checks
+        env:
+          CARGO_INCREMENTAL: '1'
+          COHORT: ${{ matrix.cohort }}
+        run: |
+          set -euo pipefail
+          mkdir -p static-proof
+          python3 scripts/qualification_build_preflight.py --label completed-session-static-$COHORT --output static-proof/capacity.json
+          git rev-parse HEAD > static-proof/source.txt
+          cargo metadata --locked --no-deps --format-version 1 > static-proof/metadata.json
+          features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
+          if [ "$COHORT" = experimental ]; then features=$features,marmot-app/experimental-device-sync; fi
+          printf '%s\n' "$features" > static-proof/features.txt
+          cargo fmt --all -- --check
+          cargo clippy --locked -p marmot-app --all-targets --features "$features" -- -D warnings
+          git diff --exit-code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: completed-cleanup-static-${{ matrix.cohort }}-${{ github.sha }}
+          path: static-proof/
           retention-days: 7

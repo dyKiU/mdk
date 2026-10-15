@@ -1,9 +1,11 @@
 {
-  "phase": "format",
+  "phase": "green",
   "baseline": "cd61ea2a14711d15072f77d7a0adc233ccef60ea",
   "regression_source_sha256": {
     "crates/marmot-app/src/native_device_linking/enabled.rs": "d37a53e03687d7c41aa51f0fdd0baa807fa2ee319f4bf733c56e29b16fd76a95",
-    "crates/marmot-app/src/native_device_linking/enabled/automatic.rs": "bbb8939f48cfbd5acef1374db9adde5a9f75209032b6adb7035505ae2d65d4cb",
+    "crates/marmot-app/src/native_device_linking/enabled/automatic.rs": "d63af53d8ddffa1d21752de34c0bedb41f866cbf4bfad8cfdee5b951f8bc01e0",
     "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs": "38fdbf4f06279a099d85e3fbc030147cd77e4b9d0bb51e3a4d3b1dc91398051a"
-  }
+  },
+  "guard_omission_sha256": "646a886a12c33ed8cd5452617ea7682415309c2279a3a8effebb1b5811d5c7cc",
+  "owner_guard_commit": "1d9c8e84b4f4f2dd35d614e25929c2f6ba146a18"
 }
