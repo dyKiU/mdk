@@ -1,0 +1,49 @@
+name: Upstream orchestration-only qualification
+on:
+  push:
+    branches: [ci/upstream-orchestration-preflight-20261015]
+permissions:
+  contents: read
+concurrency:
+  group: orchestration-preflight-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  orchestration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: actionlint@1.7.12
+      - name: Check exact workflow and profile syntax without compiling product
+        run: |
+          set -euo pipefail
+          mkdir orchestration-proof
+          git rev-parse HEAD > orchestration-proof/source.txt
+          git rev-parse 'HEAD^{tree}' > orchestration-proof/tree.txt
+          python3 - <<'PY'
+          import hashlib,json,tomllib
+          from pathlib import Path
+          p=Path('.config/nextest.toml');r=tomllib.loads(p.read_text())
+          assert {'ci-pr','ci-full','m5-bounded'} <= set(r['profile'])
+          assert r['profile']['m5-bounded']['retries']==0
+          Path('orchestration-proof/profiles.json').write_text(json.dumps({'toml_sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'profiles':sorted(r['profile']),'m5_bounded_retries':0,'product_compilation_executed':False},indent=2)+'\n')
+          PY
+          actionlint -shellcheck='' .github/workflows/ci.yml .github/workflows/experimental-sync.yml .github/workflows/bindings-profile.yml .github/workflows/upstream-app-native.yml .github/workflows/upstream-orchestration-preflight.yml 2>&1 | tee orchestration-proof/actionlint.log
+      - name: Run classifier and selector unit tests
+        run: |
+          set -euo pipefail
+          python3 scripts/test_classify_ci_changes.py -v 2>&1 | tee orchestration-proof/classifier.log
+          python3 scripts/test_select_ci_tests.py -v 2>&1 | tee orchestration-proof/selector.log
+          cargo metadata --locked --no-deps --format-version 1 > orchestration-proof/metadata.json
+          git diff --exit-code HEAD
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: orchestration-only-${{ github.sha }}
+          path: orchestration-proof/
+          retention-days: 7
