@@ -1853,6 +1853,38 @@ impl AppClient {
         entry: &mut SiblingChannel,
         in_flight: &mut usize,
     ) -> Result<(), ClientLinkingError> {
+        // Both original publications already met their ACK requirement and the
+        // peer's authenticated proof is durable. A redundant retry cannot add
+        // authority or postpone the completed handoff behind another relay wait.
+        if entry.handshake_published
+            && entry.policy_committed
+            && entry.proof_published
+            && entry.peer_committed
+        {
+            if !entry.original.live() || !entry.state.live() {
+                return Err(denied());
+            }
+            self.validate_sibling_parent(&entry.original)?;
+            self.runtime
+                .session()
+                .validate_account_sharing_channel(&entry.channel)
+                .map_err(ClientLinkingError::Engine)?;
+            if let Some(redundant) = entry.publication.as_mut() {
+                redundant.task.abort();
+                // Keep its budget slot reserved until cancellation finishes;
+                // never block the account worker waiting for redundant I/O.
+                if redundant.task.is_finished() {
+                    entry.publication.take();
+                    *in_flight -= 1;
+                }
+            }
+            let mut progress = entry.state.progress.lock().expect("sibling progress");
+            if !progress.complete {
+                progress.complete = true;
+                progress.revision += 1;
+            }
+            return Ok(());
+        }
         if let Some(pending) = entry.publication.as_ref() {
             if !pending.task.is_finished() {
                 return Ok(());

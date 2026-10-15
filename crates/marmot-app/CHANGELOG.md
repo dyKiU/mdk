@@ -277,6 +277,10 @@
 - Lossless relay repairs accept case-insensitive NIP-65 read/write markers,
   matching relay-list inspection while preserving their original spelling
   and extension fields through approval and publication.
+- A fully acknowledged bilateral sibling handoff completes under fresh live
+  parent and Core checks without waiting for a redundant consent/proof retry.
+  Cancelled retry jobs keep their budget slot until cancellation finishes.
+
 - Sibling consent retries no longer preempt first policy/proof progress on a
   one-second worker cadence; consent and proof retries service the older deadline.
 
