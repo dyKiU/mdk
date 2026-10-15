@@ -11,7 +11,8 @@ pub struct HistoryConsent {
     inner: marmot_app::HistoryConsent,
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl Marmot {
     /// Observe current linked-recipient choices; creates no transfer or consent.
     pub async fn history_transfer_recipients(
@@ -88,7 +89,8 @@ impl Marmot {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl HistoryTransfer {
     /// Observe the original selection and committed completion; never a grant.
     pub async fn snapshot(&self) -> Result<HistoryTransferSnapshotFfi, MarmotKitError> {
@@ -107,7 +109,8 @@ impl HistoryTransfer {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl HistoryConsent {
     /// Review the authenticated source, chat, bounds and current revision.
     pub async fn snapshot(&self) -> Result<HistoryTransferSnapshotFfi, MarmotKitError> {

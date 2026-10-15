@@ -11,7 +11,8 @@ pub struct SelectedChatConsent {
     inner: marmot_app::SelectedChatConsent,
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl Marmot {
     /// Request one ordinary chat for a fresh protected roster; explicit sibling consent is separate.
     pub async fn begin_selected_chat_copy(
@@ -60,7 +61,8 @@ impl Marmot {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl SelectedChatCopy {
     /// Forward snapshot to this exact original App owner.
     pub async fn snapshot(&self) -> Result<SelectedChatCopySnapshotFfi, MarmotKitError> {
@@ -91,12 +93,14 @@ impl SelectedChatCopy {
         Ok(self.inner.continue_copy(revision).await?)
     }
     /// Forward cancel to this exact original App owner.
+    #[marmot_uniffi_macros::survives_cancellation]
     pub async fn cancel(&self) -> Result<(), MarmotKitError> {
         Ok(self.inner.cancel().await?)
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl SelectedChatConsent {
     /// Forward snapshot to this exact original App owner.
     pub async fn snapshot(&self) -> Result<SelectedChatConsentSnapshotFfi, MarmotKitError> {
@@ -115,6 +119,7 @@ impl SelectedChatConsent {
         Ok(self.inner.offer_packet(revision).await?)
     }
     /// Forward cancel to this exact original App owner.
+    #[marmot_uniffi_macros::survives_cancellation]
     pub async fn cancel(&self) -> Result<(), MarmotKitError> {
         Ok(self.inner.cancel().await?)
     }

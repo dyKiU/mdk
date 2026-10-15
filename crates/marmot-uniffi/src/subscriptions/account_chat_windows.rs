@@ -25,13 +25,15 @@ impl Drop for AccountChatListWindowSubscription {
         self.commands.cancel();
     }
 }
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl AccountChatListWindowSubscription {
     /// Initial complete replacement, available once before receiving updates.
     pub fn snapshot(&self) -> Option<AccountChatListWindowSnapshotFfi> {
         take_snapshot(&self.snapshot)
     }
     /// One receiver; commands and cancellation remain independent of this wait.
+    #[marmot_uniffi_macros::receive]
     pub async fn next(&self) -> Result<Option<AccountChatListWindowSnapshotFfi>, MarmotKitError> {
         Ok(self
             .receiver
@@ -70,6 +72,8 @@ pub struct AccountConversationWindowSubscription {
     snapshot: StdMutex<Option<AccountConversationWindowSnapshotFfi>>,
     commands: marmot_app::AccountConversationWindowHandle,
     receiver: Mutex<marmot_app::RuntimeAccountConversationWindowSubscription>,
+    #[cfg(all(test, feature = "experimental-device-sync"))]
+    completed_receives: std::sync::atomic::AtomicUsize,
 }
 impl AccountConversationWindowSubscription {
     pub(crate) fn new(
@@ -79,7 +83,15 @@ impl AccountConversationWindowSubscription {
             snapshot: StdMutex::new(Some(inner.snapshot.clone().into())),
             commands: inner.window_handle(),
             receiver: Mutex::new(inner),
+            #[cfg(all(test, feature = "experimental-device-sync"))]
+            completed_receives: std::sync::atomic::AtomicUsize::new(0),
         })
+    }
+
+    #[cfg(all(test, feature = "experimental-device-sync"))]
+    pub(crate) fn completed_receive_count_for_test(&self) -> usize {
+        self.completed_receives
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 impl Drop for AccountConversationWindowSubscription {
@@ -87,12 +99,14 @@ impl Drop for AccountConversationWindowSubscription {
         self.commands.cancel();
     }
 }
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl AccountConversationWindowSubscription {
     /// Initial complete replacement; local authority remains explicitly local.
     pub fn snapshot(&self) -> Option<AccountConversationWindowSnapshotFfi> {
         take_snapshot(&self.snapshot)
     }
+    #[marmot_uniffi_macros::receive]
     pub async fn next(
         &self,
     ) -> Result<Option<AccountConversationWindowSnapshotFfi>, MarmotKitError> {
@@ -103,7 +117,12 @@ impl AccountConversationWindowSubscription {
             .recv()
             .await
             .map_err(account_chat_read_error)?
-            .map(Into::into))
+            .map(|value| {
+                #[cfg(all(test, feature = "experimental-device-sync"))]
+                self.completed_receives
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                value.into()
+            }))
     }
     /// Bounded chronological page, conditional on the installed sequence.
     pub async fn older_page(

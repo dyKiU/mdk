@@ -1,7 +1,8 @@
 use crate::conversions::group_id_from_hex;
 use crate::{Marmot, MarmotKitError, conversions::AccountChatDepartureStateFfi};
 
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl Marmot {
     /// Genuine local/paired-source readiness; does not require mirrored chats to
     /// pretend they have local MLS management state. Errors remain errors.
