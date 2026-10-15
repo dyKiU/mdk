@@ -30,6 +30,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - id: identity
         env:
@@ -38,19 +39,43 @@ jobs:
           ROUTE: ${{ inputs.route }}
         run: |
           python3 - <<'PY'
-          import hashlib,json,os,re
+          import hashlib,json,os,re,subprocess
           from pathlib import Path
           assert os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch'
           assert os.environ['GITHUB_REF'].startswith('refs/heads/ci/upstream-acceptance-')
           assert re.fullmatch('[0-9a-f]{40}',os.environ['SDK_SOURCE'])
           assert re.fullmatch('[1-9][0-9]+',os.environ['SDK_RUN'])
+          sdk=os.environ['SDK_SOURCE'];head=os.environ['GITHUB_SHA']
+          subprocess.run(['git','cat-file','-e',sdk+'^{commit}'],check=True)
+          subprocess.run(['git','merge-base','--is-ancestor',sdk,head],check=True)
+          # Every non-harness tracked input, including Cargo/config/build scripts,
+          # must exactly match the immutable SDK producer source.
+          permitted={'.github/workflows/upstream-public-enrollment.yml',
+            '.github/workflows/upstream-public-enrollment-preflight.yml'}
+          permitted.update('scripts/upstream_apple_ci/'+name for name in [
+            'public-enrollment.py','hosted_one_scan.py','prepare-hosted-agent.py',
+            'hosted-one-scan.sh','native.sh','HOSTED-SOURCE.json'])
+          permitted.update('scripts/upstream_apple_ci/native/'+name for name in [
+            'SOURCE.json','Acceptance.swift','Agent.swift','one_scan.py','README.md',
+            'test_one_scan.py','build.sh','StoreControls.swift','cross_host.py','automatic_chat.py'])
+          changed=subprocess.check_output(['git','diff','--name-only','-z',sdk,head],text=True).split('\0')
+          assert all(not name or name in permitted for name in changed),'SDK product/config/build input drift'
           root=Path('scripts/upstream_apple_ci/native')
           manifest=json.loads((root/'SOURCE.json').read_text())
           assert manifest['workspace_commit']=='be04fc60b6a4c40bd85423fbf9e35e8982ae4b84'
           assert all(hashlib.sha256((root/name).read_bytes()).hexdigest()==digest for name,digest in manifest['files'].items())
           route=os.environ['ROUTE'];assert route in {'both','eu','us'}
           Path(os.environ['GITHUB_OUTPUT']).write_text('routes='+json.dumps(['eu','us'] if route=='both' else [route])+'\n')
+          Path('public-identity').mkdir()
+          Path('public-identity/result.json').write_text(json.dumps({'sdk_source':sdk,'sdk_run_id':os.environ['SDK_RUN'],
+            'tools_sha':head,'sdk_ancestor_of_tools':True,'all_non_harness_inputs_identical':True,
+            'changed_harness_paths':[name for name in changed if name],
+            'frozen_native_workspace_commit':manifest['workspace_commit']},indent=2)+'\n')
           PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: upstream-public-enrollment-identity-${{ github.sha }}-${{ inputs.sdk_sha }}
+          path: public-identity/
   sdk:
     needs: identity
     runs-on: ubuntu-latest
