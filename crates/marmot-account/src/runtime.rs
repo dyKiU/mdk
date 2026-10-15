@@ -1268,6 +1268,9 @@ where
     }
 
     pub fn key_package_maintenance_requires_catch_up(&self) -> AccountResult<bool> {
+        if self.public_key_package_publication_disabled {
+            return Ok(false);
+        }
         let now = self.wall_clock.now();
         Ok(match self.session.key_package_lifecycle()? {
             None => true,
