@@ -21,15 +21,31 @@ report = {"source": subprocess.check_output(["git", "rev-parse", "HEAD"], text=T
           "stack_bytes": 4194304, "automatic_retries": 0,
           "cpu_scope": "synchronous calling-thread scheduled CPU only; never async await duration",
           "bucket_times": "inclusive nested buckets; NONADDITIVE; probe overhead included",
+          "schedstat_resolution": "kernel accounting resolution and zero-delta quantization unknown; no precision guarantee or overhead subtraction",
           "observer_overhead": "two proc schedstat reads and bounded mutex counters per active completed span; not subtracted",
           "compile_environment": {key: os.environ.get(key) for key in ["CARGO_INCREMENTAL", "CARGO_PROFILE_DEV_DEBUG", "CARGO_PROFILE_TEST_DEBUG", "RUSTFLAGS"]}}
 def save(): (OUT/"result.json").write_text(json.dumps(report, indent=2)+"\n")
+def inputs():
+    files = subprocess.check_output(["git", "ls-files", "-z"]).decode().split("\0")
+    manifest = hashlib.sha256()
+    count = 0
+    for name in sorted(value for value in files if value):
+        path = Path(name)
+        content = os.readlink(path).encode() if path.is_symlink() else path.read_bytes()
+        manifest.update(name.encode()+b"\0"+hashlib.sha256(content).digest())
+        count += 1
+    return {"tracked_count": count, "manifest_sha256": manifest.hexdigest(),
+            "tracked_pristine": subprocess.run(["git", "diff", "--quiet", "HEAD"]).returncode==0}
+report["inputs_before"] = inputs()
+report["diagnostic_source_hashes"] = {name: hashlib.sha256(Path(name).read_bytes()).hexdigest()
+    for name in subprocess.check_output(["git", "diff", "--name-only", report["product_baseline"], "HEAD"], text=True).splitlines()}
 assert os.environ["RUST_MIN_STACK"] == "4194304" and not os.environ.get("RUSTFLAGS")
 report["toolchain"] = subprocess.check_output(["rustc", "--version"], text=True).strip()
 report["lock_sha256"] = hashlib.sha256(Path("Cargo.lock").read_bytes()).hexdigest()
 start = time.monotonic()
 listing = subprocess.run(["cargo", "nextest", "list", "--locked", "-p", "marmot-app", "--lib", "--features", FEATURES, "-E", "test(="+TEST+")", "--message-format", "json"], capture_output=True, text=True)
 report.update(compile_seconds=time.monotonic()-start, compile_exit_code=listing.returncode)
+report["inputs_after_compile"] = inputs()
 if listing.returncode:
     report["compile_error_codes"] = sorted(set(re.findall(r"error\[(E[0-9]+)\]", listing.stderr)))
     report["compile_locations"] = sorted(set(re.findall(r"--> (crates/[A-Za-z0-9_./-]+\.rs:[0-9]+:[0-9]+)", listing.stderr)))[:20]
@@ -67,7 +83,9 @@ for phase,bucket,*numbers in re.findall(pattern, raw):
     if bucket in BUCKETS:
         rows.append({"phase": phase, "bucket": bucket, **dict(zip(KEYS,map(int,numbers)))})
 report["synchronous_buckets"] = rows
-report["diagnostic_complete"] = (report.get("executed_nonignored")==1 and report.get("ignored")==0
+report["inputs_after_execution"] = inputs()
+report["inputs_pristine"] = (report["inputs_before"]==report["inputs_after_compile"]==report["inputs_after_execution"] and report["inputs_after_execution"]["tracked_pristine"])
+report["diagnostic_complete"] = (report["inputs_pristine"] and report.get("executed_nonignored")==1 and report.get("ignored")==0
     and bool(report["phase_boundaries"]) and all(not item["arm_conflict"] for item in report["phase_boundaries"])
     and len(rows)==10*len(report["phase_boundaries"])
     and all(item["active"]==0 for item in rows)
