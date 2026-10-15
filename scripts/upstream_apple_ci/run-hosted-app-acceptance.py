@@ -115,7 +115,7 @@ class Runner:
                        'qualification_scope': ('Owner-free UI infrastructure setup: one real passing test, then attach-only harness control: one unit and one UI driver; '
                            'no enrollment, history, fixture-agent or changed-SDK behavior qualification.'
                            if args.scope == 'ios-control' else 'Real native app fixtures using the exact SDK cohort.'),
-                       'setup': {}, 'cases': {}, 'stage_timings': [],
+                       'setup': {}, 'cases': {}, 'adapter_mutations': {}, 'stage_timings': [],
                        'limits': ['Hosted single-runner SDK/app acceptance; no physical-device, APNS or production-install claim.',
                                   'No exhaustive full-history, all-user/topology or transferred retention/deletion equivalence.']}
         spec = importlib.util.spec_from_file_location('hosted_app_ui', HERE / 'hosted-app-ui.py')
@@ -552,6 +552,30 @@ class Runner:
         self.report['cases'][label] = result
         self.save()
 
+    def paired_direct_mutations(self, platform):
+        mac, simulator, agents = self.agents()
+        name = platform + '-paired-direct-mutations'
+        output = self.args.output.parent / (name + '.json')
+        command = [sys.executable, str(HERE / 'paired-direct-mutations.py'), '--platform', platform,
+            '--source', str(self.source(platform)), '--source-commit', self.commit(platform),
+            '--sdk-package', str(self.package(platform)), '--sdk-source', self.args.sdk_source,
+            '--sdk-run-id', self.args.sdk_run_id, '--mac-agent', str(mac), '--mac-sha', agents['mac_sha'],
+            '--sim-agent', str(simulator), '--sim-sha', agents['sim_sha'],
+            '--simulator', self.args.simulator, '--developer-dir', self.args.developer_dir,
+            '--relay', str(self.args.relay), '--work', str(self.private / name), '--output', str(output)]
+        # Three existing bounded phases, each with a fresh genuine native fixture.
+        # This is additional mutation evidence, separate from the 22 app bodies.
+        self.command(name, command, 'paired-direct-runtime-mutation', timeout=7200)
+        proof = json.loads(output.read_text())
+        require(proof.get('passed') is True and proof['platform'] == platform
+                and proof['app_sha'] == self.commit(platform) and proof['sdk_source'] == self.args.sdk_source
+                and str(proof['sdk_run_id']) == self.args.sdk_run_id
+                and proof.get('mutant_runtime_detected') is True and proof.get('source_restored') is True,
+                'exact-paired-direct-runtime-mutation-required')
+        self.report['adapter_mutations'][platform] = {'passed': True, 'mutant_runtime_detected': True,
+            'source_restored': True, 'app_sha': self.commit(platform), 'sdk_source': self.args.sdk_source,
+            'proof_sha256': digest(output)}
+
     def expected_cases(self):
         expected = {'ios-control'}
         if self.args.scope in ('mac', 'all'):
@@ -578,6 +602,8 @@ class Runner:
                 self.fixture(platform, name, scenario, selector=selector)
             for name, scenario, ui_case in UI_CASES[platform]:
                 self.fixture(platform, name, scenario, ui_case=ui_case)
+        for platform in platforms:
+            self.paired_direct_mutations(platform)
 
 
 def main():
@@ -625,6 +651,12 @@ def main():
         executed_bodies = sum(case['unit']['totalTestCount'] + case.get('driver', {}).get('totalTestCount', 0)
                               for case in runner.report['cases'].values())
         require(executed_bodies == expected_bodies, 'exact-selected-native-app-body-count-required')
+        expected_mutations = (set() if args.scope == 'ios-control' else
+                              {'macos', 'ios'} if args.scope == 'all' else
+                              {'macos'} if args.scope == 'mac' else {'ios'})
+        require(set(runner.report['adapter_mutations']) == expected_mutations
+                and all(proof['passed'] is True for proof in runner.report['adapter_mutations'].values()),
+                'each-requested-platform-runtime-mutant-required')
         runner.report['passed'] = 1
     except (ValueError, OSError, KeyError, subprocess.SubprocessError) as error:
         # Only fixed labels/types leave the private runner, never SDK descriptions.
@@ -643,6 +675,8 @@ def main():
             for counts in (case.get('unit'), case.get('driver'))
             if isinstance(counts, dict) and type(counts.get('totalTestCount')) is int
             and counts['totalTestCount'] >= 0)
+        runner.report['expected_adapter_runtime_mutant_count'] = {'ios-control': 0, 'mac': 1, 'ios': 1, 'all': 2}[args.scope]
+        runner.report['completed_adapter_runtime_mutant_count'] = len(runner.report['adapter_mutations'])
         runner.report['expected_setup_test_count'] = 1
         runner.report['completed_setup_test_count'] = len(runner.report['setup'])
         runner.report['expected_cases'] = sorted(runner.expected_cases())
