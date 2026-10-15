@@ -26,6 +26,10 @@
 
 ### Fixed
 
+- Automatic request/consent relay waits use a separate four-job account budget,
+  allowing foreground enrollment and other established channels to progress.
+  Completion revalidates the exact live policy/channel; retirement aborts the job.
+
 - Sibling chat-sharing relay publication no longer blocks the account worker or
   another approved sibling. At most four original-owned publications run per
   account; completion rechecks the exact live channel and roster. Dropping the

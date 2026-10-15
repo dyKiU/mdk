@@ -157,6 +157,7 @@ pub(crate) struct AccountSharingOwner {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) next_original_lifetime_for_test: Option<Duration>,
     pub(crate) departure_cursor: Option<[u8; 32]>,
+    pub(crate) automatic_handshake_slots: Arc<tokio::sync::Semaphore>,
     pub(crate) automatic:
         BTreeMap<[u8; 32], crate::client::account_chat_sharing::automatic::AutomaticChannel>,
 }
@@ -170,6 +171,9 @@ impl Default for AccountSharingOwner {
             record_receipt_probe: None,
             #[cfg(all(test, feature = "test-policy-overrides"))]
             next_original_lifetime_for_test: None,
+            automatic_handshake_slots: Arc::new(tokio::sync::Semaphore::new(
+                crate::client::account_chat_sharing::automatic::MAX_AUTOMATIC_HANDSHAKES,
+            )),
             automatic: BTreeMap::new(),
             departure_cursor: None,
         }

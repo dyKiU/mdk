@@ -175,10 +175,21 @@ struct MarmotRelayPlaneInner {
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SelectedPublicationClass {
+    Welcome,
+    Group,
+    SiblingConsent,
+    Automatic,
+}
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 struct SelectedWelcomePublicationGate {
     account: MemberId,
-    welcome: bool,
-    consent_only: bool,
+    class: SelectedPublicationClass,
     observed: tokio::sync::oneshot::Sender<cgka_traits::TransportMessage>,
     release: Arc<Notify>,
 }
@@ -1379,7 +1390,7 @@ impl MarmotRelayPlane {
         tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
         Arc<Notify>,
     ) {
-        self.hold_next_selected_publication(account, true, false)
+        self.hold_next_selected_publication(account, SelectedPublicationClass::Welcome)
     }
 
     #[cfg(all(
@@ -1394,7 +1405,7 @@ impl MarmotRelayPlane {
         tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
         Arc<Notify>,
     ) {
-        self.hold_next_selected_publication(account, false, false)
+        self.hold_next_selected_publication(account, SelectedPublicationClass::Group)
     }
 
     #[cfg(all(
@@ -1409,7 +1420,22 @@ impl MarmotRelayPlane {
         tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
         Arc<Notify>,
     ) {
-        self.hold_next_selected_publication(account, false, true)
+        self.hold_next_selected_publication(account, SelectedPublicationClass::SiblingConsent)
+    }
+
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn hold_next_automatic_control(
+        &self,
+        account: MemberId,
+    ) -> (
+        tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
+        Arc<Notify>,
+    ) {
+        self.hold_next_selected_publication(account, SelectedPublicationClass::Automatic)
     }
 
     #[cfg(all(
@@ -1420,8 +1446,7 @@ impl MarmotRelayPlane {
     fn hold_next_selected_publication(
         &self,
         account: MemberId,
-        welcome: bool,
-        consent_only: bool,
+        class: SelectedPublicationClass,
     ) -> (
         tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
         Arc<Notify>,
@@ -1432,8 +1457,7 @@ impl MarmotRelayPlane {
         assert!(held.is_none(), "only one fixture publication may be held");
         *held = Some(SelectedWelcomePublicationGate {
             account,
-            welcome,
-            consent_only,
+            class,
             observed,
             release: release.clone(),
         });
@@ -3817,9 +3841,13 @@ impl MarmotRelayPlaneAccountAdapter {
             let gate = {
                 let mut held = self.relay_plane.inner.selected_welcome_gate.lock().unwrap();
                 if held.as_ref().is_some_and(|gate| {
-                    !gate.consent_only
-                        && gate.account == request.account_id
-                        && gate.welcome == welcome
+                    gate.account == request.account_id
+                        && gate.class
+                            == if welcome {
+                                SelectedPublicationClass::Welcome
+                            } else {
+                                SelectedPublicationClass::Group
+                            }
                 }) {
                     held.take()
                 } else {
@@ -3844,10 +3872,36 @@ impl MarmotRelayPlaneAccountAdapter {
         {
             let gate = {
                 let mut held = self.relay_plane.inner.selected_welcome_gate.lock().unwrap();
-                if held
-                    .as_ref()
-                    .is_some_and(|gate| gate.consent_only && gate.account == request.account_id)
-                {
+                if held.as_ref().is_some_and(|gate| {
+                    gate.class == SelectedPublicationClass::SiblingConsent
+                        && gate.account == request.account_id
+                }) {
+                    held.take()
+                } else {
+                    None
+                }
+            };
+            if let Some(gate) = gate {
+                let _ = gate.observed.send(request.message.clone());
+                gate.release.notified().await;
+            }
+        }
+        self.publish_selected_chat(request).await
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) async fn publish_automatic_control(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        {
+            let gate = {
+                let mut held = self.relay_plane.inner.selected_welcome_gate.lock().unwrap();
+                if held.as_ref().is_some_and(|gate| {
+                    gate.class == SelectedPublicationClass::Automatic
+                        && gate.account == request.account_id
+                }) {
                     held.take()
                 } else {
                     None

@@ -4,15 +4,27 @@ use marmot_account::AccountHome;
 
 #[tokio::test]
 async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts() {
-    four_device_enrollment(false).await;
+    four_device_enrollment(HeldPublication::None).await;
 }
 
 #[tokio::test]
 async fn blocked_sibling_consent_does_not_starve_another_approved_peer() {
-    four_device_enrollment(true).await;
+    four_device_enrollment(HeldPublication::SiblingConsent).await;
 }
 
-async fn four_device_enrollment(hold_first_consent: bool) {
+#[tokio::test]
+async fn automatic_sync_does_not_block_foreground_enrollment_completion() {
+    four_device_enrollment(HeldPublication::Automatic).await;
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HeldPublication {
+    None,
+    SiblingConsent,
+    Automatic,
+}
+
+async fn four_device_enrollment(held_publication: HeldPublication) {
     use cgka_traits::StorageProvider;
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();
@@ -176,10 +188,17 @@ async fn four_device_enrollment(hold_first_consent: bool) {
     a.automatic_pairing_code().await.unwrap();
     eprintln!("automatic-enrollment-control stage=fourth-device-comparison");
     compare_and_confirm_pair(&a, &d).await;
-    let held_consent = hold_first_consent.then(|| {
+    let held_consent = (held_publication == HeldPublication::SiblingConsent).then(|| {
         apps[3]
             .relay_plane
             .hold_next_sibling_consent(cgka_traits::MemberId::new(
+                keys.public_key().to_bytes().to_vec(),
+            ))
+    });
+    let held_automatic = (held_publication == HeldPublication::Automatic).then(|| {
+        apps[3]
+            .relay_plane
+            .hold_next_automatic_control(cgka_traits::MemberId::new(
                 keys.public_key().to_bytes().to_vec(),
             ))
     });
@@ -249,6 +268,9 @@ async fn four_device_enrollment(hold_first_consent: bool) {
     .catch_unwind()
     .await;
     if let Err(failure) = completion {
+        if let Some((_, release)) = &held_automatic {
+            release.notify_one();
+        }
         for (index, app) in apps.iter().enumerate() {
             if let Ok(storage) = app.account_storage("test")
                 && let Some(store) = storage.private_roster_settlement_storage()
@@ -283,6 +305,16 @@ async fn four_device_enrollment(hold_first_consent: bool) {
         std::panic::resume_unwind(failure);
     }
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
+    if let Some((observed, release)) = held_automatic {
+        // Pairing has already completed while the background publication is held.
+        // Now prove that ordinary automatic work resumes without another action.
+        let resumed = tokio::time::timeout(std::time::Duration::from_secs(10), observed).await;
+        release.notify_one();
+        assert!(
+            matches!(resumed, Ok(Ok(_))),
+            "automatic sync must resume after enrollment handoff"
+        );
+    }
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             if apps.iter().all(|app| {
