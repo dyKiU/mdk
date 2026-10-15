@@ -443,6 +443,68 @@ jobs:
             exit "$runtime_status"
           fi
           cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads "$regression_threads" --retries 0 --no-fail-fast "${output_args[@]}"
+      - name: Preserve the already-built exact pairing diagnostic after failure
+        id: pairing-archive
+        if: failure() && inputs.scope == 'pairing-regression'
+        run: |
+          set -euo pipefail
+          df -h "$GITHUB_WORKSPACE"
+          mkdir -p pairing-diagnostic-archive
+          export PAIRING_ARCHIVE_FEATURES=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
+          python3 - <<'PYARCHIVE'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          selector = "native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts"
+          inventory = json.loads(Path("core-regression-inventory.json").read_text())
+          selected = [suite for suite in inventory["rust-suites"].values() if any(
+              name == selector and not case["ignored"] and case["filter-match"]["status"] == "matches"
+              for name, case in suite["testcases"].items())]
+          assert len(selected) == 1, "one exact existing nonignored binary required"
+          suite = selected[0]
+          assert suite["package-name"] == "marmot-app" and suite["binary-name"] == "marmot_app"
+          binary = Path(suite["binary-path"])
+          assert binary.is_file(), "do not rebuild a missing diagnostic binary"
+          proof = {
+              "source": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "source_tree": subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip(),
+              "features": os.environ["PAIRING_ARCHIVE_FEATURES"],
+              "toolchain": subprocess.check_output(["rustc", "--version"], text=True).strip(),
+              "build_profile": "test (unoptimized)", "nextest_profile": "m5-bounded",
+              "rust_min_stack_bytes": int(os.environ["RUST_MIN_STACK"]),
+              "selector": selector, "selected_nonignored": 1, "automatic_retries": 0,
+              "binary_sha256": hashlib.file_digest(binary.open("rb"), "sha256").hexdigest(),
+              "qualification_passed": False,
+              "scope": "Immutable compiled target archive only; original failed attempt retained; no second runtime execution.",
+          }
+          assert proof["rust_min_stack_bytes"] == 4194304
+          Path("pairing-diagnostic-archive/provenance.json").write_text(json.dumps(proof, indent=2) + "\n")
+          PYARCHIVE
+          cargo nextest archive --locked -p marmot-app --lib --features "$PAIRING_ARCHIVE_FEATURES" \
+            --archive-file pairing-diagnostic-archive/tests.tar.zst 2>&1 | tee pairing-diagnostic-archive/archive-build.log
+          python3 - <<'PYARCHIVE'
+          import hashlib, json, re
+          from pathlib import Path
+          root = Path("pairing-diagnostic-archive")
+          proof = json.loads((root / "provenance.json").read_text())
+          inventory = json.loads(Path("core-regression-inventory.json").read_text())
+          selected = [suite for suite in inventory["rust-suites"].values() if any(
+              name == proof["selector"] and not case["ignored"] and case["filter-match"]["status"] == "matches"
+              for name, case in suite["testcases"].items())]
+          actual = hashlib.file_digest(Path(selected[0]["binary-path"]).open("rb"), "sha256").hexdigest()
+          assert actual == proof["binary_sha256"], "archival changed the tested binary"
+          build = re.sub(r"\x1b\[[0-9;]*m", "", (root / "archive-build.log").read_text())
+          proof["unexpected_rebuild"] = bool(re.search(r"^\s*Compiling\s", build, re.M))
+          proof["archive_sha256"] = hashlib.file_digest((root / "tests.tar.zst").open("rb"), "sha256").hexdigest()
+          (root / "provenance.json").write_text(json.dumps(proof, indent=2) + "\n")
+          assert not proof["unexpected_rebuild"], "retain and report unexpected archival recompilation"
+          PYARCHIVE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && steps.pairing-archive.outcome == 'success'
+        with:
+          name: pairing-diagnostic-compiled-${{ github.sha }}
+          path: pairing-diagnostic-archive/
+          retention-days: 7
+          if-no-files-found: error
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
