@@ -19,12 +19,14 @@ jq -r '."rust-suites" | to_entries[] | .key as $suite | .value.testcases | to_en
     "$work_dir/inventory.json" | sort > "$work_dir/expected"
 jq -c '[."rust-suites"[].testcases[]] as $cases |
     ($cases | map(select(.["filter-match"].status == "matches"))) as $selected |
+    if all($cases[]; (.ignored | type) == "boolean") then
     {inventory_total: ($cases | length),
      selected_total: ($selected | length),
      ignored_total: ($cases | map(select(.ignored)) | length),
      selected_ignored: ($selected | map(select(.ignored)) | length),
      selected_runnable: ($selected | map(select(.ignored | not)) | length),
-     filtered: (($cases | length) - ($selected | length))}' "$work_dir/inventory.json" >&2
+     filtered: (($cases | length) - ($selected | length))}
+    else error("Ignored-test metadata is required for complete inventory counts") end' "$work_dir/inventory.json" >&2
 test -s "$work_dir/expected"
 for ((partition = 1; partition <= partitions; partition++)); do
     list_tests "$@" --partition "count:$partition/$partitions" >> "$work_dir/actual"
