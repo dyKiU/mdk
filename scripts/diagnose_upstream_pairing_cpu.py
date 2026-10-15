@@ -145,7 +145,16 @@ def record_owned(_sampler, command, _raw_path):
                     name = name.split("(", 1)[0].strip()
                     if len(name) > 400 or not re.fullmatch(r"[A-Za-z0-9_:<>, &*~.$?{}\[\]#=+!;\-]+", name):
                         name = "unavailable"
-                    samples.append((time.monotonic() - started, name, deltas[tid]))
+                    # Request static frames only, never arguments or locals. Raw MI stays private.
+                    stack = debugger.command("-stack-list-frames 0 39")
+                    callers = []
+                    for encoded in re.findall(r'func=("(?:[^"\\]|\\.)*")', stack):
+                        caller = json.loads(encoded).split("(", 1)[0].strip()
+                        if len(caller) <= 400 and re.fullmatch(r"[A-Za-z0-9_:<>, &*~.$?{}\[\]#=+!;\-]+", caller):
+                            if any(fragment in caller for fragment in ["marmot_app::", "cgka_engine::", "storage_sqlite::", "openmls::", "nostr_sdk::", "secrets::", "secrecy::"]):
+                                if caller not in callers:
+                                    callers.append(caller)
+                    samples.append((time.monotonic() - started, name, deltas[tid], tuple(callers[:6])))
                 before = after
                 debugger.command("-exec-continue")
             LAST_STAGE = "release-debugger-before-child-reap"
@@ -165,12 +174,18 @@ def record_owned(_sampler, command, _raw_path):
 
 
 def summarize(samples):
-    counts = collections.Counter(name for _, name, _ in samples)
+    counts = collections.Counter(name for _, name, _, _ in samples)
     weights = collections.Counter()
-    for _, name, ticks in samples:
+    for _, name, ticks, _ in samples:
         weights[name] += ticks
     return [{"function": name, "samples": count, "active_thread_cpu_ticks": weights[name]}
             for name, count in counts.most_common(100)]
+
+
+def caller_summary(samples):
+    counts = collections.Counter((name, callers) for _, name, _, callers in samples)
+    return [{"leaf": name, "static_callers": list(callers), "samples": count}
+            for (name, callers), count in counts.most_common(60)]
 
 
 def remove_raw(path):
@@ -208,7 +223,7 @@ def main():
         "features": provenance["features"], "toolchain": provenance["toolchain"],
         "build_profile": provenance["build_profile"], "original_nextest_profile": provenance["nextest_profile"],
         "test": TEST, "selected_nonignored": 1, "rust_min_stack_bytes": 4194304,
-        "automatic_retries": 0, "test_threads": 1, "diagnostic_watchdog_seconds": 240, "sampler": "GDB bounded static leaf sampling at 5Hz, highest CPU-delta owned thread",
+        "automatic_retries": 0, "test_threads": 1, "diagnostic_watchdog_seconds": 240, "sampler": "GDB bounded static leaf and allowlisted caller sampling at 5Hz, highest CPU-delta owned thread",
         "debugger_version": version, "preflight_passed": preflight,
         "ptrace_scope": Path("/proc/sys/kernel/yama/ptrace_scope").read_text().strip() if Path("/proc/sys/kernel/yama/ptrace_scope").exists() else "unavailable",
         "proc_task_stat_readable": os.access("/proc/self/task", os.R_OK),
@@ -226,7 +241,7 @@ def main():
         # Require actual samples through the identical attach-before-exec path.
         control_command = ["/usr/bin/python3", "-c", "import time; end=time.monotonic()+1.5\nwhile time.monotonic()<end: pass"]
         control_exit, _, control_samples = record_owned(perf, control_command, control_raw)
-        control_counts = collections.Counter(name for _, name, _ in control_samples)
+        control_counts = collections.Counter(name for _, name, _, _ in control_samples)
         control_decoded = True
         report["positive_control_samples"] = sum(control_counts.values())
         report["positive_control_passed"] = control_exit == 0 and control_decoded and any(name != "unavailable" for name in control_counts)
@@ -239,7 +254,7 @@ def main():
         started = bool(re.search(r"running 1 test\b", runtime))
         summary = re.search(r"test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored;", runtime)
         decoded = True
-        counts = collections.Counter(name for _, name, _ in samples)
+        counts = collections.Counter(name for _, name, _, _ in samples)
         last = samples[-1][0] if samples else 0
         report.update({
             "runtime_body_started": started, "runtime_exit_code": runtime_exit,
@@ -247,6 +262,8 @@ def main():
             "sample_decode_passed": decoded,
             "leaf_sample_count": sum(counts.values()),
             "static_symbol_aggregates": summarize(samples),
+            "static_caller_aggregates": caller_summary(samples),
+            "last_20_seconds_static_caller_aggregates": caller_summary([sample for sample in samples if sample[0] >= last - 20]),
             "last_20_seconds_static_symbol_aggregates": summarize([sample for sample in samples if sample[0] >= last - 20]),
             "attribution_limits": "Debugger pauses influence timing; leaf sampled after interrupt may differ from the CPU-hot function. Whole case includes startup/import. ef4 includes unqualified early-finalization extra checks. CPU ticks weight intervals, not exact per-function CPU time.",
             "unexported_symbol_count": max(0, len(counts) - 100),
