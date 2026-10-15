@@ -183,6 +183,9 @@ just ci                      # full local parity with GitHub CI (slow)
 
 Common targeted runs:
 
+Fork integration uses the [hosted Apple qualification lane](scripts/upstream_apple_ci/README.md)
+to build one experimental SDK cohort and verify pinned Mac, iOS and native acceptance consumers.
+
 ```sh
 cargo test -p cgka-engine
 cargo test -p cgka-conformance-simulator                            # scenarios, vectors, property tests
