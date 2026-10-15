@@ -94,17 +94,21 @@ fn private_proof_memo_admission_limits_preserve_legitimate_oversized_verificatio
 fn private_proof_memo_capacity_is_bounded_and_fifo_eviction_reverifies() {
     let keys = Keys::generate();
     let memo = ProofSignatureMemo::default();
-    let first = request(&keys, 0);
-    let first_signature = signature(&keys, &first);
+    let mut first = None;
+    let mut last = None;
     for index in 0..=CAPACITY as u16 {
         let request = request(&keys, index);
-        memo.verify(&request, &signature(&keys, &request)).unwrap();
+        let signed = signature(&keys, &request);
+        memo.verify(&request, &signed).unwrap();
+        if index == 0 { first = Some((request.clone(), signed)); }
+        if index == CAPACITY as u16 { last = Some((request, signed)); }
     }
     assert_eq!(memo.entries.lock().unwrap().len(), CAPACITY);
     assert_eq!(memo.cold_count(), CAPACITY + 1);
-    let last = request(&keys, CAPACITY as u16);
-    memo.verify(&last, &signature(&keys, &last)).unwrap();
-    assert_eq!(memo.cold_count(), CAPACITY + 1, "newest valid entry stays warm");
+    let (last, last_signature) = last.unwrap();
+    memo.verify(&last, &last_signature).unwrap();
+    assert_eq!(memo.cold_count(), CAPACITY + 1, "newest exact signed tuple stays warm");
+    let (first, first_signature) = first.unwrap();
     memo.verify(&first, &first_signature).unwrap();
     assert_eq!(memo.cold_count(), CAPACITY + 2, "oldest entry is actually evicted and reverified");
 }
