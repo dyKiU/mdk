@@ -1912,7 +1912,13 @@ impl AppClient {
             || (awaiting_handshake
                 && entry
                     .handshake_retry_at
-                    .is_some_and(|next| Instant::now() >= next))
+                    .is_some_and(|next| Instant::now() >= next)
+                // Initial policy/proof progress must precede another consent.
+                // Once both were sent, retry the older publication first: the
+                // one-second worker cadence can otherwise starve proof forever.
+                && (!entry.ready
+                    || (entry.proof_published
+                        && entry.handshake_retry_at <= entry.proof_retry_at)))
         {
             if *in_flight < MAX_SIBLING_PUBLICATIONS {
                 self.start_sibling_publication(entry, None).await?;

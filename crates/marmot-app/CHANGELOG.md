@@ -277,6 +277,9 @@
 - Lossless relay repairs accept case-insensitive NIP-65 read/write markers,
   matching relay-list inspection while preserving their original spelling
   and extension fields through approval and publication.
+- Sibling consent retries no longer preempt first policy/proof progress on a
+  one-second worker cadence; consent and proof retries service the older deadline.
+
 - Automatic request/consent relay waits use a separate four-job account budget,
   allowing foreground enrollment and other established channels to progress.
   Completion revalidates the exact live policy/channel; retirement aborts the job.
