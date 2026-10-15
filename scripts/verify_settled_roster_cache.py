@@ -51,6 +51,8 @@ def run(name, selected, expected):
     allowed_stages = {"third-device-completion", "fourth-device-completion"}
     proof["completion_stage_markers"] = [stage for stage in re.findall(r"automatic-enrollment-control stage=([a-z-]+)", output) if stage in allowed_stages]
     proof["panic_locations"] = [{"file": file, "line": int(line), "column": int(column)} for file, line, column in re.findall(r"panicked at (crates/[A-Za-z0-9_./-]+\.rs):([0-9]+):([0-9]+)", output)]
+    error_names = {"Storage", "Backend", "Other", "UnknownGroup", "Serialize", "InvalidState", "InvalidArgument"}
+    proof["unwrap_error_categories"] = [value for value in re.findall(r"Err.? value: ([A-Za-z]+)", output) if value in error_names]
     proof["closed_failure_categories"] = [category for needle, category in [
         ("automatic pairing did not reach required phase", "original-phase-not-reached"),
         ("reusing parsed MLS state never reuses completed authorization", "fresh-facts-assertion"),
