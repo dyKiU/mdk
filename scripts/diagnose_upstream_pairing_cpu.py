@@ -8,7 +8,9 @@ import os
 from pathlib import Path
 import re
 import shutil
-import select
+import queue
+import threading
+import time
 import signal
 import subprocess
 
@@ -18,62 +20,134 @@ ARTIFACT = 11968357472
 TEST = "native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts"
 
 
-def record_owned(perf, command, raw_path):
-    """Attach before exec, without an inferior credential transition or callgraph."""
-    control_path = raw_path.with_suffix(".control")
-    ack_path = raw_path.with_suffix(".ack")
-    os.mkfifo(control_path, 0o600)
-    os.mkfifo(ack_path, 0o600)
-    control = os.open(control_path, os.O_RDWR | os.O_NONBLOCK)
-    ack = os.open(ack_path, os.O_RDWR | os.O_NONBLOCK)
-    target = subprocess.Popen(
-        ["/bin/sh", "-c", 'kill -STOP "$$"; exec "$@"', "owned-cpu-target", *command],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
-    )
-    profiler = None
-    try:
-        _, status = os.waitpid(target.pid, os.WUNTRACED)
-        assert os.WIFSTOPPED(status), "owned target must be stopped before execution"
-        profiler = subprocess.Popen(
-            ["sudo", "-n", perf, "record", "-q", "-e", "cpu-clock:u", "-F", "99", "-p", str(target.pid),
-             "--delay=-1", "--control=fifo:" + str(control_path) + "," + str(ack_path), "-o", str(raw_path)],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
+class Debugger:
+    """Consume MI output privately; expose only selected static frame names."""
+    def __init__(self, pid):
+        self.process = subprocess.Popen(
+            ["sudo", "-n", "gdb", "--quiet", "--nx", "--interpreter=mi2", "--pid", str(pid)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            start_new_session=True,
         )
-        os.write(control, b"enable\n")
-        assert select.select([ack], [], [], 20)[0], "perf did not acknowledge target attachment"
-        assert b"ack" in os.read(ack, 4096), "perf did not enable the exact owned target"
-        os.kill(target.pid, signal.SIGCONT)
-        stdout, stderr = target.communicate(timeout=240)
-        return target.returncode, stdout + stderr
-    finally:
-        if target.poll() is None:
-            os.killpg(target.pid, signal.SIGKILL)
-            target.communicate(timeout=10)
-        if profiler is not None and profiler.poll() is None:
-            subprocess.run(["sudo", "-n", "/bin/kill", "-INT", "--", "-" + str(profiler.pid)], capture_output=True, check=False)
+        self.lines = queue.Queue()
+        self.stopped = False
+        self.exited = False
+        self.token = 0
+        def read():
+            for line in self.process.stdout:
+                self.lines.put(line.strip())
+        threading.Thread(target=read, daemon=True).start()
+        self.wait_stop()
+        self.command("-gdb-set pagination off")
+        self.command("-gdb-set mi-async on")
+        self.command('-interpreter-exec console "handle SIGSTOP nostop noprint nopass"')
+
+    def receive(self, timeout=15):
+        line = self.lines.get(timeout=timeout)
+        if line.startswith("*stopped"):
+            self.stopped = True
+            if 'reason="exited' in line:
+                self.exited = True
+        if line.startswith("*running"):
+            self.stopped = False
+        return line
+
+    def wait_stop(self):
+        deadline = time.monotonic() + 20
+        while not self.stopped:
+            self.receive(max(0.01, deadline - time.monotonic()))
+
+    def command(self, command):
+        self.token += 1
+        prefix = str(self.token)
+        self.process.stdin.write(prefix + command + "\n")
+        self.process.stdin.flush()
+        while True:
+            line = self.receive()
+            if line.startswith(prefix + "^"):
+                assert not line.startswith(prefix + "^error"), "owned debugger command failed"
+                return line
+
+    def close(self):
+        if self.process.poll() is None:
             try:
-                profiler.communicate(timeout=15)
-            except subprocess.TimeoutExpired:
-                subprocess.run(["sudo", "-n", "/bin/kill", "-KILL", "--", "-" + str(profiler.pid)], capture_output=True, check=False)
-                profiler.communicate(timeout=10)
-        os.close(control)
-        os.close(ack)
-        control_path.unlink(missing_ok=True)
-        ack_path.unlink(missing_ok=True)
+                self.command("-gdb-exit")
+            except (AssertionError, queue.Empty, BrokenPipeError):
+                subprocess.run(["sudo", "-n", "/bin/kill", "-KILL", "--", "-" + str(self.process.pid)], capture_output=True)
+            self.process.wait(timeout=15)
 
 
-def decode_symbols(perf, raw_path):
-    result = subprocess.run(["sudo", "-n", perf, "script", "-i", str(raw_path), "-F", "sym"], capture_output=True, text=True, timeout=60)
-    counts = collections.Counter()
-    for line in result.stdout.splitlines():
-        name = re.sub(r"\+0x[0-9a-fA-F]+(?:/0x[0-9a-fA-F]+)?$", "", line.strip())
-        name = name.split("(", 1)[0].strip()
-        if not name:
-            continue
-        if len(name) > 400 or re.search(r"0x[0-9a-fA-F]+", name) or not re.fullmatch(r"[A-Za-z0-9_:<>, &*~.$?{}\[\]#=+!;\-]+", name):
-            name = "unavailable"
-        counts[name] += 1
-    return result.returncode == 0, counts
+def cpu_ticks(pid):
+    values = {}
+    for path in Path("/proc").joinpath(str(pid), "task").glob("*/stat"):
+        try:
+            fields = path.read_text().rsplit(")", 1)[1].split()
+            values[int(path.parent.name)] = int(fields[11]) + int(fields[12])
+        except (FileNotFoundError, ProcessLookupError):
+            pass
+    return values
+
+
+def record_owned(_sampler, command, _raw_path):
+    """Bounded leaf-only debugger sampling, weighting active-thread CPU deltas."""
+    import tempfile
+    samples = []
+    with tempfile.TemporaryFile(mode="w+") as output:
+        target = subprocess.Popen(
+            ["/bin/sh", "-c", 'kill -STOP "$$"; exec "$@"', "owned-cpu-target", *command],
+            stdout=output, stderr=output, text=True, start_new_session=True,
+        )
+        debugger = None
+        try:
+            _, status = os.waitpid(target.pid, os.WUNTRACED)
+            assert os.WIFSTOPPED(status), "owned target must stop before execution"
+            debugger = Debugger(target.pid)
+            started = time.monotonic()
+            before = cpu_ticks(target.pid)
+            debugger.command("-exec-continue")
+            while target.poll() is None and time.monotonic() - started < 240:
+                time.sleep(0.2)
+                if target.poll() is not None:
+                    break
+                debugger.command("-exec-interrupt --all")
+                debugger.wait_stop()
+                if debugger.exited:
+                    break
+                after = cpu_ticks(target.pid)
+                deltas = {tid: ticks - before.get(tid, ticks) for tid, ticks in after.items()}
+                tid = max(deltas, key=deltas.get) if deltas else None
+                threads = debugger.command("-thread-info")
+                matches = re.findall(r'id="([0-9]+)",target-id="[^"]*LWP ([0-9]+)[^"]*"', threads)
+                selected = next((identifier for identifier, lwp in matches if int(lwp) == tid), None)
+                if selected is not None and deltas[tid] > 0:
+                    debugger.command("-thread-select " + selected)
+                    frame = debugger.command("-stack-info-frame")
+                    match = re.search(r'func=("(?:[^"\\]|\\.)*")', frame)
+                    name = json.loads(match[1]) if match else "unavailable"
+                    name = name.split("(", 1)[0].strip()
+                    if len(name) > 400 or not re.fullmatch(r"[A-Za-z0-9_:<>, &*~.$?{}\[\]#=+!;\-]+", name):
+                        name = "unavailable"
+                    samples.append((time.monotonic() - started, name, deltas[tid]))
+                before = after
+                debugger.command("-exec-continue")
+            if target.poll() is None:
+                target.wait(timeout=10)
+            output.seek(0)
+            return target.returncode, output.read(), samples
+        finally:
+            if debugger is not None:
+                debugger.close()
+            if target.poll() is None:
+                os.killpg(target.pid, signal.SIGKILL)
+                target.wait(timeout=10)
+
+
+def summarize(samples):
+    counts = collections.Counter(name for _, name, _ in samples)
+    weights = collections.Counter()
+    for _, name, ticks in samples:
+        weights[name] += ticks
+    return [{"function": name, "samples": count, "active_thread_cpu_ticks": weights[name]}
+            for name, count in counts.most_common(100)]
 
 
 def remove_raw(path):
@@ -101,19 +175,9 @@ def main():
     assert provenance["source"] == SOURCE and provenance["selector"] == TEST
     assert provenance["rust_min_stack_bytes"] == 4194304 and not provenance["unexpected_rebuild"]
     assert provenance["archive_sha256"] == archive_hash and provenance["binary_sha256"] == binary_hash
-    candidates = [path for path in sorted(Path("/usr/lib/linux-tools").glob("*/perf")) if os.access(path, os.X_OK)]
-    if shutil.which("perf"):
-        candidates.append(Path(shutil.which("perf")))
-    perf = None
-    preflight = False
-    version = None
-    for candidate in candidates:
-        control = subprocess.run(["sudo", "-n", str(candidate), "stat", "-e", "cpu-clock:u", "--", "/usr/bin/true"], capture_output=True, timeout=20)
-        if control.returncode == 0:
-            perf = str(candidate)
-            preflight = True
-            version = subprocess.check_output([perf, "--version"], text=True).strip()
-            break
+    perf = shutil.which("gdb")
+    preflight = bool(perf)
+    version = subprocess.check_output([perf, "--version"], text=True).splitlines()[0] if perf else None
     report = {
         "source": SOURCE, "source_tree": provenance["source_tree"],
         "producer_run": PRODUCER, "artifact_id": ARTIFACT,
@@ -121,8 +185,8 @@ def main():
         "features": provenance["features"], "toolchain": provenance["toolchain"],
         "build_profile": provenance["build_profile"], "original_nextest_profile": provenance["nextest_profile"],
         "test": TEST, "selected_nonignored": 1, "rust_min_stack_bytes": 4194304,
-        "automatic_retries": 0, "test_threads": 1, "diagnostic_watchdog_seconds": 240, "sampler": "perf software cpu-clock:u leaf-only 99Hz, exact original-user PID attached before exec",
-        "perf_version": version, "preflight_passed": preflight,
+        "automatic_retries": 0, "test_threads": 1, "diagnostic_watchdog_seconds": 240, "sampler": "GDB bounded static leaf sampling at 5Hz, highest CPU-delta owned thread",
+        "debugger_version": version, "preflight_passed": preflight,
         "qualification_passed": False,
         "scope": "Sampler-influenced diagnostic only; original unchanged normal failure retained. Static symbols only, no callgraph memory capture.",
     }
@@ -136,32 +200,37 @@ def main():
     try:
         # Require actual samples through the identical attach-before-exec path.
         control_command = ["/usr/bin/python3", "-c", "import time; end=time.monotonic()+1.5\nwhile time.monotonic()<end: pass"]
-        control_exit, _ = record_owned(perf, control_command, control_raw)
-        control_decoded, control_counts = decode_symbols(perf, control_raw)
+        control_exit, _, control_samples = record_owned(perf, control_command, control_raw)
+        control_counts = collections.Counter(name for _, name, _ in control_samples)
+        control_decoded = True
         report["positive_control_samples"] = sum(control_counts.values())
-        report["positive_control_passed"] = control_exit == 0 and control_decoded and bool(control_counts)
+        report["positive_control_passed"] = control_exit == 0 and control_decoded and any(name != "unavailable" for name in control_counts)
         remove_raw(control_raw)
         if not report["positive_control_passed"]:
             report["blocker"] = "attach-before-exec-positive-control-had-no-samples"
             args.report.write_text(json.dumps(report, indent=2) + "\n")
             raise SystemExit("CPU sample positive control failed; product body not executed")
-        runtime_exit, runtime = record_owned(perf, [str(binary), "--exact", TEST, "--test-threads=1", "--nocapture"], raw_path)
+        runtime_exit, runtime, samples = record_owned(perf, [str(binary), "--exact", TEST, "--test-threads=1", "--nocapture"], raw_path)
         started = bool(re.search(r"running 1 test\b", runtime))
         summary = re.search(r"test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored;", runtime)
-        decoded, counts = decode_symbols(perf, raw_path)
+        decoded = True
+        counts = collections.Counter(name for _, name, _ in samples)
+        last = samples[-1][0] if samples else 0
         report.update({
             "runtime_body_started": started, "runtime_exit_code": runtime_exit,
             "runtime_summary": {"passed": int(summary[2]), "failed": int(summary[3]), "ignored": int(summary[4])} if summary else None,
             "sample_decode_passed": decoded,
             "leaf_sample_count": sum(counts.values()),
-            "static_symbol_aggregates": [{"function": name, "samples": count} for name, count in counts.most_common(100)],
+            "static_symbol_aggregates": summarize(samples),
+            "last_20_seconds_static_symbol_aggregates": summarize([sample for sample in samples if sample[0] >= last - 20]),
+            "attribution_limits": "Debugger pauses influence timing; leaf sampled after interrupt may differ from the CPU-hot function. Whole case includes startup/import. ef4 includes unqualified early-finalization extra checks. CPU ticks weight intervals, not exact per-function CPU time.",
             "unexported_symbol_count": max(0, len(counts) - 100),
             "diagnostic_complete": started and summary is not None and decoded and bool(counts),
         })
         args.report.write_text(json.dumps(report, indent=2) + "\n")
         if not report["diagnostic_complete"]:
             raise SystemExit("Required exact-body runtime and static sample evidence unavailable")
-    except (subprocess.TimeoutExpired, AssertionError):
+    except (subprocess.TimeoutExpired, AssertionError, queue.Empty):
         report["blocker"] = "owned-attach-or-sampling-control-unavailable"
         report["diagnostic_complete"] = False
         args.report.write_text(json.dumps(report, indent=2) + "\n")

@@ -80,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y linux-tools-generic
+          sudo apt-get install -y gdb
           filter='package(marmot-app) & binary(=marmot_app) & test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts)'
           cargo nextest list --archive-file compiled-pairing/tests.tar.zst --extract-to "$GITHUB_WORKSPACE" \
             --workspace-remap "$GITHUB_WORKSPACE" --message-format json -E "$filter" > "$RUNNER_TEMP/pairing-cpu-inventory.json"
