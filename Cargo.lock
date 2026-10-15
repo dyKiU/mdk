@@ -3902,13 +3902,16 @@ dependencies = [
 name = "media-store"
 version = "0.13.0"
 dependencies = [
- "chacha20poly1305",
  "flate2",
+ "fs-private",
  "hex",
  "hkdf 0.12.4",
+ "libc",
  "openssl",
  "sha2 0.10.9",
+ "tempfile",
  "thiserror 2.0.18",
+ "tracing",
  "zeroize",
 ]
 

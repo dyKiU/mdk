@@ -36,6 +36,8 @@ pub use delivery_spill::{
     SpilledDeliveryDeferral,
 };
 mod encrypted_media_secrets;
+mod media_catalog;
+pub use media_catalog::{SlotPublication, SqliteMediaCatalog};
 mod local_submissions;
 mod message_drafts;
 pub use local_submissions::LocalSubmission;
