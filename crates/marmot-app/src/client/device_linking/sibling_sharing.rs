@@ -1810,7 +1810,12 @@ impl AppClient {
                 && entry.publication.is_none()
                 && entry.ready
                 && (!entry.policy_committed || !entry.proof_published)
-                && !entry.state.progress.lock().expect("sibling progress").complete
+                && !entry
+                    .state
+                    .progress
+                    .lock()
+                    .expect("sibling progress")
+                    .complete
                 && scheduled.len() < first_pass_len + MAX_SIBLING_PUBLICATIONS
             {
                 scheduled.push(index);
