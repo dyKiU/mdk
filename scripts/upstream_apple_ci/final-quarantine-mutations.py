@@ -74,19 +74,34 @@ def execute(label, private, expected, case):
         row['qualified'] = one_body and process.returncode == 0 and row.get('passed') == 1 and row.get('failed') == 0
     else:
         # Inspect raw panic privately; never export dynamic messages, group IDs or payloads.
-        sites = re.findall(r'panicked at (crates/marmot-app/src/client/sync/projection_retry_tests\.rs):(\d+):\d+:', text)
+        # Bind the category to the single actual panic's own message and
+        # source statement. Earlier warnings/log lines cannot supply evidence.
+        panics = re.findall(r'panicked at ([^\n]+):(\d+):\d+:\n([^\n]*)', text)
         lines = FIXTURE.read_text().splitlines()
         begin = next(index + 1 for index, line in enumerate(lines) if 'async fn ' + test.rsplit('::', 1)[1] + '()' in line)
         end = next((index + 1 for index, line in enumerate(lines) if index + 1 > begin and line.startswith('async fn ')), len(lines) + 1)
-        sites = [(name, int(line)) for name, line in sites if begin <= int(line) < end]
-        category = None
-        if expected == 'deferral' and ('UnknownGroup' in text or 'assertion failed: !client.has_pending_effect_projections()' in text):
-            category = 'quarantined-projection-retained-or-healthy-work-refused'
-        if expected == 'privacy' and ('assertion failed: client.state_group_record(&broken).is_none()' in text
-                                      or ('assertion failed:' in text and 'group.group_id_hex != private_hex' in text)):
-            category = 'private-group-visible-in-chat-projection'
-        if len(sites) == 1 and category is not None:
-            row['intended_assertion'] = {'source_file': sites[0][0], 'line': sites[0][1], 'category': category}
+        if len(panics) == 1:
+            name, line, message = panics[0]
+            line = int(line)
+            if name == str(FIXTURE) and begin <= line < end:
+                statement = lines[line - 1].strip()
+                context = ''.join(part.strip() for part in lines[max(begin - 1, line - 8):line])
+                healthy_unwrap = ('.unwrap()' in statement and re.search(
+                    r'client(?:\.send\(&healthy,b"healthy outgoing(?: before drain)?"\)|\.drain_pending_session_events\(\))\.await\.unwrap\(\);$',
+                    context) is not None)
+                unknown_group_panic = re.match(r"called `Result::unwrap\(\)` on an `Err` value: .*\bUnknownGroup\b", message) is not None
+                pending_assert = (statement.startswith('assert!(!client.has_pending_effect_projections()')
+                                  and message.startswith('assertion failed: !client.has_pending_effect_projections()'))
+                category = None
+                if expected == 'deferral' and ((healthy_unwrap and unknown_group_panic) or pending_assert):
+                    category = 'quarantined-projection-retained-or-healthy-work-refused'
+                if expected == 'privacy' and (
+                    message.startswith('assertion failed: client.state_group_record(&broken).is_none()')
+                    or (message.startswith('assertion failed:') and 'group.group_id_hex != private_hex' in message)
+                ):
+                    category = 'private-group-visible-in-chat-projection'
+                if category is not None:
+                    row['intended_assertion'] = {'source_file': name, 'line': line, 'category': category}
         row['qualified'] = (one_body and process.returncode == 101 and row.get('passed') == 0
                             and row.get('failed') == 1 and row['intended_assertion'] is not None)
     save()
@@ -119,11 +134,12 @@ originals = {}
 mutated_paths = set()
 try:
     validate_identity()
-    for path in (SYNC, SESSION, FIXTURE, Path('Cargo.lock')):
+    for path in (SYNC, SESSION, FIXTURE, Path('Cargo.lock'), Path('rust-toolchain.toml'), Path('.cargo/config.toml')):
         data = path.read_bytes()
         require(data == subprocess.check_output(['git', 'show', SOURCE + ':' + str(path)]), 'source-or-lock-differs-from-approved-fixture')
         originals[path] = data
     report['original_hashes'] = {str(path): sha(data) for path, data in originals.items()}
+    report['compiler_config_hashes'] = {str(path): sha(originals[path]) for path in (Path('rust-toolchain.toml'), Path('.cargo/config.toml'))}
     save()
     if args.identity_only:
         report['scope'] = 'Source/tool identity preparation only; zero test bodies executed'
@@ -131,6 +147,19 @@ try:
     else:
         require(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch', 'actual-mutations-require-explicit-manual-dispatch')
         require(os.environ.get('RUST_MIN_STACK') == '4194304', 'original-four-MiB-stack-required')
+        expected_environment = {'CARGO_INCREMENTAL': '1', 'CARGO_BUILD_JOBS': '2',
+                                'CARGO_PROFILE_DEV_DEBUG': '0', 'CARGO_PROFILE_TEST_DEBUG': '0',
+                                'RUST_MIN_STACK': '4194304'}
+        require(all(os.environ.get(key) == value for key, value in expected_environment.items()),
+                'fixed-compiler-environment-required')
+        empty_environment = ('RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTC_BOOTSTRAP',
+                             'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER')
+        require(all(not os.environ.get(key, '') for key in empty_environment), 'unexpected-compiler-overrides-refused')
+        report['compiler_environment'] = dict(expected_environment, **{key: '' for key in empty_environment})
+        report['actual_toolchain'] = {
+            'rustc_verbose': subprocess.check_output(['rustc', '-Vv'], text=True).strip(),
+            'cargo': subprocess.check_output(['cargo', '-V'], text=True).strip()}
+        save()
         signal.signal(signal.SIGTERM, interrupted)
         signal.signal(signal.SIGINT, interrupted)
     mutations = [
