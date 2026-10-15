@@ -1,0 +1,73 @@
+name: Upstream private owned-runtime cancellation regressions
+on:
+  push:
+    branches: [ci/upstream-private-runtime-20261015]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: private-runtime-boundary-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install repository Rust toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: private-runtime-boundary
+          cache-on-failure: true
+      - name: Four real opaque-original cancellation baseline regressions
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_private_runtime.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: private-runtime-runtime-${{ github.sha }}
+          path: private-runtime-proof/result.json
+          if-no-files-found: error
+          retention-days: 7
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install exact repository formatter
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+      - name: Export canonical formatting and check remote controller syntax
+        run: |
+          mkdir format-proof
+          git rev-parse HEAD > format-proof/source-sha.txt
+          python3 -m py_compile scripts/qualify_upstream_private_runtime.py
+          cargo fmt --all
+          git diff --binary -- '*.rs' > format-proof/formatting.patch
+          test ! -s format-proof/formatting.patch
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: private-runtime-format-${{ github.sha }}
+          path: format-proof/
+          if-no-files-found: error
+          retention-days: 7

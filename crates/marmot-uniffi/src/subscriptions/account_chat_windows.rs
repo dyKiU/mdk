@@ -25,13 +25,15 @@ impl Drop for AccountChatListWindowSubscription {
         self.commands.cancel();
     }
 }
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl AccountChatListWindowSubscription {
     /// Initial complete replacement, available once before receiving updates.
     pub fn snapshot(&self) -> Option<AccountChatListWindowSnapshotFfi> {
         take_snapshot(&self.snapshot)
     }
     /// One receiver; commands and cancellation remain independent of this wait.
+    #[marmot_uniffi_macros::receive]
     pub async fn next(&self) -> Result<Option<AccountChatListWindowSnapshotFfi>, MarmotKitError> {
         Ok(self
             .receiver
@@ -87,12 +89,14 @@ impl Drop for AccountConversationWindowSubscription {
         self.commands.cancel();
     }
 }
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl AccountConversationWindowSubscription {
     /// Initial complete replacement; local authority remains explicitly local.
     pub fn snapshot(&self) -> Option<AccountConversationWindowSnapshotFfi> {
         take_snapshot(&self.snapshot)
     }
+    #[marmot_uniffi_macros::receive]
     pub async fn next(
         &self,
     ) -> Result<Option<AccountConversationWindowSnapshotFfi>, MarmotKitError> {
