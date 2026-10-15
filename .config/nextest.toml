@@ -58,6 +58,13 @@ filter = 'binary(process_orchestrator) & (test(=app_runtime_and_process_adapters
 threads-required = "num-cpus"
 priority = 90
 
+# Keep the cleanup-isolation assertion separate from cross-process cold-start
+# contention. Both real accounts and all original 12s/1s bounds remain exercised.
+[[profile.default.overrides]]
+filter = 'package(marmot-app) & test(=runtime::tests::stuck_worker_reap_does_not_block_a_healthy_account)'
+threads-required = "num-cpus"
+priority = 90
+
 # CI profile (`cargo nextest run --profile ci`).
 #
 # Retries are a safety net for transient infrastructure hiccups (mock-relay bind
@@ -119,6 +126,12 @@ filter = 'package(cgka-conformance-simulator) & (binary(app_runtime_journeys) | 
 test-group = 'app-runtime-journeys'
 threads-required = 3
 retries = 0
+
+[[profile.m5-bounded.overrides]]
+filter = 'package(marmot-app) & test(=runtime::tests::stuck_worker_reap_does_not_block_a_healthy_account)'
+threads-required = 6
+retries = 0
+priority = 90
 
 [[profile.m5-bounded.overrides]]
 filter = 'package(marmot-app)'

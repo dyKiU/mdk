@@ -19,6 +19,10 @@ on:
         description: Exact dyKiU/whitenoise-ios candidate commit
         required: true
         type: string
+      package_only:
+        description: Build SDK artifacts; qualify apps and native scenarios in the separate consumer workflow
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -140,6 +144,7 @@ jobs:
 
   apps:
     needs: [identity, assemble]
+    if: ${{ !inputs.package_only }}
     runs-on: macos-26
     env:
       SOURCE_SHA: ${{ needs.identity.outputs.mdk_sha }}
@@ -239,6 +244,7 @@ jobs:
 
   native:
     needs: [identity, assemble]
+    if: ${{ !inputs.package_only }}
     runs-on: macos-26
     env:
       SOURCE_SHA: ${{ needs.identity.outputs.mdk_sha }}

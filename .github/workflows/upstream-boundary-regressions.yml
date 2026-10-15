@@ -1,0 +1,49 @@
+name: Upstream foreign future and cleanup mutation gates
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [departure, worker-reap]
+    env:
+      CARGO_INCREMENTAL: "1"
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      RUST_MIN_STACK: "4194304"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: upstream-boundary-${{ matrix.case }}
+          cache-on-failure: true
+      - name: Require runtime RED and exact-source restored GREEN
+        run: |
+          df -h .
+          python3 scripts/verify_upstream_boundary_mutations.py --case "${{ matrix.case }}" --output proof
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-boundary-${{ matrix.case }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: proof/
+          if-no-files-found: error
+          retention-days: 7

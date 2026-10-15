@@ -510,7 +510,7 @@ jobs:
           shared-key: rust-test
 
       - name: Verify workspace shard coverage
-        run: bash scripts/check_ci_partitions.sh 5 --workspace --exclude cgka-conformance-simulator --features wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks --locked --timings -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
+        run: bash scripts/check_ci_partitions.sh 12 --workspace --exclude cgka-conformance-simulator --features wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks --locked --timings -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
 
       - name: Upload workspace compiler timings
         if: always()
@@ -535,14 +535,14 @@ jobs:
           if-no-files-found: error
 
   rust-test:
-    name: Rust tests (${{ matrix.partition }}/5)
+    name: Rust tests (${{ matrix.partition }}/12)
     needs: rust-test-build
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        partition: [1, 2, 3, 4, 5]
+        partition: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
     steps:
       - name: Check out repository
@@ -578,7 +578,7 @@ jobs:
         # The subprocess-heavy `wn-cli::cli` suite runs in its own
         # `cli-e2e` job so its fan-out never starves these fast unit tests
         # (issue #103). `relay_runtime` keeps its own serial job.
-        run: cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --partition count:${{ matrix.partition }}/5 -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
+        run: cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --partition count:${{ matrix.partition }}/12 -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
 
   rust-test-extras:
     name: Doctests and diagnostic exporters
