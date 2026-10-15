@@ -20,6 +20,8 @@ pub(crate) struct State {
     pub(crate) created_at: u64,
     pub(crate) scope: Mutex<Option<AccountSharingScope>>,
     pub(crate) progress: Mutex<Progress>,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) sibling_progress_for_test: AtomicUsize,
     pub(crate) legacy_capture:
         Mutex<Option<Arc<crate::client::legacy_chat_acceptance::CapturedLegacyChats>>>,
     cancelled: AtomicBool,
@@ -55,6 +57,8 @@ impl State {
                 revision: 1,
                 ..Default::default()
             }),
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            sibling_progress_for_test: AtomicUsize::new(0),
             legacy_capture: Mutex::new(None),
             cancelled: AtomicBool::new(false),
             revoked: tokio::sync::Notify::new(),

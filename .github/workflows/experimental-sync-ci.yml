@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic]
         default: full
       recovery_run:
         description: Completed immutable original run for archive-recovery only
@@ -45,7 +45,7 @@ env:
 
 jobs:
   pairing-replay:
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'pairing-regression'
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-regression","pairing-diagnostic"]'), inputs.scope)
     name: Pairing replay (${{ matrix.slots }} slots)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -66,7 +66,7 @@ jobs:
         run: |
           echo "qualification-source: $(git rev-parse HEAD)"
           echo "qualification-tree: $(git rev-parse HEAD^{tree})"
-          echo "qualification-scope: pairing-regression"
+          echo "qualification-scope: ${{ inputs.scope }}"
           echo "qualification-test-slots: $SLOTS"
       - name: Install pinned toolchain
         run: |
@@ -82,23 +82,30 @@ jobs:
       - name: Run actual enrollment and authority retirement bodies without retries
         env:
           SLOTS: ${{ matrix.slots }}
+          REPLAY_SCOPE: ${{ inputs.scope }}
         run: |
           set -euo pipefail
           features=otlp-export,product-analytics-export,test-policy-overrides,experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
           filter='package(marmot-app) & (test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts) | test(=native_device_linking::automatic_pairing_acceptance::automatic_transport_cannot_keep_dropped_original_authority_alive) | test(=native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer) | test(=native_device_linking::automatic_pairing_acceptance::automatic_sync_does_not_block_foreground_enrollment_completion))'
+          if [[ "$REPLAY_SCOPE" == pairing-diagnostic ]]; then
+            filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts)'
+          fi
           args=(--locked -p marmot-app --lib --features "$features")
           cargo nextest list "${args[@]}" -E "$filter" --message-format json > pairing-inventory.json
           python3 - <<'PY'
-          import json
+          import json, os
           inventory = json.load(open('pairing-inventory.json'))
           selected = {name for suite in inventory['rust-suites'].values() for name, case in suite['testcases'].items()
                       if case['filter-match']['status'] == 'matches' and not case['ignored']}
-          assert selected == {
+          expected = {
               'native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts',
               'native_device_linking::automatic_pairing_acceptance::automatic_transport_cannot_keep_dropped_original_authority_alive',
               'native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer',
               'native_device_linking::automatic_pairing_acceptance::automatic_sync_does_not_block_foreground_enrollment_completion',
           }
+          if os.environ['REPLAY_SCOPE'] == 'pairing-diagnostic':
+              expected = {'native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts'}
+          assert selected == expected
           print('qualification-selected-pairing-cases:', len(selected))
           PY
           cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads "$SLOTS" --retries 0 --no-fail-fast --success-output immediate

@@ -453,6 +453,21 @@ impl OriginalEnrollmentSharingChoice {
         })
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn recipient_channel_progress_for_test(&self) -> Vec<(usize, [bool; 11])> {
+        self.children
+            .lock()
+            .expect("sibling children")
+            .iter()
+            .map(|child| {
+                let observed = child.sibling_progress_for_test.load(Ordering::Acquire);
+                (
+                    observed >> 16,
+                    std::array::from_fn(|index| observed & (1 << index) != 0),
+                )
+            })
+            .collect()
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn recipient_rejections_for_test(&self) -> [usize; 4] {
         std::array::from_fn(|index| self.recipient_diagnostics[index + 6].load(Ordering::Acquire))
     }
@@ -1246,6 +1261,37 @@ pub(super) struct SiblingChannel {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pre_auth_failure: Option<Arc<SiblingPreAuthFailureProbe>>,
 }
+#[cfg(all(test, feature = "test-policy-overrides"))]
+impl SiblingChannel {
+    fn observe_progress_for_test(&self, stage: usize) {
+        let bits = [
+            self.original.live(),
+            self.state.live(),
+            self.ready,
+            self.handshake_published,
+            self.policy_committed,
+            self.proof_published,
+            self.peer_committed,
+            self.publication.is_some(),
+            self.publication
+                .as_ref()
+                .is_some_and(|p| p.task.is_finished()),
+            self.state
+                .progress
+                .lock()
+                .expect("sibling progress")
+                .complete,
+            !self.pending_controls.is_empty(),
+        ];
+        let mask = bits
+            .into_iter()
+            .enumerate()
+            .fold(0, |mask, (i, value)| mask | (usize::from(value) << i));
+        self.state
+            .sibling_progress_for_test
+            .store((stage << 16) | mask, Ordering::Release);
+    }
+}
 impl Drop for SiblingChannel {
     fn drop(&mut self) {
         self.state.cancel();
@@ -1679,6 +1725,8 @@ impl AppClient {
         entry: &mut SiblingChannel,
         in_flight: &mut usize,
     ) -> Result<(), ClientLinkingError> {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        entry.observe_progress_for_test(1);
         if let Some(pending) = entry.publication.as_ref() {
             if !pending.task.is_finished() {
                 return Ok(());
@@ -1688,6 +1736,8 @@ impl AppClient {
                 .take()
                 .expect("finished sibling publication");
             *in_flight -= 1;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            entry.observe_progress_for_test(2);
             (&mut pending.task).await.map_err(|_| denied())??;
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if !pending.proof
@@ -1699,6 +1749,8 @@ impl AppClient {
             if !entry.original.live() || !entry.state.live() {
                 return Err(denied());
             }
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            entry.observe_progress_for_test(3);
             self.validate_sibling_parent(&entry.original)?;
             self.runtime
                 .session()
@@ -1746,6 +1798,8 @@ impl AppClient {
                     || (entry.proof_published
                         && entry.handshake_retry_at <= entry.proof_retry_at)))
         {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            entry.observe_progress_for_test(4);
             if *in_flight < MAX_SIBLING_PUBLICATIONS {
                 self.start_sibling_publication(entry, None).await?;
                 *in_flight += 1;
@@ -1756,6 +1810,8 @@ impl AppClient {
             return Ok(());
         }
         if !entry.policy_committed {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            entry.observe_progress_for_test(5);
             self.persist_sibling_policy(entry)?;
             entry.policy_committed = true;
         }
@@ -1765,6 +1821,8 @@ impl AppClient {
                     .proof_retry_at
                     .is_some_and(|next| Instant::now() >= next))
         {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            entry.observe_progress_for_test(6);
             let scope = entry.channel.scope();
             let device = if entry.recipient {
                 &scope.recipient
@@ -1793,6 +1851,8 @@ impl AppClient {
             && entry.original.live()
             && entry.state.live()
         {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            entry.observe_progress_for_test(7);
             let mut progress = entry.state.progress.lock().expect("sibling progress");
             if !progress.complete {
                 progress.complete = true;

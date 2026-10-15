@@ -302,9 +302,17 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
             a.sibling_recipient_diagnostics_for_test(),
             d.sibling_recipient_diagnostics_for_test()
         );
+        eprintln!(
+            "automatic-enrollment-control recipient-channel-stage-and-flags={:?} context-rejections={:?} retention-rejections={:?} projections={:?}",
+            d.sibling_channel_progress_for_test(),
+            d.sibling_context_rejections_for_test(),
+            d.sibling_recipient_rejections_for_test(),
+            d.sibling_projection_aggregates_for_test()
+        );
         std::panic::resume_unwind(failure);
     }
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
+    assert_eq!(d.sibling_channel_progress_for_test().unwrap().len(), 2);
     if let Some((observed, release)) = held_automatic {
         // Pairing has already completed while the background publication is held.
         // Now prove that ordinary automatic work resumes without another action.

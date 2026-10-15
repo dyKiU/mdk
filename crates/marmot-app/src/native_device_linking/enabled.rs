@@ -360,6 +360,16 @@ impl DeviceLinkingSession {
             .map(|choice| choice.recipient_snapshot_for_test())
     }
 
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_channel_progress_for_test(&self) -> Option<Vec<(usize, [bool; 11])>> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .map(|choice| choice.recipient_channel_progress_for_test())
+    }
+
     // Test inspection of the original actor-owned identity, never a native API
     // or a constructor for a proof, scope or continuation.
     #[cfg(all(test, feature = "test-policy-overrides"))]
