@@ -87,7 +87,7 @@ def execute(label, private, expected, case):
                 statement = lines[line - 1].strip()
                 context = ''.join(part.strip() for part in lines[max(begin - 1, line - 8):line])
                 healthy_unwrap = ('.unwrap()' in statement and re.search(
-                    r'client(?:\.send\(&healthy,b"healthy outgoing(?: before drain)?"\)|\.drain_pending_session_events\(\))\.await\.unwrap\(\);$',
+                    r'client(?:\.send\(&healthy,\s*b"healthy outgoing(?: before drain)?"\)|\.drain_pending_session_events\(\))\.await\.unwrap\(\);$',
                     context) is not None)
                 unknown_group_panic = re.match(r"called `Result::unwrap\(\)` on an `Err` value: .*\bUnknownGroup\b", message) is not None
                 pending_assert = (statement.startswith('assert!(!client.has_pending_effect_projections()')
