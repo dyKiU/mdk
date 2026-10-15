@@ -1,0 +1,43 @@
+name: Upstream app SDK manifest guard regressions
+on:
+  push:
+    branches: [ci/upstream-sdk-manifest-guards-20261015]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sdk-manifest-guards-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  manifest-guards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: dyKiU/whitenoise-mac
+          ref: 43917e25f6cbbf163db05ed2af285d80b2607aae
+          path: apps/whitenoise-mac
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: dyKiU/whitenoise-ios
+          ref: fb8ab84886dcff95f9c81de93b9e67468c1f6bfc
+          path: apps/whitenoise-ios
+          persist-credentials: false
+      - name: Fetch immutable old regression controls
+        run: |
+          git -C apps/whitenoise-mac fetch --no-tags --depth=1 origin ff37f6201fa96a630da0ab3376a670442ddc5768
+          git -C apps/whitenoise-ios fetch --no-tags --depth=1 origin 59606f8cdf3dfdf86c18e5bf8a15e8177c475df1
+      - name: Run actual shell regressions and runtime mutations
+        run: python3 scripts/upstream_apple_ci/sdk-manifest-guards.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: sdk-manifest-guard-evidence
+          path: sdk-manifest-guard-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
