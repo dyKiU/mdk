@@ -34,6 +34,21 @@ jobs:
           git rev-parse HEAD > generation-preflight/source.txt
           git rev-parse 'HEAD^{tree}' > generation-preflight/tree.txt
           actionlint -shellcheck='' .github/workflows/upstream-merge-artifacts.yml .github/workflows/upstream-generation-preflight.yml 2>&1 | tee generation-preflight/actionlint.log
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+
+          path = Path('.github/workflows/upstream-merge-artifacts.yml')
+          lines = path.read_text().splitlines()
+          start_marker = "          python3 - <<'PY'"
+          end_marker = '          PY'
+          if lines.count(start_marker) != 1:
+              raise ValueError('Expected exactly one canonical reference merge program')
+          start = lines.index(start_marker) + 1
+          end = lines.index(end_marker, start)
+          ast.parse('\n'.join(line[10:] for line in lines[start:end]), filename=str(path))
+          Path('generation-preflight/python-syntax.txt').write_text('embedded canonical reference program parsed\n')
+          PY
           git diff --exit-code HEAD
           printf '%s\n' 'syntax_only=true product_tests=0 sdk_builds=0 generated_outputs=0' > generation-preflight/scope.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
