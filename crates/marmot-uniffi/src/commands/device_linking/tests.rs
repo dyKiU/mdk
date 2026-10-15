@@ -220,7 +220,11 @@ enum CancelBoundary {
 #[cfg(feature = "experimental-device-sync")]
 #[tokio::test]
 async fn linking_receive_cancellation_preserves_actual_terminal_update() {
-    Box::pin(native_three_device_fixture(false, Some(CancelBoundary::LinkingReceive))).await;
+    Box::pin(native_three_device_fixture(
+        false,
+        Some(CancelBoundary::LinkingReceive),
+    ))
+    .await;
 }
 
 #[cfg(feature = "experimental-device-sync")]
@@ -360,7 +364,10 @@ async fn native_three_device_fixture(revoke: bool, cancel_boundary: Option<Cance
         verify_binding_pair(&a, &c).await;
         let stream = c.subscribe();
         let before = stream.__ffi_next().await.unwrap();
-        assert_eq!(before.phase, DeviceLinkingPhaseFfi::VerificationCompleteEnrollmentPending);
+        assert_eq!(
+            before.phase,
+            DeviceLinkingPhaseFfi::VerificationCompleteEnrollmentPending
+        );
         let mut pending = Box::pin(stream.__ffi_next());
         assert!(futures::poll!(&mut pending).is_pending());
         c.cancel().await.unwrap();
@@ -371,10 +378,17 @@ async fn native_three_device_fixture(revoke: bool, cancel_boundary: Option<Cance
         stream.close();
         a.cancel().await.unwrap();
         c.cancel().await.unwrap();
-        for kit in &kits { kit.runtime.shutdown_and_close().await.unwrap(); }
+        for kit in &kits {
+            kit.runtime.shutdown_and_close().await.unwrap();
+        }
         relay.shutdown();
-        eprintln!("private_receive_positive_closes=3 actual_public_verification_and_terminal_cancel=true");
-        assert!(observed, "cancelled linking receive consumed the actual terminal update");
+        eprintln!(
+            "private_receive_positive_closes=3 actual_public_verification_and_terminal_cancel=true"
+        );
+        assert!(
+            observed,
+            "cancelled linking receive consumed the actual terminal update"
+        );
         return;
     }
     if cancel_boundary == Some(CancelBoundary::Session) {

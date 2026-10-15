@@ -11,7 +11,7 @@ import tempfile
 import time
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--phase', choices=('cancel-red', 'receives', 'cancel-green', 'conversation-probe'), default='cancel-red')
+parser.add_argument('--phase', choices=('cancel-red', 'receives', 'cancel-green', 'conversation-probe', 'receives-remaining'), default='cancel-red')
 args = parser.parse_args()
 
 if os.environ.get('GITHUB_ACTIONS') != 'true':
@@ -81,7 +81,8 @@ def receive_execution(test, marker, failure=None, integration=False):
     runtime = re.findall(r'test result: (?:ok|FAILED)\.[^\n]*; finished in ([0-9.]+)s', text)
     row['runtime_seconds'] = float(runtime[0]) if len(runtime) == 1 else None
     row['positive_close_marker'] = marker in text
-    row['aggregate_witnesses'] = re.findall(r'private_conversation_receive_witness [^\n]*', text)
+    row['aggregate_witnesses'] = re.findall(r'private_conversation_receive_(?:witness|semantic) [^\n]*', text)
+    command_valid = ('account_conversation_receive_' not in test or 'private_conversation_receive_semantic command_valid=true' in text)
     row['compiler_error_codes'] = sorted(set(re.findall(r'error\[(E\d+)\]', text)))
     one = (len(summary) == 1 and row.get('passed', 0) + row.get('failed', 0) == 1
            and row.get('ignored') == 0 and re.search(r'^running 1 test$', text, re.M)
@@ -90,9 +91,9 @@ def receive_execution(test, marker, failure=None, integration=False):
     row['panic_locations'] = [{'file': path, 'line': int(line)} for path, line, _ in panics]
     if failure:
         own = len(panics) == 1 and panics[0][0].startswith('crates/marmot-uniffi/src/commands/') and panics[0][2].startswith(failure)
-        row['qualified'] = bool(one and row.get('failed') == 1 and result.returncode == 101 and own and row['positive_close_marker'])
+        row['qualified'] = bool(one and row.get('failed') == 1 and result.returncode == 101 and own and row['positive_close_marker'] and command_valid)
     else:
-        row['qualified'] = bool(one and row.get('passed') == 1 and result.returncode == 0 and row['positive_close_marker'])
+        row['qualified'] = bool(one and row.get('passed') == 1 and result.returncode == 0 and row['positive_close_marker'] and command_valid)
     row['failure_class'] = 'intended-runtime-outcome' if row['qualified'] else 'prerequisite-or-other-failure'
     save()
     print(json.dumps(row, sort_keys=True), flush=True)
@@ -100,11 +101,26 @@ def receive_execution(test, marker, failure=None, integration=False):
 
 
 def qualify_receives():
-    controls = [receive_execution(test, marker) for test, _, _, _, marker in RECEIVES]
-    foreign = receive_execution('private_pairing_exports_complete_on_a_foreign_executor_without_tokio',
-        'private_foreign_executor_positive_closes=2 actual_two_device_enrollment=true', integration=True)
-    if not all(controls) or not foreign:
-        return False
+    if args.phase == 'receives-remaining':
+        report['reused_controls'] = {
+            'source': '7c362e8ac1adf04eb03e376707d802b657b7666a',
+            'run': 'https://github.com/dyKiU/mdk/actions/runs/38786208192',
+            'tests': [RECEIVES[0][0], RECEIVES[1][0], 'private_pairing_exports_complete_on_a_foreign_executor_without_tokio'],
+            'reason': 'unchanged relevant production bodies; only reviewed negative-cancel wrappers and new conversation oracle changed',
+        }
+        test, _, _, _, marker = RECEIVES[2]
+        if not receive_execution(test, marker):
+            return False
+    else:
+        controls = []
+        for test, _, _, _, marker in RECEIVES:
+            controls.append(receive_execution(test, marker))
+            if report['executions'][-1]['compiler_error_codes']:
+                return False
+        foreign = receive_execution('private_pairing_exports_complete_on_a_foreign_executor_without_tokio',
+            'private_foreign_executor_positive_closes=2 actual_two_device_enrollment=true', integration=True)
+        if not all(controls) or not foreign:
+            return False
     report['receive_mutations'] = []
     for test, path, anchor, failure, marker in RECEIVES:
         source = Path(path)
@@ -129,7 +145,7 @@ def qualify_receives():
     command = ['python3', 'scripts/verify_upstream_boundary_mutations.py', '--case', 'departure', '--output', str(departure)]
     result = subprocess.run(command, timeout=3600)
     report['departure_controller'] = {'command': command, 'exit_code': result.returncode}
-    return (len(report['executions']) == 10 and all(row['qualified'] for row in report['executions'])
+    return (len(report['executions']) == (7 if args.phase == 'receives-remaining' else 10) and all(row['qualified'] for row in report['executions'])
             and result.returncode == 0)
 
 
@@ -187,7 +203,7 @@ def verify_production_adaptation():
         if name in ('commands/device_linking.rs', 'subscriptions/account_chat_windows.rs'):
             expected = expected.replace('    pub async fn next(',
                 '    #[marmot_uniffi_macros::receive]\n    pub async fn next(')
-        if args.phase in ('cancel-green', 'conversation-probe') and name in ('commands/device_linking.rs', 'commands/selected_chat_copy.rs'):
+        if args.phase in ('cancel-green', 'conversation-probe', 'receives-remaining') and name in ('commands/device_linking.rs', 'commands/selected_chat_copy.rs'):
             expected = expected.replace('    pub async fn cancel(&self)',
                 '    #[marmot_uniffi_macros::survives_cancellation]\n    pub async fn cancel(&self)')
         compared[path] = Path(path).read_text() == expected
