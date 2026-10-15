@@ -1538,10 +1538,18 @@ mod actual {
                         }
                         _ => None,
                     },
-                    _predecessor_owners.as_ref().map(|owners| &owners.previous_b_fact),
+                    _predecessor_owners
+                        .as_ref()
+                        .map(|owners| &owners.previous_b_fact),
                 )
                 .await;
-                _predecessor_owners.map(|owners| (owners.custody.clone(), owners.original_group.clone(), owners.original_binding))
+                _predecessor_owners.map(|owners| {
+                    (
+                        owners.custody.clone(),
+                        owners.original_group.clone(),
+                        owners.original_binding,
+                    )
+                })
             })
             .catch_unwind()
             .await;
@@ -1554,11 +1562,24 @@ mod actual {
                 Err(panic) => std::panic::resume_unwind(panic),
                 Ok(Some((custody, group, binding))) => {
                     let observed = custody.lock().unwrap();
-                    assert!(!observed.overflow, "custody observation overflow is an unqualified fixture prerequisite failure");
-                    let stale = observed.entries.iter().any(|(actual_group, actual_binding)| actual_group == &group && actual_binding == &binding);
+                    assert!(
+                        !observed.overflow,
+                        "custody observation overflow is an unqualified fixture prerequisite failure"
+                    );
+                    let stale = observed
+                        .entries
+                        .iter()
+                        .any(|(actual_group, actual_binding)| {
+                            actual_group == &group && actual_binding == &binding
+                        });
                     drop(observed);
-                    eprintln!("successive_revocation_custody actual_second_remove_fault_and_history=true previous_completed_original_queued={stale}");
-                    assert!(!stale, "previous Completed original must not take raw-delivery custody of a new Remove");
+                    eprintln!(
+                        "successive_revocation_custody actual_second_remove_fault_and_history=true previous_completed_original_queued={stale}"
+                    );
+                    assert!(
+                        !stale,
+                        "previous Completed original must not take raw-delivery custody of a new Remove"
+                    );
                 }
                 Ok(None) => {}
             }
@@ -3193,7 +3214,9 @@ mod actual {
         retained_remove_reopen: bool,
         retained_remove_storage_retry: bool,
         challenge_before_retry: Option<ChallengeBeforeRetry>,
-        preceding_revoked_anchor: Option<&cgka_traits::revoked_device_group_anchor::RevokedDeviceGroupFact>,
+        preceding_revoked_anchor: Option<
+            &cgka_traits::revoked_device_group_anchor::RevokedDeviceGroupFact,
+        >,
     ) {
         use cgka_traits::{GroupStorage, StorageProvider};
         let d = fixture.d_app.account_home().account("test").unwrap();
@@ -3686,18 +3709,24 @@ mod actual {
             };
             let b_storage = fixture.apps[1].account_storage("test").unwrap();
             if let Some(previous) = preceding_revoked_anchor {
-                let actual = b_storage.revoked_device_group_anchor_storage().unwrap().revoked_anchor().unwrap();
-                assert!(actual.as_ref() == Some(previous),
-                    "second Remove rollback must preserve every field of the actual previous negative anchor");
-            } else {
-            assert!(
-                b_storage
+                let actual = b_storage
                     .revoked_device_group_anchor_storage()
                     .unwrap()
                     .revoked_anchor()
-                    .unwrap()
-                    .is_none()
-            );
+                    .unwrap();
+                assert!(
+                    actual.as_ref() == Some(previous),
+                    "second Remove rollback must preserve every field of the actual previous negative anchor"
+                );
+            } else {
+                assert!(
+                    b_storage
+                        .revoked_device_group_anchor_storage()
+                        .unwrap()
+                        .revoked_anchor()
+                        .unwrap()
+                        .is_none()
+                );
             }
             let before = openmls::group::MlsGroup::load(
                 b_storage.mls_storage(),
@@ -3720,18 +3749,24 @@ mod actual {
                 // Recheck after the observation, before releasing the real SQL fault.
                 // Relay publication alone never establishes B receipt or permission.
                 if let Some(previous) = preceding_revoked_anchor {
-                    let actual = b_storage.revoked_device_group_anchor_storage().unwrap().revoked_anchor().unwrap();
-                    assert!(actual.as_ref() == Some(previous),
-                        "observing a second Challenge must preserve every field of the actual previous negative anchor");
-                } else {
-                assert!(
-                    b_storage
+                    let actual = b_storage
                         .revoked_device_group_anchor_storage()
                         .unwrap()
                         .revoked_anchor()
-                        .unwrap()
-                        .is_none()
-                );
+                        .unwrap();
+                    assert!(
+                        actual.as_ref() == Some(previous),
+                        "observing a second Challenge must preserve every field of the actual previous negative anchor"
+                    );
+                } else {
+                    assert!(
+                        b_storage
+                            .revoked_device_group_anchor_storage()
+                            .unwrap()
+                            .revoked_anchor()
+                            .unwrap()
+                            .is_none()
+                    );
                 }
                 let still_before = openmls::group::MlsGroup::load(
                     b_storage.mls_storage(),

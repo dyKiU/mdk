@@ -41,7 +41,7 @@ jobs:
       - name: Affected successive revocation regression with prior negative-anchor provenance
         env:
           CARGO_INCREMENTAL: '1'
-        run: python3 scripts/qualify_upstream_successive_revocation.py --phase red
+        run: python3 scripts/qualify_upstream_successive_revocation.py --phase green
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -77,3 +77,48 @@ jobs:
           path: format-proof/
           if-no-files-found: error
           retention-days: 7
+
+  static:
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [default, experimental]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install exact Rust toolchain and static components
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt --component clippy
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: successive-revocation-static-${{ matrix.cohort }}
+          cache-on-failure: true
+      - name: Verify available disk before static compilation
+        run: |
+          df -h .
+          available_kib=$(df -Pk . | awk 'NR==2 {print $4}')
+          test "$available_kib" -ge 8388608
+      - name: Verify affected app lint and frozen locked inputs
+        env:
+          COHORT: ${{ matrix.cohort }}
+          CARGO_INCREMENTAL: '1'
+        run: |
+          set -euo pipefail
+          cargo fmt --all --check
+          cargo metadata --locked --format-version 1 > /dev/null
+          features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
+          if [[ "$COHORT" == experimental ]]; then
+            features+=,marmot-app/experimental-device-sync
+          fi
+          cargo clippy --locked -p marmot-app --all-targets --features "$features" -- -D warnings
+          git diff --exit-code HEAD

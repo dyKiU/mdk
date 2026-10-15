@@ -11,7 +11,7 @@ import tempfile
 import time
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--phase', choices=('red',), default='red')
+parser.add_argument('--phase', choices=('red', 'green'), default='red')
 args = parser.parse_args()
 if os.environ.get('GITHUB_ACTIONS') != 'true':
     raise SystemExit('Run this qualification only in remote GitHub Actions')
@@ -26,10 +26,15 @@ FEATURES = ','.join(('marmot-app/otlp-export', 'marmot-app/product-analytics-exp
 TESTS = (
     'successive_device_revocation_rollback_keeps_fresh_challenge_intake',
     'device_revocation_challenge_initial_peel_before_storage_retry_preserves_fresh_authority',
+    'device_revocation_original_receipt_survives_incoming_storage_rollback_retry',
+    'device_revocation_challenge_published_before_storage_retry_preserves_fresh_authority',
+    'device_revocation_original_rollback_keeps_actual_receive_route_until_reconciliation',
+    'device_revocation_confirmation_fact_rollback_preserves_owned_successor_authority',
+    'device_revocation_retained_remove_cannot_restore_positive_guard_after_encrypted_reopen',
 )
 report = {'source': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
           'baseline': BASELINE, 'phase': args.phase, 'passed': False, 'executions': [],
-          'required_executions': 1, 'retries': 0, 'rust_min_stack': os.environ.get('RUST_MIN_STACK'),
+          'required_executions': 9 if args.phase == 'green' else 1, 'retries': 0, 'rust_min_stack': os.environ.get('RUST_MIN_STACK'),
           'toolchain': subprocess.check_output(['rustc', '-Vv'], text=True)}
 
 
@@ -90,8 +95,12 @@ def execute(name, expected):
                                 and row['intended_runtime_failure'] and row['fixture_positive_close_marker'] and row['extra_e_positive_close'])
         row['failure_class'] = 'successive-revocation-stale-original-custody-red' if row['qualified'] else 'prerequisite-or-other-failure'
     else:
+        successive = name == TESTS[0]
+        row['actual_fresh_custody_witness'] = 'successive_revocation_custody actual_second_remove_fault_and_history=true previous_completed_original_queued=false' in text
         row['qualified'] = bool(one_body and process.returncode == 0 and row.get('passed') == 1
-                                and row['fixture_positive_close_marker'])
+                                and row['fixture_positive_close_marker']
+                                and (not successive or (row['actual_previous_live_received_original']
+                                     and row['extra_e_positive_close'] and row['actual_fresh_custody_witness'])))
     save()
     print(json.dumps(row, sort_keys=True), flush=True)
     return row['qualified']
@@ -110,14 +119,58 @@ try:
         section = text[text.index('    pub(crate) fn revoked_confirmation_storage_retry('):text.index('    pub(crate) fn pending_existing_private_settlement(')]
         return re.sub(r'        // BEGIN passive successive-revocation diagnostic\n.*?        // END passive successive-revocation diagnostic\n', '', section, flags=re.S)
     previous = subprocess.check_output(['git', 'show', BASELINE + ':' + production], text=True)
-    if retry_classifier(previous) != retry_classifier(Path(production).read_text()):
-        raise ValueError('The old production retry classifier must remain unchanged for genuine RED')
-    report['old_classifier_unchanged'] = True
-    report['changed_paths'] = sorted(changed)
-    outcomes = [execute(TESTS[0], 'successive-red')]
-    report['qualification_scope'] = 'actual raw retry-slot custody by previous Completed original; no end-to-end liveness failure claim'
-    report['reused_first_remove_control'] = {'source': 'e57745929ecf4ae3da487797190a98bfb9dd2dae', 'run': 'https://github.com/dyKiU/mdk/actions/runs/38789453814', 'test': TESTS[1], 'passed': 1, 'failed': 0, 'ignored': 0, 'reason': 'only new successive-case expectation changed; literal first-remove is_none assertion retained'}
+    source = Path(production)
+    original = source.read_bytes()
+    guards = (
+        '        use cgka_traits::private_roster_settlement::PrivateSettlementPhase;\n'
+        '        use cgka_traits::storage::StorageProvider;\n'
+        '        let storage = self.app.account_storage(&self.state.label).ok()?;\n'
+        '        let round = storage\n'
+        '            .private_roster_settlement_storage()?\n'
+        '            .read_round()\n'
+        '            .ok()??;\n',
+        '            && round.phase == PrivateSettlementPhase::Pending\n'
+        '            && round.anchor.group_id == *control.group()\n'
+        '            && round.anchor.context_digest == control.binding()',
+    )
+    def omit_whole_guard(text):
+        for anchor in guards:
+            if text.count(anchor) != 1:
+                raise ValueError('Whole custody guard omission anchor must be unique')
+            text = text.replace(anchor, '', 1)
+        # The conditions add a newline after the unchanged original condition.
+        return text.replace('            && groups.contains(control.group())\n)',
+                            '            && groups.contains(control.group()))', 1)
+    normalized = original.decode() if args.phase == 'red' else omit_whole_guard(original.decode())
+    if retry_classifier(previous) != retry_classifier(normalized):
+        raise ValueError('Unexpected production classifier change beyond the exact ownership guard')
+    report['original_classifier_or_exact_guard_only'] = True
+    if args.phase == 'red':
+        outcomes = [execute(TESTS[0], 'successive-red')]
+        report['qualification_scope'] = 'actual raw retry-slot custody by previous Completed original; no end-to-end liveness failure claim'
+    else:
+        outcomes = []
+        for test in TESTS:
+            outcomes.append(execute(test, 'green'))
+            if report['executions'][-1]['compiler_error_codes']:
+                break
+        report['mutation_scope'] = 'whole current-round guard omission; no independent binding-only or group-only omission claim'
+        if all(outcomes):
+            mutated = omit_whole_guard(original.decode()).encode()
+            report['mutation'] = {'original_sha256': hashlib.sha256(original).hexdigest(),
+                                  'mutated_sha256': hashlib.sha256(mutated).hexdigest()}
+            try:
+                source.write_bytes(mutated)
+                outcomes.append(execute(TESTS[0], 'successive-red'))
+            finally:
+                source.write_bytes(original)
+                report['mutation']['exact_source_restored'] = source.read_bytes() == original
+                save()
+            outcomes.append(execute(TESTS[0], 'green'))
+            report['mutation']['runtime_detected'] = outcomes[-2]
+            report['mutation']['restored_control_passed'] = outcomes[-1]
     report['passed'] = all(outcomes) and len(report['executions']) == report['required_executions']
+
 finally:
     report['inputs_unchanged'] = source_hashes() == frozen
     report['tracked_source_pristine'] = subprocess.run(['git', 'diff', '--quiet', 'HEAD']).returncode == 0

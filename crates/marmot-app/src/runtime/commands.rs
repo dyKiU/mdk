@@ -40,7 +40,13 @@ impl AccountManager {
         &self,
         account_ref: &str,
         group: &GroupId,
-    ) -> Result<(Option<[u8; 32]>, crate::client::device_linking::RevocationRetryCustodyForTest), AppError> {
+    ) -> Result<
+        (
+            Option<[u8; 32]>,
+            crate::client::device_linking::RevocationRetryCustodyForTest,
+        ),
+        AppError,
+    > {
         let commands = self.worker_commands(account_ref).await?;
         let (respond, response) = oneshot::channel();
         commands

@@ -813,7 +813,15 @@ pub(crate) enum AccountWorkerCommand {
     ))]
     LiveRevocationSettlementBindingForTest {
         group: GroupId,
-        respond: oneshot::Sender<Result<(Option<[u8; 32]>, crate::client::device_linking::RevocationRetryCustodyForTest), AppError>>,
+        respond: oneshot::Sender<
+            Result<
+                (
+                    Option<[u8; 32]>,
+                    crate::client::device_linking::RevocationRetryCustodyForTest,
+                ),
+                AppError,
+            >,
+        >,
     },
     #[cfg(all(
         test,
