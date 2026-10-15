@@ -13,6 +13,36 @@ use std::{
     time::{Duration, Instant},
 };
 pub(crate) const MAX_OWNERS: usize = 128;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum SiblingMaintenanceFailure {
+    Owner,
+    Collection,
+    Runtime,
+    Engine,
+    Genesis,
+    Gate,
+    PrivateInvite,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Default)]
+pub(crate) struct SiblingMaintenanceDiagnostics {
+    // Original live, state live, ready, handshake published, local policy,
+    // proof published, peer proof received, complete (low to high bits).
+    pub(crate) channel_bits: usize,
+    pub(crate) visits: usize,
+    pub(crate) failures: usize,
+    pub(crate) last_failure: Option<SiblingMaintenanceFailure>,
+}
+
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) type SiblingMaintenanceSnapshot = (usize, usize, usize, Option<SiblingMaintenanceFailure>);
+#[cfg(all(test, feature = "test-policy-overrides"))]
+impl SiblingMaintenanceDiagnostics {
+    pub(crate) fn snapshot(&self) -> SiblingMaintenanceSnapshot {
+        (self.channel_bits, self.visits, self.failures, self.last_failure)
+    }
+}
 pub(crate) struct State {
     owner: Weak<AtomicBool>,
     pub(crate) deadline: Instant,
@@ -25,6 +55,8 @@ pub(crate) struct State {
     cancelled: AtomicBool,
     pub(crate) revoked: tokio::sync::Notify,
     aliases: AtomicUsize,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) sibling_diagnostics: Mutex<SiblingMaintenanceDiagnostics>,
 }
 #[derive(Default)]
 pub(crate) struct Progress {
@@ -59,6 +91,8 @@ impl State {
             cancelled: AtomicBool::new(false),
             revoked: tokio::sync::Notify::new(),
             aliases: AtomicUsize::new(0),
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            sibling_diagnostics: Mutex::new(SiblingMaintenanceDiagnostics::default()),
         })
     }
     pub(crate) fn live(&self) -> bool {

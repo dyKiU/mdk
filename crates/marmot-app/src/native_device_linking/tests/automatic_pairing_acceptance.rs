@@ -196,7 +196,13 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
         approvals.push(approval);
     }
     eprintln!("automatic-enrollment-control stage=fourth-device-completion");
-    wait_for_automatic_phase(&a, &d, DeviceLinkingPhase::EnrollmentComplete).await;
+    wait_for_automatic_phase_with_approvals(
+        &a,
+        &d,
+        DeviceLinkingPhase::EnrollmentComplete,
+        &approvals,
+    )
+    .await;
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
@@ -648,6 +654,15 @@ async fn wait_for_automatic_phase(
     b: &DeviceLinkingSession,
     phase: DeviceLinkingPhase,
 ) {
+    wait_for_automatic_phase_with_approvals(a, b, phase, &[]).await;
+}
+
+async fn wait_for_automatic_phase_with_approvals(
+    a: &DeviceLinkingSession,
+    b: &DeviceLinkingSession,
+    phase: DeviceLinkingPhase,
+    approvals: &[DeviceLinkingApproval],
+) {
     let mut observed = None;
     tokio::time::timeout(std::time::Duration::from_secs(15), async {
         loop {
@@ -690,7 +705,22 @@ async fn wait_for_automatic_phase(
                 original.sibling_context_rejections_for_test(),
                 original.sibling_projection_aggregates_for_test(),
             );
+            eprintln!(
+                "automatic-enrollment-control side={side} child_channels={:?}",
+                original.sibling_child_diagnostics_for_test(),
+            );
         }
+        #[cfg(feature = "test-policy-overrides")]
+        for (index, approval) in approvals.iter().enumerate() {
+            eprintln!(
+                "automatic-enrollment-control existing_index={index} child_channel={:?}",
+                approval
+                    .sharing_original_for_test()
+                    .map(|original| original.channel_diagnostics_for_test()),
+            );
+        }
+        #[cfg(not(feature = "test-policy-overrides"))]
+        let _ = approvals;
         panic!("automatic pairing did not reach required phase: expected={phase:?} observed={observed:?}")
     });
 }

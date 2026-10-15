@@ -351,6 +351,17 @@ impl DeviceLinkingSession {
             .map(|choice| choice.recipient_rejections_for_test())
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_child_diagnostics_for_test(
+        &self,
+    ) -> Option<Vec<crate::account_chat_sharing::enabled::SiblingMaintenanceSnapshot>> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .map(|choice| choice.child_diagnostics_for_test())
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn sibling_completion_aggregates_for_test(
         &self,
     ) -> Option<(bool, Option<usize>, usize, usize)> {

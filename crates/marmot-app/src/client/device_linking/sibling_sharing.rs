@@ -335,6 +335,23 @@ struct ChoiceProgress {
 }
 impl OriginalEnrollmentSharingChoice {
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn child_diagnostics_for_test(
+        &self,
+    ) -> Vec<crate::account_chat_sharing::enabled::SiblingMaintenanceSnapshot> {
+        self.children
+            .lock()
+            .expect("sibling children")
+            .iter()
+            .map(|state| {
+                state
+                    .sibling_diagnostics
+                    .lock()
+                    .expect("sibling diagnostics")
+                    .snapshot()
+            })
+            .collect()
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn completion_aggregates_for_test(&self) -> (bool, Option<usize>, usize, usize) {
         let progress = self.progress.lock().expect("sharing choice");
         let children = self.children.lock().expect("sibling children");
@@ -1656,8 +1673,20 @@ impl AppClient {
             .retain(|entry| entry.original.live() && entry.state.live());
         self.begin_completed_sibling_sharing()?;
         let mut channels = std::mem::take(&mut self.linking_owner.sibling_channels);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let mut visited = None;
         let result = async {
             for entry in &mut channels {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                {
+                    visited = Some(entry.state.clone());
+                    entry
+                        .state
+                        .sibling_diagnostics
+                        .lock()
+                        .expect("sibling diagnostics")
+                        .visits += 1;
+                }
                 if !entry.original.live() || !entry.state.live() {
                     continue;
                 }
@@ -1734,6 +1763,49 @@ impl AppClient {
             Ok(())
         }
         .await;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        {
+            for entry in &channels {
+                let bits = [
+                    entry.original.live(),
+                    entry.state.live(),
+                    entry.ready,
+                    entry.handshake_published,
+                    entry.policy_committed,
+                    entry.proof_published,
+                    entry.peer_committed,
+                    entry.state.progress.lock().expect("sibling progress").complete,
+                ];
+                let mask = bits.into_iter().enumerate().fold(0, |mask, (index, value)| {
+                    mask | (usize::from(value) << index)
+                });
+                entry
+                    .state
+                    .sibling_diagnostics
+                    .lock()
+                    .expect("sibling diagnostics")
+                    .channel_bits = mask;
+            }
+            if let Err(error) = &result
+                && let Some(state) = visited
+            {
+                use crate::account_chat_sharing::enabled::SiblingMaintenanceFailure as Failure;
+                let mut diagnostic = state
+                    .sibling_diagnostics
+                    .lock()
+                    .expect("sibling diagnostics");
+                diagnostic.failures += 1;
+                diagnostic.last_failure = Some(match error {
+                    ClientLinkingError::Owner(_) => Failure::Owner,
+                    ClientLinkingError::Collection(_) => Failure::Collection,
+                    ClientLinkingError::Runtime(_) => Failure::Runtime,
+                    ClientLinkingError::Engine(_) => Failure::Engine,
+                    ClientLinkingError::Genesis(_) => Failure::Genesis,
+                    ClientLinkingError::Gate(_) => Failure::Gate,
+                    ClientLinkingError::PrivateInvite(_) => Failure::PrivateInvite,
+                });
+            }
+        }
         self.linking_owner.sibling_channels = channels;
         result
     }

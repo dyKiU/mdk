@@ -39,6 +39,16 @@ impl OriginalSiblingSharingApproval {
         self.cancellation.cancel();
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn channel_diagnostics_for_test(
+        &self,
+    ) -> crate::account_chat_sharing::enabled::SiblingMaintenanceSnapshot {
+        self.state
+            .sibling_diagnostics
+            .lock()
+            .expect("sibling diagnostics")
+            .snapshot()
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn status_for_test(&self) -> (bool, bool) {
         (self.state.live(), self.complete())
     }
