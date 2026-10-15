@@ -26,6 +26,12 @@ versioning through the workspace version in the root `Cargo.toml`.
 
 ### Fixed
 
+- Anchored `stream send` discovers the stream author's account before opening a
+  runtime, avoiding a competing worker for another local recipient. Explicitly
+  selecting a non-author account now returns `not_message_author`. Cold stream
+  preparation retries typed storage contention at most twice; publication is
+  never repeated by that readiness check.
+
 - All daemon-hosted commands share the original app and account runtime, avoiding
   competing database opens during group changes, chat subscriptions and reads.
 

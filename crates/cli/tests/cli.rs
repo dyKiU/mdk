@@ -3909,8 +3909,14 @@ fn stream_start_quic_chunks_and_final_payload_verify_through_mls_messages() {
     let home = tempfile::tempdir().expect("tempdir");
     let broker = spawn_quic_broker();
 
-    let alice = create_account(home.path());
-    let bob = create_account(home.path());
+    let first = create_account(home.path());
+    let second = create_account(home.path());
+    // Automatic account discovery sees the receiver before the stream author.
+    let (alice, bob) = if first > second {
+        (first, second)
+    } else {
+        (second, first)
+    };
     run_json(home.path(), &["--account", &bob, "keys", "publish"]);
     let created_group = run_json(
         home.path(),
@@ -3960,6 +3966,28 @@ fn stream_start_quic_chunks_and_final_payload_verify_through_mls_messages() {
         bob_start_message["agent_text_stream"]["quic_candidates"],
         serde_json::json!([broker_candidate])
     );
+
+    let foreign_publish = run_json_error(
+        home.path(),
+        &[
+            "--account",
+            &bob,
+            "stream",
+            "send",
+            "--broker",
+            "--connect",
+            &broker.addr.to_string(),
+            "--server-name",
+            "localhost",
+            "--insecure-local",
+            "--stream-id",
+            stream_id,
+            "--start-event-id",
+            start_message_id,
+            "foreign publisher",
+        ],
+    );
+    assert_eq!(foreign_publish["code"], "not_message_author");
 
     let mut watcher = wn(home.path());
     watcher
