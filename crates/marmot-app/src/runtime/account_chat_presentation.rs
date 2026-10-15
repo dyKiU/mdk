@@ -13,6 +13,10 @@ use tokio::sync::oneshot;
 type Reply<T> = oneshot::Sender<Result<T, AccountChatReadError>>;
 #[cfg(feature = "experimental-device-sync")]
 pub(crate) enum Command {
+    DirectConversation {
+        peer: [u8; 32],
+        respond: Reply<Option<crate::PairedChatSummary>>,
+    },
     Conversation {
         group: GroupId,
         before: Option<PairedChatMessageCursor>,
@@ -32,7 +36,71 @@ pub(crate) enum Command {
     },
 }
 
+impl super::MarmotAppRuntime {
+    /// Resolve a contact to its existing direct conversation, with local MLS
+    /// precedence and explicit paired-source provenance. Never creates an invite.
+    pub async fn existing_account_direct_conversation(
+        &self,
+        account_ref: &str,
+        peer_account_id: &str,
+    ) -> Result<Option<crate::ExistingAccountDirectConversation>, AccountChatReadError> {
+        let peer_hex = crate::ids::account_id_hex_from_ref(peer_account_id)
+            .map_err(|_| AccountChatReadError::InvalidQuery)?;
+        let account = self
+            .accounts
+            .resolve(account_ref)
+            .map_err(|_| AccountChatReadError::RuntimeUnavailable)?;
+        if peer_hex == account.account_id_hex {
+            return Ok(None);
+        }
+        if let Some(local) = self
+            .existing_direct_conversation(&account.label, &peer_hex)
+            .await
+            .map_err(|error| match error {
+                crate::AppError::DirectConversationIndexNotReady => AccountChatReadError::NotReady,
+                _ => AccountChatReadError::RuntimeUnavailable,
+            })?
+        {
+            return Ok(Some(crate::ExistingAccountDirectConversation::LocalMls(
+                Box::new(local),
+            )));
+        }
+        #[cfg(not(feature = "experimental-device-sync"))]
+        {
+            Ok(None)
+        }
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            let peer = hex::decode(peer_hex)
+                .ok()
+                .and_then(|bytes| bytes.try_into().ok())
+                .ok_or(AccountChatReadError::InvalidQuery)?;
+            self.accounts
+                .paired_direct_conversation(&account.label, peer)
+                .await
+                .map(|found| {
+                    found.map(|row| {
+                        crate::ExistingAccountDirectConversation::PairedSource(Box::new(row))
+                    })
+                })
+        }
+    }
+}
+
 impl AccountManager {
+    #[cfg(feature = "experimental-device-sync")]
+    async fn paired_direct_conversation(
+        &self,
+        account: &str,
+        peer: [u8; 32],
+    ) -> Result<Option<crate::PairedChatSummary>, AccountChatReadError> {
+        self.send_paired_chat_read(account, |respond| Command::DirectConversation {
+            peer,
+            respond,
+        })
+        .await
+    }
+
     pub async fn paired_chat_list_page(
         &self,
         account: &str,
@@ -151,6 +219,14 @@ impl AccountManager {
 #[cfg(feature = "experimental-device-sync")]
 pub(crate) fn handle(client: &crate::AppClient, command: Command) {
     match command {
+        Command::DirectConversation { peer, respond } => {
+            let result = client
+                .current_mirrored_direct_conversation(&peer)
+                .map(|row| row.map(Into::into))
+                .map_err(AccountChatReadError::from);
+            let _ = respond.send(result);
+        }
+
         Command::Conversation {
             group,
             before,

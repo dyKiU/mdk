@@ -866,6 +866,13 @@ serial account worker. Current durable approvals and fresh protected roster stat
 are checked before and after each read. `LocalMls` and `PairedSource` remain
 distinct; mirror rows create no MLS membership or media download permission.
 
+`existing_account_direct_conversation` resolves a peer to a reusable local MLS
+conversation or a current approved paired-source route, preserving that provenance
+in its tagged result. Local membership uses the ordinary indexed reuse policy;
+paired identity comes from the source's direct-chat classification and canonical
+roster. Reads never create invitations or fabricate local membership. Transient
+index, policy or runtime errors must not be treated as a missing conversation.
+
 `open_account_chat_list_window` combines bounded ordinary and mirror lanes; its
 ordinary metadata/anchors and separate mirror cursor do not imply global activity
 ordering. `open_account_conversation_window` merges canonical event time/ID with

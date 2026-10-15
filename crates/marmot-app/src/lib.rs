@@ -103,9 +103,9 @@ pub use device_revocation::{
 };
 mod account_chat_presentation;
 pub use account_chat_presentation::{
-    AccountChatReadError, AccountConversationPage, AccountConversationRow, PairedChatContent,
-    PairedChatListPage, PairedChatMessage, PairedChatMessageCursor, PairedChatMessagePage,
-    PairedChatSource, PairedChatSummary,
+    AccountChatReadError, AccountConversationPage, AccountConversationRow,
+    ExistingAccountDirectConversation, PairedChatContent, PairedChatListPage, PairedChatMessage,
+    PairedChatMessageCursor, PairedChatMessagePage, PairedChatSource, PairedChatSummary,
 };
 mod account_chat_departure;
 pub use account_chat_departure::{

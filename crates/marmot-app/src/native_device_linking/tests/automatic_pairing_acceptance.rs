@@ -700,3 +700,6 @@ async fn automatic_transport_cannot_keep_dropped_original_authority_alive() {
     drop(retired);
     runtime.shutdown_and_close().await.unwrap();
 }
+
+#[path = "direct_contact_reuse_acceptance.rs"]
+mod direct_contact_reuse_acceptance;
