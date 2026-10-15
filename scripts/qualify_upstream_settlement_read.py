@@ -81,6 +81,7 @@ def run(names,label):
         name,suite=selected[suffix]
         binary=Path(suite["binary-path"])
         case={"test":name,"binary_sha256":digest(binary)}
+        assert fingerprint()==starting_inputs
         started=time.monotonic()
         try:
             result=subprocess.run([str(binary),"--exact",name,"--nocapture","--test-threads=1"],capture_output=True,text=True,timeout=300)
@@ -98,7 +99,8 @@ def run(names,label):
         case["panic_locations"]=[{"file":file,"line":int(line),"column":int(column)} for file,line,column in re.findall(r"panicked at (crates/[A-Za-z0-9_./-]+\.rs):([0-9]+):([0-9]+)",raw)]
         case["original_phase_oracle"]=("automatic pairing did not reach required phase: expected=EnrollmentComplete" in raw and any(item["file"]=="crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs" and item["line"]==839 for item in case["panic_locations"]))
         case["completion_markers"]=re.findall(r"automatic-enrollment-control stage=((?:third|fourth)-device-completion)",raw)
-        case["nonlocal_consistency_oracle"]=("missing genuine non-local receipt retains the exact completed-facts corruption error" in raw and any(item["file"]=="crates/cgka-engine/src/private_roster_settlement_tests.rs" and item["line"]==report.get("consistency_assertion_line") for item in case["panic_locations"]))
+        case["observed_completion_phase"]=case["completion_markers"][-1].split("-",1)[0] if case["completion_markers"] else None
+        case["nonlocal_consistency_oracle"]=("missing genuine non-local receipt retains the exact completed-facts corruption error" in raw and len(case["panic_locations"])==1 and any(item["file"]=="crates/cgka-engine/src/private_roster_settlement_tests.rs" and item["line"]==report.get("consistency_assertion_line") for item in case["panic_locations"]))
         assert fingerprint()==starting_inputs
         proof["cases"].append(case)
         save()
