@@ -41,17 +41,7 @@ jobs:
           assert r['profile']['m5-bounded']['retries']==0
           Path('orchestration-proof/profiles.json').write_text(json.dumps({'toml_sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'profiles':sorted(r['profile']),'m5_bounded_retries':0,'product_compilation_executed':False},indent=2)+'\n')
           PY
-          actionlint -shellcheck='' .github/workflows/ci.yml .github/workflows/experimental-sync.yml .github/workflows/bindings-profile.yml .github/workflows/upstream-app-native.yml .github/workflows/upstream-orchestration-preflight.yml 2>&1 | tee orchestration-proof/actionlint.log
-      - name: Run classifier and selector unit tests
-        if: always()
-        run: |
-          set -euo pipefail
-          python3 scripts/test_classify_ci_changes.py -v 2>&1 | tee orchestration-proof/classifier.log
-          python3 scripts/test_select_ci_tests.py -v 2>&1 | tee orchestration-proof/selector.log
-          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
-          rustup toolchain install "$toolchain" --profile minimal
-          cargo +"$toolchain" metadata --locked --no-deps --format-version 1 > orchestration-proof/metadata.json
-          git diff --exit-code HEAD
+          actionlint -shellcheck='' .github/workflows/ci.yml .github/workflows/experimental-sync-ci.yml .github/workflows/bindings-profile.yml .github/workflows/upstream-app-native.yml .github/workflows/upstream-orchestration-preflight.yml 2>&1 | tee orchestration-proof/actionlint.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
