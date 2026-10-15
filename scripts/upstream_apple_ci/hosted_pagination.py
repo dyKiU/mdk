@@ -14,6 +14,18 @@ PREJOIN = 199
 PAGE_SIZE = 37
 
 
+class BoundedObservationPeer:
+    """Observe an exact ID over the complete bounded live fixture, not tail128."""
+
+    def __init__(self, original_peer):
+        self.original = original_peer
+
+    def ask(self, command, **arguments):
+        if command == "message-seen":
+            command = "message-seen-bounded-id"
+        return self.original.ask(command, **arguments)
+
+
 class SeededSource:
     """Delegate original actions, seeding actual messages before admission."""
 
@@ -70,7 +82,7 @@ def read_pages(peer, group):
 
 
 def run(journey):
-    a, b, c, d = (journey.open(role) for role in journey.commands)
+    a, b, c, d = (BoundedObservationPeer(journey.open(role)) for role in journey.commands)
     account = original.first_pair(a, b, c)
     review = original.third_device(b, a, c)
     seeded = SeededSource(a, b, c, d)
@@ -102,6 +114,8 @@ def run(journey):
     for peer in (b, c):
         require(peer.ask("history-page-37", group=group)["records"] == [],
                 "pagination-request-review-does-not-import")
+    # Keep the original controller's shared 30-second request/consent/import
+    # bound unchanged. Seeding and ordinary membership completed before it.
     b.ask("history-approve", revision=consent["revision"])
     a.ask("history-continue", revision=source["revision"])
     while True:
@@ -142,6 +156,7 @@ def run(journey):
                   text=previous["text"])["seen"], "pagination-postjoin-live-record-preserved")
     return {"source_records": 200, "prejoin_records": PREJOIN, "imported_records": PREJOIN,
             "recipient_page_limit": PAGE_SIZE, "recipient_page_sizes": sizes,
+            "complete_bounded_live_id_observation": True,
             "stable_repeated_enumeration": True, "exact_ids_content_and_provenance": True,
             "no_disclosure_before_consent": True, "nonrecipient_archive_empty": True,
             "postjoin_live_record_preserved": True, "source_complete": True,

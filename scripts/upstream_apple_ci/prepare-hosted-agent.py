@@ -27,7 +27,7 @@ def main() -> None:
     provenance = {"frozen_workspace_commit": manifest["workspace_commit"],
                   "adapter_sha256": digest(Path(__file__).read_bytes()), "files": {},
                   "history_pagination": args.history_pagination,
-                  "adaptation": "Optionally add a read-only bounded cursor command; classify non-SDK failures by fixed cases and the closed no-Tokio-runtime panic category; never emit descriptions or payloads."}
+                  "adaptation": "Optionally add read-only bounded cursor and exact-ID observation commands; classify non-SDK failures by fixed cases and the closed no-Tokio-runtime panic category; never emit descriptions or payloads."}
     for name in ("build.sh", "Acceptance.swift", "Agent.swift", "StoreControls.swift"):
         original = (source / name).read_bytes()
         if digest(original) != manifest["files"][name]:
@@ -93,7 +93,21 @@ def main() -> None:
                 cursor_page = cursor_page.replace('                guard page.nextMessageIdHex == nil else { throw AcceptanceFailure.unexpectedAccount }\n', '')
                 cursor_page = cursor_page.replace('                return [\n',
                     '                return [\n                    "next": page.nextMessageIdHex.map { $0 as Any } ?? NSNull(),\n', 1)
-                text = text[:end] + cursor_page + text[end:]
+                observed_id = """            case "message-seen-bounded-id":
+                stage = "actual-bounded-delivered-message-id"
+                let id = try identifier(request.message)
+                guard id.count == 64 else { throw AcceptanceFailure.invalidArguments }
+                // This fixture has at most 200 live kind-9 records. Read one
+                // extra to reject an overflowing scope rather than overlook
+                // an older ID hidden by the frozen controller's 128-row tail.
+                let actual = try runtime.messages(
+                    accountRef: requireAccount(), groupIdHex: identifier(request.group), limit: 201, kinds: [9])
+                guard actual.count <= 200 else { throw AcceptanceFailure.unexpectedAccount }
+                let matching = actual.filter { $0.messageIdHex == id }
+                guard matching.count <= 1 else { throw AcceptanceFailure.unexpectedAccount }
+                return ["seen": matching.contains { $0.plaintext == request.text }]
+"""
+                text = text[:end] + cursor_page + observed_id + text[end:]
             derived = text.encode()
         (args.output / name).write_bytes(derived)
         provenance["files"][name] = {"original_sha256": digest(original), "derived_sha256": digest(derived)}

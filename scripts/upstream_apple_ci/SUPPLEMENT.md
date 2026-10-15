@@ -67,7 +67,15 @@ canonical IDs, contents, tags and source/transfer/manifest provenance. A second
 complete enumeration must match exactly, with no nonrecipient archive disclosure.
 Worker stores and messages remain private; only aggregate results and derived
 source provenance are uploaded. The added native command is read-only, fixes its
-page size to 37, and validates the optional cursor. Frozen sources are unchanged.
+page size to 37, and validates the optional cursor. A separate read-only exact-ID
+observation command scans this fixture's complete live kind-9 set (query limit
+201, reject more than 200), so the frozen 128-row message tail cannot hide early
+records. Only this fixture wraps original message observations with that command.
+The unchanged request/consent/import deadline remains 30 seconds. The archive
+API uses message-ID keyset order, so the expected canonical IDs are sorted by
+ID, independently of event timestamps. Plain seeded texts contain no mentions;
+the source Chat intent adds only mention tags, so their expected tags are empty.
+Frozen sources are unchanged.
 
 This is a representative bounded pagination gate. The SDK rejects the entire
 source snapshot above 200 records with `NotReady`; this lane does not remove that
