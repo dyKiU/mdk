@@ -61,10 +61,16 @@ jobs:
           REQUESTED_MDK_SHA: ${{ inputs.mdk_sha }}
           REQUESTED_MAC_SHA: ${{ inputs.mac_sha }}
           REQUESTED_IOS_SHA: ${{ inputs.ios_sha }}
-        run: python3 scripts/upstream_apple_ci/identity.py
+          REQUESTED_PACKAGE_ONLY: ${{ inputs.package_only }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            test "$REQUESTED_PACKAGE_ONLY" = true
+          fi
+          python3 scripts/upstream_apple_ci/identity.py
 
   inputs:
     needs: identity
+    if: github.event_name == 'workflow_dispatch' && inputs.package_only
     runs-on: macos-26
     env:
       SOURCE_SHA: ${{ needs.identity.outputs.mdk_sha }}
@@ -110,6 +116,7 @@ jobs:
 
   assemble:
     needs: [identity, inputs]
+    if: github.event_name == 'workflow_dispatch' && inputs.package_only
     runs-on: macos-26
     env:
       SOURCE_SHA: ${{ needs.identity.outputs.mdk_sha }}

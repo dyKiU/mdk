@@ -74,8 +74,8 @@ jobs:
               assert re.fullmatch('[0-9a-f]{40}',sdk) and re.fullmatch('[1-9][0-9]*',sdk_run)
               if native=='all':
                   assert sdk!='3f18b2d1acac4f87680b35f39bf8dce67dcf28ec','Old SDK cannot qualify protocol/native bodies'
-              assert cohort['mac_sha']=='dc86789da2251ce89f3546719ff1dd8dd91ee99d'
-              assert cohort['ios_sha']=='cfc9ba7b6a66ecc444b80070209ce2c1c195fc00'
+              assert cohort['mac_sha']=='46269f4eb115fd6363ca86a36bf572307a23e7f6'
+              assert cohort['ios_sha']=='651461292a12be94c246af3ebe092a7b52b62673'
           else:
               assert not sdk and not sdk_run
           with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
@@ -200,8 +200,13 @@ jobs:
                  'hosted-root-mutations.py','timestamp-mutations.py','sdk-manifest-guards.py','build-hosted-simulator-agent.sh',
                  'run-hosted-app-acceptance.py','paired_direct_mutation.py','paired-direct-mutations.py']
           paths=[Path('scripts/upstream_apple_ci')/name for name in names]
+          manifest_path=Path('scripts/upstream_apple_ci/HOSTED-SOURCE.json')
+          manifest=json.loads(manifest_path.read_text())
+          wrapper_path=Path('scripts/upstream_apple_ci/run-hosted-app-acceptance.py')
+          assert hashlib.sha256(wrapper_path.read_bytes()).hexdigest()==manifest['files'][wrapper_path.name]['sha256']
+          paths.append(manifest_path)
           report={'tools_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
-                  'syntax_checks_passed':True,'product_tests_executed':0,
+                  'syntax_checks_passed':True,'hosted_wrapper_manifest_verified':True,'product_tests_executed':0,
                   'files':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}}
           (Path(os.environ['RUNNER_TEMP'])/'tools-preflight/result.json').write_text(json.dumps(report,indent=2)+'\n')
           PY
