@@ -281,6 +281,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     .catch_unwind()
     .await;
     if let Err(failure) = completion {
+        let failure_observed_at = std::time::Instant::now();
         if let Some((_, release)) = &held_automatic {
             release.notify_one();
         }
@@ -344,6 +345,37 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
             pending.len(),
             d.sibling_channel_progress_for_test()
         );
+        if held_publication == HeldPublication::None {
+            // Preserve the original failure. Observe only this already-approved
+            // original through the existing controller's 90-second phase budget.
+            let mut later = None;
+            let late_completion = tokio::time::timeout(
+                std::time::Duration::from_secs(75).saturating_sub(failure_observed_at.elapsed()),
+                async {
+                    loop {
+                        let left = a.snapshot().await.ok()?;
+                        let right = d.snapshot().await.ok()?;
+                        let phases = (left.phase, right.phase);
+                        let complete = phases
+                            == (
+                                DeviceLinkingPhase::EnrollmentComplete,
+                                DeviceLinkingPhase::EnrollmentComplete,
+                            );
+                        later = Some(phases);
+                        if complete {
+                            return Some(());
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    }
+                },
+            )
+            .await;
+            eprintln!(
+                "automatic-enrollment-control post-failure-original-late-completion={} later-phases={later:?} post-failure-elapsed-ms={}",
+                matches!(late_completion, Ok(Some(()))),
+                failure_observed_at.elapsed().as_millis()
+            );
+        }
         std::panic::resume_unwind(failure);
     }
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
