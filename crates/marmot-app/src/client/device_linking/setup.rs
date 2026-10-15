@@ -173,6 +173,10 @@ impl AppClient {
                 && {
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     reason(Reason::NoSettledRoster);
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    let _cost = crate::test_support::linking_cost::enter(
+                        crate::test_support::linking_cost::Site::ObservationRoster,
+                    );
                     self.runtime
                         .session()
                         .validated_settled_device_roster(&attempt.guard.group())
@@ -183,7 +187,13 @@ impl AppClient {
                 // A host can immediately close its original on this terminal
                 // observation. Complete the explicit durable approval handoff
                 // before exposing completion, not on a later maintenance tick.
-                self.persist_completed_pair_sharing_approval()?;
+                {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    let _cost = crate::test_support::linking_cost::enter(
+                        crate::test_support::linking_cost::Site::ObservationHandoff,
+                    );
+                    self.persist_completed_pair_sharing_approval()?;
+                }
                 if self
                     .linking_owner
                     .sharing_approval

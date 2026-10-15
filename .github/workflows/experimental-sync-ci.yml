@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, reconciled-controls, reconciled-static]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, reconciled-controls, reconciled-static, reconciled-linking-cost]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -92,6 +92,34 @@ jobs:
         if: always()
         with:
           name: reconciled-media-store-suite
+          path: reconciled-evidence/result.json
+          if-no-files-found: error
+  reconciled-linking-cost:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'reconciled-linking-cost'
+    name: Unchanged enrollment aggregate callsite cost
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+      - name: Run original four-device selector with aggregate test-only callsite cost
+        env:
+          RECONCILED_SCOPE: trace
+          RECONCILED_COHORT: experimental
+        run: python3 scripts/verify_upstream_reconciled_controls.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reconciled-linking-cost
           path: reconciled-evidence/result.json
           if-no-files-found: error
   reconciled-lock-format:

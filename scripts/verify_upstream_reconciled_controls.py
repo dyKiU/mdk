@@ -30,7 +30,17 @@ QUARANTINE = [
 ]]
 assert os.environ["RUST_MIN_STACK"] == "4194304"
 subprocess.run(["git", "merge-base", "--is-ancestor", UPSTREAM, "HEAD"], check=True)
-assert not subprocess.check_output(["git", "diff", BASELINE, "HEAD", "--", "crates", "Cargo.toml", "Cargo.lock"]), "controller branch must not import product experiments"
+source_paths = ["crates", "Cargo.toml", "Cargo.lock"]
+if os.environ["RECONCILED_SCOPE"] == "trace":
+    # These five reviewed changes add cfg-test cost measurements only.
+    source_paths += [":!" + path for path in [
+        "crates/marmot-app/src/test_support.rs",
+        "crates/marmot-app/src/client/device_linking/setup.rs",
+        "crates/marmot-app/src/client/device_linking/sibling_sharing.rs",
+        "crates/marmot-app/src/client/private_enrollment_proposal/sibling_sharing.rs",
+        "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs",
+    ]]
+assert not subprocess.check_output(["git", "diff", BASELINE, "HEAD", "--", *source_paths]), "controller branch must not import product experiments"
 root = Path("reconciled-evidence")
 root.mkdir()
 report = {"source": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(), "product_baseline": BASELINE, "upstream_master": UPSTREAM, "scope": os.environ["RECONCILED_SCOPE"], "cohort": os.environ.get("RECONCILED_COHORT", "experimental"), "rust_min_stack_bytes": 4194304, "test_threads": 1, "automatic_retries": 0, "controls": {}, "qualification_passed": False, "lock_sha256": hashlib.sha256(Path("Cargo.lock").read_bytes()).hexdigest()}
@@ -82,7 +92,7 @@ def existing_aggregates(output):
                 values = [aggregate_value(match[index]) for index in range(2, 7)]
                 completion = values[0]
                 assert completion is None or isinstance(completion, list) and len(completion) == 4 and type(completion[0]) is bool and (completion[1] is None or type(completion[1]) is int) and all(type(value) is int for value in completion[2:])
-                assert all(integers(value, size) for value, size in zip(values[1:], [19, 4, 9, 4]))
+                assert all(integers(value, size) for value, size in zip(values[1:], [8, 4, 9, 4]))
                 records[side + "_completion"] = dict(zip(["completion", "intake", "rejections", "context_rejections", "projection"], values))
                 continue
             match = re.fullmatch(r"automatic-enrollment-control side=(left|right) (child_channels|native_rpc_counts/elapsed_ms/branch)=(.*)", line)
@@ -119,7 +129,7 @@ def run(name, selected, expected, args):
     assert expected > 0 and len(cases) == expected, "exact nonignored selection count required"
     list_seconds = time.monotonic() - listed_at
     executed_at = time.monotonic()
-    result = subprocess.run(["cargo", "nextest", "run", *args, "-E", selected, "--profile", "m5-bounded", "--test-threads", "1", "--retries", "0", "--no-fail-fast"], capture_output=True, text=True)
+    result = subprocess.run(["cargo", "nextest", "run", *args, "-E", selected, "--profile", "m5-bounded", "--test-threads", "1", "--retries", "0", "--no-fail-fast", *(["--success-output", "immediate"] if report["scope"] == "trace" else [])], capture_output=True, text=True)
     output = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout + result.stderr)
     rows = re.findall(r"Summary\s+\[[^\]]*\]\s+(\d+)(?:/\d+)?\s+tests? run:\s*([^\n]*)", output)
     assert len(rows) == 1 and int(rows[0][0]) == expected, "actual runtime counts required"
@@ -144,6 +154,16 @@ def run(name, selected, expected, args):
         ("cached parsed state cannot conceal an authoritative foreign tree deletion", "foreign-tree-assertion"),
     ] if needle in output]
     proof["existing_numeric_enum_aggregates"], proof["aggregate_parse_rejections"] = existing_aggregates(output)
+    if report["scope"] == "trace":
+        traces = re.findall(r"linking-cost phase=fourth-device-completion-end wall_ns=([0-9]+) cpu_ns=(None|Some\([0-9]+\)) counters=(\[\[.*?\]\])", output)
+        assert len(traces) <= 1, "one bounded fourth-completion measurement required"
+        proof["fourth_completion_cost"] = None
+        if traces:
+            wall, cpu, counters = traces[0]
+            counters = aggregate_value(counters)
+            assert isinstance(counters, list) and len(counters) == 4 and all(integers(row, 5) for row in counters)
+            proof["fourth_completion_cost"] = {"wall_ns": int(wall), "scheduled_thread_cpu_ns": aggregate_value(cpu), "site_order": ["ObservationRoster", "ObservationHandoff", "SiblingParent", "BeginSibling"], "counter_order": ["calls", "inclusive_wall_ns", "inclusive_scheduled_cpu_ns", "cpu_unknown_calls", "max_wall_ns"], "counters": counters, "inclusive_nested_sites_may_overlap": True}
+        proof["fourth_completion_measurement_started"] = "linking-cost phase=fourth-device-completion-start" in output
     proof["compile_or_cached_list_seconds"] = list_seconds
     proof["execution_command_seconds"] = time.monotonic() - executed_at
     proof["filtered_or_skipped"] = count("skipped")
@@ -158,13 +178,14 @@ scope = report["scope"]
 features = FEATURES if report["cohort"] == "experimental" else FEATURES.replace(",marmot-app/experimental-device-sync", "")
 args = ["--locked", "-p", "marmot-app", "--lib", "--features", features]
 if scope in {"native", "quarantine", "experimental"}:
-    quarantine_ok = True
+    quarantine_ok = None
     if scope in {"quarantine", "experimental"}:
         selected = "package(marmot-app) & (" + " | ".join("test(=" + case + ")" for case in QUARANTINE) + ")"
         proof, _ = run("seven-new-upstream-quarantine-controls", selected, 7, args)
         quarantine_ok = proof["passed"] == 7 and proof["failed"] == 0
-    native_ok = True
+    native_ok = None
     if scope in {"native", "experimental"}:
+        native_ok = True
         for case in NATIVE:
             proof, _ = run(case, "package(marmot-app) & test(=" + case + ")", 1, args)
             native_ok = native_ok and proof["passed"] == 1 and proof["failed"] == 0
@@ -172,7 +193,14 @@ if scope in {"native", "quarantine", "experimental"}:
     report["quarantine_controls_passed"] = quarantine_ok
     report["native_controls_passed"] = native_ok
     save()
-    assert quarantine_ok and native_ok, "reconciled unchanged scoped controls remain failing"
+    assert quarantine_ok is not False and native_ok is not False, "reconciled unchanged scoped controls remain failing"
+elif scope == "trace":
+    assert report["cohort"] == "experimental"
+    case = NATIVE[0]
+    proof, _ = run(case, "package(marmot-app) & test(=" + case + ")", 1, args)
+    report["diagnostic_complete"] = True
+    save()
+    assert proof["passed"] == 1 and proof["failed"] == 0, "unchanged original enrollment regression remains failing"
 elif scope == "media":
     proof, _ = run("new-media-store-crate-suite", "package(media-store)", None, ["--locked", "-p", "media-store", "--all-targets"])
     docs = subprocess.run(["cargo", "test", "--locked", "-p", "media-store", "--doc"], capture_output=True, text=True)

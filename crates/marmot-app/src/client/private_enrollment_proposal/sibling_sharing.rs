@@ -33,6 +33,10 @@ impl AppClient {
         Ok(probe)
     }
     pub(crate) fn begin_completed_sibling_sharing(&mut self) -> Result<(), ClientLinkingError> {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let _cost = crate::test_support::linking_cost::enter(
+            crate::test_support::linking_cost::Site::BeginSibling,
+        );
         use cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard;
         let Some(action) = self.linking_owner.received_endorsement.as_ref() else {
             return Ok(());

@@ -2244,6 +2244,10 @@ impl AppClient {
         &self,
         original: &SiblingOriginal,
     ) -> Result<(), ClientLinkingError> {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let _cost = crate::test_support::linking_cost::enter(
+            crate::test_support::linking_cost::Site::SiblingParent,
+        );
         use cgka_engine::private_roster_settlement::TrustedPrivateSettlementGuard;
         if !original.live() {
             return Err(denied());

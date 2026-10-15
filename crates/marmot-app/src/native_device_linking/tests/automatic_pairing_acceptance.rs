@@ -282,6 +282,8 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     } else {
         None
     };
+    #[cfg(feature = "test-policy-overrides")]
+    crate::test_support::linking_cost::begin_fourth_completion();
     eprintln!("automatic-enrollment-control stage=fourth-device-completion");
     wait_for_automatic_phase_with_approvals(
         &a,
@@ -290,6 +292,8 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         &approvals,
     )
     .await;
+    #[cfg(feature = "test-policy-overrides")]
+    crate::test_support::linking_cost::finish_fourth_completion();
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
     drop(held_release);
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
@@ -783,6 +787,8 @@ async fn wait_for_automatic_phase_with_approvals(
     })
     .await
     .unwrap_or_else(|_| {
+        #[cfg(feature = "test-policy-overrides")]
+        crate::test_support::linking_cost::finish_fourth_completion();
         #[cfg(feature = "test-policy-overrides")]
         for (side, original) in [("left", a), ("right", b)] {
             eprintln!(
