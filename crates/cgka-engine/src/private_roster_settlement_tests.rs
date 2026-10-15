@@ -3356,7 +3356,6 @@ async fn private_roster_settlement_fresh_read_rejects_missing_nonlocal_confirmat
     );
 }
 
-
 #[tokio::test]
 async fn private_roster_settlement_decode_memo_rechecks_same_generation_original_bytes() {
     let dir = tempfile::tempdir().unwrap();
@@ -3365,20 +3364,59 @@ async fn private_roster_settlement_decode_memo_rechecks_same_generation_original
     let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     let (initiator, responder, group) = complete_pair(storage.clone()).await;
     let foreign = rusqlite::Connection::open(&path).unwrap();
-    storage_sqlite::open_hardened_sqlcipher(&foreign, &key, storage_sqlite::SqlCipherHardening::default()).unwrap();
-    let original: Vec<u8> = foreign.query_row("SELECT state FROM private_roster_settlement", [], |row| row.get(0)).unwrap();
-    let state: cgka_traits::private_roster_settlement::PrivateSettlementState = serde_json::from_slice(&original).unwrap();
+    storage_sqlite::open_hardened_sqlcipher(
+        &foreign,
+        &key,
+        storage_sqlite::SqlCipherHardening::default(),
+    )
+    .unwrap();
+    let original: Vec<u8> = foreign
+        .query_row("SELECT state FROM private_roster_settlement", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let state: cgka_traits::private_roster_settlement::PrivateSettlementState =
+        serde_json::from_slice(&original).unwrap();
     for change_nonce in [true, false] {
-        foreign.execute("UPDATE private_roster_settlement SET state=?1", [&original]).unwrap();
-        assert!(responder.validated_settled_device_roster(&group).unwrap().is_some());
+        foreign
+            .execute("UPDATE private_roster_settlement SET state=?1", [&original])
+            .unwrap();
+        assert!(
+            responder
+                .validated_settled_device_roster(&group)
+                .unwrap()
+                .is_some()
+        );
         let mut changed = state.clone();
-        if change_nonce { changed.anchor.enrollment_nonce[0] ^= 1; }
-        else { changed.anchor.context_digest[0] ^= 1; }
+        if change_nonce {
+            changed.anchor.enrollment_nonce[0] ^= 1;
+        } else {
+            changed.anchor.context_digest[0] ^= 1;
+        }
         let changed = serde_json::to_vec(&changed).unwrap();
         assert!(changed != original);
-        foreign.execute("UPDATE private_roster_settlement SET state=?1", [&changed]).unwrap();
-        assert!(responder.validated_private_successor(&group).unwrap().is_some(), "the actual successor stays valid while only the stored original binding changes");
-        assert!(responder.validated_settled_device_roster(&group).unwrap().is_none(), "same-generation changed original bytes cannot reuse a previous parsed settlement");
-        assert!(initiator.validated_settled_device_roster(&group).unwrap().is_some());
+        foreign
+            .execute("UPDATE private_roster_settlement SET state=?1", [&changed])
+            .unwrap();
+        assert!(
+            responder
+                .validated_private_successor(&group)
+                .unwrap()
+                .is_some(),
+            "the actual successor stays valid while only the stored original binding changes"
+        );
+        assert!(
+            responder
+                .validated_settled_device_roster(&group)
+                .unwrap()
+                .is_none(),
+            "same-generation changed original bytes cannot reuse a previous parsed settlement"
+        );
+        assert!(
+            initiator
+                .validated_settled_device_roster(&group)
+                .unwrap()
+                .is_some()
+        );
     }
 }

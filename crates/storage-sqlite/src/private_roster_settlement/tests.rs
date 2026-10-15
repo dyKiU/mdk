@@ -612,17 +612,36 @@ fn private_settlement_all_128_occupied_slots_complete_without_account_deduplicat
 fn private_settlement_decode_memo_reuses_only_real_serde_results() {
     let storage = SqliteAccountStorage::in_memory().unwrap();
     let generation = complete(&storage);
-    assert_eq!(storage.connection.private_settlement_decode_counts(), (0, false));
+    assert_eq!(
+        storage.connection.private_settlement_decode_counts(),
+        (0, false)
+    );
     let first = storage.read_round().unwrap().unwrap();
-    assert_eq!(storage.connection.private_settlement_decode_counts(), (1, true));
+    assert_eq!(
+        storage.connection.private_settlement_decode_counts(),
+        (1, true)
+    );
     assert!(storage.read_round().unwrap().unwrap() == first);
     assert_eq!(storage.read_facts().unwrap().len(), 2);
-    assert_eq!(storage.connection.private_settlement_decode_counts(), (1, true), "identical actual SQL bytes reuse one real serde decode, not a mocked value");
-    storage.put_outbound(generation, b"exact-live-outbound").unwrap();
-    assert_eq!(storage.connection.private_settlement_decode_counts(), (1, false), "canonical transition read stays uncached and write admission retires the memo");
+    assert_eq!(
+        storage.connection.private_settlement_decode_counts(),
+        (1, true),
+        "identical actual SQL bytes reuse one real serde decode, not a mocked value"
+    );
+    storage
+        .put_outbound(generation, b"exact-live-outbound")
+        .unwrap();
+    assert_eq!(
+        storage.connection.private_settlement_decode_counts(),
+        (1, false),
+        "canonical transition read stays uncached and write admission retires the memo"
+    );
     let changed = storage.read_round().unwrap().unwrap();
     assert!(changed.outbound.as_deref() == Some(b"exact-live-outbound".as_slice()));
-    assert_eq!(storage.connection.private_settlement_decode_counts(), (2, true));
+    assert_eq!(
+        storage.connection.private_settlement_decode_counts(),
+        (2, true)
+    );
 }
 
 #[test]
@@ -632,32 +651,78 @@ fn private_settlement_decode_memo_clears_absent_invalid_and_oversized_rows() {
     let original = storage.read_round().unwrap().unwrap();
     let raw = serde_json::to_vec(&original).unwrap();
     for malformed in [b"{".to_vec(), {
-        let mut invalid = original.clone(); invalid.format_version = 2;
+        let mut invalid = original.clone();
+        invalid.format_version = 2;
         serde_json::to_vec(&invalid).unwrap()
     }] {
-        storage.lock().unwrap().execute("UPDATE private_roster_settlement SET state=?1", [&malformed]).unwrap();
-        assert!(matches!(storage.read_round(), Err(StorageError::Serialization(message)) if message == "invalid private settlement facts"));
-        assert!(!storage.connection.private_settlement_decode_counts().1, "parse and semantic validation errors retire decoded metadata");
-        storage.lock().unwrap().execute("UPDATE private_roster_settlement SET state=?1", [&raw]).unwrap();
+        storage
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE private_roster_settlement SET state=?1",
+                [&malformed],
+            )
+            .unwrap();
+        assert!(
+            matches!(storage.read_round(), Err(StorageError::Serialization(message)) if message == "invalid private settlement facts")
+        );
+        assert!(
+            !storage.connection.private_settlement_decode_counts().1,
+            "parse and semantic validation errors retire decoded metadata"
+        );
+        storage
+            .lock()
+            .unwrap()
+            .execute("UPDATE private_roster_settlement SET state=?1", [&raw])
+            .unwrap();
         assert!(storage.read_round().unwrap().unwrap() == original);
     }
-    let mut oversized = raw.clone(); oversized.resize(262145, b' ');
-    storage.lock().unwrap().execute("UPDATE private_roster_settlement SET state=?1", [&oversized]).unwrap();
+    let mut oversized = raw.clone();
+    oversized.resize(262145, b' ');
+    storage
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE private_roster_settlement SET state=?1",
+            [&oversized],
+        )
+        .unwrap();
     let before = storage.connection.private_settlement_decode_counts().0;
-    assert!(storage.read_round().unwrap().unwrap() == original, "valid oversized legacy JSON is bypassed, never rejected");
+    assert!(
+        storage.read_round().unwrap().unwrap() == original,
+        "valid oversized legacy JSON is bypassed, never rejected"
+    );
     assert!(storage.read_round().unwrap().unwrap() == original);
-    assert_eq!(storage.connection.private_settlement_decode_counts(), (before+2, false));
-    storage.lock().unwrap().execute("UPDATE private_roster_settlement SET state=?1", [&raw]).unwrap();
+    assert_eq!(
+        storage.connection.private_settlement_decode_counts(),
+        (before + 2, false)
+    );
+    storage
+        .lock()
+        .unwrap()
+        .execute("UPDATE private_roster_settlement SET state=?1", [&raw])
+        .unwrap();
     assert!(storage.read_round().unwrap().unwrap() == original);
-    assert!(storage.connection.private_settlement_decode_counts().1, "row absence must retire an actually warm memo");
-    storage.lock().unwrap().execute("DELETE FROM private_roster_settlement", []).unwrap();
+    assert!(
+        storage.connection.private_settlement_decode_counts().1,
+        "row absence must retire an actually warm memo"
+    );
+    storage
+        .lock()
+        .unwrap()
+        .execute("DELETE FROM private_roster_settlement", [])
+        .unwrap();
     assert!(storage.read_round().unwrap().is_none());
     assert!(!storage.connection.private_settlement_decode_counts().1);
     // Query failure also retires a previously warm memo.
     storage.select_round(&anchor()).unwrap();
     storage.read_round().unwrap();
     assert!(storage.connection.private_settlement_decode_counts().1);
-    storage.lock().unwrap().execute("DROP TABLE private_roster_settlement", []).unwrap();
+    storage
+        .lock()
+        .unwrap()
+        .execute("DROP TABLE private_roster_settlement", [])
+        .unwrap();
     assert!(storage.read_round().is_err());
     assert!(!storage.connection.private_settlement_decode_counts().1);
 }
@@ -667,15 +732,43 @@ fn private_settlement_decode_memo_rechecks_indexes_and_confirmation_facts() {
     let storage = SqliteAccountStorage::in_memory().unwrap();
     let generation = complete(&storage);
     storage.read_round().unwrap();
-    storage.lock().unwrap().execute("UPDATE private_roster_settlement SET generation=generation+1", []).unwrap();
-    assert!(matches!(storage.read_round(), Err(StorageError::Serialization(message)) if message == "invalid private settlement facts"));
+    storage
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE private_roster_settlement SET generation=generation+1",
+            [],
+        )
+        .unwrap();
+    assert!(
+        matches!(storage.read_round(), Err(StorageError::Serialization(message)) if message == "invalid private settlement facts")
+    );
     assert!(!storage.connection.private_settlement_decode_counts().1);
-    storage.lock().unwrap().execute("UPDATE private_roster_settlement SET generation=?1", [i64::try_from(generation).unwrap()]).unwrap();
+    storage
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE private_roster_settlement SET generation=?1",
+            [i64::try_from(generation).unwrap()],
+        )
+        .unwrap();
     storage.read_round().unwrap();
     assert!(storage.connection.private_settlement_decode_counts().1);
-    storage.lock().unwrap().execute("DELETE FROM private_roster_settlement_facts WHERE leaf_index=0", []).unwrap();
-    assert!(matches!(storage.read_facts(), Err(StorageError::Serialization(message)) if message == "invalid private settlement facts"));
-    assert!(!storage.connection.private_settlement_decode_counts().1, "unchanged JSON never caches facts or a completed validation result");
+    storage
+        .lock()
+        .unwrap()
+        .execute(
+            "DELETE FROM private_roster_settlement_facts WHERE leaf_index=0",
+            [],
+        )
+        .unwrap();
+    assert!(
+        matches!(storage.read_facts(), Err(StorageError::Serialization(message)) if message == "invalid private settlement facts")
+    );
+    assert!(
+        !storage.connection.private_settlement_decode_counts().1,
+        "unchanged JSON never caches facts or a completed validation result"
+    );
 }
 
 #[test]
@@ -691,43 +784,71 @@ fn private_settlement_decode_memo_rollback_reloads_committed_original_bytes() {
         Err(StorageError::Backend("isolated rollback".into()))
     });
     assert!(result.is_err());
-    assert!(!storage.connection.private_settlement_decode_counts().1, "rollback retires uncommitted decoded metadata");
+    assert!(
+        !storage.connection.private_settlement_decode_counts().1,
+        "rollback retires uncommitted decoded metadata"
+    );
     assert!(storage.read_round().unwrap().unwrap() == original);
     let before = storage.connection.private_settlement_decode_counts().0;
-    storage.with_read_snapshot(|reader| -> StorageResult<()> {
-        assert!(reader.read_round()?.unwrap() == original);
-        assert!(reader.read_round()?.unwrap() == original);
-        Ok(())
-    }).unwrap();
-    assert_eq!(storage.connection.private_settlement_decode_counts().0, before, "read-only snapshots preserve pure decoding reuse");
-    storage.with_transaction(|outer| -> StorageResult<()> {
-        let nested: StorageResult<()> = outer.with_group_savepoint(&anchor().group_id, "unused-fallback", |inner| {
-            inner.put_outbound(generation, b"savepoint-outbound")?;
-            assert!(inner.read_round()?.unwrap().outbound.is_some());
-            assert!(inner.connection.private_settlement_decode_counts().1);
-            Err(StorageError::Backend("isolated savepoint rollback".into()))
-        });
-        assert!(nested.is_err());
-        assert!(!outer.connection.private_settlement_decode_counts().1, "nested savepoint rollback retires uncommitted decoded metadata before reread");
-        assert!(outer.read_round()?.unwrap() == original);
-        Ok(())
-    }).unwrap();
+    storage
+        .with_read_snapshot(|reader| -> StorageResult<()> {
+            assert!(reader.read_round()?.unwrap() == original);
+            assert!(reader.read_round()?.unwrap() == original);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        storage.connection.private_settlement_decode_counts().0,
+        before,
+        "read-only snapshots preserve pure decoding reuse"
+    );
+    storage
+        .with_transaction(|outer| -> StorageResult<()> {
+            let nested: StorageResult<()> =
+                outer.with_group_savepoint(&anchor().group_id, "unused-fallback", |inner| {
+                    inner.put_outbound(generation, b"savepoint-outbound")?;
+                    assert!(inner.read_round()?.unwrap().outbound.is_some());
+                    assert!(inner.connection.private_settlement_decode_counts().1);
+                    Err(StorageError::Backend("isolated savepoint rollback".into()))
+                });
+            assert!(nested.is_err());
+            assert!(
+                !outer.connection.private_settlement_decode_counts().1,
+                "nested savepoint rollback retires uncommitted decoded metadata before reread"
+            );
+            assert!(outer.read_round()?.unwrap() == original);
+            Ok(())
+        })
+        .unwrap();
 }
 
 #[test]
 fn private_settlement_decode_memo_is_connection_local_and_close_retires_it() {
     let first = SqliteAccountStorage::in_memory().unwrap();
     let second = SqliteAccountStorage::in_memory().unwrap();
-    complete(&first); complete(&second);
+    complete(&first);
+    complete(&second);
     first.read_round().unwrap();
-    assert_eq!(first.connection.private_settlement_decode_counts(), (1, true));
-    assert_eq!(second.connection.private_settlement_decode_counts(), (0, false));
+    assert_eq!(
+        first.connection.private_settlement_decode_counts(),
+        (1, true)
+    );
+    assert_eq!(
+        second.connection.private_settlement_decode_counts(),
+        (0, false)
+    );
     let clone = first.clone();
     first.close().unwrap();
-    assert!(!clone.connection.private_settlement_decode_counts().1, "close retires the connection-owned parsed private metadata");
+    assert!(
+        !clone.connection.private_settlement_decode_counts().1,
+        "close retires the connection-owned parsed private metadata"
+    );
     assert!(matches!(clone.read_round(), Err(StorageError::Closed(_))));
     second.read_round().unwrap();
-    assert_eq!(second.connection.private_settlement_decode_counts(), (1, true));
+    assert_eq!(
+        second.connection.private_settlement_decode_counts(),
+        (1, true)
+    );
 }
 
 #[test]
@@ -747,9 +868,11 @@ fn private_settlement_decode_memo_close_drains_inflight_sql_before_clearing() {
     assert!(storage.connection.private_settlement_decode_counts().1);
     drop(conn);
     thread.join().unwrap().unwrap();
-    assert!(!storage.connection.private_settlement_decode_counts().1, "close must clear after the last in-flight SQL decoder releases its guard");
+    assert!(
+        !storage.connection.private_settlement_decode_counts().1,
+        "close must clear after the last in-flight SQL decoder releases its guard"
+    );
 }
-
 
 #[test]
 fn private_settlement_decode_memo_direct_group_deletions_retire_warm_metadata() {
@@ -777,14 +900,24 @@ fn private_settlement_decode_memo_direct_group_deletions_retire_warm_metadata() 
         storage.read_round().unwrap();
         assert!(storage.connection.private_settlement_decode_counts().1);
         if forget {
-            assert!(storage.forget_group_local(&group.id, cgka_traits::Timestamp(100)).unwrap());
+            assert!(
+                storage
+                    .forget_group_local(&group.id, cgka_traits::Timestamp(100))
+                    .unwrap()
+            );
             assert!(storage.is_group_forgotten(&group.id).unwrap());
         } else {
             storage.delete_group(&group.id).unwrap();
         }
         // Inspect before another read could independently clear stale raw bytes.
-        assert!(!storage.connection.private_settlement_decode_counts().1, "actual direct group deletion retires warm decoded metadata before another read");
-        assert!(matches!(storage.get_group(&group.id), Err(StorageError::NotFound)));
+        assert!(
+            !storage.connection.private_settlement_decode_counts().1,
+            "actual direct group deletion retires warm decoded metadata before another read"
+        );
+        assert!(matches!(
+            storage.get_group(&group.id),
+            Err(StorageError::NotFound)
+        ));
         assert!(storage.read_round().unwrap().unwrap().phase == PrivateSettlementPhase::Denied);
         assert!(storage.read_facts().unwrap().is_empty());
     }

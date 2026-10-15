@@ -384,20 +384,35 @@ impl SharedConnection {
 
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) fn clear_private_settlement_decode(&self) {
-        self.inner.private_settlement_decode.lock().unwrap_or_else(|p| p.into_inner()).clear();
+        self.inner
+            .private_settlement_decode
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
     }
     #[cfg(feature = "experimental-device-sync")]
-    pub(crate) fn decode_private_settlement(&self, bytes: &[u8]) -> StorageResult<cgka_traits::private_roster_settlement::PrivateSettlementState> {
-        let mut memo = self.inner.private_settlement_decode.lock().unwrap_or_else(|p| {
-            let mut memo = p.into_inner();
-            memo.clear();
-            memo
-        });
+    pub(crate) fn decode_private_settlement(
+        &self,
+        bytes: &[u8],
+    ) -> StorageResult<cgka_traits::private_roster_settlement::PrivateSettlementState> {
+        let mut memo = self
+            .inner
+            .private_settlement_decode
+            .lock()
+            .unwrap_or_else(|p| {
+                let mut memo = p.into_inner();
+                memo.clear();
+                memo
+            });
         memo.decode(bytes)
     }
     #[cfg(all(test, feature = "experimental-device-sync"))]
     pub(crate) fn private_settlement_decode_counts(&self) -> (u64, bool) {
-        let memo = self.inner.private_settlement_decode.lock().unwrap_or_else(|p| p.into_inner());
+        let memo = self
+            .inner
+            .private_settlement_decode
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         (memo.serde_calls, memo.occupied())
     }
 
@@ -618,7 +633,9 @@ impl SharedConnection {
             if owner.as_ref().is_some_and(|owner| owner == &current) {
                 drop(owner);
                 #[cfg(feature = "experimental-device-sync")]
-                if !deferred { self.clear_private_settlement_decode(); }
+                if !deferred {
+                    self.clear_private_settlement_decode();
+                }
                 return f();
             }
 
@@ -637,7 +654,9 @@ impl SharedConnection {
 
             // BEGIN has drained older readers; read-only snapshots retain reuse.
             #[cfg(feature = "experimental-device-sync")]
-            if !deferred { self.clear_private_settlement_decode(); }
+            if !deferred {
+                self.clear_private_settlement_decode();
+            }
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
             // A nested savepoint whose rollback failed latched the connection
             // unusable mid-transaction. The callback may have caught that

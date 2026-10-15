@@ -17,7 +17,9 @@ pub(crate) struct SettlementDecodeMemo {
     pub(crate) serde_calls: u64,
 }
 impl SettlementDecodeMemo {
-    pub(crate) fn clear(&mut self) { self.entry = None; }
+    pub(crate) fn clear(&mut self) {
+        self.entry = None;
+    }
     pub(crate) fn decode(&mut self, bytes: &[u8]) -> StorageResult<PrivateSettlementState> {
         const MAX_MEMO_BYTES: usize = 262144;
         if bytes.len() <= MAX_MEMO_BYTES
@@ -29,7 +31,9 @@ impl SettlementDecodeMemo {
         // A changed, invalid, or oversized input never retains the old entry.
         self.clear();
         #[cfg(test)]
-        { self.serde_calls += 1; }
+        {
+            self.serde_calls += 1;
+        }
         let state: PrivateSettlementState = serde_json::from_slice(bytes).map_err(|_| invalid())?;
         if bytes.len() <= MAX_MEMO_BYTES {
             self.entry = Some((bytes.to_vec(), state.clone()));
@@ -37,7 +41,9 @@ impl SettlementDecodeMemo {
         Ok(state)
     }
     #[cfg(test)]
-    pub(crate) fn occupied(&self) -> bool { self.entry.is_some() }
+    pub(crate) fn occupied(&self) -> bool {
+        self.entry.is_some()
+    }
 }
 
 fn invalid() -> StorageError {
@@ -191,14 +197,24 @@ fn facts(
     Ok(result)
 }
 fn read(conn: &Connection) -> StorageResult<Option<PrivateSettlementState>> {
-    read_decoded(conn, |bytes| serde_json::from_slice(bytes).map_err(|_| invalid()))
+    read_decoded(conn, |bytes| {
+        serde_json::from_slice(bytes).map_err(|_| invalid())
+    })
 }
-fn read_memoized(conn: &Connection, connection: &crate::connection::SharedConnection) -> StorageResult<Option<PrivateSettlementState>> {
+fn read_memoized(
+    conn: &Connection,
+    connection: &crate::connection::SharedConnection,
+) -> StorageResult<Option<PrivateSettlementState>> {
     let result = read_decoded(conn, |bytes| connection.decode_private_settlement(bytes));
-    if !matches!(&result, Ok(Some(_))) { connection.clear_private_settlement_decode(); }
+    if !matches!(&result, Ok(Some(_))) {
+        connection.clear_private_settlement_decode();
+    }
     result
 }
-fn read_decoded(conn: &Connection, decode: impl FnOnce(&[u8]) -> StorageResult<PrivateSettlementState>) -> StorageResult<Option<PrivateSettlementState>> {
+fn read_decoded(
+    conn: &Connection,
+    decode: impl FnOnce(&[u8]) -> StorageResult<PrivateSettlementState>,
+) -> StorageResult<Option<PrivateSettlementState>> {
     let row = conn
         .query_row(SELECT, [], |r| {
             Ok((
@@ -502,7 +518,9 @@ impl PrivateRosterSettlementStorage for SqliteAccountStorage {
             Some(s) => facts(&conn, &s),
             None => Ok(vec![]),
         };
-        if result.is_err() { self.connection.clear_private_settlement_decode(); }
+        if result.is_err() {
+            self.connection.clear_private_settlement_decode();
+        }
         result
     }
 }
