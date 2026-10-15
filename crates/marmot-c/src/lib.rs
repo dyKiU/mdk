@@ -487,6 +487,7 @@ pub unsafe extern "C" fn marmot_client_new_with_configuration(
                             client_name: name,
                             secret_store: store,
                             moderation_report_config: None,
+                            pairing_relay_urls: None,
                         },
                     )
                 }
