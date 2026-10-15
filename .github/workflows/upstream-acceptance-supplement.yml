@@ -226,6 +226,9 @@ jobs:
         run: |
           python3 scripts/upstream_apple_ci/summarize.py --result "$RUNNER_TEMP/final-ios.xcresult" \
             --app-sha "$IOS_SHA" --output "$RUNNER_TEMP/final-ios-summary.json"
+      - name: Kill obsolete timestamp renderers and verify exact restored native controls
+        if: matrix.lane == 'final-ios'
+        run: python3 scripts/upstream_apple_ci/timestamp-mutations.py
       - name: Kill localization mutant and verify restored native controls
         if: matrix.lane == 'final-ios'
         run: python3 scripts/upstream_apple_ci/localization-mutation.py
@@ -247,6 +250,8 @@ jobs:
             ${{ runner.temp }}/hosted-history-pagination-evidence/result.json
             ${{ runner.temp }}/hosted-automatic-history-evidence/result.json
             ${{ runner.temp }}/hosted-one-scan/result.json
+            ${{ runner.temp }}/ios-timestamp-mutations/result.json
+            ${{ runner.temp }}/ios-timestamp-mutations/*.log
             ${{ runner.temp }}/localization-mutation/result.json
             ${{ runner.temp }}/ios-storage-mutations/result.json
             ${{ runner.temp }}/ios-storage-mutations/ios-storage-await-policy-mutant.log

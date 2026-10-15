@@ -130,3 +130,10 @@ snapshot refusal. Automatic storage also has finite journal/outbox/receipt/byte
 quotas; 205 records do not establish unbounded history, every user/topology, or
 transferred retention/deletion equivalence. Select and qualify this lane only
 against the exact new SDK artifact intended by the integration owner.
+
+The iOS timestamp gate independently restores literal fallback rendering on the
+display and plain-preview surfaces. Each unchanged upstream regression must
+execute once and pass before mutation, fail at runtime under its mutant, then
+pass after exact committed-byte restoration. Counts must be one test with zero
+skips; compile failures and empty runs cannot qualify a mutant. The original
+locale, clock, cache and formatting assertions remain unchanged.
