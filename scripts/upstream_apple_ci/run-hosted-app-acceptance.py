@@ -135,7 +135,11 @@ class Runner:
         started = time.monotonic()
         process = None
         try:
-            with (self.private / (label + '-private.log')).open('x') as log:
+            # Child helpers reserve every prefix-* sibling for their own fresh
+            # artifacts. Wrapper logs must never occupy that namespace.
+            logs = self.private / 'command-logs'
+            logs.mkdir(mode=0o700, exist_ok=True)
+            with (logs / (label + '.log')).open('x') as log:
                 process = subprocess.Popen(command, env=self.environment, stdout=log,
                                            stderr=subprocess.STDOUT, start_new_session=True)
                 row['exit_code'] = process.wait(timeout=timeout)
@@ -453,6 +457,8 @@ def main():
     require(args.scope == 'ios-control'
             or args.sdk_source != '3f18b2d1acac4f87680b35f39bf8dce67dcf28ec',
             'old-sdk-permitted-only-for-attach-only-harness-control')
+    require(Path(args.developer_dir).is_absolute() and Path(args.developer_dir).is_dir(),
+            'actual-selected-xcode-developer-directory-required')
     os.umask(0o077)
     for name in ('mac_source', 'ios_source', 'packages', 'relay'):
         path = getattr(args, name)

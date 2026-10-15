@@ -263,6 +263,14 @@ jobs:
       - name: Enable development automation on this ephemeral hosted runner
         run: |
           df -h "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
+          python3 - <<'PY'
+          import os,subprocess
+          from pathlib import Path
+          selected=subprocess.check_output(['xcode-select','-p'],text=True).strip()
+          assert Path(selected).is_absolute() and Path(selected).is_dir()
+          with open(os.environ['GITHUB_ENV'],'a') as output:
+              output.write('DEVELOPER_DIR='+selected+'\n')
+          PY
           sudo /usr/sbin/DevToolsSecurity -enable
           sudo /usr/sbin/dseditgroup -o edit -a "$(id -un)" -t user _developer
       - name: Download and verify exact immutable SDK provenance before native compilation
