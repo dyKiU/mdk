@@ -182,6 +182,7 @@ impl DeviceLinkingSession {
         Ok(self.inner.finalize_linking(displayed_revision).await?)
     }
     /// Revoke this exact session before waiting for durable actor cleanup.
+    #[marmot_uniffi_macros::survives_cancellation]
     pub async fn cancel(&self) -> Result<(), MarmotKitError> {
         Ok(self.inner.cancel().await?)
     }
@@ -243,6 +244,7 @@ impl DeviceLinkingApproval {
             .await?)
     }
     /// Revoke the exact original action; cancellation cannot be undone by packet replay.
+    #[marmot_uniffi_macros::survives_cancellation]
     pub async fn cancel(&self) -> Result<(), MarmotKitError> {
         Ok(self.inner.cancel().await?)
     }

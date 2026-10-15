@@ -32,10 +32,16 @@ jobs:
         with:
           shared-key: private-runtime-boundary
           cache-on-failure: true
-      - name: Actual receive omissions, exact restores and foreign-executor acceptance
+      - name: Verify remaining disk after restoring the compatible incremental cache
+        run: |
+          df -h .
+          if [[ -d target ]]; then du -sh target; fi
+          available_kib=$(df -Pk . | awk 'NR==2 {print $4}')
+          test "$available_kib" -ge 8388608
+      - name: Four real cancellation controls, independent omissions and exact restores
         env:
           CARGO_INCREMENTAL: '1'
-        run: python3 scripts/qualify_upstream_private_runtime.py --phase receives
+        run: python3 scripts/qualify_upstream_private_runtime.py --phase cancel-green
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

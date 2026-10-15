@@ -11,7 +11,7 @@ import tempfile
 import time
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--phase', choices=('cancel-red', 'receives'), default='cancel-red')
+parser.add_argument('--phase', choices=('cancel-red', 'receives', 'cancel-green'), default='cancel-red')
 args = parser.parse_args()
 
 if os.environ.get('GITHUB_ACTIONS') != 'true':
@@ -132,6 +132,69 @@ def qualify_receives():
             and result.returncode == 0)
 
 
+def qualify_cancels():
+    cases = (
+        ('session', 'Session', 'DeviceLinkingSession', 'device_linking.rs', 3),
+        ('approval', 'Approval', 'DeviceLinkingApproval', 'device_linking.rs', 3),
+        ('request', 'selected', 'SelectedChatCopy', 'selected_chat_copy.rs', 4),
+        ('consent', 'selected', 'SelectedChatConsent', 'selected_chat_copy.rs', 4),
+    )
+    report['cancel_mutations'] = []
+    for name, label, owner, filename, closes in cases:
+        test = 'commands::device_linking::tests::dropped_' + name + '_cancel_export_retires_actual_original'
+        marker = f'private_boundary_positive_closes={closes}'
+        if not receive_execution(test, marker):
+            return False
+        source = Path('crates/marmot-uniffi/src/commands') / filename
+        original = source.read_bytes()
+        text = original.decode()
+        start = text.index('impl ' + owner + ' {')
+        end = text.index('\n}', start)
+        block = text[start:end]
+        guard = '    #[marmot_uniffi_macros::survives_cancellation]\n'
+        if block.count(guard) != 1:
+            raise ValueError('Original-specific cancellation guard must be unique')
+        mutated = text[:start] + block.replace(guard, '', 1) + text[end:]
+        mutation = {'owner': owner, 'source': str(source), 'original_sha256': hashlib.sha256(original).hexdigest(),
+                    'mutated_sha256': hashlib.sha256(mutated.encode()).hexdigest()}
+        report['cancel_mutations'].append(mutation)
+        try:
+            source.write_text(mutated)
+            mutation['runtime_detected'] = receive_execution(test, marker, 'dropped ' + label + ' cancel left actual original live')
+        finally:
+            source.write_bytes(original)
+            mutation['exact_source_restored'] = source.read_bytes() == original
+            save()
+        mutation['restored_control_passed'] = receive_execution(test, marker)
+        if not mutation['runtime_detected'] or not mutation['exact_source_restored'] or not mutation['restored_control_passed']:
+            return False
+    return len(report['executions']) == 12 and all(row['qualified'] for row in report['executions'])
+
+
+def verify_production_adaptation():
+    names = ('commands/history_transfer.rs', 'commands/account_chat_departure.rs',
+             'commands/account_chat_presentation.rs', 'commands/device_linking.rs',
+             'commands/account_chat_sharing.rs', 'commands/device_revocation.rs',
+             'commands/account_chat_windows.rs', 'commands/selected_chat_copy.rs',
+             'subscriptions/account_chat_windows.rs')
+    compared = {}
+    for name in names:
+        path = 'crates/marmot-uniffi/src/' + name
+        expected = subprocess.check_output(['git', 'show', BASELINE + ':' + path], text=True)
+        expected = expected.replace('#[uniffi::export(async_runtime = "tokio")]',
+            '#[marmot_uniffi_macros::on_tokio_runtime]\n#[uniffi::export]')
+        if name in ('commands/device_linking.rs', 'subscriptions/account_chat_windows.rs'):
+            expected = expected.replace('    pub async fn next(',
+                '    #[marmot_uniffi_macros::receive]\n    pub async fn next(')
+        if args.phase == 'cancel-green' and name in ('commands/device_linking.rs', 'commands/selected_chat_copy.rs'):
+            expected = expected.replace('    pub async fn cancel(&self)',
+                '    #[marmot_uniffi_macros::survives_cancellation]\n    pub async fn cancel(&self)')
+        compared[path] = Path(path).read_text() == expected
+    report['production_exact_expected_attribute_adaptation'] = compared
+    if not all(compared.values()):
+        raise ValueError('Unexpected production change beyond the reviewed runtime annotations')
+
+
 frozen = hashes()
 report['frozen_inputs'] = frozen
 try:
@@ -139,6 +202,7 @@ try:
         raise ValueError('Missing exact composed upstream baseline')
     if subprocess.run(['git', 'diff', '--quiet', 'HEAD']).returncode:
         raise ValueError('Uncommitted qualification inputs')
+    verify_production_adaptation()
     if args.phase == 'cancel-red':
         for name, original, closes in CASES:
             test = 'commands::device_linking::tests::dropped_' + name + '_cancel_export_retires_actual_original'
@@ -177,6 +241,8 @@ try:
             if row['compiler_error_codes']:
                 break
         report['passed'] = len(report['executions']) == 4 and all(r['qualified'] for r in report['executions'])
+    elif args.phase == 'cancel-green':
+        report['passed'] = qualify_cancels()
     else:
         report['passed'] = qualify_receives()
 finally:

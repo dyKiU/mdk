@@ -226,31 +226,50 @@ async fn linking_receive_cancellation_preserves_actual_terminal_update() {
 #[cfg(feature = "experimental-device-sync")]
 #[tokio::test]
 async fn dropped_session_cancel_export_retires_actual_original() {
-    Box::pin(native_three_device_fixture(false, Some(CancelBoundary::Session))).await;
+    Box::pin(native_three_device_fixture(
+        false,
+        Some(CancelBoundary::Session),
+    ))
+    .await;
 }
 
 #[cfg(feature = "experimental-device-sync")]
 #[tokio::test]
 async fn dropped_approval_cancel_export_retires_actual_original() {
-    Box::pin(native_three_device_fixture(false, Some(CancelBoundary::Approval))).await;
+    Box::pin(native_three_device_fixture(
+        false,
+        Some(CancelBoundary::Approval),
+    ))
+    .await;
 }
 
 #[cfg(feature = "experimental-device-sync")]
 #[tokio::test]
 async fn dropped_request_cancel_export_retires_actual_original() {
-    Box::pin(native_three_device_fixture(false, Some(CancelBoundary::Request))).await;
+    Box::pin(native_three_device_fixture(
+        false,
+        Some(CancelBoundary::Request),
+    ))
+    .await;
 }
 
 #[cfg(feature = "experimental-device-sync")]
 #[tokio::test]
 async fn dropped_consent_cancel_export_retires_actual_original() {
-    Box::pin(native_three_device_fixture(false, Some(CancelBoundary::Consent))).await;
+    Box::pin(native_three_device_fixture(
+        false,
+        Some(CancelBoundary::Consent),
+    ))
+    .await;
 }
 
 #[cfg(feature = "experimental-device-sync")]
 async fn first_poll_then_drop<F: std::future::Future>(future: F) {
     let mut future = Box::pin(future);
-    assert!(futures::poll!(&mut future).is_pending(), "export must first enqueue its runtime task");
+    assert!(
+        futures::poll!(&mut future).is_pending(),
+        "export must first enqueue its runtime task"
+    );
     drop(future);
     // No runtime task can run on this current-thread executor until after
     // the caller drops the export. The caller retains the public original.
@@ -263,10 +282,14 @@ async fn observe_cancelled<F: std::future::Future<Output = bool>>(
 ) -> bool {
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            if cancelled().await { break; }
+            if cancelled().await {
+                break;
+            }
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
-    }).await.is_ok()
+    })
+    .await
+    .is_ok()
 }
 
 #[cfg(feature = "experimental-device-sync")]
@@ -355,16 +378,30 @@ async fn native_three_device_fixture(revoke: bool, cancel_boundary: Option<Cance
         return;
     }
     if cancel_boundary == Some(CancelBoundary::Session) {
-        assert_eq!(c.snapshot().await.unwrap().phase, DeviceLinkingPhaseFfi::AwaitingSetup);
+        assert_eq!(
+            c.snapshot().await.unwrap().phase,
+            DeviceLinkingPhaseFfi::AwaitingSetup
+        );
         first_poll_then_drop(c.__ffi_cancel()).await;
-        let fenced = observe_cancelled(|| async { c.snapshot().await.unwrap().phase == DeviceLinkingPhaseFfi::Cancelled }).await;
-        let late_refused = matches!(c.continue_linking(0).await, Err(MarmotKitError::DeviceLinkingClosed));
+        let fenced = observe_cancelled(|| async {
+            c.snapshot().await.unwrap().phase == DeviceLinkingPhaseFfi::Cancelled
+        })
+        .await;
+        let late_refused = matches!(
+            c.continue_linking(0).await,
+            Err(MarmotKitError::DeviceLinkingClosed)
+        );
         a.cancel().await.unwrap();
         c.cancel().await.unwrap();
-        for kit in &kits { kit.runtime.shutdown_and_close().await.unwrap(); }
+        for kit in &kits {
+            kit.runtime.shutdown_and_close().await.unwrap();
+        }
         relay.shutdown();
         eprintln!("private_boundary_positive_closes=3 original=Session actual_public_pair=true");
-        assert!(fenced && late_refused, "dropped Session cancel left actual original live");
+        assert!(
+            fenced && late_refused,
+            "dropped Session cancel left actual original live"
+        );
         return;
     }
     verify_binding_pair(&a, &c).await;
@@ -417,15 +454,28 @@ async fn native_three_device_fixture(revoke: bool, cancel_boundary: Option<Cance
     assert_eq!(approval.snapshot().await.unwrap(), observed);
     if cancel_boundary == Some(CancelBoundary::Approval) {
         first_poll_then_drop(approval.__ffi_cancel()).await;
-        let fenced = observe_cancelled(|| async { approval.snapshot().await.unwrap().phase == DeviceLinkingApprovalPhaseFfi::Cancelled }).await;
-        let late_refused = matches!(approval.approve(observed.revision).await, Err(MarmotKitError::DeviceLinkingClosed));
+        let fenced = observe_cancelled(|| async {
+            approval.snapshot().await.unwrap().phase == DeviceLinkingApprovalPhaseFfi::Cancelled
+        })
+        .await;
+        let late_refused = matches!(
+            approval.approve(observed.revision).await,
+            Err(MarmotKitError::DeviceLinkingClosed)
+        );
         a.cancel().await.unwrap();
         c.cancel().await.unwrap();
         approval.cancel().await.unwrap();
-        for kit in &kits { kit.runtime.shutdown_and_close().await.unwrap(); }
+        for kit in &kits {
+            kit.runtime.shutdown_and_close().await.unwrap();
+        }
         relay.shutdown();
-        eprintln!("private_boundary_positive_closes=3 original=Approval actual_encrypted_proposal=true");
-        assert!(fenced && late_refused, "dropped Approval cancel left actual original live");
+        eprintln!(
+            "private_boundary_positive_closes=3 original=Approval actual_encrypted_proposal=true"
+        );
+        assert!(
+            fenced && late_refused,
+            "dropped Approval cancel left actual original live"
+        );
         return;
     }
     approval.approve(observed.revision).await.unwrap();
@@ -483,7 +533,14 @@ async fn native_three_device_fixture(revoke: bool, cancel_boundary: Option<Cance
         Err(MarmotKitError::DeviceLinkingNotReady | MarmotKitError::DeviceLinkingClosed)
     ));
     let mut cancellation_fenced = true;
-    let revocation = selected_chat_binding_request_after_actual_abc(&kits, &url, revoke, cancel_boundary, &mut cancellation_fenced).await;
+    let revocation = selected_chat_binding_request_after_actual_abc(
+        &kits,
+        &url,
+        revoke,
+        cancel_boundary,
+        &mut cancellation_fenced,
+    )
+    .await;
     a.cancel().await.unwrap();
     c.cancel().await.unwrap();
     approval.cancel().await.unwrap();
@@ -500,7 +557,10 @@ async fn native_three_device_fixture(revoke: bool, cancel_boundary: Option<Cance
     }
     relay.shutdown();
     eprintln!("private_boundary_positive_closes=4 actual_abc_and_independent_d=true");
-    assert!(cancellation_fenced, "dropped selected cancel left actual original live");
+    assert!(
+        cancellation_fenced,
+        "dropped selected cancel left actual original live"
+    );
 }
 
 #[cfg(feature = "experimental-device-sync")]
@@ -733,16 +793,36 @@ async fn selected_chat_binding_request_after_actual_abc(
     .expect("new sibling message must reach all four independent native runtimes");
     if cancel_boundary == Some(CancelBoundary::Request) {
         first_poll_then_drop(request.__ffi_cancel()).await;
-        *cancellation_fenced = observe_cancelled(|| async { request.snapshot().await.unwrap().phase == crate::SelectedChatCopyPhaseFfi::Cancelled }).await;
-        *cancellation_fenced &= matches!(request.continue_copy(request.snapshot().await.unwrap().revision).await, Err(MarmotKitError::SelectedChatCopyClosed));
-        eprintln!("private_cancel_boundary original=Request actual_owner_fenced={cancellation_fenced}");
+        *cancellation_fenced = observe_cancelled(|| async {
+            request.snapshot().await.unwrap().phase == crate::SelectedChatCopyPhaseFfi::Cancelled
+        })
+        .await;
+        *cancellation_fenced &= matches!(
+            request
+                .continue_copy(request.snapshot().await.unwrap().revision)
+                .await,
+            Err(MarmotKitError::SelectedChatCopyClosed)
+        );
+        eprintln!(
+            "private_cancel_boundary original=Request actual_owner_fenced={cancellation_fenced}"
+        );
     }
     if cancel_boundary == Some(CancelBoundary::Consent) {
         let consent = &consents[0];
         first_poll_then_drop(consent.__ffi_cancel()).await;
-        *cancellation_fenced = observe_cancelled(|| async { consent.snapshot().await.unwrap().phase == crate::SelectedChatConsentPhaseFfi::Cancelled }).await;
-        *cancellation_fenced &= matches!(consent.approve(consent.snapshot().await.unwrap().revision).await, Err(MarmotKitError::SelectedChatCopyClosed));
-        eprintln!("private_cancel_boundary original=Consent actual_owner_fenced={cancellation_fenced}");
+        *cancellation_fenced = observe_cancelled(|| async {
+            consent.snapshot().await.unwrap().phase == crate::SelectedChatConsentPhaseFfi::Cancelled
+        })
+        .await;
+        *cancellation_fenced &= matches!(
+            consent
+                .approve(consent.snapshot().await.unwrap().revision)
+                .await,
+            Err(MarmotKitError::SelectedChatCopyClosed)
+        );
+        eprintln!(
+            "private_cancel_boundary original=Consent actual_owner_fenced={cancellation_fenced}"
+        );
     }
     for consent in &consents {
         consent.cancel().await.unwrap();

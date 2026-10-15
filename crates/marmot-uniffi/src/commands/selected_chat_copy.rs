@@ -93,6 +93,7 @@ impl SelectedChatCopy {
         Ok(self.inner.continue_copy(revision).await?)
     }
     /// Forward cancel to this exact original App owner.
+    #[marmot_uniffi_macros::survives_cancellation]
     pub async fn cancel(&self) -> Result<(), MarmotKitError> {
         Ok(self.inner.cancel().await?)
     }
@@ -118,6 +119,7 @@ impl SelectedChatConsent {
         Ok(self.inner.offer_packet(revision).await?)
     }
     /// Forward cancel to this exact original App owner.
+    #[marmot_uniffi_macros::survives_cancellation]
     pub async fn cancel(&self) -> Result<(), MarmotKitError> {
         Ok(self.inner.cancel().await?)
     }
