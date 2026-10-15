@@ -111,8 +111,8 @@ else:
         anchor="completed_round_for_tree_in_snapshot(storage, group, &actual)"
         replacement="completed_round_for_tree(storage, group, &actual)"
     source=before.decode()
-    assert source.count(anchor)==1
     try:
+        assert source.count(anchor)==1
         target.write_text(source.replace(anchor,replacement,1))
         assert subprocess.check_output(["git","diff","--name-only","HEAD"],text=True).splitlines()==[str(target)]
         report["mutation_source_sha256"]=digest(target)
