@@ -118,7 +118,6 @@ jobs:
           ref: ${{ needs.identity.outputs.tools_sha }}
           persist-credentials: false
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        if: matrix.lane != 'final-mac'
         with:
           repository: dyKiU/whitenoise-ios
           ref: ${{ needs.identity.outputs.ios_sha }}
@@ -142,7 +141,6 @@ jobs:
           gh run download "$SDK_RUN_ID" --repo dyKiU/mdk \
             --name "upstream-experimental-apple-$SOURCE_SHA" --dir packages
       - name: Build isolated relay fixture
-        if: matrix.lane != 'final-mac'
         run: |
           rustup toolchain install 1.97.1 --profile minimal
           cargo +1.97.1 build --locked --manifest-path ios/scripts/test-relay/Cargo.toml --target-dir ios/build/TestRelay
@@ -168,13 +166,12 @@ jobs:
             --source "$SOURCE_SHA" --run-id "$SDK_RUN_ID" --platform macos --app mac --app-sha "$MAC_SHA"
       - name: Full final Mac experimental suite
         if: matrix.lane == 'final-mac'
-        working-directory: mac
         env:
           WN_EXPERIMENTAL_DEVICE_SYNC: "1"
           WN_TEST_DERIVED_DATA: ${{ runner.temp }}/final-mac-derived-data
           WN_TEST_RESULT_BUNDLE: ${{ runner.temp }}/final-mac.xcresult
           WN_TEST_JOBS: "2"
-        run: bash scripts/test-isolated.sh
+        run: python3 scripts/upstream_apple_ci/mac-tests-with-relay.py
       - name: Record final Mac execution counts
         if: always() && matrix.lane == 'final-mac'
         run: |
@@ -274,6 +271,8 @@ jobs:
             ${{ runner.temp }}/final-ios-summary.json
             ${{ runner.temp }}/final-mac.xcresult
             ${{ runner.temp }}/final-mac-summary.json
+            ${{ runner.temp }}/final-mac-relay.json
+            ${{ runner.temp }}/final-mac-relay.log
             packages/qualification.json
             scripts/upstream_apple_ci/acceptance-cohort.json
             scripts/upstream_apple_ci/HOSTED-SOURCE.json
