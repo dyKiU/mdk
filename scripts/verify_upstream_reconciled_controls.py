@@ -31,10 +31,13 @@ QUARANTINE = [
 assert os.environ["RUST_MIN_STACK"] == "4194304"
 subprocess.run(["git", "merge-base", "--is-ancestor", UPSTREAM, "HEAD"], check=True)
 source_paths = ["crates", "Cargo.toml", "Cargo.lock"]
-if os.environ["RECONCILED_SCOPE"] == "spill":
+if os.environ["RECONCILED_SCOPE"] in {"spill", "spill-qualification"}:
     test_file = "crates/marmot-app/src/client/delivery_spill.rs"
     original = subprocess.check_output(["git", "show", BASELINE + ":" + test_file])
-    assert Path(test_file).read_bytes().startswith(original), "RED source must leave all original product bytes unchanged"
+    if os.environ["RECONCILED_SCOPE"] == "spill":
+        assert Path(test_file).read_bytes().startswith(original), "RED source must leave all original product bytes unchanged"
+    else:
+        source_paths.append(":!crates/marmot-app/src/client/sync.rs")
     source_paths.append(":!" + test_file)
 assert not subprocess.check_output(["git", "diff", BASELINE, "HEAD", "--", *source_paths]), "controller branch must not import product experiments"
 root = Path("reconciled-evidence")
@@ -186,6 +189,43 @@ elif scope == "spill":
     report["expected_regression_red"] = proof["passed"] == 0 and proof["failed"] == 1 and "cancelled-spill-offer-repeated" in proof["closed_failure_categories"]
     save()
     assert report["expected_regression_red"], "expected exact behavioral RED was not established"
+elif scope == "spill-qualification":
+    case = "client::delivery_spill::yield_handoff_tests::cancelled_spill_receive_keeps_its_cooperative_offer_and_real_message"
+    controls = ["client::delivery_spill::tests::" + name for name in [
+        "spilled_row_stays_until_its_event_is_seen",
+        "unreadable_receipts_keep_the_row_without_spending_an_attempt",
+        "a_failed_spill_read_waits_instead_of_blocking_live_delivery",
+        "a_failed_undecodable_discard_keeps_a_paced_retry",
+        "unsettled_hand_off_is_read_again",
+        "unadmitted_row_becomes_queue_loss_after_its_last_retry",
+    ]] + [case]
+    selected = "package(marmot-app) & (" + " | ".join("test(=" + name + ")" for name in controls) + ")"
+    proof, _ = run("seven-real-spill-controls", selected, 7, args)
+    assert proof["passed"] == 7 and proof["failed"] == 0, "spill baseline controls must all pass"
+    path = Path("crates/marmot-app/src/client/sync.rs")
+    original = path.read_bytes()
+    original_hash = hashlib.sha256(original).hexdigest()
+    anchor = b"if self.delivery_spill.pending() && self.delivery_spill.offer_cooperative_turn() {"
+    assert original.count(anchor) == 1, "exact new cancellation handoff anchor required"
+    mutant = original.replace(anchor, b"if self.delivery_spill.pending() {", 1)
+    report["mutation"] = {"name": "remove-reader-cooperative-handoff", "source_before_sha256": original_hash, "mutant_sha256": hashlib.sha256(mutant).hexdigest(), "runtime_detected": False, "restored_exact": False}
+    save()
+    try:
+        path.write_bytes(mutant)
+        proof, _ = run("remove-reader-handoff-mutant", "package(marmot-app) & test(=" + case + ")", 1, args)
+        report["mutation"]["runtime_detected"] = proof["passed"] == 0 and proof["failed"] == 1 and proof["closed_failure_categories"] == ["cancelled-spill-offer-repeated"]
+        save()
+    finally:
+        path.write_bytes(original)
+        restored_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        report["mutation"]["restored_sha256"] = restored_hash
+        report["mutation"]["restored_exact"] = restored_hash == original_hash
+        save()
+    proof, _ = run("exact-restored-handoff-control", "package(marmot-app) & test(=" + case + ")", 1, args)
+    report["mutation"]["restored_runtime_passed"] = proof["passed"] == 1 and proof["failed"] == 0
+    report["scoped_controls_passed"] = all(report["mutation"][key] for key in ["runtime_detected", "restored_exact", "restored_runtime_passed"])
+    save()
+    assert report["scoped_controls_passed"], "genuine runtime handoff detection and exact restored control required"
 elif scope == "media":
     proof, _ = run("new-media-store-crate-suite", "package(media-store)", None, ["--locked", "-p", "media-store", "--all-targets"])
     docs = subprocess.run(["cargo", "test", "--locked", "-p", "media-store", "--doc"], capture_output=True, text=True)

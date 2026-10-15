@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, reconciled-controls, reconciled-static, reconciled-spill-offer]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, reconciled-controls, reconciled-static, reconciled-spill-offer, reconciled-spill-qualification]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -67,8 +67,8 @@ jobs:
           path: reconciled-evidence/result.json
           if-no-files-found: error
   reconciled-spill-offer:
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'reconciled-spill-offer'
-    name: Actual ordinary spill cancelled-offer regression RED (${{ matrix.cohort }})
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'reconciled-spill-offer' || inputs.scope == 'reconciled-spill-qualification')
+    name: Real spill cancellation handoff (${{ matrix.cohort }})
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
@@ -90,7 +90,7 @@ jobs:
       - name: Execute one real ordinary MLS spill handoff regression
         env:
           RECONCILED_COHORT: ${{ matrix.cohort }}
-          RECONCILED_SCOPE: spill
+          RECONCILED_SCOPE: ${{ inputs.scope == 'reconciled-spill-qualification' && 'spill-qualification' || 'spill' }}
           WN_UPSTREAM_PUBLICATION_DIAGNOSTICS: "1"
         run: python3 scripts/verify_upstream_reconciled_controls.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
