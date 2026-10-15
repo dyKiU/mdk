@@ -296,10 +296,7 @@ fn spawn_crash_child(database: &Path, point: &str, extra_env: &[(&str, &str)]) -
         // block on a full pipe while the parent waits for its crash marker.
         let mut retained = Vec::new();
         let mut chunk = [0; 4096];
-        loop {
-            let Ok(count) = stderr.read(&mut chunk) else {
-                break;
-            };
+        while let Ok(count) = stderr.read(&mut chunk) {
             if count == 0 {
                 break;
             }

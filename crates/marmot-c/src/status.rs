@@ -763,8 +763,8 @@ mod tests {
             status_from_error(&MarmotKitError::AccountChatDepartureDenied) as i32,
             158
         );
-        assert_eq!(MarmotStatus::AccountSharingUnsupported as i32, 121);
-        assert_eq!(MarmotStatus::DeviceRevocationRuntimeUnavailable as i32, 132);
+        assert_eq!(MarmotStatus::AccountSharingUnsupported as i32, 146);
+        assert_eq!(MarmotStatus::DeviceRevocationRuntimeUnavailable as i32, 157);
         assert_eq!(status_from_error(&MarmotKitError::UserBlocked) as i32, 78);
         assert_eq!(
             status_from_error(&MarmotKitError::ModerationReportingNotConfigured) as i32,
