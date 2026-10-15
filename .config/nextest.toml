@@ -65,6 +65,13 @@ filter = 'package(marmot-app) & test(=runtime::tests::stuck_worker_reap_does_not
 threads-required = "num-cpus"
 priority = 90
 
+# This strict two-admin race passes with the original oracle in isolation.
+# Keep its internal concurrency while excluding unrelated relay/SQLCipher setups.
+[[profile.default.overrides]]
+filter = 'package(cgka-conformance-simulator) & binary(app_runtime_interaction_journeys) & test(=public_app_08_concurrent_admin_profile_edits_are_never_lost)'
+threads-required = "num-cpus"
+priority = 90
+
 # CI profile (`cargo nextest run --profile ci`).
 #
 # Retries are a safety net for transient infrastructure hiccups (mock-relay bind
@@ -120,6 +127,13 @@ filter = 'package(wn-cli) & binary(cli)'
 test-group = 'cli-e2e'
 threads-required = 3
 retries = 0
+
+[[profile.m5-bounded.overrides]]
+filter = 'package(cgka-conformance-simulator) & binary(app_runtime_interaction_journeys) & test(=public_app_08_concurrent_admin_profile_edits_are_never_lost)'
+test-group = 'app-runtime-journeys'
+threads-required = 6
+retries = 0
+priority = 90
 
 [[profile.m5-bounded.overrides]]
 filter = 'package(cgka-conformance-simulator) & (binary(app_runtime_journeys) | binary(app_runtime_interaction_journeys))'
