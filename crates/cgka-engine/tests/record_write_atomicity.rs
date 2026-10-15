@@ -3843,6 +3843,7 @@ fn backend_missing_private_capability(
         release_fault: LeaveWriteFault::default(),
         preparation_delay: PreparationDelay::default(),
         retained_anchor_rewinds: RetainedAnchorRewindCounter::default(),
+        apply_snapshots: ApplySnapshotCounter::default(),
         termination_fault: LeaveWriteFault::default(),
         post_commit_disband_read_fault: LeaveWriteFault::default(),
     };
