@@ -56,6 +56,11 @@
       "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
       "sha256": "4578edd5b9d7a7a7f8f9ecc2aea419a57c59c9f9e38f4821b0bc1b042ca1d6e6",
       "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
+    },
+    "public-enrollment.py": {
+      "source": "new additional manual public deployment gate over exact signed be04 native harness",
+      "sha256": "3c10d37ae4702c69b62934ca37ed8ca0440097fb949356b5173b31f15cd32e4b",
+      "scope": "Both90s frozen two-direction third-device/history/contact/direct-reuse journeys;10positive native process closes per route; no change to existinglocal22+setup1 or7supplement lanes"
     }
   },
   "scope": "Additional hosted helpers and explicit adaptations; native/SOURCE.json remains authoritative for unchanged frozen sources."

@@ -23,7 +23,7 @@ def main() -> None:
     args = parser.parse_args()
     source = Path(__file__).resolve().parent / "native"
     manifest = json.loads((source / "SOURCE.json").read_text())
-    if manifest["workspace_commit"] != "3048d444ffe681fbae2dc1fb8e4f49d2a1c14372":
+    if manifest["workspace_commit"] != "be04fc60b6a4c40bd85423fbf9e35e8982ae4b84":
         raise ValueError("Unexpected frozen native source cohort")
     args.output.mkdir(parents=True, exist_ok=False, mode=0o700)
     provenance = {"frozen_workspace_commit": manifest["workspace_commit"],

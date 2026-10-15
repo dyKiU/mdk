@@ -92,6 +92,13 @@ enum AcceptanceFailure: Error {
 struct NativeAcceptance {
     static func relayURL() throws -> String {
         #if NATIVE_ONE_SCAN_ACCEPTANCE
+            if let publicRelay = ProcessInfo.processInfo.environment["NATIVE_ACCEPTANCE_PUBLIC_CHAT_RELAY"],
+                !publicRelay.isEmpty
+            {
+                guard ["wss://relay.eu.whitenoise.chat", "wss://relay.us.whitenoise.chat"].contains(publicRelay)
+                else { throw AcceptanceFailure.invalidArguments }
+                return publicRelay
+            }
             guard let raw = ProcessInfo.processInfo.environment["NATIVE_ACCEPTANCE_RELAY_PORT"],
                 let port = Int(raw), String(port) == raw, (1024...65535).contains(port)
             else { throw AcceptanceFailure.invalidArguments }
