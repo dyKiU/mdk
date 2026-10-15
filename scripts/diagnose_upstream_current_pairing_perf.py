@@ -124,37 +124,58 @@ report["toolchain"] = subprocess.check_output(["rustc", "--version"], text=True)
 report["cargo_lock_sha256"] = digest("Cargo.lock")
 report["nextest_config_sha256"] = digest(".config/nextest.toml")
 report["cargo_config_sha256"] = digest(".cargo/config.toml")
-started = time.monotonic()
-listing = subprocess.run(["cargo", "nextest", "list", *ARGS, "-E", "package(marmot-app) & test(=" + TEST + ")", "--message-format", "json"], capture_output=True, text=True)
-report["compile_list_seconds"] = time.monotonic() - started
-report["compile_exit_code"] = listing.returncode
-save()
-assert listing.returncode == 0, "normal exact test compilation failed; not behavioral RED"
-inventory = json.loads(listing.stdout)
-suites = [suite for suite in inventory["rust-suites"].values() if TEST in suite["testcases"]]
-assert len(suites) == 1 and not suites[0]["testcases"][TEST]["ignored"]
-binary = Path(suites[0]["binary-path"]).resolve()
-report["selected_nonignored"] = 1
-report["binary_sha256"] = digest(binary)
-report["normal"] = body(binary)
-save()
-normal = report["normal"]
-# Preserve genuine normal RED. Different stages/passes are evidence, not a reason
-# to repeat the test until a desired fourth-phase trajectory appears.
-if not (normal.get("executed_nonignored") == 1 and normal.get("passed") == 0 and normal.get("failed") == 1 and normal.get("ignored") == 0 and normal["original_phase_assertion"] and "fourth-device-completion" in normal["markers"]):
-    finish("NormalControlDidNotEstablishFourthPhaseRed")
-assert digest(binary) == report["binary_sha256"]
-report["normal_fourth_red_verified"] = True
-# Archive only compiled code + provenance, never runtime stores, raw logs, perf
-# captures, credentials, account directories or SDK overlays.
-(root / "provenance.json").write_text(json.dumps(report, indent=2) + "\n")
-archive = root / "normal-test-binary.tar.gz"
-with tarfile.open(archive, "w:gz") as output:
-    output.add(binary, arcname="marmot-app-test", recursive=False)
-    output.add(root / "provenance.json", arcname="provenance.json", recursive=False)
-report["archive_sha256"] = digest(archive)
-report["no_compilation_between_runs"] = True
-save()
+reuse = os.environ.get("UPSTREAM_REUSE_ARCHIVE")
+if reuse:
+    archive = Path(reuse)
+    assert digest(archive) == "48dd6a3468dd881e6048b104c83612822e2bc50b1ccff9ab0ac13e26afaf2487"
+    extraction = Path(tempfile.mkdtemp(prefix="immutable-code-only-"))
+    with tarfile.open(archive, "r:gz") as source:
+        assert sorted(source.getnames()) == ["marmot-app-test", "provenance.json"]
+        source.extractall(extraction, filter="data")
+    frozen = json.loads((extraction / "provenance.json").read_text())
+    assert frozen["source"] == "844f8b9d63496b40db83a8452deb4935d0b3e7bf"
+    assert frozen["product_baseline"] == BASELINE and frozen["normal_fourth_red_verified"]
+    assert frozen["features"] == FEATURES
+    binary = extraction / "marmot-app-test"
+    assert digest(binary) == frozen["binary_sha256"] == "fd0e8d3f988225fb632b21cc375617319d55eac06b4644ec70266711f910eb70"
+    report.update(binary_sha256=frozen["binary_sha256"], archive_sha256=digest(archive),
+                  normal=frozen["normal"], normal_source=frozen["source"],
+                  normal_fourth_red_verified=True, no_compilation_between_runs=True,
+                  compilation_performed=False, original_run=38804309764,
+                  original_binary_artifact=12006481459)
+    save()
+else:
+    started = time.monotonic()
+    listing = subprocess.run(["cargo", "nextest", "list", *ARGS, "-E", "package(marmot-app) & test(=" + TEST + ")", "--message-format", "json"], capture_output=True, text=True)
+    report["compile_list_seconds"] = time.monotonic() - started
+    report["compile_exit_code"] = listing.returncode
+    save()
+    assert listing.returncode == 0, "normal exact test compilation failed; not behavioral RED"
+    inventory = json.loads(listing.stdout)
+    suites = [suite for suite in inventory["rust-suites"].values() if TEST in suite["testcases"]]
+    assert len(suites) == 1 and not suites[0]["testcases"][TEST]["ignored"]
+    binary = Path(suites[0]["binary-path"]).resolve()
+    report["selected_nonignored"] = 1
+    report["binary_sha256"] = digest(binary)
+    report["normal"] = body(binary)
+    save()
+    normal = report["normal"]
+    # Preserve genuine normal RED. Different stages/passes are evidence, not a reason
+    # to repeat the test until a desired fourth-phase trajectory appears.
+    if not (normal.get("executed_nonignored") == 1 and normal.get("passed") == 0 and normal.get("failed") == 1 and normal.get("ignored") == 0 and normal["original_phase_assertion"] and "fourth-device-completion" in normal["markers"]):
+        finish("NormalControlDidNotEstablishFourthPhaseRed")
+    assert digest(binary) == report["binary_sha256"]
+    report["normal_fourth_red_verified"] = True
+    # Archive only compiled code + provenance, never runtime stores, raw logs, perf
+    # captures, credentials, account directories or SDK overlays.
+    (root / "provenance.json").write_text(json.dumps(report, indent=2) + "\n")
+    archive = root / "normal-test-binary.tar.gz"
+    with tarfile.open(archive, "w:gz") as output:
+        output.add(binary, arcname="marmot-app-test", recursive=False)
+        output.add(root / "provenance.json", arcname="provenance.json", recursive=False)
+    report["archive_sha256"] = digest(archive)
+    report["no_compilation_between_runs"] = True
+    save()
 perf = shutil.which("perf")
 assert perf is not None
 with tempfile.TemporaryDirectory(prefix="owned-ordinary-perf-") as temporary:
@@ -162,7 +183,7 @@ with tempfile.TemporaryDirectory(prefix="owned-ordinary-perf-") as temporary:
     try:
         report["profiled"] = body(binary, perf, capture)
         assert digest(binary) == report["binary_sha256"]
-        if not capture.exists() or report["profiled"]["perf_exit_code"] != 0:
+        if not capture.exists() or report["profiled"]["perf_exit_code"] not in {0, -signal.SIGINT, 128 + signal.SIGINT}:
             finish("ActualProductPerfCaptureUnavailable")
         decoded = subprocess.run(["sudo", "-n", perf, "script", "-i", str(capture), "-F", "time,ip,sym"], capture_output=True, text=True, timeout=30)
         report["decode_exit_code"] = decoded.returncode

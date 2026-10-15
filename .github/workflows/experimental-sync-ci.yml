@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, latest-current-perf]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, latest-current-perf, latest-current-perf-reuse]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -34,7 +34,7 @@ env:
 
 jobs:
   latest-current-perf:
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'latest-current-perf'
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["latest-current-perf","latest-current-perf-reuse"]'), inputs.scope)
     name: Current original enrollment RED and same-binary CPU attribution
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -56,21 +56,56 @@ jobs:
               output.write('feasible=' + str(usable).lower() + '\n')
           PYCONTROL
       - name: Install Rust toolchain
-        if: steps.control.outputs.feasible == 'true'
+        if: steps.control.outputs.feasible == 'true' && inputs.scope == 'latest-current-perf'
         run: |
           toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
           rustup toolchain install "$toolchain" --profile minimal
           rustup default "$toolchain"
       - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
-        if: steps.control.outputs.feasible == 'true'
+        if: steps.control.outputs.feasible == 'true' && inputs.scope == 'latest-current-perf'
         with:
           tool: cargo-nextest@0.9.132
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
-        if: steps.control.outputs.feasible == 'true'
+        if: steps.control.outputs.feasible == 'true' && inputs.scope == 'latest-current-perf'
         with:
           shared-key: core-regressions
+      - name: Verify immutable code artifact producer identity
+        if: steps.control.outputs.feasible == 'true' && inputs.scope == 'latest-current-perf-reuse'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/dyKiU/mdk/actions/runs/38804309764 > "$RUNNER_TEMP/producer.json"
+          gh api repos/dyKiU/mdk/actions/artifacts/12006481459 > "$RUNNER_TEMP/code-artifact.json"
+          python3 - <<'PYIDENTITY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          run = json.loads((root/'producer.json').read_text())
+          artifact = json.loads((root/'code-artifact.json').read_text())
+          assert run['head_sha'] == '844f8b9d63496b40db83a8452deb4935d0b3e7bf'
+          assert run['path'] == '.github/workflows/experimental-sync-ci.yml'
+          assert artifact['id'] == 12006481459 and not artifact['expired']
+          assert artifact['workflow_run']['id'] == 38804309764
+          assert artifact['workflow_run']['head_sha'] == run['head_sha']
+          assert artifact['name'] == 'current-original-normal-binary-remote-reuse-only'
+          assert artifact['digest'] == 'sha256:440640e6a260260b64ac8137ad3c18a439952ad720549d59f6892b6d286299ea'
+          PYIDENTITY
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        if: steps.control.outputs.feasible == 'true' && inputs.scope == 'latest-current-perf-reuse'
+        with:
+          github-token: ${{ github.token }}
+          run-id: 38804309764
+          artifact-ids: 12006481459
+          merge-multiple: true
+          path: immutable-code
+      - name: Reuse same normal binary for corrected controlled-stop CPU decode
+        if: steps.control.outputs.feasible == 'true' && inputs.scope == 'latest-current-perf-reuse'
+        env:
+          CARGO_INCREMENTAL: '1'
+          UPSTREAM_REUSE_ARCHIVE: immutable-code/normal-test-binary.tar.gz
+        run: python3 scripts/diagnose_upstream_current_pairing_perf.py
       - name: Compile normal original once, preserve unprofiled outcome, sample same binary
-        if: steps.control.outputs.feasible == 'true'
+        if: steps.control.outputs.feasible == 'true' && inputs.scope == 'latest-current-perf'
         env:
           CARGO_INCREMENTAL: '1'
         run: |
