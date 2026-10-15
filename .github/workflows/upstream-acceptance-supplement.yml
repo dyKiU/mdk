@@ -231,6 +231,9 @@ jobs:
       - name: Kill both obsolete-publication invite mutants and verify restored iOS controls
         if: matrix.lane == 'final-ios'
         run: python3 scripts/upstream_apple_ci/missing-key-mutations.py --platform ios
+      - name: Kill iOS parked-wait policy and running-loop mutants with restored controls
+        if: matrix.lane == 'final-ios'
+        run: python3 scripts/upstream_apple_ci/ios-storage-mutations.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -243,6 +246,11 @@ jobs:
             ${{ runner.temp }}/hosted-history-pagination-evidence/result.json
             ${{ runner.temp }}/hosted-one-scan/result.json
             ${{ runner.temp }}/localization-mutation/result.json
+            ${{ runner.temp }}/ios-storage-mutations/result.json
+            ${{ runner.temp }}/ios-storage-mutations/ios-storage-await-policy-mutant.log
+            ${{ runner.temp }}/ios-storage-mutations/ios-storage-await-policy-restored-control.log
+            ${{ runner.temp }}/ios-storage-mutations/ios-storage-running-wait-mutant.log
+            ${{ runner.temp }}/ios-storage-mutations/ios-storage-running-wait-restored-control.log
             ${{ runner.temp }}/attachment-storage-mutation/result.json
             ${{ runner.temp }}/attachment-storage-rearm-mutation/result.json
             ${{ runner.temp }}/missing-key-mutations-macos/result.json

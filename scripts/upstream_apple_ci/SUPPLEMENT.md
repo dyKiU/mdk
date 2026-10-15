@@ -96,3 +96,18 @@ The Mac storage gate independently mutates `canRetry` true to false and
 requires one actual runtime failure, restores exact source bytes and requires
 one passing control. Compile failures and zero-test results cannot kill either
 mutant. The rearm report is exported separately from the retry report.
+
+
+The iOS attachment gates independently mutate parked-state awaiting and remove
+the running subscription loop's stop guard. The terminal-state regression and
+the queued→parked→ready stream regression must each fail at runtime, then pass
+after exact source restoration. The latter requires two snapshots and no byte
+read, preserving cancellation ownership in the caller. A separate ready-stream
+control exercises successful byte reading in both app SDK cohorts.
+
+Published interoperability diagnostics wrap the pinned app controller without
+changing its bytes, commands or 45-second waits. They retain only fixed sponsor/
+SDK labels, stage and RPC counts, existing reply counts and positive worker
+closure counts. No IDs, IPC fields, raw SDK stderr or account data are exported.
+The first attempt failed offline-invitation replay in the published-sponsor
+cohort; earlier steps do not count as a completed direction.

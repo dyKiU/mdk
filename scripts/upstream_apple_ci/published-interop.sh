@@ -43,7 +43,7 @@ xcrun simctl boot "$published_device"
 xcrun simctl boot "$experimental_device"
 xcrun simctl bootstatus "$published_device" -b
 xcrun simctl bootstatus "$experimental_device" -b
-python3 ios/scripts/public-chat-acceptance/controller.py --scenario mixed-version \
+python3 scripts/upstream_apple_ci/observed-public-interop.py --scenario mixed-version \
   --published "$RUNNER_TEMP/published-worker" --experimental "$RUNNER_TEMP/experimental-worker" \
   --published-device "$published_device" --experimental-device "$experimental_device" \
   --relay-binary "$PWD/ios/build/TestRelay/debug/white-noise-sync-test-relay" \
