@@ -8,6 +8,37 @@ use std::collections::HashSet;
 const SELECT: &str = "SELECT generation,account,local_device,group_id,state FROM private_roster_settlement WHERE singleton=1";
 const UPDATE: &str =
     "UPDATE private_roster_settlement SET state=?1 WHERE singleton=1 AND generation=?2";
+/// Pure decode memo only: SQL rows and all authority/consistency checks stay fresh.
+/// One entry belongs to one opened connection; nothing is keyed by a generation.
+#[derive(Default)]
+pub(crate) struct SettlementDecodeMemo {
+    entry: Option<(Vec<u8>, PrivateSettlementState)>,
+    #[cfg(test)]
+    pub(crate) serde_calls: u64,
+}
+impl SettlementDecodeMemo {
+    pub(crate) fn clear(&mut self) { self.entry = None; }
+    pub(crate) fn decode(&mut self, bytes: &[u8]) -> StorageResult<PrivateSettlementState> {
+        const MAX_MEMO_BYTES: usize = 262144;
+        if bytes.len() <= MAX_MEMO_BYTES {
+            if let Some((raw, state)) = &self.entry {
+                if raw.as_slice() == bytes { return Ok(state.clone()); }
+            }
+        }
+        // A changed, invalid, or oversized input never retains the old entry.
+        self.clear();
+        #[cfg(test)]
+        { self.serde_calls += 1; }
+        let state: PrivateSettlementState = serde_json::from_slice(bytes).map_err(|_| invalid())?;
+        if bytes.len() <= MAX_MEMO_BYTES {
+            self.entry = Some((bytes.to_vec(), state.clone()));
+        }
+        Ok(state)
+    }
+    #[cfg(test)]
+    pub(crate) fn occupied(&self) -> bool { self.entry.is_some() }
+}
+
 fn invalid() -> StorageError {
     StorageError::Serialization("invalid private settlement facts".into())
 }
@@ -159,6 +190,14 @@ fn facts(
     Ok(result)
 }
 fn read(conn: &Connection) -> StorageResult<Option<PrivateSettlementState>> {
+    read_decoded(conn, |bytes| serde_json::from_slice(bytes).map_err(|_| invalid()))
+}
+fn read_memoized(conn: &Connection, connection: &crate::connection::SharedConnection) -> StorageResult<Option<PrivateSettlementState>> {
+    let result = read_decoded(conn, |bytes| connection.decode_private_settlement(bytes));
+    if !matches!(&result, Ok(Some(_))) { connection.clear_private_settlement_decode(); }
+    result
+}
+fn read_decoded(conn: &Connection, decode: impl FnOnce(&[u8]) -> StorageResult<PrivateSettlementState>) -> StorageResult<Option<PrivateSettlementState>> {
     let row = conn
         .query_row(SELECT, [], |r| {
             Ok((
@@ -174,7 +213,7 @@ fn read(conn: &Connection) -> StorageResult<Option<PrivateSettlementState>> {
     let Some((counter, account, device, group, bytes)) = row else {
         return Ok(None);
     };
-    let state: PrivateSettlementState = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+    let state = decode(&bytes)?;
     validate_state(&state)?;
     if generation(state.generation)? != counter
         || account != state.anchor.account
@@ -277,7 +316,7 @@ impl PrivateRosterSettlementStorage for SqliteAccountStorage {
     fn read_round(&self) -> StorageResult<Option<PrivateSettlementState>> {
         {
             let conn = self.lock()?;
-            read(&conn)
+            read_memoized(&conn, &self.connection)
         }
     }
     fn select_round(
@@ -458,10 +497,12 @@ impl PrivateRosterSettlementStorage for SqliteAccountStorage {
     }
     fn read_facts(&self) -> StorageResult<Vec<PrivateSettlementFact>> {
         let conn = self.lock()?;
-        match read(&conn)? {
+        let result = match read_memoized(&conn, &self.connection)? {
             Some(s) => facts(&conn, &s),
             None => Ok(vec![]),
-        }
+        };
+        if result.is_err() { self.connection.clear_private_settlement_decode(); }
+        result
     }
 }
 #[cfg(test)]

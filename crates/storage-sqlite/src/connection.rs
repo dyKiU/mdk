@@ -349,6 +349,8 @@ struct SharedConnectionInner {
     /// Bumped before every write to `openmls_values` and on every rollback;
     /// see `StorageProvider::mls_write_generation`.
     openmls_writes: AtomicU64,
+    #[cfg(feature = "experimental-device-sync")]
+    private_settlement_decode: Mutex<crate::private_roster_settlement::SettlementDecodeMemo>,
 }
 
 impl fmt::Debug for SharedConnection {
@@ -374,8 +376,29 @@ impl SharedConnection {
                 transaction_released: Condvar::new(),
                 post_commit: Mutex::new(Vec::new()),
                 openmls_writes: AtomicU64::new(0),
+                #[cfg(feature = "experimental-device-sync")]
+                private_settlement_decode: Mutex::new(Default::default()),
             }),
         }
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) fn clear_private_settlement_decode(&self) {
+        self.inner.private_settlement_decode.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) fn decode_private_settlement(&self, bytes: &[u8]) -> StorageResult<cgka_traits::private_roster_settlement::PrivateSettlementState> {
+        let mut memo = self.inner.private_settlement_decode.lock().unwrap_or_else(|p| {
+            let mut memo = p.into_inner();
+            memo.clear();
+            memo
+        });
+        memo.decode(bytes)
+    }
+    #[cfg(all(test, feature = "experimental-device-sync"))]
+    pub(crate) fn private_settlement_decode_counts(&self) -> (u64, bool) {
+        let memo = self.inner.private_settlement_decode.lock().unwrap_or_else(|p| p.into_inner());
+        (memo.serde_calls, memo.occupied())
     }
 
     fn start_timing(&self) -> Option<(SqliteTimingObserver, std::time::Instant)> {
@@ -460,7 +483,11 @@ impl SharedConnection {
         // `wait_for_transaction_slot` wakes to an error rather than a deadlock.
         self.inner.closed.store(true, Ordering::Release);
         self.wake_transaction_waiters();
-        self.inner.connection.close()
+        let result = self.inner.connection.close();
+        // Drain in-flight SQL first: a previous reader cannot reinsert after this.
+        #[cfg(feature = "experimental-device-sync")]
+        self.clear_private_settlement_decode();
+        result
     }
 
     fn wake_transaction_waiters(&self) {
@@ -586,6 +613,8 @@ impl SharedConnection {
             // already active and owns rollback/commit.
             if owner.as_ref().is_some_and(|owner| owner == &current) {
                 drop(owner);
+                #[cfg(feature = "experimental-device-sync")]
+                if !deferred { self.clear_private_settlement_decode(); }
                 return f();
             }
 
@@ -602,6 +631,9 @@ impl SharedConnection {
                 return Err(E::from(err));
             }
 
+            // BEGIN has drained older readers; read-only snapshots retain reuse.
+            #[cfg(feature = "experimental-device-sync")]
+            if !deferred { self.clear_private_settlement_decode(); }
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
             // A nested savepoint whose rollback failed latched the connection
             // unusable mid-transaction. The callback may have caught that
@@ -713,6 +745,8 @@ impl SharedConnection {
     /// `ROLLBACK` does, and the outermost transaction then rolls back instead
     /// of committing. A closed connection already rolled everything back.
     fn rollback_to_savepoint(&self, wakeups: usize) -> StorageResult<()> {
+        #[cfg(feature = "experimental-device-sync")]
+        self.clear_private_settlement_decode();
         // `ROLLBACK TO` discards OpenMLS writes, like `ROLLBACK`.
         self.note_openmls_write();
         self.inner
@@ -772,6 +806,8 @@ impl SharedConnection {
     /// `ROLLBACK` discards OpenMLS writes the transaction made, so it counts
     /// as a write for cache-validation purposes.
     fn rollback_boundary_with_retry(&self) -> StorageResult<()> {
+        #[cfg(feature = "experimental-device-sync")]
+        self.clear_private_settlement_decode();
         self.note_openmls_write();
         self.execute_transaction_boundary_with_retry("ROLLBACK")
     }

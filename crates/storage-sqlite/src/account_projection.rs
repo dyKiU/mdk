@@ -1459,6 +1459,8 @@ impl SqliteAccountStorage {
 
         let newly_deleted = retry_on_busy(|| {
             let mut conn = self.lock()?;
+            #[cfg(feature = "experimental-device-sync")]
+            self.connection.clear_private_settlement_decode();
             let original = secure_delete_pragma(&conn)?;
             conn.execute_batch("PRAGMA secure_delete = ON;").storage()?;
             let delete_result = (|| {

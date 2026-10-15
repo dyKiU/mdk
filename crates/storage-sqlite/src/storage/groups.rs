@@ -93,6 +93,8 @@ impl GroupStorage for SqliteAccountStorage {
     fn delete_group(&self, id: &GroupId) -> StorageResult<()> {
         self.connection.note_openmls_write();
         let mut conn = self.lock()?;
+        #[cfg(feature = "experimental-device-sync")]
+        self.connection.clear_private_settlement_decode();
         let tx = conn.transaction().storage()?;
         if delete_group_tx(&tx, id)? == 0 {
             return Err(StorageError::NotFound);

@@ -605,3 +605,132 @@ fn private_settlement_all_128_occupied_slots_complete_without_account_deduplicat
     assert_eq!(storage.read_facts().unwrap().len(), 128);
     assert!(storage.read_round().unwrap().unwrap().phase == PrivateSettlementPhase::Completed);
 }
+
+// These are storage codec/lifetime controls; the genuine Core fixtures separately
+// exercise real encrypted MLS, foreign writers, and original-binding rejection.
+#[test]
+fn private_settlement_decode_memo_reuses_only_real_serde_results() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    let generation = complete(&storage);
+    assert_eq!(storage.connection.private_settlement_decode_counts(), (0, false));
+    let first = storage.read_round().unwrap().unwrap();
+    assert_eq!(storage.connection.private_settlement_decode_counts(), (1, true));
+    assert!(storage.read_round().unwrap().unwrap() == first);
+    assert_eq!(storage.read_facts().unwrap().len(), 2);
+    assert_eq!(storage.connection.private_settlement_decode_counts(), (1, true), "identical actual SQL bytes reuse one real serde decode, not a mocked value");
+    storage.put_outbound(generation, b"exact-live-outbound").unwrap();
+    assert_eq!(storage.connection.private_settlement_decode_counts(), (1, false), "canonical transition read stays uncached and write admission retires the memo");
+    let changed = storage.read_round().unwrap().unwrap();
+    assert!(changed.outbound.as_deref() == Some(b"exact-live-outbound".as_slice()));
+    assert_eq!(storage.connection.private_settlement_decode_counts(), (2, true));
+}
+
+#[test]
+fn private_settlement_decode_memo_clears_absent_invalid_and_oversized_rows() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    complete(&storage);
+    let original = storage.read_round().unwrap().unwrap();
+    let raw = serde_json::to_vec(&original).unwrap();
+    for malformed in [b"{".to_vec(), {
+        let mut invalid = original.clone(); invalid.format_version = 2;
+        serde_json::to_vec(&invalid).unwrap()
+    }] {
+        storage.lock().unwrap().execute("UPDATE private_roster_settlement SET state=?1", [&malformed]).unwrap();
+        assert!(matches!(storage.read_round(), Err(StorageError::Serialization(message)) if message == "invalid private settlement facts"));
+        assert!(!storage.connection.private_settlement_decode_counts().1, "parse and semantic validation errors retire decoded metadata");
+        storage.lock().unwrap().execute("UPDATE private_roster_settlement SET state=?1", [&raw]).unwrap();
+        assert!(storage.read_round().unwrap().unwrap() == original);
+    }
+    let mut oversized = raw.clone(); oversized.resize(262145, b' ');
+    storage.lock().unwrap().execute("UPDATE private_roster_settlement SET state=?1", [&oversized]).unwrap();
+    let before = storage.connection.private_settlement_decode_counts().0;
+    assert!(storage.read_round().unwrap().unwrap() == original, "valid oversized legacy JSON is bypassed, never rejected");
+    assert!(storage.read_round().unwrap().unwrap() == original);
+    assert_eq!(storage.connection.private_settlement_decode_counts(), (before+2, false));
+    storage.lock().unwrap().execute("DELETE FROM private_roster_settlement", []).unwrap();
+    assert!(storage.read_round().unwrap().is_none());
+    assert!(!storage.connection.private_settlement_decode_counts().1);
+    // Query failure also retires a previously warm memo.
+    storage.select_round(&anchor()).unwrap();
+    storage.read_round().unwrap();
+    assert!(storage.connection.private_settlement_decode_counts().1);
+    storage.lock().unwrap().execute("DROP TABLE private_roster_settlement", []).unwrap();
+    assert!(storage.read_round().is_err());
+    assert!(!storage.connection.private_settlement_decode_counts().1);
+}
+
+#[test]
+fn private_settlement_decode_memo_rechecks_indexes_and_confirmation_facts() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    let generation = complete(&storage);
+    storage.read_round().unwrap();
+    storage.lock().unwrap().execute("UPDATE private_roster_settlement SET generation=generation+1", []).unwrap();
+    assert!(matches!(storage.read_round(), Err(StorageError::Serialization(message)) if message == "invalid private settlement facts"));
+    assert!(!storage.connection.private_settlement_decode_counts().1);
+    storage.lock().unwrap().execute("UPDATE private_roster_settlement SET generation=?1", [i64::try_from(generation).unwrap()]).unwrap();
+    storage.read_round().unwrap();
+    assert!(storage.connection.private_settlement_decode_counts().1);
+    storage.lock().unwrap().execute("DELETE FROM private_roster_settlement_facts WHERE leaf_index=0", []).unwrap();
+    assert!(matches!(storage.read_facts(), Err(StorageError::Serialization(message)) if message == "invalid private settlement facts"));
+    assert!(!storage.connection.private_settlement_decode_counts().1, "unchanged JSON never caches facts or a completed validation result");
+}
+
+#[test]
+fn private_settlement_decode_memo_rollback_reloads_committed_original_bytes() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    let generation = complete(&storage);
+    let original = storage.read_round().unwrap().unwrap();
+    let result: StorageResult<()> = storage.with_transaction(|writer| {
+        assert!(!writer.connection.private_settlement_decode_counts().1);
+        writer.put_outbound(generation, b"rolled-back-outbound")?;
+        assert!(writer.read_round()?.unwrap().outbound.is_some());
+        assert!(writer.connection.private_settlement_decode_counts().1);
+        Err(StorageError::Backend("isolated rollback".into()))
+    });
+    assert!(result.is_err());
+    assert!(!storage.connection.private_settlement_decode_counts().1, "rollback retires uncommitted decoded metadata");
+    assert!(storage.read_round().unwrap().unwrap() == original);
+    let before = storage.connection.private_settlement_decode_counts().0;
+    storage.with_read_snapshot(|reader| -> StorageResult<()> {
+        assert!(reader.read_round()?.unwrap() == original);
+        assert!(reader.read_round()?.unwrap() == original);
+        Ok(())
+    }).unwrap();
+    assert_eq!(storage.connection.private_settlement_decode_counts().0, before, "read-only snapshots preserve pure decoding reuse");
+}
+
+#[test]
+fn private_settlement_decode_memo_is_connection_local_and_close_retires_it() {
+    let first = SqliteAccountStorage::in_memory().unwrap();
+    let second = SqliteAccountStorage::in_memory().unwrap();
+    complete(&first); complete(&second);
+    first.read_round().unwrap();
+    assert_eq!(first.connection.private_settlement_decode_counts(), (1, true));
+    assert_eq!(second.connection.private_settlement_decode_counts(), (0, false));
+    let clone = first.clone();
+    first.close().unwrap();
+    assert!(!clone.connection.private_settlement_decode_counts().1, "close retires the connection-owned parsed private metadata");
+    assert!(matches!(clone.read_round(), Err(StorageError::Closed(_))));
+    second.read_round().unwrap();
+    assert_eq!(second.connection.private_settlement_decode_counts(), (1, true));
+}
+
+#[test]
+fn private_settlement_decode_memo_close_drains_inflight_sql_before_clearing() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    complete(&storage);
+    let conn = storage.lock().unwrap();
+    let closing = storage.clone();
+    let thread = std::thread::spawn(move || closing.close());
+    let started = std::time::Instant::now();
+    while !storage.is_closed() {
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        std::thread::yield_now();
+    }
+    // Existing SQL ownership may finish its read after close admission stops.
+    assert!(read_memoized(&conn, &storage.connection).unwrap().is_some());
+    assert!(storage.connection.private_settlement_decode_counts().1);
+    drop(conn);
+    thread.join().unwrap().unwrap();
+    assert!(!storage.connection.private_settlement_decode_counts().1, "close must clear after the last in-flight SQL decoder releases its guard");
+}
