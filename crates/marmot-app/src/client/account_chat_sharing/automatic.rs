@@ -97,6 +97,7 @@ pub(crate) struct AutomaticChannel {
     recipient: bool,
     ready: bool,
     handshake_publication: Option<AutomaticHandshakePublication>,
+    publication_retry_at: Option<std::time::Instant>,
     handshake_published: bool,
     handshake_published_at: Option<std::time::Instant>,
     pending: VecDeque<PendingBody>,
@@ -536,6 +537,7 @@ impl AppClient {
                     recipient: true,
                     ready: false,
                     handshake_publication: None,
+                    publication_retry_at: None,
                     handshake_published: false,
                     handshake_published_at: None,
                     pending: VecDeque::new(),
@@ -993,6 +995,7 @@ impl AppClient {
                     recipient: true,
                     ready: false,
                     handshake_publication: None,
+                    publication_retry_at: None,
                     handshake_published: false,
                     handshake_published_at: None,
                     pending: VecDeque::new(),
@@ -1096,6 +1099,7 @@ impl AppClient {
                 recipient: false,
                 ready: false,
                 handshake_publication: None,
+                publication_retry_at: None,
                 handshake_published: false,
                 handshake_published_at: None,
                 pending: VecDeque::new(),
@@ -1265,6 +1269,10 @@ impl AppClient {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             self.test_trace_automatic_progress("tick_before", &entry, "observed");
             let result = self.automatic_sharing_tick(&mut entry).await;
+            if result.is_err() {
+                entry.publication_retry_at =
+                    Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
+            }
             #[cfg(all(test, feature = "test-policy-overrides"))]
             self.test_trace_automatic_progress(
                 "tick_after",
@@ -1287,6 +1295,12 @@ impl AppClient {
         entry: &mut AutomaticChannel,
     ) -> Result<(), AccountSharingError> {
         self.automatic_policy_current(&entry.policy)?;
+        if entry
+            .publication_retry_at
+            .is_some_and(|next| std::time::Instant::now() < next)
+        {
+            return Ok(());
+        }
         if !entry.handshake_published {
             let kind = if entry.recipient {
                 AccountSharingControl::Consent

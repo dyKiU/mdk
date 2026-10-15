@@ -1346,6 +1346,7 @@ pub(super) struct SiblingChannel {
     recipient: bool,
     ready: bool,
     publication: Option<SiblingPublication>,
+    publication_retry_at: Option<Instant>,
     handshake_published: bool,
     handshake_retry_at: Option<Instant>,
     policy_committed: bool,
@@ -1440,6 +1441,7 @@ impl AppClient {
             recipient: false,
             ready: false,
             publication: None,
+            publication_retry_at: None,
             handshake_published: false,
             handshake_retry_at: None,
             policy_committed: false,
@@ -1634,6 +1636,7 @@ impl AppClient {
                 recipient: true,
                 ready: true,
                 publication: None,
+                publication_retry_at: None,
                 handshake_published: false,
                 handshake_retry_at: None,
                 policy_committed: false,
@@ -1797,6 +1800,10 @@ impl AppClient {
                     .visits += 1;
             }
             if let Err(error) = self.advance_sibling_sharing(entry, &mut in_flight).await {
+                // Positive work on another channel cannot accelerate a failed
+                // publication beyond the original one-second retry cadence.
+                entry.publication_retry_at =
+                    Some(Instant::now() + std::time::Duration::from_secs(1));
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 {
                     use crate::account_chat_sharing::enabled::SiblingMaintenanceFailure as Failure;
@@ -1862,6 +1869,13 @@ impl AppClient {
         entry: &mut SiblingChannel,
         in_flight: &mut usize,
     ) -> Result<(), ClientLinkingError> {
+        if entry.publication.is_none()
+            && entry
+                .publication_retry_at
+                .is_some_and(|next| Instant::now() < next)
+        {
+            return Ok(());
+        }
         if let Some(pending) = entry.publication.as_mut() {
             let result = match pending.result.try_recv() {
                 Ok(result) => result,
