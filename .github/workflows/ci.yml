@@ -294,9 +294,11 @@ jobs:
       # downstream headless-browser acceptance tests.
       - name: Build browser WASM libraries
         env:
+          CARGO_INCREMENTAL: "1"
           CC_wasm32_unknown_unknown: clang
           RUSTFLAGS: -D warnings
         run: |
+          python3 scripts/qualification_build_preflight.py --label 'Build browser WASM libraries'
           cargo build --locked --target wasm32-unknown-unknown \
             -p cgka-traits \
             -p cgka-engine \
@@ -337,10 +339,18 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Run clippy'
+          cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Run clippy with all features
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Run clippy with all features'
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
   c-smoke:
     name: C bindings smoke
@@ -378,7 +388,10 @@ jobs:
           tool: cbindgen@0.29.4
 
       - name: Header diff gate
+        env:
+          CARGO_INCREMENTAL: "1"
         run: |
+          python3 scripts/qualification_build_preflight.py --label 'Header diff gate'
           set -euo pipefail
           # Pin the exact version so a newer cbindgen can't reformat the
           # checked-in header and fail the diff gate on unrelated PRs.
@@ -389,10 +402,18 @@ jobs:
           git diff --exit-code crates/marmot-c/include/marmot.h
 
       - name: Alloc-audit tests
-        run: cargo test -p marmot-c --features alloc-audit --locked
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Alloc-audit tests'
+          cargo test -p marmot-c --features alloc-audit --locked
 
       - name: Compile and run debug C smoke test (gcc)
-        run: ./crates/marmot-c/c-smoke.sh --debug gcc
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Compile and run debug C smoke test (gcc)'
+          ./crates/marmot-c/c-smoke.sh --debug gcc
 
   # Pull requests run this only with the `ci:apple` label; master pushes and
   # merge groups always run it, and a master failure opens an issue.
@@ -436,7 +457,11 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Check iOS account keychain code
-        run: cargo clippy -p marmot-account --target aarch64-apple-ios --locked -- -D warnings
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Check iOS account keychain code'
+          cargo clippy -p marmot-account --target aarch64-apple-ios --locked -- -D warnings
 
       - name: Report master failure
         if: failure() && github.event_name == 'push'
@@ -493,7 +518,11 @@ jobs:
 
       - name: Run default-build convergence policy pin tests
         # Keep in sync with `just test-convergence-policy-pin`.
-        run: cargo test -p cgka-engine --test convergence_policy_pin --locked
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Run default-build convergence policy pin tests'
+          cargo test -p cgka-engine --test convergence_policy_pin --locked
 
   rust-test-build:
     name: Build workspace tests
@@ -537,7 +566,11 @@ jobs:
           shared-key: rust-test
 
       - name: Verify workspace shard coverage
-        run: bash scripts/check_ci_partitions.sh 12 --workspace --exclude cgka-conformance-simulator --features wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks --locked --timings --profile "$NEXTEST_PROFILE" -E "$WORKSPACE_FILTER"
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Verify workspace shard coverage'
+          bash scripts/check_ci_partitions.sh 12 --workspace --exclude cgka-conformance-simulator --features wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks --locked --timings --profile "$NEXTEST_PROFILE" -E "$WORKSPACE_FILTER"
 
       - name: Upload workspace compiler timings
         if: always()
@@ -549,13 +582,20 @@ jobs:
           retention-days: 7
 
       - name: Archive workspace tests
-        run: cargo nextest archive --workspace --exclude cgka-conformance-simulator --features wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks --locked --profile "$NEXTEST_PROFILE" -E "$WORKSPACE_FILTER" --archive-file tests.tar.zst
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Archive workspace tests'
+          cargo nextest archive --workspace --exclude cgka-conformance-simulator --features wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks --locked --profile "$NEXTEST_PROFILE" -E "$WORKSPACE_FILTER" --archive-file tests.tar.zst
 
       # CI/config PRs select ci-full. Exercise the actual filtered archive and
       # ci-pr execution path too, using a small crate already compiled above.
       - name: Verify PR profile archive execution
         if: github.event_name == 'pull_request' && needs.changes.outputs.full_workspace == 'true'
+        env:
+          CARGO_INCREMENTAL: "1"
         run: |
+          python3 scripts/qualification_build_preflight.py --label 'Verify PR profile archive execution'
           set -euo pipefail
           archive="$RUNNER_TEMP/pr-profile-tests.tar.zst"
           cargo nextest archive --workspace --exclude cgka-conformance-simulator --features wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks --locked --profile ci-pr -E 'package(=agent-control)' --archive-file "$archive"
@@ -657,10 +697,17 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Run doctests
-        run: cargo test --workspace --exclude cgka-conformance-simulator --doc --locked
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Run doctests'
+          cargo test --workspace --exclude cgka-conformance-simulator --doc --locked
 
       - name: Test consent and both diagnostic exporters
+        env:
+          CARGO_INCREMENTAL: "1"
         run: |
+          python3 scripts/qualification_build_preflight.py --label 'Test consent and both diagnostic exporters'
           cargo test -p marmot-app --features otlp-export,product-analytics-export --lib product_analytics:: --locked
           cargo test -p marmot-app --features otlp-export,product-analytics-export --lib backend_maintenance_collects --locked
           cargo test -p marmot-app --features otlp-export,product-analytics-export --test relay_telemetry_otlp --locked
@@ -708,10 +755,18 @@ jobs:
           shared-key: cli-e2e
 
       - name: Verify CLI shard coverage
-        run: bash scripts/check_ci_partitions.sh 2 -p wn-cli --test cli --features test-policy-overrides --locked --profile "$NEXTEST_PROFILE" -E 'all()'
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Verify CLI shard coverage'
+          bash scripts/check_ci_partitions.sh 2 -p wn-cli --test cli --features test-policy-overrides --locked --profile "$NEXTEST_PROFILE" -E 'all()'
 
       - name: Archive CLI tests
-        run: cargo nextest archive -p wn-cli --test cli --features test-policy-overrides --locked --profile "$NEXTEST_PROFILE" --archive-file tests.tar.zst
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Archive CLI tests'
+          cargo nextest archive -p wn-cli --test cli --features test-policy-overrides --locked --profile "$NEXTEST_PROFILE" --archive-file tests.tar.zst
 
       - name: Upload test archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -813,10 +868,18 @@ jobs:
           shared-key: relay-runtime
 
       - name: Verify relay runtime shard coverage
-        run: bash scripts/check_ci_partitions.sh 2 -p marmot-app --test relay_runtime --test startup_hydration --features test-policy-overrides --locked --profile "$NEXTEST_PROFILE" -E 'binary(relay_runtime)'
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Verify relay runtime shard coverage'
+          bash scripts/check_ci_partitions.sh 2 -p marmot-app --test relay_runtime --test startup_hydration --features test-policy-overrides --locked --profile "$NEXTEST_PROFILE" -E 'binary(relay_runtime)'
 
       - name: Archive relay runtime tests
-        run: cargo nextest archive -p marmot-app --test relay_runtime --test startup_hydration --features test-policy-overrides --locked --profile "$NEXTEST_PROFILE" --archive-file tests.tar.zst
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Archive relay runtime tests'
+          cargo nextest archive -p marmot-app --test relay_runtime --test startup_hydration --features test-policy-overrides --locked --profile "$NEXTEST_PROFILE" --archive-file tests.tar.zst
 
       - name: Upload test archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -983,10 +1046,18 @@ jobs:
           shared-key: simulator-tests
 
       - name: Verify simulator smoke shard coverage
-        run: bash scripts/check_ci_partitions.sh 2 -p cgka-conformance-simulator --locked --profile "$NEXTEST_PROFILE" -E "$(just --evaluate simulator-smoke-filter) and not binary(offline_catchup_regression)"
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Verify simulator smoke shard coverage'
+          bash scripts/check_ci_partitions.sh 2 -p cgka-conformance-simulator --locked --profile "$NEXTEST_PROFILE" -E "$(just --evaluate simulator-smoke-filter) and not binary(offline_catchup_regression)"
 
       - name: Archive default-feature simulator tests
-        run: cargo nextest archive -p cgka-conformance-simulator --locked --profile "$NEXTEST_PROFILE" --archive-file simulator.tar.zst
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Archive default-feature simulator tests'
+          cargo nextest archive -p cgka-conformance-simulator --locked --profile "$NEXTEST_PROFILE" --archive-file simulator.tar.zst
 
       - name: Upload simulator test archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -1147,13 +1218,25 @@ jobs:
         run: just convergence-lane-policy
 
       - name: Validate convergence failure-corpus lifecycle
-        run: cargo nextest run --retries 0 -p convergence-campaign-runner --test failure_corpus --locked
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Validate convergence failure-corpus lifecycle'
+          cargo nextest run --retries 0 -p convergence-campaign-runner --test failure_corpus --locked
 
       - name: Run focused convergence regressions
-        run: just focused-convergence-regressions
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Run focused convergence regressions'
+          just focused-convergence-regressions
 
       - name: Run simulator doctests
-        run: cargo test -p cgka-conformance-simulator --doc --locked
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Run simulator doctests'
+          cargo test -p cgka-conformance-simulator --doc --locked
 
       - name: Verify TLA liveness and counterexample
         run: just tla-liveness tla-liveness-counterexample

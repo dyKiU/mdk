@@ -122,9 +122,17 @@ jobs:
         with:
           shared-key: experimental-sync-tests
       - name: Verify complete experimental partition coverage
-        run: bash scripts/check_ci_partitions.sh 12 --workspace --features "$SYNC_FEATURES" --locked
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Verify complete experimental partition coverage'
+          bash scripts/check_ci_partitions.sh 12 --workspace --features "$SYNC_FEATURES" --locked
       - name: Archive experimental workspace tests
-        run: cargo nextest archive --workspace --features "$SYNC_FEATURES" --locked --archive-file experimental-tests.tar.zst
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Archive experimental workspace tests'
+          cargo nextest archive --workspace --features "$SYNC_FEATURES" --locked --archive-file experimental-tests.tar.zst
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: experimental-sync-tests
@@ -201,9 +209,11 @@ jobs:
           shared-key: cli-affected-${{ matrix.cohort }}
       - name: Run all CLI library and integration cases without retries
         env:
+          CARGO_INCREMENTAL: "1"
           COHORT: ${{ matrix.cohort }}
           PARTITION: ${{ matrix.partition }}
         run: |
+          python3 scripts/qualification_build_preflight.py --label 'Run all CLI library and integration cases without retries'
           set -euo pipefail
           echo "qualification-partition: count:$PARTITION/3"
           args=(--locked -p wn-cli --lib --test cli --partition "count:$PARTITION/3")
@@ -323,8 +333,10 @@ jobs:
           shared-key: core-regressions
       - name: Run selected affected regressions without retries
         env:
+          CARGO_INCREMENTAL: "1"
           REGRESSION_SCOPE: ${{ inputs.scope }}
         run: |
+          python3 scripts/qualification_build_preflight.py --label 'Run selected affected regressions without retries'
           set -euo pipefail
           features=agent-connector/otlp-export,agent-connector/product-analytics-export,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
           filter='test(connector_relay_list_edit_preserves_entries_the_request_did_not_name) | test(account_sharing_peer_generation_uses_authenticated_role_and_live_original) | test(=confirmed_publish_retries_failed_inbound_replay_through_normal_advance) | binary(crash_recovery_sqlite)'
