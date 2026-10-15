@@ -32,15 +32,17 @@ jobs:
         with:
           shared-key: private-runtime-boundary
           cache-on-failure: true
-      - name: Four real opaque-original cancellation baseline regressions
+      - name: Actual receive omissions, exact restores and foreign-executor acceptance
         env:
           CARGO_INCREMENTAL: '1'
-        run: python3 scripts/qualify_upstream_private_runtime.py
+        run: python3 scripts/qualify_upstream_private_runtime.py --phase receives
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: private-runtime-runtime-${{ github.sha }}
-          path: private-runtime-proof/result.json
+          path: |
+            private-runtime-proof/result.json
+            private-runtime-proof/departure-runtime-omission/report.json
           if-no-files-found: error
           retention-days: 7
   format:

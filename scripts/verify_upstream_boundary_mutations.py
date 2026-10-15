@@ -18,7 +18,7 @@ held_marker = None
 failure_marker = None
 if args.case == 'departure':
     source = Path('crates/marmot-uniffi/src/commands/account_chat_departure.rs')
-    old, new = '#[uniffi::export(async_runtime = "tokio")]', '#[uniffi::export]'
+    old, new = '#[marmot_uniffi_macros::on_tokio_runtime]\n#[uniffi::export]', '#[uniffi::export]'
     command = ['cargo', 'test', '--locked', '-p', 'marmot-uniffi', '--lib', '--features',
                'experimental-device-sync', 'commands::account_chat_departure::tests::',
                '--', '--test-threads=1']

@@ -477,3 +477,96 @@ fn uniffi_exports_run_mdk_work_on_marmotkit_runtime_threads() {
     );
     drop(relay);
 }
+
+#[cfg(feature = "experimental-device-sync")]
+#[test]
+fn private_pairing_exports_complete_on_a_foreign_executor_without_tokio() {
+    use futures::executor::block_on;
+    use nostr::prelude::ToBech32;
+    use marmot_uniffi::DeviceLinkingPhaseFfi;
+
+    let relay_runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .thread_name("private-test-relay")
+        .enable_all()
+        .build()
+        .unwrap();
+    let relay = relay_runtime.block_on(MockRelay::run()).unwrap();
+    let url = relay_runtime.block_on(relay.url()).to_string();
+    let host = std::thread::Builder::new().name("private-host".into()).spawn(move || {
+        assert!(tokio::runtime::Handle::try_current().is_err());
+        let roots = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+        let kits = roots.each_ref().map(|root| open(root.path(), &url));
+        let keys = nostr::prelude::Keys::generate();
+        let account = keys.public_key().to_hex();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            for kit in &kits {
+                let actual = block_on(kit.__ffi_login(keys.secret_key().to_bech32().unwrap(), vec![url.clone()], vec![url.clone()], vec![])).unwrap();
+                assert_eq!(actual.account_id_hex, account);
+                block_on(kit.__ffi_start()).unwrap();
+            }
+            let c = block_on(kits[1].__ffi_begin_device_linking_session(account.clone())).unwrap();
+            let a = block_on(kits[0].__ffi_approve_device_linking_session(account.clone(), c.setup_packet(), None)).unwrap();
+            block_on(c.__ffi_receive_setup_packet(a.setup_packet())).unwrap();
+            for _ in 0..8 {
+                for (from, to) in [(&a, &c), (&c, &a)] {
+                    for packet in block_on(from.__ffi_outgoing_packets()).unwrap() {
+                        block_on(to.__ffi_receive_packet(packet.bytes)).unwrap();
+                        block_on(from.__ffi_acknowledge_packet(packet.acknowledgement_id)).unwrap();
+                    }
+                }
+            }
+            let ac = block_on(a.__ffi_snapshot()).unwrap();
+            let cc = block_on(c.__ffi_snapshot()).unwrap();
+            assert_eq!(ac.phase, DeviceLinkingPhaseFfi::ComparisonAvailable);
+            assert_eq!(ac.decimals, cc.decimals);
+            assert!(ac.decimals.is_some());
+            block_on(a.__ffi_confirm_comparison(ac.revision)).unwrap();
+            block_on(c.__ffi_confirm_comparison(cc.revision)).unwrap();
+            for _ in 0..8 {
+                for (from, to) in [(&a, &c), (&c, &a)] {
+                    for packet in block_on(from.__ffi_outgoing_packets()).unwrap() {
+                        block_on(to.__ffi_receive_packet(packet.bytes)).unwrap();
+                        block_on(from.__ffi_acknowledge_packet(packet.acknowledgement_id)).unwrap();
+                    }
+                }
+            }
+            for original in [&c, &a] {
+                let review = block_on(original.__ffi_snapshot()).unwrap();
+                assert_eq!(review.phase, DeviceLinkingPhaseFfi::VerificationCompleteEnrollmentPending);
+                block_on(original.__ffi_continue_linking(review.revision)).unwrap();
+            }
+            let deadline = Instant::now() + Duration::from_secs(20);
+            loop {
+                let a_view = block_on(a.__ffi_snapshot()).unwrap();
+                let c_view = block_on(c.__ffi_snapshot()).unwrap();
+                if a_view.phase == DeviceLinkingPhaseFfi::EnrollmentComplete && c_view.phase == DeviceLinkingPhaseFfi::EnrollmentComplete {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "foreign private exports must reach actual original enrollment completion");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            for kit in &kits {
+                let targets = block_on(kit.__ffi_device_linking_targets(account.clone())).unwrap();
+                assert_eq!(targets.len(), 1);
+                assert_eq!(targets[0].device_count, 2);
+            }
+            block_on(a.__ffi_cancel()).unwrap();
+            block_on(c.__ffi_cancel()).unwrap();
+        }));
+        for kit in &kits { block_on(kit.__ffi_shutdown_and_close()).unwrap(); }
+        eprintln!("private_foreign_executor_positive_closes=2 actual_two_device_enrollment=true");
+        if let Err(panic) = result { std::panic::resume_unwind(panic); }
+        assert!(tokio::runtime::Handle::try_current().is_err());
+    }).unwrap();
+    let started = Instant::now();
+    while !host.is_finished() {
+        assert!(started.elapsed() < SCENARIO_DEADLINE, "private foreign executor scenario exceeded its bound");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let result = host.join();
+    drop(relay);
+    drop(relay_runtime);
+    result.expect("actual private exports work without a foreign Tokio executor");
+    assert!(!thread_cpu_times().keys().any(|name| name.starts_with(ASYNC_COMPAT_THREAD)));
+}

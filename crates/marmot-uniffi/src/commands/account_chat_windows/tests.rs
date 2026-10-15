@@ -153,3 +153,85 @@ where
         }
     }
 }
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn account_list_receive_cancellation_preserves_actual_command_update() {
+    actual_window_receive_cancellation(false).await;
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn account_conversation_receive_cancellation_preserves_actual_command_update() {
+    actual_window_receive_cancellation(true).await;
+}
+
+#[cfg(feature = "experimental-device-sync")]
+async fn actual_window_receive_cancellation(conversation: bool) {
+    use cgka_traits::TransportEndpoint;
+    use marmot_app::AccountSetupRequest;
+    use nostr_relay_builder::MockRelay;
+    use std::{sync::Arc, time::Duration};
+    let relay = MockRelay::run().await.unwrap();
+    let url = relay.url().await.to_string();
+    let dir = tempfile::tempdir().unwrap();
+    let app = MarmotApp::with_relays(dir.path(), vec![url.clone()]);
+    let kit = Arc::new(Marmot { runtime: app.runtime(), app });
+    let endpoint = TransportEndpoint(url);
+    let account = kit.runtime.create_identity(AccountSetupRequest {
+        default_relays: vec![endpoint.clone()], bootstrap_relays: vec![endpoint],
+        publish_missing_relay_lists: true, publish_initial_key_package: true,
+        ..Default::default()
+    }).await.unwrap().account.account_id_hex;
+    let group = kit.create_group(account.clone(), "Actual receive cancellation".into(), vec![], None).await.unwrap();
+    let observed = if conversation {
+        let window = kit.open_account_conversation_window(account, group, 2).await.unwrap();
+        let mut sequence = window.snapshot().unwrap().sequence;
+        let drain_deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let mut pending = loop {
+            let mut next = Box::pin(window.__ffi_next());
+            match tokio::time::timeout(Duration::from_millis(20), &mut next).await {
+                Ok(Ok(Some(update))) => {
+                    assert!(std::time::Instant::now() < drain_deadline, "actual initial window replacements must settle");
+                    sequence = update.sequence;
+                },
+                Err(_) => break next,
+                _ => panic!("actual conversation closed before cancellation witness"),
+            }
+        };
+        assert!(futures::poll!(&mut pending).is_pending());
+        let replacement = window.older_page(sequence, None).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        drop(pending);
+        let retained = tokio::time::timeout(Duration::from_secs(2), window.__ffi_next()).await;
+        let observed = matches!(retained, Ok(Ok(Some(update))) if update.sequence == replacement.sequence);
+        window.cancel();
+        observed
+    } else {
+        let window = kit.open_account_chat_list_window(account, 2).await.unwrap();
+        let mut sequence = window.snapshot().unwrap().sequence;
+        let drain_deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let mut pending = loop {
+            let mut next = Box::pin(window.__ffi_next());
+            match tokio::time::timeout(Duration::from_millis(20), &mut next).await {
+                Ok(Ok(Some(update))) => {
+                    assert!(std::time::Instant::now() < drain_deadline, "actual initial window replacements must settle");
+                    sequence = update.sequence;
+                },
+                Err(_) => break next,
+                _ => panic!("actual account list closed before cancellation witness"),
+            }
+        };
+        assert!(futures::poll!(&mut pending).is_pending());
+        let replacement = window.paired_page(sequence, None).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        drop(pending);
+        let retained = tokio::time::timeout(Duration::from_secs(2), window.__ffi_next()).await;
+        let observed = matches!(retained, Ok(Ok(Some(update))) if update.sequence == replacement.sequence);
+        window.cancel();
+        observed
+    };
+    kit.runtime.shutdown_and_close().await.unwrap();
+    eprintln!("private_receive_positive_closes=1 actual_command_replacement=true conversation={conversation}");
+    assert!(observed, "cancelled private receive consumed the actual command replacement");
+}

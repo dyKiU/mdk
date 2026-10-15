@@ -210,10 +210,17 @@ async fn opaque_device_revocation_retains_original_scope_revision_and_cancellati
 #[cfg(feature = "experimental-device-sync")]
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CancelBoundary {
+    LinkingReceive,
     Session,
     Approval,
     Request,
     Consent,
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn linking_receive_cancellation_preserves_actual_terminal_update() {
+    Box::pin(native_three_device_fixture(false, Some(CancelBoundary::LinkingReceive))).await;
 }
 
 #[cfg(feature = "experimental-device-sync")]
@@ -326,6 +333,27 @@ async fn native_three_device_fixture(revoke: bool, cancel_boundary: Option<Cance
         )
         .await
         .unwrap();
+    if cancel_boundary == Some(CancelBoundary::LinkingReceive) {
+        verify_binding_pair(&a, &c).await;
+        let stream = c.subscribe();
+        let before = stream.__ffi_next().await.unwrap();
+        assert_eq!(before.phase, DeviceLinkingPhaseFfi::VerificationCompleteEnrollmentPending);
+        let mut pending = Box::pin(stream.__ffi_next());
+        assert!(futures::poll!(&mut pending).is_pending());
+        c.cancel().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        drop(pending);
+        let retained = tokio::time::timeout(Duration::from_secs(2), stream.__ffi_next()).await;
+        let observed = matches!(retained, Ok(Ok(snapshot)) if snapshot.phase == DeviceLinkingPhaseFfi::Cancelled && snapshot.revision > before.revision);
+        stream.close();
+        a.cancel().await.unwrap();
+        c.cancel().await.unwrap();
+        for kit in &kits { kit.runtime.shutdown_and_close().await.unwrap(); }
+        relay.shutdown();
+        eprintln!("private_receive_positive_closes=3 actual_public_verification_and_terminal_cancel=true");
+        assert!(observed, "cancelled linking receive consumed the actual terminal update");
+        return;
+    }
     if cancel_boundary == Some(CancelBoundary::Session) {
         assert_eq!(c.snapshot().await.unwrap().phase, DeviceLinkingPhaseFfi::AwaitingSetup);
         first_poll_then_drop(c.__ffi_cancel()).await;
