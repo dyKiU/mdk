@@ -4,6 +4,13 @@ package dev.ipf.marmotkit
 fun main() {
     val pairedSource = PairedChatSourceFfi("device", "policy", ULong.MAX_VALUE, 2uL, 3uL, "digest")
     val pairedSummary = PairedChatSummaryFfi("opaque-group", "Paired 🦀", "source observation", pairedSource)
+    for (peer in listOf(null, "ab".repeat(32))) {
+        val summary = PairedChatSummaryFfi("opaque-group", "", "source observation", pairedSource, peer)
+        val copy = FfiConverterTypePairedChatSummaryFfi.lift(FfiConverterTypePairedChatSummaryFfi.lower(summary))
+        check(copy == summary && copy.directPeerAccountIdHex == peer)
+        val header = AccountConversationHeaderFfi.PairedSource(summary)
+        check(FfiConverterTypeAccountConversationHeaderFfi.lift(FfiConverterTypeAccountConversationHeaderFfi.lower(header)) == header)
+    }
     val pairedList = PairedChatListPageFfi(listOf(pairedSummary), "opaque-next")
     check(FfiConverterTypePairedChatListPageFfi.lift(FfiConverterTypePairedChatListPageFfi.lower(pairedList)) == pairedList)
     val pairedRow = AccountChatRowFfi.PairedSource(pairedSummary)

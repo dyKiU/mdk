@@ -36,6 +36,8 @@ pub struct PairedChatSummary {
     pub name: String,
     pub description: String,
     pub source: PairedChatSource,
+    /// Source-attested public peer identity for display, never an MLS grant.
+    pub direct_peer_account: Option<[u8; 32]>,
 }
 
 /// An existing account conversation retains its actual local or paired provenance.
@@ -53,6 +55,7 @@ impl From<storage_sqlite::MirroredCatalogObservation> for PairedChatSummary {
             group_id: row.entry.group_id,
             name: row.entry.name,
             description: row.entry.description,
+            direct_peer_account: row.entry.direct_peer_account,
             source: PairedChatSource {
                 device: row.scope.source_device,
                 policy_digest: row.scope.policy_digest,

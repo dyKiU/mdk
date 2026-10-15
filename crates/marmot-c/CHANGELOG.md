@@ -19,6 +19,10 @@ Versions track the workspace version; releases are tagged `marmotc-v<version>`.
 
 ### Added
 
+- Appends nullable `direct_peer_account_id_hex` to `MarmotPairedChatSummary` for
+  source-attested direct-chat labels. It grants no MLS membership or send rights.
+  Consumers must use the matching generated header and library for this layout.
+
 - `marmot_existing_account_direct_conversation` and its deep-free return an
   optional tagged local-MLS or paired-source route for a contact. Local-only
   lookup remains available. New symbols and tagged layout require the matching

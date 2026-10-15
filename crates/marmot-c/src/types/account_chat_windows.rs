@@ -141,6 +141,7 @@ mod tests {
                     group_id_hex: "44".repeat(16),
                     name: "Fixture".into(),
                     description: "Fixture description".into(),
+                    direct_peer_account_id_hex: Some("88".repeat(32)),
                     source: source.clone(),
                 },
             },

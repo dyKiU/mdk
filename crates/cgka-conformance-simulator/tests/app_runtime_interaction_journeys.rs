@@ -580,13 +580,18 @@ async fn concurrent_profile_edits(
         .await?;
     save(out, "race-report.json", &report)?;
     subject.tick(&clients).await?;
-    let observations = subject
-        .await_observable_settlement(&clients, SETTLEMENT)
-        .await?;
     let edits = [
         ("alice", "name", "alice renamed it"),
         ("bob", "description", "bob described it"),
     ];
+    // Keep the original sixty-second bound and require the accepted fields in
+    // the settled public state. Agreement for one quiet window can occur while
+    // a superseded edit is still queued for its ordinary background reissue.
+    let observations = subject
+        .await_observable_settlement_matching(&clients, SETTLEMENT, |observations| {
+            !strict || dropped_accepted_edits(&report, observations, &edits).is_empty()
+        })
+        .await?;
     let settled = settled_edits(&observations, &edits);
     let dropped = dropped_accepted_edits(&report, &observations, &edits);
     save(
