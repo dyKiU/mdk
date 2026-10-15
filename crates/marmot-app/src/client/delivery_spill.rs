@@ -594,3 +594,96 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod yield_handoff_tests {
+    use std::sync::Arc;
+    use std::task::Poll;
+    use std::time::Duration;
+
+    use crate::relay_plane::{ACCOUNT_DELIVERY_SPILL_LIMITS, AccountDeliveryReceive, MarmotRelayPlane};
+    use crate::tests::{
+        ScriptedPushRelayClient, every_subscription, remember_test_member_inbox, scripted_eose_pump,
+    };
+    use crate::{AccountHome, MarmotApp, TimelineMessageQuery, unix_now_seconds};
+
+    #[tokio::test]
+    async fn cancelled_spill_receive_keeps_its_cooperative_offer_and_real_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = AccountHome::open(dir.path());
+        home.create_account("alice").unwrap();
+        let bob_account = home.create_account("bob").unwrap();
+        let relay = Arc::new(ScriptedPushRelayClient::default());
+        let app = MarmotApp::with_relay(dir.path(), "wss://relay.example")
+            .with_test_relay_client(relay.clone());
+        remember_test_member_inbox(&app, &bob_account.account_id_hex, "wss://relay.example");
+        let plane = MarmotRelayPlane::new(None, relay.clone());
+        let _eose = scripted_eose_pump(plane.clone(), relay, every_subscription);
+        let mut alice = app
+            .client_with_relay_plane("alice", &plane, None)
+            .await
+            .unwrap();
+        let mut bob = app
+            .client_with_relay_plane("bob", &plane, None)
+            .await
+            .unwrap();
+        bob.sync().await.unwrap();
+        let group = alice
+            .create_group("spill handoff", &[bob_account.account_id_hex.as_str()])
+            .await
+            .unwrap();
+        assert!(bob.sync().await.unwrap().joined_groups.contains(&group));
+        alice.send(&group, b"cooperative spill handoff").await.unwrap();
+        let received = tokio::time::timeout(Duration::from_secs(5), bob.receive_next_delivery())
+            .await
+            .expect("actual ordinary relay delivery reaches its joined receiver")
+            .unwrap();
+        let AccountDeliveryReceive::Delivery(received) = received else {
+            panic!("one actual ordinary delivery is required");
+        };
+        let delivery = received.delivery.clone();
+        let event_id = hex::encode(delivery.message.id.as_slice());
+        assert!(!bob.transport_receipts().unwrap().contains(&event_id));
+        let storage = app.account_storage("bob").unwrap();
+        storage
+            .spill_account_deliveries(&[delivery.clone()], ACCOUNT_DELIVERY_SPILL_LIMITS, unix_now_seconds())
+            .unwrap();
+        bob.adapter.release_account_delivery(&delivery.message.id);
+        drop(received);
+        bob.delivery_spill.maybe_rows = true;
+        let cursor = bob.state.last_transport_timestamp;
+        let persisted_cursor = app.load_state("bob").unwrap().last_transport_timestamp;
+        let seq = storage.spilled_account_deliveries(10, unix_now_seconds()).unwrap().deliveries[0].seq;
+
+        // Match a worker select that offered background maintenance one turn
+        // before claiming durable input, then cancelled this receive future.
+        let mut first = Box::pin(bob.receive_next_delivery());
+        assert!(futures::poll!(&mut first).is_pending());
+        drop(first);
+        assert!(bob.delivery_spill.in_flight.is_none());
+        let rows = storage.spilled_account_deliveries(10, unix_now_seconds()).unwrap().deliveries;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].seq, seq);
+        assert!(rows[0].delivery == delivery);
+        assert!(!bob.transport_receipts().unwrap().contains(&event_id));
+        assert_eq!(bob.state.last_transport_timestamp, cursor);
+        assert_eq!(app.load_state("bob").unwrap().last_transport_timestamp, persisted_cursor);
+
+        let mut next = Box::pin(bob.receive_next_delivery());
+        let received = match futures::poll!(&mut next) {
+            Poll::Ready(Ok(AccountDeliveryReceive::Delivery(received))) => received,
+            Poll::Pending => panic!("a cancelled cooperative offer must not be repeated before the same durable receive"),
+            _ => panic!("the same durable ordinary delivery remains available"),
+        };
+        drop(next);
+        assert!(received.delivery == delivery);
+        bob.ingest_received_delivery(*received).await.unwrap();
+        assert!(bob.transport_receipts().unwrap().contains(&event_id));
+        assert!(storage.spilled_account_deliveries(10, unix_now_seconds()).unwrap().deliveries.is_empty());
+        let timeline = app.timeline_messages_with_query("bob", TimelineMessageQuery {
+            group_id_hex: Some(hex::encode(group.as_slice())),
+            ..Default::default()
+        }).unwrap();
+        assert!(timeline.messages.iter().any(|message| message.plaintext == "cooperative spill handoff"));
+    }
+}
