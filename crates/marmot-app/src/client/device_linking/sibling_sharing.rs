@@ -71,14 +71,15 @@ pub(crate) enum PublicationMaintenanceKind {
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(crate) struct PublicationMaintenanceTimer {
-    original: Arc<OriginalEnrollmentSharingChoice>,
+    original: std::sync::Weak<OriginalEnrollmentSharingChoice>,
     kind: PublicationMaintenanceKind,
     started: Instant,
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl Drop for PublicationMaintenanceTimer {
     fn drop(&mut self) {
-        let mut probe = self.original.native_observation_probe.lock().expect("native observation probe");
+        let Some(original) = self.original.upgrade() else { return; };
+        let mut probe = original.native_observation_probe.lock().expect("native observation probe");
         let timing = &mut probe.maintenance[self.kind as usize];
         timing[2] = crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
         timing[3] = timing[3].max(self.started.elapsed().as_millis() as u64);
@@ -1446,7 +1447,7 @@ impl AppClient {
                 timing[0] += 1;
                 timing[1] = crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
             }
-            PublicationMaintenanceTimer { original, kind, started: Instant::now() }
+            PublicationMaintenanceTimer { original: Arc::downgrade(&original), kind, started: Instant::now() }
         })
     }
     pub(crate) fn begin_sibling_source_channel(
