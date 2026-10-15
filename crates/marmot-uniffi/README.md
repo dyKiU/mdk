@@ -256,7 +256,8 @@ Existing constructors keep their signatures and delegate to this same configurat
 path. Use the options constructor when combining a label with a custom relay policy.
 C hosts use `marmot_client_new_with_configuration` and a `MarmotClientOptions`
 struct; zero initialization selects the same defaults. Use the matching header
-and library for that struct's layout.
+and library for that struct's layout. C construction keeps the operational relays for pairing;
+the optional dedicated pairing-relay override is currently a Swift/Kotlin option.
 
 ```swift
 let options = MarmotOptions(clientName: "whitenoise")
