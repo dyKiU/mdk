@@ -1,0 +1,102 @@
+name: Upstream app native acceptance preparation
+
+on:
+  push:
+    branches: ["ci/upstream-app-native-*"]
+    paths:
+      - ".github/workflows/upstream-app-native.yml"
+      - "scripts/upstream_apple_ci/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-app-native-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    outputs:
+      mac_sha: ${{ steps.identity.outputs.mac_sha }}
+      ios_sha: ${{ steps.identity.outputs.ios_sha }}
+      mac_baseline: ${{ steps.identity.outputs.mac_baseline }}
+      ios_baseline: ${{ steps.identity.outputs.ios_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require exact app fixture source identities
+        id: identity
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          from pathlib import Path
+          assert os.environ['GITHUB_REF'].startswith('refs/heads/ci/upstream-app-native-')
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==os.environ['GITHUB_SHA']
+          cohort=json.loads(Path('scripts/upstream_apple_ci/app-native-cohort.json').read_text())
+          keys={'scope','mac_sha','ios_sha','mac_baseline','ios_baseline'}
+          assert set(cohort)==keys and cohort['scope']=='app-format'
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              for key in sorted(keys-{'scope'}):
+                  assert isinstance(cohort[key],str) and re.fullmatch('[0-9a-f]{40}',cohort[key])
+                  output.write(f'{key}={cohort[key]}\n')
+          print(json.dumps(cohort,sort_keys=True))
+          PY
+
+  app-format:
+    needs: identity
+    runs-on: macos-26
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos, ios]
+    env:
+      SOURCE_SHA: ${{ matrix.platform == 'macos' && needs.identity.outputs.mac_sha || needs.identity.outputs.ios_sha }}
+      BASELINE_SHA: ${{ matrix.platform == 'macos' && needs.identity.outputs.mac_baseline || needs.identity.outputs.ios_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: ${{ matrix.platform == 'macos' && 'dyKiU/whitenoise-mac' || 'dyKiU/whitenoise-ios' }}
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26"
+      - name: Export exact repository formatting patch without compiling
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          assert head==os.environ['SOURCE_SHA']
+          baseline=os.environ['BASELINE_SHA']
+          subprocess.run(['git','merge-base','--is-ancestor',baseline,head],check=True)
+          paths=subprocess.check_output(['git','diff','--name-only',baseline,head,'--','*.swift'],text=True).splitlines()
+          assert paths and all(Path(p).is_file() and not Path(p).is_symlink() for p in paths)
+          output=Path(os.environ['RUNNER_TEMP'])/'app-format'
+          output.mkdir(mode=0o700)
+          tree=subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()
+          for path in paths:
+              subprocess.run(['xcrun','swift-format','format','--in-place','--configuration','.swift-format',path],check=True)
+          patch=subprocess.check_output(['git','diff','--binary','--','*.swift'])
+          (output/'formatting.patch').write_bytes(patch)
+          report={'source_sha':head,'source_tree':tree,'baseline':baseline,'paths':paths,
+                  'patch_bytes':len(patch),'patch_sha256':hashlib.sha256(patch).hexdigest(),
+                  'formatter':subprocess.check_output(['xcrun','swift-format','--version'],text=True).strip(),
+                  'product_tests_executed':0}
+          (output/'result.json').write_text(json.dumps(report,indent=2)+'\n')
+          PY
+      - name: Require original source formatting
+        run: test ! -s "$RUNNER_TEMP/app-format/formatting.patch"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-app-format-${{ matrix.platform }}-${{ env.SOURCE_SHA }}
+          path: ${{ runner.temp }}/app-format/
+          if-no-files-found: error
+          retention-days: 7
