@@ -69,7 +69,9 @@ impl<S: StorageProvider> Engine<S> {
         group_id: &GroupId,
     ) -> Result<Option<CandidateDeviceGroupSnapshot>, EngineError> {
         #[cfg(feature = "test-policy-overrides")]
-        let _sync_cost_candidate = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::Candidate);
+        let _sync_cost_candidate = crate::enrollment_sync_cost::Probe::start(
+            crate::enrollment_sync_cost::Bucket::Candidate,
+        );
         self.ensure_group_live(group_id)?;
         let Some(EpochState::Stable { epoch }) = self.epoch_manager.state(group_id) else {
             return Ok(None);

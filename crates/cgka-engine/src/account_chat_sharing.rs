@@ -416,9 +416,13 @@ impl<S: StorageProvider> Engine<S> {
     }
     fn sharing_verify(&self, wire: &[u8]) -> Result<Frame, EngineError> {
         #[cfg(feature = "test-policy-overrides")]
-        let _sync_cost_sharing = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::SharingVerify);
+        let _sync_cost_sharing = crate::enrollment_sync_cost::Probe::start(
+            crate::enrollment_sync_cost::Bucket::SharingVerify,
+        );
         #[cfg(feature = "test-policy-overrides")]
-        let _sync_cost_decode = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::SharingDecode);
+        let _sync_cost_decode = crate::enrollment_sync_cost::Probe::start(
+            crate::enrollment_sync_cost::Bucket::SharingDecode,
+        );
         let mut frame = decode(wire)?;
         if frame.protocol != PROTOCOL
             || frame.source.len() != 32
@@ -438,14 +442,18 @@ impl<S: StorageProvider> Engine<S> {
         #[cfg(feature = "test-policy-overrides")]
         drop(_sync_cost_decode);
         #[cfg(feature = "test-policy-overrides")]
-        let _sync_cost_sharing_roster = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::SharingRoster);
+        let _sync_cost_sharing_roster = crate::enrollment_sync_cost::Probe::start(
+            crate::enrollment_sync_cost::Bucket::SharingRoster,
+        );
         let current = self
             .validated_settled_device_roster(&GroupId::new(frame.protected.clone()))?
             .ok_or_else(refused)?;
         #[cfg(feature = "test-policy-overrides")]
         drop(_sync_cost_sharing_roster);
         #[cfg(feature = "test-policy-overrides")]
-        let _sync_cost_context = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::SharingContext);
+        let _sync_cost_context = crate::enrollment_sync_cost::Probe::start(
+            crate::enrollment_sync_cost::Bucket::SharingContext,
+        );
         let scope = AccountSharingScope {
             protected: current.candidate().clone(),
             local_generation: current.settlement_generation(),
@@ -474,7 +482,9 @@ impl<S: StorageProvider> Engine<S> {
         #[cfg(feature = "test-policy-overrides")]
         drop(_sync_cost_context);
         #[cfg(feature = "test-policy-overrides")]
-        let _sync_cost_signature = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::SharingEd25519);
+        let _sync_cost_signature = crate::enrollment_sync_cost::Probe::start(
+            crate::enrollment_sync_cost::Bucket::SharingEd25519,
+        );
         let signature = std::mem::take(&mut frame.signature);
         self.crypto
             .verify_signature(
