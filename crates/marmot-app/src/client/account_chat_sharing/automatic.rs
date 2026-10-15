@@ -79,7 +79,10 @@ struct AutomaticHandshakePublication {
     kind: AccountSharingControl,
     deadline: std::time::Instant,
     payload_digest: [u8; 32],
-    task: tokio::task::JoinHandle<Result<cgka_traits::TransportPublishReport, AccountSharingError>>,
+    task: tokio::task::JoinHandle<()>,
+    result: tokio::sync::oneshot::Receiver<
+        Result<cgka_traits::TransportPublishReport, AccountSharingError>,
+    >,
 }
 impl Drop for AutomaticHandshakePublication {
     fn drop(&mut self) {
@@ -553,6 +556,7 @@ impl AppClient {
                 .get_mut(&id)
                 .expect("inserted automatic channel")
                 .restore_catalog_progress(progress);
+            self.linking_owner.publication_work.progressed();
             return Ok(true);
         }
         let id = self
@@ -590,7 +594,10 @@ impl AppClient {
                     .session()
                     .bind_account_sharing_consent(&mut entry.channel, wire)
                     .map_err(|_| AccountSharingError::NotReady)?;
-                entry.ready = true;
+                if !entry.ready {
+                    entry.ready = true;
+                    self.linking_owner.publication_work.progressed();
+                }
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 consent_delivery_probe::consent_bound(
                     self.app.account_home().root(),
@@ -1291,6 +1298,7 @@ impl AppClient {
             }
             entry.handshake_published = true;
             entry.handshake_published_at = Some(std::time::Instant::now());
+            self.linking_owner.publication_work.progressed();
             if entry.recipient {
                 entry.ready = true;
             }
@@ -1630,20 +1638,22 @@ impl AppClient {
         entry: &mut AutomaticChannel,
         kind: AccountSharingControl,
     ) -> Result<bool, AccountSharingError> {
-        if let Some(publication) = entry.handshake_publication.as_ref() {
+        if let Some(publication) = entry.handshake_publication.as_mut() {
             if publication.kind != kind {
                 return Err(AccountSharingError::NotReady);
             }
-            if !publication.task.is_finished() {
-                return Ok(false);
-            }
-            let mut publication = entry
+            let report = match publication.result.try_recv() {
+                Ok(report) => report,
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => return Ok(false),
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    Err(AccountSharingError::RuntimeUnavailable)
+                }
+            };
+            let publication = entry
                 .handshake_publication
                 .take()
-                .expect("finished automatic handshake");
-            let report = (&mut publication.task)
-                .await
-                .map_err(|_| AccountSharingError::RuntimeUnavailable)??;
+                .expect("ready automatic handshake");
+            let report = report?;
             self.finish_automatic_publication(
                 entry,
                 kind,
@@ -1759,48 +1769,56 @@ impl AppClient {
             let original = entry.original.clone();
             let adapter = self.adapter.clone();
             let mut shutdown = self.history_owner.runtime_shutdown.clone();
+            let publication_work = self.linking_owner.publication_work.clone();
+            let (finished, result) = tokio::sync::oneshot::channel();
             let task = tokio::spawn(async move {
-                let _slot = slot;
-                let revoked = original.revoked.notified();
-                tokio::pin!(revoked);
-                revoked.as_mut().enable();
-                let stopping = async {
-                    if let Some(watch) = shutdown.as_mut() {
-                        if *watch.borrow() {
-                            return;
-                        }
-                        while watch.changed().await.is_ok() {
+                let outcome = async move {
+                    let _slot = slot;
+                    let revoked = original.revoked.notified();
+                    tokio::pin!(revoked);
+                    revoked.as_mut().enable();
+                    let stopping = async {
+                        if let Some(watch) = shutdown.as_mut() {
                             if *watch.borrow() {
                                 return;
                             }
+                            while watch.changed().await.is_ok() {
+                                if *watch.borrow() {
+                                    return;
+                                }
+                            }
+                        } else {
+                            std::future::pending::<()>().await
                         }
-                    } else {
-                        std::future::pending::<()>().await
+                    };
+                    tokio::pin!(stopping);
+                    if !original.live() {
+                        return Err(AccountSharingError::Closed);
                     }
-                };
-                tokio::pin!(stopping);
-                if !original.live() {
-                    return Err(AccountSharingError::Closed);
+                    let report = tokio::select! { biased;
+                        () = &mut stopping => return Err(AccountSharingError::Closed),
+                        () = &mut revoked => return Err(AccountSharingError::Closed),
+                        () = tokio::time::sleep_until(publication_deadline.into()) => return Err(AccountSharingError::Closed),
+                        report = adapter.publish_automatic_control(request) => report.map_err(|_| AccountSharingError::RuntimeUnavailable)?,
+                    };
+                    if !original.live() {
+                        return Err(AccountSharingError::Closed);
+                    }
+                    if !report.met_required_acks() {
+                        return Err(AccountSharingError::NotReady);
+                    }
+                    Ok(report)
                 }
-                let report = tokio::select! { biased;
-                    () = &mut stopping => return Err(AccountSharingError::Closed),
-                    () = &mut revoked => return Err(AccountSharingError::Closed),
-                    () = tokio::time::sleep_until(publication_deadline.into()) => return Err(AccountSharingError::Closed),
-                    report = adapter.publish_automatic_control(request) => report.map_err(|_| AccountSharingError::RuntimeUnavailable)?,
-                };
-                if !original.live() {
-                    return Err(AccountSharingError::Closed);
-                }
-                if !report.met_required_acks() {
-                    return Err(AccountSharingError::NotReady);
-                }
-                Ok(report)
+                .await;
+                let _ = finished.send(outcome);
+                publication_work.progressed();
             });
             entry.handshake_publication = Some(AutomaticHandshakePublication {
                 kind,
                 deadline: publication_deadline,
                 payload_digest: input_payload_digest,
                 task,
+                result,
             });
             return Ok(false);
         }

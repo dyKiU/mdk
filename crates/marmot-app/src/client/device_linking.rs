@@ -34,7 +34,23 @@ struct OwnedPrivateInvite {
     for_add: bool,
 }
 
+/// Coalesced scheduling only: the worker must still validate every original and channel.
+#[derive(Clone, Default)]
+pub(crate) struct LinkingPublicationWork {
+    ready: Arc<tokio::sync::Notify>,
+}
+impl LinkingPublicationWork {
+    pub(crate) fn progressed(&self) {
+        self.ready.notify_one();
+    }
+
+    pub(crate) async fn notified(&self) {
+        self.ready.notified().await;
+    }
+}
+
 pub(crate) struct AccountLinkingOwner {
+    pub(super) publication_work: LinkingPublicationWork,
     verifier: LinkingOwner,
     pub(super) received_endorsement:
         Option<super::private_enrollment_proposal::OwnedReceivedEndorsement>,
@@ -114,6 +130,7 @@ impl AccountLinkingOwner {
             .try_into()
             .map_err(|_| invalid_identity())?;
         Ok(Self {
+            publication_work: LinkingPublicationWork::default(),
             received_enrollment_proposals: Vec::new(),
             received_endorsement: None,
             cancelled_endorsements: Vec::new(),
@@ -158,6 +175,10 @@ impl AccountLinkingOwner {
 }
 
 impl AppClient {
+    pub(crate) fn linking_publication_work(&self) -> LinkingPublicationWork {
+        self.linking_owner.publication_work.clone()
+    }
+
     pub(crate) fn linking_welcome_policy(&self) -> Arc<dyn LinkingWelcomePolicy> {
         self.linking_owner.welcome_policy()
     }

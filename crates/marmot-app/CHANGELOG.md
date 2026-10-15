@@ -277,6 +277,11 @@
 - Lossless relay repairs accept case-insensitive NIP-65 read/write markers,
   matching relay-list inspection while preserving their original spelling
   and extension fields through approval and publication.
+- Original-owned sibling and automatic handshake publication results wake their
+  account worker immediately, without waiting another expiry tick per handoff.
+  Pending tasks remain bounded and cancellable; completion still revalidates the
+  current original and Core channel before any progress is accepted.
+
 - Sibling consent retries no longer preempt first policy/proof progress on a
   one-second worker cadence; consent and proof retries service the older deadline.
 

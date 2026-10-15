@@ -9,10 +9,10 @@ import re
 import subprocess
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority'], required=True)
+parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'publication-progress-wake'], required=True)
 parser.add_argument('--output', type=Path, required=True)
 args = parser.parse_args()
-publication_cases = {'automatic-publication', 'sibling-publication', 'sibling-retry-priority'}
+publication_cases = {'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'publication-progress-wake'}
 nextest_cases = publication_cases | {'worker-spawn-stack'}
 held_marker = None
 failure_marker = None
@@ -86,9 +86,20 @@ elif args.case in publication_cases:
         test = prefix + 'third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts'
         held_marker = 'automatic-enrollment-control stage=fourth-device-completion'
         failure_marker = 'automatic pairing did not reach required phase: expected=EnrollmentComplete'
+    elif args.case == 'publication-progress-wake':
+        source = Path('crates/marmot-app/src/client/device_linking.rs')
+        old = '        self.ready.notify_one();'
+        new = '        // Mutation: retain the periodic expiry tick but omit progress wakeups.'
+        test = prefix + 'third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts'
+        held_marker = 'automatic-enrollment-control stage=fourth-device-completion'
+        failure_marker = 'automatic pairing did not reach required phase: expected=EnrollmentComplete'
     else:
         source = Path('crates/marmot-app/src/client/device_linking/sibling_sharing.rs')
-        old = '        entry.publication = Some(SiblingPublication { proof, task });'
+        old = ('        entry.publication = Some(SiblingPublication {\n'
+               '            proof,\n'
+               '            task,\n'
+               '            result,\n'
+               '        });')
         # Retain task output and all authority checks, but block the worker again.
         new = ('        while !task.is_finished() {\n'
                '            tokio::task::yield_now().await;\n'
@@ -157,13 +168,13 @@ def execute(phase):
         row['selected_nonignored_tests'] = 1 if counts else None
     if args.case in publication_cases:
         row['required_runtime_marker_observed'] = held_marker in output
-        if args.case != 'sibling-retry-priority':
+        if args.case in {'automatic-publication', 'sibling-publication'}:
             row['held_publication_observed'] = held_marker in output
         row['liveness_assertion_observed'] = failure_marker in output
         row['runtime_marker_before_liveness_assertion'] = (
             held_marker in output and failure_marker in output
             and output.index(held_marker) < output.index(failure_marker))
-        if args.case != 'sibling-retry-priority':
+        if args.case in {'automatic-publication', 'sibling-publication'}:
             row['held_before_liveness_assertion'] = row['runtime_marker_before_liveness_assertion']
         row['rust_min_stack_bytes'] = int(os.environ['RUST_MIN_STACK'])
         row['selected_nonignored_tests'] = 1 if counts else None

@@ -1329,7 +1329,8 @@ impl TrustedAccountSharingLease for SiblingLease {
 // Dropping the exact channel cancels its one in-flight publication.
 struct SiblingPublication {
     proof: bool,
-    task: tokio::task::JoinHandle<Result<(), ClientLinkingError>>,
+    task: tokio::task::JoinHandle<()>,
+    result: tokio::sync::oneshot::Receiver<Result<(), ClientLinkingError>>,
 }
 impl Drop for SiblingPublication {
     fn drop(&mut self) {
@@ -1450,6 +1451,7 @@ impl AppClient {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             pre_auth_failure,
         });
+        self.linking_owner.publication_work.progressed();
         Ok(())
     }
     pub(crate) fn observe_sibling_sharing_control(
@@ -1643,6 +1645,7 @@ impl AppClient {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 pre_auth_failure: None,
             });
+            self.linking_owner.publication_work.progressed();
             return Ok(true);
         }
         let Some(index) = self
@@ -1664,7 +1667,10 @@ impl AppClient {
                         .session()
                         .bind_account_sharing_consent(&mut entry.channel, wire)
                         .map_err(|_| Error::NotReady)?;
-                    entry.ready = true;
+                    if !entry.ready {
+                        entry.ready = true;
+                        self.linking_owner.publication_work.progressed();
+                    }
                 }
                 AccountSharingControl::Body(_) if entry.ready => {
                     let (kind, _, body) = self
@@ -1691,7 +1697,10 @@ impl AppClient {
                     {
                         return Err(Error::NotReady);
                     }
-                    entry.peer_committed = true;
+                    if !entry.peer_committed {
+                        entry.peer_committed = true;
+                        self.linking_owner.publication_work.progressed();
+                    }
                 }
                 _ => return Err(Error::NotReady),
             }
@@ -1853,16 +1862,18 @@ impl AppClient {
         entry: &mut SiblingChannel,
         in_flight: &mut usize,
     ) -> Result<(), ClientLinkingError> {
-        if let Some(pending) = entry.publication.as_ref() {
-            if !pending.task.is_finished() {
-                return Ok(());
-            }
-            let mut pending = entry
+        if let Some(pending) = entry.publication.as_mut() {
+            let result = match pending.result.try_recv() {
+                Ok(result) => result,
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => return Ok(()),
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => Err(denied()),
+            };
+            let pending = entry
                 .publication
                 .take()
-                .expect("finished sibling publication");
+                .expect("ready sibling publication");
             *in_flight -= 1;
-            (&mut pending.task).await.map_err(|_| denied())??;
+            result?;
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if !pending.proof
                 && !entry.recipient
@@ -1889,6 +1900,9 @@ impl AppClient {
             // Yield the freed slot to waiting siblings before another publication
             // from this channel. A finished channel can still complete immediately.
             if !entry.policy_committed || !entry.proof_published || !entry.peer_committed {
+                if !entry.policy_committed || !entry.proof_published {
+                    self.linking_owner.publication_work.progressed();
+                }
                 return Ok(());
             }
         }
@@ -2192,52 +2206,65 @@ impl AppClient {
         let mut shutdown = self.history_owner.runtime_shutdown.clone();
         let proof = body.is_some();
         let consent = entry.recipient && !proof;
+        let publication_work = self.linking_owner.publication_work.clone();
+        let (finished, result) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
-            let revoked = state.revoked.notified();
-            tokio::pin!(revoked);
-            revoked.as_mut().enable();
-            let stopping = async {
-                if let Some(watch) = shutdown.as_mut() {
-                    if *watch.borrow() {
-                        return;
-                    }
-                    while watch.changed().await.is_ok() {
+            let outcome = async move {
+                let revoked = state.revoked.notified();
+                tokio::pin!(revoked);
+                revoked.as_mut().enable();
+                let stopping = async {
+                    if let Some(watch) = shutdown.as_mut() {
                         if *watch.borrow() {
                             return;
                         }
+                        while watch.changed().await.is_ok() {
+                            if *watch.borrow() {
+                                return;
+                            }
+                        }
+                    } else {
+                        std::future::pending::<()>().await
                     }
-                } else {
-                    std::future::pending::<()>().await
+                };
+                tokio::pin!(stopping);
+                if !original.live() || !state.live() {
+                    return Err(denied());
                 }
-            };
-            tokio::pin!(stopping);
-            if !original.live() || !state.live() {
-                return Err(denied());
+                let report = tokio::select! { biased;
+                    () = &mut stopping => return Err(denied()),
+                    () = &mut revoked => return Err(denied()),
+                    () = tokio::time::sleep_until(state.deadline.into()) => return Err(denied()),
+                    report = async {
+                        if consent { adapter.publish_sibling_consent(request).await }
+                        else { adapter.publish_selected_chat(request).await }
+                    } => report.map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?,
+                };
+                if !original.live() || !state.live() || !report.met_required_acks() {
+                    return Err(denied());
+                }
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                {
+                    use crate::account_chat_sharing::enabled::SiblingPublicationStage as Stage;
+                    state
+                        .sibling_diagnostics
+                        .lock()
+                        .expect("sibling diagnostics")
+                        .publication_stage = Some(Stage::AfterRelayPublication);
+                }
+                Ok(())
             }
-            let report = tokio::select! { biased;
-                () = &mut stopping => return Err(denied()),
-                () = &mut revoked => return Err(denied()),
-                () = tokio::time::sleep_until(state.deadline.into()) => return Err(denied()),
-                report = async {
-                    if consent { adapter.publish_sibling_consent(request).await }
-                    else { adapter.publish_selected_chat(request).await }
-                } => report.map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?,
-            };
-            if !original.live() || !state.live() || !report.met_required_acks() {
-                return Err(denied());
-            }
-            #[cfg(all(test, feature = "test-policy-overrides"))]
-            {
-                use crate::account_chat_sharing::enabled::SiblingPublicationStage as Stage;
-                state
-                    .sibling_diagnostics
-                    .lock()
-                    .expect("sibling diagnostics")
-                    .publication_stage = Some(Stage::AfterRelayPublication);
-            }
-            Ok(())
+            .await;
+            // Publish the actual result first, so the worker cannot consume a
+            // wake before the task's result is ready for nonblocking harvest.
+            let _ = finished.send(outcome);
+            publication_work.progressed();
         });
-        entry.publication = Some(SiblingPublication { proof, task });
+        entry.publication = Some(SiblingPublication {
+            proof,
+            task,
+            result,
+        });
         Ok(())
     }
     fn validate_sibling_parent(

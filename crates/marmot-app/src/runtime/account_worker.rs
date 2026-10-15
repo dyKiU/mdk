@@ -1848,6 +1848,8 @@ async fn run_app_runtime_account_worker(
     let mut linking_tick = interval(Duration::from_secs(1));
     #[cfg(feature = "experimental-device-sync")]
     linking_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    #[cfg(feature = "experimental-device-sync")]
+    let linking_publication_work = client.linking_publication_work();
     let mut legacy_message_promotion = LegacyMessagePromotionSchedule::new();
     let mut presentation_maintenance = super::presentation::PresentationMaintenance::default();
     let mut presentation_wakeups = app.presentation_signals.subscribe_work();
@@ -2990,7 +2992,12 @@ async fn run_app_runtime_account_worker(
             // original deadline is also checked by every verifier/join access.
             _ = async {
                 #[cfg(feature = "experimental-device-sync")]
-                { linking_tick.tick().await; }
+                {
+                    tokio::select! {
+                        _ = linking_tick.tick() => {},
+                        _ = linking_publication_work.notified() => {},
+                    }
+                }
                 #[cfg(not(feature = "experimental-device-sync"))]
                 std::future::pending::<()>().await;
             }, if cfg!(feature = "experimental-device-sync") => {
