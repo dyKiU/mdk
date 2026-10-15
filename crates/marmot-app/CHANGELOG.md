@@ -277,6 +277,10 @@
 - Lossless relay repairs accept case-insensitive NIP-65 read/write markers,
   matching relay-list inspection while preserving their original spelling
   and extension fields through approval and publication.
+- Sibling chat-sharing relay publication no longer blocks the account worker or
+  another approved sibling. At most four original-owned publications run per
+  account; completion rechecks the exact live channel and roster. Dropping the
+  channel aborts its publication, without replacing comparison or sharing consent.
 
 - Commands and maintenance retain committed activity before subscription waits.
   Manual and scheduled convergence keep subscriber updates owned through route,

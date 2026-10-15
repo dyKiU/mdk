@@ -572,6 +572,13 @@ that added field. The raw SDK adapter checks this binding; it does not authentic
 the artifact or authorize multi-leaf enrollment. Account-runtime setup and recipient
 admission remain separate gates.
 
+Sibling chat-sharing publication prepares the exact control under its account
+worker, then waits for the relay in at most four original-owned jobs per account.
+An unfinished relay publication does not block inbound handshakes or another
+approved sibling. The worker revalidates the live parent and channel before
+recording publication; a relay ACK never substitutes for the peer's authenticated
+consent or policy proof. Channel retirement cancels its pending publication.
+
 The private framing is not an adopted Marmot wire protocol. Offers and verifier
 frames have a versioned, kind-separated binary envelope with a bounded canonical
 JSON body. Decoders reject oversized, truncated, trailing and cross-kind packets;
