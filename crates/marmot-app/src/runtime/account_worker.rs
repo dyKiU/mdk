@@ -1848,6 +1848,8 @@ async fn run_app_runtime_account_worker(
     let mut linking_tick = interval(Duration::from_secs(1));
     #[cfg(feature = "experimental-device-sync")]
     linking_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    #[cfg(feature = "experimental-device-sync")]
+    let mut linking_yield_to_receive = false;
     let mut legacy_message_promotion = LegacyMessagePromotionSchedule::new();
     let mut presentation_maintenance = super::presentation::PresentationMaintenance::default();
     let mut presentation_wakeups = app.presentation_signals.subscribe_work();
@@ -2450,6 +2452,87 @@ async fn run_app_runtime_account_worker(
                     phase.finish(TelemetryOutcome::Success);
                 }
             }
+            // A due linking turn cannot wait behind a continuously ready receive
+            // queue. After each turn, give ready input one poll before servicing
+            // the same unchanged interval again. Commands retain priority.
+            _ = async {
+                #[cfg(feature = "experimental-device-sync")]
+                {
+                    if linking_yield_to_receive {
+                        tokio::task::yield_now().await;
+                    }
+                    linking_tick.tick().await;
+                }
+                #[cfg(not(feature = "experimental-device-sync"))]
+                std::future::pending::<()>().await;
+            }, if cfg!(feature = "experimental-device-sync") => {
+                #[cfg(feature = "experimental-device-sync")]
+                {
+                    linking_yield_to_receive = true;
+                }
+                #[cfg(feature = "experimental-device-sync")]
+                if !lifecycle.is_stopping() {
+                    if client.maintain_device_linking(Instant::now()).await.is_err() {
+                        tracing::debug!(
+                            target: "marmot_app::device_linking",
+                            method = "worker_expiry_tick",
+                            "device linking cleanup deferred"
+                        );
+                    }
+                    match client.pending_native_private_publication() {
+                        Ok(Some((scope, kind))) => {
+                            let kind = match kind {
+                                crate::client::device_linking::native_enrollment::NativeInvitePublication::Proposal => super::private_commit::PublicationKind::Proposal,
+                                crate::client::device_linking::native_enrollment::NativeInvitePublication::Commit => super::private_commit::PublicationKind::Commit,
+                                crate::client::device_linking::native_enrollment::NativeInvitePublication::Welcomes => super::private_commit::PublicationKind::Welcomes,
+                            };
+                            super::private_commit::publish(&mut client, scope, kind, None,
+                                &mut commands, &mut pending, &publication_control, &shared, &app, &account_label).await;
+                        }
+                        Ok(None) => {},
+                        Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_native_enrollment_tick", "native enrollment publication deferred"),
+                    }
+                    match client.pending_revoked_settlement() {
+                        Ok(Some(binding)) => super::private_commit::publish_revoked_settlement(
+                            &mut client, binding, None, &mut commands, &mut pending, &publication_control, &shared, &app, &account_label,
+                        ).await,
+                        Ok(None) => {},
+                        Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_revoked_settlement_tick", "private confirmation selection deferred"),
+                    }
+                    match client.pending_existing_private_settlement() {
+                        Ok(Some(binding)) => super::private_commit::publish_existing_settlement(
+                            &mut client, binding, None, &mut commands, &mut pending, &publication_control, &shared, &app, &account_label,
+                        ).await,
+                        Ok(None) => {},
+                        Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_existing_settlement_tick", "private confirmation selection deferred"),
+                    }
+                    match client.pending_private_settlement() {
+                        Ok(Some(scope)) => {
+                            super::private_commit::publish(
+                                &mut client, scope, super::private_commit::PublicationKind::Settlement,
+                                None, &mut commands, &mut pending, &publication_control, &shared, &app,
+                                &account_label,
+                            ).await;
+                        }
+                        Ok(None) => {}
+                        // Keep only the original deadline/continuation for a
+                        // bounded retry; diagnostics never expose scope or SQL.
+                        Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_settlement_tick", "private confirmation selection deferred"),
+                    }
+                    scheduled_runtime_group_subscription_refresh.observe_pending(
+                        client.has_pending_runtime_group_subscription_refresh(), &command_tx,
+                    );
+                }
+                #[cfg(feature = "experimental-device-sync")]
+                if !lifecycle.is_stopping() && comparison_recovery.is_none() && private_echo_recovery.is_none()
+                    && let Some(credit) = recovery_credits::try_acquire_recovery_credit(&shared.recovery_credit_pool())
+                {
+                    match client.start_private_echo_recovery(credit) {
+                        Ok(task) => private_echo_recovery = task,
+                        Err(error) => tracing::debug!(target: "marmot_app::device_linking", method = "private_echo_selection", error_kind = error.kind(), "private acquisition selection deferred"),
+                    }
+                }
+            }
             received = async {
                 #[cfg(feature = "experimental-device-sync")]
                 if let Some((_, _, retry_at)) = selected_welcome_retry.as_ref() {
@@ -2482,6 +2565,10 @@ async fn run_app_runtime_account_worker(
                     ))
                 } else { client.receive_next_delivery().await }
             }, if !client.has_pending_effect_projections() => {
+                #[cfg(feature = "experimental-device-sync")]
+                {
+                    linking_yield_to_receive = false;
+                }
                 #[cfg(test)]
                 if let Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(delivery)) = &received
                     && let (Ok(event_id), Some(subscription_id)) = (
@@ -2985,77 +3072,6 @@ async fn run_app_runtime_account_worker(
             // waiting for unrelated input while it holds its recovery credit.
             _ = tokio::task::yield_now(), if comparison_recovery.as_ref().is_some_and(|job| job.network.is_none()) => {
                 continue 'worker;
-            }
-            // Pairing expiry cannot wait for optional network recovery. The
-            // original deadline is also checked by every verifier/join access.
-            _ = async {
-                #[cfg(feature = "experimental-device-sync")]
-                { linking_tick.tick().await; }
-                #[cfg(not(feature = "experimental-device-sync"))]
-                std::future::pending::<()>().await;
-            }, if cfg!(feature = "experimental-device-sync") => {
-                #[cfg(feature = "experimental-device-sync")]
-                if !lifecycle.is_stopping() {
-                    if client.maintain_device_linking(Instant::now()).await.is_err() {
-                        tracing::debug!(
-                            target: "marmot_app::device_linking",
-                            method = "worker_expiry_tick",
-                            "device linking cleanup deferred"
-                        );
-                    }
-                    match client.pending_native_private_publication() {
-                        Ok(Some((scope, kind))) => {
-                            let kind = match kind {
-                                crate::client::device_linking::native_enrollment::NativeInvitePublication::Proposal => super::private_commit::PublicationKind::Proposal,
-                                crate::client::device_linking::native_enrollment::NativeInvitePublication::Commit => super::private_commit::PublicationKind::Commit,
-                                crate::client::device_linking::native_enrollment::NativeInvitePublication::Welcomes => super::private_commit::PublicationKind::Welcomes,
-                            };
-                            super::private_commit::publish(&mut client, scope, kind, None,
-                                &mut commands, &mut pending, &publication_control, &shared, &app, &account_label).await;
-                        }
-                        Ok(None) => {},
-                        Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_native_enrollment_tick", "native enrollment publication deferred"),
-                    }
-                    match client.pending_revoked_settlement() {
-                        Ok(Some(binding)) => super::private_commit::publish_revoked_settlement(
-                            &mut client, binding, None, &mut commands, &mut pending, &publication_control, &shared, &app, &account_label,
-                        ).await,
-                        Ok(None) => {},
-                        Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_revoked_settlement_tick", "private confirmation selection deferred"),
-                    }
-                    match client.pending_existing_private_settlement() {
-                        Ok(Some(binding)) => super::private_commit::publish_existing_settlement(
-                            &mut client, binding, None, &mut commands, &mut pending, &publication_control, &shared, &app, &account_label,
-                        ).await,
-                        Ok(None) => {},
-                        Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_existing_settlement_tick", "private confirmation selection deferred"),
-                    }
-                    match client.pending_private_settlement() {
-                        Ok(Some(scope)) => {
-                            super::private_commit::publish(
-                                &mut client, scope, super::private_commit::PublicationKind::Settlement,
-                                None, &mut commands, &mut pending, &publication_control, &shared, &app,
-                                &account_label,
-                            ).await;
-                        }
-                        Ok(None) => {}
-                        // Keep only the original deadline/continuation for a
-                        // bounded retry; diagnostics never expose scope or SQL.
-                        Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_settlement_tick", "private confirmation selection deferred"),
-                    }
-                    scheduled_runtime_group_subscription_refresh.observe_pending(
-                        client.has_pending_runtime_group_subscription_refresh(), &command_tx,
-                    );
-                }
-                #[cfg(feature = "experimental-device-sync")]
-                if !lifecycle.is_stopping() && comparison_recovery.is_none() && private_echo_recovery.is_none()
-                    && let Some(credit) = recovery_credits::try_acquire_recovery_credit(&shared.recovery_credit_pool())
-                {
-                    match client.start_private_echo_recovery(credit) {
-                        Ok(task) => private_echo_recovery = task,
-                        Err(error) => tracing::debug!(target: "marmot_app::device_linking", method = "private_echo_selection", error_kind = error.kind(), "private acquisition selection deferred"),
-                    }
-                }
             }
             _ = maintenance_tick.tick() => {
                 local_submission_due = true;
