@@ -4,17 +4,39 @@ use marmot_account::AccountHome;
 
 #[tokio::test]
 async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts() {
-    four_device_enrollment(HeldPublication::None).await;
+    four_device_enrollment(HeldPublication::None, None, false).await;
 }
 
 #[tokio::test]
 async fn blocked_sibling_consent_does_not_starve_another_approved_peer() {
-    four_device_enrollment(HeldPublication::SiblingConsent).await;
+    four_device_enrollment(HeldPublication::SiblingConsent, None, false).await;
 }
 
 #[tokio::test]
 async fn automatic_sync_does_not_block_foreground_enrollment_completion() {
-    four_device_enrollment(HeldPublication::Automatic).await;
+    four_device_enrollment(HeldPublication::Automatic, None, false).await;
+}
+
+#[tokio::test]
+#[ignore = "explicit synthetic public-network deployment acceptance"]
+async fn public_third_device_enrollment_with_existing_chat() {
+    public_third_device_enrollment(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "explicit synthetic public-network deployment acceptance"]
+async fn public_third_device_enrollment_from_initial_joiner_with_existing_chat() {
+    public_third_device_enrollment(true).await;
+}
+
+async fn public_third_device_enrollment(reverse_initial_roles: bool) {
+    let relay =
+        std::env::var("WN_PUBLIC_ENROLLMENT_RELAY").expect("explicit public chat relay required");
+    assert!(matches!(
+        relay.as_str(),
+        "wss://relay.eu.whitenoise.chat" | "wss://relay.us.whitenoise.chat"
+    ));
+    four_device_enrollment(HeldPublication::None, Some(&relay), reverse_initial_roles).await;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -24,7 +46,11 @@ enum HeldPublication {
     Automatic,
 }
 
-async fn four_device_enrollment(held_publication: HeldPublication) {
+async fn four_device_enrollment(
+    held_publication: HeldPublication,
+    public_relay: Option<&str>,
+    reverse_initial_roles: bool,
+) {
     use cgka_traits::StorageProvider;
     use nostr_relay_builder::prelude::NostrDatabase;
     // Match MockRelay's pinned default storage exactly, retaining an alias for
@@ -40,33 +66,73 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         nostr_relay_builder::RelayBuilder::default().database(relay_database.clone()),
     );
     relay.run().await.unwrap();
-    let url = relay.url().await.to_string();
+    let url = public_relay
+        .map(str::to_owned)
+        .unwrap_or(relay.url().await.to_string());
     let keys = nostr::prelude::Keys::generate();
     let dirs: [tempfile::TempDir; 4] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
     let apps = std::array::from_fn::<_, 4, _>(|index| {
         AccountHome::open(dirs[index].path())
             .import_account("test", &keys.secret_key().to_secret_hex())
             .unwrap();
-        MarmotApp::with_relay(dirs[index].path(), &url)
+        if public_relay.is_some() {
+            // Use the production constructor: the relay-only test convenience
+            // constructor silently selects zero-quiescence convergence.
+            MarmotApp::try_with_relays_and_account_home_and_config(
+                dirs[index].path(),
+                vec![url.clone()],
+                AccountHome::open(dirs[index].path()),
+                crate::MarmotAppConfig::default()
+                    .with_open_ranking_provider(None, Vec::new())
+                    .with_pairing_relay_urls(vec![
+                        "wss://nos.lol".into(),
+                        "wss://relay.primal.net".into(),
+                    ]),
+            )
+            .unwrap()
+        } else {
+            MarmotApp::with_relay(dirs[index].path(), &url)
+        }
     });
     let runtimes = apps.clone().map(MarmotAppRuntime::new);
     for runtime in &runtimes {
         runtime.reconcile_accounts().await.unwrap();
     }
     let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
-    let b = managers[1]
+    let existing_chat = if public_relay.is_some() {
+        let group = managers[0]
+            .create_group("test", "Synthetic deployment chat", &[], None)
+            .await
+            .unwrap();
+        let sent = managers[0]
+            .send_message("test", &group, b"Synthetic pre-pairing message".to_vec())
+            .await
+            .unwrap();
+        assert_eq!(sent.message_ids.len(), 1);
+        Some((group, hex::decode(&sent.message_ids[0]).unwrap()))
+    } else {
+        None
+    };
+    let initial_display = usize::from(!reverse_initial_roles);
+    let initial_scanner = 1 - initial_display;
+    let display = managers[initial_display]
         .begin_device_linking_session("test")
         .await
         .unwrap();
-    let a = managers[0]
+    let scanner = managers[initial_scanner]
         .approve_automatic_device_linking_session(
             "test",
-            b.automatic_pairing_code().await.unwrap(),
+            display.automatic_pairing_code().await.unwrap(),
             None,
         )
         .await
         .unwrap();
-    a.automatic_pairing_code().await.unwrap();
+    scanner.automatic_pairing_code().await.unwrap();
+    let (a, b) = if reverse_initial_roles {
+        (display, scanner)
+    } else {
+        (scanner, display)
+    };
     eprintln!("automatic-enrollment-control stage=initial-two-comparison");
     compare_and_confirm_pair(&a, &b).await;
     b.continue_automatic_linking(b.snapshot().await.unwrap().revision, true)
@@ -78,6 +144,34 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     eprintln!("automatic-enrollment-control stage=initial-two-completion");
     wait_for_automatic_phase(&a, &b, DeviceLinkingPhase::EnrollmentComplete).await;
     eprintln!("automatic-enrollment-control stage=initial-two-completed");
+    if let Some((group, event)) = &existing_chat {
+        // Match the native host journey: adding the third installation starts
+        // only after the first pair has actually exchanged existing chat data.
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                let chats = managers[1]
+                    .paired_chat_list_page("test", None, 128)
+                    .await
+                    .unwrap();
+                let messages = managers[1]
+                    .paired_chat_message_page("test", group.clone(), None, 128)
+                    .await;
+                if chats.chats.iter().any(|chat| &chat.group_id == group)
+                    && let Ok(messages) = messages
+                    && messages
+                        .messages
+                        .iter()
+                        .any(|message| message.event_id.as_slice() == event.as_slice())
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("existing chat and history must mirror before third-device enrollment");
+        eprintln!("automatic-enrollment-control stage=initial-chat-mirrored");
+    }
     a.cancel().await.unwrap();
     b.cancel().await.unwrap();
     let targets = managers[0].device_linking_targets("test").await.unwrap();
@@ -140,7 +234,49 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         .unwrap();
     // No enrollment_packet/receive_enrollment_packet/finalize calls by the host.
     eprintln!("automatic-enrollment-control stage=third-device-completion");
-    wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
+    {
+        use futures::FutureExt;
+        let completion = std::panic::AssertUnwindSafe(wait_for_automatic_phase(
+            &a,
+            &c,
+            DeviceLinkingPhase::EnrollmentComplete,
+        ))
+        .catch_unwind()
+        .await;
+        if let Err(failure) = completion {
+            eprintln!(
+                "third-device-progress source={:?} recipient={:?} sibling_phase={:?}",
+                a.enrollment_progress_for_test(),
+                c.enrollment_progress_for_test(),
+                approval.snapshot().await.map(|snapshot| snapshot.phase)
+            );
+            for (index, app) in apps[..3].iter().enumerate() {
+                let storage = app.account_storage("test").unwrap();
+                let settlement = storage.private_roster_settlement_storage().unwrap();
+                let round = settlement.read_round().unwrap();
+                let facts = settlement.read_facts().unwrap();
+                let invite = storage
+                    .private_device_invite_storage()
+                    .unwrap()
+                    .private_invite()
+                    .unwrap();
+                eprintln!(
+                    "third-device-storage device={index} settlement={:?} leaves={} facts={} invite={:?}",
+                    round.as_ref().map(|r| match r.phase {
+                        cgka_traits::private_roster_settlement::PrivateSettlementPhase::Pending => "pending",
+                        cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed => "completed",
+                        cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied => "denied",
+                    }),
+                    round
+                        .as_ref()
+                        .map_or(0, |r| r.anchor.successor.leaves.len()),
+                    facts.len(),
+                    invite.as_ref().map(|i| i.phase)
+                );
+            }
+            std::panic::resume_unwind(failure);
+        }
+    }
     eprintln!("automatic-enrollment-control stage=third-device-completed");
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
@@ -186,6 +322,12 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     drop(background_borrow);
     let targets = managers[0].device_linking_targets("test").await.unwrap();
     assert_eq!(targets[0].device_count, 3);
+    if public_relay.is_some() {
+        for runtime in runtimes {
+            runtime.shutdown_and_close().await.unwrap();
+        }
+        return;
+    }
     let d = managers[3]
         .begin_device_linking_session("test")
         .await

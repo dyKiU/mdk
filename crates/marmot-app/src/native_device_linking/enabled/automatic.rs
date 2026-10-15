@@ -538,7 +538,12 @@ impl Driver {
             tokio::select! {
                 _ = cancellation.cancelled() => {}
                 result = result => {
-                    if let Err(error) = result && let Some(state) = weak.upgrade() {
+                    // Completion closes transport admission normally. The public
+                    // owner still owns cleanup; do not race it with cancellation.
+                    if let Err(error) = result && let Some(state) = weak.upgrade()
+                        && state.snapshot.lock().expect("native observation lock").phase
+                            != DeviceLinkingPhase::EnrollmentComplete
+                    {
                         tracing::warn!(target: "marmot_app::device_linking", method = "automatic_transport", error_kind = error_kind(&error), "automatic pairing transport ended");
                         state.update(DeviceLinkingPhase::Failed, None);
                         state.close();
