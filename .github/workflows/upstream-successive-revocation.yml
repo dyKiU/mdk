@@ -38,7 +38,7 @@ jobs:
           if [[ -d target ]]; then du -sh target; fi
           available_kib=$(df -Pk . | awk 'NR==2 {print $4}')
           test "$available_kib" -ge 8388608
-      - name: Successive actual revocation RED and unchanged first-remove control
+      - name: Affected successive revocation regression with prior negative-anchor provenance
         env:
           CARGO_INCREMENTAL: '1'
         run: python3 scripts/qualify_upstream_successive_revocation.py --phase red

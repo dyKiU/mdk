@@ -1538,6 +1538,7 @@ mod actual {
                         }
                         _ => None,
                     },
+                    _predecessor_owners.as_ref().map(|owners| &owners.previous_b_fact),
                 )
                 .await;
             })
@@ -3050,6 +3051,7 @@ mod actual {
     }
 
     struct RevokedPredecessorOwners {
+        previous_b_fact: cgka_traits::revoked_device_group_anchor::RevokedDeviceGroupFact,
         _source: DeviceLinkingSession,
         _recipient: DeviceLinkingSession,
         _approvals: Vec<DeviceLinkingApproval>,
@@ -3122,7 +3124,7 @@ mod actual {
             let e_group = openmls::group::MlsGroup::load(e_storage.mls_storage(), &openmls::group::GroupId::from_slice(protected.as_slice())).unwrap().unwrap();
             assert_eq!(e_group.members().count(), 4);
             let exact_e = e_group.own_leaf_node().unwrap().signature_key().as_slice().to_vec();
-            let first = managers[0].begin_device_revocation("test", exact_e).await.unwrap();
+            let first = managers[0].begin_device_revocation("test", exact_e.clone()).await.unwrap();
             let review = first.snapshot().await.unwrap();
             assert_eq!(review.protected_group, protected);
             assert!(review.ordinary_groups.is_empty(), "fresh E must not have inherited ordinary MLS state");
@@ -3140,6 +3142,14 @@ mod actual {
             assert!(b_round.phase == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed);
             assert!(matches!(b_round.anchor.origin, cgka_traits::private_device_invite::PrivateInviteOrigin::Revoked(_)));
             assert_eq!(b_round.anchor.successor.leaves.len(), 3);
+            let previous_b_fact = fixture.apps[1].account_storage("test").unwrap()
+                .revoked_device_group_anchor_storage().unwrap().revoked_anchor().unwrap()
+                .expect("actual first E removal must retain its negative provenance");
+            assert!(previous_b_fact.draft.group_id == protected
+                && previous_b_fact.draft.removed_device.as_slice() == exact_e.as_slice()
+                && previous_b_fact.draft.predecessor.leaves.len() == 4
+                && previous_b_fact.draft.successor.leaves.len() == 3,
+                "captured B negative provenance must be the genuine first E removal");
             let before_cancel = managers[1].live_revocation_settlement_binding_for_test("test", &protected).await.unwrap();
             assert!(before_cancel == Some(b_round.anchor.context_digest), "B must retain its actual Completed Revoked original binding");
             // Release only the completed A source action's exclusive slot.
@@ -3148,7 +3158,7 @@ mod actual {
             let after_cancel = managers[1].live_revocation_settlement_binding_for_test("test", &protected).await.unwrap();
             assert!(after_cancel == before_cancel, "cancelling only A must preserve B's independent received original");
             eprintln!("successive_revocation_predecessor actual_four_leaf_enrollment=true first_remove_completed=true previous_received_control_live=true source_only_cancelled=true");
-            RevokedPredecessorOwners { _source: a, _recipient: e, _approvals: approvals }
+            RevokedPredecessorOwners { previous_b_fact, _source: a, _recipient: e, _approvals: approvals }
         }).catch_unwind().await;
         e_runtime.shutdown_and_close().await.unwrap();
         eprintln!("successive_revocation_extra_positive_closes=1 original_verdict_preserved=true");
@@ -3166,6 +3176,7 @@ mod actual {
         retained_remove_reopen: bool,
         retained_remove_storage_retry: bool,
         challenge_before_retry: Option<ChallengeBeforeRetry>,
+        preceding_revoked_anchor: Option<&cgka_traits::revoked_device_group_anchor::RevokedDeviceGroupFact>,
     ) {
         use cgka_traits::{GroupStorage, StorageProvider};
         let d = fixture.d_app.account_home().account("test").unwrap();
@@ -3657,6 +3668,11 @@ mod actual {
                 None
             };
             let b_storage = fixture.apps[1].account_storage("test").unwrap();
+            if let Some(previous) = preceding_revoked_anchor {
+                let actual = b_storage.revoked_device_group_anchor_storage().unwrap().revoked_anchor().unwrap();
+                assert!(actual.as_ref() == Some(previous),
+                    "second Remove rollback must preserve every field of the actual previous negative anchor");
+            } else {
             assert!(
                 b_storage
                     .revoked_device_group_anchor_storage()
@@ -3665,6 +3681,7 @@ mod actual {
                     .unwrap()
                     .is_none()
             );
+            }
             let before = openmls::group::MlsGroup::load(
                 b_storage.mls_storage(),
                 &openmls::group::GroupId::from_slice(protected.as_slice()),
