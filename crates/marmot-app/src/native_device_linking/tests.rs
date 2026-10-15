@@ -1861,7 +1861,23 @@ pub(super) mod actual {
                     | ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin
             ) {
                 let peer = incoming_peer.as_ref().unwrap();
+                // The closures are never invoked: measure the actual future types
+                // without constructing a potentially large temporary stack frame.
+                fn future_type_size<F: std::future::Future>(_: impl FnOnce() -> F) -> usize {
+                    std::mem::size_of::<F>()
+                }
+                eprintln!(
+                    "withdrawal-control stage=before-withdrawal future_bytes={} reopen_future_bytes={}",
+                    future_type_size(|| peer.verify_withdrawal(&apps, &runtimes, &mirror)),
+                    future_type_size(|| peer.verify_withdrawal_reopen(
+                        &runtimes,
+                        [dirs[0].path(), dirs[2].path()],
+                        &url,
+                        &later,
+                    )),
+                );
                 peer.verify_withdrawal(&apps, &runtimes, &mirror).await;
+                eprintln!("withdrawal-control stage=withdrawal-completed");
                 source.cancel();
                 recipient.cancel();
                 a.cancel().await.unwrap();
@@ -1882,6 +1898,7 @@ pub(super) mod actual {
                     );
                     assert!(terminal.accepted_origin.is_none());
                 }
+                eprintln!("withdrawal-control stage=before-encrypted-reopen");
                 peer.verify_withdrawal_reopen(
                     &runtimes,
                     [dirs[0].path(), dirs[2].path()],
@@ -1889,6 +1906,7 @@ pub(super) mod actual {
                     &later,
                 )
                 .await;
+                eprintln!("withdrawal-control stage=encrypted-reopen-completed");
                 // Initial Active/Records and the actual committed withdrawal
                 // used old-format bytes under the original authenticated channel.
                 // Retire that encoder before opening the fresh acceptance owner.

@@ -175,6 +175,7 @@ impl IncomingPeer {
         scope: &cgka_traits::mirrored_chat_catalog::MirroredChatScope,
     ) {
         use cgka_traits::{GroupStorage, StorageProvider};
+        eprintln!("withdrawal-control stage=withdrawal-entered");
         let group_hex = hex::encode(self.group.as_slice());
         let mut window = runtimes[2]
             .open_account_chat_list_window("test", 128)
@@ -227,7 +228,9 @@ impl IncomingPeer {
         .await
         .expect("actual fresh ordinary traffic must restore the local hidden projection");
         assert!(apps[0].group("test", &group_hex).unwrap().is_some());
+        eprintln!("withdrawal-control stage=before-real-leave");
         let leave = runtimes[0].leave_group("test", &self.group).await.unwrap();
+        eprintln!("withdrawal-control stage=real-leave-returned");
         assert!(leave.published == 1);
         tokio::time::timeout(std::time::Duration::from_secs(30), async {
             loop {
@@ -266,6 +269,7 @@ impl IncomingPeer {
         })
         .await
         .expect("actual approved source must deliver and commit an empty leave withdrawal");
+        eprintln!("withdrawal-control stage=withdrawal-committed");
         tokio::time::timeout(std::time::Duration::from_secs(8), async {
             loop {
                 let value = window
@@ -293,13 +297,16 @@ impl IncomingPeer {
         url: &str,
         still_active: &crate::GroupId,
     ) {
+        eprintln!("withdrawal-control stage=encrypted-reopen-entered");
         runtimes[0].shutdown_and_close().await.unwrap();
         runtimes[2].shutdown_and_close().await.unwrap();
+        eprintln!("withdrawal-control stage=old-runtimes-closed");
         assert!(runtimes[0].storage_is_closed() && runtimes[2].storage_is_closed());
         let source = MarmotAppRuntime::new(MarmotApp::with_relay(roots[0], url));
         let recipient = MarmotAppRuntime::new(MarmotApp::with_relay(roots[1], url));
         source.reconcile_accounts().await.unwrap();
         recipient.reconcile_accounts().await.unwrap();
+        eprintln!("withdrawal-control stage=reopened-runtimes-reconciled");
         let fresh = source
             .send_message(
                 "test",
@@ -330,8 +337,10 @@ impl IncomingPeer {
             "retained old active catalog must not resurrect the left source route after renewal"
         );
         window.window_handle().cancel();
+        eprintln!("withdrawal-control stage=before-reopened-close");
         source.shutdown_and_close().await.unwrap();
         recipient.shutdown_and_close().await.unwrap();
+        eprintln!("withdrawal-control stage=reopened-runtimes-closed");
         assert!(source.storage_is_closed() && recipient.storage_is_closed());
     }
 }
