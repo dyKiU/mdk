@@ -38,7 +38,7 @@ class ObservedPeer(original_peer):
         elif command == 'packages':
             self.observation['last_public_package_count'] = value['count']
         elif command == 'publish':
-            self.observation['last_publication_count'] = value['published']
+            self.observation['last_published_keypackage_bytes'] = value['published']
         elif command == 'state':
             self.observation['last_group_members'] = value['members']
             self.observation['last_group_current'] = value['current']
