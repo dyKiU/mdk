@@ -37,6 +37,10 @@ jobs:
           python3 -m py_compile scripts/qualification_build_preflight.py
           actionlint -shellcheck='' .github/workflows/ci.yml .github/workflows/experimental-sync-ci.yml .github/workflows/upstream-experimental-apple.yml .github/workflows/upstream-compile-capacity-syntax.yml 2>&1 | tee orchestration-proof/actionlint.log
           git diff --exit-code HEAD
+      - name: Record actual read-only hosted capacity without compiling
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: python3 scripts/qualification_build_preflight.py --label hosted-read-only-preflight --output orchestration-proof/capacity.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
