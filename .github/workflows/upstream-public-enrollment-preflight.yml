@@ -1,0 +1,65 @@
+name: Public enrollment harness preflight only
+on:
+  push:
+    branches: [ci/upstream-public-enrollment-prep-20261015]
+permissions:
+  contents: read
+concurrency:
+  group: public-enrollment-preflight-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  syntax-and-controller:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install checksummed official workflow parser
+        run: |
+          set -euo pipefail
+          install_dir="$RUNNER_TEMP/actionlint"
+          mkdir "$install_dir"
+          cd "$install_dir"
+          curl -fsSL -O https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          curl -fsSL -O https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_checksums.txt
+          grep '  actionlint_1.7.12_linux_amd64.tar.gz$' actionlint_1.7.12_checksums.txt | sha256sum --check
+          tar xzf actionlint_1.7.12_linux_amd64.tar.gz actionlint
+          echo "$install_dir" >> "$GITHUB_PATH"
+      - name: Check immutable source, syntax and real controller refusal tests without SDK workloads
+        run: |
+          set -euo pipefail
+          mkdir preflight-proof
+          git rev-parse HEAD > preflight-proof/source.txt
+          git rev-parse 'HEAD^{tree}' > preflight-proof/tree.txt
+          actionlint -shellcheck='' .github/workflows/upstream-public-enrollment.yml .github/workflows/upstream-public-enrollment-preflight.yml .github/workflows/upstream-app-native.yml .github/workflows/upstream-acceptance-supplement.yml 2>&1 | tee preflight-proof/actionlint.log
+          bash -n scripts/upstream_apple_ci/native.sh scripts/upstream_apple_ci/hosted-one-scan.sh
+          python3 -m py_compile scripts/upstream_apple_ci/native/one_scan.py scripts/upstream_apple_ci/native/test_one_scan.py scripts/upstream_apple_ci/hosted_one_scan.py scripts/upstream_apple_ci/prepare-hosted-agent.py scripts/upstream_apple_ci/public-enrollment.py
+          python3 scripts/upstream_apple_ci/prepare-hosted-agent.py --output "$RUNNER_TEMP/derived-default"
+          python3 scripts/upstream_apple_ci/prepare-hosted-agent.py --history-pagination --output "$RUNNER_TEMP/derived-pagination"
+          python3 scripts/upstream_apple_ci/prepare-hosted-agent.py --automatic-history --output "$RUNNER_TEMP/derived-automatic"
+          python3 - <<'PY'
+          import hashlib,json,os,re,subprocess
+          from pathlib import Path
+          root=Path('scripts/upstream_apple_ci/native')
+          manifest=json.loads((root/'SOURCE.json').read_text())
+          assert manifest['workspace_commit']=='be04fc60b6a4c40bd85423fbf9e35e8982ae4b84'
+          assert len(manifest['files'])==9
+          assert all(hashlib.sha256((root/name).read_bytes()).hexdigest()==digest for name,digest in manifest['files'].items())
+          run=subprocess.run(['python3','-m','unittest','discover','-s',str(root),'-p','test_one_scan.py','-v'],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+          Path('preflight-proof/controller.log').write_text(run.stdout)
+          counts=re.findall(r'Ran (\d+) tests? in',run.stdout)
+          assert run.returncode==0 and counts==['15'] and '\nOK\n' in run.stdout
+          report={'source':os.environ['GITHUB_SHA'],'native_workspace_commit':manifest['workspace_commit'],
+            'controller_tests_executed':15,'controller_failures':0,'source_derivations':3,
+            'SDK_builds':0,'native_executions':0,'public_network_trials':0,'scope':'Syntax/immutable source/actual existing controller unit tests only'}
+          Path('preflight-proof/result.json').write_text(json.dumps(report,indent=2)+'\n')
+          PY
+          git diff --exit-code HEAD
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: public-enrollment-preflight-${{ github.sha }}
+          path: preflight-proof/
+          retention-days: 7
