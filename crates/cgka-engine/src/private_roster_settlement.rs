@@ -153,15 +153,21 @@ impl<S: StorageProvider> Engine<S> {
         &self,
         group: &GroupId,
     ) -> Result<Option<ValidatedSettledDeviceRoster>, EngineError> {
+        #[cfg(feature = "test-policy-overrides")]
+        let _sync_cost = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::Roster);
         self.ensure_group_live(group)?;
         self.storage.with_read_snapshot(|storage| {
             let Some(evidence) = self.validated_private_successor(group)? else {
                 return Ok(None);
             };
-            let Some(actual) = openmls::group::MlsGroup::load(
-                storage.mls_storage(),
-                &openmls::group::GroupId::from_slice(group.as_slice()),
-            )
+            let Some(actual) = {
+                #[cfg(feature = "test-policy-overrides")]
+                let _sync_cost = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::MlsLoad);
+                openmls::group::MlsGroup::load(
+                    storage.mls_storage(),
+                    &openmls::group::GroupId::from_slice(group.as_slice()),
+                )
+            }
             .map_err(|_| EngineError::Backend("private settled tree read failed".into()))?
             else {
                 return Ok(None);
@@ -714,6 +720,8 @@ pub(crate) fn completed_round_for_tree<S: StorageProvider>(
     group: &GroupId,
     actual: &openmls::group::MlsGroup,
 ) -> Result<Option<PrivateSettlementState>, EngineError> {
+        #[cfg(feature = "test-policy-overrides")]
+        let _sync_cost = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::CompletedTree);
     if actual.pending_commit().is_some() {
         return Ok(None);
     }
@@ -728,6 +736,8 @@ pub(crate) fn completed_round_for_predecessor_tree<S: StorageProvider>(
     group: &GroupId,
     actual: &openmls::group::MlsGroup,
 ) -> Result<Option<PrivateSettlementState>, EngineError> {
+        #[cfg(feature = "test-policy-overrides")]
+        let _sync_cost = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::CompletedPredecessor);
     let Some(store) = storage.private_roster_settlement_storage() else {
         return Ok(None);
     };

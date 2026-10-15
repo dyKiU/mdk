@@ -300,6 +300,8 @@ impl<S: StorageProvider> Engine<S> {
         source: &cgka_traits::source_leaf::SourceLeafProof,
         wire: &[u8],
     ) -> Result<ReceivedAccountSharingControl, EngineError> {
+        #[cfg(feature = "test-policy-overrides")]
+        let _sync_cost = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::SharingAuthenticate);
         self.storage.with_read_snapshot(|_| {
             let frame = self.sharing_verify(wire)?;
             if frame.protected != protected.as_slice()
@@ -415,6 +417,8 @@ impl<S: StorageProvider> Engine<S> {
         Ok(())
     }
     fn sharing_verify(&self, wire: &[u8]) -> Result<Frame, EngineError> {
+        #[cfg(feature = "test-policy-overrides")]
+        let _sync_cost = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::SharingVerify);
         let mut frame = decode(wire)?;
         if frame.protocol != PROTOCOL
             || frame.source.len() != 32
@@ -609,6 +613,8 @@ impl<S: StorageProvider> Engine<S> {
         channel: &mut OwnedAccountSharingChannel,
         wire: &[u8],
     ) -> Result<(), EngineError> {
+        #[cfg(feature = "test-policy-overrides")]
+        let _sync_cost = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::SharingBind);
         self.sharing_channel_fresh(channel)?;
         if channel.recipient_role {
             return Err(refused());

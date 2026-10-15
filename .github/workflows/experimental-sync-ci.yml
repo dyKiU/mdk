@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, latest-sync-cost]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -33,6 +33,56 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  latest-sync-cost-format:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'latest-sync-cost'
+    name: Sync cost source formatting (independent checkout)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Preserve exact formatter patch for review
+        run: |
+          cargo fmt --all
+          git diff -- crates > "$RUNNER_TEMP/sync-cost-format.patch"
+          git diff --exit-code -- crates
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: synchronous-cost-formatter-patch
+          path: ${{ runner.temp }}/sync-cost-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  latest-sync-cost:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'latest-sync-cost'
+    name: Bounded synchronous enrollment cost diagnostic
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+      - name: One original ordinary body, no deadline or runtime changes
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Synchronous enrollment cost diagnostic'
+          python3 scripts/diagnose_upstream_enrollment_sync_cost.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: synchronous-enrollment-cost-static-evidence
+          path: sync-cost-evidence/result.json
+          if-no-files-found: error
+          retention-days: 14
   withdrawal-stack:
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'withdrawal-stack'
     name: Unchanged withdrawal function-only stack diagnostic
