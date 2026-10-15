@@ -10,7 +10,7 @@ import subprocess
 import time
 
 BASELINE = "8707ecac9f686a15c4088bf4f92aa07a7e029bc9"
-UPSTREAM = "b76b5338ea871b67965e71cbba7ddfcb6137fbdd"
+UPSTREAM = "31f74030660572831521fd75f9d220b6a1206113"
 FEATURES = "marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks"
 APP = "native_device_linking::automatic_pairing_acceptance::"
 NATIVE = [APP + name for name in [
@@ -33,6 +33,10 @@ for adapted in [
     "crates/marmot-app/src/runtime/account_worker.rs",
     "crates/marmot-app/src/client/device_linking.rs",
     "crates/marmot-app/src/client/device_linking/sibling_sharing.rs",
+    "crates/marmot-app/src/account_chat_sharing/enabled.rs",
+    "crates/marmot-app/src/client/private_enrollment_proposal.rs",
+    "crates/marmot-app/src/native_device_linking/enabled.rs",
+    "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs",
 ]:
     source_paths.append(":!" + adapted)
 assert not subprocess.check_output(["git", "diff", BASELINE, "HEAD", "--", *source_paths]), "controller branch must not import unrelated product experiments"
@@ -174,9 +178,9 @@ def run(name, selected, expected, args):
 scope = report["scope"]
 features = FEATURES if report["cohort"] == "experimental" else FEATURES.replace(",marmot-app/experimental-device-sync", "")
 args = ["--locked", "-p", "marmot-app", "--lib", "--features", features]
-if scope in {"latest-three", "latest-controls"}:
+if scope in {"latest-three", "latest-controls", "latest-fourth-trace"}:
     assert report["cohort"] == "experimental"
-    cases = NATIVE
+    cases = NATIVE[:1] if scope == "latest-fourth-trace" else NATIVE
     if scope == "latest-controls":
         cases = cases + [APP + case for case in [
             "automatic_transport_cannot_keep_dropped_original_authority_alive",
@@ -193,7 +197,41 @@ if scope in {"latest-three", "latest-controls"}:
         ]
     passed = True
     for case in cases:
-        proof, _ = run(case, "package(marmot-app) & test(=" + case + ")", 1, args)
+        proof, output = run(case, "package(marmot-app) & test(=" + case + ")", 1, args)
+        if scope == "latest-fourth-trace":
+            rows = []
+            rejected = 0
+            for line in output.splitlines():
+                if not line.strip().startswith("sibling-fourth-lifecycle "): continue
+                try:
+                    row = json.loads(line.strip().removeprefix("sibling-fourth-lifecycle "))
+                    assert set(row) == {"peer", "role", "snapshot"} and type(row["peer"]) is int and row["peer"] in {0,1} and type(row["role"]) is int and row["role"] in {0,1}
+                    snap = row["snapshot"]
+                    if snap is not None:
+                        assert set(snap) == {"records", "before_window", "dropped", "pending", "owner_state_live"}
+                        assert type(snap["before_window"]) is int and type(snap["dropped"]) is int and type(snap["owner_state_live"]) is bool
+                        assert snap["pending"] is None or (len(snap["pending"]) == 2 and type(snap["pending"][0]) is bool and snap["pending"][1] in {0,1,2})
+                        assert len(snap["records"]) <= 64
+                        for at, stage, flags, pending, ready in snap["records"]:
+                            assert type(at) is int and at >= 0 and type(stage) is int and 0 <= stage <= 7
+                            assert flags is None or (type(flags) is int and 0 <= flags <= 255)
+                            assert pending is None or type(pending) is bool
+                            assert type(ready) is int and ready in {0,1,2}
+                    rows.append(row)
+                except (KeyError, TypeError, ValueError, AssertionError): rejected += 1
+            report["fourth_lifecycle"] = rows
+            report["fourth_lifecycle_parse_rejections"] = rejected
+            report["lifecycle_stage_names"] = ["PeriodicEntry", "PeriodicReturn", "WakeEntry", "WakeReturn", "PolicyCommitted", "PublicationScheduled", "ResultSent", "ControlReturned"]
+            report["lifecycle_flags"] = ["originalLive", "stateLive", "ready", "handshakePublished", "policyCommitted", "proofPublished", "peerCommitted", "complete"]
+            report["lifecycle_columns"] = ["fourth_elapsed_ms", "stage", "fresh_flags_or_null", "pending_proof_or_null", "result_status_0pending_1success_2error"]
+            report["diagnostic_only"] = True
+            save()
+            assert proof["failed"] == 1 and "fourth-device-completion" in proof["completion_stage_markers"] and "original-phase-not-reached" in proof["closed_failure_categories"]
+            assert not rejected and len(rows) == 4 and {(row["peer"],row["role"]) for row in rows} == {(0,0),(0,1),(1,0),(1,1)}
+            assert all(row["snapshot"] is not None and row["snapshot"]["dropped"] == 0 for row in rows), "complete bounded fourth-entry evidence required"
+            report["diagnostic_complete"] = True
+            save()
+            raise SystemExit(0)
         passed = passed and proof["passed"] == 1 and proof["failed"] == 0
     report["original_controls_passed"] = passed
     report["scoped_controls_passed"] = passed

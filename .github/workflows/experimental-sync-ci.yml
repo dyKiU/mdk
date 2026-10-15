@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, latest-three, latest-static, latest-format]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, latest-three, latest-static, latest-format, latest-fourth-trace]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -34,7 +34,7 @@ env:
 
 jobs:
   latest-controls:
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'latest-three'
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'latest-three' || inputs.scope == 'latest-fourth-trace')
     name: Combined exact original publication and lifecycle controls
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -53,7 +53,7 @@ jobs:
       - name: Execute three original bodies without retries
         env:
           CARGO_INCREMENTAL: "1"
-          RECONCILED_SCOPE: latest-three
+          RECONCILED_SCOPE: ${{ inputs.scope }}
           RECONCILED_COHORT: experimental
           WN_UPSTREAM_PUBLICATION_DIAGNOSTICS: "1"
         run: python3 scripts/verify_upstream_reconciled_controls.py
