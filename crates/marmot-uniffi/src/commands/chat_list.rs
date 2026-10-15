@@ -904,6 +904,15 @@ mod tests {
         ));
         assert_eq!(row.activity_sort_at, found.activity_sort_at);
 
+        let account_route = kit
+            .existing_account_direct_conversation(account_ref.clone(), peer_ref.clone())
+            .await
+            .expect("account contact lookup")
+            .expect("existing local route");
+        assert!(matches!(account_route,
+            crate::conversions::ExistingAccountDirectConversationFfi::LocalMls { conversation }
+                if conversation.group_id_hex == found.group_id_hex && conversation.reusable));
+
         kit.shutdown_and_close()
             .await
             .expect("close store after lookup");

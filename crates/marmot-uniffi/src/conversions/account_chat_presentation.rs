@@ -9,6 +9,32 @@ use marmot_app::{
     PairedChatMessagePage, PairedChatSource, PairedChatSummary,
 };
 
+/// Existing contact route; paired observations never assert local MLS membership.
+#[derive(Clone, uniffi::Enum)]
+pub enum ExistingAccountDirectConversationFfi {
+    LocalMls {
+        conversation: super::ExistingDirectConversationFfi,
+    },
+    PairedSource {
+        conversation: PairedChatSummaryFfi,
+    },
+}
+redact!(ExistingAccountDirectConversationFfi);
+impl From<marmot_app::ExistingAccountDirectConversation> for ExistingAccountDirectConversationFfi {
+    fn from(value: marmot_app::ExistingAccountDirectConversation) -> Self {
+        match value {
+            marmot_app::ExistingAccountDirectConversation::LocalMls(row) => Self::LocalMls {
+                conversation: (*row).into(),
+            },
+            marmot_app::ExistingAccountDirectConversation::PairedSource(row) => {
+                Self::PairedSource {
+                    conversation: (*row).into(),
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct PairedChatSourceFfi {
     pub device_hex: String,
@@ -132,6 +158,44 @@ impl From<PairedChatMessagePage> for PairedChatMessagePageFfi {
         Self {
             messages: value.messages.into_iter().map(Into::into).collect(),
             next: value.next.map(Into::into),
+        }
+    }
+}
+
+#[cfg(test)]
+mod direct_route_tests {
+    use super::*;
+
+    #[test]
+    fn existing_account_direct_conversation_ffi_keeps_paired_provenance_and_redacts_debug() {
+        let value = marmot_app::ExistingAccountDirectConversation::PairedSource(Box::new(
+            marmot_app::PairedChatSummary {
+                group_id: cgka_traits::GroupId::new(vec![7; 16]),
+                name: "private title".into(),
+                description: "private description".into(),
+                source: marmot_app::PairedChatSource {
+                    device: [1; 32],
+                    policy_digest: [2; 32],
+                    protected_generation: 3,
+                    source_epoch: 4,
+                    source_sequence: 5,
+                    source_digest: [6; 32],
+                },
+            },
+        ));
+        let ffi = ExistingAccountDirectConversationFfi::from(value);
+        let debug = format!("{ffi:?}");
+        assert!(!debug.contains("private title"));
+        assert!(!debug.contains(&"01".repeat(32)));
+        match ffi {
+            ExistingAccountDirectConversationFfi::PairedSource { conversation } => {
+                assert_eq!(conversation.group_id_hex, "07".repeat(16));
+                assert_eq!(conversation.source.protected_generation, 3);
+                assert_eq!(conversation.source.source_sequence, 5);
+            }
+            ExistingAccountDirectConversationFfi::LocalMls { .. } => {
+                panic!("paired route was mislabeled local")
+            }
         }
     }
 }

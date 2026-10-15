@@ -117,6 +117,24 @@ impl AppClient {
         Ok(rows)
     }
 
+    pub(crate) fn current_mirrored_direct_conversation(
+        &self,
+        peer: &[u8; 32],
+    ) -> Result<Option<storage_sqlite::MirroredCatalogObservation>, AccountSharingError> {
+        let scopes = self.current_presentation_scopes()?;
+        let storage = self
+            .app
+            .account_storage(&self.state.label)
+            .map_err(|_| AccountSharingError::NotReady)?;
+        let row = storage
+            .mirrored_direct_conversation_observation(&scopes, peer)
+            .map_err(|_| AccountSharingError::NotReady)?;
+        if self.current_presentation_scopes()? != scopes {
+            return Err(AccountSharingError::Closed);
+        }
+        Ok(row)
+    }
+
     pub(crate) fn current_account_conversation_page(
         &self,
         group: &crate::GroupId,

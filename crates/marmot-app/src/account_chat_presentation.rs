@@ -38,6 +38,33 @@ pub struct PairedChatSummary {
     pub source: PairedChatSource,
 }
 
+/// An existing account conversation retains its actual local or paired provenance.
+/// A paired route does not assert local MLS membership or grant send authority.
+#[derive(Clone)]
+pub enum ExistingAccountDirectConversation {
+    LocalMls(Box<crate::ExistingDirectConversation>),
+    PairedSource(Box<PairedChatSummary>),
+}
+
+#[cfg(feature = "experimental-device-sync")]
+impl From<storage_sqlite::MirroredCatalogObservation> for PairedChatSummary {
+    fn from(row: storage_sqlite::MirroredCatalogObservation) -> Self {
+        Self {
+            group_id: row.entry.group_id,
+            name: row.entry.name,
+            description: row.entry.description,
+            source: PairedChatSource {
+                device: row.scope.source_device,
+                policy_digest: row.scope.policy_digest,
+                protected_generation: row.scope.protected_generation,
+                source_epoch: row.entry.source_epoch,
+                source_sequence: row.entry.source_sequence,
+                source_digest: row.entry.source_digest,
+            },
+        }
+    }
+}
+
 /// Unsupported logical kinds remain visible placeholders without interpreting bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PairedChatContent {

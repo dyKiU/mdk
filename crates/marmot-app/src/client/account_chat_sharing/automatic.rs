@@ -8,6 +8,7 @@ pub(super) mod departure_replay_probe;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 #[path = "automatic/tests/diagnostics.rs"]
 pub(super) mod diagnostics;
+mod direct_peer;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) mod duplicate_departure_probe;
 #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -1460,7 +1461,8 @@ impl AppClient {
         }
         .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
         // No origin is manufactured for old packets/observations.
-        let same_account_source_count = if state == MirroredChatState::Active {
+        let (same_account_source_count, direct_peer_account) = if state == MirroredChatState::Active
+        {
             let membership = self
                 .runtime
                 .session()
@@ -1474,9 +1476,27 @@ impl AppClient {
             if !(1..=128).contains(&count) {
                 return Err(AccountSharingError::NotReady);
             }
-            Some(count as u32)
+            let row = self
+                .app
+                .chat_list_row(&self.state.label, &hex::encode(group_id.as_slice()))
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+            let reusable_direct = row.is_some_and(|row| {
+                row.conversation_kind == crate::ChatConversationKind::Direct
+                    && row.self_membership == crate::SelfMembership::Member
+                    && !row.disbanding
+                    && row.leave_requested_at_ms.is_none()
+            });
+            let peer = direct_peer::observed_peer(
+                entry.policy.account,
+                reusable_direct,
+                membership
+                    .member_leaves
+                    .iter()
+                    .map(|leaf| leaf.member.as_slice()),
+            );
+            (Some(count as u32), peer)
         } else {
-            None
+            (None, None)
         };
         let mut record = MirroredChatEntry {
             group_id,
@@ -1491,12 +1511,13 @@ impl AppClient {
             accepted_origin,
 
             same_account_source_count,
-            direct_peer_account: None,
+            direct_peer_account,
         };
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if self.test_uses_legacy_account_chat_encoding() {
             record.accepted_origin = None;
             record.same_account_source_count = None;
+            record.direct_peer_account = None;
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         self.test_trace_catalog_stage(

@@ -3684,6 +3684,30 @@ typedef struct MarmotExistingDirectConversation {
 } MarmotExistingDirectConversation;
 
 /**
+ * A deep-owned local MLS result or source-attested paired route.
+ */
+typedef enum MarmotExistingAccountDirectConversation_Tag {
+  MARMOT_EXISTING_ACCOUNT_DIRECT_CONVERSATION_LOCAL_MLS,
+  MARMOT_EXISTING_ACCOUNT_DIRECT_CONVERSATION_PAIRED_SOURCE,
+} MarmotExistingAccountDirectConversation_Tag;
+
+typedef struct MarmotExistingAccountDirectConversation_LocalMls_Body {
+  struct MarmotExistingDirectConversation *conversation;
+} MarmotExistingAccountDirectConversation_LocalMls_Body;
+
+typedef struct MarmotExistingAccountDirectConversation_PairedSource_Body {
+  struct MarmotPairedChatSummary *conversation;
+} MarmotExistingAccountDirectConversation_PairedSource_Body;
+
+typedef struct MarmotExistingAccountDirectConversation {
+  MarmotExistingAccountDirectConversation_Tag tag;
+  union {
+    MarmotExistingAccountDirectConversation_LocalMls_Body LOCAL_MLS;
+    MarmotExistingAccountDirectConversation_PairedSource_Body PAIRED_SOURCE;
+  };
+} MarmotExistingAccountDirectConversation;
+
+/**
  * One search hit, with typed attribution for why it matched.
  */
 typedef struct MarmotUserDirectorySearchResult {
@@ -9014,6 +9038,21 @@ MarmotStatus marmot_existing_direct_conversation(const struct MarmotClient *clie
                                                  struct MarmotExistingDirectConversation **out);
 
 /**
+ * Resolve an existing contact chat with local or paired-source provenance.
+ * Free the optional owned result with `marmot_existing_account_direct_conversation_free`.
+ *
+ * # Safety
+ * `client` must be a live handle; string arguments must be valid
+ * NUL-terminated strings (nullable ones may be NULL); array
+ * arguments must hold their stated length (or be NULL with
+ * length 0); out-pointers must be valid.
+ */
+MarmotStatus marmot_existing_account_direct_conversation(const struct MarmotClient *client,
+                                                         const char *account_ref,
+                                                         const char *peer_account_id,
+                                                         struct MarmotExistingAccountDirectConversation **out);
+
+/**
  * Search public identities cached through any connected account. Follow
  * flags refer to the selected account. Call off the UI thread and free with
  * `marmot_user_directory_search_result_list_free`.
@@ -13979,6 +14018,13 @@ void marmot_paired_chat_list_page_free(struct MarmotPairedChatListPage *ptr);
  * this library.
  */
 void marmot_paired_chat_message_page_free(struct MarmotPairedChatMessagePage *ptr);
+
+/**
+ * Release an optional existing account direct-conversation result, including its payload.
+ * # Safety
+ * `value` is NULL or an unfreed value returned by this library, with no concurrent access.
+ */
+void marmot_existing_account_direct_conversation_free(struct MarmotExistingAccountDirectConversation *value);
 
 /**
  * Free a value of this type returned by this library. NULL

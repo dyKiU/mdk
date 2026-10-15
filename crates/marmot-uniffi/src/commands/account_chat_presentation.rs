@@ -1,6 +1,7 @@
 //! Bounded read-only views of authenticated paired observations.
 use crate::conversions::{
-    PairedChatListPageFfi, PairedChatMessageCursorFfi, PairedChatMessagePageFfi, group_id_from_hex,
+    ExistingAccountDirectConversationFfi, PairedChatListPageFfi, PairedChatMessageCursorFfi,
+    PairedChatMessagePageFfi, group_id_from_hex,
 };
 use crate::{Marmot, MarmotKitError};
 
@@ -30,6 +31,20 @@ pub(crate) fn paired_cursor(
 }
 #[uniffi::export(async_runtime = "tokio")]
 impl Marmot {
+    /// Resolve an existing contact conversation without creating an invitation.
+    /// Local MLS reuse has precedence; paired routes require current sharing approval.
+    pub async fn existing_account_direct_conversation(
+        &self,
+        account_ref: String,
+        peer_account_id: String,
+    ) -> Result<Option<ExistingAccountDirectConversationFfi>, MarmotKitError> {
+        self.runtime
+            .existing_account_direct_conversation(&account_ref, &peer_account_id)
+            .await
+            .map(|row| row.map(Into::into))
+            .map_err(account_chat_read_error)
+    }
+
     /// Bounded paired-source chat catalog. No membership, media or send authority is reconstructed.
     pub async fn paired_chat_list_page(
         &self,
