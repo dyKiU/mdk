@@ -189,8 +189,8 @@ elif scope == "fairness":
         "original_choice_children_do_not_extend_the_captured_deadline",
     ]] + [
         "tests::device_linking_startup::device_linking_worker_commands_are_scoped_and_idle_cleanup_retries",
-        "native_device_linking::actual::native_original_worker_expiry_cannot_revive_terminal_session",
-        "native_device_linking::actual::native_shutdown_closes_original_session_without_a_new_worker",
+        "native_device_linking::tests::actual::native_original_worker_expiry_cannot_revive_terminal_session",
+        "native_device_linking::tests::actual::native_shutdown_closes_original_session_without_a_new_worker",
     ]
     passed = True
     for case in cases:
