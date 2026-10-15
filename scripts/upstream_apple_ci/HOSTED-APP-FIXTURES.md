@@ -19,9 +19,15 @@ for that exact cohort. Never copy an account store between platforms.
 
 Prebuild the actual app products before creating a live native bridge. Preserve
 that build's source/SDK receipt. Use the job-owned, booted simulator named
-`WN-Upstream-UI-$GITHUB_RUN_ID`. Run the iOS external UI attach control (one unit
-and one UI test, zero skips) before fixture UI cases. The native QR app-codec test
-is separate and needs `WN_NATIVE_PAIRING_QR_ACCEPTANCE=1` with the same owned relay.
+`WN-Upstream-UI-$GITHUB_RUN_ID`. Before creating any native owner, run the positive
+absent-host UI runner preflight and require its one actual test to pass without
+skips. It observes the stopped target through public XCTest APIs and never
+launches or activates it. Record this infrastructure test separately from the
+iOS external attach control, which still requires one unit and one UI test with
+zero skips and its original deadlines. The full app cohort contains 20 acceptance
+unit/UI bodies plus this one infrastructure body; setup does not qualify SDK
+protocol behavior. The native QR app-codec test is separate and needs
+`WN_NATIVE_PAIRING_QR_ACCEPTANCE=1` with the same owned relay.
 
 The controller CLI is:
 
