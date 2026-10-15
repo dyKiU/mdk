@@ -2988,16 +2988,30 @@ async fn run_app_runtime_account_worker(
             _ = tokio::task::yield_now(), if comparison_recovery.as_ref().is_some_and(|job| job.network.is_none()) => {
                 continue 'worker;
             }
+            // Completed owned publications advance only their sharing work;
+            // unrelated expiry/history/revocation maintenance keeps its tick.
+            _ = async {
+                #[cfg(feature = "experimental-device-sync")]
+                { linking_publication_work.notified().await; }
+                #[cfg(not(feature = "experimental-device-sync"))]
+                std::future::pending::<()>().await;
+            }, if cfg!(feature = "experimental-device-sync") => {
+                #[cfg(feature = "experimental-device-sync")]
+                if !lifecycle.is_stopping()
+                    && client.maintain_linking_publications().await.is_err()
+                {
+                    tracing::debug!(
+                        target: "marmot_app::device_linking",
+                        method = "worker_publication_wake",
+                        "owned publication progress deferred"
+                    );
+                }
+            }
             // Pairing expiry cannot wait for optional network recovery. The
             // original deadline is also checked by every verifier/join access.
             _ = async {
                 #[cfg(feature = "experimental-device-sync")]
-                {
-                    tokio::select! {
-                        _ = linking_tick.tick() => {},
-                        _ = linking_publication_work.notified() => {},
-                    }
-                }
+                { linking_tick.tick().await; }
                 #[cfg(not(feature = "experimental-device-sync"))]
                 std::future::pending::<()>().await;
             }, if cfg!(feature = "experimental-device-sync") => {

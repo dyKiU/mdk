@@ -1231,23 +1231,11 @@ impl AppClient {
         result
     }
 
-    pub(crate) async fn maintain_device_linking(
+    /// Advance only live, already-approved sharing originals and their publications.
+    /// The broader expiry tick retains its separate maintenance schedule.
+    pub(crate) async fn maintain_linking_publications(
         &mut self,
-        now: std::time::Instant,
     ) -> Result<(), ClientLinkingError> {
-        self.maintain_selected_chat_packages()
-            .map_err(ClientLinkingError::Engine)?;
-        self.maintain_selected_chat_pending()
-            .await
-            .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
-        self.maintain_device_leaf_revocation_pending()
-            .await
-            .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
-        self.maintain_original_history().await.map_err(|_| {
-            ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
-                "history original maintenance unavailable".into(),
-            )))
-        })?;
         self.maintain_existing_pair_sharing().map_err(|_| {
             ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
                 "account sharing original maintenance unavailable".into(),
@@ -1275,6 +1263,27 @@ impl AppClient {
                 "automatic sharing maintenance unavailable".into(),
             )))
         })?;
+        Ok(())
+    }
+
+    pub(crate) async fn maintain_device_linking(
+        &mut self,
+        now: std::time::Instant,
+    ) -> Result<(), ClientLinkingError> {
+        self.maintain_selected_chat_packages()
+            .map_err(ClientLinkingError::Engine)?;
+        self.maintain_selected_chat_pending()
+            .await
+            .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
+        self.maintain_device_leaf_revocation_pending()
+            .await
+            .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
+        self.maintain_original_history().await.map_err(|_| {
+            ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
+                "history original maintenance unavailable".into(),
+            )))
+        })?;
+        self.maintain_linking_publications().await?;
         self.prune_native_enrollment_intent();
         self.maintain_received_enrollment_endorsement(now)?;
         let reservation_live = self
