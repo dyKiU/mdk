@@ -18,7 +18,8 @@ pub struct DeviceLinkingApproval {
 pub struct DeviceLinkingSubscription {
     inner: marmot_app::DeviceLinkingSubscription,
 }
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl Marmot {
     /// Scan one bounded bootstrap; the returned original is paused until host adoption.
     pub async fn approve_automatic_device_linking_session(
@@ -93,7 +94,8 @@ impl Marmot {
         Ok(Arc::new(DeviceLinkingSession { inner }))
     }
 }
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl DeviceLinkingSession {
     /// Activate only after exact host account-scope adoption. Display this compact
     /// bootstrap only on the initiating device; the scanner needs no response QR.
@@ -180,6 +182,7 @@ impl DeviceLinkingSession {
         Ok(self.inner.finalize_linking(displayed_revision).await?)
     }
     /// Revoke this exact session before waiting for durable actor cleanup.
+    #[marmot_uniffi_macros::survives_cancellation]
     pub async fn cancel(&self) -> Result<(), MarmotKitError> {
         Ok(self.inner.cancel().await?)
     }
@@ -200,7 +203,8 @@ impl DeviceLinkingSession {
         Ok(self.inner.continue_linking(displayed_revision).await?)
     }
 }
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl DeviceLinkingApproval {
     /// Read authenticated display metadata for this original pending approval and displayed revision.
     pub async fn review_metadata(
@@ -240,13 +244,16 @@ impl DeviceLinkingApproval {
             .await?)
     }
     /// Revoke the exact original action; cancellation cannot be undone by packet replay.
+    #[marmot_uniffi_macros::survives_cancellation]
     pub async fn cancel(&self) -> Result<(), MarmotKitError> {
         Ok(self.inner.cancel().await?)
     }
 }
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl DeviceLinkingSubscription {
     /// Await an observation; explicit close wakes this call with a typed Closed error.
+    #[marmot_uniffi_macros::receive]
     pub async fn next(&self) -> Result<DeviceLinkingSnapshotFfi, MarmotKitError> {
         Ok(self.inner.next().await?.into())
     }

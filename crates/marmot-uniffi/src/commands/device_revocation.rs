@@ -7,7 +7,8 @@ pub struct DeviceRevocation {
     inner: marmot_app::DeviceRevocation,
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl Marmot {
     /// Capture fresh authenticated groups for an exact linked device; requires explicit review.
     pub async fn begin_device_revocation(
@@ -35,7 +36,8 @@ impl Marmot {
     }
 }
 
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl DeviceRevocation {
     /// Observe the fixed original scope and per-group confirmed progress.
     pub async fn snapshot(&self) -> Result<DeviceRevocationSnapshotFfi, MarmotKitError> {

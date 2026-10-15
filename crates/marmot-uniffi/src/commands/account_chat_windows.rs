@@ -7,7 +7,8 @@ use crate::subscriptions::{
 use crate::{Marmot, MarmotKitError};
 use std::sync::Arc;
 
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl Marmot {
     /// Account-owned ordinary and paired-source rows, at most 2–128 retained.
     pub async fn open_account_chat_list_window(

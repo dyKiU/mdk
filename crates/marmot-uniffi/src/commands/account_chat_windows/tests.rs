@@ -153,3 +153,167 @@ where
         }
     }
 }
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn account_list_receive_cancellation_preserves_actual_command_update() {
+    actual_window_receive_cancellation(false).await;
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn account_conversation_receive_cancellation_preserves_actual_command_update() {
+    actual_window_receive_cancellation(true).await;
+}
+
+#[cfg(feature = "experimental-device-sync")]
+async fn actual_window_receive_cancellation(conversation: bool) {
+    use cgka_traits::TransportEndpoint;
+    use marmot_app::AccountSetupRequest;
+    use nostr_relay_builder::MockRelay;
+    use std::{sync::Arc, time::Duration};
+    let relay = MockRelay::run().await.unwrap();
+    let url = relay.url().await.to_string();
+    let dir = tempfile::tempdir().unwrap();
+    let app = MarmotApp::with_relays(dir.path(), vec![url.clone()]);
+    let kit = Arc::new(Marmot {
+        runtime: app.runtime(),
+        app,
+    });
+    let endpoint = TransportEndpoint(url);
+    let account = kit
+        .runtime
+        .create_identity(AccountSetupRequest {
+            default_relays: vec![endpoint.clone()],
+            bootstrap_relays: vec![endpoint],
+            publish_missing_relay_lists: true,
+            publish_initial_key_package: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .account
+        .account_id_hex;
+    let group = kit
+        .create_group(
+            account.clone(),
+            "Actual receive cancellation".into(),
+            vec![],
+            None,
+        )
+        .await
+        .unwrap();
+    let observed = if conversation {
+        let sent = kit
+            .send_text(
+                account.clone(),
+                group.clone(),
+                "Actual native receive state".into(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            sent.message_ids.len() == 1,
+            "real receive fixture must publish exactly one message"
+        );
+        let expected_message = &sent.message_ids[0];
+        let window = kit
+            .open_account_conversation_window(account, group.clone(), 2)
+            .await
+            .unwrap();
+        let mut sequence = window.snapshot().unwrap().sequence;
+        let drain_deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let mut pending = loop {
+            let mut next = Box::pin(window.__ffi_next());
+            match tokio::time::timeout(Duration::from_millis(20), &mut next).await {
+                Ok(Ok(Some(update))) => {
+                    assert!(
+                        std::time::Instant::now() < drain_deadline,
+                        "actual initial window replacements must settle"
+                    );
+                    sequence = update.sequence;
+                }
+                Err(_) => break next,
+                _ => panic!("actual conversation closed before cancellation witness"),
+            }
+        };
+        assert!(futures::poll!(&mut pending).is_pending());
+        let completed_before = window.completed_receive_count_for_test();
+        let replacement = window.older_page(sequence, None).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let completed_unpolled = window.completed_receive_count_for_test();
+        let unpolled_consumption = completed_unpolled > completed_before;
+        eprintln!(
+            "private_conversation_receive_completion baseline_count={completed_before} unpolled_count={completed_unpolled} actual_unpolled_consumption={unpolled_consumption}"
+        );
+        drop(pending);
+        let retained = tokio::time::timeout(Duration::from_secs(2), window.__ffi_next()).await;
+        let (observed_sequence, same_generation, result_kind) = match &retained {
+            Ok(Ok(Some(update))) => (
+                Some(update.sequence),
+                update.generation == replacement.generation,
+                "replacement",
+            ),
+            Ok(Ok(None)) => (None, false, "closed"),
+            Ok(Err(_)) => (None, false, "error"),
+            Err(_) => (None, false, "timeout"),
+        };
+        eprintln!(
+            "private_conversation_receive_witness command_sequence={} observed_sequence={observed_sequence:?} same_generation={same_generation} result_kind={result_kind}",
+            replacement.sequence
+        );
+        let valid_page = |update: &crate::conversions::AccountConversationWindowSnapshotFfi| {
+            matches!(&update.header, crate::conversions::AccountConversationHeaderFfi::LocalMls { header }
+                if header.header.member_count == Some(1) && !header.header.archived && !header.header.unrecoverable)
+                && update.rows.len() <= 2
+                && update.rows.iter().all(|row| matches!(row, crate::conversions::AccountConversationRowFfi::LocalMls { row } if row.group_id_hex == group))
+                && update.rows.iter().any(|row| matches!(row, crate::conversions::AccountConversationRowFfi::LocalMls { row }
+                    if row.message_id_hex == *expected_message && row.group_id_hex == group && !row.deleted && row.plaintext == "Actual native receive state"))
+        };
+        let command_valid = valid_page(&replacement);
+        let observed = command_valid
+            && !unpolled_consumption
+            && matches!(retained, Ok(Ok(Some(update)))
+            if update.generation == replacement.generation && update.sequence >= replacement.sequence && valid_page(&update));
+        eprintln!(
+            "private_conversation_receive_semantic command_valid={command_valid} retained_required_state={observed}"
+        );
+        window.cancel();
+        observed
+    } else {
+        let window = kit.open_account_chat_list_window(account, 2).await.unwrap();
+        let mut sequence = window.snapshot().unwrap().sequence;
+        let drain_deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let mut pending = loop {
+            let mut next = Box::pin(window.__ffi_next());
+            match tokio::time::timeout(Duration::from_millis(20), &mut next).await {
+                Ok(Ok(Some(update))) => {
+                    assert!(
+                        std::time::Instant::now() < drain_deadline,
+                        "actual initial window replacements must settle"
+                    );
+                    sequence = update.sequence;
+                }
+                Err(_) => break next,
+                _ => panic!("actual account list closed before cancellation witness"),
+            }
+        };
+        assert!(futures::poll!(&mut pending).is_pending());
+        let replacement = window.paired_page(sequence, None).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        drop(pending);
+        let retained = tokio::time::timeout(Duration::from_secs(2), window.__ffi_next()).await;
+        let observed =
+            matches!(retained, Ok(Ok(Some(update))) if update.sequence == replacement.sequence);
+        window.cancel();
+        observed
+    };
+    kit.runtime.shutdown_and_close().await.unwrap();
+    eprintln!(
+        "private_receive_positive_closes=1 actual_command_replacement=true conversation={conversation}"
+    );
+    assert!(
+        observed,
+        "cancelled private receive consumed the actual command replacement"
+    );
+}

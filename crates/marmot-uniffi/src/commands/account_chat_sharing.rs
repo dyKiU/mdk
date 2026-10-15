@@ -5,7 +5,8 @@ use std::sync::Arc;
 pub struct AccountSharingApproval {
     inner: marmot_app::AccountSharingApproval,
 }
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl Marmot {
     /// Observe current actual same-account Completed protected peers. No approval.
     pub async fn account_chat_sharing_targets(
@@ -47,7 +48,8 @@ impl Marmot {
             .collect())
     }
 }
-#[uniffi::export(async_runtime = "tokio")]
+#[marmot_uniffi_macros::on_tokio_runtime]
+#[uniffi::export]
 impl AccountSharingApproval {
     /// Explicitly approve this exact original at the displayed revision.
     pub async fn approve(&self, displayed_revision: u64) -> Result<(), MarmotKitError> {
