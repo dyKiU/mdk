@@ -39,6 +39,9 @@ def execute(label, args, selected, expected=None, required_failure=None):
     started = time.monotonic()
     inventory = subprocess.run(["cargo", "nextest", "list", "--locked", *args, *FEATURE_ARGS, "-E", selected, "--message-format", "json"], capture_output=True, text=True)
     entry = {"filter": selected, "cargo_arguments": args, "features": FEATURES, "list_exit_code": inventory.returncode}
+    entry["compile_error_codes"] = re.findall(r"error\[(E[0-9]+)\]", inventory.stderr)
+    entry["compile_error_locations"] = re.findall(r"(?:-->|:::)\s+(crates/[A-Za-z0-9_./-]+\.rs:[0-9]+:[0-9]+)", inventory.stderr)
+    entry["compile_failure_categories"] = [category for marker, category in [("No space left on device", "disk-capacity"), ("could not compile", "rust-compile"), ("no matching package", "package-resolution"), ("failed to download", "download-failure"), ("could not resolve", "resolution-failure")] if marker in inventory.stderr]
     report["controls"][label] = entry
     save()
     assert inventory.returncode == 0, "compile/list failure is not behavioral evidence"
@@ -111,7 +114,7 @@ elif SCOPE == "engine":
 elif SCOPE == "private":
     assert COHORT == "experimental"
     names = ["private_enrollment_endorsement_owned_action_cannot_transfer_or_survive_cancel_reopen", "private_enrollment_endorsement_original_received_deadline_cannot_be_renewed", "private_enrollment_endorsement_same_tree_completed_reselection_denies_original_action", "private_enrollment_local_proposal_core_teardown_cannot_preserve_original_owner", "revoked_successor_retry_scope_refuses_terminal_mismatch_expiry_and_cancellation", "private_enrollment_request_sql_fault_preserves_crypto_and_original_retry"]
-    selected = " | ".join("test(=" + "private_roster_settlement_tests::" + name + ")" for name in names)
+    selected = " | ".join("test(=" + "private_roster_settlement::tests::" + name + ")" for name in names)
     execute("six-private-original-tail-controls", ["-p", "cgka-engine", "--lib"], selected, 6)
 else:
     raise AssertionError("unsupported scope")
