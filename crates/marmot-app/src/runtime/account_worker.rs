@@ -811,6 +811,16 @@ pub(crate) enum AccountWorkerCommand {
         feature = "experimental-device-sync",
         feature = "test-policy-overrides"
     ))]
+    LiveRevocationSettlementBindingForTest {
+        group: GroupId,
+        respond:
+            oneshot::Sender<crate::client::device_linking::RevocationBindingObservationForTest>,
+    },
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     RefreshRevocationReceiveRouteForTest {
         group: GroupId,
         respond: oneshot::Sender<Result<(bool, bool, bool), AppError>>,
@@ -2534,6 +2544,8 @@ async fn run_app_runtime_account_worker(
                         } else if let Some(error) = result.as_ref().err()
                             && let Some(control) = client.revoked_confirmation_storage_retry(error, &delivery.delivery)
                         {
+                            #[cfg(all(test, feature = "test-policy-overrides"))]
+                            client.record_actual_revocation_retry_custody_for_test(&control);
                             revoked_confirmation_retry = Some((delivery, control, TokioInstant::now() + Duration::from_secs(1)));
                         } else if matches!(result.as_ref().err().and_then(AppError::as_engine_error),
                             Some(cgka_traits::error::EngineError::PrivateEnrollmentIntakeAtCapacity)) {
@@ -5041,6 +5053,17 @@ fn account_worker_command_future<'a>(
             ));
             true
         }),
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        AccountWorkerCommand::LiveRevocationSettlementBindingForTest { group, respond } => {
+            Box::pin(async move {
+                let _ = respond.send(client.live_revocation_settlement_binding_for_test(&group));
+                true
+            })
+        }
         #[cfg(all(
             test,
             feature = "experimental-device-sync",

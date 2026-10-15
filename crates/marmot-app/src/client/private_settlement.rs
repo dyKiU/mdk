@@ -37,6 +37,37 @@ impl OwnedExistingSettlementAttempt {
     }
 }
 impl AppClient {
+    /// Observe the existing actor-owned original binding; this cannot create
+    /// revocation admission, restore a guard or schedule a retry.
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn live_revocation_settlement_binding_for_test(
+        &self,
+        group: &cgka_traits::GroupId,
+    ) -> crate::client::device_linking::RevocationBindingObservationForTest {
+        Ok((
+            self.runtime
+                .session()
+                .device_revocation_settlement_control()
+                .map_err(cgka_session::SessionError::from)?
+                .filter(|control| control.is_live() && control.group() == group)
+                .map(|control| control.binding()),
+            self.linking_owner.revocation_retry_custody.clone(),
+        ))
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn record_actual_revocation_retry_custody_for_test(
+        &self,
+        control: &cgka_engine::device_leaf_revocation::DeviceRevocationSettlementControl,
+    ) {
+        let mut observed = self.linking_owner.revocation_retry_custody.lock().unwrap();
+        if observed.entries.len() < 128 {
+            observed
+                .entries
+                .push((control.group().clone(), control.binding()));
+        } else {
+            observed.overflow = true;
+        }
+    }
     /// A failed atomic apply must retain the exact live B action. Reopening
     /// destroys that original owner and cannot reconstruct it from stored rows.
     pub(crate) fn existing_enrollment_storage_retry_group(
@@ -86,9 +117,19 @@ impl AppClient {
             .session()
             .device_revocation_settlement_control()
             .ok()??;
+        use cgka_traits::private_roster_settlement::PrivateSettlementPhase;
+        use cgka_traits::storage::StorageProvider;
+        let storage = self.app.account_storage(&self.state.label).ok()?;
+        let round = storage
+            .private_roster_settlement_storage()?
+            .read_round()
+            .ok()??;
         (control.is_live()
             && delivery.group_id_hint.as_ref() == Some(control.group())
-            && groups.contains(control.group()))
+            && groups.contains(control.group())
+            && round.phase == PrivateSettlementPhase::Pending
+            && round.anchor.group_id == *control.group()
+            && round.anchor.context_digest == control.binding())
         .then_some(control)
     }
 
