@@ -11,6 +11,7 @@ import select
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -139,6 +140,22 @@ class Journey:
             require(self.app is None or self.app.poll() is None, 'app-exited-before-observation')
             time.sleep(0.05)
         raise GateFailure('actual-app-observation-timeout')
+
+    def paired_direct_close_observation(self):
+        # Export only the actual app's private close receipt before retiring
+        # its original owned fixture tree, including expected mutant failures.
+        require(self.bridge == self.bridge.resolve(strict=True), 'owned-close-bridge-required')
+        directory = self.bridge.lstat()
+        require(stat.S_ISDIR(directory.st_mode) and directory.st_uid == os.getuid()
+                and stat.S_IMODE(directory.st_mode) == 0o700, 'owned-close-bridge-required')
+        marker = self.bridge / 'paired-direct-closed.json'
+        info = marker.lstat()
+        require(stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid()
+                and stat.S_IMODE(info.st_mode) == 0o600 and info.st_size <= 32768,
+                'actual-owned-app-close-marker-required')
+        require(self.observe('paired-direct-closed.json', 1) == {'runtime_closed': True},
+                'actual-app-positive-close-required')
+        return True
 
     def verify_app(self):
         require(self.app is not None, 'actual-app-execution-required')
@@ -418,6 +435,14 @@ def main():
         journey.report['failure_stage'] = stage if re.fullmatch('[A-Za-z0-9:_-]{1,180}', stage) else 'fixture-refused'
     finally:
         journey.stop_app()
+        if args.scenario == 'paired-direct':
+            journey.report['app_runtime_positive_close'] = False
+            try:
+                require(not journey.report.get('app_required_termination'), 'app-termination-is-not-positive-close')
+                journey.report['app_runtime_positive_close'] = journey.paired_direct_close_observation()
+            except (GateFailure, OSError, ValueError):
+                journey.report['passed'] = 0
+                journey.report.setdefault('failure_stage', 'actual-owned-app-close-marker-required')
         try:
             journey.close_workers()
         except GateFailure:
