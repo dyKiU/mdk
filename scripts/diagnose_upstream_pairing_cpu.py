@@ -15,8 +15,8 @@ import signal
 import subprocess
 
 SOURCE = "92e125d70cfe991038d20b92f060f33007b3afe7"
-PRODUCER = int(os.environ["GITHUB_RUN_ID"])
-ARTIFACT = 0
+PRODUCER = 38744294777
+ARTIFACT = 11978565658
 TEST = "native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts"
 
 
@@ -171,10 +171,10 @@ def record_owned(_sampler, command, _raw_path):
                     for encoded in re.findall(r'func=("(?:[^"\\]|\\.)*")', stack):
                         caller = json.loads(encoded).split("(", 1)[0].strip()
                         if len(caller) <= 400 and re.fullmatch(r"[A-Za-z0-9_:<>, &*~.$?{}\[\]#=+!;\-]+", caller):
-                            if any(fragment in caller for fragment in ["marmot_app::", "cgka_engine::", "storage_sqlite::", "openmls::", "nostr_sdk::", "secrets::", "secrecy::"]):
+                            if caller.startswith(tuple(prefix for crate in ["marmot_app", "marmot_account", "cgka_engine", "storage_sqlite", "openmls", "nostr_sdk", "nostr", "transport_nostr_adapter", "secrets", "secrecy"] for prefix in [crate + "::", "<" + crate + "::"])):
                                 if caller not in callers:
                                     callers.append(caller)
-                    samples.append((time.monotonic() - started, name, deltas[tid], tuple(dict.fromkeys(callers[:4] + [caller for caller in callers if "marmot_app::" in caller or "cgka_engine::" in caller][-12:])), phase_active))
+                    samples.append((time.monotonic() - started, name, deltas[tid], tuple(callers[:32]), phase_active))
                 before = after
                 debugger.command("-exec-continue")
             LAST_STAGE = "release-debugger-before-child-reap"
@@ -206,6 +206,23 @@ def caller_summary(samples):
     counts = collections.Counter((name, callers) for _, name, _, callers, _ in samples)
     return [{"leaf": name, "static_callers": list(callers), "samples": count}
             for (name, callers), count in counts.most_common(60)]
+
+
+def semantic_paths(samples):
+    counts = collections.Counter(callers for _, _, _, callers, _ in samples)
+    ticks = collections.Counter()
+    for _, _, cpu, callers, _ in samples:
+        ticks[callers] += cpu
+    kept = counts.most_common(120)
+    return {
+        "selected_samples": len(samples),
+        "matched_namespace_samples": sum(count for path, count in counts.items() if path),
+        "unmatched_namespace_samples": counts[()],
+        "represented_samples": sum(count for _, count in kept),
+        "omitted_samples": len(samples) - sum(count for _, count in kept),
+        "paths": [{"static_callers": list(path), "samples": count, "active_thread_cpu_ticks": ticks[path]} for path, count in kept],
+        "limits": "Actual namespace prefix only; excludes std/Tokio generic frames that merely contain a product type. Up to80frames read and32actual frames retained per sample. All samples aggregated before120-path export bound; absent frames remain unknown.",
+    }
 
 
 def remove_raw(path):
@@ -287,6 +304,7 @@ def main():
             "static_caller_aggregates": caller_summary(samples),
             "fourth_completion_phase_markers_observed": phase_markers,
             "fourth_completion_sample_count": sum(sample[4] for sample in samples),
+            "fourth_completion_semantic_paths": semantic_paths([sample for sample in samples if sample[4]]),
             "fourth_completion_static_caller_aggregates": caller_summary([sample for sample in samples if sample[4]]),
             "fourth_completion_static_symbol_aggregates": summarize([sample for sample in samples if sample[4]]),
             "attribution_limits": "Debugger pauses influence timing; leaf sampled after interrupt may differ from the CPU-hot function. Whole case includes startup/import. 92e has cfg-test cost spans but no provisional production optimizations. Fourth-window boundaries are observed from existing stderr markers at sampling polls; polling/scheduling may shift boundary attribution. 80 frames may omit deeper callers; no complete unwind claim. CPU ticks weight intervals, not exact per-function CPU time.",

@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, reconciled-controls, reconciled-static, reconciled-static-default, reconciled-linking-cost, reconciled-linking-profile]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, reconciled-controls, reconciled-static, reconciled-static-default, reconciled-linking-cost, reconciled-linking-profile, reconciled-linking-profile-archive]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -33,6 +33,81 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  reconciled-linking-profile-archive:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'reconciled-linking-profile-archive'
+    name: Immutable92e corrected namespace attribution without compilation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve corrected sampler and restore exact92e source
+        run: |
+          cp scripts/diagnose_upstream_pairing_cpu.py "$RUNNER_TEMP/pairing-cpu.py"
+          git checkout --detach 92e125d70cfe991038d20b92f060f33007b3afe7
+      - name: Verify exact immutable artifact producer identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/dyKiU/mdk/actions/runs/38744294777 > "$RUNNER_TEMP/producer.json"
+          gh api repos/dyKiU/mdk/actions/artifacts/11978565658 > "$RUNNER_TEMP/archive.json"
+          python3 - <<'PYGUARD'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          run=json.loads((root/'producer.json').read_text())
+          archive=json.loads((root/'archive.json').read_text())
+          assert run['id']==38744294777 and run['head_sha']=='78e823bc15ec44181e2c23d23a6f8fe498a53b25'
+          assert run['path']=='.github/workflows/experimental-sync-ci.yml' and run['conclusion']=='success'
+          assert archive['id']==11978565658 and not archive['expired']
+          assert archive['name']=='reconciled-92e-immutable-binary'
+          assert archive['digest']=='sha256:548174bc054908c130d5740f0ff8d9eb50cf7c34bd2d4336a4d56b5ab54299f8'
+          assert archive['workflow_run']['id']==run['id'] and archive['workflow_run']['head_sha']==run['head_sha']
+          PYGUARD
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: 38744294777
+          artifact-ids: 11978565658
+          path: immutable-92e
+          merge-multiple: true
+      - name: Inspect exact archive and sample without rebuilding or a normal test rerun
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gdb
+          python3 - <<'PYGUARD'
+          import hashlib, json
+          from pathlib import Path
+          root=Path('immutable-92e')
+          proof=json.loads((root/'provenance.json').read_text())
+          assert proof['source']=='92e125d70cfe991038d20b92f060f33007b3afe7'
+          assert proof['source_tree']=='d0a856d4212592f46485d7b06b40810f47d2e361'
+          assert proof['rust_min_stack_bytes']==4194304 and not proof['unexpected_rebuild']
+          assert proof['binary_sha256']=='55f2cc25e1253d0ebd070caabb444152353c415fdcfe166dbd0e8c83859a4726'
+          assert proof['archive_sha256']=='d2d4718babcef4299f201d5049b05ef1be9f819df37329bc3988431f92c6d5f8'
+          assert hashlib.file_digest((root/'tests.tar.zst').open('rb'),'sha256').hexdigest()==proof['archive_sha256']
+          assert proof['compile_environment']=={'CARGO_INCREMENTAL':'0','CARGO_PROFILE_DEV_DEBUG':'0','CARGO_PROFILE_TEST_DEBUG':'0'}
+          assert proof['toolchain']=='rustc 1.97.1 (8bab26f4f 2026-07-14)'
+          assert hashlib.file_digest(Path('Cargo.lock').open('rb'),'sha256').hexdigest()==proof['cargo_lock_sha256']
+          assert hashlib.file_digest(Path('.config/nextest.toml').open('rb'),'sha256').hexdigest()==proof['nextest_config_sha256']
+          assert proof['features']=='marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks'
+          PYGUARD
+          filter='package(marmot-app) & binary(=marmot_app) & test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts)'
+          cargo nextest list --archive-file immutable-92e/tests.tar.zst --extract-to "$RUNNER_TEMP/immutable-92e-test" -E "$filter" --message-format json > "$RUNNER_TEMP/inventory.json"
+          python3 "$RUNNER_TEMP/pairing-cpu.py" --inventory "$RUNNER_TEMP/inventory.json" --archive immutable-92e/tests.tar.zst --provenance immutable-92e/provenance.json --report namespace-profile/result.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reconciled-92e-namespace-profile
+          path: namespace-profile/result.json
+          if-no-files-found: error
+          retention-days: 7
   reconciled-linking-profile:
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'reconciled-linking-profile'
     name: Immutable92e fourth-window static caller diagnosis
