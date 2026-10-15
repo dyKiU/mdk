@@ -1,8 +1,11 @@
 {
-  "scope": "tools-preflight",
-  "format_platforms": [],
-  "mac_sha": "dc86789da2251ce89f3546719ff1dd8dd91ee99d",
-  "ios_sha": "cfc9ba7b6a66ecc444b80070209ce2c1c195fc00",
+  "scope": "app-format",
+  "format_platforms": [
+    "macos",
+    "ios"
+  ],
+  "mac_sha": "70a064a124685a959d58aa5433d8adc4f272b5fc",
+  "ios_sha": "651461292a12be94c246af3ebe092a7b52b62673",
   "mac_baseline": "38277c60878e660b92fb6157ae59665babce4623",
   "ios_baseline": "000221a2483613bde14bdd2f9a10a5697449b6f6"
 }
