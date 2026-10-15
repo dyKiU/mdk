@@ -137,3 +137,44 @@ execute once and pass before mutation, fail at runtime under its mutant, then
 pass after exact committed-byte restoration. Counts must be one test with zero
 skips; compile failures and empty runs cannot qualify a mutant. The original
 locale, clock, cache and formatting assertions remain unchanged.
+
+## Coverage and remaining qualification
+
+The matrix describes scenario assertions, not a passing receipt. Check the exact
+SDK source, app/tool commits, executed bodies, counts and positive worker closes
+in each result. The publication/runtime changes require these existing native
+lanes to run against their new matching SDK; earlier 3f18 results do not qualify
+the changed runtime. Preserve failed and intermittent attempts separately.
+
+| Requirement | Existing hosted gate | Scope and remaining limit |
+| --- | --- | --- |
+| Enrollment, comparison and sharing consent | `one-scan` in two directions; first/third pairing reused by the four lifecycle journeys | Original SAS comparison, bilateral enrollment/sharing and existing-device review remain explicit. Stale approval is refused. These are SDK workers on one host, not application UI acceptance. |
+| Historical messages and original ownership | `native-history` archive journey | Two source records, one tagged prejoin import, one retained live record; recipient query, no preconsent disclosure, alias cancellation and final-alias drop. Cancellation cannot restore original authority. |
+| Bounded archive pagination | `history-pagination` | All 199 prejoin messages must be observed through the ordinary peer, then enumerate exactly after consent. The recorded 200-record/59-fragment attempt timed out before enumeration and reported failed cleanup; it remains unqualified. The explicit source cap stays 200. |
+| Larger automatic history and missing chats | `automatic-history`; complementary existing/new direct-chat checks in `one-scan` | Prepared 205-record, six-page catch-up on both approved B/C companions, unapproved-recipient negative, original-store reopen, future message and later absent-chat discovery. Execution is still required on the new SDK. This is representative intended-recipient coverage, not every user or topology. |
+| Departure, withdrawal and revocation | `native-history` departure, withdrawal and revocation journeys | Offline pending/completed departure, reopen and denied sends; local hide and non-admin leave; six revocation stages including surviving-source delivery, no new disclosure to the revoked device and refused forwarding. These are distinct from message deletion. |
+| Retention, expiry, message tombstones and replay/authentication | Committed Rust tests below; no equivalent native lifecycle body currently selected | Existing native records assert no expiry and no deletion. Native stale-review/cancellation negatives do not by themselves prove cross-transfer cryptographic replay refusal or transferred retention/tombstone propagation. |
+
+The full experimental workspace archive includes the following source-level
+invariants. Confirm their actual inclusion and passing execution in the final
+nextest inventory; source presence and a green default-feature suite are not
+execution evidence. Reuse passing final-cohort results instead of launching a
+second copy of the same matrix.
+
+| Source | Representative committed tests |
+| --- | --- |
+| `crates/storage-sqlite/src/synchronized_history/tests.rs` | `tombstones_and_retention_never_resurrect_on_new_transfer_or_retry`; `receiving_retention_ceiling_does_not_trust_exporter_expiry`; `history_archive_recipient_retention_cannot_be_loosened_by_exporter` |
+| `crates/storage-sqlite/src/mirrored_chat_messages/tests.rs` | `mirrored_messages_retention_only_tightens_and_purge_keeps_replay_fence`; `mirrored_messages_terminal_before_body_fences_all_sources_policies_and_renewals`; `mirrored_messages_source_replays_epochs_and_cross_source_immutable_identity` |
+| `crates/marmot-app/src/synchronized_history/tests.rs` and `src/account_chat_presentation/tests.rs` | `expiry_retention_fences_and_payload_free_tombstones_survive_reads`; `paired_presentation_canonical_decode_keeps_ordered_rejections_and_tombstone_privacy` |
+| `crates/marmot-app/src/selected_chat_copy/tests.rs` (`actual` module) | `history_transfer_expired_unpruned_source_never_serializes_plaintext`; `history_transfer_cancelled_original_cannot_restart_from_fresh_outer_request`; `history_transfer_cancelled_original_cannot_restart_after_encrypted_recipient_reopen` |
+| `crates/cgka-engine/src/history_transfer/tests.rs` | `history_channel_cross_transfer_consent_and_signed_generation_are_refused`; `history_channel_cancel_expiry_retirement_and_engine_teardown_are_negative` |
+
+Run the existing four hosted lifecycle bodies, two one-scan directions, bounded
+pagination and automatic-205 body once for the final matching SDK. Keep the
+separate published/experimental independent-account interoperability evidence and
+both app cohorts. No additional fixture or physical installation is required
+merely to restate an invariant covered by the final Rust suites. If a final
+behavior change exposes an uncovered lifecycle failure, add only the focused
+native journey needed to reproduce it. Until then, explicitly retain the missing
+native retention/expiry/message-deletion evidence and the finite history limits;
+do not claim full-history replacement or retention/deletion equivalence.
