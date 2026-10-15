@@ -65,6 +65,8 @@ def run(names,label):
     if listing.returncode:
         proof["compile_error_codes"]=sorted(set(re.findall(r"error\[(E[0-9]+)\]",listing.stderr)))
         proof["compile_locations"]=sorted(set(re.findall(r"--> (crates/[A-Za-z0-9_./-]+\.rs:[0-9]+:[0-9]+)",listing.stderr)))[:20]
+        # Compiler headers only: never source excerpts, runtime logs or account data.
+        proof["compiler_diagnostics"]=[line[:500] for line in listing.stderr.splitlines() if re.match(r"^(?:error(?:\[E[0-9]+\])?:|note:|help:|\s*--> crates/[A-Za-z0-9_./-]+\.rs:[0-9]+:[0-9]+)",line)][:40]
         save()
         return False
     assert fingerprint()==starting_inputs
@@ -110,5 +112,11 @@ report["qualification_passed"]=safe and report["app_safety_passed"] and report["
 report["source_after_sha256"]=fingerprint()
 report["inputs_pristine"]=report["source_after_sha256"]==report["source_before_sha256"] and subprocess.run(["git","diff","--quiet","HEAD"]).returncode==0
 report["qualification_passed"] &= report["inputs_pristine"]
+all_cases=[case for check in report["checks"].values() for case in check.get("cases",[])]
+report["actual_executed_nonignored"]=sum(case.get("executed_nonignored",0) for case in all_cases)
+report["required_body_count_satisfied"]=len(all_cases)==35 and report["actual_executed_nonignored"]==35
+report["qualification_passed"] &= report["required_body_count_satisfied"]
 save()
+if report["qualification_passed"]:
+    assert len(all_cases)==35 and sum(case.get("passed",0) for case in all_cases)==35 and all(case.get("ignored")==0 for case in all_cases), "35 actual passing nonignored bodies required"
 raise SystemExit(0 if report["qualification_passed"] else 1)
