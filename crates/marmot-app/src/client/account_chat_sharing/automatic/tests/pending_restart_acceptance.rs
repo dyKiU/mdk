@@ -148,9 +148,23 @@ async fn tick(client: &mut AppClient, id: [u8; 32]) {
         .automatic
         .remove(&id)
         .expect("actual channel");
-    let result = client.automatic_sharing_tick(&mut entry).await;
+    let wait_for_publication = !entry.handshake_published;
+    let result = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            client.automatic_sharing_tick(&mut entry).await?;
+            if !wait_for_publication || entry.handshake_published {
+                return Ok::<(), AccountSharingError>(());
+            }
+            // Drive the same original's real publication result; never create a
+            // replacement request or assign a successful publication flag.
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
     client.account_sharing_owner.automatic.insert(id, entry);
-    result.unwrap();
+    result
+        .expect("original handshake publication must finish")
+        .unwrap();
 }
 // Observation first preserves the actual Core error category that the App
 // eligibility adapter otherwise maps to Closed. Only cheap-open hydration is
