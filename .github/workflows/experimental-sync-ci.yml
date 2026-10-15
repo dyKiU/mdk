@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -233,7 +233,7 @@ jobs:
           cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --partition count:2/5 --no-fail-fast -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
 
   core-regressions:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering","pairing-regression"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering","pairing-regression","sync-failure-regressions"]'), inputs.scope)
     name: Focused regressions (${{ inputs.scope }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -281,10 +281,13 @@ jobs:
             elif [[ "$REGRESSION_SCOPE" == revocation-initial-peel-ordering ]]; then
               filter='package(marmot-app) & test(device_revocation_challenge_initial_peel_before_storage_retry_preserves_fresh_authority)'
             fi
-          elif [[ "$REGRESSION_SCOPE" == pairing-regression ]]; then
+          elif [[ "$REGRESSION_SCOPE" == pairing-regression || "$REGRESSION_SCOPE" == sync-failure-regressions ]]; then
             features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
             args=(--locked -p marmot-app --lib --features "$features")
             filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts)'
+            if [[ "$REGRESSION_SCOPE" == sync-failure-regressions ]]; then
+              filter='package(marmot-app) & (test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts) | test(=native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure))'
+            fi
           elif [[ "$REGRESSION_SCOPE" == campaign-regression ]]; then
             features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
             args=(--locked -p cgka-conformance-simulator -p marmot-app -p cgka-engine --bin cgka-conformance-campaign --features "$features")
@@ -323,6 +326,9 @@ jobs:
                   "device_revocation_confirmation_fact_rollback_preserves_owned_successor_authority",
               ]
               expected = 10
+          elif os.environ["REGRESSION_SCOPE"] == "sync-failure-regressions":
+              required = ["third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts", "automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure"]
+              expected = 2
           elif os.environ["REGRESSION_SCOPE"] == "pairing-regression":
               required = ["third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts"]
               expected = 1
@@ -337,10 +343,14 @@ jobs:
           if [[ "$REGRESSION_SCOPE" == revocation-challenge-ordering || "$REGRESSION_SCOPE" == revocation-regression || "$REGRESSION_SCOPE" == revocation-initial-peel-ordering ]]; then
             output_args=(--success-output immediate)
           fi
-          if [[ "$REGRESSION_SCOPE" == pairing-regression ]]; then
+          regression_threads=6
+          if [[ "$REGRESSION_SCOPE" == pairing-regression || "$REGRESSION_SCOPE" == sync-failure-regressions ]]; then
             output_args=(--success-output immediate)
           fi
-          cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads 6 --retries 0 --no-fail-fast "${output_args[@]}"
+          if [[ "$REGRESSION_SCOPE" == sync-failure-regressions ]]; then
+            regression_threads=1
+          fi
+          cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads "$regression_threads" --retries 0 --no-fail-fast "${output_args[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
