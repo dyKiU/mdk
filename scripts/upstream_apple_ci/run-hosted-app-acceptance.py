@@ -109,10 +109,10 @@ class Runner:
             self.state = {'cohort': self.cohort, 'steps': {}, 'cases': {}}
             self.save()
         self.report = {'cohort': self.cohort, 'requested_scope': args.scope, 'passed': 0,
-                       'qualification_scope': ('Attach-only hosted UI harness control: one unit and one UI driver; '
+                       'qualification_scope': ('Owner-free UI infrastructure setup: one real passing test, then attach-only harness control: one unit and one UI driver; '
                            'no enrollment, history, fixture-agent or changed-SDK behavior qualification.'
                            if args.scope == 'ios-control' else 'Real native app fixtures using the exact SDK cohort.'),
-                       'cases': {}, 'stage_timings': [],
+                       'setup': {}, 'cases': {}, 'stage_timings': [],
                        'limits': ['Hosted single-runner SDK/app acceptance; no physical-device, APNS or production-install claim.',
                                   'No exhaustive full-history, all-user/topology or transferred retention/deletion equivalence.']}
         spec = importlib.util.spec_from_file_location('hosted_app_ui', HERE / 'hosted-app-ui.py')
@@ -126,7 +126,7 @@ class Runner:
 
     def failed_receipt(self, label):
         """Export native counts/closed categories, never private receipt contents."""
-        if label not in ('ios-build', 'macos-build', 'ios-control', 'ios-native-qr'):
+        if label not in ('ios-build', 'macos-build', 'ios-runner-preflight', 'ios-control', 'ios-native-qr'):
             return
         platform = 'macos' if label.startswith('macos-') else 'ios'
         prefix = self.private / label
@@ -164,9 +164,9 @@ class Runner:
                     if label == 'ios-native-qr':
                         break
                 diagnostic = raw.get('control_diagnostics')
-                if label == 'ios-control' and isinstance(diagnostic, dict):
+                if label in ('ios-control', 'ios-runner-preflight') and isinstance(diagnostic, dict):
                     categories = {'host-foreground', 'control-button-exists', 'control-button-hittable',
-                                  'control-button-tap', 'control-result-visible'}
+                                  'control-button-tap', 'control-result-visible', 'host-not-running'}
                     keys = {'unit_process_launched_seconds', 'driver_process_launched_seconds', 'unit_ready_observed_seconds'}
                     keys.update(role + suffix for role in ('unit', 'driver') for suffix in (
                         '_method_start_observed_seconds', '_method_end_observed_seconds', '_process_exit_observed_seconds'))
@@ -324,6 +324,29 @@ class Runner:
         sdk = self.ui.freeze_sdk(self.package(platform), self.args.sdk_source)
         self.ui.verify_build(receipt, frozen, sdk, self.products(platform))
         return receipt
+
+    def runner_preflight(self):
+        # Run before any hosted original exists. This is a real passing UI test,
+        # reported separately; the following live-owner pair remains unchanged.
+        name = 'ios-runner-preflight'
+        prefix = self.private / name
+        bridge = self.private / 'runner-preflight-bridge'
+        bridge.mkdir(mode=0o700, exist_ok=True)
+        build = self.build('ios')
+        self.command(name, self.ui_arguments('ios', prefix, bridge)
+                     + ['--stage', 'runner-preflight', '--case', 'control', '--build-input', str(build)],
+                     'owner-free-ui-runner-setup', timeout=600)
+        receipt = json.loads(Path(str(prefix) + '-results.json').read_text())
+        require(type(receipt.get('passed')) is int and receipt['passed'] == 1
+                and receipt.get('stage') == 'runner-preflight' and one_pass(receipt['driver'])
+                and receipt.get('unit_exit_code') is None and 'unit' not in receipt
+                and receipt['source_commit'] == self.args.ios_commit
+                and receipt['sdk_source'] == self.args.sdk_source
+                and str(receipt['sdk_run_id']) == self.args.sdk_run_id,
+                'exact-owner-free-runner-preflight-required')
+        self.report['setup'][name] = {'passed': 1, 'driver': receipt['driver'],
+            'source_commit': self.args.ios_commit, 'sdk_source': self.args.sdk_source,
+            'scope': 'Owner-free public UI runner only; no SDK protocol acceptance'}
 
     def ui_control(self):
         name = 'ios-control'
@@ -532,6 +555,7 @@ class Runner:
 
     def run(self):
         self.prepare_sdk()
+        self.runner_preflight()
         self.ui_control()
         if self.args.scope == 'ios-control':
             return
@@ -583,6 +607,9 @@ def main():
     started = time.monotonic()
     try:
         runner.run()
+        require(set(runner.report['setup']) == {'ios-runner-preflight'}
+                and runner.report['setup']['ios-runner-preflight']['passed'] == 1,
+                'actual-owner-free-setup-body-required')
         require(set(runner.report['cases']) == runner.expected_cases()
                 and all(case['passed'] == 1 for case in runner.report['cases'].values()),
                 'every-requested-native-app-body-required')
@@ -592,6 +619,8 @@ def main():
         label = str(error) if isinstance(error, ValueError) else type(error).__name__
         runner.report['failure_stage'] = label if re.fullmatch('[A-Za-z0-9:_-]{1,180}', label) else type(error).__name__
     finally:
+        runner.report['expected_setup_test_count'] = 1
+        runner.report['completed_setup_test_count'] = len(runner.report['setup'])
         runner.report['expected_cases'] = sorted(runner.expected_cases())
         runner.report['expected_case_count'] = len(runner.expected_cases())
         runner.report['completed_case_count'] = len(runner.report['cases'])

@@ -156,8 +156,11 @@ def require_owned_simulator(simulator, environment):
         raise ValueError("fresh-job-owned-simulator-required")
 
 
-def make_plans(original, case, environment):
+def make_plans(original, case, environment, runner_preflight=False):
     unit_id, driver_id, required, _ = CASES[case]
+    if runner_preflight:
+        driver_id = "HostedHistoryApprovalUITests/testExternalRunnerStartsWithoutLaunchingAbsentHost"
+        required = {}
     environment = dict(environment, **required)
     def select(target_name, identifier):
         result = copy.deepcopy(original)
@@ -184,7 +187,8 @@ def make_plans(original, case, environment):
 
 
 def exact_pass(summary):
-    return (summary.get("passedTests") == 1 and summary.get("failedTests") == 0
+    return (all(type(summary.get(k)) is int for k in ("passedTests", "failedTests", "skippedTests", "totalTestCount"))
+            and summary.get("passedTests") == 1 and summary.get("failedTests") == 0
             and summary.get("skippedTests") == 0 and summary.get("totalTestCount") == 1)
 
 
@@ -249,7 +253,7 @@ def finish_control_driver(driver, unit, prefix, started, observations):
     return driver.returncode
 
 
-def control_diagnostics(source, prefix, observations):
+def control_diagnostics(source, prefix, observations, runner_preflight=False):
     filename = "whitenoise-iosUITests/HostedHistoryApprovalUITests.swift"
     path = source / filename
     expected = {
@@ -259,10 +263,13 @@ def control_diagnostics(source, prefix, observations):
         "button.tap()": "control-button-tap",
         "XCTAssertTrue(app.staticTexts[result].waitForExistence(timeout: 5))": "control-result-visible",
     }
+    if runner_preflight:
+        expected = {"XCTAssertEqual(app.state, .notRunning)": "host-not-running"}
     sites = {}
     in_helper = False
     for line, text in enumerate(path.read_text().splitlines(), 1):
-        if "private func tapExistingHostedButton(" in text:
+        if ((not runner_preflight and "private func tapExistingHostedButton(" in text)
+                or (runner_preflight and "func testExternalRunnerStartsWithoutLaunchingAbsentHost(" in text)):
             in_helper = True
         elif in_helper and text.strip() == "}":
             break
@@ -319,7 +326,7 @@ def main():
     for name in ("source", "products", "prefix", "bridge", "sdk-package"):
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--build-input", type=Path)
-    parser.add_argument("--stage", choices=["build", "run"], default="run")
+    parser.add_argument("--stage", choices=["build", "run", "runner-preflight"], default="run")
     parser.add_argument("--case", choices=CASES, default="control")
     parser.add_argument("--environment", type=Path, help="Private fixture environment JSON; never uploaded")
     for name in ("sdk-source", "source-commit"):
@@ -328,6 +335,9 @@ def main():
     parser.add_argument("--platform", choices=CONFIGURATIONS, default="ios")
     parser.add_argument("--developer-dir", default="/Applications/Xcode.app/Contents/Developer")
     args = parser.parse_args()
+    runner_preflight = args.stage == "runner-preflight"
+    if runner_preflight and (args.platform != "ios" or args.case != "control" or args.environment is not None):
+        raise ValueError("owner-free-ios-control-preflight-only")
     global CONFIG
     CONFIG = CONFIGURATIONS[args.platform]
     if (args.platform == "macos") != (args.case == "mac-source-picker"):
@@ -418,7 +428,7 @@ def main():
         for k, v in environment.items()
     ):
         raise ValueError("string-fixture-environment-required")
-    unit, driver = make_plans(original, args.case, environment)
+    unit, driver = make_plans(original, args.case, environment, runner_preflight)
     unit_plan = products / (prefix.name + "-unit.xctestrun")
     driver_plan = products / (prefix.name + "-driver.xctestrun")
     if unit_plan.exists() or driver_plan.exists():
@@ -449,9 +459,11 @@ def main():
         "build_input_sha256": digest(args.build_input)})
     env = dict(os.environ, DEVELOPER_DIR=args.developer_dir)
     report = {"source_commit": args.source_commit, "sdk_source": args.sdk_source,
-              "sdk_run_id": os.environ["SDK_RUN_ID"], "case": args.case, "platform": args.platform, "source_inputs": len(frozen),
+              "sdk_run_id": os.environ["SDK_RUN_ID"], "stage": args.stage, "case": args.case, "platform": args.platform, "source_inputs": len(frozen),
               "scope": "Actual original source unit + external public UI driver; no build or physical installation",
               "unit_exit_code": None, "driver_exit_code": None}
+    if runner_preflight:
+        report["scope"] = "Owner-free public UI runner setup: one real absent-host assertion; no hosted unit or SDK behavior qualification"
     report["unit_ready_observed"] = False
     start = time.monotonic()
     running = None
@@ -463,29 +475,36 @@ def main():
         destination = "platform=iOS Simulator,id=" + args.simulator if args.platform == "ios" else "platform=macOS,arch=arm64"
         base = ["xcodebuild", "test-without-building", "-destination", destination,
                 "-parallel-testing-enabled", "NO"]
-        with Path(str(prefix) + "-unit.log").open("x") as output:
-            running = subprocess.Popen(base + ["-xctestrun", str(unit_plan), "-resultBundlePath",
-                str(prefix) + "-unit.xcresult"], stdout=output, stderr=subprocess.STDOUT,
-                env=env, start_new_session=True)
-            if args.case == "control":
-                control_observations["unit_process_launched_seconds"] = round(time.monotonic() - start, 3)
-            try:
-                observer = (lambda: observe_control(prefix, running, ui, start, control_observations)) if args.case == "control" else None
-                wait_ready(running, bridge, 140, args.case, Path(str(prefix) + "-unit.log"), observer)
-                report["unit_ready_observed"] = True
+        if runner_preflight:
+            with Path(str(prefix) + "-driver.log").open("x") as output_driver:
+                ui = subprocess.Popen(base + ["-xctestrun", str(driver_plan), "-resultBundlePath",
+                    str(prefix) + "-driver.xcresult"], stdout=output_driver, stderr=subprocess.STDOUT,
+                    env=env, start_new_session=True)
+                report["driver_exit_code"] = finish(ui, 120)
+        else:
+            with Path(str(prefix) + "-unit.log").open("x") as output:
+                running = subprocess.Popen(base + ["-xctestrun", str(unit_plan), "-resultBundlePath",
+                    str(prefix) + "-unit.xcresult"], stdout=output, stderr=subprocess.STDOUT,
+                    env=env, start_new_session=True)
                 if args.case == "control":
-                    control_observations["unit_ready_observed_seconds"] = round(time.monotonic() - start, 3)
-                with Path(str(prefix) + "-driver.log").open("x") as output_driver:
-                    ui = subprocess.Popen(base + ["-xctestrun", str(driver_plan), "-resultBundlePath",
-                        str(prefix) + "-driver.xcresult"], stdout=output_driver, stderr=subprocess.STDOUT,
-                        env=env, start_new_session=True)
+                    control_observations["unit_process_launched_seconds"] = round(time.monotonic() - start, 3)
+                try:
+                    observer = (lambda: observe_control(prefix, running, ui, start, control_observations)) if args.case == "control" else None
+                    wait_ready(running, bridge, 140, args.case, Path(str(prefix) + "-unit.log"), observer)
+                    report["unit_ready_observed"] = True
                     if args.case == "control":
-                        control_observations["driver_process_launched_seconds"] = round(time.monotonic() - start, 3)
-                        report["driver_exit_code"] = finish_control_driver(ui, running, prefix, start, control_observations)
-                    else:
-                        report["driver_exit_code"] = finish(ui, 120)
-            finally:
-                report["unit_exit_code"] = finish(running, 120)
+                        control_observations["unit_ready_observed_seconds"] = round(time.monotonic() - start, 3)
+                    with Path(str(prefix) + "-driver.log").open("x") as output_driver:
+                        ui = subprocess.Popen(base + ["-xctestrun", str(driver_plan), "-resultBundlePath",
+                            str(prefix) + "-driver.xcresult"], stdout=output_driver, stderr=subprocess.STDOUT,
+                            env=env, start_new_session=True)
+                        if args.case == "control":
+                            control_observations["driver_process_launched_seconds"] = round(time.monotonic() - start, 3)
+                            report["driver_exit_code"] = finish_control_driver(ui, running, prefix, start, control_observations)
+                        else:
+                            report["driver_exit_code"] = finish(ui, 120)
+                finally:
+                    report["unit_exit_code"] = finish(running, 120)
     except Exception as error:
         report["runner_error_category"] = type(error).__name__
         if str(error) in ("unit-ended-before-ui-ready", "ui-ready-timeout", "owned-test-runner-timeout"):
@@ -508,8 +527,9 @@ def main():
             report["owned_host_registration_cleanup_exit"] = registration.returncode
         report["seconds"] = round(time.monotonic() - start, 2)
         if args.case == "control":
-            observe_control(prefix, running, ui, start, control_observations)
-            report["control_diagnostics"] = control_diagnostics(source, prefix, control_observations)
+            if not runner_preflight:
+                observe_control(prefix, running, ui, start, control_observations)
+            report["control_diagnostics"] = control_diagnostics(source, prefix, control_observations, runner_preflight)
         for key, check in [
             ("source_unchanged", lambda: freeze_source(source, args.source_commit) == frozen),
             ("sdk_unchanged", lambda: freeze_sdk(args.sdk_package, args.sdk_source) == sdk),
@@ -545,8 +565,9 @@ def main():
                     "approval": {"consent_complete": True, "imported_records": 1,
                                  "reader_verified": True, "owner_retired": True}}.get(args.case)
         report["completion_verified"] = expected is None or all(completion.get(k) == v for k, v in expected.items())
-        report["passed"] = int(all(report.get(k) == 0 for k in ("unit_exit_code", "driver_exit_code"))
-            and all(exact_pass(report.get(k, {})) for k in ("unit", "driver"))
+        roles = ("driver",) if runner_preflight else ("unit", "driver")
+        report["passed"] = int(all(report.get(k + "_exit_code") == 0 for k in roles)
+            and all(exact_pass(report.get(k, {})) for k in roles)
             and all(report[k] for k in ("source_unchanged", "sdk_unchanged", "products_unchanged", "plans_unchanged"))
             and report["completion_verified"]
             and "runner_error_category" not in report)
