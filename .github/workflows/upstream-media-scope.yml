@@ -1,0 +1,50 @@
+name: Upstream media lifecycle scoped qualification
+on:
+  push:
+    branches: [ci/upstream-media-scope-20261015]
+permissions:
+  contents: read
+concurrency:
+  group: media-scope-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [static, default, experimental]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Install repository Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy
+          rustup default "$toolchain"
+          rustc --version
+          cargo --version
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: upstream-media-scope-${{ matrix.cohort }}
+      - name: Qualify exact incoming media source
+        run: python3 scripts/upstream_apple_ci/media-scope.py --cohort '${{ matrix.cohort }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: media-scope-${{ matrix.cohort }}-${{ github.sha }}
+          path: media-scope-evidence/
+          if-no-files-found: error
+          retention-days: 7
