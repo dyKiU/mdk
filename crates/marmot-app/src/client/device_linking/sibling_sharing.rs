@@ -1777,7 +1777,18 @@ impl AppClient {
             .filter(|entry| entry.publication.is_some())
             .count();
         let mut failure = None;
-        for entry in &mut channels {
+        let first_pass_len = channels.len();
+        let mut scheduled: Vec<usize> = (0..first_pass_len).collect();
+        let mut cursor = 0;
+        while cursor < scheduled.len() {
+            let index = scheduled[cursor];
+            let first_pass = cursor < first_pass_len;
+            cursor += 1;
+            let entry = &mut channels[index];
+            let harvested = entry
+                .publication
+                .as_ref()
+                .is_some_and(|pending| pending.task.is_finished());
             #[cfg(all(test, feature = "test-policy-overrides"))]
             {
                 entry
@@ -1787,7 +1798,29 @@ impl AppClient {
                     .expect("sibling diagnostics")
                     .visits += 1;
             }
-            if let Err(error) = self.advance_sibling_sharing(entry, &mut in_flight).await {
+            let outcome = self.advance_sibling_sharing(entry, &mut in_flight).await;
+            // Every waiting sibling gets its normal first opportunity before
+            // a successfully harvested channel can use the freed slot again.
+            // At most the four initially owned tasks can add one extra visit;
+            // Only ready initial policy/proof work re-enters: errors, retries,
+            // peer-only waits and completed channels never get an extra visit.
+            if first_pass
+                && harvested
+                && outcome.is_ok()
+                && entry.publication.is_none()
+                && entry.ready
+                && (!entry.policy_committed || !entry.proof_published)
+                && !entry
+                    .state
+                    .progress
+                    .lock()
+                    .expect("sibling progress")
+                    .complete
+                && scheduled.len() < first_pass_len + MAX_SIBLING_PUBLICATIONS
+            {
+                scheduled.push(index);
+            }
+            if let Err(error) = outcome {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 {
                     use crate::account_chat_sharing::enabled::SiblingMaintenanceFailure as Failure;
