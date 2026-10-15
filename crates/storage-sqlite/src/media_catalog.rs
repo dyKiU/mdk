@@ -48,6 +48,18 @@ pub(crate) fn catalog_error(error: StorageError) -> CatalogError {
     }
 }
 
+/// Maps a media store error into the storage error callers already handle.
+pub fn media_storage_error(error: media_store::MediaError) -> StorageError {
+    use media_store::MediaError;
+    match error {
+        MediaError::Closed => StorageError::Closed("media store is closed".into()),
+        MediaError::Capacity => StorageError::Capacity("media store is full".into()),
+        MediaError::InvalidBody(reason) => StorageError::InvalidAttachmentBody(reason),
+        MediaError::Corruption(reason) => StorageError::Corruption(reason.into()),
+        other => StorageError::Backend(other.to_string()),
+    }
+}
+
 fn id_from_sql(bytes: Vec<u8>) -> StorageResult<FileId> {
     FileId::from_slice(&bytes)
         .ok_or_else(|| StorageError::Corruption("invalid media file id".into()))
@@ -62,6 +74,11 @@ pub struct SqliteMediaCatalog {
 impl SqliteMediaCatalog {
     pub fn new(storage: SqliteAccountStorage) -> Self {
         Self { storage }
+    }
+
+    /// The account database handle this catalog uses.
+    pub fn storage(&self) -> &SqliteAccountStorage {
+        &self.storage
     }
 
     fn run<T>(&self, f: impl FnOnce(&Connection) -> StorageResult<T>) -> CatalogResult<T> {
