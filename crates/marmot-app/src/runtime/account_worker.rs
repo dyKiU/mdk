@@ -1903,6 +1903,11 @@ async fn run_app_runtime_account_worker(
             // any original history consent or channel.
             client.history_owner.runtime_shutdown = Some(lifecycle_shutdown.clone());
         }
+        // Ready inputs can complete an owned turn without suspending this task.
+        // Hand back to the executor between turns so I/O and timer readiness can
+        // advance. Inside select this yield could be absorbed by another ready
+        // arm; here every previous durable operation has already completed.
+        tokio::task::yield_now().await;
         #[cfg(feature = "experimental-device-sync")]
         let private_echo_busy = private_echo_recovery.is_some();
         #[cfg(not(feature = "experimental-device-sync"))]
