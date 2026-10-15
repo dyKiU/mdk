@@ -1,0 +1,91 @@
+name: Completed pairing cleanup ownership regression
+on:
+  push:
+    branches: [ci/upstream-completed-pairing-cleanup-20261015]
+permissions:
+  contents: read
+concurrency:
+  group: completed-pairing-cleanup-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    outputs:
+      phase: ${{ steps.scope.outputs.phase }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: scope
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          phase=json.loads(Path('scripts/completed_pairing_cleanup_cohort.json').read_text())['phase']
+          assert phase in {'red','format'}
+          Path(os.environ['GITHUB_OUTPUT']).write_text('phase='+phase+'\n')
+          PY
+  runtime:
+    needs: identity
+    if: needs.identity.outputs.phase == 'red'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install repository Rust toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: completed-pairing-cleanup
+          cache-on-failure: true
+      - name: Execute one real original completed-session ownership regression
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label completed-session-red
+          python3 scripts/qualify_completed_pairing_cleanup.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: completed-cleanup-${{ github.sha }}
+          path: completed-cleanup-proof/
+          retention-days: 7
+  format:
+    needs: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Export exact canonical formatting without product compilation
+        run: |
+          set -euo pipefail
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          mkdir format-proof
+          git rev-parse HEAD > format-proof/source.txt
+          cargo fmt --all
+          git diff --binary > format-proof/formatting.patch
+          cargo fmt --all --check
+          test ! -s format-proof/formatting.patch
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: completed-cleanup-format-${{ github.sha }}
+          path: format-proof/
+          retention-days: 7
