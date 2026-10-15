@@ -1233,9 +1233,7 @@ impl AppClient {
 
     /// Advance only live, already-approved sharing originals and their publications.
     /// The broader expiry tick retains its separate maintenance schedule.
-    pub(crate) async fn maintain_linking_publications(
-        &mut self,
-    ) -> Result<(), ClientLinkingError> {
+    pub(crate) async fn maintain_linking_publications(&mut self) -> Result<(), ClientLinkingError> {
         self.maintain_existing_pair_sharing().map_err(|_| {
             ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
                 "account sharing original maintenance unavailable".into(),

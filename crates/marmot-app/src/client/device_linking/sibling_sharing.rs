@@ -1868,10 +1868,7 @@ impl AppClient {
                 Err(tokio::sync::oneshot::error::TryRecvError::Empty) => return Ok(()),
                 Err(tokio::sync::oneshot::error::TryRecvError::Closed) => Err(denied()),
             };
-            let pending = entry
-                .publication
-                .take()
-                .expect("ready sibling publication");
+            let pending = entry.publication.take().expect("ready sibling publication");
             *in_flight -= 1;
             result?;
             #[cfg(all(test, feature = "test-policy-overrides"))]
