@@ -43,6 +43,8 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify every static diagnostic bucket and schema without compilation
+        run: python3 scripts/diagnose_upstream_enrollment_sync_cost.py --parser-preflight
       - name: Verify unchanged product source
         run: python3 scripts/verify_upstream_cost_partition_source.py
       - name: Preserve exact formatter patch for review
@@ -57,6 +59,7 @@ jobs:
           path: |
             ${{ runner.temp }}/sync-cost-format.patch
             cost-partition-source.json
+            cost-partition-parser.json
           if-no-files-found: error
           retention-days: 7
   cost-partition:
@@ -82,6 +85,7 @@ jobs:
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Synchronous enrollment cost diagnostic'
           python3 scripts/verify_upstream_cost_partition_source.py
+          python3 scripts/diagnose_upstream_enrollment_sync_cost.py --parser-preflight
           python3 scripts/diagnose_upstream_enrollment_sync_cost.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
@@ -90,6 +94,7 @@ jobs:
           path: |
             sync-cost-evidence/result.json
             cost-partition-source.json
+            cost-partition-parser.json
           if-no-files-found: error
           retention-days: 14
   withdrawal-stack:
