@@ -5,29 +5,7 @@ test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
 test "$SOURCE_SHA" = "$WORKFLOW_HEAD_SHA"
 test -z "$(git status --porcelain --untracked-files=no)"
 test "$(uname -m)" = arm64
-python3 - "$part" <<'PY_CAPACITY'
-import hashlib, json, os, shutil, sys
-from pathlib import Path
-minimum = 8 * 1024**3
-paths = [Path.cwd(), Path(os.environ.get('CARGO_TARGET_DIR', 'target')).resolve(),
-         Path(os.environ['RUNNER_TEMP']).resolve()]
-observations = []
-for path in paths:
-    while not path.exists():
-        path = path.parent
-    usage = shutil.disk_usage(path)
-    observations.append({'path': str(path), 'free_bytes': usage.free, 'total_bytes': usage.total})
-record = {'source_sha': os.environ['SOURCE_SHA'], 'part': sys.argv[1],
-          'minimum_free_bytes': minimum, 'volumes': observations,
-          'cargo_incremental': os.environ.get('CARGO_INCREMENTAL'),
-          'cargo_lock_sha256': hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
-          'cleanup_performed': False}
-record['passed'] = record['cargo_incremental'] == '1' and all(row['free_bytes'] >= minimum for row in observations)
-Path('apple-capacity-preflight.json').write_text(json.dumps(record, indent=2) + '\n')
-print(json.dumps(record, sort_keys=True), flush=True)
-if not record['passed']:
-    raise SystemExit('Apple input requires incremental=1 and eight GiB available on each build volume')
-PY_CAPACITY
+python3 scripts/qualification_build_preflight.py --label "apple-$part" --output apple-capacity-preflight.json
 toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
 rustup toolchain install "$toolchain" --profile minimal
 rustup default "$toolchain"
