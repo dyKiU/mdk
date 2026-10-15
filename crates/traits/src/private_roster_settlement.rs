@@ -50,10 +50,27 @@ pub struct PrivateSettlementDeferredAck {
     pub fact: PrivateSettlementFact,
     pub round_nonce: [u8; 32],
 }
+/// One fresh storage read, never a retained authorization or settled-roster proof.
+/// Backends may include the facts already validated while reading this state.
+/// `None` leaves fact loading to the caller at its original validation point.
+pub struct PrivateSettlementRead {
+    pub state: PrivateSettlementState,
+    pub loaded_facts: Option<Vec<PrivateSettlementFact>>,
+}
+
 /// Trusted-core fact storage; caller crypto SQL transaction encloses ratchets.
 /// No method mints live admission, SDK consent or a validated settled roster.
 pub trait PrivateRosterSettlementStorage: Send + Sync {
     fn read_round(&self) -> StorageResult<Option<PrivateSettlementState>>;
+    /// Optional combined read. The conservative default does not read facts:
+    /// callers retain their existing early-return and error precedence.
+    fn read_round_with_loaded_facts(&self) -> StorageResult<Option<PrivateSettlementRead>> {
+        self.read_round().map(|state| state.map(|state| PrivateSettlementRead {
+            state,
+            loaded_facts: None,
+        }))
+    }
+
     fn select_round(
         &self,
         anchor: &PrivateSettlementAnchor,

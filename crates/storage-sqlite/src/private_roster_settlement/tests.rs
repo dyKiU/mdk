@@ -605,3 +605,66 @@ fn private_settlement_all_128_occupied_slots_complete_without_account_deduplicat
     assert_eq!(storage.read_facts().unwrap().len(), 128);
     assert!(storage.read_round().unwrap().unwrap().phase == PrivateSettlementPhase::Completed);
 }
+
+#[test]
+fn private_settlement_combined_read_matches_validated_round_and_facts() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    assert!(storage.read_round_with_loaded_facts().unwrap().is_none());
+    let generation = complete(&storage);
+    storage.with_read_snapshot(|storage| -> StorageResult<()> {
+        let combined = storage.read_round_with_loaded_facts()?.unwrap();
+        assert!(combined.state == storage.read_round()?.unwrap());
+        assert!(combined.loaded_facts.unwrap() == storage.read_facts()?);
+        Ok(())
+    }).unwrap();
+    storage.deny_round(generation).unwrap();
+    let combined = storage.read_round_with_loaded_facts().unwrap().unwrap();
+    assert!(combined.state.phase == PrivateSettlementPhase::Denied);
+    assert!(combined.loaded_facts.unwrap().is_empty());
+}
+
+#[test]
+fn private_settlement_combined_read_preserves_typed_corruption_error() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    complete(&storage);
+    storage.lock().unwrap().execute("DELETE FROM private_roster_settlement_facts", []).unwrap();
+    assert!(matches!(storage.read_round(), Err(StorageError::Serialization(message)) if message == "invalid private settlement facts"));
+    assert!(matches!(storage.read_round_with_loaded_facts(), Err(StorageError::Serialization(message)) if message == "invalid private settlement facts"));
+    assert!(matches!(storage.read_facts(), Err(StorageError::Serialization(message)) if message == "invalid private settlement facts"));
+}
+
+/// A legacy provider deliberately retains the conservative trait default.
+struct LegacySettlementRead {
+    storage: SqliteAccountStorage,
+    fact_reads: std::sync::atomic::AtomicUsize,
+}
+impl PrivateRosterSettlementStorage for LegacySettlementRead {
+    fn read_round(&self) -> StorageResult<Option<PrivateSettlementState>> { self.storage.read_round() }
+    fn read_facts(&self) -> StorageResult<Vec<PrivateSettlementFact>> {
+        self.fact_reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(StorageError::Serialization("legacy facts unavailable".into()))
+    }
+    fn select_round(&self, anchor: &PrivateSettlementAnchor) -> StorageResult<PrivateSettlementState> { self.storage.select_round(anchor) }
+    fn bind_round_nonce(&self, generation: u64, nonce: [u8;32], coordinator: u32) -> StorageResult<()> { self.storage.bind_round_nonce(generation, nonce, coordinator) }
+    fn record_local_confirmation(&self, fact: &PrivateSettlementFact, ciphertext: &[u8]) -> StorageResult<()> { self.storage.record_local_confirmation(fact, ciphertext) }
+    fn record_remote_confirmation(&self, fact: &PrivateSettlementFact) -> StorageResult<()> { self.storage.record_remote_confirmation(fact) }
+    fn defer_remote_ack(&self, ack: &PrivateSettlementDeferredAck) -> StorageResult<()> { self.storage.defer_remote_ack(ack) }
+    fn clear_deferred_acks(&self, generation: u64) -> StorageResult<()> { self.storage.clear_deferred_acks(generation) }
+    fn put_outbound(&self, generation: u64, bytes: &[u8]) -> StorageResult<()> { self.storage.put_outbound(generation, bytes) }
+    fn deny_round(&self, generation: u64) -> StorageResult<()> { self.storage.deny_round(generation) }
+    fn abandon_pending_on_startup(&self) -> StorageResult<bool> { self.storage.abandon_pending_on_startup() }
+}
+#[test]
+fn private_settlement_legacy_combined_read_never_eagerly_loads_facts() {
+    let legacy = LegacySettlementRead { storage: SqliteAccountStorage::in_memory().unwrap(), fact_reads: std::sync::atomic::AtomicUsize::new(0) };
+    assert!(legacy.read_round_with_loaded_facts().unwrap().is_none());
+    selected(&legacy.storage);
+    let pending = legacy.read_round_with_loaded_facts().unwrap().unwrap();
+    assert!(pending.state.phase == PrivateSettlementPhase::Pending && pending.loaded_facts.is_none());
+    complete(&legacy.storage);
+    let completed = legacy.read_round_with_loaded_facts().unwrap().unwrap();
+    assert!(completed.state.phase == PrivateSettlementPhase::Completed && completed.loaded_facts.is_none());
+    assert_eq!(legacy.fact_reads.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert!(matches!(legacy.read_facts(), Err(StorageError::Serialization(message)) if message == "legacy facts unavailable"));
+    assert_eq!(legacy.fact_reads.load(std::sync::atomic::Ordering::SeqCst), 1);
+}

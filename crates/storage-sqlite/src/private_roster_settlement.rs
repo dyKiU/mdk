@@ -159,6 +159,11 @@ fn facts(
     Ok(result)
 }
 fn read(conn: &Connection) -> StorageResult<Option<PrivateSettlementState>> {
+    read_with_facts(conn).map(|value| value.map(|read| read.state))
+}
+fn read_with_facts(
+    conn: &Connection,
+) -> StorageResult<Option<PrivateSettlementRead>> {
     let row = conn
         .query_row(SELECT, [], |r| {
             Ok((
@@ -197,7 +202,7 @@ fn read(conn: &Connection) -> StorageResult<Option<PrivateSettlementState>> {
     {
         return Err(invalid());
     }
-    Ok(Some(state))
+    Ok(Some(PrivateSettlementRead { state, loaded_facts: Some(slots) }))
 }
 fn write(conn: &Connection, state: &PrivateSettlementState) -> StorageResult<()> {
     validate_state(state)?;
@@ -274,6 +279,10 @@ pub(crate) fn deny_for_group_tx(
 }
 
 impl PrivateRosterSettlementStorage for SqliteAccountStorage {
+    fn read_round_with_loaded_facts(&self) -> StorageResult<Option<PrivateSettlementRead>> {
+        let conn = self.lock()?;
+        read_with_facts(&conn)
+    }
     fn read_round(&self) -> StorageResult<Option<PrivateSettlementState>> {
         {
             let conn = self.lock()?;

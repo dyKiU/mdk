@@ -3023,3 +3023,161 @@ async fn revoked_successor_retry_scope_refuses_terminal_mismatch_expiry_and_canc
     drop(responder);
     let _ = group;
 }
+
+#[tokio::test]
+async fn private_roster_settlement_fresh_read_rejects_foreign_mls_tree_deletion() {
+    use openmls_traits::storage::StorageProvider as _;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("isolated-warm-roster.db");
+    let key = SqlCipherKey::new("18".repeat(32)).unwrap();
+    let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let (initiator, responder, group) = complete_pair(storage.clone()).await;
+    assert!(
+        responder
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_some()
+    );
+    // A real independently opened writer invalidates an previously read MLS tree.
+    let foreign = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let mls_group = openmls::group::GroupId::from_slice(group.as_slice());
+    foreign.mls_storage().delete_tree(&mls_group).unwrap();
+    assert!(
+        !matches!(
+            responder.validated_settled_device_roster(&group),
+            Ok(Some(_))
+        ),
+        "a fresh read cannot conceal an authoritative foreign tree deletion"
+    );
+    assert!(
+        initiator
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn private_roster_settlement_fresh_read_rechecks_foreign_confirmation_facts() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("isolated-warm-facts.db");
+    let key = SqlCipherKey::new("18".repeat(32)).unwrap();
+    let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let (initiator, responder, group) = complete_pair(storage.clone()).await;
+    assert!(
+        responder
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_some()
+    );
+    let foreign = rusqlite::Connection::open(&path).unwrap();
+    storage_sqlite::open_hardened_sqlcipher(
+        &foreign,
+        &key,
+        storage_sqlite::SqlCipherHardening::default(),
+    )
+    .unwrap();
+    let removed = foreign
+        .execute("DELETE FROM private_roster_settlement_facts", [])
+        .unwrap();
+    assert!(
+        removed > 0,
+        "the completed fixture must have actual authenticated leaf receipts"
+    );
+    assert!(
+        matches!(
+            responder.validated_settled_device_roster(&group),
+            Err(EngineError::Storage(cgka_traits::storage::StorageError::Serialization(message)))
+                if message == "invalid private settlement facts"
+        ),
+        "corrupt completed facts retain their exact typed storage error"
+    );
+    assert!(
+        initiator
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn private_roster_settlement_fresh_read_rechecks_foreign_denial() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("isolated-warm-denial.db");
+    let key = SqlCipherKey::new("18".repeat(32)).unwrap();
+    let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let (initiator, responder, group) = complete_pair(storage.clone()).await;
+    assert!(
+        responder
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_some()
+    );
+    let generation = storage
+        .private_roster_settlement_storage()
+        .unwrap()
+        .read_round()
+        .unwrap()
+        .unwrap()
+        .generation;
+    let foreign = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    foreign
+        .private_roster_settlement_storage()
+        .unwrap()
+        .deny_round(generation)
+        .unwrap();
+    assert!(
+        responder
+            .validated_private_successor(&group)
+            .unwrap()
+            .is_some(),
+        "the same protected successor remains valid after the actual round denial"
+    );
+    assert!(
+        responder
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_none(),
+        "a fresh read never revives a denied settlement"
+    );
+    assert!(
+        initiator
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn private_roster_settlement_fresh_read_rechecks_foreign_generation() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("isolated-fresh-generation.db");
+    let key = SqlCipherKey::new("18".repeat(32)).unwrap();
+    let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let (initiator, responder, group) = complete_pair(storage.clone()).await;
+    let previous = responder.validated_settled_device_roster(&group).unwrap().unwrap();
+    let round = storage.private_roster_settlement_storage().unwrap().read_round().unwrap().unwrap();
+    let foreign = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let selected = foreign.private_roster_settlement_storage().unwrap().select_round(&round.anchor).unwrap();
+    assert!(selected.generation > previous.settlement_generation());
+    assert!(responder.validated_private_successor(&group).unwrap().is_some());
+    assert!(responder.validated_settled_device_roster(&group).unwrap().is_none(), "a new pending generation cannot reuse previous completed facts");
+    assert!(initiator.validated_settled_device_roster(&group).unwrap().is_some());
+}
+
+#[tokio::test]
+async fn private_roster_settlement_fresh_read_rechecks_foreign_origin_denial() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("isolated-fresh-origin.db");
+    let key = SqlCipherKey::new("18".repeat(32)).unwrap();
+    let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let (initiator, responder, group) = complete_pair(storage.clone()).await;
+    assert!(responder.validated_settled_device_roster(&group).unwrap().is_some());
+    let foreign = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let anchors = foreign.accepted_device_group_anchor_storage().unwrap();
+    let actual = anchors.accepted_anchor().unwrap().unwrap();
+    anchors.deny_accepted_anchor(&actual.scope, &group).unwrap();
+    assert!(responder.validated_private_successor(&group).unwrap().is_none());
+    assert!(responder.validated_settled_device_roster(&group).unwrap().is_none(), "denied protected origin cannot reuse a previous completed observation");
+    assert!(initiator.validated_settled_device_roster(&group).unwrap().is_some());
+}

@@ -731,9 +731,10 @@ pub(crate) fn completed_round_for_predecessor_tree<S: StorageProvider>(
     let Some(store) = storage.private_roster_settlement_storage() else {
         return Ok(None);
     };
-    let Some(state) = store.read_round()? else {
+    let Some(read) = store.read_round_with_loaded_facts()? else {
         return Ok(None);
     };
+    let state = read.state;
     if state.phase != PrivateSettlementPhase::Completed
         || state.anchor.group_id != *group
         || state.round_nonce.is_none()
@@ -750,7 +751,10 @@ pub(crate) fn completed_round_for_predecessor_tree<S: StorageProvider>(
     {
         return Ok(None);
     }
-    let facts = store.read_facts()?;
+    let facts = match read.loaded_facts {
+        Some(facts) => facts,
+        None => store.read_facts()?,
+    };
     if facts.len() != state.anchor.successor.leaves.len()
         || !state.anchor.successor.leaves.iter().all(|leaf| {
             facts.iter().any(|fact| {
