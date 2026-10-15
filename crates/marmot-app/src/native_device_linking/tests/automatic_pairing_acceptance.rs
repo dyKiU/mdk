@@ -826,7 +826,6 @@ fn observe_passive_sibling_failure(
                                 }
                                 cgka_traits::MessageState::PeelDeferred => "PeelDeferred",
                                 cgka_traits::MessageState::EpochInvalidated => "EpochInvalidated",
-                                _ => "Other",
                             },
                             Err(StorageError::NotFound) => "NotFound",
                             Err(_) => "ReadFailure",
@@ -837,7 +836,7 @@ fn observe_passive_sibling_failure(
                 }
                 let notification = origin
                     .and_then(|snapshot| snapshot.scope.as_ref())
-                    .and_then(|scope| event_id.map(|id| (scope, id)))
+                    .zip(event_id)
                     .and_then(|(scope, id)| {
                         app.relay_plane.account_notification_disposition_for_test(
                             &cgka_traits::MemberId::new(
