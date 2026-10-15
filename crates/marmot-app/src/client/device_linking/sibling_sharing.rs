@@ -1516,6 +1516,8 @@ impl AppClient {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             pre_auth_failure,
         });
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        observe_sibling_lifecycle(self.linking_owner.sibling_channels.last().expect("created source sibling"), 9);
         Ok(())
     }
     pub(crate) fn observe_sibling_sharing_control(
@@ -1709,6 +1711,8 @@ impl AppClient {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 pre_auth_failure: None,
             });
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            observe_sibling_lifecycle(self.linking_owner.sibling_channels.last().expect("admitted recipient sibling"), 8);
             return Ok(true);
         }
         let Some(index) = self

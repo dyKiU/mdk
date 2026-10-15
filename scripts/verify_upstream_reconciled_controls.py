@@ -213,7 +213,7 @@ if scope in {"latest-three", "latest-controls", "latest-fourth-trace"}:
                         assert snap["pending"] is None or (len(snap["pending"]) == 2 and type(snap["pending"][0]) is bool and snap["pending"][1] in {0,1,2})
                         assert len(snap["records"]) <= 256
                         for at, stage, flags, pending, ready in snap["records"]:
-                            assert type(at) is int and at >= 0 and type(stage) is int and 0 <= stage <= 7
+                            assert type(at) is int and at >= 0 and type(stage) is int and 0 <= stage <= 9
                             assert flags is None or (type(flags) is int and 0 <= flags <= 255)
                             assert pending is None or type(pending) is bool
                             assert type(ready) is int and ready in {0,1,2}
@@ -221,7 +221,7 @@ if scope in {"latest-three", "latest-controls", "latest-fourth-trace"}:
                 except (KeyError, TypeError, ValueError, AssertionError): rejected += 1
             report["fourth_lifecycle"] = rows
             report["fourth_lifecycle_parse_rejections"] = rejected
-            report["lifecycle_stage_names"] = ["PeriodicEntry", "PeriodicReturn", "WakeEntry", "WakeReturn", "PolicyCommitted", "PublicationScheduled", "ResultSent", "ControlReturned"]
+            report["lifecycle_stage_names"] = ["PeriodicEntry", "PeriodicReturn", "WakeEntry", "WakeReturn", "PolicyCommitted", "PublicationScheduled", "ResultSent", "ControlReturned", "RequestAdmitted", "SourceChannelCreated"]
             report["lifecycle_flags"] = ["originalLive", "stateLive", "ready", "handshakePublished", "policyCommitted", "proofPublished", "peerCommitted", "complete"]
             report["lifecycle_columns"] = ["fourth_elapsed_ms", "stage", "fresh_flags_or_null", "pending_proof_or_null", "result_status_0pending_1success_2error"]
             report["diagnostic_only"] = True
@@ -229,6 +229,7 @@ if scope in {"latest-three", "latest-controls", "latest-fourth-trace"}:
             assert proof["failed"] == 1 and "fourth-device-completion" in proof["completion_stage_markers"] and "original-phase-not-reached" in proof["closed_failure_categories"]
             assert not rejected and len(rows) == 4 and {(row["peer"],row["role"]) for row in rows} == {(0,0),(0,1),(1,0),(1,1)}
             assert all(row["snapshot"] is not None and row["snapshot"]["dropped"] == 0 for row in rows), "complete bounded fourth-entry evidence required"
+            assert all(sum(record[1] == 8 for record in row["snapshot"]["records"]) == 1 for row in rows if row["role"] == 1), "both genuine child admissions must have observed fourth-window timestamps"
             report["diagnostic_complete"] = True
             save()
             raise SystemExit(0)
