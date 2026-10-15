@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, profile-edit-regression]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-consent-fairness, profile-edit-regression]
         default: full
       recovery_run:
         description: Completed immutable original run for archive-recovery only
@@ -45,7 +45,7 @@ env:
 
 jobs:
   pairing-replay:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-regression","pairing-diagnostic"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-regression","pairing-diagnostic","pairing-consent-fairness"]'), inputs.scope)
     name: Pairing replay (${{ matrix.slots }} slots)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -88,7 +88,11 @@ jobs:
           features=otlp-export,product-analytics-export,test-policy-overrides,experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
           filter='package(marmot-app) & (test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts) | test(=native_device_linking::automatic_pairing_acceptance::automatic_transport_cannot_keep_dropped_original_authority_alive) | test(=native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer) | test(=native_device_linking::automatic_pairing_acceptance::automatic_sync_does_not_block_foreground_enrollment_completion))'
           if [[ "$REPLAY_SCOPE" == pairing-diagnostic ]]; then
-            filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts)'
+            elif [[ "$REPLAY_SCOPE" == pairing-consent-fairness ]]; then
+            filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer)'
+          filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts)'
+          elif [[ "$REPLAY_SCOPE" == pairing-consent-fairness ]]; then
+            filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer)'
           fi
           args=(--locked -p marmot-app --lib --features "$features")
           cargo nextest list "${args[@]}" -E "$filter" --message-format json > pairing-inventory.json
@@ -105,6 +109,8 @@ jobs:
           }
           if os.environ['REPLAY_SCOPE'] == 'pairing-diagnostic':
               expected = {'native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts'}
+          elif os.environ['REPLAY_SCOPE'] == 'pairing-consent-fairness':
+              expected = {'native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer'}
           assert selected == expected
           print('qualification-selected-pairing-cases:', len(selected))
           PY

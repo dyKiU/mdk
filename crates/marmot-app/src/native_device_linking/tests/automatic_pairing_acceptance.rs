@@ -244,8 +244,17 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         approvals.push(approval);
     }
     if let Some((observed, release)) = held_consent {
+        // Setup latency is distinct from fairness while publication is held.
+        // Start the short progress clock only after the real gate is reached.
+        let setup_started = std::time::Instant::now();
+        let held = tokio::time::timeout(std::time::Duration::from_secs(90), observed).await;
+        let setup_elapsed = setup_started.elapsed();
+        if !matches!(held, Ok(Ok(_))) {
+            release.notify_one();
+            panic!("genuine sibling consent publication did not reach its hold");
+        }
+        let held_started = std::time::Instant::now();
         let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            observed.await.expect("genuine sibling consent publication");
             loop {
                 if apps[1..3].iter().any(|app| {
                     app.account_storage("test")
@@ -264,6 +273,12 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         })
         .await;
         release.notify_one();
+        eprintln!(
+            "held-consent-control setup-ms={} held-progress-ms={} other-peer-progress={}",
+            setup_elapsed.as_millis(),
+            held_started.elapsed().as_millis(),
+            result.is_ok()
+        );
         assert!(
             result.is_ok(),
             "one blocked consent publication must not starve another approved sibling"
