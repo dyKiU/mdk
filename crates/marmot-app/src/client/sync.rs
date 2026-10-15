@@ -2786,6 +2786,7 @@ impl AppClient {
             if let Some(loss) = self.adapter.unpersisted_notification_loss() {
                 self.observe_delivery_overflow(loss)?;
                 if !self.adapter.delivery_overflow_signal_outstanding() {
+                    self.delivery_spill.complete_cooperative_offer();
                     return Ok(crate::relay_plane::AccountDeliveryReceive::Overflow(loss));
                 }
             }
@@ -2793,6 +2794,7 @@ impl AppClient {
             // fence the cursor. Report them as an overflow, so every caller
             // starts the same recovery it runs for a router omission.
             if self.delivery_spill.take_recorded_loss() {
+                self.delivery_spill.complete_cooperative_offer();
                 return Ok(crate::relay_plane::AccountDeliveryReceive::Overflow(
                     crate::relay_plane::AccountDeliveryOverflow {
                         marker_token: self
@@ -2804,8 +2806,9 @@ impl AppClient {
             }
             // A spilled backlog is always ready. Yield before taking a row, so
             // the worker's lower-priority arms still run between deliveries,
-            // and cancellation here loses nothing.
-            if self.delivery_spill.pending() {
+            // and cancellation here loses nothing. Retain the offered turn in
+            // the reader so a cancelled receive does not offer it indefinitely.
+            if self.delivery_spill.pending() && self.delivery_spill.offer_cooperative_turn() {
                 tokio::task::yield_now().await;
             }
             let received = match self.take_ready_delivery()? {
