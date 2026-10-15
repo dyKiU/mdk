@@ -33,6 +33,11 @@ pub(crate) enum SiblingPublicationStage {
     AfterRelayPublication,
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) fn sibling_clock_ms_for_test() -> u64 {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
 #[derive(Default)]
 pub(crate) struct SiblingMaintenanceDiagnostics {
     // Original live, state live, ready, handshake published, local policy,
@@ -44,6 +49,11 @@ pub(crate) struct SiblingMaintenanceDiagnostics {
     pub(crate) publication_stage: Option<SiblingPublicationStage>,
     // Request, Consent, Proof counts; actual adapter ACKs are counted in the task.
     pub(crate) prepared: [usize; 3],
+    // Common process-local monotonic timeline: Request, Consent, Proof.
+    pub(crate) created_ms: u64,
+    pub(crate) prepared_ms: [u64; 3],
+    pub(crate) acknowledged_ms: [u64; 3],
+    pub(crate) received_ms: [u64; 3],
     pub(crate) acknowledged: [usize; 3],
     pub(crate) pending_kind: usize,
     pub(crate) pending_started: Option<Instant>,
@@ -62,6 +72,7 @@ pub(crate) type SiblingMaintenanceSnapshot = (
     [usize; 3],
     [usize; 3],
     [usize; 3],
+    (u64, [u64; 3], [u64; 3], [u64; 3]),
 );
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl SiblingMaintenanceDiagnostics {
@@ -80,6 +91,7 @@ impl SiblingMaintenanceDiagnostics {
                     .map_or(0, |start| start.elapsed().as_millis() as usize),
                 usize::from(self.pending_task_finished),
             ],
+            (self.created_ms, self.prepared_ms, self.acknowledged_ms, self.received_ms),
         )
     }
 }
@@ -132,7 +144,10 @@ impl State {
             revoked: tokio::sync::Notify::new(),
             aliases: AtomicUsize::new(0),
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            sibling_diagnostics: Mutex::new(SiblingMaintenanceDiagnostics::default()),
+            sibling_diagnostics: Mutex::new(SiblingMaintenanceDiagnostics {
+                created_ms: sibling_clock_ms_for_test(),
+                ..Default::default()
+            }),
         })
     }
     pub(crate) fn live(&self) -> bool {

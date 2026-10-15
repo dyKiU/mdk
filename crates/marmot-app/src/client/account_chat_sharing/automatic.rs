@@ -1630,6 +1630,10 @@ impl AppClient {
         entry: &mut AutomaticChannel,
         kind: AccountSharingControl,
     ) -> Result<bool, AccountSharingError> {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let _body_timing = matches!(kind, AccountSharingControl::Body(_)).then(|| {
+            self.time_publication_maintenance_for_test(crate::client::device_linking::sibling_sharing::PublicationMaintenanceKind::AutomaticBody)
+        });
         if let Some(publication) = entry.handshake_publication.as_ref() {
             if publication.kind != kind {
                 return Err(AccountSharingError::NotReady);

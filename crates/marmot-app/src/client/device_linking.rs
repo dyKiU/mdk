@@ -1214,19 +1214,35 @@ impl AppClient {
         &mut self,
         now: std::time::Instant,
     ) -> Result<(), ClientLinkingError> {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let _whole_timing = self.time_publication_maintenance_for_test(sibling_sharing::PublicationMaintenanceKind::Whole);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let selected_timing = self.time_publication_maintenance_for_test(sibling_sharing::PublicationMaintenanceKind::Selected);
         self.maintain_selected_chat_packages()
             .map_err(ClientLinkingError::Engine)?;
         self.maintain_selected_chat_pending()
             .await
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        drop(selected_timing);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let revocation_timing = self.time_publication_maintenance_for_test(sibling_sharing::PublicationMaintenanceKind::Revocation);
         self.maintain_device_leaf_revocation_pending()
             .await
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        drop(revocation_timing);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let history_timing = self.time_publication_maintenance_for_test(sibling_sharing::PublicationMaintenanceKind::History);
         self.maintain_original_history().await.map_err(|_| {
             ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
                 "history original maintenance unavailable".into(),
             )))
         })?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        drop(history_timing);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let sibling_timing = self.time_publication_maintenance_for_test(sibling_sharing::PublicationMaintenanceKind::Sibling);
         self.maintain_existing_pair_sharing().map_err(|_| {
             ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
                 "account sharing original maintenance unavailable".into(),
@@ -1234,6 +1250,10 @@ impl AppClient {
         })?;
         self.persist_completed_pair_sharing_approval()?;
         self.maintain_sibling_sharing().await?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        drop(sibling_timing);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let automatic_timing = self.time_publication_maintenance_for_test(sibling_sharing::PublicationMaintenanceKind::Automatic);
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let observer = self.linking_owner.sharing_approval.clone();
         #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -1243,6 +1263,8 @@ impl AppClient {
             );
         }
         let automatic = self.maintain_automatic_account_sharing().await;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        drop(automatic_timing);
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if let Some(observer) = &observer {
             observer.record_observation_stage_for_test(

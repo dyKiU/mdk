@@ -33,13 +33,17 @@ pub(crate) enum NativeObservationReason {
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(crate) type NativeObservationSnapshot =
-    ([usize; 6], [u64; 6], Option<(NativeObservationReason, u64)>);
+    ([usize; 6], [u64; 6], Option<(NativeObservationReason, u64)>, [[u64; 4]; 7], [u64; 4]);
 #[cfg(all(test, feature = "test-policy-overrides"))]
 struct NativeObservationProbe {
     origin: Instant,
     counts: [usize; 6],
     elapsed_ms: [u64; 6],
     reason: Option<(NativeObservationReason, u64)>,
+    // Each category: count, entered global ms, exited global ms, max elapsed ms.
+    maintenance: [[u64; 4]; 7],
+    // First/last addressed Request intake, then first/last Core-approved admission.
+    request_intake_ms: [u64; 4],
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl Default for NativeObservationProbe {
@@ -49,7 +53,35 @@ impl Default for NativeObservationProbe {
             counts: [0; 6],
             elapsed_ms: [0; 6],
             reason: None,
+            maintenance: [[0; 4]; 7],
+            request_intake_ms: [0; 4],
         }
+    }
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Clone, Copy)]
+pub(crate) enum PublicationMaintenanceKind {
+    Whole,
+    Selected,
+    Revocation,
+    History,
+    Sibling,
+    Automatic,
+    AutomaticBody,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) struct PublicationMaintenanceTimer {
+    original: Arc<OriginalEnrollmentSharingChoice>,
+    kind: PublicationMaintenanceKind,
+    started: Instant,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+impl Drop for PublicationMaintenanceTimer {
+    fn drop(&mut self) {
+        let mut probe = self.original.native_observation_probe.lock().expect("native observation probe");
+        let timing = &mut probe.maintenance[self.kind as usize];
+        timing[2] = crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
+        timing[3] = timing[3].max(self.started.elapsed().as_millis() as u64);
     }
 }
 pub(crate) struct OriginalEnrollmentSharingChoice {
@@ -401,9 +433,19 @@ impl OriginalEnrollmentSharingChoice {
             .native_observation_probe
             .lock()
             .expect("native observation probe");
-        (probe.counts, probe.elapsed_ms, probe.reason)
+        (probe.counts, probe.elapsed_ms, probe.reason, probe.maintenance, probe.request_intake_ms)
     }
 
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    fn record_request_intake_for_test(&self, admitted: bool) {
+        let mut probe = self.native_observation_probe.lock().expect("native observation probe");
+        let index = if admitted { 2 } else { 0 };
+        let now = crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
+        if probe.request_intake_ms[index] == 0 {
+            probe.request_intake_ms[index] = now;
+        }
+        probe.request_intake_ms[index + 1] = now;
+    }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn child_diagnostics_for_test(
         &self,
@@ -1392,6 +1434,21 @@ struct CommitProof {
     device: [u8; 32],
 }
 impl AppClient {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn time_publication_maintenance_for_test(
+        &self,
+        kind: PublicationMaintenanceKind,
+    ) -> Option<PublicationMaintenanceTimer> {
+        self.linking_owner.sharing_approval.clone().map(|original| {
+            {
+                let mut probe = original.native_observation_probe.lock().expect("native observation probe");
+                let timing = &mut probe.maintenance[kind as usize];
+                timing[0] += 1;
+                timing[1] = crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
+            }
+            PublicationMaintenanceTimer { original, kind, started: Instant::now() }
+        })
+    }
     pub(crate) fn begin_sibling_source_channel(
         &mut self,
         original: Arc<SiblingOriginal>,
@@ -1560,6 +1617,8 @@ impl AppClient {
             {
                 return Ok(true);
             }
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            choice.record_request_intake_for_test(false);
             // Exact original nonce retries remain on their retained channel.
             // Once its full handoff completes, a fresh Request belongs to the
             // independent automatic policy, which performs its own live checks.
@@ -1641,6 +1700,13 @@ impl AppClient {
                     return Err(error);
                 }
             };
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            choice.record_request_intake_for_test(true);
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            {
+                state.sibling_diagnostics.lock().expect("sibling diagnostics").received_ms[0] =
+                    crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
+            }
             self.linking_owner.sibling_channels.push(SiblingChannel {
                 original,
                 state,
@@ -1681,6 +1747,11 @@ impl AppClient {
                         .bind_account_sharing_consent(&mut entry.channel, wire)
                         .map_err(|_| Error::NotReady)?;
                     entry.ready = true;
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    {
+                        entry.state.sibling_diagnostics.lock().expect("sibling diagnostics").received_ms[1] =
+                            crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
+                    }
                 }
                 AccountSharingControl::Body(_) if entry.ready => {
                     let (kind, _, body) = self
@@ -1708,6 +1779,11 @@ impl AppClient {
                         return Err(Error::NotReady);
                     }
                     entry.peer_committed = true;
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    {
+                        entry.state.sibling_diagnostics.lock().expect("sibling diagnostics").received_ms[2] =
+                            crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
+                    }
                 }
                 _ => return Err(Error::NotReady),
             }
@@ -2262,6 +2338,7 @@ impl AppClient {
                 0
             };
             diagnostic.prepared[index] += 1;
+            diagnostic.prepared_ms[index] = crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
             diagnostic.pending_kind = index + 1;
             diagnostic.pending_started = Some(Instant::now());
             diagnostic.pending_task_finished = false;
