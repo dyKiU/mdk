@@ -121,7 +121,10 @@ impl State {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn sibling_passive_snapshot(&self) -> SiblingPassiveSnapshot {
         let scope = self.scope.lock().expect("passive sibling scope").clone();
-        let diagnostic = self.sibling_diagnostics.lock().expect("passive sibling observation");
+        let diagnostic = self
+            .sibling_diagnostics
+            .lock()
+            .expect("passive sibling observation");
         SiblingPassiveSnapshot {
             scope,
             frames: diagnostic.passive_frames.clone(),

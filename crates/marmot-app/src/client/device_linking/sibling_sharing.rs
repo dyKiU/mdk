@@ -382,9 +382,17 @@ impl OriginalEnrollmentSharingChoice {
         &self,
         nonce: [u8; 32],
     ) -> Option<crate::account_chat_sharing::enabled::SiblingPassiveSnapshot> {
-        self.children.lock().expect("passive sibling children").iter()
+        self.children
+            .lock()
+            .expect("passive sibling children")
+            .iter()
             .map(|state| state.sibling_passive_snapshot())
-            .find(|snapshot| snapshot.scope.as_ref().is_some_and(|scope| scope.nonce == nonce))
+            .find(|snapshot| {
+                snapshot
+                    .scope
+                    .as_ref()
+                    .is_some_and(|scope| scope.nonce == nonce)
+            })
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn record_observation_stage_for_test(&self, stage: NativeObservationStage) {
@@ -1638,7 +1646,10 @@ impl AppClient {
             };
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if crate::account_chat_sharing::enabled::sibling_passive_enabled() {
-                state.sibling_diagnostics.lock().expect("passive request admission")
+                state
+                    .sibling_diagnostics
+                    .lock()
+                    .expect("passive request admission")
                     .passive_received[0] += 1;
             }
             self.linking_owner.sibling_channels.push(SiblingChannel {
@@ -1683,7 +1694,11 @@ impl AppClient {
                     entry.ready = true;
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     if crate::account_chat_sharing::enabled::sibling_passive_enabled() {
-                        entry.state.sibling_diagnostics.lock().expect("passive consent admission")
+                        entry
+                            .state
+                            .sibling_diagnostics
+                            .lock()
+                            .expect("passive consent admission")
                             .passive_received[1] += 1;
                     }
                 }
@@ -1715,7 +1730,11 @@ impl AppClient {
                     entry.peer_committed = true;
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     if crate::account_chat_sharing::enabled::sibling_passive_enabled() {
-                        entry.state.sibling_diagnostics.lock().expect("passive proof admission")
+                        entry
+                            .state
+                            .sibling_diagnostics
+                            .lock()
+                            .expect("passive proof admission")
                             .passive_received[2] += 1;
                     }
                 }
@@ -1907,11 +1926,23 @@ impl AppClient {
             let retry_at = Some(Instant::now() + std::time::Duration::from_secs(1));
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if crate::account_chat_sharing::enabled::sibling_passive_enabled() {
-                let index = if pending.proof { 2 } else { usize::from(entry.recipient) };
-                if let Some(frame) = &mut entry.state.sibling_diagnostics.lock()
-                    .expect("passive sibling harvest").passive_frames[index] {
-                    if pending.passive_acknowledged.as_ref()
-                        .is_some_and(|matched| matched.load(Ordering::Acquire)) {
+                let index = if pending.proof {
+                    2
+                } else {
+                    usize::from(entry.recipient)
+                };
+                if let Some(frame) = &mut entry
+                    .state
+                    .sibling_diagnostics
+                    .lock()
+                    .expect("passive sibling harvest")
+                    .passive_frames[index]
+                {
+                    if pending
+                        .passive_acknowledged
+                        .as_ref()
+                        .is_some_and(|matched| matched.load(Ordering::Acquire))
+                    {
                         frame.harvested += 1;
                         frame.harvested_at = Some(Instant::now());
                     } else {
@@ -2144,27 +2175,55 @@ impl AppClient {
             message = self.runtime.session_mut().wrap_account_sharing_control(&mut entry.channel, kind) => message.map_err(ClientLinkingError::Engine)?,
         };
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let passive_index = if body.is_some() { 2 } else { usize::from(entry.recipient) };
+        let passive_index = if body.is_some() {
+            2
+        } else {
+            usize::from(entry.recipient)
+        };
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if crate::account_chat_sharing::enabled::sibling_passive_enabled() {
             use crate::account_chat_sharing::enabled::SiblingPassiveFrame;
-            let event_id = serde_json::from_slice::<serde_json::Value>(&message.payload).ok()
-                .and_then(|event| event.get("id").and_then(serde_json::Value::as_str)
-                    .and_then(|id| hex::decode(id).ok()))
-                .filter(|id| id.len() == 32).map(cgka_traits::MessageId::new);
+            let event_id = serde_json::from_slice::<serde_json::Value>(&message.payload)
+                .ok()
+                .and_then(|event| {
+                    event
+                        .get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .and_then(|id| hex::decode(id).ok())
+                })
+                .filter(|id| id.len() == 32)
+                .map(cgka_traits::MessageId::new);
             let content_id = entry.channel.outbound_content_id_for_test(kind);
-            let mut diagnostic = entry.state.sibling_diagnostics.lock().expect("passive sibling preparation");
+            let mut diagnostic = entry
+                .state
+                .sibling_diagnostics
+                .lock()
+                .expect("passive sibling preparation");
             if let Some(frame) = &mut diagnostic.passive_frames[passive_index] {
                 let matches = frame.wrapped_id == message.id
-                    && frame.event_id == event_id && frame.content_id == content_id;
+                    && frame.event_id == event_id
+                    && frame.content_id == content_id;
                 frame.ids_unchanged &= matches;
-                if matches { frame.prepared += 1; } else { frame.other[0] += 1; }
+                if matches {
+                    frame.prepared += 1;
+                } else {
+                    frame.other[0] += 1;
+                }
             } else {
                 diagnostic.passive_frames[passive_index] = Some(SiblingPassiveFrame {
-                    wrapped_id: message.id.clone(), event_id, content_id, acknowledged_id: None,
-                    prepared: 1, started: 0, acknowledged: 0, harvested: 0, ids_unchanged: true,
+                    wrapped_id: message.id.clone(),
+                    event_id,
+                    content_id,
+                    acknowledged_id: None,
+                    prepared: 1,
+                    started: 0,
+                    acknowledged: 0,
+                    harvested: 0,
+                    ids_unchanged: true,
                     other: [0; 4],
-                    prepared_at: Instant::now(), acknowledged_at: None, harvested_at: None,
+                    prepared_at: Instant::now(),
+                    acknowledged_at: None,
+                    harvested_at: None,
                 });
             }
         }
@@ -2267,10 +2326,17 @@ impl AppClient {
         let task = tokio::spawn(async move {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if crate::account_chat_sharing::enabled::sibling_passive_enabled()
-                && let Some(frame) = &mut state.sibling_diagnostics.lock()
-                    .expect("passive sibling task first poll").passive_frames[passive_index] {
-                if frame.wrapped_id == passive_task_id { frame.started += 1; }
-                else { frame.other[1] += 1; }
+                && let Some(frame) = &mut state
+                    .sibling_diagnostics
+                    .lock()
+                    .expect("passive sibling task first poll")
+                    .passive_frames[passive_index]
+            {
+                if frame.wrapped_id == passive_task_id {
+                    frame.started += 1;
+                } else {
+                    frame.other[1] += 1;
+                }
             }
             let revoked = state.revoked.notified();
             tokio::pin!(revoked);
@@ -2307,8 +2373,12 @@ impl AppClient {
             }
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if crate::account_chat_sharing::enabled::sibling_passive_enabled()
-                && let Some(frame) = &mut state.sibling_diagnostics.lock()
-                    .expect("passive sibling acknowledged").passive_frames[passive_index] {
+                && let Some(frame) = &mut state
+                    .sibling_diagnostics
+                    .lock()
+                    .expect("passive sibling acknowledged")
+                    .passive_frames[passive_index]
+            {
                 let expected = frame.event_id.as_ref().unwrap_or(&frame.wrapped_id);
                 if expected == &report.message_id && frame.wrapped_id == passive_task_id {
                     frame.acknowledged += 1;

@@ -402,8 +402,12 @@ impl DeviceLinkingSession {
         &self,
         nonce: [u8; 32],
     ) -> Option<crate::account_chat_sharing::enabled::SiblingPassiveSnapshot> {
-        self.inner.sharing_choice.lock().expect("passive sharing choice")
-            .as_ref().and_then(|choice| choice.passive_child_for_test(nonce))
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("passive sharing choice")
+            .as_ref()
+            .and_then(|choice| choice.passive_child_for_test(nonce))
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn sibling_recipient_diagnostics_for_test(&self) -> Option<[usize; 8]> {
