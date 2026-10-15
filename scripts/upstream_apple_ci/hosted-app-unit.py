@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run exactly one existing fixture test from prebuilt products; never compile."""
 import argparse
+import paired_direct_mutation
 import copy
 import hashlib
 import json
@@ -18,10 +19,11 @@ ENVIRONMENT_KEYS = {
     'WN_HISTORY_SOURCE_PICKER_FIXTURE', 'WN_SOURCE_PICKER_FIXTURE', 'WN_HISTORY_SOURCE_UI_BRIDGE',
     'WN_SOURCE_PICKER_BUTTON_BRIDGE', 'WN_SOURCE_TRANSFER_BRIDGE', 'WN_IOS_SOURCE_TRANSFER_BRIDGE',
     'WN_IOS_SOURCE_TRANSFER_PUBLIC_BRIDGE', 'WN_HISTORY_APPROVAL_BRIDGE', 'WN_MAC_HISTORY_APPROVAL_BRIDGE',
-    'WN_NATIVE_PAIRING_QR_ACCEPTANCE',
+    'WN_NATIVE_PAIRING_QR_ACCEPTANCE', 'WN_PAIRED_DIRECT_FIXTURE',
 }
 SELECTORS = {
     'macos': {
+        'GenuinePairedDirectConversationTests/testRealMarmotClientReusesPairedSourceWithoutLocalMembershipOrInvitation',
         'GenuineAutomaticAccountSwitchTests/testActualAccountsReplacePairedOwnersAndRetireBeforeRuntimeClose',
         'GenuineImportedHistoryPaneTests/testRealCommittedImportThroughSessionOwnedReaderAndHostedPane',
         'GenuineHistorySourcePickerTests/testRealRecipientsAndFreshOriginalThroughSessionOwnedModel',
@@ -29,6 +31,7 @@ SELECTORS = {
         'GenuineHistoryRecipientTransferTests/testFreshRecipientOriginalThroughSessionModelAndIOSSource',
     },
     'ios-simulator': {
+        'GenuinePairedDirectConversationTests/testRealMarmotClientReusesPairedSourceWithoutLocalMembershipOrInvitation',
         'NativePairingQRCodeTests/testActualThreeDevicePacketsPassAppCodecAndOriginalSdkAuthentication',
         'GenuineAutomaticAccountSwitchTests/testActualAccountsReplacePairedOwnersAndSceneSuspensionClosesRuntime',
         'GenuineImportedHistoryPaneTests/testRealCommittedImportThroughAccountOwnedReaderAndHostedPane',
@@ -42,7 +45,7 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def freeze_source(source, commit, sdk_package):
+def freeze_source(source, commit, sdk_package, mutation_mode=None):
     if subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=source, text=True).strip() != commit:
         raise ValueError('App source commit changed')
     names = subprocess.check_output(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
@@ -55,7 +58,8 @@ def freeze_source(source, commit, sdk_package):
         if path.is_relative_to(sdk_package):
             continue
         data = os.readlink(path).encode() if path.is_symlink() else path.read_bytes()
-        if data != subprocess.check_output(['git', 'show', commit + ':' + name], cwd=source):
+        committed = subprocess.check_output(['git', 'show', commit + ':' + name], cwd=source)
+        if data != paired_direct_mutation.expected_bytes(name, committed, mutation_mode):
             raise ValueError('Non-SDK source differs from the pinned commit')
         frozen[name] = hashlib.sha256(data).hexdigest()
     return frozen
@@ -103,11 +107,14 @@ def selected_plan(original, target_name, selector, environment):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--platform', choices=SELECTORS, required=True)
+    parser.add_argument('--paired-direct-mutation', choices=[paired_direct_mutation.MODE])
     for name in ('source', 'sdk-package', 'products', 'xctestrun', 'environment', 'prefix', 'result-bundle'):
         parser.add_argument('--' + name, type=Path, required=True)
     for name in ('source-commit', 'sdk-source', 'selector', 'destination', 'developer-dir'):
         parser.add_argument('--' + name, required=True)
     args = parser.parse_args()
+    if args.paired_direct_mutation and args.selector != paired_direct_mutation.SELECTOR:
+        raise ValueError('Named direct mutation requires exact paired-direct unit selector')
     os.umask(0o077)
     if os.environ.get('GITHUB_ACTIONS') != 'true' or args.selector not in SELECTORS[args.platform]:
         raise ValueError('Exact existing hosted unit test required')
@@ -127,7 +134,7 @@ def main():
             or str(sdk['workflow_run_id']) != os.environ['SDK_RUN_ID']
             or sdk['features'] != ['otlp-export', 'product-analytics-export', 'experimental-device-sync']):
         raise ValueError('Matching experimental app SDK required')
-    source_inputs = freeze_source(source, head, args.sdk_package)
+    source_inputs = freeze_source(source, head, args.sdk_package, args.paired_direct_mutation)
     sdk_inputs = freeze_sdk(args.sdk_package, sdk)
     environment = json.loads(args.environment.read_text())
     if (set(environment) - ENVIRONMENT_KEYS or any(not isinstance(v, str) for v in environment.values())
@@ -177,7 +184,8 @@ def main():
                '-destination', args.destination, '-parallel-testing-enabled', 'NO',
                '-resultBundlePath', str(args.result_bundle)]
     report = {'source_commit': head, 'sdk_source': args.sdk_source, 'sdk_run_id': os.environ['SDK_RUN_ID'],
-              'selector': args.selector, 'platform': args.platform, 'prebuilt_product_count': len(frozen),
+              'selector': args.selector, 'platform': args.platform,
+              'intentional_source_mutation': paired_direct_mutation.identity('ios' if args.platform == 'ios-simulator' else 'macos', args.paired_direct_mutation), 'prebuilt_product_count': len(frozen),
               'original_plan_sha256': plan_hash, 'run_plan_sha256': run_plan_hash,
               'source_inputs_sha256': hashlib.sha256(json.dumps(source_inputs, sort_keys=True).encode()).hexdigest(),
               'sdk_inputs': sdk_inputs, 'compiled_native_inputs': compiled_hashes,
@@ -202,7 +210,7 @@ def main():
             report['runner_error_category'] = 'OwnedRunnerRequiredTermination'
         report['seconds'] = round(time.monotonic() - started, 3)
         try:
-            report['source_unchanged'] = freeze_source(source, head, args.sdk_package) == source_inputs
+            report['source_unchanged'] = freeze_source(source, head, args.sdk_package, args.paired_direct_mutation) == source_inputs
             report['sdk_unchanged'] = freeze_sdk(args.sdk_package, sdk) == sdk_inputs
         except (OSError, ValueError, subprocess.SubprocessError):
             report['source_unchanged'] = report['sdk_unchanged'] = False

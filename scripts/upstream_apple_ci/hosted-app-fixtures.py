@@ -19,6 +19,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / 'native'))
 import automatic_chat as automatic
 import cross_host as original
+import one_scan
 from cross_host import GateFailure, Peer, require
 from hosted_archive import selected_chat
 from hosted_history import verify_helpers
@@ -221,6 +222,72 @@ def closed_fixture(journey):
     journey.verify_app()
 
 
+
+def paired_direct(journey):
+    # Native A/B are distinct installations of one account; D is an independent
+    # ordinary participant. B's exact original store is closed, never copied.
+    a, b, d = (journey.open(role) for role in ('source', 'recipient', 'outsider'))
+    identity, peer_identity = a.ask('create'), d.ask('create')
+    account, peer_account = identity['account'], peer_identity['account']
+    require(account != peer_account, 'independent-direct-peer-required')
+    del peer_identity['secret']
+    group = a.ask('create-direct-chat', member=peer_account)['group']
+    automatic.accept(d, group)
+    text = 'hosted-app-direct-source-only'
+    event = a.ask('send-text', group=group, text=text)['message']
+    original.wait_message((d,), group, event, text, 'direct-peer-original-message')
+    slot = a.ask('package-observation')
+    companion = original.supported_companion(b, identity['secret'])
+    require(companion['account'] == account and a.ask('package-observation') == slot,
+            'supported-companion-preserves-account-and-public-slot')
+    del identity['secret']
+    pairing = one_scan.pair(b, a)
+    require(all(pairing.values()), 'genuine-comparison-and-bilateral-consent-required')
+    automatic.exact_mirror(b, group, text, event)
+    observations = []
+    one_scan.direct_lookup(b, group, peer_account, 'recipient-before-app', observations)
+    require(b.ask('automatic-list')['local_groups'] == [], 'source-only-recipient-has-no-local-mls')
+    a.ask('cancel'); b.ask('cancel')
+    source_groups = a.ask('automatic-list')['local_groups']
+    peer_groups = d.ask('automatic-list')['local_groups']
+    require(source_groups == peer_groups == [group], 'one-original-direct-chat-required')
+    source_state, peer_state = a.ask('group-state', group=group), d.ask('group-state', group=group)
+    require(source_state['members'] == peer_state['members'] == 2, 'two-ordinary-direct-members-required')
+    require(a.ask('ordinary-invitations') == d.ask('ordinary-invitations') == [], 'no-pending-original-invitations')
+    b.close()
+    journey.mark_closed('recipient', b)
+    descriptor = journey.args.base / 'paired-direct-fixture.json'
+    private_json(descriptor, {'version': 1, 'root': str(journey.roots['recipient']),
+                             'account': account, 'peer': peer_account, 'group': group,
+                             'bridge': str(journey.bridge)})
+    journey.report['paired_direct_fixture'] = {'bilateral_consent': True, 'source_only_recipient': True,
+        'independent_peer': True, 'original_recipient_positive_close': True,
+        'one_original_peer_conversation': True, 'no_pending_peer_invitation': True}
+    journey.start_app({'WN_PAIRED_DIRECT_FIXTURE': str(descriptor)})
+    journey.verify_app()
+    require(journey.observe('paired-direct-complete.json') == {
+        'paired_destination': True, 'same_group': True, 'lookup_count': 3,
+        'no_local_membership': True, 'no_new_ordinary_chat': True, 'runtime_closed': True},
+        'actual-app-paired-direct-and-positive-close-required')
+    # Only after the app's positive close may the original B store reopen.
+    reopened = journey.open('recipient')
+    require(reopened.ask('resume')['account'] == account, 'same-recipient-store-after-app-close')
+    one_scan.direct_lookup(reopened, group, peer_account, 'recipient-after-app', observations)
+    require(reopened.ask('automatic-list')['local_groups'] == [], 'app-lookup-never-creates-local-membership')
+    require(a.ask('automatic-list')['local_groups'] == source_groups
+            and d.ask('automatic-list')['local_groups'] == peer_groups,
+            'app-lookup-never-creates-a-second-peer-conversation')
+    require(a.ask('group-state', group=group) == source_state
+            and d.ask('group-state', group=group) == peer_state,
+            'app-lookup-never-mutates-original-membership-or-epoch')
+    require(a.ask('ordinary-invitations') == d.ask('ordinary-invitations') == [],
+            'app-lookup-never-creates-another-peer-invitation')
+    journey.report['paired_direct'] = {'lookups': 3, 'source_only_before_and_after': True,
+        'same_original_root': True, 'peer_conversation_set_unchanged': True,
+        'peer_membership_unchanged': True, 'no_new_peer_invitation': True,
+        'app_runtime_closed_before_native_reopen': True, 'bilateral_consent': True}
+
+
 def source_transfer(journey):
     a, b, c, d, account, recipient, previous = initial_history(journey)
     a.close()
@@ -296,7 +363,7 @@ def recipient_transfer(journey):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scenario', choices=('automatic-switch', 'imported-reader', 'source-picker',
-                                             'source-transfer', 'recipient-transfer'), required=True)
+                                             'source-transfer', 'recipient-transfer', 'paired-direct'), required=True)
     parser.add_argument('--platform', choices=('macos', 'ios-simulator'), required=True)
     for name in ('mac-agent', 'sim-agent', 'relay', 'base', 'environment', 'application-command',
                  'app-result-bundle', 'output'):
@@ -336,7 +403,9 @@ def main():
             require(bool(select.select([relay.stdout], [], [], 10)[0]), 'relay-ready-timeout')
             require(relay.stdout.readline().decode().strip() == 'ws://127.0.0.1:18181', 'exact-owned-loopback-relay')
             journey.report['phase'] = 'native-fixture-and-app'
-            if args.scenario == 'source-transfer':
+            if args.scenario == 'paired-direct':
+                paired_direct(journey)
+            elif args.scenario == 'source-transfer':
                 source_transfer(journey)
             elif args.scenario == 'recipient-transfer':
                 recipient_transfer(journey)

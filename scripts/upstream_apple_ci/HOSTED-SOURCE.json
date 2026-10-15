@@ -26,6 +26,36 @@
       "source": "new hosted-only automatic AccountRecords history observation fixture",
       "sha256": "e2f55baa508bfec21063eb509ce27f5adf2b5c56c291e857c04b453b727eb9bc",
       "scope": "Actual205prepairmessages; read-only chronological paired pagination/catalog source bindings; existing explicit archive200cap unchanged"
+    },
+    "hosted-app-fixtures.py": {
+      "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
+      "sha256": "b8527e55c71d9073afbd5fe1b48120b606cfb516b1c49552d5c56ca4cf18d5c8",
+      "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
+    },
+    "hosted-app-unit.py": {
+      "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
+      "sha256": "8ddd059cfa56fcfe45dfff8c23be5988693abfc8b056bfead4c19d0cfd0bf310",
+      "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
+    },
+    "hosted-app-ui.py": {
+      "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
+      "sha256": "eb1945a447f858d80c19db47b794c0896f0a59f4de98b172592c8564c2ad03c1",
+      "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
+    },
+    "run-hosted-app-acceptance.py": {
+      "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
+      "sha256": "12c2c5e4298dfa1d132b333d4a08e6938766f6b4f87c9e1a7a80162351f91d59",
+      "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
+    },
+    "paired_direct_mutation.py": {
+      "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
+      "sha256": "442c77937c5f1df679e7e40915184ad6ef1691d1b6cf1fac60554a8090dea9a9",
+      "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
+    },
+    "paired-direct-mutations.py": {
+      "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
+      "sha256": "8c086ec7392decea1ec3d92e8faadaee8afe0770a93fcb18f04ef655c0b89b9b",
+      "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
     }
   },
   "scope": "Additional hosted helpers and explicit adaptations; native/SOURCE.json remains authoritative for unchanged frozen sources."

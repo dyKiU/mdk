@@ -74,8 +74,8 @@ jobs:
               assert re.fullmatch('[0-9a-f]{40}',sdk) and re.fullmatch('[1-9][0-9]*',sdk_run)
               if native=='all':
                   assert sdk!='3f18b2d1acac4f87680b35f39bf8dce67dcf28ec','Old SDK cannot qualify protocol/native bodies'
-              assert cohort['mac_sha']=='43917e25f6cbbf163db05ed2af285d80b2607aae'
-              assert cohort['ios_sha']=='fb8ab84886dcff95f9c81de93b9e67468c1f6bfc'
+              assert cohort['mac_sha']=='5dbc971cb777a33441a266657511b8519bb5c7d6'
+              assert cohort['ios_sha']=='cfc9ba7b6a66ecc444b80070209ce2c1c195fc00'
           else:
               assert not sdk and not sdk_run
           with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
@@ -185,6 +185,8 @@ jobs:
             scripts/upstream_apple_ci/hosted-app-fixtures.py \
             scripts/upstream_apple_ci/hosted-app-unit.py \
             scripts/upstream_apple_ci/hosted-app-ui.py \
+            scripts/upstream_apple_ci/paired_direct_mutation.py \
+            scripts/upstream_apple_ci/paired-direct-mutations.py \
             scripts/upstream_apple_ci/hosted-root-mutations.py \
             scripts/upstream_apple_ci/timestamp-mutations.py \
             scripts/upstream_apple_ci/sdk-manifest-guards.py \

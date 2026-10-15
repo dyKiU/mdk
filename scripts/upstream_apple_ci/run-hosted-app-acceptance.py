@@ -23,6 +23,7 @@ HERE = Path(__file__).resolve().parent
 FEATURES = ['otlp-export', 'product-analytics-export', 'experimental-device-sync']
 MODELS = {
     'macos': [
+        ('paired-direct', 'paired-direct', 'GenuinePairedDirectConversationTests/testRealMarmotClientReusesPairedSourceWithoutLocalMembershipOrInvitation'),
         ('switch', 'automatic-switch', 'GenuineAutomaticAccountSwitchTests/testActualAccountsReplacePairedOwnersAndRetireBeforeRuntimeClose'),
         ('reader', 'imported-reader', 'GenuineImportedHistoryPaneTests/testRealCommittedImportThroughSessionOwnedReaderAndHostedPane'),
         ('picker', 'source-picker', 'GenuineHistorySourcePickerTests/testRealRecipientsAndFreshOriginalThroughSessionOwnedModel'),
@@ -30,6 +31,7 @@ MODELS = {
         ('recipient', 'recipient-transfer', 'GenuineHistoryRecipientTransferTests/testFreshRecipientOriginalThroughSessionModelAndIOSSource'),
     ],
     'ios': [
+        ('paired-direct', 'paired-direct', 'GenuinePairedDirectConversationTests/testRealMarmotClientReusesPairedSourceWithoutLocalMembershipOrInvitation'),
         ('switch', 'automatic-switch', 'GenuineAutomaticAccountSwitchTests/testActualAccountsReplacePairedOwnersAndSceneSuspensionClosesRuntime'),
         ('reader', 'imported-reader', 'GenuineImportedHistoryPaneTests/testRealCommittedImportThroughAccountOwnedReaderAndHostedPane'),
         ('picker', 'source-picker', 'GenuineHistorySourcePickerTests/testActualNativeChoicesCreateRefreshAndCancelOriginalThroughAccountOwner'),
@@ -99,7 +101,8 @@ class Runner:
                        'tools': {name: digest(HERE / name) for name in (
                            'run-hosted-app-acceptance.py', 'hosted-app-ui.py', 'hosted-app-unit.py',
                            'hosted-app-fixtures.py', 'build-hosted-simulator-agent.sh', 'install.py',
-                           'prepare-hosted-agent.py', 'native/SOURCE.json', 'HOSTED-SOURCE.json')}}
+                           'prepare-hosted-agent.py', 'paired_direct_mutation.py', 'paired-direct-mutations.py',
+                           'native/SOURCE.json', 'HOSTED-SOURCE.json')}}
         if self.state_path.exists():
             self.state = json.loads(self.state_path.read_text())
             require(self.state['cohort'] == self.cohort, 'existing-staged-cohort-must-remain-identical')
@@ -537,6 +540,11 @@ class Runner:
         result['app_input_proof'] = {key: app_report[key] for key in (
             'source_commit', 'sdk_source', 'sdk_run_id', 'source_unchanged', 'sdk_unchanged',
             'products_unchanged', 'plans_unchanged', 'compiled_native_inputs') if key in app_report}
+        if scenario == 'paired-direct':
+            require(native.get('paired_direct', {}).get('no_new_peer_invitation') is True
+                    and native['paired_direct']['source_only_before_and_after'] is True,
+                    'paired-direct-fixture-must-prove-peer-and-membership-invariants')
+            result['paired_direct'] = native['paired_direct']
         if ui_case:
             require(one_pass(app_report['driver']) and one_pass(app_report['unit']), 'one-public-ui-driver-pass-required')
             result['driver'] = app_report['driver']
@@ -547,10 +555,10 @@ class Runner:
     def expected_cases(self):
         expected = {'ios-control'}
         if self.args.scope in ('mac', 'all'):
-            expected.update('macos-' + name for name in ('switch', 'reader', 'picker', 'source', 'recipient', 'picker-ui'))
+            expected.update('macos-' + name for name in ('switch', 'reader', 'picker', 'source', 'recipient', 'picker-ui', 'paired-direct'))
         if self.args.scope in ('ios', 'all'):
             expected.add('ios-native-qr')
-            expected.update('ios-' + name for name in ('switch', 'reader', 'picker', 'source', 'picker-ui', 'source-ui', 'approval-ui'))
+            expected.update('ios-' + name for name in ('switch', 'reader', 'picker', 'source', 'picker-ui', 'source-ui', 'approval-ui', 'paired-direct'))
         return expected
 
     def run(self):
@@ -613,12 +621,20 @@ def main():
         require(set(runner.report['cases']) == runner.expected_cases()
                 and all(case['passed'] == 1 for case in runner.report['cases'].values()),
                 'every-requested-native-app-body-required')
+        expected_bodies = {'ios-control': 2, 'mac': 10, 'ios': 14, 'all': 22}[args.scope]
+        executed_bodies = sum(case['unit']['totalTestCount'] + case.get('driver', {}).get('totalTestCount', 0)
+                              for case in runner.report['cases'].values())
+        require(executed_bodies == expected_bodies, 'exact-selected-native-app-body-count-required')
         runner.report['passed'] = 1
     except (ValueError, OSError, KeyError, subprocess.SubprocessError) as error:
         # Only fixed labels/types leave the private runner, never SDK descriptions.
         label = str(error) if isinstance(error, ValueError) else type(error).__name__
         runner.report['failure_stage'] = label if re.fullmatch('[A-Za-z0-9:_-]{1,180}', label) else type(error).__name__
     finally:
+        runner.report['expected_app_test_body_count'] = {'ios-control': 2, 'mac': 10, 'ios': 14, 'all': 22}[args.scope]
+        runner.report['executed_app_test_body_count'] = sum(
+            case['unit']['totalTestCount'] + case.get('driver', {}).get('totalTestCount', 0)
+            for case in runner.report['cases'].values())
         runner.report['expected_setup_test_count'] = 1
         runner.report['completed_setup_test_count'] = len(runner.report['setup'])
         runner.report['expected_cases'] = sorted(runner.expected_cases())
