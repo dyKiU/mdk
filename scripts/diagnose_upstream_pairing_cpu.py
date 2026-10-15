@@ -102,7 +102,7 @@ def cpu_ticks(pid):
     return values
 
 
-def record_owned(_sampler, command, _raw_path):
+def record_owned(_sampler, command, _raw_path, phase_only=False):
     """Bounded leaf-only debugger sampling, weighting active-thread CPU deltas."""
     import tempfile
     samples = []
@@ -147,6 +147,11 @@ def record_owned(_sampler, command, _raw_path):
                         if "linking-cost phase=fourth-device-completion-end " in line:
                             phase_active = False
                             phase_observed["finished"] = True
+                if phase_only and not phase_active:
+                    # Startup and earlier strict phases run without interrupts.
+                    # Existing stderr markers only observe the original action.
+                    before = cpu_ticks(target.pid)
+                    continue
                 debugger.command("-exec-interrupt --all")
                 debugger.wait_stop()
                 if debugger.exited:
@@ -287,7 +292,7 @@ def main():
             report["blocker"] = "attach-before-exec-positive-control-had-no-samples"
             args.report.write_text(json.dumps(report, indent=2) + "\n")
             raise SystemExit("CPU sample positive control failed; product body not executed")
-        runtime_exit, runtime, samples, phase_markers = record_owned(perf, [str(binary), "--exact", TEST, "--test-threads=1", "--nocapture"], raw_path)
+        runtime_exit, runtime, samples, phase_markers = record_owned(perf, [str(binary), "--exact", TEST, "--test-threads=1", "--nocapture"], raw_path, phase_only=True)
         phase_markers["started"] = "linking-cost phase=fourth-device-completion-start" in runtime
         phase_markers["finished"] = "linking-cost phase=fourth-device-completion-end " in runtime
         started = bool(re.search(r"running 1 test\b", runtime))
@@ -295,6 +300,8 @@ def main():
         decoded = True
         counts = collections.Counter(name for _, name, _, _, _ in samples)
         last = samples[-1][0] if samples else 0
+        phase_complete = all(phase_markers.values()) and sum(sample[4] for sample in samples) >= 20
+        allowed_stages = {"initial-two-comparison", "initial-two-completion", "initial-two-completed", "third-device-comparison", "third-device-completion", "third-device-completed", "fourth-device-comparison", "fourth-device-completion", "fourth-device-completed"}
         report.update({
             "runtime_body_started": started, "runtime_exit_code": runtime_exit,
             "runtime_summary": {"passed": int(summary[2]), "failed": int(summary[3]), "ignored": int(summary[4])} if summary else None,
@@ -304,16 +311,21 @@ def main():
             "static_caller_aggregates": caller_summary(samples),
             "fourth_completion_phase_markers_observed": phase_markers,
             "fourth_completion_sample_count": sum(sample[4] for sample in samples),
+            "phase_attribution_complete": phase_complete,
+            "phase_attribution_minimum_samples": 20,
+            "startup_and_prior_phases_interrupted": False,
+            "original_stage_markers": [stage for stage in re.findall(r"automatic-enrollment-control stage=([a-z-]+)", runtime) if stage in allowed_stages],
+            "panic_locations": [{"file": file, "line": int(line), "column": int(column)} for file, line, column in re.findall(r"panicked at (crates/[A-Za-z0-9_./-]+\.rs):([0-9]+):([0-9]+)", runtime)],
             "fourth_completion_semantic_paths": semantic_paths([sample for sample in samples if sample[4]]),
             "fourth_completion_static_caller_aggregates": caller_summary([sample for sample in samples if sample[4]]),
             "fourth_completion_static_symbol_aggregates": summarize([sample for sample in samples if sample[4]]),
             "attribution_limits": "Debugger pauses influence timing; leaf sampled after interrupt may differ from the CPU-hot function. Whole case includes startup/import. 92e has cfg-test cost spans but no provisional production optimizations. Fourth-window boundaries are observed from existing stderr markers at sampling polls; polling/scheduling may shift boundary attribution. 80 frames may omit deeper callers; no complete unwind claim. CPU ticks weight intervals, not exact per-function CPU time.",
             "unexported_symbol_count": max(0, len(counts) - 100),
-            "diagnostic_complete": started and summary is not None and decoded and bool(counts),
+            "diagnostic_complete": started and summary is not None and decoded and bool(counts) and phase_complete,
         })
         args.report.write_text(json.dumps(report, indent=2) + "\n")
         if not report["diagnostic_complete"]:
-            raise SystemExit("Required exact-body runtime and static sample evidence unavailable")
+            raise SystemExit("Required exact-body runtime and >=20 fourth-window sample evidence unavailable")
     except (subprocess.TimeoutExpired, AssertionError, queue.Empty):
         report["blocker"] = "owned-attach-or-sampling-control-unavailable"
         report["closed_harness_stage"] = globals().get("LAST_STAGE", "preflight")
