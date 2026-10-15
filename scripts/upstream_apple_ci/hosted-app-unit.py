@@ -60,6 +60,8 @@ def freeze_source(source, commit, sdk_package):
 
 
 def freeze_sdk(package, manifest):
+    if digest(package / 'Sources/MarmotKit/MarmotKit.swift') != manifest['installed_swift_sha256']:
+        raise ValueError('Installed generated Swift differs from its verified producer record')
     frozen = {'LOCAL_BUILD.json': digest(package / 'LOCAL_BUILD.json')}
     for name, row in manifest['artifacts'].items():
         if name.startswith('MarmotKit.xcframework/'):
