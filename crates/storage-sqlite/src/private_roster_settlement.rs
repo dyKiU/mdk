@@ -20,10 +20,11 @@ impl SettlementDecodeMemo {
     pub(crate) fn clear(&mut self) { self.entry = None; }
     pub(crate) fn decode(&mut self, bytes: &[u8]) -> StorageResult<PrivateSettlementState> {
         const MAX_MEMO_BYTES: usize = 262144;
-        if bytes.len() <= MAX_MEMO_BYTES {
-            if let Some((raw, state)) = &self.entry {
-                if raw.as_slice() == bytes { return Ok(state.clone()); }
-            }
+        if bytes.len() <= MAX_MEMO_BYTES
+            && let Some((raw, state)) = &self.entry
+            && raw.as_slice() == bytes
+        {
+            return Ok(state.clone());
         }
         // A changed, invalid, or oversized input never retains the old entry.
         self.clear();
