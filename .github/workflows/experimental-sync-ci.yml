@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, reconciled-controls, reconciled-static, reconciled-linking-cost]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, reconciled-controls, reconciled-static, reconciled-static-default, reconciled-linking-cost]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -123,7 +123,7 @@ jobs:
           path: reconciled-evidence/result.json
           if-no-files-found: error
   reconciled-lock-format:
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'reconciled-static'
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'reconciled-static' || inputs.scope == 'reconciled-static-default')
     name: Reconciled locked workspace, exact format and helper syntax
     runs-on: ubuntu-latest
     steps:
@@ -153,14 +153,14 @@ jobs:
           path: reconciled-static/
           if-no-files-found: error
   reconciled-affected-clippy:
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'reconciled-static'
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'reconciled-static' || inputs.scope == 'reconciled-static-default')
     name: Reconciled affected clippy (${{ matrix.cohort }})
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        cohort: [default, experimental]
+        cohort: ${{ inputs.scope == 'reconciled-static-default' && fromJSON('["default"]') || fromJSON('["default","experimental"]') }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:

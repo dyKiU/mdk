@@ -17,7 +17,7 @@ impl MarmotApp {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "experimental-device-sync"))]
 pub(crate) mod linking_cost {
     use std::sync::{Mutex, OnceLock};
     use std::time::Instant;
@@ -90,7 +90,10 @@ pub(crate) mod linking_cost {
     impl Drop for Span {
         fn drop(&mut self) {
             let wall_ns = self.origin.elapsed().as_nanos().min(u64::MAX as u128) as u64;
-            let cpu = self.cpu_origin.zip(cpu_ns()).and_then(|(start, end)| end.checked_sub(start));
+            let cpu = self
+                .cpu_origin
+                .zip(cpu_ns())
+                .and_then(|(start, end)| end.checked_sub(start));
             let mut state = trace().lock().expect("linking cost trace");
             if !state.active || state.generation != self.generation {
                 return;
@@ -114,7 +117,10 @@ pub(crate) mod linking_cost {
         }
         state.active = false;
         let wall_ns = state.origin.expect("trace origin").elapsed().as_nanos();
-        let cpu = state.cpu_origin.zip(cpu_ns()).and_then(|(start, end)| end.checked_sub(start));
+        let cpu = state
+            .cpu_origin
+            .zip(cpu_ns())
+            .and_then(|(start, end)| end.checked_sub(start));
         eprintln!(
             "linking-cost phase=fourth-device-completion-end wall_ns={wall_ns} cpu_ns={cpu:?} counters={:?}",
             state.counters
