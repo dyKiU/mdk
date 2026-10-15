@@ -45,6 +45,16 @@ def run(name, selected, expected):
         match = re.search(r"(\d+) " + label, rows[0][1])
         return int(match[1]) if match else 0
     proof = {"executed_nonignored": expected, "passed": count("passed"), "failed": count("failed"), "exit_code": result.returncode}
+    safe_names = app + CORE_NAMES
+    failed_lines = [line for line in output.splitlines() if re.search(r"\bFAIL\b", line)]
+    proof["failed_case_names"] = [case for case in safe_names if any(case in line for line in failed_lines)]
+    allowed_stages = {"third-device-completion", "fourth-device-completion"}
+    proof["completion_stage_markers"] = [stage for stage in re.findall(r"automatic-enrollment-control stage=([a-z-]+)", output) if stage in allowed_stages]
+    proof["closed_failure_categories"] = [category for needle, category in [
+        ("automatic enrollment did not reach", "original-phase-not-reached"),
+        ("reusing parsed MLS state never reuses completed authorization", "fresh-facts-assertion"),
+        ("cached parsed state cannot conceal an authoritative foreign tree deletion", "foreign-tree-assertion"),
+    ] if needle in output]
     report["controls"][name] = proof
     save()
     return proof, output
