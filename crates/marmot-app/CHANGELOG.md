@@ -26,6 +26,11 @@
 
 ### Fixed
 
+- Sibling chat-sharing relay publication no longer blocks the account worker or
+  another approved sibling. At most four original-owned publications run per
+  account; completion rechecks the exact live channel and roster. Dropping the
+  channel aborts its publication, without replacing comparison or sharing consent.
+
 - Commands and maintenance retain committed activity before subscription waits.
   Manual and scheduled convergence keep subscriber updates owned through route,
   checkpoint, notification and invitation waits, including cancellation.

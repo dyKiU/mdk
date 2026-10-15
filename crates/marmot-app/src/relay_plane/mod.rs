@@ -178,6 +178,7 @@ struct MarmotRelayPlaneInner {
 struct SelectedWelcomePublicationGate {
     account: MemberId,
     welcome: bool,
+    consent_only: bool,
     observed: tokio::sync::oneshot::Sender<cgka_traits::TransportMessage>,
     release: Arc<Notify>,
 }
@@ -1378,7 +1379,7 @@ impl MarmotRelayPlane {
         tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
         Arc<Notify>,
     ) {
-        self.hold_next_selected_publication(account, true)
+        self.hold_next_selected_publication(account, true, false)
     }
 
     #[cfg(all(
@@ -1393,7 +1394,22 @@ impl MarmotRelayPlane {
         tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
         Arc<Notify>,
     ) {
-        self.hold_next_selected_publication(account, false)
+        self.hold_next_selected_publication(account, false, false)
+    }
+
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn hold_next_sibling_consent(
+        &self,
+        account: MemberId,
+    ) -> (
+        tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
+        Arc<Notify>,
+    ) {
+        self.hold_next_selected_publication(account, false, true)
     }
 
     #[cfg(all(
@@ -1405,6 +1421,7 @@ impl MarmotRelayPlane {
         &self,
         account: MemberId,
         welcome: bool,
+        consent_only: bool,
     ) -> (
         tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
         Arc<Notify>,
@@ -1416,6 +1433,7 @@ impl MarmotRelayPlane {
         *held = Some(SelectedWelcomePublicationGate {
             account,
             welcome,
+            consent_only,
             observed,
             release: release.clone(),
         });
@@ -3799,7 +3817,9 @@ impl MarmotRelayPlaneAccountAdapter {
             let gate = {
                 let mut held = self.relay_plane.inner.selected_welcome_gate.lock().unwrap();
                 if held.as_ref().is_some_and(|gate| {
-                    gate.account == request.account_id && gate.welcome == welcome
+                    !gate.consent_only
+                        && gate.account == request.account_id
+                        && gate.welcome == welcome
                 }) {
                     held.take()
                 } else {
@@ -3812,6 +3832,33 @@ impl MarmotRelayPlaneAccountAdapter {
             }
         }
         self.publish_with_local_mirror(request, false).await
+    }
+
+    /// Same protected publication path, with a test seam for the exact sibling consent.
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) async fn publish_sibling_consent(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        {
+            let gate = {
+                let mut held = self.relay_plane.inner.selected_welcome_gate.lock().unwrap();
+                if held
+                    .as_ref()
+                    .is_some_and(|gate| gate.consent_only && gate.account == request.account_id)
+                {
+                    held.take()
+                } else {
+                    None
+                }
+            };
+            if let Some(gate) = gate {
+                let _ = gate.observed.send(request.message.clone());
+                gate.release.notified().await;
+            }
+        }
+        self.publish_selected_chat(request).await
     }
 
     /// Private COMMIT relay acknowledgments must not manufacture an inbound echo.

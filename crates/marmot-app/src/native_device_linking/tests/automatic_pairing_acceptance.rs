@@ -4,6 +4,15 @@ use marmot_account::AccountHome;
 
 #[tokio::test]
 async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts() {
+    four_device_enrollment(false).await;
+}
+
+#[tokio::test]
+async fn blocked_sibling_consent_does_not_starve_another_approved_peer() {
+    four_device_enrollment(true).await;
+}
+
+async fn four_device_enrollment(hold_first_consent: bool) {
     use cgka_traits::StorageProvider;
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();
@@ -167,6 +176,13 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
     a.automatic_pairing_code().await.unwrap();
     eprintln!("automatic-enrollment-control stage=fourth-device-comparison");
     compare_and_confirm_pair(&a, &d).await;
+    let held_consent = hold_first_consent.then(|| {
+        apps[3]
+            .relay_plane
+            .hold_next_sibling_consent(cgka_traits::MemberId::new(
+                keys.public_key().to_bytes().to_vec(),
+            ))
+    });
     d.continue_automatic_linking(d.snapshot().await.unwrap().revision, true)
         .await
         .unwrap();
@@ -194,6 +210,32 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
         approval.review_metadata(revision).await.unwrap();
         approval.approve_and_share_chats(revision).await.unwrap();
         approvals.push(approval);
+    }
+    if let Some((observed, release)) = held_consent {
+        let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            observed.await.expect("genuine sibling consent publication");
+            loop {
+                if apps[1..3].iter().any(|app| {
+                    app.account_storage("test")
+                        .unwrap()
+                        .approved_account_sharing_policy_storage()
+                        .unwrap()
+                        .approved_account_sharing_policies()
+                        .unwrap()
+                        .len()
+                        == 3
+                }) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await;
+        release.notify_one();
+        assert!(
+            result.is_ok(),
+            "one blocked consent publication must not starve another approved sibling"
+        );
     }
     eprintln!("automatic-enrollment-control stage=fourth-device-completion");
     // Inspect only after the original bounded wait fails; keep the same failure
