@@ -632,9 +632,17 @@ def main():
         runner.report['failure_stage'] = label if re.fullmatch('[A-Za-z0-9:_-]{1,180}', label) else type(error).__name__
     finally:
         runner.report['expected_app_test_body_count'] = {'ios-control': 2, 'mac': 10, 'ios': 14, 'all': 22}[args.scope]
+        # Failed/partial case reports must not mask the original failure in
+        # this finally block. The success path above still requires all counts.
+        runner.report['execution_count_incomplete_cases'] = sorted(
+            name for name, case in runner.report['cases'].items()
+            if not isinstance(case.get('unit'), dict)
+            or type(case['unit'].get('totalTestCount')) is not int)
         runner.report['executed_app_test_body_count'] = sum(
-            case['unit']['totalTestCount'] + case.get('driver', {}).get('totalTestCount', 0)
-            for case in runner.report['cases'].values())
+            counts['totalTestCount'] for case in runner.report['cases'].values()
+            for counts in (case.get('unit'), case.get('driver'))
+            if isinstance(counts, dict) and type(counts.get('totalTestCount')) is int
+            and counts['totalTestCount'] >= 0)
         runner.report['expected_setup_test_count'] = 1
         runner.report['completed_setup_test_count'] = len(runner.report['setup'])
         runner.report['expected_cases'] = sorted(runner.expected_cases())

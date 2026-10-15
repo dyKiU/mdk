@@ -1,8 +1,6 @@
 {
-  "scope": "app-format",
-  "format_platforms": [
-    "macos"
-  ],
+  "scope": "tools-preflight",
+  "format_platforms": [],
   "mac_sha": "dc86789da2251ce89f3546719ff1dd8dd91ee99d",
   "ios_sha": "cfc9ba7b6a66ecc444b80070209ce2c1c195fc00",
   "mac_baseline": "38277c60878e660b92fb6157ae59665babce4623",

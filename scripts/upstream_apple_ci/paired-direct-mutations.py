@@ -133,7 +133,7 @@ def main():
         require(native.get('paired_direct_fixture') == {'bilateral_consent': True, 'source_only_recipient': True,
             'independent_peer': True, 'original_recipient_positive_close': True,
             'one_original_peer_conversation': True, 'no_pending_peer_invitation': True}, 'actual-source-only-original-fixture-required')
-        require(json.loads((base / 'private-bridge/paired-direct-closed.json').read_text()) == {'runtime_closed': True},
+        require(native.get('app_runtime_positive_close') is True,
                 'actual-app-positive-close-required-even-for-mutant')
         row['app_runtime_positive_close'] = True
         cleanup = native['native_cleanup']

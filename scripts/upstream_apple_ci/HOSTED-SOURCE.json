@@ -29,7 +29,7 @@
     },
     "hosted-app-fixtures.py": {
       "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
-      "sha256": "b8527e55c71d9073afbd5fe1b48120b606cfb516b1c49552d5c56ca4cf18d5c8",
+      "sha256": "f144f6de0871461e5ec156e9cc56a24836f0c67616618b7be48aec978bd9a375",
       "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
     },
     "hosted-app-unit.py": {
@@ -44,7 +44,7 @@
     },
     "run-hosted-app-acceptance.py": {
       "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
-      "sha256": "12c2c5e4298dfa1d132b333d4a08e6938766f6b4f87c9e1a7a80162351f91d59",
+      "sha256": "30fb9c78bdcfa907bb71af16c2105d52bd46bf046b7014591f2cc9813cb019a8",
       "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
     },
     "paired_direct_mutation.py": {
@@ -54,7 +54,7 @@
     },
     "paired-direct-mutations.py": {
       "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
-      "sha256": "8c086ec7392decea1ec3d92e8faadaee8afe0770a93fcb18f04ef655c0b89b9b",
+      "sha256": "4578edd5b9d7a7a7f8f9ecc2aea419a57c59c9f9e38f4821b0bc1b042ca1d6e6",
       "scope": "Genuine source-only paired recipient roots and real app adapters; no normal source/SDK guard overrides"
     }
   },
