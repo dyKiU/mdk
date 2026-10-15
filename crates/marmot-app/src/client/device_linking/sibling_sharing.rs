@@ -1854,8 +1854,8 @@ impl AppClient {
         in_flight: &mut usize,
     ) -> Result<(), ClientLinkingError> {
         // Both original publications already met their ACK requirement and the
-        // peer's authenticated proof is durable. A redundant retry cannot add
-        // authority or postpone the completed handoff behind another relay wait.
+        // peer's authenticated proof was observed on this live channel. A redundant
+        // retry cannot add authority or postpone completion behind another relay wait.
         if entry.handshake_published
             && entry.policy_committed
             && entry.proof_published
