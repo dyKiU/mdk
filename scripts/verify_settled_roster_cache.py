@@ -49,13 +49,15 @@ def run(name, selected, expected):
     safe_names = app + CORE_NAMES
     failed_lines = [line for line in output.splitlines() if re.search(r"\bFAIL\b", line)]
     proof["failed_case_names"] = [case for case in safe_names if any(case in line for line in failed_lines)]
-    allowed_stages = {"third-device-completion", "fourth-device-completion"}
+    allowed_stages = {"third-device-completion", "fourth-device-completion", "sibling-consent-held-before-peer-progress", "automatic-publication-held-before-completion"}
     proof["completion_stage_markers"] = [stage for stage in re.findall(r"automatic-enrollment-control stage=([a-z-]+)", output) if stage in allowed_stages]
     proof["panic_locations"] = [{"file": file, "line": int(line), "column": int(column)} for file, line, column in re.findall(r"panicked at (crates/[A-Za-z0-9_./-]+\.rs):([0-9]+):([0-9]+)", output)]
     error_names = {"Storage", "Backend", "Other", "UnknownGroup", "Serialize", "InvalidState", "InvalidArgument"}
     proof["unwrap_error_categories"] = [value for value in re.findall(r"Err.? value: ([A-Za-z]+)", output) if value in error_names]
     proof["closed_failure_categories"] = [category for needle, category in [
         ("automatic pairing did not reach required phase", "original-phase-not-reached"),
+        ("one blocked consent publication must not starve another approved sibling", "original-combined-sibling-fairness"),
+        ("the actual automatic publication must be held before completion", "original-automatic-held-setup"),
         ("cached parsed state never revives a denied settlement", "fresh-denial-assertion"),
         ("corrupt completed facts retain their exact typed storage error", "typed-corruption-assertion"),
         ("cached parsed state cannot conceal an authoritative foreign tree deletion", "foreign-tree-assertion"),
@@ -64,6 +66,12 @@ def run(name, selected, expected):
     save()
     return proof, output
 import os
+if os.environ.get("SETTLED_CACHE_DIAGNOSTIC") == "three-existing":
+    for case in app[:3]:
+        run(case, "package(marmot-app) & test(=" + case + ")", 1)
+    report["diagnostic_complete"] = True
+    save()
+    raise SystemExit(0)
 if os.environ.get("SETTLED_CACHE_DIAGNOSTIC") == "safety-only":
     selected = "package(cgka-engine) & (" + " | ".join("test(" + case + ")" for case in CORE_NAMES[:2]) + ")"
     run("two-safety-fixture-diagnosis", selected, 2)
