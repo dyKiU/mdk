@@ -203,6 +203,9 @@ jobs:
       - name: Kill obsolete-publication invite mutant and verify restored Mac control
         if: matrix.lane == 'final-mac'
         run: python3 scripts/upstream_apple_ci/missing-key-mutations.py --platform macos
+      - name: Kill hosted Mac fixture provenance mutants and verify exact restored controls
+        if: matrix.lane == 'final-mac'
+        run: python3 scripts/upstream_apple_ci/hosted-root-mutations.py --platform macos
       - name: Adopt verified final iOS experimental overlay
         if: matrix.lane == 'final-ios'
         run: |
@@ -238,6 +241,9 @@ jobs:
       - name: Kill iOS parked-wait policy and running-loop mutants with restored controls
         if: matrix.lane == 'final-ios'
         run: python3 scripts/upstream_apple_ci/ios-storage-mutations.py
+      - name: Kill hosted iOS fixture provenance mutants and verify exact restored controls
+        if: matrix.lane == 'final-ios'
+        run: python3 scripts/upstream_apple_ci/hosted-root-mutations.py --platform ios
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -252,6 +258,8 @@ jobs:
             ${{ runner.temp }}/hosted-one-scan/result.json
             ${{ runner.temp }}/ios-timestamp-mutations/result.json
             ${{ runner.temp }}/ios-timestamp-mutations/*.log
+            ${{ runner.temp }}/hosted-root-mutations-macos/result.json
+            ${{ runner.temp }}/hosted-root-mutations-ios/result.json
             ${{ runner.temp }}/localization-mutation/result.json
             ${{ runner.temp }}/ios-storage-mutations/result.json
             ${{ runner.temp }}/ios-storage-mutations/ios-storage-await-policy-mutant.log

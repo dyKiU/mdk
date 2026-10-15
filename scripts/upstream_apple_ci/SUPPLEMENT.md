@@ -178,3 +178,10 @@ behavior change exposes an uncovered lifecycle failure, add only the focused
 native journey needed to reproduce it. Until then, explicitly retain the missing
 native retention/expiry/message-deletion evidence and the finite history limits;
 do not claim full-history replacement or retention/deletion equivalence.
+
+Hosted fixture-root guards also require three independent runtime mutations per
+app: accepting an unclosed producer, accepting the wrong SDK source, and accepting
+broad filesystem permissions. Each selected synthetic guard regression must pass
+once, fail once under its mutant, and pass once after exact byte restoration,
+with no skips. These tests qualify fixture validation only; actual app ownership
+and history acceptance still require the live, platform-native fixture lanes.
