@@ -107,6 +107,9 @@ class Runner:
             self.state = {'cohort': self.cohort, 'steps': {}, 'cases': {}}
             self.save()
         self.report = {'cohort': self.cohort, 'requested_scope': args.scope, 'passed': 0,
+                       'qualification_scope': ('Attach-only hosted UI harness control: one unit and one UI driver; '
+                           'no enrollment, history, fixture-agent or changed-SDK behavior qualification.'
+                           if args.scope == 'ios-control' else 'Real native app fixtures using the exact SDK cohort.'),
                        'cases': {}, 'stage_timings': [],
                        'limits': ['Hosted single-runner SDK/app acceptance; no physical-device, APNS or production-install claim.',
                                   'No exhaustive full-history, all-user/topology or transferred retention/deletion equivalence.']}
@@ -447,6 +450,9 @@ def main():
     require(os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('RUNNER_OS') == 'macOS', 'hosted-ci-only')
     require(all(re.fullmatch('[0-9a-f]{40}', value) for value in (args.mac_commit, args.ios_commit, args.sdk_source))
             and args.sdk_run_id.isdigit(), 'immutable-source-and-sdk-cohort-required')
+    require(args.scope == 'ios-control'
+            or args.sdk_source != '3f18b2d1acac4f87680b35f39bf8dce67dcf28ec',
+            'old-sdk-permitted-only-for-attach-only-harness-control')
     os.umask(0o077)
     for name in ('mac_source', 'ios_source', 'packages', 'relay'):
         path = getattr(args, name)

@@ -9,12 +9,12 @@ on:
   workflow_dispatch:
     inputs:
       native_scope:
-        description: "Native execution (leave none for preparation only)"
+        description: "none=preparation; ios-control=attach-only harness; all=qualified NEW SDK native acceptance"
         type: choice
         options: [none, ios-control, all]
         default: none
       sdk_source:
-        description: "Exact qualified NEW MDK Apple SDK source SHA (no default cohort)"
+        description: "Exact SDK SHA; verified 3f18 allowed ONLY for attach-only ios-control"
         type: string
       sdk_run_id:
         description: "Existing Apple SDK producer workflow run ID"
@@ -72,6 +72,8 @@ jobs:
           if native!='none':
               assert os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch'
               assert re.fullmatch('[0-9a-f]{40}',sdk) and re.fullmatch('[1-9][0-9]*',sdk_run)
+              if native=='all':
+                  assert sdk!='3f18b2d1acac4f87680b35f39bf8dce67dcf28ec','Old SDK cannot qualify protocol/native bodies'
               assert cohort['mac_sha']=='ff37f6201fa96a630da0ab3376a670442ddc5768'
               assert cohort['ios_sha']=='c63ce3a8f645f172f30e83aeb761ca2eec259d9e'
           else:
@@ -310,7 +312,7 @@ jobs:
           with open(os.environ['GITHUB_ENV'],'a') as output:
               output.write('NATIVE_SIMULATOR='+simulator+'\n')
           PY
-      - name: Require actual initial iOS unit and attach-only UI control
+      - name: Require initial attach-only harness control (one unit plus one UI; no protocol qualification)
         run: |
           python3 scripts/upstream_apple_ci/run-hosted-app-acceptance.py \
             --scope ios-control --mac-source "$GITHUB_WORKSPACE/mac" --mac-commit "$MAC_SHA" \
