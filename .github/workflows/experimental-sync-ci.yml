@@ -103,6 +103,7 @@ jobs:
         env:
           CARGO_INCREMENTAL: '1'
           UPSTREAM_REUSE_ARCHIVE: immutable-code/normal-test-binary.tar.gz
+          UPSTREAM_PERF_PHASE: third
         run: python3 scripts/diagnose_upstream_current_pairing_perf.py
       - name: Compile normal original once, preserve unprofiled outcome, sample same binary
         if: steps.control.outputs.feasible == 'true' && inputs.scope == 'latest-current-perf'

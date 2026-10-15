@@ -17,6 +17,8 @@ import time
 
 BASELINE = "cd61ea2a14711d15072f77d7a0adc233ccef60ea"
 TEST = "native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts"
+PHASE = os.environ.get("UPSTREAM_PERF_PHASE", "fourth")
+assert PHASE in {"third", "fourth"}
 FEATURES = "marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks"
 ARGS = ["--locked", "-p", "marmot-app", "--lib", "--features", FEATURES]
 os.umask(0o077)
@@ -24,7 +26,7 @@ root = Path("current-perf-evidence")
 root.mkdir()
 report = {"source": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(), "product_baseline": BASELINE,
           "source_tree": subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip(),
-          "diagnostic_only": True, "qualification_passed": False, "selector": TEST, "features": FEATURES,
+          "diagnostic_only": True, "qualification_passed": False, "sampled_phase": PHASE, "selector": TEST, "features": FEATURES,
           "rust_min_stack_bytes": 4194304, "test_threads": 1, "automatic_retries": 0,
           "profile": "normal unoptimized test; no profiling build or Rust flag changes",
           "marker_detection_lag": "unknown; marker observed through a pipe, not assumed to equal emission time",
@@ -78,23 +80,24 @@ def body(binary, perf=None, capture=None):
             if raw is None: break
             line = re.sub(r"\x1b\[[0-9;]*m", "", raw)
             marker = re.search(r"automatic-enrollment-control stage=([a-z-]+)", line)
-            if marker and marker[1] in {"third-device-completion", "fourth-device-completion", "fourth-device-completed"}:
+            if marker and marker[1] in {"third-device-completion", "third-device-completed", "fourth-device-completion", "fourth-device-completed"}:
                 proof["markers"].append(marker[1])
-                if marker[1] == "fourth-device-completion":
+                if marker[1] == PHASE + "-device-completion":
                     proof["phase_start_detected_monotonic"] = at
                     start_cpu = ticks(process.pid)
                     if perf is not None:
                         sampler = subprocess.Popen(["sudo", "-n", perf, "record", "--clockid", "mono", "-e", "cpu-clock:u", "-F", "49", "--call-graph", "fp", "-p", str(process.pid), "-o", str(capture)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
                         proof["perf_launch_monotonic"] = time.monotonic()
-                elif marker[1] == "fourth-device-completed":
+                elif marker[1] == PHASE + "-device-completed":
                     proof["phase_end_detected_monotonic"] = at
                     end_cpu = ticks(process.pid)
                     stop_perf(sampler)
             if "automatic pairing did not reach required phase:" in line:
                 proof["original_phase_assertion"] = True
-                proof["phase_end_detected_monotonic"] = at
-                end_cpu = ticks(process.pid)
-                stop_perf(sampler)
+                if "phase_start_detected_monotonic" in proof and "phase_end_detected_monotonic" not in proof:
+                    proof["phase_end_detected_monotonic"] = at
+                    end_cpu = ticks(process.pid)
+                    stop_perf(sampler)
             for file, number, column in re.findall(r"panicked at (crates/[A-Za-z0-9_./-]+\.rs):([0-9]+):([0-9]+)", line):
                 proof["panic_locations"].append({"file": file, "line": int(number), "column": int(column)})
             summary = re.search(r"test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored;", line)
