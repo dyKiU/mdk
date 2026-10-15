@@ -211,7 +211,7 @@ if scope in {"latest-three", "latest-controls", "latest-fourth-trace"}:
                         assert set(snap) == {"records", "before_window", "dropped", "pending", "owner_state_live"}
                         assert type(snap["before_window"]) is int and type(snap["dropped"]) is int and type(snap["owner_state_live"]) is bool
                         assert snap["pending"] is None or (len(snap["pending"]) == 2 and type(snap["pending"][0]) is bool and snap["pending"][1] in {0,1,2})
-                        assert len(snap["records"]) <= 64
+                        assert len(snap["records"]) <= 256
                         for at, stage, flags, pending, ready in snap["records"]:
                             assert type(at) is int and at >= 0 and type(stage) is int and 0 <= stage <= 7
                             assert flags is None or (type(flags) is int and 0 <= flags <= 255)

@@ -378,9 +378,23 @@ struct ChoiceProgress {
 }
 impl OriginalEnrollmentSharingChoice {
     #[cfg(all(test, feature = "test-policy-overrides"))]
-    pub(crate) fn lifecycle_child_for_test(&self, nonce: [u8; 32], start: Instant) -> Option<serde_json::Value> {
-        self.children.lock().expect("sibling lifecycle children").iter().find(|state|
-            state.scope.lock().expect("sibling lifecycle scope").as_ref().is_some_and(|scope| scope.nonce == nonce))
+    pub(crate) fn lifecycle_child_for_test(
+        &self,
+        nonce: [u8; 32],
+        start: Instant,
+    ) -> Option<serde_json::Value> {
+        self.children
+            .lock()
+            .expect("sibling lifecycle children")
+            .iter()
+            .find(|state| {
+                state
+                    .scope
+                    .lock()
+                    .expect("sibling lifecycle scope")
+                    .as_ref()
+                    .is_some_and(|scope| scope.nonce == nonce)
+            })
             .map(|state| state.lifecycle_snapshot_for_test(start))
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -1348,17 +1362,47 @@ impl Drop for SiblingPublication {
 const MAX_SIBLING_PUBLICATIONS: usize = 4;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 fn observe_sibling_lifecycle(entry: &SiblingChannel, stage: u8) {
-    let bits = [entry.original.live(), entry.state.live(), entry.ready, entry.handshake_published,
-        entry.policy_committed, entry.proof_published, entry.peer_committed,
-        entry.state.progress.lock().expect("sibling progress").complete];
-    let flags = bits.into_iter().enumerate().fold(0, |mask, (index, value)| mask | (usize::from(value) << index));
-    let pending = entry.publication.as_ref().map(|pending| (pending.proof, pending.result_observed.clone()));
-    let ready = pending.as_ref().map_or(0, |(_, status)| status.load(Ordering::Acquire) as u8);
-    let mut diagnostic = entry.state.sibling_diagnostics.lock().expect("sibling lifecycle");
-    diagnostic.lifecycle_event(stage, Some(flags), pending.as_ref().map(|value| value.0), ready);
+    let bits = [
+        entry.original.live(),
+        entry.state.live(),
+        entry.ready,
+        entry.handshake_published,
+        entry.policy_committed,
+        entry.proof_published,
+        entry.peer_committed,
+        entry
+            .state
+            .progress
+            .lock()
+            .expect("sibling progress")
+            .complete,
+    ];
+    let flags = bits
+        .into_iter()
+        .enumerate()
+        .fold(0, |mask, (index, value)| {
+            mask | (usize::from(value) << index)
+        });
+    let pending = entry
+        .publication
+        .as_ref()
+        .map(|pending| (pending.proof, pending.result_observed.clone()));
+    let ready = pending
+        .as_ref()
+        .map_or(0, |(_, status)| status.load(Ordering::Acquire) as u8);
+    let mut diagnostic = entry
+        .state
+        .sibling_diagnostics
+        .lock()
+        .expect("sibling lifecycle");
+    diagnostic.lifecycle_event(
+        stage,
+        Some(flags),
+        pending.as_ref().map(|value| value.0),
+        ready,
+    );
     diagnostic.lifecycle_pending = pending;
 }
-
 
 pub(super) struct SiblingChannel {
     original: Arc<SiblingOriginal>,
@@ -1790,7 +1834,11 @@ impl AppClient {
                 let result = self.advance_sibling_sharing(entry, &mut in_flight).await;
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 observe_sibling_lifecycle(entry, 3);
-                if let Err(error) = result && failure.is_none() { failure = Some(error); }
+                if let Err(error) = result
+                    && failure.is_none()
+                {
+                    failure = Some(error);
+                }
             }
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -2323,10 +2371,15 @@ impl AppClient {
                 {
                     let status = if acknowledged { 1 } else { 2 };
                     result_from_task.store(status, Ordering::Release);
-                    diagnostic_state.sibling_diagnostics.lock().expect("sibling result observation")
+                    diagnostic_state
+                        .sibling_diagnostics
+                        .lock()
+                        .expect("sibling result observation")
                         .lifecycle_event(6, None, Some(proof), status as u8);
                 }
-                if acknowledged { wakeup.notify_one(); }
+                if acknowledged {
+                    wakeup.notify_one();
+                }
             }
         });
         entry.publication = Some(SiblingPublication {

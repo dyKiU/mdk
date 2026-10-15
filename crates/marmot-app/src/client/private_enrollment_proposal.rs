@@ -35,12 +35,20 @@ pub(crate) struct OriginalSiblingSharingApproval {
 }
 impl OriginalSiblingSharingApproval {
     #[cfg(all(test, feature = "test-policy-overrides"))]
-    pub(crate) fn lifecycle_snapshot_for_test(&self, start: std::time::Instant) -> serde_json::Value {
+    pub(crate) fn lifecycle_snapshot_for_test(
+        &self,
+        start: std::time::Instant,
+    ) -> serde_json::Value {
         self.state.lifecycle_snapshot_for_test(start)
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn lifecycle_nonce_for_test(&self) -> Option<[u8; 32]> {
-        self.state.scope.lock().expect("sibling lifecycle scope").as_ref().map(|scope| scope.nonce)
+        self.state
+            .scope
+            .lock()
+            .expect("sibling lifecycle scope")
+            .as_ref()
+            .map(|scope| scope.nonce)
     }
     pub(crate) fn cancel(&self) {
         self.state.cancel();
