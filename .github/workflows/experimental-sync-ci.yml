@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -33,6 +33,68 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  withdrawal-stack:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'withdrawal-stack'
+    name: Unchanged withdrawal function-only stack diagnostic
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Preserve diagnostic helper and restore exact archived source
+        run: |
+          cp scripts/diagnose_upstream_withdrawal_stack.py "$RUNNER_TEMP/withdrawal-stack.py"
+          git fetch --no-tags origin 3090a323ae823de6b213eb60561aec7031f276bc
+          git checkout --detach 3090a323ae823de6b213eb60561aec7031f276bc
+      - name: Verify immutable archive provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/dyKiU/mdk/actions/runs/38681649626 > "$RUNNER_TEMP/producer.json"
+          gh api repos/dyKiU/mdk/actions/artifacts/11949746329 > "$RUNNER_TEMP/archive.json"
+          python3 - <<'PYGUARD'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          run=json.loads((root/'producer.json').read_text())
+          archive=json.loads((root/'archive.json').read_text())
+          assert run['id']==38681649626 and run['head_sha']=='3090a323ae823de6b213eb60561aec7031f276bc'
+          assert run['path']=='.github/workflows/experimental-sync-ci.yml'
+          assert archive['id']==11949746329 and not archive['expired']
+          assert archive['name']=='experimental-sync-tests'
+          assert archive['workflow_run']['id']==run['id']
+          assert archive['workflow_run']['head_sha']==run['head_sha']
+          PYGUARD
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: 38681649626
+          artifact-ids: 11949746329
+          merge-multiple: true
+      - name: Diagnose exact unchanged body at original stack budget
+        run: |
+          set -euo pipefail
+          if ! command -v gdb >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y gdb
+          fi
+          filter='package(marmot-app) & binary(=marmot_app) & test(=native_device_linking::tests::automatic_forwarding_non_admin_acceptance::automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure)'
+          cargo nextest list --archive-file experimental-tests.tar.zst --extract-to "$GITHUB_WORKSPACE" \
+            --workspace-remap "$GITHUB_WORKSPACE" --message-format json -E "$filter" > "$RUNNER_TEMP/withdrawal-inventory.json"
+          python3 "$RUNNER_TEMP/withdrawal-stack.py" --inventory "$RUNNER_TEMP/withdrawal-inventory.json" \
+            --archive experimental-tests.tar.zst --report stack/result.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: unchanged-withdrawal-function-only-stack-3090a323
+          path: stack/result.json
+          if-no-files-found: error
+          retention-days: 7
   experimental-test-build:
     if: github.event_name != 'workflow_dispatch' || inputs.scope == 'full'
     name: Build experimental sync tests
