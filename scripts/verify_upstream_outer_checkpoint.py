@@ -193,10 +193,9 @@ if scope == "checkpoint-controls":
         proof, _ = run(case, "package(marmot-app) & test(=" + case + ")", 1, args)
         passed = passed and proof["passed"] == 1 and proof["failed"] == 0
     report["original_controls_passed"] = passed
-    spill_selection = "package(marmot-app) & (" + " | ".join("test(=" + case + ")" for case in SPILL_CASES) + ")"
-    spill_proof, _ = run("seven-real-spill-controls", spill_selection, 7, args)
-    report["spill_controls_passed"] = spill_proof["passed"] == 7 and spill_proof["failed"] == 0
-    passed = passed and report["spill_controls_passed"]
+    unchanged_spill = all(Path(path).read_bytes() == subprocess.check_output(["git", "show", "d6f2f8b473372d269ee2d8a535626e6f6a39ecca:" + path]) for path in ["crates/marmot-app/src/client/delivery_spill.rs", "crates/marmot-app/src/client/sync.rs"])
+    assert unchanged_spill, "reuse only exact qualified spill source"
+    report["reused_spill_evidence"] = {"source": "d6f2f8b473372d269ee2d8a535626e6f6a39ecca", "default_run": 38758834947, "experimental_run": 38758834888, "unchanged_source": unchanged_spill}
     report["diagnostic_complete"] = True
     report["scoped_controls_passed"] = passed
     save()
@@ -207,16 +206,19 @@ elif scope == "spill-controls":
     report["scoped_controls_passed"] = proof["passed"] == 7 and proof["failed"] == 0
     save()
     assert report["scoped_controls_passed"], "all seven actual spill controls required"
-elif scope == "checkpoint-mutation":
+elif scope in {"remove-outer-checkpoint", "remove-due-order"}:
     assert report["cohort"] == "experimental"
     case = NATIVE[0]
     selected = "package(marmot-app) & test(=" + case + ")"
     proof, _ = run("baseline-original-four-device", selected, 1, args)
     assert proof["passed"] == 1 and proof["failed"] == 0, "actual baseline completion required before mutation"
     path = Path("crates/marmot-app/src/runtime/account_worker.rs")
-    anchor = b"        // arm; here every previous durable operation has already completed.\n        tokio::task::yield_now().await;"
-    assert path.read_bytes().count(anchor) == 1
-    mutant = path.read_bytes().replace(anchor, b"        // arm; here every previous durable operation has already completed.", 1)
+    if scope == "remove-due-order":
+        mutant = subprocess.check_output(["git", "show", "d6f2f8b473372d269ee2d8a535626e6f6a39ecca:" + str(path)])
+    else:
+        anchor = b"        // arm; here every previous durable operation has already completed.\n        tokio::task::yield_now().await;"
+        assert path.read_bytes().count(anchor) == 1
+        mutant = path.read_bytes().replace(anchor, b"        // arm; here every previous durable operation has already completed.", 1)
     original = path.read_bytes()
     before = hashlib.sha256(original).hexdigest()
     assert original != mutant
@@ -225,7 +227,7 @@ elif scope == "checkpoint-mutation":
     try:
         path.write_bytes(mutant)
         proof, _ = run("mutated-original-four-device", selected, 1, args)
-        report["mutation"]["runtime_detected"] = proof["passed"] == 0 and proof["failed"] == 1 and "fourth-device-completion" in proof["completion_stage_markers"] and proof["closed_failure_categories"] == ["original-phase-not-reached"]
+        report["mutation"]["runtime_detected"] = proof["passed"] == 0 and proof["failed"] == 1 and bool({"third-device-completion", "fourth-device-completion"}.intersection(proof["completion_stage_markers"])) and proof["closed_failure_categories"] == ["original-phase-not-reached"] and any(location["file"] == "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs" and location["line"] == 816 for location in proof["panic_locations"])
         save()
     finally:
         path.write_bytes(original)
@@ -236,6 +238,6 @@ elif scope == "checkpoint-mutation":
     report["mutation"]["restored_runtime_passed"] = proof["passed"] == 1 and proof["failed"] == 0
     report["scoped_controls_passed"] = all(report["mutation"][key] for key in ["runtime_detected", "restored_exact", "restored_runtime_passed"])
     save()
-    assert report["scoped_controls_passed"], "actual original fourth-phase runtime kill and exact restored green required"
+    assert report["scoped_controls_passed"], "actual original third/fourth completion assertion runtime kill and exact restored green required"
 else:
     raise SystemExit("unknown checkpoint scope")

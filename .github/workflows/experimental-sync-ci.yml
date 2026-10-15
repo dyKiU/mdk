@@ -50,7 +50,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
           shared-key: core-regressions
-      - name: Execute twelve original bodies and seven real spill controls without retries
+      - name: Execute twelve original bodies without retries
         env:
           RECONCILED_SCOPE: checkpoint-controls
           RECONCILED_COHORT: experimental
@@ -64,9 +64,13 @@ jobs:
           if-no-files-found: error
   checkpoint-mutations:
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'checkpoint-mutations'
-    name: Actual outer checkpoint runtime mutation
+    name: Independent cooperative progress runtime mutation (${{ matrix.case }})
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [remove-outer-checkpoint, remove-due-order]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
@@ -81,14 +85,14 @@ jobs:
           shared-key: core-regressions
       - name: Require actual original fourth phase RED and exact restored GREEN
         env:
-          RECONCILED_SCOPE: checkpoint-mutation
+          RECONCILED_SCOPE: ${{ matrix.case }}
           RECONCILED_COHORT: experimental
           WN_UPSTREAM_PUBLICATION_DIAGNOSTICS: "1"
         run: python3 scripts/verify_upstream_outer_checkpoint.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: checkpoint-runtime-mutation
+          name: checkpoint-runtime-mutation-${{ matrix.case }}
           path: checkpoint-evidence/result.json
           if-no-files-found: error
   checkpoint-lock-format:
