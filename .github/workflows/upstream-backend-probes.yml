@@ -72,7 +72,7 @@ jobs:
           passed,failed=count('passed'),count('failed')
           code=int(os.environ['PROBE_EXIT_CODE'])
           qualified=code==0 and passed==2 and failed==0
-          Path('probe/result.json').write_text(json.dumps({'source':'3090a323ae823de6b213eb60561aec7031f276bc','passed':passed,'failed':failed,'executed_tests':int(summary[0]) if summary else None,'reported_skipped':count('skipped'),'expected_tests':2,'exit_code':code,'qualified':qualified,'automatic_retries':0,'scheduler_slots':1,'scope':'Same compiled archive, original assertions and deadlines; isolated control does not qualify the failed full shard.'},indent=2)+'\n')
+          Path('probe/result.json').write_text(json.dumps({'source':'3090a323ae823de6b213eb60561aec7031f276bc','passed':passed,'failed':failed,'executed_tests':int(summary[0]) if summary else None,'reported_skipped':count('skipped'),'expected_tests':2,'exit_code':code,'qualified':qualified,'automatic_retries':0,'scheduler_slots':1,'rust_min_stack_bytes':int(os.environ.get('RUST_MIN_STACK','0')),'scope':'Same compiled archive, original assertions and deadlines; isolated control does not qualify the failed full shard.'},indent=2)+'\n')
           if not qualified:
               raise SystemExit('Both real runtime controls must execute and pass')
           PY
@@ -93,8 +93,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Earlier profile-edit and later-enrollment controls already executed
-          # against this archive. Pushes select only these remaining failures.
+          # Match the full experimental runner stack budget; earlier scoped
+          # controls lacked it and remain distinct configuration evidence.
+          - case: profile-edits
+            package: cgka-conformance-simulator
+            binary: app_runtime_interaction_journeys
+            test: public_app_08_concurrent_admin_profile_edits_are_never_lost
           - case: absolute-cap
             package: cgka-engine
             binary: distributed_convergence
@@ -146,6 +150,7 @@ jobs:
           EXPECTED_BINARY: ${{ matrix.binary }}
           PROBE_CASE: ${{ matrix.case }}
           RUST_BACKTRACE: "1"
+          RUST_MIN_STACK: "4194304"
           CARGO_TERM_COLOR: never
         run: |
           set -euo pipefail
@@ -185,7 +190,7 @@ jobs:
                   'artifact_id':11949746329,'case':os.environ['PROBE_CASE'],'test':os.environ['EXPECTED_TEST'],
                   'expected_tests':1,'passed':passed,'failed':failed,'exit_code':code,
                   'executed_tests':int(summary[0]) if summary else None,'reported_skipped':count('skipped'),
-                  'automatic_retries':0,'scheduler_slots':1,'qualified':code==0 and passed==1 and failed==0,
+                  'automatic_retries':0,'scheduler_slots':1,'rust_min_stack_bytes':int(os.environ.get('RUST_MIN_STACK','0')),'qualified':code==0 and passed==1 and failed==0,
                   'scope':'Unchanged compiled experimental body with original assertions and deadlines; isolated control does not qualify the failed full shard.'}
           Path('probe/result.json').write_text(json.dumps(report,indent=2)+'\n')
           # Whitelist aggregate oracle outcomes; never upload private stores,
