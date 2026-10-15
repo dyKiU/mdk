@@ -20,7 +20,7 @@ jobs:
     env:
       SOURCE_SHA: 3f18b2d1acac4f87680b35f39bf8dce67dcf28ec
       SDK_RUN_ID: "38689678576"
-      IOS_SHA: c63ce3a8f645f172f30e83aeb761ca2eec259d9e
+      IOS_SHA: 9020265704d50a83897a55e77ecce84674b70932
       GH_TOKEN: ${{ github.token }}
       CARGO_INCREMENTAL: "1"
       CARGO_BUILD_JOBS: "2"
