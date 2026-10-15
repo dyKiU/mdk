@@ -1,10 +1,16 @@
-name: Upstream isolated worker startup diagnostic
+name: Upstream isolated backend controls
 
 on:
   push:
     branches: ["ci/upstream-acceptance-*"]
     paths: [".github/workflows/upstream-backend-probes.yml"]
   workflow_dispatch:
+    inputs:
+      scope:
+        description: Run selected unchanged archived controls without duplicating other lanes
+        type: choice
+        options: [experimental, default, all]
+        default: experimental
 
 permissions:
   contents: read
@@ -12,6 +18,7 @@ permissions:
 
 jobs:
   archived-regression:
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'default' || inputs.scope == 'all')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -46,20 +53,166 @@ jobs:
           df -h .
           sha256sum tests.tar.zst > probe/archive.sha256
           filter='package(marmot-app) & (test(=runtime::tests::stuck_worker_reap_does_not_block_a_healthy_account) | test(=runtime::tests::a_ready_worker_completes_one_span_per_startup_stage))'
+          set +e
           cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" \
             --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --test-threads 1 \
             --no-fail-fast --success-output immediate -E "$filter" 2>&1 | tee probe/execution.log
+          result=${PIPESTATUS[0]}
+          set -e
+          export PROBE_EXIT_CODE="$result"
           python3 - <<'PY'
-          import json,re
+          import json,os,re
           from pathlib import Path
           log=re.sub(r'\x1b\[[0-9;]*m','',Path('probe/execution.log').read_text())
-          assert re.search(r'Summary.*\b2 tests run: 2 passed',log), 'Expected both real runtime tests to pass'
-          Path('probe/result.json').write_text(json.dumps({'source':'3090a323ae823de6b213eb60561aec7031f276bc','passed':2,'failed':0,'automatic_retries':0,'scheduler_slots':1,'scope':'Same compiled archive, original assertions and deadlines; isolated control does not qualify the failed full shard.'},indent=2)+'\n')
+          summaries=re.findall(r'Summary\s+\[[^\]]*\]\s+(\d+)(?:/\d+)?\s+tests? run:\s*([^\n]*)',log)
+          summary=summaries[-1] if summaries else None
+          def count(label):
+              match=re.search(r'(\d+) '+label,summary[1]) if summary else None
+              return int(match[1]) if match else (0 if summary else None)
+          passed,failed=count('passed'),count('failed')
+          code=int(os.environ['PROBE_EXIT_CODE'])
+          qualified=code==0 and passed==2 and failed==0
+          Path('probe/result.json').write_text(json.dumps({'source':'3090a323ae823de6b213eb60561aec7031f276bc','passed':passed,'failed':failed,'executed_tests':int(summary[0]) if summary else None,'reported_skipped':count('skipped'),'expected_tests':2,'exit_code':code,'qualified':qualified,'automatic_retries':0,'scheduler_slots':1,'scope':'Same compiled archive, original assertions and deadlines; isolated control does not qualify the failed full shard.'},indent=2)+'\n')
+          if not qualified:
+              raise SystemExit('Both real runtime controls must execute and pass')
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: unchanged-worker-startup-probe
+          path: probe/
+          if-no-files-found: error
+          retention-days: 7
+
+  experimental-control:
+    if: github.event_name == 'push' || inputs.scope == 'experimental' || inputs.scope == 'all'
+    name: Unchanged experimental control (${{ matrix.case }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: profile-edits
+            package: cgka-conformance-simulator
+            binary: app_runtime_interaction_journeys
+            test: public_app_08_concurrent_admin_profile_edits_are_never_lost
+          - case: later-enrollment
+            package: marmot-app
+            binary: marmot_app
+            test: native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: 3090a323ae823de6b213eb60561aec7031f276bc
+          persist-credentials: false
+      - name: Verify exact existing experimental archive and producer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir probe
+          test "$(git rev-parse HEAD)" = 3090a323ae823de6b213eb60561aec7031f276bc
+          gh api repos/dyKiU/mdk/actions/runs/38681649626 > probe/producer.json
+          gh api repos/dyKiU/mdk/actions/artifacts/11949746329 > probe/artifact.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          run=json.loads(Path('probe/producer.json').read_text())
+          artifact=json.loads(Path('probe/artifact.json').read_text())
+          source='3090a323ae823de6b213eb60561aec7031f276bc'
+          assert run['id']==38681649626 and run['head_sha']==source
+          assert run['path']=='.github/workflows/experimental-sync-ci.yml'
+          assert artifact['id']==11949746329 and not artifact['expired']
+          assert artifact['name']=='experimental-sync-tests'
+          assert artifact['workflow_run']['id']==run['id']
+          assert artifact['workflow_run']['head_sha']==source
+          PY
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: 38681649626
+          artifact-ids: 11949746329
+          merge-multiple: true
+      - name: Run one unchanged experimental body in isolation
+        env:
+          EXPECTED_TEST: ${{ matrix.test }}
+          EXPECTED_PACKAGE: ${{ matrix.package }}
+          EXPECTED_BINARY: ${{ matrix.binary }}
+          PROBE_CASE: ${{ matrix.case }}
+          RUST_BACKTRACE: "1"
+          CARGO_TERM_COLOR: never
+        run: |
+          set -euo pipefail
+          df -h .
+          sha256sum experimental-tests.tar.zst > probe/archive.sha256
+          filter="package($EXPECTED_PACKAGE) & binary(=$EXPECTED_BINARY) & test(=$EXPECTED_TEST)"
+          cargo nextest list --archive-file experimental-tests.tar.zst \
+            --workspace-remap "$GITHUB_WORKSPACE" --message-format json -E "$filter" > probe/inventory.json
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          inventory=json.loads(Path('probe/inventory.json').read_text())
+          selected=[name for suite in inventory['rust-suites'].values() for name,case in suite['testcases'].items()
+                    if case['filter-match']['status']=='matches' and not case['ignored']]
+          assert selected==[os.environ['EXPECTED_TEST']], 'Exactly one intended nonignored test must be selected'
+          PY
+          export MDK_APP_JOURNEY_ARTIFACTS="$RUNNER_TEMP/isolated-experimental-private"
+          set +e
+          cargo nextest run --archive-file experimental-tests.tar.zst --extract-to "$GITHUB_WORKSPACE" \
+            --workspace-remap "$GITHUB_WORKSPACE" --profile m5-bounded --retries 0 --test-threads 1 \
+            --no-fail-fast --success-output immediate -E "$filter" 2>&1 | tee probe/execution.log
+          result=${PIPESTATUS[0]}
+          set -e
+          export PROBE_EXIT_CODE="$result"
+          python3 - <<'PY'
+          import json,os,re
+          from pathlib import Path
+          log=re.sub(r'\x1b\[[0-9;]*m','',Path('probe/execution.log').read_text())
+          summaries=re.findall(r'Summary\s+\[[^\]]*\]\s+(\d+)(?:/\d+)?\s+tests? run:\s*([^\n]*)',log)
+          summary=summaries[-1] if summaries else None
+          def count(label):
+              match=re.search(r'(\d+) '+label,summary[1]) if summary else None
+              return int(match[1]) if match else (0 if summary else None)
+          passed,failed=count('passed'),count('failed')
+          code=int(os.environ['PROBE_EXIT_CODE'])
+          report={'source':'3090a323ae823de6b213eb60561aec7031f276bc','producer_run':38681649626,
+                  'artifact_id':11949746329,'case':os.environ['PROBE_CASE'],'test':os.environ['EXPECTED_TEST'],
+                  'expected_tests':1,'passed':passed,'failed':failed,'exit_code':code,
+                  'executed_tests':int(summary[0]) if summary else None,'reported_skipped':count('skipped'),
+                  'automatic_retries':0,'scheduler_slots':1,'qualified':code==0 and passed==1 and failed==0,
+                  'scope':'Unchanged compiled experimental body with original assertions and deadlines; isolated control does not qualify the failed full shard.'}
+          Path('probe/result.json').write_text(json.dumps(report,indent=2)+'\n')
+          # Whitelist aggregate oracle outcomes; never upload private stores,
+          # complete observations, protocol records or arbitrary error payloads.
+          private=Path(os.environ['MDK_APP_JOURNEY_ARTIFACTS'])
+          allowed={'alice:name','bob:description'}
+          evidence=[]
+          for path in private.glob('*/after-race.json'):
+              value=json.loads(path.read_text())
+              settled=value['settled_edits']
+              dropped=value['dropped_accepted_edits']
+              if not set(settled+dropped)<=allowed:
+                  raise ValueError('Unexpected profile edit oracle fields')
+              row={'settled_edits':settled,'dropped_accepted_edits':dropped}
+              race=path.with_name('race-report.json')
+              if race.is_file():
+                  outcomes=json.loads(race.read_text())['outcomes']
+                  row['accepted_outcomes']=sum(item['accepted'] is True for item in outcomes)
+                  row['total_outcomes']=len(outcomes)
+              evidence.append(row)
+          report['aggregate_profile_oracles']=evidence
+          Path('probe/result.json').write_text(json.dumps(report,indent=2)+'\n')
+          if not report['qualified']:
+              raise SystemExit('The intended unchanged test must execute and pass')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: unchanged-experimental-${{ matrix.case }}-3090a323
           path: probe/
           if-no-files-found: error
           retention-days: 7
