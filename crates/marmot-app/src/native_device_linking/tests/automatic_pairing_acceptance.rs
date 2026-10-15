@@ -258,6 +258,25 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
             "one blocked consent publication must not starve another approved sibling"
         );
     }
+    let held_release = if let Some((observed, release)) = held_automatic {
+        // Hold a genuine automatic publication before the unchanged completion
+        // predicate. Release on unwind as well, without manufacturing consent.
+        struct HeldPublicationRelease(std::sync::Arc<tokio::sync::Notify>);
+        impl Drop for HeldPublicationRelease {
+            fn drop(&mut self) {
+                self.0.notify_one();
+            }
+        }
+        let release = HeldPublicationRelease(release);
+        tokio::time::timeout(std::time::Duration::from_secs(10), observed)
+            .await
+            .expect("the actual automatic publication must be held before completion")
+            .expect("the actual automatic publication must be observed");
+        eprintln!("automatic-enrollment-control stage=automatic-publication-held-before-completion");
+        Some(release)
+    } else {
+        None
+    };
     eprintln!("automatic-enrollment-control stage=fourth-device-completion");
     wait_for_automatic_phase_with_approvals(
         &a,
@@ -267,16 +286,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     )
     .await;
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
-    if let Some((observed, release)) = held_automatic {
-        // Pairing has already completed while the background publication is held.
-        // Now prove that ordinary automatic work resumes without another action.
-        let resumed = tokio::time::timeout(std::time::Duration::from_secs(10), observed).await;
-        release.notify_one();
-        assert!(
-            matches!(resumed, Ok(Ok(_))),
-            "automatic sync must resume after enrollment handoff"
-        );
-    }
+    drop(held_release);
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             if apps.iter().all(|app| {

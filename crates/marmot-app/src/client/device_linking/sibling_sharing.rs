@@ -2217,6 +2217,9 @@ impl AppClient {
                     else { adapter.publish_selected_chat(request).await }
                 } => report.map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?,
             };
+            if !original.live() || !state.live() || !report.met_required_acks() {
+                return Err(denied());
+            }
             #[cfg(all(test, feature = "test-policy-overrides"))]
             {
                 use crate::account_chat_sharing::enabled::SiblingPublicationStage as Stage;
@@ -2225,9 +2228,6 @@ impl AppClient {
                     .lock()
                     .expect("sibling diagnostics")
                     .publication_stage = Some(Stage::AfterRelayPublication);
-            }
-            if !original.live() || !state.live() || !report.met_required_acks() {
-                return Err(denied());
             }
             Ok(())
         });
