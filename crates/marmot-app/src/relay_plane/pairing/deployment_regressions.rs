@@ -41,13 +41,20 @@ async fn witnessed_route(
             if frame[0] == "REQ" {
                 let reply = match behavior {
                     RouteBehavior::RejectSubscription => {
-                        serde_json::json!(["CLOSED", frame[1], "restricted: kind not allowed: 21194"])
+                        serde_json::json!([
+                            "CLOSED",
+                            frame[1],
+                            "restricted: kind not allowed: 21194"
+                        ])
                     }
                     RouteBehavior::AcceptWithoutPublicationReceipt => {
                         serde_json::json!(["EOSE", frame[1]])
                     }
                 };
-                socket.send(SocketMessage::Text(reply.to_string().into())).await.unwrap();
+                socket
+                    .send(SocketMessage::Text(reply.to_string().into()))
+                    .await
+                    .unwrap();
                 if let Some(sent) = request_sent.take() {
                     let _ = sent.send(());
                 }
@@ -77,7 +84,8 @@ async fn close_witness_socket(mut server: tokio::task::JoinHandle<()>) -> bool {
 
 #[tokio::test]
 async fn rejected_pairing_subscription_cannot_export_a_mailbox() {
-    let (endpoint, closed_seen, _, server) = witnessed_route(RouteBehavior::RejectSubscription).await;
+    let (endpoint, closed_seen, _, server) =
+        witnessed_route(RouteBehavior::RejectSubscription).await;
     let plane = MarmotRelayPlane::full_history_with_loopback(true);
     let result = tokio::time::timeout(
         Duration::from_secs(3),
@@ -88,14 +96,23 @@ async fn rejected_pairing_subscription_cannot_export_a_mailbox() {
         ),
     )
     .await;
-    let actual_closed = matches!(tokio::time::timeout(Duration::from_secs(3), closed_seen).await, Ok(Ok(())));
+    let actual_closed = matches!(
+        tokio::time::timeout(Duration::from_secs(3), closed_seen).await,
+        Ok(Ok(()))
+    );
     let refused_before_export = matches!(&result, Ok(Err(PairingRelayError::Unavailable)));
     drop(result);
     plane.shutdown().await;
     let socket_closed = close_witness_socket(server).await;
-    assert!(actual_closed && socket_closed, "real_closed_route_prerequisites_and_positive_cleanup");
+    assert!(
+        actual_closed && socket_closed,
+        "real_closed_route_prerequisites_and_positive_cleanup"
+    );
     eprintln!("pairing_closed_export actual_req=true actual_closed=true sockets_closed=true");
-    assert!(refused_before_export, "pairing_subscription_rejected_before_mailbox_export");
+    assert!(
+        refused_before_export,
+        "pairing_subscription_rejected_before_mailbox_export"
+    );
 }
 
 #[tokio::test]
@@ -113,27 +130,72 @@ async fn healthy_pairing_ack_survives_another_accepted_route_without_ok() {
     let sender = Channel::new(keys, &bootstrap, now, deadline).unwrap();
     let receiver = Channel::new(Keys::generate(), &bootstrap, now, deadline).unwrap();
     let mut sender_box = plane
-        .pairing_mailbox(vec![TransportEndpoint(healthy.clone()), silent], sender.public_key(), deadline)
-        .await.unwrap();
+        .pairing_mailbox(
+            vec![TransportEndpoint(healthy.clone()), silent],
+            sender.public_key(),
+            deadline,
+        )
+        .await
+        .unwrap();
     let mut receiver_box = other_plane
-        .pairing_mailbox(vec![TransportEndpoint(healthy.clone())], receiver.public_key(), deadline)
-        .await.unwrap();
-    let actual_eose = matches!(tokio::time::timeout(Duration::from_secs(3), ready_seen).await, Ok(Ok(())));
-    let message = Message::new(bootstrap.binding().unwrap(), 1, MessageKind::Verification, 0, 1, b"synthetic packet").unwrap();
-    let event = sender.seal(receiver.public_key(), &message, NostrTimestamp::now().as_secs()).unwrap();
+        .pairing_mailbox(
+            vec![TransportEndpoint(healthy.clone())],
+            receiver.public_key(),
+            deadline,
+        )
+        .await
+        .unwrap();
+    let actual_eose = matches!(
+        tokio::time::timeout(Duration::from_secs(3), ready_seen).await,
+        Ok(Ok(()))
+    );
+    let message = Message::new(
+        bootstrap.binding().unwrap(),
+        1,
+        MessageKind::Verification,
+        0,
+        1,
+        b"synthetic packet",
+    )
+    .unwrap();
+    let event = sender
+        .seal(
+            receiver.public_key(),
+            &message,
+            NostrTimestamp::now().as_secs(),
+        )
+        .unwrap();
     let published = sender_box.publish(&event).await.is_ok();
     let actual_event = matches!(tokio::time::timeout(Duration::from_secs(3), event_seen).await, Ok(Ok(id)) if id == event.id);
     let received = tokio::time::timeout(Duration::from_secs(3), async {
         loop {
             match receiver_box.next().await {
                 Ok(Some(received)) if received.id == event.id => break Some(received),
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(_) => break None,
             }
         }
-    }).await.ok().flatten();
-    let delivered = received.and_then(|received| receiver.open(sender.public_key(), &received, NostrTimestamp::now().as_secs()).ok())
-        .and_then(|message| message.bytes().ok().map(|bytes| bytes.as_slice() == b"synthetic packet")) == Some(true);
+    })
+    .await
+    .ok()
+    .flatten();
+    let delivered = received
+        .and_then(|received| {
+            receiver
+                .open(
+                    sender.public_key(),
+                    &received,
+                    NostrTimestamp::now().as_secs(),
+                )
+                .ok()
+        })
+        .and_then(|message| {
+            message
+                .bytes()
+                .ok()
+                .map(|bytes| bytes.as_slice() == b"synthetic packet")
+        })
+        == Some(true);
     drop(sender_box);
     drop(receiver_box);
     plane.shutdown().await;
@@ -146,9 +208,18 @@ async fn healthy_pairing_ack_survives_another_accepted_route_without_ok() {
             drop(stream);
             tokio::task::yield_now().await;
         }
-    }).await.is_ok();
-    assert!(actual_eose && actual_event && delivered && socket_closed && relay_closed,
-        "real_ack_route_prerequisites_and_positive_cleanup");
-    eprintln!("pairing_ack_witness actual_req=true actual_eose=true actual_event=true decrypted_delivery=true sockets_closed=true");
-    assert!(published, "healthy_pairing_ack_not_discarded_by_another_route_timeout");
+    })
+    .await
+    .is_ok();
+    assert!(
+        actual_eose && actual_event && delivered && socket_closed && relay_closed,
+        "real_ack_route_prerequisites_and_positive_cleanup"
+    );
+    eprintln!(
+        "pairing_ack_witness actual_req=true actual_eose=true actual_event=true decrypted_delivery=true sockets_closed=true"
+    );
+    assert!(
+        published,
+        "healthy_pairing_ack_not_discarded_by_another_route_timeout"
+    );
 }
