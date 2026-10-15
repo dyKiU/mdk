@@ -8,7 +8,7 @@ import re
 import subprocess
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition'], required=True)
+parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental'], required=True)
 parser.add_argument('--output', type=Path, required=True)
 args = parser.parse_args()
 if args.case == 'departure':
@@ -26,13 +26,37 @@ elif args.case == 'worker-reap':
                'runtime::tests::stuck_worker_reap_does_not_block_a_healthy_account',
                '--', '--exact', '--test-threads=1']
     expected = 1
-else:
+elif args.case == 'relay-acquisition':
     source = Path('crates/marmot-app/src/relay_plane/tests.rs')
     old, new = 'let subscription = issued_subscription;', 'let subscription = legacy_subscription.clone();'
     command = ['cargo', 'test', '--locked', '-p', 'marmot-app', '--lib', '--features',
                'experimental-device-sync',
                'relay_plane::tests::enrollment_acquisition_delayed_notification_worker_preserves_clock_and_fifo_eose',
                '--', '--exact', '--test-threads=1']
+    expected = 1
+
+elif args.case == 'upload-fixture':
+    source = Path('crates/marmot-app/src/client/upload_cleanup_tests.rs')
+    old = ("            let mut first_byte = [0u8; 1];\n"
+           "            if socket.peek(&mut first_byte).await.unwrap() == 0 {\n"
+           "                continue;\n"
+           "            }\n")
+    new = ''
+    command = ['env', '-u', 'RUST_MIN_STACK', 'cargo', 'test', '--locked',
+               '-p', 'marmot-app', '--lib',
+               'client::upload_cleanup_tests::outgoing_publication_', '--', '--test-threads=1']
+    expected = 2
+else:
+    source = Path('crates/storage-sqlite/src/private_migration_ledger.rs')
+    old = ('        applied += 1;\n    }\n'
+           '    install_activation_triggers(&tx, schemas.last().unwrap())?;')
+    new = old.replace('applied += 1;', 'applied += 0;')
+    command = ['env', '-u', 'RUST_MIN_STACK', 'cargo', 'test', '--locked',
+               '-p', 'storage-sqlite', '--lib']
+    if args.case == 'migration-experimental':
+        command.extend(['--features', 'experimental-device-sync'])
+    command.extend(['migrations::migration_0108_account_attachment_history::tests::populated_v106_upgrade_preserves_group_pages_and_installs_global_mutation_fences',
+                    '--', '--exact', '--test-threads=1'])
     expected = 1
 
 original = source.read_bytes()
