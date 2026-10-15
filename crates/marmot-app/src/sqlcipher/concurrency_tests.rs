@@ -293,11 +293,17 @@ fn delayed_directory_cleanup_preserves_published_encrypted_cache() {
         );
         for cache in [&cache, &delayed_cache] {
             assert_eq!(
-                cache.entry(&account.account_id_hex).unwrap().unwrap().follows,
+                cache
+                    .entry(&account.account_id_hex)
+                    .unwrap()
+                    .unwrap()
+                    .follows,
                 record.follows
             );
         }
-        let marker = dir.path().join(crate::DIRECTORY_FUTURE_CREATED_AT_CLEANUP_MARKER);
+        let marker = dir
+            .path()
+            .join(crate::DIRECTORY_FUTURE_CREATED_AT_CLEANUP_MARKER);
         assert_eq!(fs::read(&marker).unwrap(), b"done\n");
         for private_path in [&path, &marker] {
             assert_eq!(
@@ -311,7 +317,11 @@ fn delayed_directory_cleanup_preserves_published_encrypted_cache() {
     let reopened = MarmotApp::with_relay(dir.path(), "wss://relay.example");
     let cache = reopened.directory_cache_for_account(&account).unwrap();
     assert_eq!(
-        cache.entry(&account.account_id_hex).unwrap().unwrap().follows,
+        cache
+            .entry(&account.account_id_hex)
+            .unwrap()
+            .unwrap()
+            .follows,
         record.follows
     );
     reopened.close_storage().unwrap();

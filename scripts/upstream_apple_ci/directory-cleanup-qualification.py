@@ -38,7 +38,7 @@ def require(value, label):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cohort', choices=('static', 'default', 'experimental'), required=True)
+    parser.add_argument('--cohort', choices=('format', 'static', 'default', 'experimental'), required=True)
     cohort = parser.parse_args().cohort
     require(os.environ.get('GITHUB_ACTIONS') == 'true', 'remote-ci-required')
     output = Path('directory-cleanup-proof')
@@ -69,7 +69,7 @@ def main():
         row = {'name': name, 'argv': argv, 'exit_code': result.returncode,
                'compile_and_execution_seconds': round(time.monotonic() - started, 3)}
         report['commands'].append(row)
-        if cohort == 'static':
+        if cohort in ('static', 'format') and name != 'locked-metadata':
             print(text, flush=True)
         save()
         return row, text
@@ -107,9 +107,11 @@ def main():
 
     save()
     try:
-        if cohort == 'static':
+        if cohort in ('static', 'format'):
             checks = [('format', ['cargo', 'fmt', '--all', '--check']),
-                ('locked-metadata', ['cargo', 'metadata', '--locked', '--format-version', '1', '--no-deps']),
+                ('locked-metadata', ['cargo', 'metadata', '--locked', '--format-version', '1', '--no-deps'])]
+            if cohort == 'static':
+                checks += [
                 ('clippy-default', ['cargo', 'clippy', '-p', 'marmot-app', '--all-targets', '--locked', '--', '-D', 'warnings']),
                 ('clippy-experimental', ['cargo', 'clippy', '-p', 'marmot-app', '--all-targets', '--features',
                     'experimental-device-sync,otlp-export,product-analytics-export,test-policy-overrides', '--locked', '--', '-D', 'warnings'])]
