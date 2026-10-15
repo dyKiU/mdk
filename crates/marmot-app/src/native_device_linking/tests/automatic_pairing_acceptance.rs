@@ -33,6 +33,7 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
         .await
         .unwrap();
     a.automatic_pairing_code().await.unwrap();
+    eprintln!("automatic-enrollment-control stage=initial-two-comparison");
     compare_and_confirm_pair(&a, &b).await;
     b.continue_automatic_linking(b.snapshot().await.unwrap().revision, true)
         .await
@@ -40,7 +41,9 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
     a.continue_automatic_linking(a.snapshot().await.unwrap().revision, true)
         .await
         .unwrap();
+    eprintln!("automatic-enrollment-control stage=initial-two-completion");
     wait_for_automatic_phase(&a, &b, DeviceLinkingPhase::EnrollmentComplete).await;
+    eprintln!("automatic-enrollment-control stage=initial-two-completed");
     a.cancel().await.unwrap();
     b.cancel().await.unwrap();
     let targets = managers[0].device_linking_targets("test").await.unwrap();
@@ -59,6 +62,7 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
         .await
         .unwrap();
     a.automatic_pairing_code().await.unwrap();
+    eprintln!("automatic-enrollment-control stage=third-device-comparison");
     compare_and_confirm_pair(&a, &c).await;
     c.continue_automatic_linking(c.snapshot().await.unwrap().revision, true)
         .await
@@ -101,7 +105,9 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
         .await
         .unwrap();
     // No enrollment_packet/receive_enrollment_packet/finalize calls by the host.
+    eprintln!("automatic-enrollment-control stage=third-device-completion");
     wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
+    eprintln!("automatic-enrollment-control stage=third-device-completed");
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             if apps[..3].iter().all(|app| {
@@ -159,6 +165,7 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
         .await
         .unwrap();
     a.automatic_pairing_code().await.unwrap();
+    eprintln!("automatic-enrollment-control stage=fourth-device-comparison");
     compare_and_confirm_pair(&a, &d).await;
     d.continue_automatic_linking(d.snapshot().await.unwrap().revision, true)
         .await
@@ -188,7 +195,9 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
         approval.approve_and_share_chats(revision).await.unwrap();
         approvals.push(approval);
     }
+    eprintln!("automatic-enrollment-control stage=fourth-device-completion");
     wait_for_automatic_phase(&a, &d, DeviceLinkingPhase::EnrollmentComplete).await;
+    eprintln!("automatic-enrollment-control stage=fourth-device-completed");
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             if apps.iter().all(|app| {
