@@ -1,0 +1,64 @@
+name: Native cohort metadata guard regression only
+on:
+  push:
+    branches: [ci/upstream-native-cohort-guard-20261015]
+    paths: [.github/workflows/upstream-native-cohort-guard-preflight.yml]
+permissions:
+  contents: read
+jobs:
+  metadata-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Exercise actual old guard rejection and exact new manifest verification without SDK workloads
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess,sys
+          from pathlib import Path
+          root=Path('scripts/upstream_apple_ci').resolve()
+          source=root/'hosted_history.py';original=source.read_bytes()
+          old=b'3048d444ffe681fbae2dc1fb8e4f49d2a1c14372'
+          new=b'be04fc60b6a4c40bd85423fbf9e35e8982ae4b84'
+          assert original.count(old)==1 and new not in original
+          fixed=original.replace(old,new)
+          proof=Path('metadata-proof');proof.mkdir()
+          report={'source':os.environ['GITHUB_SHA'],'classification':'metadata guard regression, not product behavioral RED',
+              'SDK_builds':0,'native_executions':0,'public_trials':0,'qualified':False}
+          command=[sys.executable,'-B','-c',
+            'import runpy,sys;sys.path.insert(0,sys.argv[1]);runpy.run_path(sys.argv[1]+"/hosted_history.py")["verify_helpers"]()',str(root)]
+          try:
+              baseline=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+              report['baseline_exit_code']=baseline.returncode
+              assert baseline.returncode!=0 and baseline.stdout.rstrip().endswith('GateFailure: frozen-native-source-cohort')
+              report['exact_metadata_rejection']='frozen-native-source-cohort'
+              source.write_bytes(fixed)
+              green=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+              report['green_exit_code']=green.returncode
+              report['green_private_output_sha256']=hashlib.sha256(green.stdout.encode()).hexdigest()
+              if green.returncode:
+                  report['failure_category']=green.stdout.splitlines()[-1] if green.stdout.splitlines() else 'no-output'
+              assert green.returncode==0
+              frozen=json.loads((root/'native/SOURCE.json').read_text())
+              added=json.loads((root/'HOSTED-SOURCE.json').read_text())
+              report.update(frozen_files_verified=len(frozen['files']),additional_files_verified=len(added['files']),
+                  old_sha256=hashlib.sha256(original).hexdigest(),fixed_sha256=hashlib.sha256(fixed).hexdigest(),qualified=True)
+              patch=subprocess.check_output(['git','diff','--binary','--',str(source.relative_to(Path.cwd()))])
+              (proof/'guard.patch').write_bytes(patch)
+          finally:
+              source.write_bytes(original)
+              report['original_source_restored']=source.read_bytes()==original
+              report['qualified']=report['qualified'] and report['original_source_restored']
+              (proof/'result.json').write_text(json.dumps(report,indent=2)+'\n')
+          assert report['qualified']
+          PY
+          git diff --exit-code HEAD
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: native-metadata-guard-${{ github.sha }}
+          path: metadata-proof/
+          retention-days: 7
