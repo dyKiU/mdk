@@ -1032,6 +1032,11 @@ mod actual {
         .await;
     }
     #[tokio::test]
+    async fn device_revocation_original_rollback_keeps_actual_receive_route_until_reconciliation() {
+        selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute)
+            .await;
+    }
+    #[tokio::test]
     async fn device_revocation_confirmation_fact_rollback_preserves_owned_successor_authority() {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry)
             .await;
@@ -1041,6 +1046,7 @@ mod actual {
         Receipt,
         InitialPeel,
         ConfirmationWriteAfterSuccessor,
+        RefreshedRollbackRoute,
     }
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
@@ -1060,6 +1066,7 @@ mod actual {
         DeviceRosterSuccessorStorageRetry,
         DeviceRosterChallengeBeforeRetry,
         DeviceRosterChallengeInitialPeelBeforeRetry,
+        DeviceRosterRefreshedRollbackRoute,
         DeviceRosterConfirmationStorageRetry,
         HistoryTransfer,
         HistoryRecipientQuery,
@@ -1469,6 +1476,7 @@ mod actual {
                 | RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
                 | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
                 | RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
+                        | RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute
                 | RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry
         ) {
             request.cancel().await.unwrap();
@@ -1484,6 +1492,7 @@ mod actual {
                         | RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
                         | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
                         | RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
+                        | RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute
                         | RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry
                 ),
                 scenario == RecipientAdmissionScenario::DeviceRosterSuccessorReopen,
@@ -1492,6 +1501,7 @@ mod actual {
                     RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
                         | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
                         | RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
+                        | RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute
                 ),
                 match scenario {
                     RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry => {
@@ -1499,6 +1509,9 @@ mod actual {
                     }
                     RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry => {
                         Some(ChallengeBeforeRetry::InitialPeel)
+                    }
+                    RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute => {
+                        Some(ChallengeBeforeRetry::RefreshedRollbackRoute)
                     }
                     RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry => {
                         Some(ChallengeBeforeRetry::ConfirmationWriteAfterSuccessor)
@@ -2849,7 +2862,7 @@ mod actual {
         let recipient = fixture.apps[1]
             .account_storage("test")
             .map_err(|_| "recipient storage unavailable")?;
-        let predecessor_epoch = if matches!(observation, ChallengeBeforeRetry::InitialPeel) {
+        let predecessor_epoch = if matches!(observation, ChallengeBeforeRetry::InitialPeel | ChallengeBeforeRetry::RefreshedRollbackRoute) {
             let actual = openmls::group::MlsGroup::load(
                 recipient.mls_storage(),
                 &openmls::group::GroupId::from_slice(protected.as_slice()),
@@ -2963,7 +2976,7 @@ mod actual {
                                 && payload
                                     .as_openmls_wire()
                                     .is_some_and(|stored| stored.payload == ciphertext);
-                            if matches!(observation, ChallengeBeforeRetry::InitialPeel) {
+                            if matches!(observation, ChallengeBeforeRetry::InitialPeel | ChallengeBeforeRetry::RefreshedRollbackRoute) {
                                 if exact_outer || exact_inner {
                                     exact_attempt_observation = Some((row.state,
                                         Some(row.epoch.0) == predecessor_epoch));
@@ -2995,7 +3008,7 @@ mod actual {
         .await;
         match observed {
             Ok(result) => result,
-            Err(_) if matches!(observation, ChallengeBeforeRetry::InitialPeel) => {
+            Err(_) if matches!(observation, ChallengeBeforeRetry::InitialPeel | ChallengeBeforeRetry::RefreshedRollbackRoute) => {
                 eprintln!(
                     "revocation_challenge_initial_peel_prerequisite_unmet exact_state_epoch_matches_predecessor={exact_attempt_observation:?}"
                 );
@@ -3248,6 +3261,16 @@ mod actual {
             });
         let mut a_errors = fixture.runtimes[0].subscribe();
         let mut b_errors = fixture.runtimes[1].subscribe();
+        let held_route_challenge = matches!(
+            challenge_before_retry,
+            Some(ChallengeBeforeRetry::RefreshedRollbackRoute)
+        ).then(|| {
+            let account = fixture.apps[0].account_home().account("test").unwrap();
+            fixture.apps[0].relay_plane.hold_next_private_confirmation(
+                cgka_traits::MemberId::new(hex::decode(account.account_id_hex).unwrap()),
+                protected.clone(),
+            )
+        });
         let fault = if retained_remove_reopen || retained_remove_storage_retry {
             let app = &fixture.apps[1];
             let path = app.account_storage_path("test");
@@ -3445,6 +3468,32 @@ mod actual {
             })
             .await
             .expect("actual protected Remove must reach the atomic successor storage fault");
+            let retained_after_refresh = if let Some((held, release)) = held_route_challenge {
+                let actual_wire = tokio::time::timeout(std::time::Duration::from_secs(20), held)
+                    .await
+                    .expect("actual source Challenge must be held before rollback route refresh")
+                    .expect("actual source publication observation remains owned");
+                let source = fixture.apps[0].account_storage("test").unwrap();
+                let round = source.private_roster_settlement_storage().unwrap()
+                    .read_round().unwrap().unwrap();
+                let actual: cgka_traits::engine::SendResult =
+                    serde_json::from_slice(round.outbound.as_ref().unwrap()).unwrap();
+                let cgka_traits::engine::SendResult::ApplicationMessage { msg, group_id, source_epoch, .. } = actual else {
+                    panic!("held original Challenge must be the actual protected successor publication");
+                };
+                assert!(msg.id == actual_wire.id && msg.payload == actual_wire.payload
+                    && group_id == protected && source_epoch == round.anchor.successor.epoch);
+                let (original_retry, evidence_absent, retained) = managers[1]
+                    .refresh_revocation_receive_route_for_test("test", &protected)
+                    .await.unwrap();
+                assert!(original_retry && evidence_absent,
+                    "actual live rollback original and unavailable current route evidence must be observed before Challenge release");
+                eprintln!("revocation_rollback_route actual_original_retry=true evidence_absent=true actual_subscriptions_refreshed=true retained={retained}");
+                drop(release);
+                Some(retained)
+            } else {
+                None
+            };
             let b_storage = fixture.apps[1].account_storage("test").unwrap();
             assert!(
                 b_storage
@@ -3528,6 +3577,8 @@ mod actual {
             drop(connection);
             if let Some(observed) = challenge_observation {
                 let received = observed.expect("genuine current successor challenge must be published while B's actual Remove is rolled back");
+                assert!(retained_after_refresh.unwrap_or(true),
+                    "actual live rollback original must retain its existing receive route through subscription refresh");
                 eprintln!(
                     "revocation_challenge_before_retry relay_seen=true recipient_exact_wire_seen={received} recipient_old_epoch=true recipient_successor_anchor_absent=true"
                 );
@@ -3563,6 +3614,11 @@ mod actual {
                     round.phase
                         == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied
                 );
+                let (original_retry, evidence_absent, retained) = reopened.accounts()
+                    .refresh_revocation_receive_route_for_test("test", &protected)
+                    .await.unwrap();
+                assert!(!original_retry && evidence_absent && !retained,
+                    "encrypted reopen must not reconstruct a private receive route from a retired rollback original");
                 reopened.shutdown_and_close().await.unwrap();
                 return;
             }
