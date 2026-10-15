@@ -23,17 +23,20 @@ report = {"source": subprocess.check_output(["git", "rev-parse", "HEAD"], text=T
           "stack_bytes":4194304, "test_threads":1, "automatic_retries":0,
           "full_qualification_passed":False, "qualification_scope":"eleven safety controls and three original enrollment bodies, or one independent runtime mutation",
           "qualification_passed":False, "checks":{}, "mutant_killed":False,
-          "environment":{key:os.environ.get(key) for key in ["CARGO_INCREMENTAL","CARGO_PROFILE_DEV_DEBUG","CARGO_PROFILE_TEST_DEBUG","RUSTFLAGS"]}}
+          "environment":{key:os.environ.get(key) for key in ["CARGO_INCREMENTAL","CARGO_PROFILE_DEV_DEBUG","CARGO_PROFILE_TEST_DEBUG","RUSTFLAGS","CARGO_ENCODED_RUSTFLAGS","RUSTC_BOOTSTRAP","CARGO_PROFILE_TEST_OPT_LEVEL","CARGO_PROFILE_DEV_OPT_LEVEL"]}}
 def save(): (OUT/"result.json").write_text(json.dumps(report,indent=2)+"\n")
 def digest(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-def fingerprint():
+def fingerprint(exclude=()):
     value=hashlib.sha256()
     for name in sorted(subprocess.check_output(["git","ls-files"],text=True).splitlines()):
+        if name in exclude: continue
         path=Path(name)
         data=os.readlink(path).encode() if path.is_symlink() else path.read_bytes()
         value.update(name.encode()+b"\0"+hashlib.sha256(data).digest())
     return value.hexdigest()
 assert os.environ["RUST_MIN_STACK"]=="4194304" and not os.environ.get("RUSTFLAGS")
+assert os.environ.get("GITHUB_ACTIONS")=="true" and report["source"]==os.environ["GITHUB_SHA"]
+assert os.environ.get("CARGO_INCREMENTAL")=="1" and not os.environ.get("CARGO_ENCODED_RUSTFLAGS") and not os.environ.get("RUSTC_BOOTSTRAP")
 report["tree"]=subprocess.check_output(["git","rev-parse","HEAD^{tree}"],text=True).strip()
 report["source_before_sha256"]=fingerprint()
 report["lock_sha256"]=digest("Cargo.lock")
@@ -49,9 +52,16 @@ def run(names,label):
     args=["cargo","nextest","list","--locked","--lib","--features",features]
     for package in packages: args.extend(["-p",package])
     args.extend(["-E"," | ".join("test("+name+")" for name in names),"--message-format","json"])
+    starting_inputs=fingerprint()
+    assert digest("Cargo.lock")==report["lock_sha256"] and digest(".config/nextest.toml")==report["nextest_config_sha256"] and digest(".cargo/config.toml")==report["cargo_config_sha256"]
+    if label=="mutant":
+        assert digest(target)==report["expected_mutant_source_sha256"]
+        assert fingerprint(exclude=(str(target),))==report["other_source_before_sha256"]
+    else:
+        assert starting_inputs==report["source_before_sha256"]
     started=time.monotonic()
     listing=subprocess.run(args,capture_output=True,text=True)
-    proof={"features":features,"packages":packages,"compile_exit_code":listing.returncode,"compile_seconds":time.monotonic()-started,"cases":[]}
+    proof={"features":features,"packages":packages,"compile_exit_code":listing.returncode,"compile_seconds":time.monotonic()-started,"source_inputs_sha256":starting_inputs,"cases":[]}
     report["checks"][label]=proof
     save()
     if listing.returncode:
@@ -59,6 +69,7 @@ def run(names,label):
         proof["compile_locations"]=sorted(set(re.findall(r"--> (crates/[A-Za-z0-9_./-]+\.rs:[0-9]+:[0-9]+)",listing.stderr)))[:20]
         save()
         return False
+    assert fingerprint()==starting_inputs
     suites=json.loads(listing.stdout)["rust-suites"].values()
     selected={}
     for suffix in names:
@@ -87,7 +98,8 @@ def run(names,label):
         case["panic_locations"]=[{"file":file,"line":int(line),"column":int(column)} for file,line,column in re.findall(r"panicked at (crates/[A-Za-z0-9_./-]+\.rs):([0-9]+):([0-9]+)",raw)]
         case["original_phase_oracle"]=("automatic pairing did not reach required phase: expected=EnrollmentComplete" in raw and any(item["file"]=="crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs" and item["line"]==839 for item in case["panic_locations"]))
         case["completion_markers"]=re.findall(r"automatic-enrollment-control stage=((?:third|fourth)-device-completion)",raw)
-        case["nonlocal_consistency_oracle"]="missing genuine non-local receipt retains the exact completed-facts corruption error" in raw
+        case["nonlocal_consistency_oracle"]=("missing genuine non-local receipt retains the exact completed-facts corruption error" in raw and any(item["file"]=="crates/cgka-engine/src/private_roster_settlement_tests.rs" and item["line"]==report.get("consistency_assertion_line") for item in case["panic_locations"]))
+        assert fingerprint()==starting_inputs
         proof["cases"].append(case)
         save()
     return all(case.get("executed_nonignored")==1 and case.get("passed")==1 and case.get("failed")==0 and case.get("ignored")==0 and case["exit_code"]==0 for case in proof["cases"])
@@ -100,6 +112,13 @@ else:
     names=[CORE_TESTS[-1]] if MODE=="consistency-mutant" else [APP_TESTS[0]]
     target=Path("crates/storage-sqlite/src/private_roster_settlement.rs" if MODE=="consistency-mutant" else "crates/cgka-engine/src/private_roster_settlement.rs")
     before=target.read_bytes()
+    report["other_source_before_sha256"]=fingerprint(exclude=(str(target),))
+    test_source=Path("crates/cgka-engine/src/private_roster_settlement_tests.rs").read_text()
+    marker=test_source.index("missing genuine non-local receipt retains the exact completed-facts corruption error")
+    assertion=test_source.rfind("\n    assert!(",0,marker)+1
+    assert assertion>0
+    report["consistency_assertion_line"]=test_source.count("\n",0,assertion)+1
+    report["performance_oracle_scope"]="unchanged third OR fourth 15-second completion; no phase-specific fourth claim"
     report["mutation_source_before_sha256"]=digest(target)
     if not run(names,"baseline"):
         save()
@@ -113,7 +132,10 @@ else:
     source=before.decode()
     try:
         assert source.count(anchor)==1
-        target.write_text(source.replace(anchor,replacement,1))
+        expected=source.replace(anchor,replacement,1).encode()
+        report["expected_mutant_source_sha256"]=hashlib.sha256(expected).hexdigest()
+        target.write_bytes(expected)
+        assert digest(target)==report["expected_mutant_source_sha256"]
         assert subprocess.check_output(["git","diff","--name-only","HEAD"],text=True).splitlines()==[str(target)]
         report["mutation_source_sha256"]=digest(target)
         mutant_green=run(names,"mutant")
