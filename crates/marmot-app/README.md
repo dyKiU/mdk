@@ -929,3 +929,7 @@ Pruned ambiguous legacy chats need a separate fresh original human approval path
 The current source-terminal mirror fence does not yet allow a fresh accepted
 rejoin after decline; account-wide principal leave remains separate from device
 SelfRemove. No new SDK or installed-app qualification follows from these APIs.
+
+A failed protected Remove retains its original convergence retry. The exact
+confirmation-delivery retry slot requires the already-committed Pending successor
+and matching live control binding; a retained intent alone cannot select it.

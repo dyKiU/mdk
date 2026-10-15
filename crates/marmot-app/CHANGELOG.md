@@ -26,6 +26,9 @@
 
 ### Fixed
 
+- A rolled-back protected Remove uses its retained convergence retry instead of
+  occupying the successor-confirmation delivery slot and blocking fresh intake.
+
 - Sibling consent retries no longer preempt first policy/proof progress on a
   one-second worker cadence; consent and proof retries service the older deadline.
 

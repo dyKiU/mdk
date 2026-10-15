@@ -3,6 +3,7 @@ use super::AppClient;
 use super::device_linking::ClientLinkingError;
 use crate::device_linking::settlement::SettlementGuard;
 use cgka_traits::device_linking_key_package::{LinkingWelcomeDenied, PurposeAttemptScope};
+use cgka_traits::storage::StorageProvider;
 use std::sync::Arc;
 
 pub(super) struct OwnedSettlementAttempt {
@@ -86,9 +87,22 @@ impl AppClient {
             .session()
             .device_revocation_settlement_control()
             .ok()??;
+        let storage = self.app.account_storage(&self.state.label).ok()?;
+        let round = storage
+            .private_roster_settlement_storage()?
+            .read_round()
+            .ok()??;
+        // A rolled-back Remove still owns its retry intent, but has not
+        // committed this successor. Route it through convergence so newer
+        // settlement input can arrive; only failed successor confirmations
+        // belong in the exact-delivery retry slot.
         (control.is_live()
             && delivery.group_id_hint.as_ref() == Some(control.group())
-            && groups.contains(control.group()))
+            && groups.contains(control.group())
+            && round.phase
+                == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Pending
+            && round.anchor.group_id == *control.group()
+            && round.anchor.context_digest == control.binding())
         .then_some(control)
     }
 
