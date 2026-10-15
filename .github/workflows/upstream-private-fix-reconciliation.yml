@@ -1,0 +1,95 @@
+name: Upstream private fix reconciliation controls
+on:
+  push:
+    branches: [ci/upstream-private-fix-reconciliation-20261015]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: private-fix-reconciliation-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scope: cli-default-green
+            cache: cli-default-red
+          - scope: cli-experimental-green
+            cache: cli-experimental-red
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install exact repository Rust toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: private-fix-reconciliation-${{ matrix.cache }}
+          cache-on-failure: true
+      - name: Run eight controls, two runtime mutants and exact restored controls
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_private_fixes.py --scope '${{ matrix.scope }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: private-fix-${{ matrix.scope }}-${{ github.sha }}
+          path: private-fix-proof/result.json
+          if-no-files-found: error
+          retention-days: 7
+
+  static:
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [default, experimental]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install repository toolchain and static components
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt --component clippy
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: private-fix-cli-static-${{ matrix.cohort }}
+          cache-on-failure: true
+      - name: Check exact source formatting, locked dependencies and affected CLI lint
+        env:
+          CARGO_INCREMENTAL: '1'
+          COHORT: ${{ matrix.cohort }}
+        run: |
+          set -euo pipefail
+          cargo fmt --all --check
+          cargo metadata --locked --format-version 1 > /dev/null
+          python3 -m py_compile scripts/qualify_upstream_private_fixes.py
+          features=wn-cli/test-policy-overrides
+          if [[ "$COHORT" == experimental ]]; then
+            features+=,marmot-app/experimental-device-sync
+          fi
+          cargo clippy --locked -p wn-cli --all-targets --features "$features" -- -D warnings
+          git diff --exit-code HEAD
