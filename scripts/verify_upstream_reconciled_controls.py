@@ -30,7 +30,13 @@ QUARANTINE = [
 ]]
 assert os.environ["RUST_MIN_STACK"] == "4194304"
 subprocess.run(["git", "merge-base", "--is-ancestor", UPSTREAM, "HEAD"], check=True)
-assert not subprocess.check_output(["git", "diff", BASELINE, "HEAD", "--", "crates", "Cargo.toml", "Cargo.lock"]), "controller branch must not import product experiments"
+source_paths = ["crates", "Cargo.toml", "Cargo.lock"]
+if os.environ["RECONCILED_SCOPE"] == "spill":
+    test_file = "crates/marmot-app/src/client/delivery_spill.rs"
+    original = subprocess.check_output(["git", "show", BASELINE + ":" + test_file])
+    assert Path(test_file).read_bytes().startswith(original), "RED source must leave all original product bytes unchanged"
+    source_paths.append(":!" + test_file)
+assert not subprocess.check_output(["git", "diff", BASELINE, "HEAD", "--", *source_paths]), "controller branch must not import product experiments"
 root = Path("reconciled-evidence")
 root.mkdir()
 report = {"source": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(), "product_baseline": BASELINE, "upstream_master": UPSTREAM, "scope": os.environ["RECONCILED_SCOPE"], "cohort": os.environ.get("RECONCILED_COHORT", "experimental"), "rust_min_stack_bytes": 4194304, "test_threads": 1, "automatic_retries": 0, "controls": {}, "qualification_passed": False, "lock_sha256": hashlib.sha256(Path("Cargo.lock").read_bytes()).hexdigest()}
@@ -82,7 +88,7 @@ def existing_aggregates(output):
                 values = [aggregate_value(match[index]) for index in range(2, 7)]
                 completion = values[0]
                 assert completion is None or isinstance(completion, list) and len(completion) == 4 and type(completion[0]) is bool and (completion[1] is None or type(completion[1]) is int) and all(type(value) is int for value in completion[2:])
-                assert all(integers(value, size) for value, size in zip(values[1:], [19, 4, 9, 4]))
+                assert all(integers(value, size) for value, size in zip(values[1:], [8, 4, 9, 4]))
                 records[side + "_completion"] = dict(zip(["completion", "intake", "rejections", "context_rejections", "projection"], values))
                 continue
             match = re.fullmatch(r"automatic-enrollment-control side=(left|right) (child_channels|native_rpc_counts/elapsed_ms/branch)=(.*)", line)
@@ -136,6 +142,7 @@ def run(name, selected, expected, args):
     error_names = {"Storage", "Backend", "Other", "UnknownGroup", "Serialize", "InvalidState", "InvalidArgument"}
     proof["unwrap_error_categories"] = [value for value in re.findall(r"Err.? value: ([A-Za-z]+)", output) if value in error_names]
     proof["closed_failure_categories"] = [category for needle, category in [
+        ("a cancelled cooperative offer must not be repeated before the same durable receive", "cancelled-spill-offer-repeated"),
         ("automatic pairing did not reach required phase", "original-phase-not-reached"),
         ("one blocked consent publication must not starve another approved sibling", "original-combined-sibling-fairness"),
         ("the actual automatic publication must be held before completion", "original-automatic-held-setup"),
@@ -173,6 +180,12 @@ if scope in {"native", "quarantine", "experimental"}:
     report["native_controls_passed"] = native_ok
     save()
     assert quarantine_ok and native_ok, "reconciled unchanged scoped controls remain failing"
+elif scope == "spill":
+    case = "client::delivery_spill::yield_handoff_tests::cancelled_spill_receive_keeps_its_cooperative_offer_and_real_message"
+    proof, _ = run(case, "package(marmot-app) & test(=" + case + ")", 1, args)
+    report["expected_regression_red"] = proof["passed"] == 0 and proof["failed"] == 1 and "cancelled-spill-offer-repeated" in proof["closed_failure_categories"]
+    save()
+    assert report["expected_regression_red"], "expected exact behavioral RED was not established"
 elif scope == "media":
     proof, _ = run("new-media-store-crate-suite", "package(media-store)", None, ["--locked", "-p", "media-store", "--all-targets"])
     docs = subprocess.run(["cargo", "test", "--locked", "-p", "media-store", "--doc"], capture_output=True, text=True)
