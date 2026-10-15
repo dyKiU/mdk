@@ -1,5 +1,5 @@
 use super::*;
-use crate::account_identity_proof::{validate_leaf_account_identity_proof_for_member_with_verifier, verify_proof_signature};
+use crate::account_identity_proof::{validate_leaf_account_identity_proof_for_member, validate_leaf_account_identity_proof_for_member_with_verifier, verify_proof_signature};
 use cgka_traits::group::ProtocolProfile;
 use nostr::prelude::{FinalizeEvent, Keys};
 
@@ -153,5 +153,9 @@ async fn private_proof_memo_is_engine_local_and_preserves_real_leaf_binding_guar
     assert!(matches!(validate_leaf_account_identity_proof_for_member_with_verifier(leaf, actual.ciphersuite(), &wrong_member, "isolated memo binding", Some(&verify)), Err(EngineError::InvalidAccountIdentityProof(reason)) if reason == "isolated memo binding credential identity does not match existing member identity"), "warm proof never bypasses expected-member comparison");
     assert_eq!(first.private_proof_signatures.cold_count(), first_count, "member comparison remains after the warmed pure-proof callback");
     let wrong_suite = openmls_traits::types::Ciphersuite::try_from(2_u16).unwrap();
-    assert!(matches!(validate_leaf_account_identity_proof_for_member_with_verifier(leaf, wrong_suite, &member, "isolated memo binding", Some(&verify)), Err(EngineError::InvalidAccountIdentityProof(reason)) if reason == "proof ciphersuite does not match expected ciphersuite"), "warm proof never bypasses fresh ciphersuite binding");
+    let expected = validate_leaf_account_identity_proof_for_member(leaf, wrong_suite, &member, "isolated memo binding").map_err(|err| err.to_string());
+    let observed = validate_leaf_account_identity_proof_for_member_with_verifier(leaf, wrong_suite, &member, "isolated memo binding", Some(&verify)).map_err(|err| err.to_string());
+    assert!(expected.is_err(), "real current leaf signature binds its original ciphersuite");
+    assert_eq!(observed, expected, "warm memo retains original current-leaf ciphersuite rejection semantics");
+    assert_eq!(first.private_proof_signatures.cold_count(), first_count + 1, "current proof reconstructed for another suite must miss the exact signature key");
 }
