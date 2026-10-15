@@ -196,7 +196,50 @@ async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts(
         approvals.push(approval);
     }
     eprintln!("automatic-enrollment-control stage=fourth-device-completion");
-    wait_for_automatic_phase(&a, &d, DeviceLinkingPhase::EnrollmentComplete).await;
+    // Inspect only after the original bounded wait fails; keep the same failure
+    // and deadline, and never print packet contents or device identities.
+    use futures::FutureExt;
+    let completion = std::panic::AssertUnwindSafe(wait_for_automatic_phase(
+        &a,
+        &d,
+        DeviceLinkingPhase::EnrollmentComplete,
+    ))
+    .catch_unwind()
+    .await;
+    if let Err(failure) = completion {
+        for (index, app) in apps.iter().enumerate() {
+            if let Ok(storage) = app.account_storage("test")
+                && let Some(store) = storage.private_roster_settlement_storage()
+                && let Ok(Some(round)) = store.read_round()
+                && let Ok(facts) = store.read_facts()
+            {
+                let phase = match round.phase {
+                    cgka_traits::private_roster_settlement::PrivateSettlementPhase::Pending => {
+                        "pending"
+                    }
+                    cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed => {
+                        "completed"
+                    }
+                    cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied => {
+                        "denied"
+                    }
+                };
+                eprintln!(
+                    "automatic-enrollment-control device={index} settlement={phase} leaves={} facts={}",
+                    round.anchor.successor.leaves.len(),
+                    facts.len()
+                );
+            } else {
+                eprintln!("automatic-enrollment-control device={index} settlement=unavailable");
+            }
+        }
+        eprintln!(
+            "automatic-enrollment-control sibling-counts source={:?} recipient={:?}",
+            a.sibling_recipient_diagnostics_for_test(),
+            d.sibling_recipient_diagnostics_for_test()
+        );
+        std::panic::resume_unwind(failure);
+    }
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {

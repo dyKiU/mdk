@@ -52,7 +52,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        slots: [3, 6]
+        # Serial and shared budgets both reproduced the same fourth-device stall.
+        # Continue diagnosis once per candidate rather than duplicating the fixture.
+        slots: [3]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
