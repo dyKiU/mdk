@@ -1951,6 +1951,8 @@ impl MarmotApp {
         if marker_path.exists() {
             return Ok(());
         }
+        #[cfg(test)]
+        crate::sqlcipher::run_directory_cleanup_test_gate();
         fs::create_dir_all(&self.root)?;
         remove_sqlite_file_set(&self.legacy_directory_cache_path())?;
         for account in accounts {

@@ -237,6 +237,86 @@ fn concurrent_first_directory_opens_share_one_handle() {
     fresh.directory_cache_for_account(&account).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn delayed_directory_cleanup_preserves_published_encrypted_cache() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let dir = tempfile::tempdir().unwrap();
+    let app = MarmotApp::with_relay(dir.path(), "wss://relay.example");
+    let account = app.account_home().create_account("new").unwrap();
+    let delayed_app = MarmotApp::with_relay(dir.path(), "wss://relay.example");
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let path = app.directory_cache_path(&account.label);
+    let mut record = app.empty_directory_record(&account.account_id_hex);
+    record.follows = vec![format!("{:064x}", 43)];
+
+    std::thread::scope(|scope| {
+        let delayed_account = &account;
+        let delayed = scope.spawn(move || {
+            DIRECTORY_CLEANUP_TEST_GATE.with(|gate| {
+                *gate.borrow_mut() = Some(Box::new(move || {
+                    entered_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                }));
+            });
+            let cache = delayed_app.directory_cache_for_account(delayed_account);
+            (delayed_app, cache)
+        });
+        let entered = entered_rx.recv_timeout(Duration::from_secs(10));
+        // Release the paused caller even if the actual opener or write fails.
+        let opened = entered.map_err(|error| error.to_string()).and_then(|()| {
+            let cache = app
+                .directory_cache_for_account(&account)
+                .map_err(|error| error.to_string())?;
+            cache.put(&record).map_err(|error| error.to_string())?;
+            let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
+            Ok((cache, metadata))
+        });
+        release_tx.send(()).unwrap();
+        let (delayed_app, delayed_cache) = delayed.join().unwrap();
+        let (cache, before) = opened.unwrap();
+        let delayed_cache = delayed_cache.unwrap();
+        let after = fs::metadata(&path);
+        assert!(
+            after.is_ok(),
+            "late cleanup removed a published directory database"
+        );
+        let after = after.unwrap();
+        assert_eq!(
+            (before.dev(), before.ino()),
+            (after.dev(), after.ino()),
+            "late cleanup replaced a published directory database"
+        );
+        for cache in [&cache, &delayed_cache] {
+            assert_eq!(
+                cache.entry(&account.account_id_hex).unwrap().unwrap().follows,
+                record.follows
+            );
+        }
+        let marker = dir.path().join(crate::DIRECTORY_FUTURE_CREATED_AT_CLEANUP_MARKER);
+        assert_eq!(fs::read(&marker).unwrap(), b"done\n");
+        for private_path in [&path, &marker] {
+            assert_eq!(
+                fs::metadata(private_path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        app.close_storage().unwrap();
+        delayed_app.close_storage().unwrap();
+    });
+    let reopened = MarmotApp::with_relay(dir.path(), "wss://relay.example");
+    let cache = reopened.directory_cache_for_account(&account).unwrap();
+    assert_eq!(
+        cache.entry(&account.account_id_hex).unwrap().unwrap().follows,
+        record.follows
+    );
+    reopened.close_storage().unwrap();
+}
+
 #[test]
 fn concurrent_private_publication_exposes_only_complete_winning_bytes() {
     let dir = tempfile::tempdir().unwrap();
