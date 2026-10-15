@@ -83,11 +83,12 @@ def execute(name, expected):
     row['extra_e_positive_close'] = 'successive_revocation_extra_positive_closes=1 original_verdict_preserved=true' in text
     if expected == 'successive-red':
         own_panic = (len(panics) == 1 and panics[0][0] == FIXTURE
-                     and panics[0][2].startswith('genuine current successor challenge must be published while B\'s actual Remove is rolled back: "exact challenge initial peel epoch prerequisite timed out"'))
-        row['intended_runtime_failure'] = bool(own_panic and row['actual_previous_live_received_original'])
+                     and panics[0][2].startswith('previous Completed original must not take raw-delivery custody of a new Remove'))
+        row['actual_stale_custody_witness'] = 'successive_revocation_custody actual_second_remove_fault_and_history=true previous_completed_original_queued=true' in text
+        row['intended_runtime_failure'] = bool(own_panic and row['actual_previous_live_received_original'] and row['actual_stale_custody_witness'])
         row['qualified'] = bool(one_body and process.returncode == 101 and row.get('failed') == 1
                                 and row['intended_runtime_failure'] and row['fixture_positive_close_marker'] and row['extra_e_positive_close'])
-        row['failure_class'] = 'successive-revocation-intake-behavioral-red' if row['qualified'] else 'prerequisite-or-other-failure'
+        row['failure_class'] = 'successive-revocation-stale-original-custody-red' if row['qualified'] else 'prerequisite-or-other-failure'
     else:
         row['qualified'] = bool(one_body and process.returncode == 0 and row.get('passed') == 1
                                 and row['fixture_positive_close_marker'])
@@ -99,6 +100,7 @@ def execute(name, expected):
 try:
     allowed = {FIXTURE, 'crates/marmot-app/src/client/private_settlement.rs',
                'crates/marmot-app/src/runtime/account_worker.rs', 'crates/marmot-app/src/runtime/commands.rs',
+               'crates/marmot-app/src/client/device_linking.rs',
                'scripts/qualify_upstream_successive_revocation.py', '.github/workflows/upstream-successive-revocation.yml'}
     changed = set(subprocess.check_output(['git', 'diff', '--name-only', BASELINE, 'HEAD'], text=True).splitlines())
     if not changed.issubset(allowed) or subprocess.run(['git', 'diff', '--quiet', 'HEAD']).returncode:
@@ -112,8 +114,8 @@ try:
         raise ValueError('The old production retry classifier must remain unchanged for genuine RED')
     report['old_classifier_unchanged'] = True
     report['changed_paths'] = sorted(changed)
-    outcomes = [execute(TESTS[0], 'passive-diagnostic-control')]
-    report['qualification_scope'] = 'passive classifier reachability; no behavioral RED or production guard qualification'
+    outcomes = [execute(TESTS[0], 'successive-red')]
+    report['qualification_scope'] = 'actual raw retry-slot custody by previous Completed original; no end-to-end liveness failure claim'
     report['reused_first_remove_control'] = {'source': 'e57745929ecf4ae3da487797190a98bfb9dd2dae', 'run': 'https://github.com/dyKiU/mdk/actions/runs/38789453814', 'test': TESTS[1], 'passed': 1, 'failed': 0, 'ignored': 0, 'reason': 'only new successive-case expectation changed; literal first-remove is_none assertion retained'}
     report['passed'] = all(outcomes) and len(report['executions']) == report['required_executions']
 finally:

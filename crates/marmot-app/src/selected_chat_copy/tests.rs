@@ -1541,6 +1541,7 @@ mod actual {
                     _predecessor_owners.as_ref().map(|owners| &owners.previous_b_fact),
                 )
                 .await;
+                _predecessor_owners.map(|owners| (owners.custody.clone(), owners.original_group.clone(), owners.original_binding))
             })
             .catch_unwind()
             .await;
@@ -1549,8 +1550,17 @@ mod actual {
                 runtime.shutdown_and_close().await.unwrap();
             }
             eprintln!("revocation_runtime_positive_closes=4 original_verdict_preserved=true");
-            if let Err(panic) = verdict {
-                std::panic::resume_unwind(panic);
+            match verdict {
+                Err(panic) => std::panic::resume_unwind(panic),
+                Ok(Some((custody, group, binding))) => {
+                    let observed = custody.lock().unwrap();
+                    assert!(!observed.overflow, "custody observation overflow is an unqualified fixture prerequisite failure");
+                    let stale = observed.entries.iter().any(|(actual_group, actual_binding)| actual_group == &group && actual_binding == &binding);
+                    drop(observed);
+                    eprintln!("successive_revocation_custody actual_second_remove_fault_and_history=true previous_completed_original_queued={stale}");
+                    assert!(!stale, "previous Completed original must not take raw-delivery custody of a new Remove");
+                }
+                Ok(None) => {}
             }
             return;
         }
@@ -3051,6 +3061,9 @@ mod actual {
     }
 
     struct RevokedPredecessorOwners {
+        custody: crate::client::device_linking::RevocationRetryCustodyForTest,
+        original_group: cgka_traits::GroupId,
+        original_binding: [u8; 32],
         previous_b_fact: cgka_traits::revoked_device_group_anchor::RevokedDeviceGroupFact,
         _source: DeviceLinkingSession,
         _recipient: DeviceLinkingSession,
@@ -3150,15 +3163,19 @@ mod actual {
                 && previous_b_fact.draft.predecessor.leaves.len() == 4
                 && previous_b_fact.draft.successor.leaves.len() == 3,
                 "captured B negative provenance must be the genuine first E removal");
-            let before_cancel = managers[1].live_revocation_settlement_binding_for_test("test", &protected).await.unwrap();
+            let (before_cancel, custody) = managers[1].live_revocation_settlement_binding_for_test("test", &protected).await.unwrap();
             assert!(before_cancel == Some(b_round.anchor.context_digest), "B must retain its actual Completed Revoked original binding");
             // Release only the completed A source action's exclusive slot.
             // B's actual received original is independently owned and stays live.
             first.cancel();
-            let after_cancel = managers[1].live_revocation_settlement_binding_for_test("test", &protected).await.unwrap();
+            let (after_cancel, _) = managers[1].live_revocation_settlement_binding_for_test("test", &protected).await.unwrap();
             assert!(after_cancel == before_cancel, "cancelling only A must preserve B's independent received original");
             eprintln!("successive_revocation_predecessor actual_four_leaf_enrollment=true first_remove_completed=true previous_received_control_live=true source_only_cancelled=true");
-            RevokedPredecessorOwners { previous_b_fact, _source: a, _recipient: e, _approvals: approvals }
+            {
+                let observed = custody.lock().unwrap();
+                assert!(observed.entries.is_empty() && !observed.overflow, "no previous fault may populate the fresh custody observation");
+            }
+            RevokedPredecessorOwners { custody, original_group: protected, original_binding: b_round.anchor.context_digest, previous_b_fact, _source: a, _recipient: e, _approvals: approvals }
         }).catch_unwind().await;
         e_runtime.shutdown_and_close().await.unwrap();
         eprintln!("successive_revocation_extra_positive_closes=1 original_verdict_preserved=true");
