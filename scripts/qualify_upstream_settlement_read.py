@@ -120,16 +120,29 @@ else:
         cases=report["checks"]["mutant"]["cases"]
         if len(cases)==1:
             case=cases[0]
-            oracle=case["nonlocal_consistency_oracle"] if MODE=="consistency-mutant" else case["original_phase_oracle"] and bool(case["completion_markers"])
+            oracle=case.get("nonlocal_consistency_oracle",False) if MODE=="consistency-mutant" else case.get("original_phase_oracle",False) and bool(case.get("completion_markers"))
             report["mutant_killed"]=(not mutant_green and case.get("executed_nonignored")==1 and case.get("passed")==0 and case.get("failed")==1 and case.get("ignored")==0 and case.get("exit_code")==101 and oracle)
+    except Exception as error:
+        # Exception names only: dynamic messages may contain runtime identifiers.
+        report["mutation_controller_exception"]=type(error).__name__
     finally:
-        target.write_bytes(before)
-        report["mutation_source_restored_sha256"]=digest(target)
-        report["source_restored_exact"]=fingerprint()==report["source_before_sha256"]
+        try:
+            target.write_bytes(before)
+            report["mutation_source_restored_sha256"]=digest(target)
+            report["source_restored_exact"]=fingerprint()==report["source_before_sha256"]
+        except Exception as error:
+            report["restore_exception"]=type(error).__name__
+            report["source_restored_exact"]=False
         save()
-    restored=run(names,"restored")
+    # Even a compile/controller failure must get an actual restored control.
+    try:
+        restored=run(names,"restored")
+    except Exception as error:
+        report["restored_controller_exception"]=type(error).__name__
+        restored=False
     report["restored_passed"]=restored
-    report["qualification_passed"]=report["mutant_killed"] and report["source_restored_exact"] and restored
+    report["qualification_passed"]=(report["mutant_killed"] and report["source_restored_exact"] and restored
+        and "mutation_controller_exception" not in report and "restore_exception" not in report)
 report["source_after_sha256"]=fingerprint()
 report["inputs_pristine"]=report["source_after_sha256"]==report["source_before_sha256"] and subprocess.run(["git","diff","--quiet","HEAD"]).returncode==0
 report["qualification_passed"] &= report["inputs_pristine"]
