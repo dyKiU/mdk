@@ -153,6 +153,8 @@ impl<S: StorageProvider> Engine<S> {
         &self,
         group: &GroupId,
     ) -> Result<Option<ValidatedSettledDeviceRoster>, EngineError> {
+        #[cfg(feature = "test-policy-overrides")]
+        let _sync_cost_roster = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::Roster);
         self.ensure_group_live(group)?;
         self.storage.with_read_snapshot(|storage| {
             let Some(evidence) = self.validated_private_successor(group)? else {
@@ -728,12 +730,18 @@ pub(crate) fn completed_round_for_predecessor_tree<S: StorageProvider>(
     group: &GroupId,
     actual: &openmls::group::MlsGroup,
 ) -> Result<Option<PrivateSettlementState>, EngineError> {
+    #[cfg(feature = "test-policy-overrides")]
+    let _sync_cost_completed = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::Completed);
+    #[cfg(feature = "test-policy-overrides")]
+    let _sync_cost_round = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::CompletedRoundSql);
     let Some(store) = storage.private_roster_settlement_storage() else {
         return Ok(None);
     };
     let Some(state) = store.read_round()? else {
         return Ok(None);
     };
+    #[cfg(feature = "test-policy-overrides")]
+    drop(_sync_cost_round);
     if state.phase != PrivateSettlementPhase::Completed
         || state.anchor.group_id != *group
         || state.round_nonce.is_none()
@@ -742,7 +750,11 @@ pub(crate) fn completed_round_for_predecessor_tree<S: StorageProvider>(
     {
         return Ok(None);
     }
+    #[cfg(feature = "test-policy-overrides")]
+    let _sync_cost_record = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::CompletedRecordSql);
     let record = storage.get_group(group)?;
+    #[cfg(feature = "test-policy-overrides")]
+    drop(_sync_cost_record);
     if record.removed
         || record.unrecoverable
         || record.disbanded.is_some()
@@ -750,7 +762,13 @@ pub(crate) fn completed_round_for_predecessor_tree<S: StorageProvider>(
     {
         return Ok(None);
     }
+    #[cfg(feature = "test-policy-overrides")]
+    let _sync_cost_facts_sql = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::CompletedFactsSql);
     let facts = store.read_facts()?;
+    #[cfg(feature = "test-policy-overrides")]
+    drop(_sync_cost_facts_sql);
+    #[cfg(feature = "test-policy-overrides")]
+    let _sync_cost_facts_check = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::CompletedFactsCheck);
     if facts.len() != state.anchor.successor.leaves.len()
         || !state.anchor.successor.leaves.iter().all(|leaf| {
             facts.iter().any(|fact| {
@@ -762,10 +780,18 @@ pub(crate) fn completed_round_for_predecessor_tree<S: StorageProvider>(
     {
         return Ok(None);
     }
+    #[cfg(feature = "test-policy-overrides")]
+    drop(_sync_cost_facts_check);
+    #[cfg(feature = "test-policy-overrides")]
+    let _sync_cost_tree = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::CompletedTreeOrigin);
     if !crate::private_successor::anchor_matches_actual_tree(storage, group, actual, &state.anchor)?
     {
         return Ok(None);
     }
+    #[cfg(feature = "test-policy-overrides")]
+    drop(_sync_cost_tree);
+    #[cfg(feature = "test-policy-overrides")]
+    let _sync_cost_leaf = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::CompletedLeafProof);
     let account = cgka_traits::MemberId::new(state.anchor.account.to_vec());
     for leaf in actual.export_ratchet_tree().leaves() {
         if crate::account_identity_proof::validate_leaf_account_identity_proof_for_member(
