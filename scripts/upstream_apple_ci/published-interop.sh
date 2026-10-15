@@ -22,7 +22,7 @@ bash ios/scripts/public-chat-acceptance/build.sh \
   "$RUNNER_TEMP/interop-experimental-sdk/MarmotKit.xcframework/ios-arm64-simulator" \
   "$RUNNER_TEMP/experimental-worker" "$RUNNER_TEMP/experimental-worker-modules"
 runtime=$(xcrun simctl list runtimes --json | python3 -c 'import json,sys; r=[r for r in json.load(sys.stdin)["runtimes"] if r.get("isAvailable") and r["identifier"].startswith("com.apple.CoreSimulator.SimRuntime.iOS-26")]; print(max(r,key=lambda r:tuple(map(int,r["version"].split("."))))["identifier"])')
-device_type=$(xcrun simctl list devicetypes --json | python3 -c 'import json,sys; print([r["identifier"] for r in json.load(sys.stdin)["devicetypes"] if r["name"].startswith("iPhone")][-1])')
+device_type=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; rows=json.load(sys.stdin)["devices"].get(sys.argv[1], []); compatible=[r for r in rows if r.get("isAvailable") and r["name"].startswith("iPhone") and r.get("deviceTypeIdentifier")]; print(compatible[0]["deviceTypeIdentifier"])' "$runtime")
 published_device=""
 experimental_device=""
 cleanup() {

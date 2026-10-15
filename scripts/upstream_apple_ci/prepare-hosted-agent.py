@@ -24,7 +24,7 @@ def main() -> None:
     args.output.mkdir(parents=True, exist_ok=False, mode=0o700)
     provenance = {"frozen_workspace_commit": manifest["workspace_commit"],
                   "adapter_sha256": digest(Path(__file__).read_bytes()), "files": {},
-                  "adaptation": "Only classify non-SDK harness failures by fixed internal error cases; never emit descriptions or payloads."}
+                  "adaptation": "Only classify non-SDK failures by fixed cases and the closed no-Tokio-runtime panic category; never emit descriptions or payloads."}
     for name in ("build.sh", "Acceptance.swift", "Agent.swift", "StoreControls.swift"):
         original = (source / name).read_bytes()
         if digest(original) != manifest["files"][name]:
@@ -36,7 +36,8 @@ def main() -> None:
             if error is MarmotKitError { return "sdk" }
             if error is CancellationError { return "harness-cancelled" }
             // Generated converters are fileprivate. Inspect only a closed set
-            // of enum case names, never their associated Rust panic message.
+            // of enum case names. Associated panic text remains private; only
+            // the fixed missing-Tokio-context classification can leave here.
             if String(reflecting: type(of: error)).hasSuffix(".UniffiInternalError") {
                 let names: Set<String> = [
                     "bufferOverflow", "incompleteData", "unexpectedOptionalTag", "unexpectedEnumCase",
@@ -45,7 +46,14 @@ def main() -> None:
                 ]
                 let name = String(describing: error)
                 if names.contains(name) { return "harness-uniffi-" + name }
-                if Mirror(reflecting: error).children.first?.label == "rustPanic" {
+                if let panic = Mirror(reflecting: error).children.first, panic.label == "rustPanic" {
+                    let message = (panic.value as? String)
+                        ?? (Mirror(reflecting: panic.value).children.first?.value as? String)
+                    if let message,
+                        message.contains("there is no reactor running"),
+                        message.contains("Tokio") {
+                        return "harness-uniffi-rustPanic-no-tokio-runtime"
+                    }
                     return "harness-uniffi-rustPanic"
                 }
                 return "harness-uniffi-unclassified"

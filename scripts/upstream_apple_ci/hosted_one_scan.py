@@ -39,6 +39,7 @@ KNOWN_CATEGORIES = {
     'harness-uniffi-unexpectedNullPointer', 'harness-uniffi-unexpectedRustCallStatusCode',
     'harness-uniffi-unexpectedRustCallError', 'harness-uniffi-unexpectedStaleHandle',
     'harness-uniffi-rustPanic', 'harness-uniffi-unclassified',
+    'harness-uniffi-rustPanic-no-tokio-runtime',
 }
 
 
