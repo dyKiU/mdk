@@ -40,6 +40,7 @@ pub mod user_blocks;
 
 pub mod avatar;
 pub mod moderation;
+pub mod public_event_preview;
 
 pub mod device_linking;
 pub mod history_transfer;

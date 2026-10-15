@@ -51,10 +51,11 @@ use crate::types::group::{
     MarmotAppBlobEndpoint, MarmotAppGroupMemberIdsList, MarmotAppGroupMemberRecordList,
     MarmotAppGroupMlsState, MarmotAppGroupRecord, MarmotAppQuarantinedGroupList,
     MarmotCreateGroupOptions, MarmotCreatedGroup, MarmotDisbandRequest, MarmotGroupAppComponent,
-    MarmotGroupConversationSnapshot, MarmotGroupDetails, MarmotGroupInviteDeclineResult,
-    MarmotGroupManagementState, MarmotGroupMutationResult, MarmotGroupRecoveryStatus,
-    MarmotGroupRoster, MarmotInitialGroupImage, MarmotMemberKeyPackagePrewarmSummary,
-    MarmotMemberRef, MarmotPreparedGroupImageUpload, MarmotPreparedGroupImageUploadList,
+    MarmotGroupCommitDelivery, MarmotGroupConversationSnapshot, MarmotGroupDetails,
+    MarmotGroupInviteDeclineResult, MarmotGroupManagementState, MarmotGroupMutationResult,
+    MarmotGroupRecoveryStatus, MarmotGroupRoster, MarmotInitialGroupImage,
+    MarmotMemberKeyPackagePrewarmSummary, MarmotMemberRef, MarmotPreparedGroupImageUpload,
+    MarmotPreparedGroupImageUploadList,
 };
 use crate::types::history_notice::MarmotHistoryNoticeList;
 use crate::types::local_submissions::{
@@ -76,6 +77,7 @@ use crate::types::notification::{
     MarmotBackgroundNotificationCollection, MarmotNotificationSettings,
     MarmotNotificationWakeSource,
 };
+use crate::types::public_event_preview::{MarmotPublicEventPreview, MarmotPublicEventPreviewList};
 use crate::types::push::{
     MarmotGroupPushDebugInfo, MarmotPushPlatform, MarmotPushRegistration,
     MarmotPushRegistrationShareOutcome, MarmotPushRegistrationSyncResult,
@@ -732,6 +734,20 @@ c_cmd! {
     /// fails; not persisted. Writes false when the group is not catching up.
     async fn marmot_acknowledge_group_catching_up(account_ref: str, group_id_hex: str) -> scalar(bool) = acknowledge_group_catching_up;
 
+    /// After a group change returns `MARMOT_STATUS_GROUP_COMMIT_UNDELIVERED`,
+    /// record that the user accepts that members on relays still owed the
+    /// group's last change may not follow, then retry the change. Admits one
+    /// attempt, consumed even if it fails; not persisted. Writes false when no
+    /// relay is owed the group's last change.
+    async fn marmot_acknowledge_group_commit_undelivered(account_ref: str, group_id_hex: str) -> scalar(bool) = acknowledge_group_commit_undelivered;
+
+    /// The group's oldest change that some group relays have not accepted yet,
+    /// or NULL once every relay has accepted or definitively rejected it.
+    /// Non-NULL is not a refusal: group changes return
+    /// `MARMOT_STATUS_GROUP_COMMIT_UNDELIVERED` only once `since` is two minutes
+    /// old. Poll while showing it. Free with `marmot_group_commit_delivery_free`.
+    async fn marmot_group_commit_delivery(account_ref: str, group_id_hex: str) -> opt_rec(MarmotGroupCommitDelivery) = group_commit_delivery;
+
     /// Query advisory membership health and pending rejoin offers.
     /// Free with `marmot_group_recovery_status_free`.
     async fn marmot_group_recovery_status(account_ref: str, group_id_hex: str) -> rec(MarmotGroupRecoveryStatus) = group_recovery_status;
@@ -864,8 +880,9 @@ c_cmd! {
     /// `marmot_send_summary_free`.
     async fn marmot_delete_message(account_ref: str, group_id_hex: str, target_message_id: str) -> rec(MarmotSendSummary) = delete_message;
 
-    /// Edit an own message's content. Free with
-    /// `marmot_send_summary_free`.
+    /// Edit an own message's content. Returns
+    /// `MARMOT_STATUS_INVALID_EDIT_TARGET` unless the target is an available
+    /// chat message this account sent. Free with `marmot_send_summary_free`.
     async fn marmot_edit_message(account_ref: str, group_id_hex: str, target_message_id: str, content: str) -> rec(MarmotSendSummary) = edit_message;
 
     /// Securely delete this group's expired disappearing messages now.
@@ -1122,6 +1139,15 @@ c_cmd! {
     /// row per request in order. Free with
     /// `marmot_cached_identity_projection_list_free`.
     sync fn marmot_cached_identity_projections(account_id_hexes/account_id_hexes_len: str_arr) -> rec(MarmotCachedIdentityProjectionList) = cached_identity_projections;
+
+    /// Network-free cached previews of public events referenced from message
+    /// content, one row per reference (at most 16) in order. Free with
+    /// `marmot_public_event_preview_list_free`.
+    sync fn marmot_cached_public_event_previews(account_ref: str, references/references_len: str_arr) -> rec(MarmotPublicEventPreviewList) = cached_public_event_previews;
+
+    /// Fetch one referenced public event when it is missing or stale, then
+    /// return its local state. Free with `marmot_public_event_preview_free`.
+    async fn marmot_resolve_public_event_preview(account_ref: str, reference: str) -> rec(MarmotPublicEventPreview) = resolve_public_event_preview;
 
     /// Every stored draft for the account, attachment metadata only.
     /// Free with `marmot_message_draft_summary_list_free`.

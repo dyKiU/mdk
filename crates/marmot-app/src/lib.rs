@@ -276,7 +276,9 @@ pub use drafts::{
     MessageDraftInvalidation, MessageDraftRevision, MessageDraftSummary, SelectedMessageDraft,
     SelectedMessageDraftAttachment, SelectedMessageDraftContent,
 };
-pub use error::{AccountCatchUpFailure, AppError, FullHistoryRepairIncompleteReason};
+pub use error::{
+    AccountCatchUpFailure, AppError, FullHistoryRepairIncompleteReason, MissingKeyPackageReason,
+};
 pub use groups::{
     AppAgentTextStreamComponent, AppBlobEndpoint, AppCreateGroupOptions, AppDisbandFailureReason,
     AppDisbandRequest, AppGroupAdminPolicyComponent, AppGroupAvatarUrlComponent,
@@ -310,6 +312,7 @@ pub use media::{
 pub use messages::{is_reserved_app_event_kind, is_stream_final_event, tag_value, tag_values};
 pub use nostr_secret::is_nostr_secret;
 pub use nostr_verification::verify_public_nostr_event_json;
+mod public_event_preview;
 pub use notifications::{
     BackgroundNotificationCollection, ChatNotificationSettings, GroupPushDebugInfo,
     GroupPushTokenDebugEntry, GroupPushTokenRecord, KIND_MARMOT_NOTIFICATION_RUMOR,
@@ -323,6 +326,9 @@ pub use notifications::{
     parse_provider_token, push_token_fingerprint,
 };
 pub use profile_pseudonyms::{default_profile_pseudonym, random_profile_pseudonym};
+pub use public_event_preview::{
+    MAX_PUBLIC_EVENT_REFERENCES, PublicEventPreview, PublicEventPreviewRead,
+};
 pub use relay_plane::{
     EngineReorgMetrics, MarmotRelayPlane, MarmotRelayPlaneAccountAdapter,
     RelayEndpointClassification, RelayEndpointPolicy, RelayPlaneHealth, RelayRollupEntry,
@@ -561,6 +567,9 @@ pub struct MarmotApp {
     account_storages: Arc<Mutex<HashMap<String, SqliteAccountStorage>>>,
     account_session_owners: Arc<Mutex<HashSet<String>>>,
     directory_caches: Arc<Mutex<HashMap<String, DirectoryCache>>>,
+    /// When each `(account label, cache key)` public event refresh last
+    /// finished; see `public_event_preview`.
+    public_event_refreshes: Arc<Mutex<HashMap<String, Instant>>>,
     /// Bounded, process-local composition prewarm. Entries are never durable
     /// directory admission and never reserve or consume a KeyPackage.
     member_key_package_prewarm_cache: Arc<Mutex<directory::MemberKeyPackagePrewarmCache>>,
@@ -1209,6 +1218,21 @@ pub struct AppMessageQuery {
     pub limit: Option<usize>,
 }
 
+/// The group's oldest confirmed change that some group relays have not accepted
+/// yet (mdk#2255). Members who read only those relays cannot follow the group
+/// until they do; MDK keeps retrying them with the exact event. Reported as
+/// soon as a relay is owed; group changes fail only once `since` is two
+/// minutes old. A newer change can be owed to other relays as well.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GroupCommitDelivery {
+    /// Relays that have not accepted the change yet.
+    pub owed_relay_urls: Vec<String>,
+    /// Relays the change was published to.
+    pub relay_count: u32,
+    /// When the first relay accepted the change, in Unix seconds.
+    pub since: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SendSummary {
     pub published: usize,
@@ -1699,6 +1723,7 @@ impl MarmotApp {
             account_storages: Arc::new(Mutex::new(HashMap::new())),
             account_session_owners: Arc::new(Mutex::new(HashSet::new())),
             directory_caches: Arc::new(Mutex::new(HashMap::new())),
+            public_event_refreshes: Arc::default(),
             member_key_package_prewarm_cache: Arc::new(Mutex::new(
                 directory::MemberKeyPackagePrewarmCache::default(),
             )),
@@ -1799,6 +1824,7 @@ impl MarmotApp {
             account_storages: Arc::new(Mutex::new(HashMap::new())),
             account_session_owners: Arc::new(Mutex::new(HashSet::new())),
             directory_caches: Arc::new(Mutex::new(HashMap::new())),
+            public_event_refreshes: Arc::default(),
             member_key_package_prewarm_cache: Arc::new(Mutex::new(
                 directory::MemberKeyPackagePrewarmCache::default(),
             )),
@@ -2127,6 +2153,8 @@ impl MarmotApp {
             pending_epoch_stall_escalations: Vec::new(),
             pending_convergence_groups: std::collections::HashSet::new(),
             stale_commit_acknowledgements: std::collections::HashMap::new(),
+            undelivered_commit_acknowledgements: std::collections::HashMap::new(),
+            commit_delivery_gate_grace_secs: crate::client::COMMIT_DELIVERY_GATE_GRACE_SECS,
             pending_local_group_deletion_frontier_clears: std::collections::HashMap::new(),
             pending_application_event_acks: std::collections::HashSet::new(),
             fail_next_published_app_message_acknowledgement: cfg!(
@@ -4898,7 +4926,10 @@ impl MarmotApp {
     fn latest_key_package(&self, label: &str) -> Result<KeyPackage, AppError> {
         let path = self.key_package_record_path(label);
         if !path.exists() {
-            return Err(AppError::MissingKeyPackage(label.to_owned()));
+            return Err(AppError::MissingKeyPackage {
+                account: label.to_owned(),
+                reason: MissingKeyPackageReason::NotFound,
+            });
         }
         let record: KeyPackageRecord = read_json(path)?;
         let key_package = key_package_from_hex_with_optional_source(

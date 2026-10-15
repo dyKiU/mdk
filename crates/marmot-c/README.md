@@ -27,7 +27,7 @@ per feature.
   [file-backed media upload](#file-backed-media-upload), [account attachment history](#account-attachment-history),
   [public event verification](#public-event-verification), [host performance stages](#host-performance-stages),
   [Markdown rendering](#markdown-rendering), [identity references and pseudonyms](#identity-references-and-pseudonyms),
-  [KeyPackage inventory](#keypackage-inventory), [selected chat-list presentation](#selected-chat-list-presentation),
+  [KeyPackage inventory](#keypackage-inventory), [invitation lookup outcomes](#invitation-lookup-outcomes), [selected chat-list presentation](#selected-chat-list-presentation),
   [chat screens and avatars](#chat-screens-and-avatars),
   [history may be incomplete notices](#history-may-be-incomplete-notices), [group reporting](#group-reporting),
   [host-driven agent publishing](#host-driven-agent-publishing),
@@ -297,6 +297,16 @@ remains retained. On refresh failure, keep the local result.
 Free either list with `marmot_account_key_package_inventory_entry_list_free`.
 Each entry embeds the existing `MarmotAccountKeyPackage` record plus `MarmotAccountKeyPackageLocalState`.
 
+
+## Invitation lookup outcomes
+
+Creating or inviting reports the first unusable recipient, in request order.
+`MARMOT_STATUS_MISSING_KEY_PACKAGE` means the lookup completed and found nothing
+invitable; the detail ends in `[obsolete_only]` when the recipient must update their
+app. `MARMOT_STATUS_DIRECTORY_LOOKUP_INCOMPLETE` means the lookup ran out of time or
+relay coverage and nothing is known to be missing; offer retry. Directory KeyPackage
+and relay-list lookups report the same status.
+
 ## Selected chat-list presentation
 
 `marmot_presented_chat_list` and `marmot_presented_chat_list_row` return complete existing row fields
@@ -401,6 +411,12 @@ Group changes for a group whose unresolved epoch-gap recovery covers its current
 return `MARMOT_STATUS_GROUP_CATCHING_UP`. Retry after it syncs, or, once the user accepts that
 the change may split the group, call `marmot_acknowledge_group_catching_up` and retry. See the
 [shared contract](../marmot-uniffi/README.md#history-may-be-incomplete-notices).
+Group changes can return `MARMOT_STATUS_GROUP_COMMIT_UNDELIVERED` when the group's last change
+has not reached every group relay; `marmot_group_commit_delivery` reports the owed relays
+immediately (free with `marmot_group_commit_delivery_free`), and
+`marmot_acknowledge_group_commit_undelivered` lets one change through. See the
+[shared contract](../marmot-uniffi/README.md#history-may-be-incomplete-notices) for when the
+status is returned.
 
 ## Group reporting
 

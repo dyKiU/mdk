@@ -2664,11 +2664,13 @@ fn app_error_kind(error: &AppError) -> &str {
         AppError::GroupRemoved(_) => "group_removed",
         AppError::GroupDisbanding(_) => "group_disbanding",
         AppError::GroupCatchingUp(_) => "group_catching_up",
+        AppError::GroupCommitUndelivered(_) => "group_commit_undelivered",
         AppError::GroupInviteNotPending => "group_invite_not_pending",
         AppError::UserBlocked => "user_blocked",
         AppError::MessageDraftRevisionConflict => "message_draft_revision_conflict",
-        AppError::MissingKeyPackage(_) => "missing_key_package",
+        AppError::MissingKeyPackage { .. } => "missing_key_package",
         AppError::MissingMemberInboxRoute(_) => "missing_member_inbox_route",
+        AppError::DirectoryLookupIncomplete(_) => "directory_lookup_incomplete",
         _ => "app_runtime_operation",
     }
 }
@@ -2699,6 +2701,8 @@ fn app_error_retryable(error: &AppError) -> bool {
             | AppError::ChatPresentationNotReady
             | AppError::DirectConversationIndexNotReady
             | AppError::GroupCatchingUp(_)
+            | AppError::GroupCommitUndelivered(_)
+            | AppError::DirectoryLookupIncomplete(_)
     )
 }
 fn app_error(error: AppError) -> SubjectError {
@@ -2734,8 +2738,10 @@ fn app_error(error: AppError) -> SubjectError {
         | AppError::TransportClosed
         | AppError::AccountCatchUp(_)
         | AppError::GroupCatchingUp(_)
+        | AppError::GroupCommitUndelivered(_)
         | AppError::FullHistoryRepairIncomplete { .. }
         | AppError::RelayDirectory(_)
+        | AppError::DirectoryLookupIncomplete(_)
         | AppError::Publish(_)
         | AppError::BlobStore(_)
         | AppError::AgentStreamSendFailed(_)
@@ -2750,6 +2756,7 @@ fn app_error(error: AppError) -> SubjectError {
         | AppError::InvalidChatPin(_)
         | AppError::InvalidGroupMembershipPage(_)
         | AppError::InvalidCachedIdentityPage(_)
+        | AppError::InvalidPublicEventReferences(_)
         | AppError::InvalidMessageDraft(_)
         | AppError::InvalidPublicKey
         | AppError::UnexpectedPrivateKey
@@ -2774,7 +2781,7 @@ fn app_error(error: AppError) -> SubjectError {
         | AppError::InvalidRelayTelemetrySettings(_)
         | AppError::InvalidAuditLogFile(_)
         | AppError::AgentStreamInvalidCandidate(_) => SubjectFailureCategory::Protocol,
-        AppError::MissingKeyPackage(_)
+        AppError::MissingKeyPackage { .. }
         | AppError::MissingMemberInboxRoute(_)
         | AppError::UnknownGroup(_)
         | AppError::GroupInviteNotPending
@@ -2803,7 +2810,8 @@ fn app_error(error: AppError) -> SubjectError {
         | AppError::ReactionNotFound
         | AppError::InvalidReportedPublicKey
         | AppError::CannotReportSelf
-        | AppError::ModerationReportRateLimited => SubjectFailureCategory::ExpectedRefusal,
+        | AppError::ModerationReportRateLimited
+        | AppError::InvalidEditTarget => SubjectFailureCategory::ExpectedRefusal,
         AppError::Account(_)
         | AppError::AccountHome(_)
         | AppError::Session(_)
@@ -3091,6 +3099,12 @@ mod tests {
     #[test]
     fn app_errors_are_classified_without_serializing_inner_details() {
         let marker = "private-storage-path";
+        let incomplete = AppError::DirectoryLookupIncomplete(marker.into());
+        assert!(app_error_retryable(&incomplete));
+        assert_eq!(app_error_kind(&incomplete), "directory_lookup_incomplete");
+        let incomplete = app_error(incomplete);
+        assert_eq!(incomplete.category, SubjectFailureCategory::Resource);
+        assert!(!incomplete.message.contains(marker));
         let environment = app_error(AppError::SqlcipherKeyDerivation(marker.into()));
         assert_eq!(environment.category, SubjectFailureCategory::Environment);
         assert!(!environment.message.contains(marker));

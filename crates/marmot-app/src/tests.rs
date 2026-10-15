@@ -529,6 +529,7 @@ pub(crate) struct ScriptedPushRelayClient {
     zero_ack_next_publish: std::sync::atomic::AtomicBool,
     reject_next_publish: std::sync::atomic::AtomicBool,
     fail_publish_unavailable: std::sync::atomic::AtomicBool,
+    unavailable_endpoints: std::sync::Mutex<Vec<String>>,
     fail_publish_kind: std::sync::Mutex<Option<u64>>,
     accept_first_endpoint_only: std::sync::atomic::AtomicBool,
     accepted_publish_routes: std::sync::Mutex<Vec<(u64, Vec<TransportEndpoint>)>>,
@@ -912,6 +913,14 @@ impl ScriptedPushRelayClient {
             .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
+    /// Fail single-endpoint publishes to these relays as unavailable.
+    pub(crate) fn make_endpoints_unavailable(&self, endpoints: &[&str]) {
+        *self.unavailable_endpoints.lock().unwrap() = endpoints
+            .iter()
+            .map(|endpoint| (*endpoint).to_owned())
+            .collect();
+    }
+
     pub(crate) fn fail_publishes_of_kind(&self, kind: u64) {
         *self.fail_publish_kind.lock().unwrap() = Some(kind);
     }
@@ -987,11 +996,9 @@ impl ScriptedPushRelayClient {
             .unwrap()
             .iter()
             .filter(|subscription| {
-                matches!(
-                    subscription,
-                    NostrSubscription::Group { account_id, group_id, .. }
-                        if account_id == expected_account_id && group_id == expected_group_id
-                )
+                subscription.is_group_route()
+                    && subscription.account_id() == expected_account_id
+                    && subscription.carries_group(expected_group_id)
             })
             .count()
     }
@@ -1011,11 +1018,9 @@ impl ScriptedPushRelayClient {
             .unwrap()
             .iter()
             .filter(|subscription| {
-                matches!(
-                    subscription,
-                    NostrSubscription::Group { account_id, group_id, .. }
-                        if account_id == expected_account_id && group_id == expected_group_id
-                )
+                subscription.is_group_route()
+                    && subscription.account_id() == expected_account_id
+                    && subscription.carries_group(expected_group_id)
             })
             .count()
     }
@@ -1119,7 +1124,7 @@ impl NostrRelayClient for ScriptedPushRelayClient {
             .lock()
             .unwrap()
             .push(subscription.clone());
-        if matches!(&subscription, NostrSubscription::Group { .. }) {
+        if subscription.is_group_route() {
             self.group_subscribe_attempts
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
@@ -1144,7 +1149,7 @@ impl NostrRelayClient for ScriptedPushRelayClient {
         };
         let block_for_account_group = {
             let mut blocked_account = self.block_account_group_subscribe.lock().unwrap();
-            if matches!(&subscription, NostrSubscription::Group { .. })
+            if subscription.is_group_route()
                 && blocked_account.as_deref() == Some(subscription.account_id().as_slice())
             {
                 blocked_account.take();
@@ -1242,9 +1247,14 @@ impl NostrRelayClient for ScriptedPushRelayClient {
             self.indexer_publish_started.notify_one();
             self.indexer_publish_release.notified().await;
         }
+        let unavailable = self.unavailable_endpoints.lock().unwrap().clone();
         if self
             .fail_publish_unavailable
             .load(std::sync::atomic::Ordering::SeqCst)
+            || (!endpoints.is_empty()
+                && endpoints
+                    .iter()
+                    .all(|endpoint| unavailable.contains(&endpoint.0)))
         {
             return Err(cgka_traits::TransportAdapterError::PublishEndpoints(
                 cgka_traits::TransportPublishFailure::with_endpoint_failures(
@@ -4036,6 +4046,112 @@ async fn media_send_epoch_pin_body() {
         .expect("a current-epoch reference sends");
     assert_eq!(summary.published, 1, "{summary:?}");
     assert_eq!(relay.published_event_ids().len(), published_before + 1);
+}
+
+#[test]
+fn edits_require_an_available_own_chat_target() {
+    run_composed_app_runtime_test("edit-target-preflight", edit_target_preflight_body);
+}
+
+async fn edit_target_preflight_body() {
+    // Recipients honor an edit only of an available chat message by the same
+    // author. The sender must refuse every other target before publishing it
+    // to the group.
+    let dir = tempfile::tempdir().unwrap();
+    AccountHome::open(dir.path())
+        .create_account("alice")
+        .unwrap();
+    let relay = Arc::new(ScriptedPushRelayClient::default());
+    let app = MarmotApp::with_relay(dir.path(), "wss://relay.example")
+        .with_test_relay_client(relay.clone());
+    let mut client = app.client("alice").await.unwrap();
+    let group_id = client.create_group("edits", &[]).await.unwrap();
+    let group_hex = hex::encode(group_id.as_slice());
+    let edit = |target: &str, content: &str| AppMessageIntent::Edit {
+        target_message_id: target.to_owned(),
+        content: content.to_owned(),
+    };
+
+    let original = client.send(&group_id, b"status: starting").await.unwrap();
+    let original_id = original.message_ids[0].clone();
+    client
+        .send_app_event(&group_id, edit(&original_id, "status: done"))
+        .await
+        .unwrap();
+    let row = app
+        .timeline_message("alice", &group_hex, &original_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.plaintext, "status: done");
+
+    let reaction = client
+        .react_to_message(&group_id, &original_id, "+")
+        .await
+        .unwrap();
+    let foreign_id = "f0".repeat(32);
+    app.record_account_app_event(
+        "alice",
+        &AppMessageProjection {
+            authority: None,
+            message_id_hex: foreign_id.clone(),
+            source_message_id_hex: None,
+            direction: "received".to_owned(),
+            group_id_hex: group_hex.clone(),
+            sender: "b0".repeat(32),
+            plaintext: "someone else's message".to_owned(),
+            kind: cgka_traits::app_event::MARMOT_APP_EVENT_KIND_CHAT,
+            tags: Vec::new(),
+            source_epoch: None,
+            retention: None,
+            recorded_at: Some(10),
+            origin_commit_id: None,
+            moderation_grant: false,
+        },
+    )
+    .unwrap();
+    let deleted = client.send(&group_id, b"soon deleted").await.unwrap();
+    client
+        .delete_message(&group_id, &deleted.message_ids[0])
+        .await
+        .unwrap();
+
+    let published_before = relay.published_event_ids().len();
+    for (target, case) in [
+        (foreign_id.as_str(), "another account's message"),
+        (reaction.message_ids[0].as_str(), "a reaction"),
+        (deleted.message_ids[0].as_str(), "a deleted message"),
+        ("c0c0", "an unknown message"),
+    ] {
+        let error = client
+            .send_app_event(&group_id, edit(target, "rewritten"))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, AppError::InvalidEditTarget),
+            "editing {case} must be refused before publication, got {error:?}"
+        );
+    }
+    assert_eq!(
+        relay.published_event_ids().len(),
+        published_before,
+        "a refused edit must reach the relay with nothing"
+    );
+
+    // A failed publish awaiting retry can still recover (publish finalization
+    // revives it), and recipients apply the edit once the original arrives.
+    let retrying = client.send(&group_id, b"retrying").await.unwrap();
+    app.account_storage("alice")
+        .unwrap()
+        .invalidate_app_event_by_message_id(
+            &group_hex,
+            &retrying.message_ids[0],
+            crate::LOCAL_PUBLISH_FAILED_REASON,
+        )
+        .unwrap();
+    client
+        .send_app_event(&group_id, edit(&retrying.message_ids[0], "retried"))
+        .await
+        .expect("a target awaiting its publish retry stays editable");
 }
 
 #[test]
@@ -8083,7 +8199,7 @@ async fn member_key_package_skips_local_legacy_cache() {
     assert!(
         matches!(
             &result,
-            Err(AppError::MissingKeyPackage(_) | AppError::MissingRelayLists(_))
+            Err(AppError::MissingKeyPackage { .. } | AppError::MissingRelayLists(_))
         ),
         "legacy local cache must not be selected for invites; got {result:?}"
     );
@@ -8412,7 +8528,7 @@ async fn incomplete_discovery_is_not_cleared_by_an_empty_cached_outbox() {
         .expect_err("an empty outbox cannot prove absence after discovery failed");
 
     assert!(
-        matches!(error, AppError::RelayDirectory(ref message) if message.contains("not authoritatively established")),
+        matches!(error, AppError::DirectoryLookupIncomplete(ref id) if *id == account_id),
         "unknown discovery must remain retryable instead of becoming a missing-route verdict: {error:?}"
     );
     assert!(fetcher.requests.lock().unwrap().iter().any(|request| {
@@ -8442,7 +8558,7 @@ async fn member_inbox_of_only_retired_relays_is_reported_distinctly() {
         .expect_err("a member with no usable inbox cannot be invited");
 
     assert!(
-        matches!(error, AppError::RelayDirectory(ref message) if message.contains("no usable relays") && message.contains("refresh did not complete")),
+        matches!(error, AppError::DirectoryLookupIncomplete(ref id) if *id == account_id),
         "{error:?}"
     );
 }
@@ -8463,7 +8579,7 @@ async fn cached_retired_inbox_with_failed_refresh_remains_retryable() {
         .await
         .expect_err("a failed refresh cannot use a retired-only cached inbox");
     assert!(
-        matches!(error, AppError::RelayDirectory(ref message) if message.contains("refresh did not complete")),
+        matches!(error, AppError::DirectoryLookupIncomplete(ref id) if *id == account_id),
         "{error:?}"
     );
 
@@ -8524,7 +8640,7 @@ async fn account_outbox_route_cap_without_inbox_remains_unknown() {
         )
         .await
         .unwrap_err();
-    assert!(matches!(error, AppError::RelayDirectory(_)));
+    assert!(matches!(error, AppError::DirectoryLookupIncomplete(ref account) if account == id));
     let cached = app.directory_entry_for_account_id(id).unwrap().unwrap();
     assert_eq!(cached.relay_lists.nip65.relays.len(), 17);
     assert!(cached.relay_lists.inbox.relays.is_empty());
@@ -8548,7 +8664,7 @@ async fn account_signed_empty_inbox_with_incomplete_outbox_remains_unknown() {
         )
         .await
         .unwrap_err();
-    assert!(matches!(error, AppError::RelayDirectory(_)));
+    assert!(matches!(error, AppError::DirectoryLookupIncomplete(ref account) if account == id));
     let cached = app.directory_entry_for_account_id(id).unwrap().unwrap();
     assert!(cached.relay_lists.inbox.created_at > 0);
     assert!(cached.relay_lists.inbox.relays.is_empty());
@@ -8625,12 +8741,16 @@ async fn future_dated_inbox_is_unknown_for_account_and_member_resolution() {
         )
         .await
         .unwrap_err();
-    assert!(matches!(account_error, AppError::RelayDirectory(_)));
+    assert!(
+        matches!(account_error, AppError::DirectoryLookupIncomplete(ref account) if account == id)
+    );
     let member_error = app
         .resolve_member_key_packages(&[id.as_str()])
         .await
         .unwrap_err();
-    assert!(matches!(member_error, AppError::RelayDirectory(_)));
+    assert!(
+        matches!(member_error, AppError::DirectoryLookupIncomplete(ref account) if account == id)
+    );
 }
 
 #[tokio::test]
@@ -9213,7 +9333,9 @@ async fn member_key_package_resolution_never_falls_back_to_cached_key_packages()
             .await
             .err()
             .expect("future-only discovery must fail closed");
-        assert!(matches!(error, AppError::MissingKeyPackage(id) if id == members[0]));
+        assert!(
+            matches!(error, AppError::MissingKeyPackage { account: id, reason: crate::MissingKeyPackageReason::NotFound } if id == members[0])
+        );
         assert!(
             fetcher.requests.lock().unwrap().iter().any(|request| {
                 request
@@ -9225,12 +9347,16 @@ async fn member_key_package_resolution_never_falls_back_to_cached_key_packages()
         );
         let refs = members.iter().map(String::as_str).collect::<Vec<_>>();
         let ordinary = app.resolve_member_key_packages(&refs).await.unwrap_err();
-        assert!(matches!(ordinary, AppError::MissingKeyPackage(id) if id == members[0]));
+        assert!(
+            matches!(ordinary, AppError::MissingKeyPackage { account: id, reason: crate::MissingKeyPackageReason::NotFound } if id == members[0])
+        );
         let prewarm = app
             .prewarm_group_member_key_packages(&refs)
             .await
             .unwrap_err();
-        assert!(matches!(prewarm, AppError::MissingKeyPackage(id) if id == members[0]));
+        assert!(
+            matches!(prewarm, AppError::MissingKeyPackage { account: id, reason: crate::MissingKeyPackageReason::NotFound } if id == members[0])
+        );
     }
 }
 
@@ -9460,7 +9586,7 @@ async fn relay_list_fallback_failure_preserves_valid_siblings_and_input_order() 
         .await
         .expect_err("the first member is missing and the third relay-list fallback fails");
     assert!(
-        matches!(error, AppError::MissingKeyPackage(account_id) if account_id == accounts[0].account_id_hex),
+        matches!(error, AppError::MissingKeyPackage { account: account_id, reason: crate::MissingKeyPackageReason::NotFound } if account_id == accounts[0].account_id_hex),
         "the first canonical member error must win over a later relay-list failure"
     );
     let requests_after_partial = fetcher.requests.lock().unwrap().len();
@@ -9497,7 +9623,7 @@ async fn member_key_package_set_reports_missing_packages_in_input_order() {
         .expect_err("both packages are absent");
 
     assert!(
-        matches!(error, AppError::MissingKeyPackage(account_id) if account_id == accounts[1].account_id_hex),
+        matches!(error, AppError::MissingKeyPackage { account: account_id, reason: crate::MissingKeyPackageReason::NotFound } if account_id == accounts[1].account_id_hex),
         "the first canonical input error must win regardless of batch completion order"
     );
 }
@@ -12302,7 +12428,8 @@ fn reopened_unbounded_overflow_waits_for_explicit_full_history_repair() {
         assert!(
             subscriptions.iter().all(|subscription| match subscription {
                 NostrSubscription::AccountInbox { since, .. }
-                | NostrSubscription::Group { since, .. } => since.is_some(),
+                | NostrSubscription::Group { since, .. }
+                | NostrSubscription::GroupBatch { since, .. } => since.is_some(),
                 NostrSubscription::GroupMaintenance { .. } => true,
             }),
             "opening live interest cannot independently authorize an unfloored replay"
@@ -14611,8 +14738,18 @@ fn app_error_display_does_not_expose_group_or_account_ids() {
     let account_id = "bb".repeat(32);
     let errors = [
         AppError::UnknownGroup(group_id.clone()).to_string(),
-        AppError::MissingKeyPackage(account_id.clone()).to_string(),
+        AppError::MissingKeyPackage {
+            account: account_id.clone(),
+            reason: crate::MissingKeyPackageReason::NotFound,
+        }
+        .to_string(),
+        AppError::MissingKeyPackage {
+            account: account_id.clone(),
+            reason: crate::MissingKeyPackageReason::ObsoleteOnly,
+        }
+        .to_string(),
         AppError::MissingMemberInboxRoute(account_id.clone()).to_string(),
+        AppError::DirectoryLookupIncomplete(account_id.clone()).to_string(),
         AppError::MissingDirectoryEntry(account_id.clone()).to_string(),
         AppError::AccountHome(AccountHomeError::SecretNotFound(account_id.clone())).to_string(),
     ];
@@ -16935,10 +17072,7 @@ fn group_subscriptions(relay: &ScriptedPushRelayClient, group_id: &GroupId) -> u
         .unwrap()
         .iter()
         .filter(|subscription| {
-            matches!(
-                subscription,
-                NostrSubscription::Group { group_id: subscribed, .. } if subscribed == group_id
-            )
+            subscription.is_group_route() && subscription.carries_group(group_id)
         })
         .count()
 }
@@ -17366,6 +17500,7 @@ async fn key_package_publication_never_issues_a_full_history_subscription() {
                 subscription,
                 NostrSubscription::AccountInbox { since: None, .. }
                     | NostrSubscription::Group { since: None, .. }
+                    | NostrSubscription::GroupBatch { since: None, .. }
             )
         })
         .count();
@@ -23282,6 +23417,183 @@ async fn group_changes_refuse_while_epoch_gap_recovery_holds_the_group() {
         .update_group_profile(&group_id, Some("caught up"), None)
         .await
         .unwrap();
+}
+
+/// mdk#2255: a commit confirms on its first relay acknowledgement. While another
+/// group relay still owes it, the next group change is refused unless the user
+/// accepts that members on that relay may not follow, and the app can ask
+/// which relays are owed.
+#[tokio::test]
+async fn group_changes_refuse_while_the_last_commit_is_owed_to_a_relay() {
+    let dir = tempfile::tempdir().unwrap();
+    AccountHome::open(dir.path())
+        .create_account("alice")
+        .unwrap();
+    let relay = Arc::new(ScriptedPushRelayClient::default());
+    let app = MarmotApp::with_relays(
+        dir.path(),
+        vec![
+            "wss://relay-a.example".to_owned(),
+            "wss://relay-b.example".to_owned(),
+        ],
+    )
+    .with_test_relay_client(relay.clone());
+    let mut client = app.client("alice").await.unwrap();
+    // Refuse as soon as a relay is owed instead of after the grace.
+    client.commit_delivery_gate_grace_secs = 0;
+    let group_id = client.create_group("owed", &[]).await.unwrap();
+    let group_hex = hex::encode(group_id.as_slice());
+    assert_eq!(client.group_commit_delivery(&group_id).unwrap(), None);
+    assert!(
+        !client
+            .acknowledge_group_commit_undelivered(&group_id)
+            .unwrap()
+    );
+
+    relay.make_endpoints_unavailable(&["wss://relay-b.example"]);
+    client
+        .update_group_profile(&group_id, Some("first"), None)
+        .await
+        .unwrap();
+    let epoch = client.runtime.group_record(&group_id).unwrap().epoch;
+    let delivery = client
+        .group_commit_delivery(&group_id)
+        .unwrap()
+        .expect("relay B still owes the commit");
+    assert_eq!(
+        delivery.owed_relay_urls,
+        vec!["wss://relay-b.example".to_owned()]
+    );
+    assert_eq!(delivery.relay_count, 2);
+    assert!(delivery.since > 0);
+
+    let refused = |result: Result<SendSummary, AppError>, operation: &str| match result {
+        Err(AppError::GroupCommitUndelivered(held)) => assert_eq!(held, group_hex, "{operation}"),
+        other => panic!("{operation} must refuse while the last commit is owed, got {other:?}"),
+    };
+    refused(
+        client
+            .update_group_profile(&group_id, Some("second"), None)
+            .await,
+        "update_group_profile",
+    );
+    let member = Keys::generate().public_key().to_hex();
+    refused(
+        client.remove_members(&group_id, &[member.as_str()]).await,
+        "remove_members",
+    );
+    assert_eq!(client.runtime.group_record(&group_id).unwrap().epoch, epoch);
+
+    // Advisory: one acknowledged attempt goes through, the next asks again.
+    assert!(
+        client
+            .acknowledge_group_commit_undelivered(&group_id)
+            .unwrap()
+    );
+    client
+        .update_group_profile(&group_id, Some("second"), None)
+        .await
+        .unwrap();
+    assert!(client.runtime.group_record(&group_id).unwrap().epoch.0 > epoch.0);
+    refused(
+        client
+            .update_group_profile(&group_id, Some("third"), None)
+            .await,
+        "update_group_profile after the acknowledged attempt",
+    );
+}
+
+/// mdk#2255: the first publish cuts slower relays off at the first
+/// acknowledgement and retries them 30 s later, so a quick follow-up change
+/// is not refused while that retry is still pending.
+#[tokio::test]
+async fn a_quick_follow_up_change_is_not_refused_within_the_delivery_grace() {
+    let dir = tempfile::tempdir().unwrap();
+    AccountHome::open(dir.path())
+        .create_account("alice")
+        .unwrap();
+    let relay = Arc::new(ScriptedPushRelayClient::default());
+    let app = MarmotApp::with_relays(
+        dir.path(),
+        vec![
+            "wss://relay-a.example".to_owned(),
+            "wss://relay-b.example".to_owned(),
+        ],
+    )
+    .with_test_relay_client(relay.clone());
+    let mut client = app.client("alice").await.unwrap();
+    let group_id = client.create_group("grace", &[]).await.unwrap();
+    relay.make_endpoints_unavailable(&["wss://relay-b.example"]);
+    client
+        .update_group_profile(&group_id, Some("first"), None)
+        .await
+        .unwrap();
+    assert!(client.group_commit_delivery(&group_id).unwrap().is_some());
+    client
+        .update_group_profile(&group_id, Some("second"), None)
+        .await
+        .unwrap();
+}
+
+/// mdk#2255 with mdk#2258: a change refused by both advisory gates can be
+/// acknowledged past each in turn. Passing one gate must not spend its
+/// acknowledgement while the other still refuses the attempt.
+#[tokio::test]
+async fn both_advisory_gates_can_be_acknowledged_in_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    AccountHome::open(dir.path())
+        .create_account("alice")
+        .unwrap();
+    let relay = Arc::new(ScriptedPushRelayClient::default());
+    let app = MarmotApp::with_relays(
+        dir.path(),
+        vec![
+            "wss://relay-a.example".to_owned(),
+            "wss://relay-b.example".to_owned(),
+        ],
+    )
+    .with_test_relay_client(relay.clone());
+    let mut client = app.client("alice").await.unwrap();
+    // Refuse as soon as a relay is owed instead of after the grace.
+    client.commit_delivery_gate_grace_secs = 0;
+    let group_id = client.create_group("both gates", &[]).await.unwrap();
+    relay.make_endpoints_unavailable(&["wss://relay-b.example"]);
+    client
+        .update_group_profile(&group_id, Some("owed"), None)
+        .await
+        .unwrap();
+    let epoch = client.runtime.group_record(&group_id).unwrap().epoch;
+    app.account_storage("alice")
+        .unwrap()
+        .arm_epoch_backfill_intents(&[storage_sqlite::StoredEpochBackfillIntent {
+            group_id_hex: hex::encode(group_id.as_slice()),
+            stalled_epoch: epoch.0,
+        }])
+        .unwrap();
+
+    assert!(matches!(
+        client
+            .update_group_profile(&group_id, Some("next"), None)
+            .await,
+        Err(AppError::GroupCatchingUp(_))
+    ));
+    assert!(client.acknowledge_group_catching_up(&group_id).unwrap());
+    assert!(matches!(
+        client
+            .update_group_profile(&group_id, Some("next"), None)
+            .await,
+        Err(AppError::GroupCommitUndelivered(_))
+    ));
+    assert!(
+        client
+            .acknowledge_group_commit_undelivered(&group_id)
+            .unwrap()
+    );
+    client
+        .update_group_profile(&group_id, Some("next"), None)
+        .await
+        .unwrap();
+    assert!(client.runtime.group_record(&group_id).unwrap().epoch.0 > epoch.0);
 }
 
 /// mdk#2258: gap evidence armed at an epoch the device has since left does not
