@@ -50,6 +50,7 @@ def run(name, selected, expected):
     proof["failed_case_names"] = [case for case in safe_names if any(case in line for line in failed_lines)]
     allowed_stages = {"third-device-completion", "fourth-device-completion"}
     proof["completion_stage_markers"] = [stage for stage in re.findall(r"automatic-enrollment-control stage=([a-z-]+)", output) if stage in allowed_stages]
+    proof["panic_locations"] = [{"file": file, "line": int(line), "column": int(column)} for file, line, column in re.findall(r"panicked at (crates/[A-Za-z0-9_./-]+\.rs):([0-9]+):([0-9]+)", output)]
     proof["closed_failure_categories"] = [category for needle, category in [
         ("automatic pairing did not reach required phase", "original-phase-not-reached"),
         ("reusing parsed MLS state never reuses completed authorization", "fresh-facts-assertion"),
@@ -58,6 +59,11 @@ def run(name, selected, expected):
     report["controls"][name] = proof
     save()
     return proof, output
+import os
+if os.environ.get("SETTLED_CACHE_DIAGNOSTIC") == "safety-only":
+    selected = "package(cgka-engine) & (" + " | ".join("test(" + case + ")" for case in CORE_NAMES[:2]) + ")"
+    run("two-safety-fixture-diagnosis", selected, 2)
+    raise SystemExit(0)
 all_filter = "(" + " | ".join("test(=" + name + ")" for name in app) + ") | (package(cgka-engine) & (" + " | ".join("test(" + name + ")" for name in CORE_NAMES) + "))"
 proof, _ = run("original-nine-and-six-safety-controls", all_filter, 15)
 # Preserve failures but still execute the independent narrow mutation evidence.
