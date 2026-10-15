@@ -74,7 +74,7 @@ jobs:
               assert re.fullmatch('[0-9a-f]{40}',sdk) and re.fullmatch('[1-9][0-9]*',sdk_run)
               if native=='all':
                   assert sdk!='3f18b2d1acac4f87680b35f39bf8dce67dcf28ec','Old SDK cannot qualify protocol/native bodies'
-              assert cohort['mac_sha']=='5dbc971cb777a33441a266657511b8519bb5c7d6'
+              assert cohort['mac_sha']=='dc86789da2251ce89f3546719ff1dd8dd91ee99d'
               assert cohort['ios_sha']=='cfc9ba7b6a66ecc444b80070209ce2c1c195fc00'
           else:
               assert not sdk and not sdk_run
@@ -198,7 +198,7 @@ jobs:
           from pathlib import Path
           names=['acceptance-identity.py','hosted-app-fixtures.py','hosted-app-unit.py','hosted-app-ui.py',
                  'hosted-root-mutations.py','timestamp-mutations.py','sdk-manifest-guards.py','build-hosted-simulator-agent.sh',
-                 'run-hosted-app-acceptance.py']
+                 'run-hosted-app-acceptance.py','paired_direct_mutation.py','paired-direct-mutations.py']
           paths=[Path('scripts/upstream_apple_ci')/name for name in names]
           report={'tools_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
                   'syntax_checks_passed':True,'product_tests_executed':0,
