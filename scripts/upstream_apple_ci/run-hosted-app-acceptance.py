@@ -7,6 +7,7 @@ import hashlib
 import fcntl
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -122,6 +123,72 @@ class Runner:
         write_private(temporary, self.state, exclusive=not temporary.exists())
         temporary.replace(self.state_path)
 
+    def failed_receipt(self, label):
+        """Export native counts/closed categories, never private receipt contents."""
+        if label not in ('ios-build', 'macos-build', 'ios-control', 'ios-native-qr'):
+            return
+        platform = 'macos' if label.startswith('macos-') else 'ios'
+        prefix = self.private / label
+        path = Path(str(prefix) + ('-result.json' if label == 'ios-native-qr' else '-results.json'))
+        compact = {'receipt_status': 'unavailable',
+                   'unit': {'counts_status': 'unknown'}, 'driver': {'counts_status': 'unknown'}}
+        if path.exists():
+            try:
+                raw = json.loads(path.read_text())
+                require(raw.get('source_commit') == self.commit(platform)
+                        and raw.get('sdk_source') == self.args.sdk_source
+                        and str(raw.get('sdk_run_id', self.args.sdk_run_id)) == self.args.sdk_run_id,
+                        'failure-receipt-identity-mismatch')
+                compact['receipt_status'] = 'available'
+                for name in ('passed', 'exit_code', 'unit_exit_code', 'driver_exit_code', 'seconds'):
+                    value = raw.get(name)
+                    if type(value) in (int, float) and math.isfinite(value):
+                        compact[name] = value
+                for name in ('source_unchanged', 'sdk_unchanged', 'products_unchanged',
+                             'plans_unchanged', 'unit_ready_observed', 'unchanged'):
+                    if type(raw.get(name)) is bool:
+                        compact[name] = raw[name]
+                if raw.get('runner_error_category') in (
+                    'RuntimeError', 'TimeoutError', 'OSError', 'ValueError', 'KeyError',
+                    'InputVerificationFailed', 'OwnedRunnerRequiredTermination', 'FileNotFoundError'):
+                    compact['runner_error_category'] = raw['runner_error_category']
+                if raw.get('failure_stage') in (
+                    'unit-ended-before-ui-ready', 'ui-ready-timeout', 'owned-test-runner-timeout'):
+                    compact['failure_stage'] = raw['failure_stage']
+                for name in ('unit', 'driver'):
+                    counts = raw.get(name if label != 'ios-native-qr' else 'summary')
+                    fields = ('totalTestCount', 'passedTests', 'failedTests', 'skippedTests')
+                    if isinstance(counts, dict) and all(type(counts.get(k)) is int and counts[k] >= 0 for k in fields):
+                        compact[name] = {'counts_status': 'available', **{key: counts[key] for key in fields}}
+                    if label == 'ios-native-qr':
+                        break
+            except (OSError, ValueError, KeyError, TypeError):
+                compact['receipt_status'] = 'invalid-or-identity-mismatch'
+        if label.endswith('-build'):
+            # This log exists only for build-for-testing, before any runtime body.
+            log = Path(str(prefix) + '-build.log')
+            diagnostics = []
+            if log.is_file():
+                source = self.source(platform)
+                tracked = set(subprocess.check_output(['git', 'ls-files', '*.swift'], cwd=source, text=True).splitlines())
+                pattern = re.compile(r'^' + re.escape(str(source)) + r'/([^:\n]+\.swift):([0-9]+)(?::([0-9]+))?: error: (.*)$')
+                with log.open(errors='replace') as stream:
+                    for line in stream:
+                        match = pattern.fullmatch(line.rstrip('\n'))
+                        if not match or match[1] not in tracked or match[1].startswith(('Packages/MarmotKit/', 'Vendored/MarmotKit/')):
+                            continue
+                        if len(diagnostics) == 50:
+                            compact['compiler_diagnostics_truncated'] = True
+                            break
+                        message = match[4]
+                        for root in (str(source), os.environ.get('GITHUB_WORKSPACE', ''), os.environ.get('RUNNER_TEMP', '')):
+                            if root:
+                                message = message.replace(root, '<build-path>')
+                        diagnostics.append({'path': match[1], 'line': int(match[2]),
+                            'column': int(match[3]) if match[3] else None, 'error': message[:512]})
+            compact['compiler_diagnostics'] = diagnostics
+        self.report.setdefault('failed_stage_receipts', {})[label] = compact
+
     def command(self, label, command, kind, timeout=1900):
         previous = self.state['steps'].get(label)
         if previous is not None:
@@ -157,6 +224,11 @@ class Runner:
             row['seconds'] = round(time.monotonic() - started, 3)
             self.save()
             self.report['stage_timings'].append({'label': label, 'kind': kind, 'seconds': row['seconds']})
+            if row['exit_code'] != 0 or 'error_category' in row or row.get('required_termination'):
+                try:
+                    self.failed_receipt(label)
+                except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+                    self.report.setdefault('failed_stage_receipts', {})[label] = {'receipt_status': 'unavailable', 'counts_status': 'unknown'}
         require(row['exit_code'] == 0 and 'error_category' not in row and not row.get('required_termination'),
                 'remote-stage-failed-' + label)
         return row

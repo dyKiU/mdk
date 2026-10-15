@@ -297,6 +297,40 @@ jobs:
                    'tools_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()}
           (Path(os.environ['RUNNER_TEMP'])/'native-evidence/sdk-identity.json').write_text(json.dumps(receipt,indent=2)+'\n')
           PY
+      - name: Bind compilation cache to exact source, SDK, Xcode, architecture and build recipe
+        id: native-cache-key
+        run: |
+          python3 - <<'PY'
+          import ast,hashlib,json,os,subprocess
+          from pathlib import Path
+          script=Path('scripts/upstream_apple_ci/hosted-app-ui.py')
+          main=next(n for n in ast.parse(script.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='main')
+          recipe=next(n for n in main.body if isinstance(n,ast.If) and ast.unparse(n.test)=="args.stage == 'build'")
+          identity={'ios_sha':os.environ['IOS_SHA'],
+                    'sdk_qualification_sha256':hashlib.sha256((Path(os.environ['RUNNER_TEMP'])/'native-packages/qualification.json').read_bytes()).hexdigest(),
+                    'xcode':subprocess.check_output(['xcodebuild','-version'],text=True).strip(),
+                    'developer_dir':os.environ['DEVELOPER_DIR'],
+                    'arch':subprocess.check_output(['uname','-m'],text=True).strip(),
+                    'build_recipe_sha256':hashlib.sha256(ast.dump(recipe,include_attributes=False).encode()).hexdigest(),
+                    'feature_flags':'WN_EXPERIMENTAL_DEVICE_SYNC=1; ONLY_ACTIVE_ARCH=YES; ad-hoc simulator signing'}
+          key='wn-hosted-ios-build-v1-'+hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write('key='+key+'\n')
+          (Path(os.environ['RUNNER_TEMP'])/'native-evidence/compilation-cache.json').write_text(json.dumps(identity,indent=2)+'\n')
+          PY
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: compilation-cache
+        with:
+          key: ${{ steps.native-cache-key.outputs.key }}
+          # Only compilation outputs. Never restore private work, receipts,
+          # test plans with fixture environments, results, logs or simulator data.
+          path: ${{ runner.temp }}/native-compilation-cache/ios-Build
+      - name: Restore compilation files without reusing any receipt or private work
+        if: steps.compilation-cache.outputs.cache-hit == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/hosted-native-compilation/ios/Build"
+          rsync -a --exclude='*.xctestrun' --exclude='*.log' --exclude='*.xcresult/' \
+            "$RUNNER_TEMP/native-compilation-cache/ios-Build/" "$RUNNER_TEMP/hosted-native-compilation/ios/Build/"
       - name: Build the isolated local relay once
         run: |
           rustup toolchain install 1.97.1 --profile minimal
@@ -327,6 +361,7 @@ jobs:
             --ios-source "$GITHUB_WORKSPACE/ios" --ios-commit "$IOS_SHA" \
             --packages "$RUNNER_TEMP/native-packages" --sdk-source "$SOURCE_SHA" --sdk-run-id "$SDK_RUN_ID" \
             --simulator "$NATIVE_SIMULATOR" --developer-dir "$DEVELOPER_DIR" \
+            --ios-products "$RUNNER_TEMP/hosted-native-compilation/ios/Build/Products" \
             --relay "$RUNNER_TEMP/native-relay/debug/white-noise-sync-test-relay" \
             --work "$RUNNER_TEMP/hosted-native-work" --output "$RUNNER_TEMP/native-evidence/ios-control.json"
       - name: Run all native app fixture bodies using the identical successful control and builds
@@ -337,8 +372,57 @@ jobs:
             --ios-source "$GITHUB_WORKSPACE/ios" --ios-commit "$IOS_SHA" \
             --packages "$RUNNER_TEMP/native-packages" --sdk-source "$SOURCE_SHA" --sdk-run-id "$SDK_RUN_ID" \
             --simulator "$NATIVE_SIMULATOR" --developer-dir "$DEVELOPER_DIR" \
+            --ios-products "$RUNNER_TEMP/hosted-native-compilation/ios/Build/Products" \
             --relay "$RUNNER_TEMP/native-relay/debug/white-noise-sync-test-relay" \
             --work "$RUNNER_TEMP/hosted-native-work" --output "$RUNNER_TEMP/native-evidence/all.json"
+      - name: Require fresh successful compilation and unchanged inputs before caching
+        id: cache-proof
+        if: always() && steps.native-cache-key.outputs.key != ''
+        run: |
+          python3 - <<'PY'
+          import importlib.util,json,os,shutil,subprocess
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          receipt=root/'hosted-native-work/private/ios-build-input.json'
+          proof={'cacheable':False,'product_tests_executed_by_this_step':0}
+          try:
+              spec=importlib.util.spec_from_file_location('hosted_ui',Path('scripts/upstream_apple_ci/hosted-app-ui.py'))
+              ui=importlib.util.module_from_spec(spec);spec.loader.exec_module(ui)
+              ui.CONFIG=ui.CONFIGURATIONS['ios']
+              app=Path('ios').resolve()
+              sdk=ui.freeze_sdk(app/'Packages/MarmotKit',os.environ['SOURCE_SHA'])
+              source=ui.freeze_source(app,os.environ['IOS_SHA'])
+              products=root/'hosted-native-compilation/ios/Build/Products'
+              ui.verify_build(receipt,source,sdk,products)
+              # No restored receipt is accepted: receipt lives in fresh private work.
+              command_state=json.loads((root/'hosted-native-work/state.json').read_text())['steps']['ios-build']
+              assert command_state['exit_code']==0
+              build=products.parent
+              size=sum(p.stat().st_size for p in build.rglob('*') if p.is_file() and not p.is_symlink())
+              # Cache no symlink that could reach source, fixture or simulator data.
+              assert all(not Path(os.readlink(p)).is_absolute() and p.resolve().is_relative_to(build)
+                         for p in build.rglob('*') if p.is_symlink())
+              free=shutil.disk_usage(root).free
+              proof.update(compilation_exit_code=0,inputs_verified=True,compilation_bytes=size,
+                           disk_free_before_staging=free,cacheable=size<=12*1024**3 and free>=size+8*1024**3)
+              if proof['cacheable']:
+                  staged=root/'native-compilation-cache/ios-Build'
+                  staged.mkdir(parents=True,exist_ok=True)
+                  subprocess.run(['rsync','-a','--delete','--exclude=*.xctestrun','--exclude=*.log','--exclude=*.xcresult/',
+                                  str(build)+'/',str(staged)+'/'],check=True)
+                  assert not any(p.suffix in ('.xctestrun','.log','.xcresult') for p in staged.rglob('*'))
+                  proof['private_runtime_outputs_excluded']=True
+          except (OSError,ValueError,KeyError,AssertionError,subprocess.SubprocessError):
+              proof['cacheable']=False
+          (root/'native-evidence/compilation-cache-proof.json').write_text(json.dumps(proof,indent=2)+'\n')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write('cacheable='+str(proof['cacheable']).lower()+'\n')
+          PY
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: always() && steps.cache-proof.outputs.cacheable == 'true' && steps.compilation-cache.outputs.cache-hit != 'true'
+        with:
+          key: ${{ steps.native-cache-key.outputs.key }}
+          path: ${{ runner.temp }}/native-compilation-cache/ios-Build
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

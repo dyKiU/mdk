@@ -193,7 +193,11 @@ def wait_ready(process, bridge, seconds, case, log):
     def has_started():
         if ready is not None:
             return (bridge / ready).exists()
-        return "testExternalDriverAttachesWithoutReplacingHostedApp' started" in log.read_text(errors="replace")
+        text = log.read_text(errors="replace")
+        method = "testExternalDriverAttachesWithoutReplacingHostedApp"
+        # Objective-C XCTest includes ] before the closing quote; retain the
+        # exact Swift-style start form too. Neither a skip nor a suite start is ready.
+        return any(method + suffix in text for suffix in ("' started", "]' started"))
     while not has_started():
         if process.poll() is not None:
             raise RuntimeError("unit-ended-before-ui-ready")
@@ -363,6 +367,7 @@ def main():
               "sdk_run_id": os.environ["SDK_RUN_ID"], "case": args.case, "platform": args.platform, "source_inputs": len(frozen),
               "scope": "Actual original source unit + external public UI driver; no build or physical installation",
               "unit_exit_code": None, "driver_exit_code": None}
+    report["unit_ready_observed"] = False
     start = time.monotonic()
     running = None
     ui = None
@@ -378,6 +383,7 @@ def main():
                 env=env, start_new_session=True)
             try:
                 wait_ready(running, bridge, 140, args.case, Path(str(prefix) + "-unit.log"))
+                report["unit_ready_observed"] = True
                 with Path(str(prefix) + "-driver.log").open("x") as output_driver:
                     ui = subprocess.Popen(base + ["-xctestrun", str(driver_plan), "-resultBundlePath",
                         str(prefix) + "-driver.xcresult"], stdout=output_driver, stderr=subprocess.STDOUT,
@@ -387,6 +393,8 @@ def main():
                 report["unit_exit_code"] = finish(running, 120)
     except Exception as error:
         report["runner_error_category"] = type(error).__name__
+        if str(error) in ("unit-ended-before-ui-ready", "ui-ready-timeout", "owned-test-runner-timeout"):
+            report["failure_stage"] = str(error)
     finally:
         for owned in (ui, running):
             if owned is not None and owned.poll() is None:
