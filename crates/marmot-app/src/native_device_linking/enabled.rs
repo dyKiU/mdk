@@ -20,6 +20,8 @@ pub(super) struct SessionState {
     new_device: bool,
     endorsed_setup: bool,
     operation: AsyncMutex<PacketProgress>,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    passive_sdk_consent: AtomicBool,
     sharing_choice: Mutex<
         Option<
             Arc<crate::client::device_linking::sibling_sharing::OriginalEnrollmentSharingChoice>,
@@ -399,6 +401,7 @@ impl DeviceLinkingSession {
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn observe_passive_sdk_consent_for_test(&self) {
+        self.inner.passive_sdk_consent.store(true, Ordering::Release);
         if let Some(choice) = self
             .inner
             .sharing_choice
@@ -466,6 +469,8 @@ impl DeviceLinkingSession {
             new_device,
             endorsed_setup,
             operation: AsyncMutex::new(PacketProgress::default()),
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            passive_sdk_consent: AtomicBool::new(false),
             sharing_choice: Mutex::new(None),
             snapshot: Mutex::new(snapshot),
             updates,
@@ -804,6 +809,10 @@ impl DeviceLinkingSession {
             if self.inner.closed.load(Ordering::Acquire) {
                 choice.cancel();
                 return Err(DeviceLinkingError::Closed);
+            }
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if self.inner.passive_sdk_consent.load(Ordering::Acquire) {
+                choice.passive_sdk_consent.store(true, Ordering::Release);
             }
             *held = Some(choice);
         }
