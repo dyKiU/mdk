@@ -26,7 +26,20 @@ enum HeldPublication {
 
 async fn four_device_enrollment(held_publication: HeldPublication) {
     use cgka_traits::StorageProvider;
-    let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+    use nostr_relay_builder::prelude::NostrDatabase;
+    // Match MockRelay's pinned default storage exactly, retaining an alias for
+    // post-failure reads without introducing another observer connection.
+    let relay_database =
+        std::sync::Arc::new(nostr_relay_builder::prelude::MemoryDatabase::with_opts(
+            nostr_relay_builder::prelude::MemoryDatabaseOptions {
+                events: true,
+                max_events: Some(75_000),
+            },
+        ));
+    let relay = nostr_relay_builder::LocalRelay::new(
+        nostr_relay_builder::RelayBuilder::default().database(relay_database.clone()),
+    );
+    relay.run().await.unwrap();
     let url = relay.url().await.to_string();
     let keys = nostr::prelude::Keys::generate();
     let dirs: [tempfile::TempDir; 4] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
@@ -309,39 +322,25 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
             d.sibling_recipient_rejections_for_test(),
             d.sibling_projection_aggregates_for_test()
         );
-        // A fresh reader is created only after the original wait has failed.
-        // Fetch the exact public ciphertext IDs privately and report booleans only.
+        // Read only after the unchanged original wait has failed. IDs stay
+        // private; a relay database row is not an approval or a peer receipt.
         let pending = d.sibling_publications_for_test().unwrap_or_default();
-        let ids = pending
-            .iter()
-            .filter_map(|id| nostr_sdk::prelude::EventId::from_slice(id.as_slice()).ok())
-            .collect::<Vec<_>>();
-        let reader = nostr_sdk::prelude::Client::builder().build();
-        let observed = tokio::time::timeout(std::time::Duration::from_secs(3), async {
-            reader.add_relay(url.as_str()).await.ok()?;
-            reader.connect().await;
-            let events = reader
-                .fetch_events(nostr_sdk::prelude::ReqTarget::single(
-                    url.as_str(),
-                    [nostr_sdk::prelude::Filter::new().ids(ids.clone())],
-                ))
-                .timeout(std::time::Duration::from_secs(2))
-                .await
-                .ok()?;
-            Some(
-                ids.iter()
-                    .map(|id| {
-                        events
-                            .iter()
-                            .any(|event| event.id == *id && event.verify().is_ok())
-                    })
-                    .collect::<Vec<_>>(),
-            )
+        let observed = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            let mut retained = Vec::new();
+            for id in &pending {
+                let id = nostr_relay_builder::prelude::EventId::from_slice(id.as_slice())
+                    .map_err(|_| "diagnostic event id unavailable")?;
+                let event = relay_database
+                    .event_by_id(&id)
+                    .await
+                    .map_err(|_| "diagnostic relay read unavailable")?;
+                retained.push(event.is_some_and(|event| event.verify().is_ok()));
+            }
+            Ok::<_, &'static str>(retained)
         })
         .await;
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), reader.shutdown()).await;
         eprintln!(
-            "automatic-enrollment-control post-failure-pending-count={} relay-retained-valid={observed:?} later-channel-progress={:?}",
+            "automatic-enrollment-control post-failure-pending-count={} relay-database-retained-valid={observed:?} later-channel-progress={:?}",
             pending.len(),
             d.sibling_channel_progress_for_test()
         );

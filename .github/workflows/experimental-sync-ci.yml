@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, profile-edit-regression]
         default: full
       recovery_run:
         description: Completed immutable original run for archive-recovery only
@@ -439,7 +439,7 @@ jobs:
           cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --partition count:2/5 --no-fail-fast -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
 
   core-regressions:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering","profile-edit-regression"]'), inputs.scope)
     name: Focused regressions (${{ inputs.scope }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -476,6 +476,10 @@ jobs:
           if [[ "$REGRESSION_SCOPE" == connector-regression ]]; then
             args=(--locked -p agent-connector -p marmot-app -p cgka-engine --lib --features "$features")
             filter='test(connector_relay_list_edit_preserves_entries_the_request_did_not_name)'
+          elif [[ "$REGRESSION_SCOPE" == profile-edit-regression ]]; then
+            features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/experimental-device-sync,marmot-app/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
+            args=(--locked -p cgka-conformance-simulator --test app_runtime_interaction_journeys --features "$features")
+            filter='test(=public_app_08_concurrent_admin_profile_edits_are_never_lost)'
           elif [[ "$REGRESSION_SCOPE" == revocation-regression || "$REGRESSION_SCOPE" == revocation-family || "$REGRESSION_SCOPE" == revocation-challenge-ordering || "$REGRESSION_SCOPE" == revocation-initial-peel-ordering ]]; then
             features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
             args=(--locked -p marmot-app -p cgka-engine --lib --features "$features")
@@ -501,6 +505,9 @@ jobs:
           expected = 14
           if os.environ["REGRESSION_SCOPE"] == "connector-regression":
               required = ["connector_relay_list_edit_preserves_entries_the_request_did_not_name"]
+              expected = 1
+          elif os.environ["REGRESSION_SCOPE"] == "profile-edit-regression":
+              required = ["public_app_08_concurrent_admin_profile_edits_are_never_lost"]
               expected = 1
           elif os.environ["REGRESSION_SCOPE"] == "revocation-regression":
               required = ["device_revocation_original_receipt_survives_incoming_storage_rollback_retry"]
