@@ -83,3 +83,16 @@ limit or establish full-history replacement equivalence, transferred retention,
 expiry or message-deletion behavior. Existing two-record archive scenarios remain
 unchanged. Push scope is frozen in `acceptance-lanes.json`; manual dispatch can
 select one lane or `all` without changing that committed push scope.
+
+
+Pagination diagnostics retain only a fixed phase, per-role last command names,
+command counts, sent/observed record counts and page lengths. They observe the
+original RPCs without adding SDK calls or extending any deadline. The initial
+199-record attempt timed out with four positive worker closes; its phase was
+not observable and that failed attempt must remain separate evidence.
+
+The Mac storage gate independently mutates `canRetry` true to false and
+`needsRearmToDownload` false to true. Each runs the same checkpoint regression,
+requires one actual runtime failure, restores exact source bytes and requires
+one passing control. Compile failures and zero-test results cannot kill either
+mutant. The rearm report is exported separately from the retry report.

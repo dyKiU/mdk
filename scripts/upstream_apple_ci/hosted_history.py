@@ -238,6 +238,8 @@ def main() -> int:
                         stage = str(error) if isinstance(error, GateFailure) else type(error).__name__
                         row["failure_stage"] = stage if re.fullmatch(r"[A-Za-z0-9:_-]{1,180}", stage) and not re.search(r"[0-9a-f]{32}", stage) else "native-scenario-refused"
                     finally:
+                        if kind == "pagination" and hasattr(journey, "pagination_progress"):
+                            row["phase_observations"] = journey.pagination_progress
                         try:
                             row["cleanup"] = journey.close()
                         except GateFailure:

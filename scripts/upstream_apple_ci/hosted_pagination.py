@@ -17,52 +17,71 @@ PAGE_SIZE = 37
 class BoundedObservationPeer:
     """Observe an exact ID over the complete bounded live fixture, not tail128."""
 
-    def __init__(self, original_peer):
+    def __init__(self, original_peer, role, progress):
         self.original = original_peer
+        self.role = role
+        self.progress = progress
 
     def ask(self, command, **arguments):
         if command == "message-seen":
             command = "message-seen-bounded-id"
-        return self.original.ask(command, **arguments)
+        self.progress["last_commands"][self.role] = command
+        self.progress["command_count"] += 1
+        try:
+            return self.original.ask(command, **arguments)
+        except GateFailure as error:
+            if str(error) == "controller-response-timeout":
+                # Command names and fixture roles are fixed source literals.
+                # Never retain command arguments, IDs, IPC or SDK descriptions.
+                self.progress["timeout_role"] = self.role
+                self.progress["timeout_command"] = command
+            raise
 
 
 class SeededSource:
     """Delegate original actions, seeding actual messages before admission."""
 
-    def __init__(self, source, recipient, nonrecipient, ordinary):
+    def __init__(self, source, recipient, nonrecipient, ordinary, progress):
         self.source = source
         self.absent = (recipient, nonrecipient)
         self.ordinary = ordinary
         self.expected = {}
+        self.progress = progress
 
     def ask(self, command, **arguments):
         value = self.source.ask(command, **arguments)
         if command != "send-history-text":
             return value
         require(not self.expected, "pagination-seed-exactly-once")
+        self.progress["phase"] = "seed-prejoin"
         group = arguments["group"]
         self.expected[value["message"]] = (arguments["text"], arguments["tags"])
+        self.progress["prejoin_sent"] = 1
         for index in range(1, PREJOIN):
             text = "hosted-pagination-prejoin-%03d" % index
             event = self.source.ask("send-text", group=group, text=text)["message"]
             require(event not in self.expected, "pagination-source-unique-canonical-ids")
             self.expected[event] = (text, [])
+            self.progress["prejoin_sent"] = len(self.expected)
             original.wait_message((self.ordinary,), group, event, text,
                                   "pagination-prejoin-ordinary-delivery")
         # Observe every actual source event on an independent ordinary member,
         # and absence on both not-yet-admitted siblings before returning control
         # to the unmodified original selected-chat consent fixture.
+        self.progress["phase"] = "verify-all-prejoin-observations"
         for event, (text, _) in self.expected.items():
             original.wait_message((self.ordinary,), group, event, text,
                                   "pagination-all-prejoin-ordinary-delivery")
             for peer in self.absent:
                 require(not peer.ask("message-seen", group=group, message=event, text=text)["seen"],
                         "pagination-no-prejoin-disclosure")
+            self.progress["prejoin_verified"] += 1
         require(len(self.expected) == PREJOIN, "pagination-exact-prejoin-source-count")
+        self.progress["phase"] = "selected-chat-consent-and-admission"
         return value
 
 
-def read_pages(peer, group):
+def read_pages(peer, group, progress, label):
     records, sizes, cursor = [], [], None
     for _ in range(7):  # Six expected pages plus a bounded terminal check.
         page = peer.ask("history-page-37", group=group, message=cursor)
@@ -70,6 +89,7 @@ def read_pages(peer, group):
         require(len(rows) <= PAGE_SIZE, "pagination-bounded-recipient-page")
         records.extend(rows)
         sizes.append(len(rows))
+        progress[label] = sizes.copy()
         following = page["next"]
         if following is None:
             break
@@ -82,11 +102,17 @@ def read_pages(peer, group):
 
 
 def run(journey):
-    a, b, c, d = (BoundedObservationPeer(journey.open(role)) for role in journey.commands)
+    progress = {"phase": "initial-enrollment", "last_commands": {}, "command_count": 0,
+                "prejoin_sent": 0, "prejoin_verified": 0}
+    journey.pagination_progress = progress
+    a, b, c, d = (BoundedObservationPeer(journey.open(role), role, progress)
+                  for role in journey.commands)
     account = original.first_pair(a, b, c)
+    progress["phase"] = "third-device-enrollment"
     review = original.third_device(b, a, c)
-    seeded = SeededSource(a, b, c, d)
+    seeded = SeededSource(a, b, c, d, progress)
     previous = selected_chat(seeded, b, c, d, history=True, account=account)
+    progress["phase"] = "verify-postadmission-preconsent-absence"
     group = previous["group"]
     for peer in (b, c):
         require(peer.ask("history-page-37", group=group)["records"] == [],
@@ -94,10 +120,12 @@ def run(journey):
         for event, (text, _) in seeded.expected.items():
             require(not peer.ask("message-seen", group=group, message=event, text=text)["seen"],
                     "pagination-admission-does-not-disclose-prejoin")
+    progress["phase"] = "begin-history-original"
     source = a.ask("history-begin", group=group, member=review["source"])
     require(source["group"] == group and source["recipient"] == review["source"]
             and source["records"] == PREJOIN + 1 and not source["complete"],
             "pagination-entire-200-record-original-snapshot")
+    progress["phase"] = "await-original-history-consent"
     deadline = time.monotonic() + 30
     while True:
         count = b.ask("history-pending")["count"]
@@ -116,8 +144,11 @@ def run(journey):
                 "pagination-request-review-does-not-import")
     # Keep the original controller's shared 30-second request/consent/import
     # bound unchanged. Seeding and ordinary membership completed before it.
+    progress["phase"] = "approve-history-original"
     b.ask("history-approve", revision=consent["revision"])
+    progress["phase"] = "continue-history-original"
     a.ask("history-continue", revision=source["revision"])
+    progress["phase"] = "await-history-import-completion"
     while True:
         sender = a.ask("history-snapshot")
         receiver = b.ask("history-consent-snapshot")
@@ -127,7 +158,8 @@ def run(journey):
         time.sleep(0.05)
     require(receiver["imported"] == PREJOIN and sender["records"] == PREJOIN + 1,
             "pagination-exact-import-and-live-shadow-count")
-    records, sizes = read_pages(b, group)
+    progress["phase"] = "enumerate-recipient-pages"
+    records, sizes = read_pages(b, group, progress, "first_page_sizes")
     require(sizes == [37, 37, 37, 37, 37, 14], "pagination-exact-six-recipient-pages")
     require([row["message"] for row in records] == sorted(seeded.expected),
             "pagination-exact-canonical-ids-no-duplicates-or-omissions")
@@ -146,7 +178,8 @@ def run(journey):
         transfers.add(row["transfer"])
         manifests.add(row["manifest"])
     require(len(transfers) == len(manifests) == 1, "pagination-one-original-transfer-manifest")
-    again, repeated_sizes = read_pages(b, group)
+    progress["phase"] = "repeat-recipient-pages"
+    again, repeated_sizes = read_pages(b, group, progress, "repeated_page_sizes")
     require(again == records and repeated_sizes == sizes, "pagination-stable-exact-repeat")
     require(b.ask("history-page-37", group=group, message=records[-1]["message"])
             == {"records": [], "next": None}, "pagination-empty-tail")
@@ -154,6 +187,7 @@ def run(journey):
             "pagination-nonrecipient-archive-empty")
     require(b.ask("message-seen", group=group, message=previous["message"],
                   text=previous["text"])["seen"], "pagination-postjoin-live-record-preserved")
+    progress["phase"] = "completed"
     return {"source_records": 200, "prejoin_records": PREJOIN, "imported_records": PREJOIN,
             "recipient_page_limit": PAGE_SIZE, "recipient_page_sizes": sizes,
             "complete_bounded_live_id_observation": True,

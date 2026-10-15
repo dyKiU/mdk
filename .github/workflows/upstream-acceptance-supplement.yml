@@ -196,6 +196,9 @@ jobs:
       - name: Kill storage-admission mutant and verify restored native control
         if: matrix.lane == 'final-mac'
         run: python3 scripts/upstream_apple_ci/attachment-storage-mutation.py
+      - name: Kill checkpoint-rearm mutant and verify restored native control
+        if: matrix.lane == 'final-mac'
+        run: python3 scripts/upstream_apple_ci/attachment-storage-mutation.py --case rearm
       - name: Kill obsolete-publication invite mutant and verify restored Mac control
         if: matrix.lane == 'final-mac'
         run: python3 scripts/upstream_apple_ci/missing-key-mutations.py --platform macos
@@ -241,6 +244,7 @@ jobs:
             ${{ runner.temp }}/hosted-one-scan/result.json
             ${{ runner.temp }}/localization-mutation/result.json
             ${{ runner.temp }}/attachment-storage-mutation/result.json
+            ${{ runner.temp }}/attachment-storage-rearm-mutation/result.json
             ${{ runner.temp }}/missing-key-mutations-macos/result.json
             ${{ runner.temp }}/missing-key-mutations-macos/mac-obsolete-invite-mutant.log
             ${{ runner.temp }}/missing-key-mutations-macos/mac-obsolete-invite-restored-control.log

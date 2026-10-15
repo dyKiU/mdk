@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Require a runtime storage-retry regression and exact-source restored control."""
+import argparse
 import hashlib
 import json
 import os
@@ -8,29 +9,41 @@ import re
 import subprocess
 
 
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--case', choices=['retry', 'rearm'], default='retry')
+args = parser.parse_args()
 root = Path('mac').resolve(strict=True)
 head = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
 if head != os.environ['MAC_SHA']:
     raise ValueError('Mac mutation checkout differs from the qualified candidate')
-source = root / 'whitenoise-mac/Views/RetainedSharedMediaViews.swift'
+source = root / ('whitenoise-mac/Views/RetainedSharedMediaViews.swift' if args.case == 'retry'
+                 else 'whitenoise-mac/Features/Attachments/AttachmentViewModel.swift')
 original = source.read_bytes()
 original_sha = hashlib.sha256(original).hexdigest()
 text = original.decode()
-start = text.index('    var canRetry: Bool {')
-end = text.index('    var canRemove: Bool {', start)
-section, replacements = re.subn(r'(case \.storageBlocked:\s*\n[ \t]*)true', r'\1false', text[start:end])
+if args.case == 'retry':
+    start = text.index('    var canRetry: Bool {')
+    end = text.index('    var canRemove: Bool {', start)
+    pattern, replacement = r'(case \.storageBlocked:\s*\n[ \t]*)true', r'\1false'
+    mutation = 'storageBlocked canRetry true to false'
+else:
+    start = text.index('    var needsRearmToDownload: Bool {')
+    end = len(text)
+    pattern, replacement = r'(case \.storageBlocked:\n(?:[ \t]*//[^\n]*\n)*[ \t]*)false', r'\1true'
+    mutation = 'storageBlocked needsRearmToDownload false to true'
+section, replacements = re.subn(pattern, replacement, text[start:end])
 if replacements != 1:
-    raise ValueError('Expected exactly one experimental storageBlocked retry branch')
+    raise ValueError('Expected exactly one selected experimental storageBlocked branch')
 mutated = (text[:start] + section + text[end:]).encode()
 temp = Path(os.environ['RUNNER_TEMP'])
-output = temp / 'attachment-storage-mutation'
+output = temp / ('attachment-storage-mutation' if args.case == 'retry' else 'attachment-storage-rearm-mutation')
 output.mkdir(mode=0o700)
 selector = 'whitenoise-macTests/AttachmentStorageAdmissionTests/storagePressureKeepsCheckpointRetryAndRemovalAvailable()'
 command = ['bash', 'scripts/test-isolated.sh', '-only-testing:' + selector]
 proof = {'app_sha': head, 'sdk_sha': os.environ['SOURCE_SHA'], 'sdk_run_id': os.environ['SDK_RUN_ID'],
          'workflow_tools_sha': os.environ['GITHUB_SHA'], 'source_path': str(source.relative_to(root)),
          'original_sha256': original_sha, 'mutant_sha256': hashlib.sha256(mutated).hexdigest(),
-         'mutation': 'storageBlocked canRetry true to false', 'selector': selector,
+         'case': args.case, 'mutation': mutation, 'selector': selector,
          'command': command, 'runs': []}
 
 
@@ -67,7 +80,7 @@ try:
     if (red['exit_code'] == 0 or summary.get('totalTestCount') != 1
             or summary.get('failedTests') != 1 or summary.get('passedTests') != 0
             or summary.get('skippedTests') != 0):
-        raise ValueError('The selected runtime regression did not kill the retry mutant')
+        raise ValueError('The selected runtime regression did not kill the selected storage mutant')
     proof['runtime_red_confirmed'] = True
 except (ValueError, subprocess.CalledProcessError) as error:
     # Still exercise restored source when a completed mutation attempt fails
