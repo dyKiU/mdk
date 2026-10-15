@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, reconciled-controls, reconciled-static, reconciled-static-default, reconciled-linking-cost]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, reconciled-controls, reconciled-static, reconciled-static-default, reconciled-linking-cost, reconciled-linking-profile]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -33,6 +33,52 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  reconciled-linking-profile:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'reconciled-linking-profile'
+    name: Immutable92e fourth-window static caller diagnosis
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve controller and restore exact previously failed source
+        run: |
+          cp scripts/diagnose_upstream_pairing_cpu.py "$RUNNER_TEMP/pairing-cpu.py"
+          cp scripts/prepare_upstream_pairing_profile.py "$RUNNER_TEMP/prepare-profile.py"
+          git checkout --detach 92e125d70cfe991038d20b92f060f33007b3afe7
+          df -h "$GITHUB_WORKSPACE"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+      - name: Freeze native binary then sample exact fourth-completion window
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gdb
+          python3 "$RUNNER_TEMP/prepare-profile.py"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reconciled-92e-static-profile
+          path: |
+            pairing-92e-evidence/provenance.json
+            pairing-92e-evidence/cpu-result.json
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reconciled-92e-immutable-binary
+          path: |
+            pairing-92e-evidence/tests.tar.zst
+            pairing-92e-evidence/provenance.json
+          if-no-files-found: warn
+          retention-days: 7
   reconciled-app-controls:
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'reconciled-controls'
     name: Reconciled quarantine and unchanged enrollment (${{ matrix.cohort }})
@@ -138,7 +184,7 @@ jobs:
           rustup default "$toolchain"
           mkdir reconciled-static
           git rev-parse HEAD > reconciled-static/source-sha.txt
-          python3 -m py_compile scripts/verify_upstream_reconciled_controls.py
+          python3 -m py_compile scripts/verify_upstream_reconciled_controls.py scripts/diagnose_upstream_pairing_cpu.py scripts/prepare_upstream_pairing_profile.py
           sha256sum Cargo.lock > reconciled-static/lock-before.sha256
           cargo metadata --locked --all-features --no-deps --format-version 1 > "$RUNNER_TEMP/reconciled-metadata.json"
           sha256sum Cargo.lock > reconciled-static/lock-after.sha256
