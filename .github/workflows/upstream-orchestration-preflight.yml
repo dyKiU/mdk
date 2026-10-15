@@ -16,9 +16,17 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
-        with:
-          tool: actionlint@1.7.12
+      - name: Install verified official actionlint binary
+        run: |
+          set -euo pipefail
+          install_dir="$RUNNER_TEMP/actionlint"
+          mkdir "$install_dir"
+          cd "$install_dir"
+          curl -fsSL -O https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          curl -fsSL -O https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_checksums.txt
+          grep '  actionlint_1.7.12_linux_amd64.tar.gz$' actionlint_1.7.12_checksums.txt | sha256sum --check
+          tar xzf actionlint_1.7.12_linux_amd64.tar.gz actionlint
+          echo "$install_dir" >> "$GITHUB_PATH"
       - name: Check exact workflow and profile syntax without compiling product
         run: |
           set -euo pipefail
@@ -35,11 +43,14 @@ jobs:
           PY
           actionlint -shellcheck='' .github/workflows/ci.yml .github/workflows/experimental-sync.yml .github/workflows/bindings-profile.yml .github/workflows/upstream-app-native.yml .github/workflows/upstream-orchestration-preflight.yml 2>&1 | tee orchestration-proof/actionlint.log
       - name: Run classifier and selector unit tests
+        if: always()
         run: |
           set -euo pipefail
           python3 scripts/test_classify_ci_changes.py -v 2>&1 | tee orchestration-proof/classifier.log
           python3 scripts/test_select_ci_tests.py -v 2>&1 | tee orchestration-proof/selector.log
-          cargo metadata --locked --no-deps --format-version 1 > orchestration-proof/metadata.json
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          cargo +"$toolchain" metadata --locked --no-deps --format-version 1 > orchestration-proof/metadata.json
           git diff --exit-code HEAD
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
