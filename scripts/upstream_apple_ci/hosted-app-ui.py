@@ -56,7 +56,7 @@ def freeze_source(source, commit):
     for name in filter(None, paths):
         path = source / name
         if not path.is_file():
-            continue
+            raise ValueError("tracked-or-untracked-source-file-missing")
         hashes[name] = digest(path)
         if name not in SDK_PATHS:
             original = subprocess.check_output(["git", "show", "HEAD:" + name], cwd=source)
@@ -110,7 +110,8 @@ def freeze_products(products):
 def verify_build(manifest, frozen, sdk, products):
     result = Path(str(manifest).replace("-input.json", "-results.json"))
     receipt = json.loads(result.read_text())
-    if result == manifest or receipt.get("exit_code") != 0 or receipt.get("unchanged") is not True:
+    if (result == manifest or receipt.get("exit_code") != 0
+            or receipt.get("unchanged") is not True or receipt.get("error_category") is not None):
         raise ValueError("successful-hosted-build-required")
     compiled = json.loads(manifest.read_text())
     plans = {str(path.relative_to(products)): digest(path) for path in products.glob("Whitenoise (Hosted Automation)*.xctestrun")}
