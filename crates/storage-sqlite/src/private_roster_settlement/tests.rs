@@ -700,6 +700,18 @@ fn private_settlement_decode_memo_rollback_reloads_committed_original_bytes() {
         Ok(())
     }).unwrap();
     assert_eq!(storage.connection.private_settlement_decode_counts().0, before, "read-only snapshots preserve pure decoding reuse");
+    storage.with_transaction(|outer| -> StorageResult<()> {
+        let nested: StorageResult<()> = outer.with_group_savepoint(&anchor().group_id, "unused-fallback", |inner| {
+            inner.put_outbound(generation, b"savepoint-outbound")?;
+            assert!(inner.read_round()?.unwrap().outbound.is_some());
+            assert!(inner.connection.private_settlement_decode_counts().1);
+            Err(StorageError::Backend("isolated savepoint rollback".into()))
+        });
+        assert!(nested.is_err());
+        assert!(!outer.connection.private_settlement_decode_counts().1, "nested savepoint rollback retires uncommitted decoded metadata before reread");
+        assert!(outer.read_round()?.unwrap() == original);
+        Ok(())
+    }).unwrap();
 }
 
 #[test]
