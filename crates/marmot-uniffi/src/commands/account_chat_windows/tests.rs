@@ -243,7 +243,9 @@ async fn actual_window_receive_cancellation(conversation: bool) {
         tokio::time::sleep(Duration::from_millis(20)).await;
         let completed_unpolled = window.completed_receive_count_for_test();
         let unpolled_consumption = completed_unpolled > completed_before;
-        eprintln!("private_conversation_receive_completion baseline_count={completed_before} unpolled_count={completed_unpolled} actual_unpolled_consumption={unpolled_consumption}");
+        eprintln!(
+            "private_conversation_receive_completion baseline_count={completed_before} unpolled_count={completed_unpolled} actual_unpolled_consumption={unpolled_consumption}"
+        );
         drop(pending);
         let retained = tokio::time::timeout(Duration::from_secs(2), window.__ffi_next()).await;
         let (observed_sequence, same_generation, result_kind) = match &retained {

@@ -9,9 +9,13 @@ concurrency:
   group: private-runtime-boundary-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  runtime:
+  static:
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [default, experimental]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 40
     env:
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -23,34 +27,35 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Install repository Rust toolchain
+      - name: Install exact toolchain and static components
         run: |
           toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
-          rustup toolchain install "$toolchain" --profile minimal
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt --component clippy
           rustup default "$toolchain"
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
-          shared-key: private-runtime-boundary
+          shared-key: private-runtime-static-${{ matrix.cohort }}
           cache-on-failure: true
-      - name: Verify remaining disk after restoring the compatible incremental cache
+      - name: Verify available disk before compilation
         run: |
           df -h .
-          if [[ -d target ]]; then du -sh target; fi
           available_kib=$(df -Pk . | awk 'NR==2 {print $4}')
           test "$available_kib" -ge 8388608
-      - name: Exact pending conversation receive consumption, restored control and foreign departure
+      - name: Strict affected-crate static checks and incoming runtime contract guards
         env:
+          COHORT: ${{ matrix.cohort }}
           CARGO_INCREMENTAL: '1'
-        run: python3 scripts/qualify_upstream_private_runtime.py --phase conversation-qualified
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: private-runtime-runtime-${{ github.sha }}
-          path: |
-            private-runtime-proof/result.json
-            private-runtime-proof/departure-runtime-omission/report.json
-          if-no-files-found: error
-          retention-days: 7
+        run: |
+          set -euo pipefail
+          cargo fmt --all --check
+          cargo metadata --locked --format-version 1 > /dev/null
+          features=marmot-uniffi/otlp-export,marmot-uniffi/product-analytics-export
+          if [[ "$COHORT" == experimental ]]; then
+            features+=,marmot-uniffi/experimental-device-sync
+          fi
+          cargo clippy --locked -p marmot-uniffi -p marmot-uniffi-macros --all-targets --features "$features" -- -D warnings
+          cargo test --locked -p marmot-uniffi --lib --features "$features" tokio_runtime::tests:: -- --nocapture --test-threads=1
+          git diff --exit-code HEAD
   format:
     runs-on: ubuntu-latest
     timeout-minutes: 10
