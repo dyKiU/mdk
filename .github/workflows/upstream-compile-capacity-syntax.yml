@@ -1,0 +1,45 @@
+name: Upstream compile capacity syntax only
+on:
+  push:
+    branches: [ci/upstream-compile-capacity-preflight-20261015]
+permissions:
+  contents: read
+concurrency:
+  group: orchestration-preflight-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  orchestration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install verified official actionlint binary
+        run: |
+          set -euo pipefail
+          install_dir="$RUNNER_TEMP/actionlint"
+          mkdir "$install_dir"
+          cd "$install_dir"
+          curl -fsSL -O https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          curl -fsSL -O https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_checksums.txt
+          grep '  actionlint_1.7.12_linux_amd64.tar.gz$' actionlint_1.7.12_checksums.txt | sha256sum --check
+          tar xzf actionlint_1.7.12_linux_amd64.tar.gz actionlint
+          echo "$install_dir" >> "$GITHUB_PATH"
+      - name: Check shared capacity helper and workflow syntax only
+        run: |
+          set -euo pipefail
+          mkdir orchestration-proof
+          git rev-parse HEAD > orchestration-proof/source.txt
+          git rev-parse 'HEAD^{tree}' > orchestration-proof/tree.txt
+          bash -n scripts/upstream_apple_ci/build-part.sh
+          python3 -m py_compile scripts/qualification_build_preflight.py
+          actionlint -shellcheck='' .github/workflows/ci.yml .github/workflows/experimental-sync-ci.yml .github/workflows/upstream-experimental-apple.yml .github/workflows/upstream-compile-capacity-syntax.yml 2>&1 | tee orchestration-proof/actionlint.log
+          git diff --exit-code HEAD
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: orchestration-only-${{ github.sha }}
+          path: orchestration-proof/
+          retention-days: 7
