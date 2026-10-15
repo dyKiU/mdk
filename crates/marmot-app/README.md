@@ -512,6 +512,9 @@ admission remain separate gates.
 
 Sibling chat-sharing publication prepares the exact control under its account
 worker, then waits for the relay in at most four original-owned jobs per account.
+Initial policy/proof progress precedes consent retries; later consent and proof
+retries service the older deadline so a one-second worker cadence cannot starve
+the handoff.
 An unfinished relay publication does not block inbound handshakes or another
 approved sibling. The worker revalidates the live parent and channel before
 recording publication; a relay ACK never substitutes for the peer's authenticated

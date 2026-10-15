@@ -26,6 +26,9 @@
 
 ### Fixed
 
+- Sibling consent retries no longer preempt first policy/proof progress on a
+  one-second worker cadence; consent and proof retries service the older deadline.
+
 - Automatic request/consent relay waits use a separate four-job account budget,
   allowing foreground enrollment and other established channels to progress.
   Completion revalidates the exact live policy/channel; retirement aborts the job.
