@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, combined-controls, combined-static, combined-mutations]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, combined-controls, combined-static, combined-format, combined-mutations]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -96,7 +96,7 @@ jobs:
           path: combined-evidence/result.json
           if-no-files-found: error
   combined-lock-format:
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'combined-static'
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'combined-static' || inputs.scope == 'combined-format')
     name: Reconciled locked workspace, exact format and helper syntax
     runs-on: ubuntu-latest
     steps:
