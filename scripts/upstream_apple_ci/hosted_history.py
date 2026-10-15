@@ -34,7 +34,7 @@ from hosted_automatic_history import run as automatic_history
 
 def verify_helpers() -> None:
     frozen = json.loads((HERE / "native/SOURCE.json").read_text())
-    require(frozen["workspace_commit"] == "3048d444ffe681fbae2dc1fb8e4f49d2a1c14372",
+    require(frozen["workspace_commit"] == "be04fc60b6a4c40bd85423fbf9e35e8982ae4b84",
             "frozen-native-source-cohort")
     for name, expected in frozen["files"].items():
         require(hashlib.sha256((HERE / "native" / name).read_bytes()).hexdigest() == expected,
