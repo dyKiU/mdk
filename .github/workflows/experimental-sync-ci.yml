@@ -85,7 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           features=otlp-export,product-analytics-export,test-policy-overrides,experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
-          filter='package(marmot-app) & (test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts) | test(=native_device_linking::automatic_pairing_acceptance::automatic_transport_cannot_keep_dropped_original_authority_alive))'
+          filter='package(marmot-app) & (test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts) | test(=native_device_linking::automatic_pairing_acceptance::automatic_transport_cannot_keep_dropped_original_authority_alive) | test(=native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer))'
           args=(--locked -p marmot-app --lib --features "$features")
           cargo nextest list "${args[@]}" -E "$filter" --message-format json > pairing-inventory.json
           python3 - <<'PY'
@@ -96,6 +96,7 @@ jobs:
           assert selected == {
               'native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts',
               'native_device_linking::automatic_pairing_acceptance::automatic_transport_cannot_keep_dropped_original_authority_alive',
+              'native_device_linking::automatic_pairing_acceptance::blocked_sibling_consent_does_not_starve_another_approved_peer',
           }
           print('qualification-selected-pairing-cases:', len(selected))
           PY
