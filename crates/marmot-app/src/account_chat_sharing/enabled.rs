@@ -91,7 +91,12 @@ impl SiblingMaintenanceDiagnostics {
                     .map_or(0, |start| start.elapsed().as_millis() as usize),
                 usize::from(self.pending_task_finished),
             ],
-            (self.created_ms, self.prepared_ms, self.acknowledged_ms, self.received_ms),
+            (
+                self.created_ms,
+                self.prepared_ms,
+                self.acknowledged_ms,
+                self.received_ms,
+            ),
         )
     }
 }

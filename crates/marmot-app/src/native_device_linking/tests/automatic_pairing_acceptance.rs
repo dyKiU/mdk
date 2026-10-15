@@ -192,7 +192,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     a.automatic_pairing_code().await.unwrap();
     eprintln!("automatic-enrollment-control stage=fourth-device-comparison");
     compare_and_confirm_pair(&a, &d).await;
-    eprintln!("automatic-enrollment-control stage=fourth-comparison-completed global_ms={}", clock_ms());
+    eprintln!(
+        "automatic-enrollment-control stage=fourth-comparison-completed global_ms={}",
+        clock_ms()
+    );
     let held_consent = (held_publication == HeldPublication::SiblingConsent).then(|| {
         apps[3]
             .relay_plane
@@ -285,7 +288,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     } else {
         None
     };
-    eprintln!("automatic-enrollment-control stage=fourth-device-completion global_ms={}", clock_ms());
+    eprintln!(
+        "automatic-enrollment-control stage=fourth-device-completion global_ms={}",
+        clock_ms()
+    );
     use futures::FutureExt;
     let completion = std::panic::AssertUnwindSafe(wait_for_automatic_phase_with_approvals(
         &a,
@@ -296,7 +302,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     .catch_unwind()
     .await;
     if let Err(failure) = completion {
-        eprintln!("automatic-enrollment-control stage=fourth-original-failure global_ms={}", clock_ms());
+        eprintln!(
+            "automatic-enrollment-control stage=fourth-original-failure global_ms={}",
+            clock_ms()
+        );
         // Observe only after the original success window has failed. The reader
         // cannot feed events to an account or grant pairing/sharing authority.
         let mut publications = d.sibling_publications_for_test();

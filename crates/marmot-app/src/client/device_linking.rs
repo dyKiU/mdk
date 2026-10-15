@@ -1215,9 +1215,13 @@ impl AppClient {
         now: std::time::Instant,
     ) -> Result<(), ClientLinkingError> {
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let _whole_timing = self.time_publication_maintenance_for_test(sibling_sharing::PublicationMaintenanceKind::Whole);
+        let _whole_timing = self.time_publication_maintenance_for_test(
+            sibling_sharing::PublicationMaintenanceKind::Whole,
+        );
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let selected_timing = self.time_publication_maintenance_for_test(sibling_sharing::PublicationMaintenanceKind::Selected);
+        let selected_timing = self.time_publication_maintenance_for_test(
+            sibling_sharing::PublicationMaintenanceKind::Selected,
+        );
         self.maintain_selected_chat_packages()
             .map_err(ClientLinkingError::Engine)?;
         self.maintain_selected_chat_pending()
@@ -1226,14 +1230,18 @@ impl AppClient {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         drop(selected_timing);
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let revocation_timing = self.time_publication_maintenance_for_test(sibling_sharing::PublicationMaintenanceKind::Revocation);
+        let revocation_timing = self.time_publication_maintenance_for_test(
+            sibling_sharing::PublicationMaintenanceKind::Revocation,
+        );
         self.maintain_device_leaf_revocation_pending()
             .await
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
         #[cfg(all(test, feature = "test-policy-overrides"))]
         drop(revocation_timing);
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let history_timing = self.time_publication_maintenance_for_test(sibling_sharing::PublicationMaintenanceKind::History);
+        let history_timing = self.time_publication_maintenance_for_test(
+            sibling_sharing::PublicationMaintenanceKind::History,
+        );
         self.maintain_original_history().await.map_err(|_| {
             ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
                 "history original maintenance unavailable".into(),
@@ -1242,7 +1250,9 @@ impl AppClient {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         drop(history_timing);
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let sibling_timing = self.time_publication_maintenance_for_test(sibling_sharing::PublicationMaintenanceKind::Sibling);
+        let sibling_timing = self.time_publication_maintenance_for_test(
+            sibling_sharing::PublicationMaintenanceKind::Sibling,
+        );
         self.maintain_existing_pair_sharing().map_err(|_| {
             ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
                 "account sharing original maintenance unavailable".into(),
@@ -1253,7 +1263,9 @@ impl AppClient {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         drop(sibling_timing);
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let automatic_timing = self.time_publication_maintenance_for_test(sibling_sharing::PublicationMaintenanceKind::Automatic);
+        let automatic_timing = self.time_publication_maintenance_for_test(
+            sibling_sharing::PublicationMaintenanceKind::Automatic,
+        );
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let observer = self.linking_owner.sharing_approval.clone();
         #[cfg(all(test, feature = "test-policy-overrides"))]
