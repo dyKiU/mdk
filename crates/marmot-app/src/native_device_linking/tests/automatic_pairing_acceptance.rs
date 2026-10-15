@@ -283,13 +283,16 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         None
     };
     eprintln!("automatic-enrollment-control stage=fourth-device-completion");
-    wait_for_automatic_phase_with_approvals(
-        &a,
-        &d,
-        DeviceLinkingPhase::EnrollmentComplete,
-        &approvals,
-    )
-    .await;
+    {
+        let _boundary_phase = crate::test_support::linking_boundary::begin();
+        wait_for_automatic_phase_with_approvals(
+            &a,
+            &d,
+            DeviceLinkingPhase::EnrollmentComplete,
+            &approvals,
+        )
+        .await;
+    }
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
     drop(held_release);
     tokio::time::timeout(std::time::Duration::from_secs(20), async {

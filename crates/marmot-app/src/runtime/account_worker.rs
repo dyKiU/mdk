@@ -2156,6 +2156,9 @@ async fn run_app_runtime_account_worker(
                 yield_to_convergence = true;
                 match command {
                     Some((command, approved_pending)) => {
+                        #[cfg(all(test, feature = "experimental-device-sync"))]
+                        let _boundary = crate::test_support::linking_boundary::enter(&client as *const _ as usize, crate::test_support::linking_boundary::Site::WorkerCommand);
+
                         #[cfg(test)]
                         tests::secondary_retry_scheduler_tests::record_command(&account_id_hex, &command);
                         // ready_command_index has already approved pending work
@@ -2468,6 +2471,9 @@ async fn run_app_runtime_account_worker(
                 #[cfg(not(feature = "experimental-device-sync"))]
                 std::future::pending::<()>().await;
             }, if cfg!(feature = "experimental-device-sync") => {
+                #[cfg(all(test, feature = "experimental-device-sync"))]
+                let _boundary = crate::test_support::linking_boundary::enter(&client as *const _ as usize, crate::test_support::linking_boundary::Site::WorkerLinking);
+
                 #[cfg(feature = "experimental-device-sync")]
                 {
                     linking_yield_to_receive = true;
@@ -2567,6 +2573,9 @@ async fn run_app_runtime_account_worker(
                     ))
                 } else { client.receive_next_delivery().await }
             }, if !client.has_pending_effect_projections() => {
+                #[cfg(all(test, feature = "experimental-device-sync"))]
+                let _boundary = crate::test_support::linking_boundary::enter(&client as *const _ as usize, crate::test_support::linking_boundary::Site::WorkerReceive);
+
                 #[cfg(feature = "experimental-device-sync")]
                 {
                     linking_yield_to_receive = false;

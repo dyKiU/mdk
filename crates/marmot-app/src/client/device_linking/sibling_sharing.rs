@@ -1643,6 +1643,8 @@ impl AppClient {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 pre_auth_failure: None,
             });
+            #[cfg(all(test, feature = "experimental-device-sync"))]
+            let _boundary = crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::ChildAdmitted);
             return Ok(true);
         }
         let Some(index) = self
@@ -1665,6 +1667,8 @@ impl AppClient {
                         .bind_account_sharing_consent(&mut entry.channel, wire)
                         .map_err(|_| Error::NotReady)?;
                     entry.ready = true;
+                    #[cfg(all(test, feature = "experimental-device-sync"))]
+                    drop(crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::PeerConsentApplied));
                 }
                 AccountSharingControl::Body(_) if entry.ready => {
                     let (kind, _, body) = self
@@ -1692,6 +1696,8 @@ impl AppClient {
                         return Err(Error::NotReady);
                     }
                     entry.peer_committed = true;
+                    #[cfg(all(test, feature = "experimental-device-sync"))]
+                    drop(crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::PeerProofApplied));
                 }
                 _ => return Err(Error::NotReady),
             }
@@ -1744,6 +1750,11 @@ impl AppClient {
         Ok(())
     }
     pub(crate) async fn maintain_sibling_sharing(&mut self) -> Result<(), ClientLinkingError> {
+        #[cfg(all(test, feature = "experimental-device-sync"))]
+        let _boundary = crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::SiblingMaintenance);
+        #[cfg(all(test, feature = "experimental-device-sync"))]
+        let _prelude_boundary = crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::SiblingPrelude);
+
         self.retry_existing_sibling_opaque_controls();
         let mut pending = Vec::new();
         for entry in &mut self.linking_owner.sibling_channels {
@@ -1770,7 +1781,13 @@ impl AppClient {
         self.linking_owner
             .sibling_channels
             .retain(|entry| entry.original.live() && entry.state.live());
-        self.begin_completed_sibling_sharing()?;
+        {
+            #[cfg(all(test, feature = "experimental-device-sync"))]
+            let _boundary = crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::BeginCompletedSibling);
+            self.begin_completed_sibling_sharing()?;
+        }
+        #[cfg(all(test, feature = "experimental-device-sync"))]
+        drop(_prelude_boundary);
         let mut channels = std::mem::take(&mut self.linking_owner.sibling_channels);
         let mut in_flight = channels
             .iter()
@@ -1798,7 +1815,11 @@ impl AppClient {
                     .expect("sibling diagnostics")
                     .visits += 1;
             }
-            let outcome = self.advance_sibling_sharing(entry, &mut in_flight).await;
+            let outcome = {
+                #[cfg(all(test, feature = "experimental-device-sync"))]
+                let _boundary = crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::SiblingAdvance);
+                self.advance_sibling_sharing(entry, &mut in_flight).await
+            };
             // Every waiting sibling gets its normal first opportunity before
             // a successfully harvested channel can use the freed slot again.
             // At most the four initially owned tasks can add one extra visit;
@@ -1896,6 +1917,8 @@ impl AppClient {
                 .expect("finished sibling publication");
             *in_flight -= 1;
             (&mut pending.task).await.map_err(|_| denied())??;
+            #[cfg(all(test, feature = "experimental-device-sync"))]
+            drop(crate::test_support::linking_boundary::enter(self as *const Self as usize, if pending.proof { crate::test_support::linking_boundary::Site::ProofHarvested } else { crate::test_support::linking_boundary::Site::HandshakeHarvested }));
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if !pending.proof
                 && !entry.recipient
@@ -2225,6 +2248,10 @@ impl AppClient {
         let mut shutdown = self.history_owner.runtime_shutdown.clone();
         let proof = body.is_some();
         let consent = entry.recipient && !proof;
+        #[cfg(all(test, feature = "experimental-device-sync"))]
+        let boundary_actor = self as *const Self as usize;
+        #[cfg(all(test, feature = "experimental-device-sync"))]
+        drop(crate::test_support::linking_boundary::enter(self as *const Self as usize, if proof { crate::test_support::linking_boundary::Site::ProofStarted } else { crate::test_support::linking_boundary::Site::HandshakeStarted }));
         let task = tokio::spawn(async move {
             let revoked = state.revoked.notified();
             tokio::pin!(revoked);
@@ -2268,6 +2295,8 @@ impl AppClient {
                     .expect("sibling diagnostics")
                     .publication_stage = Some(Stage::AfterRelayPublication);
             }
+            #[cfg(all(test, feature = "experimental-device-sync"))]
+            drop(crate::test_support::linking_boundary::enter(boundary_actor, if proof { crate::test_support::linking_boundary::Site::ProofAck } else { crate::test_support::linking_boundary::Site::HandshakeAck }));
             Ok(())
         });
         entry.publication = Some(SiblingPublication { proof, task });

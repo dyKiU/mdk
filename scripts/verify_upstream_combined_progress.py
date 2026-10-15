@@ -38,6 +38,14 @@ for adapted in [
     "crates/marmot-app/src/client/device_linking/sibling_sharing.rs",
 ]:
     source_paths.append(":!" + adapted)
+if os.environ["RECONCILED_SCOPE"] == "boundaries":
+    for diagnostic in [
+        "crates/marmot-app/src/test_support.rs",
+        "crates/marmot-app/src/client/device_linking.rs",
+        "crates/marmot-app/src/client/account_chat_sharing/automatic.rs",
+        "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs",
+    ]:
+        source_paths.append(":!" + diagnostic)
 assert not subprocess.check_output(["git", "diff", BASELINE, "HEAD", "--", *source_paths]), "controller branch must not import unrelated product experiments"
 root = Path("combined-evidence")
 root.mkdir()
@@ -189,6 +197,42 @@ if scope == "combined":
     report["scoped_controls_passed"] = passed
     save()
     assert passed, "combined source remains unqualified"
+elif scope == "boundaries":
+    assert report["cohort"] == "experimental"
+    allowed = {"WorkerCommand", "WorkerReceive", "WorkerLinking", "MaintainLinking", "SiblingMaintenance", "SiblingPrelude", "BeginCompletedSibling", "SiblingAdvance", "AutomaticMaintenance", "AutomaticPolicyCurrent", "ChildAdmitted", "HandshakeStarted", "ProofStarted", "HandshakeAck", "ProofAck", "HandshakeHarvested", "ProofHarvested", "PeerConsentApplied", "PeerProofApplied"}
+    complete = True
+    for case in [NATIVE[0], NATIVE[2]]:
+        proof, output = run(case, "package(marmot-app) & test(=" + case + ")", 1, args)
+        rows = []
+        rejected = 0
+        phase = None
+        starts = 0
+        for raw in output.splitlines():
+            line = raw.strip()
+            if not line.startswith("linking-boundary "):
+                continue
+            if line == "linking-boundary phase=fourth-start":
+                starts += 1
+                continue
+            match = re.fullmatch(r"linking-boundary phase=fourth-end wall_ns=([0-9]+) cpu_ns=(None|Some\(([0-9]+)\)) omitted=([0-9]+)", line)
+            if match:
+                phase = {"wall_ns": int(match[1]), "whole_runtime_thread_cpu_ns": int(match[3]) if match[3] else None, "omitted": int(match[4])}
+                continue
+            match = re.fullmatch(r"linking-boundary actor=([0-7]) site=([A-Za-z]+) values=(\[[0-9, ]+\])", line)
+            if match and match[2] in allowed and len(rows) < 152:
+                values = json.loads(match[3])
+                if len(values) == 6 and all(type(value) is int and 0 <= value < 2**64 for value in values) and values[0] >= values[1]:
+                    rows.append({"actor_ordinal": int(match[1]), "site": match[2], "entered": values[0], "exited": values[1], "in_flight": values[0] - values[1], "last_enter_ns": values[2], "last_exit_ns": values[3], "inclusive_total_wall_ns": values[4], "inclusive_max_wall_ns": values[5]})
+                    continue
+            rejected += 1
+        proof["boundary_diagnostic"] = {"phase_starts": starts, "phase": phase, "rows": rows, "rejected": rejected, "timing_limitation": "Async spans include other actors while awaiting; CPU is whole current-thread runtime only. Ordinals are opaque process-local labels."}
+        valid = starts == 1 and phase is not None and phase["omitted"] == 0 and bool(rows) and rejected == 0
+        complete = complete and valid
+        save()
+    report["diagnostic_complete"] = complete
+    report["scoped_controls_passed"] = False
+    save()
+    assert complete, "bounded diagnostic phase evidence missing or rejected"
 elif scope in {"remove-bias", "remove-second-pass"}:
     assert report["cohort"] == "experimental"
     case = NATIVE[0]

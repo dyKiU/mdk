@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, combined-controls, combined-static, combined-format, combined-mutations]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, combined-controls, combined-static, combined-format, combined-mutations, combined-boundaries]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -34,7 +34,7 @@ env:
 
 jobs:
   combined-controls:
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'combined-controls'
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'combined-controls' || inputs.scope == 'combined-boundaries')
     name: Combined exact original publication and lifecycle controls
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -52,7 +52,8 @@ jobs:
           shared-key: core-regressions
       - name: Execute twelve original nonignored bodies independently without retries
         env:
-          RECONCILED_SCOPE: combined
+          RECONCILED_SCOPE: ${{ inputs.scope == 'combined-boundaries' && 'boundaries' || 'combined' }}
+          WN_BOUNDARY_PROBE: ${{ inputs.scope == 'combined-boundaries' && '1' || '0' }}
           RECONCILED_COHORT: experimental
           WN_UPSTREAM_PUBLICATION_DIAGNOSTICS: "1"
         run: python3 scripts/verify_upstream_combined_progress.py

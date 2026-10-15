@@ -1214,6 +1214,8 @@ impl AppClient {
         &mut self,
         now: std::time::Instant,
     ) -> Result<(), ClientLinkingError> {
+        #[cfg(all(test, feature = "experimental-device-sync"))]
+        let _boundary = crate::test_support::linking_boundary::enter(self as *const Self as usize, crate::test_support::linking_boundary::Site::MaintainLinking);
         self.maintain_selected_chat_packages()
             .map_err(ClientLinkingError::Engine)?;
         self.maintain_selected_chat_pending()
