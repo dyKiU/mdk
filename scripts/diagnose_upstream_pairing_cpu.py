@@ -24,7 +24,7 @@ class Debugger:
     """Consume MI output privately; expose only selected static frame names."""
     def __init__(self, pid):
         self.process = subprocess.Popen(
-            ["sudo", "-n", "gdb", "--quiet", "--nx", "--interpreter=mi2", "--pid", str(pid)],
+            ["sudo", "-n", "gdb", "--quiet", "--nx", "--interpreter=mi2"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             start_new_session=True,
         )
@@ -36,12 +36,11 @@ class Debugger:
             for line in self.process.stdout:
                 self.lines.put(line.strip())
         threading.Thread(target=read, daemon=True).start()
-        global LAST_STAGE
-        LAST_STAGE = "attach-wait-initial-stop"
-        self.wait_stop()
         self.command("-gdb-set pagination off")
         self.command("-gdb-set mi-async on")
         self.command('-interpreter-exec console "handle SIGSTOP nostop noprint nopass"')
+        self.command("-target-attach " + str(pid))
+        self.wait_stop()
 
     def receive(self, timeout=15):
         line = self.lines.get(timeout=timeout)
