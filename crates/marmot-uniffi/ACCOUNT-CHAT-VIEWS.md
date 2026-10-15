@@ -15,6 +15,14 @@ source metadata. The initial replacement is taken once with `snapshot()`;
 ordinary account changes. Hosts should drive the receiver while the account
 screen is open, without exposing a refresh or per-chat synchronization action.
 
+Paired summaries and conversation headers retain optional
+`direct_peer_account_id_hex`, the source-attested public identity of the other
+participant in a canonical direct conversation. Hosts may resolve that identity
+against account-scoped contact/profile presentation when the chat name is empty.
+A missing value remains unknown, including observations from older sources;
+never derive a peer from the chat name or treat the field as an invitation,
+follow relationship, local MLS membership or permission to send.
+
 `paired_page(sequence, after_group_id_hex)` replaces the paired lane with a
 bounded page. Use the installed sequence and returned opaque cursor. Ordinary
 list ordering, paging and moderation remain owned by the ordinary window;

@@ -6,6 +6,20 @@ struct ChatProjectionsSmoke {
     static func main() throws {
         let pairedSource = PairedChatSourceFfi(deviceHex: "device", policyDigestHex: "policy", protectedGeneration: UInt64.max, sourceEpoch: 2, sourceSequence: 3, sourceDigestHex: "digest")
         let pairedSummary = PairedChatSummaryFfi(groupIdHex: "opaque-group", name: "Paired 🦀", description: "source observation", source: pairedSource)
+        for peer in [nil, String(repeating: "ab", count: 32)] as [String?] {
+            let summary = PairedChatSummaryFfi(groupIdHex: "opaque-group", name: "",
+                description: "source observation", source: pairedSource, directPeerAccountIdHex: peer)
+            let copy = try FfiConverterTypePairedChatSummaryFfi.lift(
+                FfiConverterTypePairedChatSummaryFfi.lower(summary))
+            precondition(copy == summary && copy.directPeerAccountIdHex == peer)
+            let header = AccountConversationHeaderFfi.pairedSource(header: summary)
+            let headerCopy = try FfiConverterTypeAccountConversationHeaderFfi.lift(
+                FfiConverterTypeAccountConversationHeaderFfi.lower(header))
+            guard case let .pairedSource(header: copiedSummary) = headerCopy else {
+                preconditionFailure("Paired header discriminant changed")
+            }
+            precondition(copiedSummary == summary && copiedSummary.directPeerAccountIdHex == peer)
+        }
         let pairedList = PairedChatListPageFfi(chats: [pairedSummary], nextGroupIdHex: "opaque-next")
         let pairedListCopy = try FfiConverterTypePairedChatListPageFfi.lift(FfiConverterTypePairedChatListPageFfi.lower(pairedList))
         precondition(pairedListCopy == pairedList)
