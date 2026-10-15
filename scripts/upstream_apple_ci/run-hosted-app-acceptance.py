@@ -57,7 +57,9 @@ def write_private(path, value, exclusive=True):
 
 
 def one_pass(value):
-    return (value.get('totalTestCount') == value.get('passedTests') == 1
+    fields = ('totalTestCount', 'passedTests', 'failedTests', 'skippedTests')
+    return (all(type(value.get(key)) is int for key in fields)
+            and value.get('totalTestCount') == value.get('passedTests') == 1
             and value.get('failedTests') == value.get('skippedTests') == 0)
 
 
@@ -216,7 +218,8 @@ class Runner:
     def ui_control(self):
         name = 'ios-control'
         prefix = self.private / name
-        bridge = self.private / (name + '-bridge')
+        # reserve_paths rejects any existing sibling beginning with prefix + '-'.
+        bridge = self.private / 'control-bridge'
         bridge.mkdir(mode=0o700, exist_ok=True)
         build = self.build('ios')
         self.command(name, self.ui_arguments('ios', prefix, bridge) + ['--stage', 'run', '--case', 'control',
@@ -302,14 +305,21 @@ class Runner:
                 yield
         finally:
             if relay is not None:
-                relay.terminate()
+                was_running = relay.poll() is None
+                if was_running:
+                    relay.send_signal(signal.SIGINT)
                 try:
-                    relay.wait(timeout=10)
+                    output, _ = relay.communicate(timeout=10)
                 except subprocess.TimeoutExpired:
                     relay.kill()
-                    relay.wait()
+                    relay.communicate(timeout=10)
+                    self.report['qr_relay_cleanup'] = {'passed': 0, 'forced_termination': True}
                     raise ValueError('owned-relay-required-forced-termination')
-                relay.stdout.close()
+                receipt = re.fullmatch(rb'admitted_events=([0-9]+)\n', output)
+                positive = was_running and relay.returncode == 0 and receipt is not None
+                self.report['qr_relay_cleanup'] = {'passed': int(positive), 'exit_code': relay.returncode,
+                    'admitted_events': int(receipt[1]) if receipt else None}
+                require(positive, 'owned-relay-positive-shutdown-required')
 
     def qr(self):
         name = 'ios-native-qr'
@@ -339,7 +349,8 @@ class Runner:
                 and all(gate.get(key) is True for key in ('request_authenticated', 'challenge_authenticated',
                                                         'third_device_settled', 'enrollment_authenticated')), 'actual-three-device-qr-body-required')
         result = {'passed': 1, 'unit': report['summary'], 'positive_native_closes': 3,
-                  'real_request_challenge_enrollment_authenticated': True, 'three_device_settlement': True}
+                  'real_request_challenge_enrollment_authenticated': True, 'three_device_settlement': True,
+                  'relay_cleanup': self.report['qr_relay_cleanup']}
         self.state['cases'][name] = result
         self.report['cases'][name] = result
         self.save()
@@ -378,11 +389,13 @@ class Runner:
         native = json.loads(native_result.read_text())
         cleanup = native['native_cleanup']
         require(native['passed'] == 1 and one_pass(native['app_counts'])
-                and cleanup['cleanup_failures'] == 0 and cleanup['workers_created'] == cleanup['workers_closed'] > 0,
+                and cleanup['cleanup_failures'] == 0 and cleanup['workers_created'] == cleanup['workers_closed'] > 0
+                and native['relay_cleanup']['passed'] == 1,
                 'exact-native-counterpart-and-app-close-required')
         app_report = json.loads(Path(str(prefix) + ('-results.json' if ui_case else '-result.json')).read_text())
         require(app_report['passed'] == 1, 'existing-app-runner-proof-required')
         result = {'passed': 1, 'scenario': scenario, 'unit': native['app_counts'], 'native_cleanup': cleanup,
+                  'relay_cleanup': native['relay_cleanup'],
                   'native_result_sha256': digest(native_result), 'app_report_sha256': digest(Path(str(prefix) + ('-results.json' if ui_case else '-result.json')))}
         result['app_input_proof'] = {key: app_report[key] for key in (
             'source_commit', 'sdk_source', 'sdk_run_id', 'source_unchanged', 'sdk_unchanged',

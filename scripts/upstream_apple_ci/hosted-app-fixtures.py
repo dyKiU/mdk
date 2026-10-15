@@ -355,15 +355,23 @@ def main():
             journey.report['passed'] = 0
             journey.report['private_cleanup_deferred_to_ephemeral_runner'] = True
         if relay is not None:
-            relay.terminate()
+            was_running = relay.poll() is None
+            if was_running:
+                relay.send_signal(signal.SIGINT)
             try:
-                relay.wait(timeout=10)
+                output, _ = relay.communicate(timeout=10)
+                receipt = re.fullmatch(rb'admitted_events=([0-9]+)\n', output)
+                positive = was_running and relay.returncode == 0 and receipt is not None
+                journey.report['relay_cleanup'] = {'passed': int(positive), 'exit_code': relay.returncode,
+                    'admitted_events': int(receipt[1]) if receipt else None}
+                if not positive:
+                    journey.report['passed'] = 0
             except subprocess.TimeoutExpired:
                 relay.kill()
-                relay.wait()
+                relay.communicate(timeout=10)
                 journey.report['relay_required_termination'] = True
+                journey.report['relay_cleanup'] = {'passed': 0, 'forced_termination': True}
                 journey.report['passed'] = 0
-            relay.stdout.close()
         if journey.report.get('app_required_termination'):
             journey.report['passed'] = 0
             journey.report['private_cleanup_deferred_to_ephemeral_runner'] = True
