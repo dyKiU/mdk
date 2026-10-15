@@ -133,10 +133,20 @@ report["original_phase_assertion"] = "automatic pairing did not reach required p
 report["panic_locations"] = [{"file": file, "line": int(line), "column": int(column)} for file,line,column in re.findall(r"panicked at (crates/[A-Za-z0-9_./-]+\.rs):([0-9]+):([0-9]+)", raw)]
 report["markers"] = re.findall(r"automatic-enrollment-control stage=((?:third|fourth)-device-complet(?:ion|ed))", raw)
 report["phase_boundaries"] = [{"phase": phase, "arm_conflict": conflict=="true", "panicking": panic=="true"} for phase,conflict,panic in re.findall(r"enrollment-sync-cost-boundary phase=(third|fourth) arm_conflict=(true|false) panicking=(true|false)", raw)]
-rows = parse_metric_lines(raw)
-report["synchronous_buckets"] = rows
 report["inputs_after_execution"] = inputs()
 report["inputs_pristine"] = (report["inputs_before"]==report["inputs_after_compile"]==report["inputs_after_execution"] and report["inputs_after_execution"]["tracked_pristine"])
+save()
+try:
+    rows = parse_metric_lines(raw)
+except Exception as error:
+    # Retain actual body/phase evidence; exception messages may contain raw data.
+    report["parser_exception"] = type(error).__name__
+    report["synchronous_buckets"] = []
+    report["cpu_usable"] = False
+    report["diagnostic_complete"] = False
+    save()
+    raise SystemExit(1)
+report["synchronous_buckets"] = rows
 report["diagnostic_complete"] = (report["inputs_pristine"] and report.get("executed_nonignored")==1 and report.get("ignored")==0
     and bool(report["phase_boundaries"]) and all(not item["arm_conflict"] for item in report["phase_boundaries"])
     and len(rows)==23*len(report["phase_boundaries"])
