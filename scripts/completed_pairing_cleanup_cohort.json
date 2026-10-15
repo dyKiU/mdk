@@ -1,9 +1,9 @@
 {
-  "phase": "red",
+  "phase": "format",
   "baseline": "cd61ea2a14711d15072f77d7a0adc233ccef60ea",
   "regression_source_sha256": {
-    "crates/marmot-app/src/native_device_linking/enabled.rs": "749c9d3e6489bc40f1a90a77528582b95a1ba61c6c76cca0856043908b53d94d",
+    "crates/marmot-app/src/native_device_linking/enabled.rs": "d37a53e03687d7c41aa51f0fdd0baa807fa2ee319f4bf733c56e29b16fd76a95",
     "crates/marmot-app/src/native_device_linking/enabled/automatic.rs": "bbb8939f48cfbd5acef1374db9adde5a9f75209032b6adb7035505ae2d65d4cb",
-    "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs": "f040afec2ed04fb8d81a1d4a3b92a8339b328523b8e3602db440200e4dd2b606"
+    "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs": "38fdbf4f06279a099d85e3fbc030147cd77e4b9d0bb51e3a4d3b1dc91398051a"
   }
 }

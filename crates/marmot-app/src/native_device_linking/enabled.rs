@@ -252,9 +252,18 @@ impl AccountManager {
 }
 impl DeviceLinkingSession {
     #[cfg(all(test, feature = "test-policy-overrides"))]
-    pub(super) fn automatic_transport_exit_probe_for_test(&self) -> tokio::sync::oneshot::Receiver<[bool; 3]> {
+    pub(super) fn automatic_transport_exit_probe_for_test(
+        &self,
+    ) -> tokio::sync::oneshot::Receiver<[bool; 3]> {
         let (sender, receiver) = tokio::sync::oneshot::channel();
-        assert!(self.inner.automatic_exit_observer.lock().expect("automatic exit observer").replace(sender).is_none());
+        assert!(
+            self.inner
+                .automatic_exit_observer
+                .lock()
+                .expect("automatic exit observer")
+                .replace(sender)
+                .is_none()
+        );
         receiver
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]

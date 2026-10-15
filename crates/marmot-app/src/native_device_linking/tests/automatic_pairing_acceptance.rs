@@ -926,33 +926,61 @@ async fn completed_automatic_transport_keeps_public_cleanup_ownership() {
     let keys = nostr::prelude::Keys::generate();
     let dirs: [tempfile::TempDir; 2] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
     let runtimes = std::array::from_fn::<_, 2, _>(|index| {
-        AccountHome::open(dirs[index].path()).import_account("test", &keys.secret_key().to_secret_hex()).unwrap();
+        AccountHome::open(dirs[index].path())
+            .import_account("test", &keys.secret_key().to_secret_hex())
+            .unwrap();
         MarmotAppRuntime::new(MarmotApp::with_relay(dirs[index].path(), &url))
     });
-    for runtime in &runtimes { runtime.reconcile_accounts().await.unwrap(); }
-    let displayed = runtimes[1].accounts().begin_device_linking_session("test").await.unwrap();
+    for runtime in &runtimes {
+        runtime.reconcile_accounts().await.unwrap();
+    }
+    let displayed = runtimes[1]
+        .accounts()
+        .begin_device_linking_session("test")
+        .await
+        .unwrap();
     let display_exit = displayed.automatic_transport_exit_probe_for_test();
     let code = displayed.automatic_pairing_code().await.unwrap();
-    let scanner = runtimes[0].accounts().approve_automatic_device_linking_session("test", code, None).await.unwrap();
+    let scanner = runtimes[0]
+        .accounts()
+        .approve_automatic_device_linking_session("test", code, None)
+        .await
+        .unwrap();
     let scanner_exit = scanner.automatic_transport_exit_probe_for_test();
     scanner.automatic_pairing_code().await.unwrap();
     compare_and_confirm_pair(&scanner, &displayed).await;
-    displayed.continue_automatic_linking(displayed.snapshot().await.unwrap().revision, true).await.unwrap();
-    scanner.continue_automatic_linking(scanner.snapshot().await.unwrap().revision, true).await.unwrap();
+    displayed
+        .continue_automatic_linking(displayed.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
+    scanner
+        .continue_automatic_linking(scanner.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
     let completed = std::panic::AssertUnwindSafe(wait_for_automatic_phase(
-        &scanner, &displayed, DeviceLinkingPhase::EnrollmentComplete,
-    )).catch_unwind().await.is_ok();
+        &scanner,
+        &displayed,
+        DeviceLinkingPhase::EnrollmentComplete,
+    ))
+    .catch_unwind()
+    .await
+    .is_ok();
     let (display_report, scanner_report) = tokio::join!(
         tokio::time::timeout(std::time::Duration::from_secs(3), display_exit),
         tokio::time::timeout(std::time::Duration::from_secs(3), scanner_exit),
     );
-    let reports = [display_report.ok().and_then(Result::ok), scanner_report.ok().and_then(Result::ok)];
+    let reports = [
+        display_report.ok().and_then(Result::ok),
+        scanner_report.ok().and_then(Result::ok),
+    ];
     // Collect both outcomes before any assertion can abort custody cleanup.
     let display_cancel_ok = displayed.cancel().await.is_ok();
     let scanner_cancel_ok = scanner.cancel().await.is_ok();
     let mut closed_runtimes = 0;
     for runtime in runtimes {
-        if runtime.shutdown_and_close().await.is_ok() { closed_runtimes += 1; }
+        if runtime.shutdown_and_close().await.is_ok() {
+            closed_runtimes += 1;
+        }
     }
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
@@ -961,10 +989,25 @@ async fn completed_automatic_transport_keeps_public_cleanup_ownership() {
             drop(socket);
             tokio::task::yield_now().await;
         }
-    }).await.is_ok();
-    assert!(completed && reports.iter().all(|row| row.is_some_and(|row| row[0] && row[1]))
-        && closed_runtimes == 2 && relay_closed, "completed_driver_actual_exit_and_positive_cleanup_prerequisites");
-    eprintln!("completed_driver_cleanup actual_completed=2 natural_closed_exits=2 runtime_closes=2 relay_closed=true");
-    assert!(reports.iter().all(|row| row.is_some_and(|row| !row[2])) && display_cancel_ok && scanner_cancel_ok,
-        "completed_session_public_owner_retains_cleanup");
+    })
+    .await
+    .is_ok();
+    assert!(
+        completed
+            && reports
+                .iter()
+                .all(|row| row.is_some_and(|row| row[0] && row[1]))
+            && closed_runtimes == 2
+            && relay_closed,
+        "completed_driver_actual_exit_and_positive_cleanup_prerequisites"
+    );
+    eprintln!(
+        "completed_driver_cleanup actual_completed=2 natural_closed_exits=2 runtime_closes=2 relay_closed=true"
+    );
+    assert!(
+        reports.iter().all(|row| row.is_some_and(|row| !row[2]))
+            && display_cancel_ok
+            && scanner_cancel_ok,
+        "completed_session_public_owner_retains_cleanup"
+    );
 }
