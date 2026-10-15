@@ -123,7 +123,8 @@ def main() -> None:
         log = output / f"{label}.log"
         with log.open("x") as stream:
             result = subprocess.run(command, cwd=root, stdout=stream, stderr=subprocess.STDOUT)
-        text = log.read_text()
+        raw_text = log.read_text()
+        text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", raw_text)
         rows = re.findall(
             r"test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored;", text,
         )
@@ -151,7 +152,8 @@ def main() -> None:
             "command": command,
             "exit_code": result.returncode,
             "log": log.name,
-            "log_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "log_sha256": hashlib.sha256(raw_text.encode()).hexdigest(),
+            "ansi_csi_sequences_removed": text != raw_text,
             "counts": rows,
             "actual_named_body": one_named_body,
             "compiler_error_codes": compiler_codes,
