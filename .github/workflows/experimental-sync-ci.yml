@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, settled-cache-regressions, settled-cache-static, settled-cache-safety-diagnostic, settled-cache-safety-baseline, settled-cache-denial-controls]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, settled-cache-regressions, settled-cache-static, settled-cache-safety-diagnostic, settled-cache-safety-baseline, settled-cache-denial-controls, settled-cache-format-only]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -117,7 +117,7 @@ jobs:
           path: settled-cache-evidence/result.json
           if-no-files-found: error
   settled-cache-format:
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'settled-cache-static'
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'settled-cache-static' || inputs.scope == 'settled-cache-format-only')
     name: Exact cache candidate formatter and helper syntax
     runs-on: ubuntu-latest
     steps:
