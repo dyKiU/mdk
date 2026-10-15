@@ -50,7 +50,9 @@ try:
             result, passed, failed, ignored = summaries[0]
             report.update(runtime_counts_available=True, passed_count=int(passed),
                           failed_count=int(failed), ignored_count=int(ignored))
-        panics = re.findall(r"thread '[^\n]*' panicked at ([^\n]+):\n([^\n]+)", text)
+        # Match the stable panic header independently of thread names/IDs.
+        panics = re.findall(r"panicked at ([^\r\n]+):\r?\n([^\r\n]+)", text)
+        report['panic_header_count'] = text.count('panicked at ')
         report['panics'] = []
         for site, message in panics:
             safe_site = site if re.fullmatch(r'crates/marmot-app/src/sqlcipher/concurrency_tests\.rs:\d+:\d+', site) else 'outside_expected_fixture'
