@@ -30,6 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Record repair input
@@ -82,7 +83,49 @@ jobs:
           python3 scripts/verify_upstream_merge_mutations.py --output repair/mutations
       - name: Refresh binding signatures and source anchors
         if: always() && steps.header.outcome == 'success'
-        run: python3 scripts/check_binding_docs.py --write
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          sys.path.insert(0, 'scripts')
+          import check_binding_docs as canonical
+
+          # Preserve missing authored private guidance from the last combined
+          # reference. Current upstream entries win every overlapping key;
+          # the canonical generator below rewrites all signatures and anchors.
+          reference = '9ff93a8f5475aa075d820e0acb7d4cc9b7b127b8'
+          paths = [Path('crates/marmot-uniffi/API-REFERENCE.md'),
+                   Path('crates/marmot-c/API-REFERENCE.md')]
+          catalogs = [canonical.uniffi_catalog(), canonical.c_exports_in(
+              Path('crates/marmot-c/include/marmot.h').read_text())]
+          receipt = {'prior_reference': reference, 'files': []}
+          for path, catalog in zip(paths, catalogs):
+              current = path.read_text()
+              previous = subprocess.check_output(
+                  ['git', 'show', reference + ':' + path.as_posix()], text=True)
+              current_keys = {entry[1] for entry in canonical.ENTRY.finditer(current)}
+              retained = []
+              for entry in canonical.ENTRY.finditer(previous):
+                  key = entry[1]
+                  if key not in current_keys and key in catalog:
+                      if canonical.NEEDS_PROSE in entry[0]:
+                          raise ValueError('Prior reference has incomplete authored guidance')
+                      retained.append((key, entry[0]))
+                      current_keys.add(key)
+              if retained:
+                  current = current.rstrip() + '\n\n<details>\n<summary>Private account-sync capabilities</summary>\n\n'
+                  current += ''.join(entry for _, entry in retained) + '</details>\n'
+                  path.write_text(current)
+              receipt['files'].append({
+                  'path': path.as_posix(), 'retained_method_keys': [key for key, _ in retained],
+                  'prior_reference_sha256': hashlib.sha256(previous.encode()).hexdigest()})
+          Path('repair/reference-prose-inputs.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          PY
+          python3 scripts/check_binding_docs.py --write
       - name: Export exact generated changes
         if: always()
         env:
