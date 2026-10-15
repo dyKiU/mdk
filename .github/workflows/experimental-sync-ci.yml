@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-f4-profile]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -33,6 +33,55 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  pairing-f4-profile:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'pairing-f4-profile'
+    name: Unchanged f4 regression and bounded static caller diagnosis
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Retain helpers and restore immutable f4 product source
+        run: |
+          cp scripts/diagnose_upstream_pairing_cpu.py "$RUNNER_TEMP/pairing-cpu.py"
+          cp scripts/prepare_upstream_pairing_profile.py "$RUNNER_TEMP/prepare-profile.py"
+          git fetch --no-tags origin f4d7da6f60bee6682e7e7524f6e1d91edefd7fe6
+          git checkout --detach f4d7da6f60bee6682e7e7524f6e1d91edefd7fe6
+          df -h "$GITHUB_WORKSPACE"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+      - name: Run the original normal case then sample its exact frozen binary
+        env:
+          WN_UPSTREAM_PUBLICATION_DIAGNOSTICS: "1"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gdb
+          python3 "$RUNNER_TEMP/prepare-profile.py"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: f4-original-pairing-static-profile
+          path: |
+            pairing-f4-evidence/normal-result.json
+            pairing-f4-evidence/provenance.json
+            pairing-f4-evidence/cpu-result.json
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: f4-original-pairing-immutable-binary
+          path: |
+            pairing-f4-evidence/tests.tar.zst
+            pairing-f4-evidence/provenance.json
+          if-no-files-found: warn
+          retention-days: 7
   withdrawal-stack:
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'withdrawal-stack'
     name: Unchanged withdrawal function-only stack diagnostic
