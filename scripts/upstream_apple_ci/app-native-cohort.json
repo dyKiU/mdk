@@ -1,8 +1,8 @@
 {
   "scope": "tools-preflight",
   "format_platforms": [],
-  "mac_sha": "ff37f6201fa96a630da0ab3376a670442ddc5768",
-  "ios_sha": "59606f8cdf3dfdf86c18e5bf8a15e8177c475df1",
+  "mac_sha": "43917e25f6cbbf163db05ed2af285d80b2607aae",
+  "ios_sha": "fb8ab84886dcff95f9c81de93b9e67468c1f6bfc",
   "mac_baseline": "6bd7e0d76b85ec51777b1f31453abb50ef2f3d16",
   "ios_baseline": "6a26188ab5479d9200c088e606140c0581c9fda3"
 }
