@@ -1,0 +1,97 @@
+name: Upstream final-source quarantine runtime mutations
+on:
+  push:
+    branches: ["ci/upstream-quarantine-final-*"]
+    paths:
+      - .github/workflows/upstream-quarantine-mutations.yml
+      - scripts/upstream_apple_ci/final-quarantine-mutations.py
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact frozen final product commit F, ancestor of this tool checkout T
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: upstream-final-quarantine-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  preparation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check helper syntax and validate source/tool identity only
+        id: identity
+        env:
+          REQUESTED_SOURCE: ${{ inputs.source_sha }}
+        run: |
+          python3 -m py_compile scripts/upstream_apple_ci/final-quarantine-mutations.py
+          python3 - <<'PY'
+          import os,re,subprocess
+          head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          assert head==os.environ['GITHUB_SHA']
+          source=os.environ.get('REQUESTED_SOURCE','')
+          if os.environ['GITHUB_EVENT_NAME']=='push':
+              assert not source
+              source=head
+          else:
+              assert os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch'
+              assert re.fullmatch('[0-9a-f]{40}',source)
+          subprocess.run(['python3','scripts/upstream_apple_ci/final-quarantine-mutations.py',
+                          '--source',source,'--identity-only','--output','prepared-quarantine-proof'],check=True)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write('source_sha='+source+'\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-final-quarantine-preparation-${{ github.sha }}
+          path: prepared-quarantine-proof/result.json
+          if-no-files-found: error
+          retention-days: 7
+  quarantine:
+    needs: preparation
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: "1"
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      RUST_MIN_STACK: "4194304"
+      FINAL_SOURCE_SHA: ${{ needs.preparation.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install exact repository toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: upstream-boundary-quarantine
+          cache-on-failure: true
+      - name: Require six fresh exact-source runtime gates
+        run: |
+          df -h .
+          python3 scripts/upstream_apple_ci/final-quarantine-mutations.py --source "$FINAL_SOURCE_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-final-quarantine-${{ needs.preparation.outputs.source_sha }}-${{ github.sha }}
+          path: final-quarantine-mutation-proof/result.json
+          if-no-files-found: error
+          retention-days: 7
