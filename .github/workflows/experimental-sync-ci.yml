@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-cpu]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -33,6 +33,66 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  pairing-cpu:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'pairing-cpu'
+    name: Immutable pairing CPU leaf diagnostic (not qualification)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Retain diagnostic helper and verify immutable producer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp scripts/diagnose_upstream_pairing_cpu.py "$RUNNER_TEMP/pairing-cpu.py"
+          gh api repos/dyKiU/mdk/actions/runs/38725598470 > "$RUNNER_TEMP/cpu-producer.json"
+          gh api repos/dyKiU/mdk/actions/artifacts/11968357472 > "$RUNNER_TEMP/cpu-artifact.json"
+          python3 - <<'PYGUARD'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          run = json.loads((root / "cpu-producer.json").read_text())
+          artifact = json.loads((root / "cpu-artifact.json").read_text())
+          source = "ef4e687c0ba5d92cd8ea1c5d1f97766534d97077"
+          assert run["id"] == 38725598470 and run["head_sha"] == source
+          assert run["path"] == ".github/workflows/experimental-sync-ci.yml" and run["conclusion"] == "failure"
+          assert artifact["id"] == 11968357472 and not artifact["expired"]
+          assert artifact["workflow_run"]["id"] == run["id"] and artifact["workflow_run"]["head_sha"] == source
+          assert artifact["name"] == "pairing-diagnostic-compiled-" + source
+          assert artifact["digest"] == "sha256:aa807e4f351699afcf00a6a2ac199dfe584d0e40df6e14af0975320afb8807ee"
+          PYGUARD
+          git fetch --no-tags origin ef4e687c0ba5d92cd8ea1c5d1f97766534d97077
+          git checkout --detach ef4e687c0ba5d92cd8ea1c5d1f97766534d97077
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: 38725598470
+          artifact-ids: 11968357472
+          merge-multiple: true
+          path: compiled-pairing
+      - name: Extract exact binary and sample only static CPU leaf functions
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y linux-tools-generic
+          filter='package(marmot-app) & binary(=marmot_app) & test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts)'
+          cargo nextest list --archive-file compiled-pairing/tests.tar.zst --extract-to "$GITHUB_WORKSPACE" \
+            --workspace-remap "$GITHUB_WORKSPACE" --message-format json -E "$filter" > "$RUNNER_TEMP/pairing-cpu-inventory.json"
+          python3 "$RUNNER_TEMP/pairing-cpu.py" --inventory "$RUNNER_TEMP/pairing-cpu-inventory.json" \
+            --archive compiled-pairing/tests.tar.zst --provenance compiled-pairing/provenance.json --report cpu/result.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: immutable-pairing-static-cpu-ef4e687c
+          path: cpu/result.json
+          retention-days: 7
+          if-no-files-found: error
   withdrawal-stack:
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'withdrawal-stack'
     name: Unchanged withdrawal function-only stack diagnostic
