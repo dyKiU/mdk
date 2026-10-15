@@ -545,20 +545,49 @@ async fn private_roster_settlement_cancelled_recipient_cannot_accept_or_publish_
 
 #[tokio::test]
 async fn private_successor_snapshot_reuse_rejects_different_anchor() {
-    let (initiator, responder, group) = crate::private_roster_settlement::tests::complete_pair(SqliteAccountStorage::in_memory().unwrap()).await;
+    let (initiator, responder, group) = crate::private_roster_settlement::tests::complete_pair(
+        SqliteAccountStorage::in_memory().unwrap(),
+    )
+    .await;
     for engine in [&initiator, &responder] {
-        engine.storage.with_read_snapshot(|storage| -> Result<(), cgka_traits::EngineError> {
-            let evidence = engine.validated_private_successor(&group)?.unwrap();
-            let actual = openmls::group::MlsGroup::load(storage.mls_storage(), &openmls::group::GroupId::from_slice(group.as_slice())).unwrap().unwrap();
-            assert!(super::anchor_matches_actual_tree_in_snapshot(storage, &group, &actual, evidence.settlement_anchor(), &evidence)?, "actual current origin and fresh tree pass for both enrolled roles");
-            for change_nonce in [true, false] {
-                // Negative local copies only; never installed in SQL or used
-                // to grant an original. The genuine roster stays unchanged.
-                let mut changed = evidence.settlement_anchor().clone();
-                if change_nonce { changed.enrollment_nonce[0] ^= 1; } else { changed.context_digest[0] ^= 1; }
-                assert!(!super::anchor_matches_actual_tree_in_snapshot(storage, &group, &actual, &changed, &evidence)?, "different original anchor must use full legacy origin matching");
-            }
-            Ok(())
-        }).unwrap();
+        engine
+            .storage
+            .with_read_snapshot(|storage| -> Result<(), cgka_traits::EngineError> {
+                let evidence = engine.validated_private_successor(&group)?.unwrap();
+                let actual = openmls::group::MlsGroup::load(
+                    storage.mls_storage(),
+                    &openmls::group::GroupId::from_slice(group.as_slice()),
+                )
+                .unwrap()
+                .unwrap();
+                assert!(
+                    super::anchor_matches_actual_tree_in_snapshot(
+                        storage,
+                        &group,
+                        &actual,
+                        evidence.settlement_anchor(),
+                        &evidence
+                    )?,
+                    "actual current origin and fresh tree pass for both enrolled roles"
+                );
+                for change_nonce in [true, false] {
+                    // Negative local copies only; never installed in SQL or used
+                    // to grant an original. The genuine roster stays unchanged.
+                    let mut changed = evidence.settlement_anchor().clone();
+                    if change_nonce {
+                        changed.enrollment_nonce[0] ^= 1;
+                    } else {
+                        changed.context_digest[0] ^= 1;
+                    }
+                    assert!(
+                        !super::anchor_matches_actual_tree_in_snapshot(
+                            storage, &group, &actual, &changed, &evidence
+                        )?,
+                        "different original anchor must use full legacy origin matching"
+                    );
+                }
+                Ok(())
+            })
+            .unwrap();
     }
 }

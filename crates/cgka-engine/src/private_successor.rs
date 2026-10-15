@@ -308,9 +308,16 @@ fn actual_tree_matching_anchor(
     group: &openmls::group::MlsGroup,
     anchor: &PrivateSettlementAnchor,
 ) -> Result<Option<crate::device_group_lineage::AppliedPrivateTree>, EngineError> {
-    if anchor.group_id != *group_id { return Ok(None); }
-    let Some(actual) = crate::device_group_lineage::AppliedPrivateTree::read(group_id, group)? else { return Ok(None); };
-    if !actual.matches(&anchor.account, &anchor.local_device, &anchor.successor) { return Ok(None); }
+    if anchor.group_id != *group_id {
+        return Ok(None);
+    }
+    let Some(actual) = crate::device_group_lineage::AppliedPrivateTree::read(group_id, group)?
+    else {
+        return Ok(None);
+    };
+    if !actual.matches(&anchor.account, &anchor.local_device, &anchor.successor) {
+        return Ok(None);
+    }
     Ok(Some(actual))
 }
 
@@ -347,7 +354,9 @@ pub(crate) fn anchor_matches_actual_tree_in_snapshot<S: StorageProvider>(
     if anchor != evidence.settlement_anchor() {
         return anchor_matches_actual_tree(storage, group_id, group, anchor);
     }
-    if actual_tree_matching_anchor(group_id, group, anchor)?.is_none() { return Ok(false); }
+    if actual_tree_matching_anchor(group_id, group, anchor)?.is_none() {
+        return Ok(false);
+    }
     Ok(anchor_commitment_matches(group_id, anchor))
 }
 
