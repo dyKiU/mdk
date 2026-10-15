@@ -166,10 +166,13 @@ impl<S: StorageProvider> Engine<S> {
             else {
                 return Ok(None);
             };
-            let verify = |request: &crate::account_identity_proof::AccountIdentityProofRequest, signature: &[u8; 64]| {
+            let verify = |request: &crate::account_identity_proof::AccountIdentityProofRequest,
+                          signature: &[u8; 64]| {
                 self.private_proof_signatures.verify(request, signature)
             };
-            let Some(state) = completed_round_for_tree_with_verifier(storage, group, &actual, Some(&verify))? else {
+            let Some(state) =
+                completed_round_for_tree_with_verifier(storage, group, &actual, Some(&verify))?
+            else {
                 return Ok(None);
             };
             if &state.anchor != evidence.settlement_anchor() {

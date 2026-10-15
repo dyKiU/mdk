@@ -34,29 +34,38 @@ impl ProofSignatureMemo {
             && request.mls_signature_public_key.len() <= MAX_MLS_KEY_BYTES;
         if admissible
             && let Ok(entries) = self.entries.lock()
-            && entries.iter().any(|entry| entry.request == *request && entry.signature == *signature)
+            && entries
+                .iter()
+                .any(|entry| entry.request == *request && entry.signature == *signature)
         {
             return Ok(());
         }
         // Neither verification nor any caller's storage work runs under this lock.
         #[cfg(test)]
-        self.cold_verifications.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.cold_verifications
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         verify_proof_signature(request, signature)?;
         if admissible
             && let Ok(mut entries) = self.entries.lock()
-            && !entries.iter().any(|entry| entry.request == *request && entry.signature == *signature)
+            && !entries
+                .iter()
+                .any(|entry| entry.request == *request && entry.signature == *signature)
         {
             if entries.len() == CAPACITY {
                 entries.pop_front();
             }
-            entries.push_back(PositiveProof { request: request.clone(), signature: *signature });
+            entries.push_back(PositiveProof {
+                request: request.clone(),
+                signature: *signature,
+            });
         }
         Ok(())
     }
 
     #[cfg(test)]
     pub(crate) fn cold_count(&self) -> usize {
-        self.cold_verifications.load(std::sync::atomic::Ordering::Relaxed)
+        self.cold_verifications
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 

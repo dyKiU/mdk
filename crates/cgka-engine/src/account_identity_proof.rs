@@ -308,7 +308,8 @@ pub(crate) fn validate_leaf_account_identity_proof(
     validate_leaf_account_identity_proof_with_verifier(leaf, ciphersuite, None)
 }
 
-pub(crate) type ProofVerifier<'a> = dyn Fn(&AccountIdentityProofRequest, &[u8; SCHNORR_SIGNATURE_LEN]) -> Result<(), EngineError> + 'a;
+pub(crate) type ProofVerifier<'a> = dyn Fn(&AccountIdentityProofRequest, &[u8; SCHNORR_SIGNATURE_LEN]) -> Result<(), EngineError>
+    + 'a;
 
 fn validate_leaf_account_identity_proof_with_verifier(
     leaf: &LeafNode,
@@ -371,7 +372,13 @@ fn validate_legacy_proof(
     account_identity: &[u8],
     ciphersuite: Ciphersuite,
 ) -> Result<(), EngineError> {
-    validate_legacy_proof_with_verifier(raw, leaf, account_identity, ciphersuite, &verify_proof_signature)
+    validate_legacy_proof_with_verifier(
+        raw,
+        leaf,
+        account_identity,
+        ciphersuite,
+        &verify_proof_signature,
+    )
 }
 
 fn validate_legacy_proof_with_verifier(
@@ -392,7 +399,13 @@ fn validate_current_proof(
     account_identity: &[u8],
     ciphersuite: Ciphersuite,
 ) -> Result<(), EngineError> {
-    validate_current_proof_with_verifier(raw, leaf, account_identity, ciphersuite, &verify_proof_signature)
+    validate_current_proof_with_verifier(
+        raw,
+        leaf,
+        account_identity,
+        ciphersuite,
+        &verify_proof_signature,
+    )
 }
 
 fn validate_current_proof_with_verifier(
@@ -562,7 +575,13 @@ pub(crate) fn validate_leaf_account_identity_proof_for_member(
     expected_member_id: &MemberId,
     context: &str,
 ) -> Result<ProtocolProfile, EngineError> {
-    validate_leaf_account_identity_proof_for_member_with_verifier(leaf, ciphersuite, expected_member_id, context, None)
+    validate_leaf_account_identity_proof_for_member_with_verifier(
+        leaf,
+        ciphersuite,
+        expected_member_id,
+        context,
+        None,
+    )
 }
 
 pub(crate) fn validate_leaf_account_identity_proof_for_member_with_verifier(
@@ -574,7 +593,9 @@ pub(crate) fn validate_leaf_account_identity_proof_for_member_with_verifier(
 ) -> Result<ProtocolProfile, EngineError> {
     let actual_member_id = crate::identity::validated_member_id_of_leaf(leaf)?;
     let profile = match verifier {
-        Some(verify) => validate_leaf_account_identity_proof_with_verifier(leaf, ciphersuite, Some(verify))?,
+        Some(verify) => {
+            validate_leaf_account_identity_proof_with_verifier(leaf, ciphersuite, Some(verify))?
+        }
         None => validate_leaf_account_identity_proof(leaf, ciphersuite)?,
     };
     if actual_member_id != *expected_member_id {

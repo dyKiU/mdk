@@ -161,7 +161,8 @@ pub struct Engine<S: StorageProvider> {
     pub(crate) epoch_manager: crate::epoch_manager::EpochManager,
     pub(crate) mls_group_cache: crate::mls_group_cache::MlsGroupCache,
     #[cfg(feature = "experimental-device-sync")]
-    pub(crate) private_proof_signatures: crate::account_identity_proof::positive_memo::ProofSignatureMemo,
+    pub(crate) private_proof_signatures:
+        crate::account_identity_proof::positive_memo::ProofSignatureMemo,
 
     /// Storage-layer identity of the origin commit behind each in-flight
     /// pending publish, so `do_confirm_published` can mark the sent commit
@@ -699,7 +700,8 @@ impl<S: StorageProvider> EngineBuilder<S> {
             epoch_manager: crate::epoch_manager::EpochManager::new(),
             mls_group_cache: crate::mls_group_cache::MlsGroupCache::default(),
             #[cfg(feature = "experimental-device-sync")]
-            private_proof_signatures: crate::account_identity_proof::positive_memo::ProofSignatureMemo::default(),
+            private_proof_signatures:
+                crate::account_identity_proof::positive_memo::ProofSignatureMemo::default(),
             pending_origin_commits: HashMap::new(),
             events_buf: pending_application_events.into(),
             authority_recovery_cursor: None,
