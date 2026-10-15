@@ -38,7 +38,7 @@ on:
         type: string
       ios_sha:
         description: Exact final iOS candidate commit
-        default: "a334dee5ccaaaafbb82a319144c1bc5db76d8f47"
+        default: "f5f5320c3393f8762e811acd39204b681054c6e5"
         required: true
         type: string
 
