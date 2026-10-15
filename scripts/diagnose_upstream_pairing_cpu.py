@@ -91,6 +91,8 @@ def record_owned(_sampler, command, _raw_path):
     """Bounded leaf-only debugger sampling, weighting active-thread CPU deltas."""
     import tempfile
     samples = []
+    global LAST_STAGE
+    LAST_STAGE = "owned-child-stopped"
     with tempfile.TemporaryFile(mode="w+") as output:
         target = subprocess.Popen(
             ["/bin/sh", "-c", 'kill -STOP "$$"; exec "$@"', "owned-cpu-target", *command],
@@ -100,9 +102,11 @@ def record_owned(_sampler, command, _raw_path):
         try:
             _, status = os.waitpid(target.pid, os.WUNTRACED)
             assert os.WIFSTOPPED(status), "owned target must stop before execution"
+            LAST_STAGE = "debugger-attach"
             debugger = Debugger(target.pid)
             started = time.monotonic()
             before = cpu_ticks(target.pid)
+            LAST_STAGE = "sampling-active"
             debugger.command("-exec-continue")
             while target.poll() is None and time.monotonic() - started < 240:
                 time.sleep(0.2)
@@ -129,6 +133,10 @@ def record_owned(_sampler, command, _raw_path):
                     samples.append((time.monotonic() - started, name, deltas[tid]))
                 before = after
                 debugger.command("-exec-continue")
+            LAST_STAGE = "release-debugger-before-child-reap"
+            # Release ptrace custody before the original parent reaps its child.
+            debugger.close()
+            debugger = None
             if target.poll() is None:
                 target.wait(timeout=10)
             output.seek(0)
@@ -232,6 +240,7 @@ def main():
             raise SystemExit("Required exact-body runtime and static sample evidence unavailable")
     except (subprocess.TimeoutExpired, AssertionError, queue.Empty):
         report["blocker"] = "owned-attach-or-sampling-control-unavailable"
+        report["closed_harness_stage"] = globals().get("LAST_STAGE", "preflight")
         report["diagnostic_complete"] = False
         args.report.write_text(json.dumps(report, indent=2) + "\n")
         raise SystemExit("Owned attachment/sampling control failed; no raw output exported")
