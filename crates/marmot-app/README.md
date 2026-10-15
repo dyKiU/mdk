@@ -933,3 +933,9 @@ SelfRemove. No new SDK or installed-app qualification follows from these APIs.
 A failed protected Remove retains its original convergence retry. The exact
 confirmation-delivery retry slot requires the already-committed Pending successor
 and matching live control binding; a retained intent alone cannot select it.
+
+A live protected Remove rollback retry retains only its previously selected
+hidden receive route while current transport evidence is unavailable. Core
+validates the original retry owner; route metadata never creates consent or a
+new subscription after reopen. Normal route retirement resumes without that
+original.

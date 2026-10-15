@@ -26,6 +26,9 @@
 
 ### Fixed
 
+- Retain the already-selected hidden receive route while Core owns a live
+  protected Remove rollback retry, so successor packets can still reach intake.
+
 - A rolled-back protected Remove uses its retained convergence retry instead of
   occupying the successor-confirmation delivery slot and blocking fresh intake.
 
