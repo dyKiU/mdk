@@ -432,6 +432,7 @@ mod tests {
         drop(b_box);
         plane.shutdown().await;
         other_plane.shutdown().await;
+        eprintln!("pairing_encrypted_exchange directions=2 deliveries=4 retry_fresh_ids=true plane_closes=2");
     }
 
     async fn receive_exact(

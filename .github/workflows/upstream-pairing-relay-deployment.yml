@@ -23,12 +23,12 @@ jobs:
           import json,os
           from pathlib import Path
           r=json.loads(Path('scripts/upstream_pairing_relay_cohort.json').read_text())
-          assert r['phase'] in {'red','green','format'}
+          assert r['phase'] in {'red','green','public','format'}
           Path(os.environ['GITHUB_OUTPUT']).write_text('phase='+r['phase']+'\n')
           PY
   runtime:
     needs: identity
-    if: needs.identity.outputs.phase != 'format'
+    if: needs.identity.outputs.phase == 'red' || needs.identity.outputs.phase == 'green'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -62,6 +62,43 @@ jobs:
         with:
           name: pairing-relay-runtime-${{ github.sha }}
           path: pairing-relay-proof/
+          retention-days: 7
+  deployment:
+    needs: identity
+    if: needs.identity.outputs.phase == 'public'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      RUST_MIN_STACK: "4194304"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: upstream-pairing-relay-regressions
+          cache-on-failure: true
+      - name: Execute configured live routes and bilateral comparison
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label pairing-deployment-transport
+          python3 scripts/qualify_upstream_pairing_deployment.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pairing-deployment-${{ github.sha }}
+          path: pairing-deployment-proof/
           retention-days: 7
   format:
     needs: identity

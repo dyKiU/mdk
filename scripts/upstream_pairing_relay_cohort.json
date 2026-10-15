@@ -1,9 +1,34 @@
 {
-  "phase": "green",
+  "phase": "public",
   "baseline": "4368869e7b2eeb31ae7c71dd0372e843da53aac6",
   "product_sha256": "ed879d37f2d79ee50a86b6d269aa0dd6b2dcdddcd324eab3cd2a76c347e343ca",
   "mutant_sha256": {
     "omit-mailbox-ready": "0bf4c94c1c7b2f646781aa20dc8adc6d9f1face165ea5b95b7d26033725bbec0",
     "restore-old-aggregate-publish": "91de6dcd22202a7cb9f2c4a129063597764e748a401d3548a453d8eb9cff0da8"
+  },
+  "configured_routes": [
+    "wss://nos.lol",
+    "wss://relay.primal.net"
+  ],
+  "configuration_sources": {
+    "mac": {
+      "workspace_relative_path": "whitenoise-mac/whitenoise-mac/Core/MarmotClient.swift",
+      "sha256": "c53acff0d6a546c77749a215cec7fd69e4ee3b06102d882ccbec638a50956d35",
+      "base_commit": "27e7dd5eb726501ff872b500cecbf10d076e9328",
+      "state": "uncommitted owner configuration snapshot; preserved untouched",
+      "route_scope": "default runtime relay set only; custom relays preserved"
+    },
+    "ios": {
+      "workspace_relative_path": "whitenoise-ios-develop/whitenoise-ios/Core/MarmotClient.swift",
+      "sha256": "22ca5408ed94a22a5b012706e3821f3f62bb0c053a181900b4627a67dfd037f1",
+      "base_commit": "9c10cb999b8bf0828df9d19aa755c950e1a02913",
+      "state": "uncommitted owner configuration snapshot; preserved untouched",
+      "route_scope": "default runtime relay set only; custom relays preserved"
+    }
+  },
+  "tested_source_sha256": {
+    "crates/marmot-app/src/relay_plane/pairing.rs": "108f765ed9ad037d7f50ade840585b9e01d0126e98f6bead041d35e86b152221",
+    "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs": "b9f88fcd5bba301b8e23f48c3d6f0c1dd70c2960cd5e0c44a682db1ffddd1dc5",
+    "Cargo.lock": "e571f419bebbdc80cb914a19ffbf22d2e4744f9f7cb1a54695d63ac3d880e052"
   }
 }
