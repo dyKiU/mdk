@@ -426,7 +426,9 @@ fn verify_proof_signature(
     signature_bytes: &[u8; SCHNORR_SIGNATURE_LEN],
 ) -> Result<(), EngineError> {
     #[cfg(feature = "test-policy-overrides")]
-    let _sync_cost_proof_signature = crate::enrollment_sync_cost::Probe::start(crate::enrollment_sync_cost::Bucket::ProofSignature);
+    let _sync_cost_proof_signature = crate::enrollment_sync_cost::Probe::start(
+        crate::enrollment_sync_cost::Bucket::ProofSignature,
+    );
     let signature = Signature::from_slice(signature_bytes).map_err(|_| {
         EngineError::InvalidAccountIdentityProof(
             "proof signature is not a Nostr Schnorr signature".into(),

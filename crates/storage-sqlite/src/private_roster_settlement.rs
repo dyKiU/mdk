@@ -29,7 +29,9 @@ impl SettlementDecodeMemo {
             && raw.as_slice() == bytes
         {
             #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
-            let _sync_cost_memo_hit = cgka_traits::enrollment_sync_cost::Probe::start(cgka_traits::enrollment_sync_cost::Bucket::MemoHitClone);
+            let _sync_cost_memo_hit = cgka_traits::enrollment_sync_cost::Probe::start(
+                cgka_traits::enrollment_sync_cost::Bucket::MemoHitClone,
+            );
             return Ok(state.clone());
         }
         // A changed, invalid, or oversized input never retains the old entry.
@@ -39,7 +41,9 @@ impl SettlementDecodeMemo {
             self.serde_calls += 1;
         }
         #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
-        let _sync_cost_memo_serde = cgka_traits::enrollment_sync_cost::Probe::start(cgka_traits::enrollment_sync_cost::Bucket::MemoRealSerde);
+        let _sync_cost_memo_serde = cgka_traits::enrollment_sync_cost::Probe::start(
+            cgka_traits::enrollment_sync_cost::Bucket::MemoRealSerde,
+        );
         let state: PrivateSettlementState = serde_json::from_slice(bytes).map_err(|_| invalid())?;
         #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
         drop(_sync_cost_memo_serde);
@@ -232,7 +236,9 @@ fn facts(
 fn read(conn: &Connection) -> StorageResult<Option<PrivateSettlementState>> {
     read_decoded(conn, |bytes| {
         #[cfg(all(feature = "test-support", feature = "experimental-device-sync"))]
-        let _sync_cost_canonical_serde = cgka_traits::enrollment_sync_cost::Probe::start(cgka_traits::enrollment_sync_cost::Bucket::CanonicalRealSerde);
+        let _sync_cost_canonical_serde = cgka_traits::enrollment_sync_cost::Probe::start(
+            cgka_traits::enrollment_sync_cost::Bucket::CanonicalRealSerde,
+        );
         serde_json::from_slice(bytes).map_err(|_| invalid())
     })
 }
