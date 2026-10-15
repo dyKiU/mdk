@@ -1,4 +1,9 @@
 {
-  "phase": "red",
-  "baseline": "4368869e7b2eeb31ae7c71dd0372e843da53aac6"
+  "phase": "green",
+  "baseline": "4368869e7b2eeb31ae7c71dd0372e843da53aac6",
+  "product_sha256": "ed879d37f2d79ee50a86b6d269aa0dd6b2dcdddcd324eab3cd2a76c347e343ca",
+  "mutant_sha256": {
+    "omit-mailbox-ready": "0bf4c94c1c7b2f646781aa20dc8adc6d9f1face165ea5b95b7d26033725bbec0",
+    "restore-old-aggregate-publish": "91de6dcd22202a7cb9f2c4a129063597764e748a401d3548a453d8eb9cff0da8"
+  }
 }

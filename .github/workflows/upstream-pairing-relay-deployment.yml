@@ -23,12 +23,12 @@ jobs:
           import json,os
           from pathlib import Path
           r=json.loads(Path('scripts/upstream_pairing_relay_cohort.json').read_text())
-          assert r['phase'] in {'red','format'}
+          assert r['phase'] in {'red','green','format'}
           Path(os.environ['GITHUB_OUTPUT']).write_text('phase='+r['phase']+'\n')
           PY
   runtime:
     needs: identity
-    if: needs.identity.outputs.phase == 'red'
+    if: needs.identity.outputs.phase != 'format'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -51,16 +51,16 @@ jobs:
         with:
           shared-key: upstream-pairing-relay-regressions
           cache-on-failure: true
-      - name: Execute two exact original-mailbox runtime bodies
+      - name: Execute exact mailbox controls and guarded runtime mutations
         env:
           CARGO_INCREMENTAL: "1"
         run: |
-          python3 scripts/qualification_build_preflight.py --label pairing-relay-original-red
+          python3 scripts/qualification_build_preflight.py --label pairing-relay-runtime-controls
           python3 scripts/qualify_upstream_pairing_relays.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: pairing-relay-original-${{ github.sha }}
+          name: pairing-relay-runtime-${{ github.sha }}
           path: pairing-relay-proof/
           retention-days: 7
   format:

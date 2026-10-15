@@ -34,13 +34,17 @@ assert os.environ.get('CARGO_INCREMENTAL') == '1'
 assert os.environ.get('RUST_MIN_STACK') == '4194304'
 assert not any(os.environ.get(name) for name in ('RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTC_BOOTSTRAP'))
 cohort = json.loads(Path('scripts/upstream_pairing_relay_cohort.json').read_text())
-assert cohort == {'phase': 'red', 'baseline': BASELINE}
+assert cohort['phase'] in {'red', 'green'} and cohort['baseline'] == BASELINE
+phase = cohort['phase']
 suffix = b'\n#[cfg(test)]\n#[path = "pairing/deployment_regressions.rs"]\nmod deployment_regressions;\n'
 original = subprocess.check_output(['git', 'show', BASELINE + ':' + PRODUCT])
-assert Path(PRODUCT).read_bytes() == original + suffix, 'RED must retain exact original mailbox product'
+if phase == 'red':
+    assert Path(PRODUCT).read_bytes() == original + suffix, 'RED must retain exact original mailbox product'
+else:
+    assert hashlib.sha256(Path(PRODUCT).read_bytes()).hexdigest() == cohort['product_sha256']
 tracked = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
 frozen = {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in tracked if p and Path(p).is_file()}
-report = {'source': source, 'baseline': BASELINE, 'phase': 'red', 'executions': [],
+report = {'source': source, 'baseline': BASELINE, 'phase': phase, 'executions': [],
           'source_files': {p: frozen[p] for p in (PRODUCT, TEST, 'Cargo.lock')},
           'source_inventory_digest': hashlib.sha256(json.dumps(frozen, sort_keys=True).encode()).hexdigest(),
           'compiler_environment': {n: os.environ.get(n) for n in ('CARGO_INCREMENTAL', 'CARGO_BUILD_JOBS',
@@ -52,11 +56,13 @@ def save():
     (output / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
 
 
-def execute(short, witness, oracle):
+def execute(short, witness, oracle, expected='original', label='original'):
     case = 'relay_plane::pairing::deployment_regressions::' + short
     command = ['cargo', 'test', '--locked', '-p', 'marmot-app', '--lib', '--features', FEATURES,
                case, '--', '--exact', '--nocapture', '--test-threads=1']
-    row = {'case': case, 'command': command, 'witness': False, 'qualified': False}
+    row = {'case': case, 'command': command, 'witness': False, 'qualified': False,
+           'expected': expected, 'label': label,
+           'executed_product_sha256': hashlib.sha256(Path(PRODUCT).read_bytes()).hexdigest()}
     report['executions'].append(row)
     save()
     started = time.monotonic()
@@ -90,15 +96,45 @@ def execute(short, witness, oracle):
                      and (row.get('passed'), row.get('failed'), row.get('ignored')) == (1, 0, 0))
     row['classification'] = ('genuine-runtime-red' if runtime_red else
                              'original-runtime-control-green' if runtime_green else 'unqualified-failure')
-    row['qualified'] = bool(runtime_red if short == CASES[0][0] else runtime_red or runtime_green)
+    row['qualified'] = bool(runtime_green if expected == 'green' else runtime_red if expected == 'red'
+                            else runtime_red if short == CASES[0][0] else runtime_red or runtime_green)
     save()
     print(json.dumps(row, sort_keys=True), flush=True)
     return row['qualified']
 
 
 try:
-    results = [execute(*case) for case in CASES]
-    report['passed'] = all(results) and len(report['executions']) == 2
+    if phase == 'red':
+        results = [execute(*case) for case in CASES]
+        report['passed'] = all(results) and len(report['executions']) == 2
+    else:
+        pristine = Path(PRODUCT).read_bytes()
+        source_text = pristine.decode()
+        readiness = '            mailbox.wait_ready(),'
+        assert source_text.count(readiness) == 1
+        no_ready = source_text.replace(readiness, '            async { Ok::<(), PairingRelayError>(()) },').encode()
+        start = '    pub(crate) async fn publish('
+        end = '    pub(crate) async fn next('
+        assert source_text.count(start) == source_text.count(end) == 1
+        original_text = original.decode()
+        old_publish = original_text[original_text.index(start):original_text.index(end)]
+        old_ack = (source_text[:source_text.index(start)] + old_publish + source_text[source_text.index(end):]).encode()
+        mutations = [('omit-mailbox-ready', no_ready, CASES[0]),
+                     ('restore-old-aggregate-publish', old_ack, CASES[1])]
+        assert {name: hashlib.sha256(data).hexdigest() for name, data, _ in mutations} == cohort['mutant_sha256']
+        results = [execute(*case, expected='green', label='baseline') for case in CASES]
+        if all(results):
+            for name, data, case in mutations:
+                try:
+                    Path(PRODUCT).write_bytes(data)
+                    assert all(hashlib.sha256(Path(p).read_bytes()).hexdigest() == h
+                               for p, h in frozen.items() if p != PRODUCT)
+                    results.append(execute(*case, expected='red', label=name))
+                finally:
+                    Path(PRODUCT).write_bytes(pristine)
+                    assert hashlib.sha256(Path(PRODUCT).read_bytes()).hexdigest() == frozen[PRODUCT]
+            results.extend(execute(*case, expected='green', label='restored') for case in CASES)
+        report['passed'] = all(results) and len(report['executions']) == 6
 finally:
     report['source_unchanged'] = all(hashlib.sha256(Path(p).read_bytes()).hexdigest() == h for p, h in frozen.items())
     report['tracked_source_pristine'] = subprocess.run(['git', 'diff', '--quiet', 'HEAD']).returncode == 0
