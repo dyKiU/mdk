@@ -922,6 +922,19 @@ impl AppRuntimeHarness {
         clients: &[String],
         max_wait: Duration,
     ) -> Result<Vec<AppRuntimeObservationV1>, SubjectError> {
+        self.await_observable_settlement_matching(clients, max_wait, |_| true)
+            .await
+    }
+
+    /// Require the journey's public end-state predicate throughout the same
+    /// bounded stability window. A shared commitment can precede completion of
+    /// an already accepted edit; it does not prove that edit has been retained.
+    pub async fn await_observable_settlement_matching(
+        &mut self,
+        clients: &[String],
+        max_wait: Duration,
+        matches: impl Fn(&[AppRuntimeObservationV1]) -> bool + Send,
+    ) -> Result<Vec<AppRuntimeObservationV1>, SubjectError> {
         let deadline = tokio::time::Instant::now() + max_wait;
         let mut previous_commitments: Option<Vec<String>> = None;
         let mut stable_since = tokio::time::Instant::now();
@@ -946,6 +959,7 @@ impl AppRuntimeHarness {
             // timer fires. Require unchanged public state for its full window.
             if !shared
                 || !projections_settled
+                || !matches(&observations)
                 || previous_commitments.as_ref() != Some(&commitments)
             {
                 stable_since = tokio::time::Instant::now();
