@@ -401,7 +401,9 @@ impl DeviceLinkingSession {
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn observe_passive_sdk_consent_for_test(&self) {
-        self.inner.passive_sdk_consent.store(true, Ordering::Release);
+        self.inner
+            .passive_sdk_consent
+            .store(true, Ordering::Release);
         if let Some(choice) = self
             .inner
             .sharing_choice
