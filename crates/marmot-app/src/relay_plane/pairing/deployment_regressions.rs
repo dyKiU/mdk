@@ -17,7 +17,7 @@ async fn witnessed_route(
 ) -> (
     TransportEndpoint,
     oneshot::Receiver<()>,
-    oneshot::Receiver<nostr::EventId>,
+    oneshot::Receiver<nostr::prelude::EventId>,
     tokio::task::JoinHandle<()>,
 ) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
