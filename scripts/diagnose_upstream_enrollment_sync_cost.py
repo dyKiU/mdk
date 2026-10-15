@@ -17,6 +17,7 @@ report = {"source": subprocess.check_output(["git", "rev-parse", "HEAD"], text=T
           "tree": subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip(),
           "product_baseline": "3dde689febbe364b70af35ff778e3d74a6bc5622", "selector": TEST,
           "features": FEATURES, "diagnostic_only": True, "qualification_passed": False,
+          "cpu_usable": False,
           "original_deadline_seconds": 15, "original_runtime_flavor": "current_thread",
           "stack_bytes": 4194304, "automatic_retries": 0,
           "cpu_scope": "synchronous calling-thread scheduled CPU only; never async await duration",
@@ -93,5 +94,11 @@ report["diagnostic_complete"] = (report["inputs_pristine"] and report.get("execu
     and len(rows)==15*len(report["phase_boundaries"])
     and all(item["active"]==0 for item in rows)
     and all({item["bucket"] for item in rows if item["phase"]==boundary["phase"]}==BUCKETS for boundary in report["phase_boundaries"]))
+expected_phases = {marker.split("-", 1)[0] for marker in report["markers"] if marker.endswith("-completion")}
+observed_phases = [boundary["phase"] for boundary in report["phase_boundaries"]]
+report["phase_coverage_valid"] = (set(observed_phases)==expected_phases and len(observed_phases)==len(expected_phases))
+report["cpu_usable"] = (report["diagnostic_complete"] and report["phase_coverage_valid"]
+    and all(item["unknown_cpu"]==0 and item["cpu_read_failures"]==0 and item["active"]==0 and item["cpu_reads"]==2*item["count"] for item in rows))
+report["cpu_usable_limits"] = "collection validity only; kernel resolution/zero-delta quantization and probe overhead remain unknown; bucket call cohorts differ, so do not subtract global nested totals"
 save()
 raise SystemExit(0 if report["diagnostic_complete"] else 1)
