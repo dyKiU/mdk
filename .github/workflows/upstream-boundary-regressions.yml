@@ -3,6 +3,12 @@ name: Upstream foreign future and cleanup mutation gates
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      case:
+        description: Select one scoped mutation gate or all gates
+        type: choice
+        options: [all, departure, worker-reap, relay-acquisition]
+        default: all
 
 permissions:
   contents: read
@@ -15,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        case: [departure, worker-reap, relay-acquisition]
+        case: ${{ fromJSON(inputs.case && inputs.case != 'all' && format('["{0}"]', inputs.case) || '["departure","worker-reap","relay-acquisition"]') }}
     env:
       CARGO_INCREMENTAL: "1"
       CARGO_BUILD_JOBS: "2"
