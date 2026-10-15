@@ -98,7 +98,16 @@ jobs:
           shared-key: upstream-apple-experimental-${{ matrix.part }}
           cache-on-failure: true
       - name: Build exact experimental Apple input
+        env:
+          CARGO_INCREMENTAL: "1"
         run: bash scripts/upstream_apple_ci/build-part.sh "${{ matrix.part }}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: upstream-apple-capacity-${{ matrix.part }}-${{ needs.identity.outputs.mdk_sha }}
+          path: apple-capacity-preflight.json
+          if-no-files-found: warn
+          retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: upstream-apple-input-${{ matrix.part }}-${{ needs.identity.outputs.mdk_sha }}
