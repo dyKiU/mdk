@@ -34,6 +34,20 @@ struct OwnedPrivateInvite {
     for_add: bool,
 }
 
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Default)]
+pub(crate) struct RevocationRetryCustodyStateForTest {
+    pub(crate) entries: Vec<(cgka_traits::GroupId, [u8; 32])>,
+    pub(crate) overflow: bool,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) type RevocationRetryCustodyForTest =
+    Arc<std::sync::Mutex<RevocationRetryCustodyStateForTest>>;
+
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) type RevocationBindingObservationForTest =
+    Result<(Option<[u8; 32]>, RevocationRetryCustodyForTest), crate::AppError>;
+
 pub(crate) struct AccountLinkingOwner {
     verifier: LinkingOwner,
     pub(super) received_endorsement:
@@ -58,6 +72,8 @@ pub(crate) struct AccountLinkingOwner {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     sibling_projection_observations:
         Arc<std::sync::Mutex<std::collections::HashMap<cgka_traits::MessageId, [usize; 6]>>>,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) revocation_retry_custody: RevocationRetryCustodyForTest,
     sibling_channels: Vec<sibling_sharing::SiblingChannel>,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) sibling_pre_auth_probe: Option<(
@@ -132,6 +148,8 @@ impl AccountLinkingOwner {
             approval_pairing_metadata: None,
             #[cfg(all(test, feature = "test-policy-overrides"))]
             sibling_projection_observations: Arc::default(),
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            revocation_retry_custody: Arc::default(),
             sibling_channels: Vec::new(),
             #[cfg(all(test, feature = "test-policy-overrides"))]
             sibling_pre_auth_probe: None,
