@@ -34,6 +34,15 @@ The five hosted lanes establish separate evidence:
   and the same existing SDK source. Producer identity remains the original
   `sdk_run_id`, even when that producer's obsolete app jobs were cancelled.
 
+After each full app suite passes, the missing-key classification gates compile
+and run focused obsolete-publication tests against reason-wildcard mutants:
+one Mac classifier and two independent iOS classifiers. Each must execute
+exactly one failing runtime regression, restore the source bytes, and execute
+one passing control with no skips. Compile failures and empty filtered runs
+do not kill these mutants. Their aggregate reports and explicitly named logs
+contain only synthetic classifier fixtures; native worker logs and stores
+remain excluded from upload.
+
 Only aggregate native/controller results and provenance are uploaded. Native
 worker IPC, private stderr, credential keys and account stores are excluded.
 The final iOS XCTest result bundle and its execution summary are retained as

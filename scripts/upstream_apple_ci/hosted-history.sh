@@ -13,4 +13,5 @@ agent_sha=$(shasum -a 256 "$RUNNER_TEMP/history-agent" | cut -d ' ' -f 1)
 python3 scripts/upstream_apple_ci/hosted_history.py --agent "$RUNNER_TEMP/history-agent" \
   --agent-sha256 "$agent_sha" --relay "$PWD/ios/build/TestRelay/debug/white-noise-sync-test-relay" \
   --sdk-source "$SOURCE_SHA" --output "$RUNNER_TEMP/hosted-history-evidence" --port 18515 \
-  --agent-provenance "$RUNNER_TEMP/history-agent-source/DERIVED-SOURCE.json" --scenarios departure
+  --agent-provenance "$RUNNER_TEMP/history-agent-source/DERIVED-SOURCE.json" \
+  --scenarios archive departure revocation withdrawal
