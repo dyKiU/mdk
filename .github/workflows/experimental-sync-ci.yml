@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, latest-current-perf]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -33,6 +33,67 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  latest-current-perf:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'latest-current-perf'
+    name: Current original enrollment RED and same-binary CPU attribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove installed owned-process sampling before Rust compilation
+        id: control
+        run: |
+          python3 scripts/verify_upstream_perf_feasibility.py
+          python3 - <<'PYCONTROL'
+          import json, os
+          from pathlib import Path
+          usable = json.loads(Path('perf-evidence/result.json').read_text())['feasible']
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('feasible=' + str(usable).lower() + '\n')
+          PYCONTROL
+      - name: Install Rust toolchain
+        if: steps.control.outputs.feasible == 'true'
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        if: steps.control.outputs.feasible == 'true'
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        if: steps.control.outputs.feasible == 'true'
+        with:
+          shared-key: core-regressions
+      - name: Compile normal original once, preserve unprofiled outcome, sample same binary
+        if: steps.control.outputs.feasible == 'true'
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Current original pairing normal build'
+          python3 scripts/diagnose_upstream_current_pairing_perf.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: current-original-perf-static-evidence
+          path: |
+            perf-evidence/result.json
+            current-perf-evidence/result.json
+            current-perf-evidence/provenance.json
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: current-original-normal-binary-remote-reuse-only
+          path: current-perf-evidence/normal-test-binary.tar.gz
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
   withdrawal-stack:
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'withdrawal-stack'
     name: Unchanged withdrawal function-only stack diagnostic
