@@ -13,7 +13,7 @@ Apple jobs validate its package provenance using the original producer run ID
 and source SHA; the supplemental workflow/tool commit remains a distinct
 identity. These helpers do not change any running qualification checkout.
 
-The three hosted lanes establish separate evidence:
+The five hosted lanes establish separate evidence:
 
 - Published 0.13.0 versus experimental iOS SDK interoperability: separately
   compiled simulator workers on two isolated simulators, independent accounts,
@@ -27,6 +27,12 @@ The three hosted lanes establish separate evidence:
   a missing-German-translation mutant against two already built native catalog
   tests. Exact catalog bytes are restored before the passing controls. Empty
   filtered runs or compile failures do not count as mutation detection.
+- The final Mac full experimental suite, Release build and static analysis,
+  consuming the existing matching Mac SDK package.
+- The original one-scan native scenarios, including existing/new direct chats,
+  discovery, history and offline recovery, using the original frozen controller
+  and the same existing SDK source. Producer identity remains the original
+  `sdk_run_id`, even when that producer's obsolete app jobs were cancelled.
 
 Only aggregate native/controller results and provenance are uploaded. Native
 worker IPC, private stderr, credential keys and account stores are excluded.

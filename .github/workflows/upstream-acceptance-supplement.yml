@@ -89,7 +89,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [published-interop, hosted-history, final-ios]
+        lane: [published-interop, hosted-history, final-ios, final-mac, one-scan]
     env:
       SOURCE_SHA: ${{ needs.identity.outputs.sdk_sha }}
       SDK_RUN_ID: ${{ needs.identity.outputs.sdk_run_id }}
@@ -102,10 +102,18 @@ jobs:
           ref: ${{ needs.identity.outputs.tools_sha }}
           persist-credentials: false
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        if: matrix.lane != 'final-mac'
         with:
           repository: dyKiU/whitenoise-ios
           ref: ${{ needs.identity.outputs.ios_sha }}
           path: ios
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        if: matrix.lane == 'final-mac'
+        with:
+          repository: dyKiU/whitenoise-mac
+          ref: ${{ needs.identity.outputs.mac_sha }}
+          path: mac
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -118,6 +126,7 @@ jobs:
           gh run download "$SDK_RUN_ID" --repo dyKiU/mdk \
             --name "upstream-experimental-apple-$SOURCE_SHA" --dir packages
       - name: Build isolated relay fixture
+        if: matrix.lane != 'final-mac'
         run: |
           rustup toolchain install 1.97.1 --profile minimal
           cargo +1.97.1 build --locked --manifest-path ios/scripts/test-relay/Cargo.toml --target-dir ios/build/TestRelay
@@ -127,6 +136,45 @@ jobs:
       - name: Native original history, cancellation, departure and revocation
         if: matrix.lane == 'hosted-history'
         run: bash scripts/upstream_apple_ci/hosted-history.sh
+      - name: Real native one-scan, direct-chat discovery and offline history
+        if: matrix.lane == 'one-scan'
+        run: bash scripts/upstream_apple_ci/hosted-one-scan.sh
+      - name: Adopt verified final Mac experimental overlay
+        if: matrix.lane == 'final-mac'
+        run: |
+          python3 scripts/upstream_apple_ci/install.py --packages packages \
+            --source "$SOURCE_SHA" --run-id "$SDK_RUN_ID" --platform macos --app mac --app-sha "$MAC_SHA"
+      - name: Full final Mac experimental suite
+        if: matrix.lane == 'final-mac'
+        working-directory: mac
+        env:
+          WN_EXPERIMENTAL_DEVICE_SYNC: "1"
+          WN_TEST_DERIVED_DATA: ${{ runner.temp }}/final-mac-derived-data
+          WN_TEST_RESULT_BUNDLE: ${{ runner.temp }}/final-mac.xcresult
+          WN_TEST_JOBS: "2"
+        run: bash scripts/test-isolated.sh
+      - name: Record final Mac execution counts
+        if: always() && matrix.lane == 'final-mac'
+        run: |
+          python3 scripts/upstream_apple_ci/summarize.py --result "$RUNNER_TEMP/final-mac.xcresult" \
+            --app-sha "$MAC_SHA" --output "$RUNNER_TEMP/final-mac-summary.json"
+      - name: Final Mac experimental Release build and static analysis
+        if: matrix.lane == 'final-mac'
+        working-directory: mac
+        env:
+          WN_EXPERIMENTAL_DEVICE_SYNC: "1"
+        run: |
+          repo_root=$PWD
+          source scripts/local-device-sync-settings.sh
+          xcodebuild build -project whitenoise-mac.xcodeproj -scheme whitenoise-mac \
+            -configuration Release -destination platform=macOS \
+            -derivedDataPath "$RUNNER_TEMP/final-mac-release" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
+            "${device_sync_settings[@]}"
+          xcodebuild analyze -project whitenoise-mac.xcodeproj -scheme whitenoise-mac \
+            -configuration Debug -destination platform=macOS \
+            -derivedDataPath "$RUNNER_TEMP/final-mac-derived-data" \
+            CODE_SIGNING_ALLOWED=NO "${device_sync_settings[@]}"
       - name: Adopt verified final iOS experimental overlay
         if: matrix.lane == 'final-ios'
         run: |
@@ -162,9 +210,12 @@ jobs:
             ${{ runner.temp }}/interop-evidence/result.json
             ${{ runner.temp }}/interop-evidence/published-provenance.json
             ${{ runner.temp }}/hosted-history-evidence/result.json
+            ${{ runner.temp }}/hosted-one-scan/result.json
             ${{ runner.temp }}/localization-mutation/result.json
             ${{ runner.temp }}/final-ios.xcresult
             ${{ runner.temp }}/final-ios-summary.json
+            ${{ runner.temp }}/final-mac.xcresult
+            ${{ runner.temp }}/final-mac-summary.json
             packages/qualification.json
             scripts/upstream_apple_ci/acceptance-cohort.json
             scripts/upstream_apple_ci/HOSTED-SOURCE.json
