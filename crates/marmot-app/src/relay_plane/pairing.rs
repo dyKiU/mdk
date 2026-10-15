@@ -244,3 +244,7 @@ mod tests {
         plane.shutdown().await;
     }
 }
+
+#[cfg(test)]
+#[path = "pairing/deployment_regressions.rs"]
+mod deployment_regressions;
