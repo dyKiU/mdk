@@ -942,14 +942,21 @@ fn install_publication_diagnostic_subscriber() {
                     field: &tracing::field::Field,
                     value: &dyn std::fmt::Debug,
                 ) {
-                    if matches!(field.name(), "method" | "client_ordinal" | "operation_ordinal" | "stage") {
+                    if matches!(
+                        field.name(),
+                        "method" | "client_ordinal" | "operation_ordinal" | "stage"
+                    ) {
                         self.0.push(format!("{}={value:?}", field.name()));
                     }
                 }
             }
             let mut fields = Fields(Vec::new());
             event.record(&mut fields);
-            eprintln!("sdk-publication-control global_ms={} {}", crate::account_chat_sharing::enabled::sibling_clock_ms_for_test(), fields.0.join(" "));
+            eprintln!(
+                "sdk-publication-control global_ms={} {}",
+                crate::account_chat_sharing::enabled::sibling_clock_ms_for_test(),
+                fields.0.join(" ")
+            );
         }
     }
     tracing::subscriber::set_global_default(Subscriber)

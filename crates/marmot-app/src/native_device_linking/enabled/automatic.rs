@@ -23,14 +23,27 @@ impl MailboxPublicationTimer {
         }
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let ordinal = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        eprintln!("pairing-mailbox-control ordinal={ordinal} sibling_index={sibling_index:?} stage=entered global_ms={}", crate::account_chat_sharing::enabled::sibling_clock_ms_for_test());
-        Some(Self { ordinal, sibling_index, started: std::time::Instant::now() })
+        eprintln!(
+            "pairing-mailbox-control ordinal={ordinal} sibling_index={sibling_index:?} stage=entered global_ms={}",
+            crate::account_chat_sharing::enabled::sibling_clock_ms_for_test()
+        );
+        Some(Self {
+            ordinal,
+            sibling_index,
+            started: std::time::Instant::now(),
+        })
     }
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl Drop for MailboxPublicationTimer {
     fn drop(&mut self) {
-        eprintln!("pairing-mailbox-control ordinal={} sibling_index={:?} stage=exited global_ms={} elapsed_ms={}", self.ordinal, self.sibling_index, crate::account_chat_sharing::enabled::sibling_clock_ms_for_test(), self.started.elapsed().as_millis());
+        eprintln!(
+            "pairing-mailbox-control ordinal={} sibling_index={:?} stage=exited global_ms={} elapsed_ms={}",
+            self.ordinal,
+            self.sibling_index,
+            crate::account_chat_sharing::enabled::sibling_clock_ms_for_test(),
+            self.started.elapsed().as_millis()
+        );
     }
 }
 
@@ -380,7 +393,9 @@ impl Driver {
                 let _ = self.mailbox.publish(&event).await;
             }
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            { sibling_index += 1; }
+            {
+                sibling_index += 1;
+            }
         }
         for message in self.sender.outgoing() {
             // Fresh encryption on each retry avoids relay/SDK event deduplication.

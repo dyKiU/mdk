@@ -4368,9 +4368,11 @@ impl NostrRelayClient for NostrSdkRelayClient {
                 Ok(request) => {
                     #[cfg(feature = "test-policy-overrides")]
                     let diagnostic_publisher = {
-                        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+                        static NEXT: std::sync::atomic::AtomicU64 =
+                            std::sync::atomic::AtomicU64::new(1);
                         let mut publisher = self.clone();
-                        publisher.publication_operation_ordinal = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        publisher.publication_operation_ordinal =
+                            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         publisher
                     };
                     #[cfg(feature = "test-policy-overrides")]
@@ -4378,7 +4380,7 @@ impl NostrRelayClient for NostrSdkRelayClient {
                     #[cfg(not(feature = "test-policy-overrides"))]
                     let publisher = self;
                     vec![publisher.publish_prepared_single(request).await]
-                },
+                }
                 Err(error) => vec![Err(error)],
             };
             return NostrPublishBatch {
