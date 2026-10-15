@@ -40,3 +40,11 @@ The final iOS XCTest result bundle and its execution summary are retained as
 standard app-test evidence. The simulator and native SDK journeys establish no
 installed TestFlight UI, physical-device or APNS claim. See the hosted history
 result's explicit remaining limitations before treating a scenario as qualified.
+
+`acceptance-lanes.json` freezes the explicit lanes selected for this run. A scoped
+repair run is not a full qualification by itself: reuse earlier passing lanes only
+when their product, SDK, test body and relevant configuration are unchanged, and
+retain their exact original source/run identities. The current repair reruns only
+archive/departure in hosted history, preserving separately recorded passing
+revocation/withdrawal evidence. One-scan diagnostics observe original commands
+without changing deadlines, comparison, approval or sharing requirements.

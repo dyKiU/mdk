@@ -28,6 +28,11 @@ for key in ['sdk_sha', 'mac_sha', 'ios_sha']:
     require(isinstance(cohort[key], str) and re.fullmatch('[0-9a-f]{40}', cohort[key]), 'Full immutable SHA required')
 require(isinstance(cohort['sdk_run_id'], str) and re.fullmatch('[1-9][0-9]+', cohort['sdk_run_id']), 'Numeric SDK run required')
 cohort['tools_sha'] = head
+lanes = json.loads(Path('scripts/upstream_apple_ci/acceptance-lanes.json').read_text())
+allowed = {'published-interop', 'hosted-history', 'final-ios', 'final-mac', 'one-scan'}
+require(isinstance(lanes, list) and lanes and all(isinstance(lane, str) and lane in allowed for lane in lanes)
+        and len(lanes) == len(set(lanes)), 'Explicit nonempty unique known lanes required')
+cohort['lanes'] = json.dumps(lanes, separators=(',', ':'))
 with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
     for key, value in cohort.items():
         output.write(f'{key}={value}\n')

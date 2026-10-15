@@ -33,7 +33,7 @@ def execute(name):
         result = subprocess.run(command + ['-resultBundlePath', str(bundle)], cwd=root,
                                 stdout=log, stderr=subprocess.STDOUT, timeout=900)
     summary = json.loads(subprocess.check_output(
-        ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(bundle), '--format', 'json'], text=True))
+        ['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(bundle)], text=True))
     row = {'phase': name, 'exit_code': result.returncode, 'summary': summary}
     proof['runs'].append(row)
     (output / 'result.json').write_text(json.dumps(proof, indent=2) + '\n')

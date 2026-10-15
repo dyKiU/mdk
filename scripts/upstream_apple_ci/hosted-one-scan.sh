@@ -19,9 +19,11 @@ python3 scripts/upstream_apple_ci/install.py --packages packages --source "$SOUR
 export NATIVE_AUTOMATIC_ACCEPTANCE=1 NATIVE_ONE_SCAN_ACCEPTANCE=1
 export NATIVE_HISTORY_ACCEPTANCE=1 NATIVE_HISTORY_RECIPIENT_QUERY=1
 export NATIVE_ACCOUNT_DEPARTURE_ACCEPTANCE=1 NATIVE_DEVICE_REVOCATION_ACCEPTANCE=1
-bash scripts/upstream_apple_ci/native/build.sh "$RUNNER_TEMP/one-scan-sdk" "$RUNNER_TEMP/one-scan-agent"
+python3 scripts/upstream_apple_ci/prepare-hosted-agent.py --output "$RUNNER_TEMP/one-scan-agent-source"
+bash "$RUNNER_TEMP/one-scan-agent-source/build.sh" "$RUNNER_TEMP/one-scan-sdk" "$RUNNER_TEMP/one-scan-agent"
 agent_sha=$(shasum -a 256 "$RUNNER_TEMP/one-scan-agent" | cut -d ' ' -f 1)
-python3 scripts/upstream_apple_ci/native/one_scan.py --agent "$RUNNER_TEMP/one-scan-agent" \
+python3 scripts/upstream_apple_ci/hosted_one_scan.py --agent "$RUNNER_TEMP/one-scan-agent" \
+  --agent-provenance "$RUNNER_TEMP/one-scan-agent-source/DERIVED-SOURCE.json" \
   --agent-sha256 "$agent_sha" --relay "$PWD/ios/build/TestRelay/debug/white-noise-sync-test-relay" \
   --sdk-source "$SOURCE_SHA" --output "$RUNNER_TEMP/hosted-one-scan" --port 18535 \
   --contacts --three-device-chats --direct-chats

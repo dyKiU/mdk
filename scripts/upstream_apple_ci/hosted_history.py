@@ -27,6 +27,7 @@ import automatic_chat as automatic
 import cross_host as original
 from cross_host import GateFailure, Peer, require
 from revocation_probe import device_revocation_probe
+from hosted_archive import selected_chat
 
 
 def verify_helpers() -> None:
@@ -89,7 +90,7 @@ def archive(journey: Journey) -> dict:
     # As in the committed history controller, A's genuine B/C enrollment review
     # supplies B's occupied signer. Never derive recipient authority from packets.
     review = original.third_device(b, a, c)
-    previous = original.selected_chat(a, b, c, d, history=True, account=account)
+    previous = selected_chat(a, b, c, d, history=True, account=account)
     query = original.history_recipient_query(a, b, c, review["source"], previous["group"])
     original.history_alias_cancellation(a, b, c, review["source"], previous["group"])
     original.history_final_alias_drop(a, b, c, review["source"], previous["group"])
@@ -173,12 +174,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--agent", type=Path, required=True)
     parser.add_argument("--agent-sha256", required=True)
+    parser.add_argument("--agent-provenance", type=Path,
+                        help="Diagnostic-only derived source hash manifest from prepare-hosted-agent.py")
     parser.add_argument("--relay", type=Path, required=True)
     parser.add_argument("--sdk-source", required=True)
     parser.add_argument("--output", type=Path, required=True,
                         help="Fresh aggregate-only report directory; never contains stores or private logs")
     parser.add_argument("--port", type=int, default=18515)
+    parser.add_argument("--scenarios", nargs="+", choices=("archive", "departure", "revocation", "withdrawal"),
+                        default=["archive", "departure", "revocation", "withdrawal"],
+                        help="Run only affected journeys; unselected journeys are not qualified by this report")
     args = parser.parse_args()
+    require(len(set(args.scenarios)) == len(args.scenarios), "unique-selected-scenarios")
     require(re.fullmatch("[0-9a-f]{40}", args.sdk_source) is not None, "exact-sdk-source-required")
     require(args.agent.is_absolute() and args.relay.is_absolute(), "absolute-native-executables")
     require(1024 <= args.port <= 65535, "bounded-loopback-port")
@@ -192,10 +199,15 @@ def main() -> int:
               "frozen_helpers_manifest_sha256": hashlib.sha256((HERE / "native/SOURCE.json").read_bytes()).hexdigest(),
               "additional_helpers_manifest_sha256": hashlib.sha256((HERE / "HOSTED-SOURCE.json").read_bytes()).hexdigest(),
               "passed": 0, "failed": 0, "scenarios": [],
+              "selected_scenarios": args.scenarios,
+              "unselected_scenarios": [name for name in ("archive", "departure", "revocation", "withdrawal")
+                                       if name not in args.scenarios],
               "scope": "Actual macOS native SDK originals on one hosted CI runner; synthetic independent stores only.",
               "not_established": ["complete multi-page historical archive", "expiry and retention enforcement",
                                   "message deletion tombstone propagation", "iOS native execution",
                                   "installed application UI", "published-client interoperability", "cross-host operation"]}
+    if args.agent_provenance is not None:
+        report["agent_source_provenance"] = json.loads(args.agent_provenance.read_text())
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="whitenoise-hosted-native-") as temporary:
         private = Path(temporary)
@@ -209,7 +221,7 @@ def main() -> int:
                 require(bool(select.select([relay.stdout], [], [], 10)[0]), "hosted-relay-ready-timeout")
                 require(relay.stdout.readline().decode().strip() == "ws://127.0.0.1:" + str(args.port)
                         and relay.poll() is None, "hosted-relay-ready-endpoint")
-                for kind in ("archive", "departure", "revocation", "withdrawal"):
+                for kind in args.scenarios:
                     row = {"name": kind, "passed": False}
                     journey = Journey(args.agent, private / kind, args.port)
                     began = time.monotonic()
@@ -241,10 +253,10 @@ def main() -> int:
                     report["relay_cleanup_failed"] = True
                 relay.stdout.close()
     report["passed"] = sum(row["passed"] for row in report["scenarios"])
-    report["expected_scenarios"] = 4
+    report["expected_scenarios"] = len(args.scenarios)
     report["executed_scenarios"] = len(report["scenarios"])
-    report["not_run"] = 4 - len(report["scenarios"])
-    report["failed"] = 4 - report["passed"]
+    report["not_run"] = len(args.scenarios) - len(report["scenarios"])
+    report["failed"] = len(args.scenarios) - report["passed"]
     if report.get("setup_or_relay_failure") or report.get("relay_cleanup_failed"):
         report["failed"] = max(1, report["failed"])
     report["elapsed_seconds"] = round(time.monotonic() - started, 3)

@@ -4,7 +4,14 @@
     "native/revocation_probe.py": {
       "source": "tools/native-sync-acceptance/revocation_probe.py",
       "sha256": "39bf6da670fcb24412abc9ccd6a71ee6639fb956dbb2b9d5c1529e2c2a7cde3f"
+    },
+    "hosted_archive.py": {
+      "source": "tools/native-sync-acceptance/cross_host.py:selected_chat",
+      "workspace_commit": "3048d444ffe681fbae2dc1fb8e4f49d2a1c14372",
+      "original_file_sha256": "ecde36dcf38a5d2963592f2caa29c13c58cdb76983146dc2f70b9957e0766808",
+      "sha256": "f65aba60ac29673de6d2a32bff510ad8d166f5c270e721f9f5fac299457c6c1a",
+      "adaptation": "Add explicit ordinary invitation wait/accept after create-chat; retain every original membership, consent, no-history and delivery assertion."
     }
   },
-  "scope": "Additional unchanged scenario helper; native/SOURCE.json remains authoritative for existing vendored sources."
+  "scope": "Additional hosted helpers and explicit adaptations; native/SOURCE.json remains authoritative for unchanged frozen sources."
 }

@@ -20,7 +20,7 @@ on:
         type: string
       mac_sha:
         description: Exact Mac candidate commit
-        default: "ae3246aa3f5e0d643443e16cbaa8b908e56694a3"
+        default: "089ba5eb82feea1167f27456c0af3f7869c491b0"
         required: true
         type: string
       ios_sha:
@@ -51,6 +51,7 @@ jobs:
       mac_sha: ${{ steps.identity.outputs.mac_sha }}
       ios_sha: ${{ steps.identity.outputs.ios_sha }}
       tools_sha: ${{ steps.identity.outputs.tools_sha }}
+      lanes: ${{ steps.identity.outputs.lanes }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -89,7 +90,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [published-interop, hosted-history, final-ios, final-mac, one-scan]
+        lane: ${{ fromJSON(needs.identity.outputs.lanes) }}
     env:
       SOURCE_SHA: ${{ needs.identity.outputs.sdk_sha }}
       SDK_RUN_ID: ${{ needs.identity.outputs.sdk_run_id }}
@@ -175,6 +176,9 @@ jobs:
             -configuration Debug -destination platform=macOS \
             -derivedDataPath "$RUNNER_TEMP/final-mac-derived-data" \
             CODE_SIGNING_ALLOWED=NO "${device_sync_settings[@]}"
+      - name: Kill storage-admission mutant and verify restored native control
+        if: matrix.lane == 'final-mac'
+        run: python3 scripts/upstream_apple_ci/attachment-storage-mutation.py
       - name: Adopt verified final iOS experimental overlay
         if: matrix.lane == 'final-ios'
         run: |
@@ -212,6 +216,9 @@ jobs:
             ${{ runner.temp }}/hosted-history-evidence/result.json
             ${{ runner.temp }}/hosted-one-scan/result.json
             ${{ runner.temp }}/localization-mutation/result.json
+            ${{ runner.temp }}/attachment-storage-mutation/result.json
+            ${{ runner.temp }}/history-agent-source/DERIVED-SOURCE.json
+            ${{ runner.temp }}/one-scan-agent-source/DERIVED-SOURCE.json
             ${{ runner.temp }}/final-ios.xcresult
             ${{ runner.temp }}/final-ios-summary.json
             ${{ runner.temp }}/final-mac.xcresult

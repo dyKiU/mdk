@@ -40,7 +40,7 @@ require(manifest['features'] == ['otlp-export', 'product-analytics-export'], 'Pu
 swift = args.assets / 'MarmotKit-0.13.0.swift'
 require(digest(swift) == manifest['artifacts'][swift.name]['sha256'], 'Published Swift manifest mismatch')
 normalize = lambda value: '\n'.join(line.rstrip() for line in value.splitlines()) + '\n'
-require(normalize(swift.read_text()) == (package / 'Sources/MarmotKit/MarmotKit.swift').read_text(),
+require(normalize(swift.read_text()) == normalize((package / 'Sources/MarmotKit/MarmotKit.swift').read_text()),
         'Published Swift differs from pinned app source')
 require(not args.output.exists(), 'Published extraction output must be fresh')
 args.output.mkdir()
