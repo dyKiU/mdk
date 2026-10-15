@@ -132,8 +132,12 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     // No enrollment_packet/receive_enrollment_packet/finalize calls by the host.
     eprintln!("automatic-enrollment-control stage=third-device-completion");
     wait_for_automatic_phase_with_approvals(
-        &a, &c, DeviceLinkingPhase::EnrollmentComplete, std::slice::from_ref(&approval),
-    ).await;
+        &a,
+        &c,
+        DeviceLinkingPhase::EnrollmentComplete,
+        std::slice::from_ref(&approval),
+    )
+    .await;
     eprintln!("automatic-enrollment-control stage=third-device-completed");
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
@@ -815,7 +819,10 @@ async fn wait_for_automatic_phase_with_approvals(
     phase: DeviceLinkingPhase,
     approvals: &[DeviceLinkingApproval],
 ) {
-    eprintln!("automatic-enrollment-control stage=required-phase-start phase={phase:?} global_ms={}", crate::account_chat_sharing::enabled::sibling_clock_ms_for_test());
+    eprintln!(
+        "automatic-enrollment-control stage=required-phase-start phase={phase:?} global_ms={}",
+        crate::account_chat_sharing::enabled::sibling_clock_ms_for_test()
+    );
     let mut observed = None;
     tokio::time::timeout(std::time::Duration::from_secs(15), async {
         loop {

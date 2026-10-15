@@ -2062,7 +2062,12 @@ impl AppClient {
                 progress.revision += 1;
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 {
-                    entry.state.sibling_diagnostics.lock().expect("sibling diagnostics").completed_ms =
+                    entry
+                        .state
+                        .sibling_diagnostics
+                        .lock()
+                        .expect("sibling diagnostics")
+                        .completed_ms =
                         crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
                 }
             }
@@ -2188,7 +2193,12 @@ impl AppClient {
                 progress.revision += 1;
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 {
-                    entry.state.sibling_diagnostics.lock().expect("sibling diagnostics").completed_ms =
+                    entry
+                        .state
+                        .sibling_diagnostics
+                        .lock()
+                        .expect("sibling diagnostics")
+                        .completed_ms =
                         crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
                 }
             }
