@@ -131,7 +131,9 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         .unwrap();
     // No enrollment_packet/receive_enrollment_packet/finalize calls by the host.
     eprintln!("automatic-enrollment-control stage=third-device-completion");
-    wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
+    wait_for_automatic_phase_with_approvals(
+        &a, &c, DeviceLinkingPhase::EnrollmentComplete, std::slice::from_ref(&approval),
+    ).await;
     eprintln!("automatic-enrollment-control stage=third-device-completed");
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
@@ -813,6 +815,7 @@ async fn wait_for_automatic_phase_with_approvals(
     phase: DeviceLinkingPhase,
     approvals: &[DeviceLinkingApproval],
 ) {
+    eprintln!("automatic-enrollment-control stage=required-phase-start phase={phase:?} global_ms={}", crate::account_chat_sharing::enabled::sibling_clock_ms_for_test());
     let mut observed = None;
     tokio::time::timeout(std::time::Duration::from_secs(15), async {
         loop {
@@ -845,6 +848,7 @@ async fn wait_for_automatic_phase_with_approvals(
     })
     .await
     .unwrap_or_else(|_| {
+        eprintln!("automatic-enrollment-control stage=required-phase-failure phase={phase:?} global_ms={}", crate::account_chat_sharing::enabled::sibling_clock_ms_for_test());
         #[cfg(feature = "test-policy-overrides")]
         for (side, original) in [("left", a), ("right", b)] {
             eprintln!(
@@ -952,8 +956,14 @@ fn install_publication_diagnostic_subscriber() {
             }
             let mut fields = Fields(Vec::new());
             event.record(&mut fields);
+            // Linux reports cumulative scheduled CPU nanoseconds for this exact
+            // runtime thread. Its delta is shared-runtime work, not attribution
+            // to the async operation between these stage events.
+            let scheduled_cpu_ns = std::fs::read_to_string("/proc/thread-self/schedstat")
+                .ok()
+                .and_then(|value| value.split_whitespace().next()?.parse::<u64>().ok());
             eprintln!(
-                "sdk-publication-control global_ms={} {}",
+                "sdk-publication-control global_ms={} scheduled_cpu_ns={scheduled_cpu_ns:?} {}",
                 crate::account_chat_sharing::enabled::sibling_clock_ms_for_test(),
                 fields.0.join(" ")
             );
