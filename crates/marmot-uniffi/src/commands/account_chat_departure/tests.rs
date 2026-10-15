@@ -29,12 +29,7 @@ extern "C" fn continuation(data: u64, status: RustFuturePoll) {
     let _ = sender.send(status);
 }
 
-fn invoke_export_without_tokio(
-    kit: Arc<Marmot>,
-    account: String,
-    group: String,
-    leave: bool,
-) {
+fn invoke_export_without_tokio(kit: Arc<Marmot>, account: String, group: String, leave: bool) {
     assert!(
         tokio::runtime::Handle::try_current().is_err(),
         "the foreign caller must not supply a Tokio runtime"
@@ -79,15 +74,18 @@ fn invoke_export_without_tokio(
     let mut status = RustCallStatus::default();
     // SAFETY: polling reported Ready, this is the first completion, and the
     // return type matches the generated record-returning entry point.
-    let buffer = unsafe {
-        uniffi::rust_future_complete::<RustBuffer, UniFfiTag>(future.0, &mut status)
-    };
+    let buffer =
+        unsafe { uniffi::rust_future_complete::<RustBuffer, UniFfiTag>(future.0, &mut status) };
     let code = status.code;
     // Error details may contain a Rust panic payload. Release without printing.
     ManuallyDrop::into_inner(status.error_buf).destroy();
     if code != RustCallStatusCode::Success {
         buffer.destroy();
-        assert_eq!(code, RustCallStatusCode::Success, "foreign departure call failed");
+        assert_eq!(
+            code,
+            RustCallStatusCode::Success,
+            "foreign departure call failed"
+        );
         return;
     }
     let value = <AccountChatDepartureStateFfi as Lift<UniFfiTag>>::try_lift(buffer)
@@ -133,7 +131,12 @@ fn departure_fixture(leave: bool) {
             .account
             .account_id_hex;
         let group = kit
-            .create_group(account.clone(), "Foreign future fixture".into(), vec![], None)
+            .create_group(
+                account.clone(),
+                "Foreign future fixture".into(),
+                vec![],
+                None,
+            )
             .await
             .unwrap();
         (kit, relay, account, group)
