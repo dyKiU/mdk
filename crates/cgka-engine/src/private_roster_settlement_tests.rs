@@ -3201,3 +3201,30 @@ async fn private_roster_settlement_loaded_facts_stay_inside_pinned_snapshot() {
     assert!(responder.validated_settled_device_roster(&group).unwrap().is_none(), "fresh call after the snapshot must observe the foreign denial");
     assert!(initiator.validated_settled_device_roster(&group).unwrap().is_some());
 }
+
+#[tokio::test]
+async fn private_roster_settlement_fresh_read_rejects_missing_nonlocal_confirmation() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("isolated-fresh-nonlocal-fact.db");
+    let key = SqlCipherKey::new("18".repeat(32)).unwrap();
+    let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let (initiator, responder, group) = complete_pair(storage.clone()).await;
+    assert!(responder.validated_settled_device_roster(&group).unwrap().is_some());
+    let store = storage.private_roster_settlement_storage().unwrap();
+    let round = store.read_round().unwrap().unwrap();
+    let facts = store.read_facts().unwrap();
+    assert!(round.prepared_ciphertext.is_some());
+    assert!(facts.iter().any(|fact| fact.signature_public_key == round.anchor.local_device));
+    let remote = facts.iter().find(|fact| fact.signature_public_key != round.anchor.local_device).unwrap();
+    let foreign = rusqlite::Connection::open(&path).unwrap();
+    storage_sqlite::open_hardened_sqlcipher(&foreign, &key, storage_sqlite::SqlCipherHardening::default()).unwrap();
+    let state_before: Vec<u8> = foreign.query_row("SELECT state FROM private_roster_settlement", [], |row| row.get(0)).unwrap();
+    assert_eq!(foreign.execute("DELETE FROM private_roster_settlement_facts WHERE leaf_index=?1", [i64::from(remote.leaf_index)]).unwrap(), 1);
+    let remaining: i64 = foreign.query_row("SELECT count(*) FROM private_roster_settlement_facts", [], |row| row.get(0)).unwrap();
+    assert_eq!(remaining, i64::try_from(facts.len()-1).unwrap());
+    let state_after: Vec<u8> = foreign.query_row("SELECT state FROM private_roster_settlement", [], |row| row.get(0)).unwrap();
+    assert!(state_before == state_after, "the local ciphertext and completed state remain unchanged");
+    assert!(responder.validated_private_successor(&group).unwrap().is_some(), "the actual protected successor remains valid");
+    assert!(matches!(responder.validated_settled_device_roster(&group), Err(EngineError::Storage(cgka_traits::storage::StorageError::Serialization(message))) if message == "invalid private settlement facts"), "missing genuine non-local receipt retains the exact completed-facts corruption error");
+    assert!(initiator.validated_settled_device_roster(&group).unwrap().is_some());
+}

@@ -668,3 +668,13 @@ fn private_settlement_legacy_combined_read_never_eagerly_loads_facts() {
     assert!(matches!(legacy.read_facts(), Err(StorageError::Serialization(message)) if message == "legacy facts unavailable"));
     assert_eq!(legacy.fact_reads.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
+
+#[test]
+fn private_settlement_combined_read_rejects_indexed_generation_mismatch() {
+    let storage = SqliteAccountStorage::in_memory().unwrap();
+    complete(&storage);
+    assert!(storage.read_round_with_loaded_facts().unwrap().is_some());
+    storage.lock().unwrap().execute("UPDATE private_roster_settlement SET generation=generation+1", []).unwrap();
+    assert!(matches!(storage.read_round(), Err(StorageError::Serialization(message)) if message == "invalid private settlement facts"));
+    assert!(matches!(storage.read_round_with_loaded_facts(), Err(StorageError::Serialization(message)) if message == "invalid private settlement facts"));
+}
