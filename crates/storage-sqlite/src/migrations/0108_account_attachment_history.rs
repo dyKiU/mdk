@@ -42,10 +42,28 @@ mod tests {
         crate::migrations::run(&mut conn, &crate::migrations::MIGRATIONS[..106]).unwrap();
         conn.execute_batch("INSERT INTO message_timeline(group_id_hex,message_id_hex,source_message_id_hex,source_epoch,direction,sender,plaintext,kind,tags_json,timeline_at,received_at,reactions_json,media_json)
             VALUES('aa','old','old',0,'received','alice','private',9,'[]',1,1,'[]','{\"imeta\":[[\"imeta\",\"v future\"]]}');").unwrap();
+        // The historical fixture has only core receipts. The integrated runner
+        // installs the separate, empty private schema as part of the same
+        // transaction, so its applied count includes both independent ledgers.
+        let private_count = crate::migrations::latest_private_migration_version() as usize;
         assert_eq!(
             crate::migrations::run_all(&mut conn).unwrap(),
-            crate::migrations::MIGRATIONS.len() - 106
+            crate::migrations::MIGRATIONS.len() - 106 + private_count
         );
+        let core_receipts: usize = conn
+            .query_row("SELECT count(*) FROM cgka_schema_migrations", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let private_receipts: usize = conn
+            .query_row(
+                "SELECT count(*) FROM cgka_experimental_device_sync_schema_migrations",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(core_receipts, crate::migrations::MIGRATIONS.len());
+        assert_eq!(private_receipts, private_count);
         assert_eq!(crate::migrations::run_all(&mut conn).unwrap(), 0);
         let count: i64 = conn
             .query_row("SELECT count(*) FROM attachment_history", [], |r| r.get(0))
