@@ -387,6 +387,11 @@ impl DeviceLinkingSession {
             .map(|choice| choice.child_diagnostics_for_test())
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_publications_for_test(&self) -> Vec<cgka_traits::MessageId> {
+        self.inner.sharing_choice.lock().expect("sharing choice").as_ref()
+            .map_or_else(Vec::new, |choice| choice.publications_for_test())
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn sibling_completion_aggregates_for_test(
         &self,
     ) -> Option<(bool, Option<usize>, usize, usize)> {

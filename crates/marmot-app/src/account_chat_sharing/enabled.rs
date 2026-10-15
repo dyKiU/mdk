@@ -42,6 +42,14 @@ pub(crate) struct SiblingMaintenanceDiagnostics {
     pub(crate) failures: usize,
     pub(crate) last_failure: Option<SiblingMaintenanceFailure>,
     pub(crate) publication_stage: Option<SiblingPublicationStage>,
+    // Request, Consent, Proof counts; actual adapter ACKs are counted in the task.
+    pub(crate) prepared: [usize; 3],
+    pub(crate) acknowledged: [usize; 3],
+    pub(crate) pending_kind: usize,
+    pub(crate) pending_started: Option<Instant>,
+    pub(crate) pending_task_finished: bool,
+    // Retained privately for an independent, post-failure relay read; never logged.
+    pub(crate) last_publication: Option<cgka_traits::MessageId>,
 }
 
 #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -51,6 +59,9 @@ pub(crate) type SiblingMaintenanceSnapshot = (
     usize,
     Option<SiblingMaintenanceFailure>,
     Option<SiblingPublicationStage>,
+    [usize; 3],
+    [usize; 3],
+    [usize; 3],
 );
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl SiblingMaintenanceDiagnostics {
@@ -61,6 +72,13 @@ impl SiblingMaintenanceDiagnostics {
             self.failures,
             self.last_failure,
             self.publication_stage,
+            self.prepared,
+            self.acknowledged,
+            [
+                self.pending_kind,
+                self.pending_started.map_or(0, |start| start.elapsed().as_millis() as usize),
+                usize::from(self.pending_task_finished),
+            ],
         )
     }
 }

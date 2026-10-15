@@ -422,6 +422,17 @@ impl OriginalEnrollmentSharingChoice {
             .collect()
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn publications_for_test(&self) -> Vec<cgka_traits::MessageId> {
+        self.children
+            .lock()
+            .expect("sibling children")
+            .iter()
+            .filter_map(|state| {
+                state.sibling_diagnostics.lock().expect("sibling diagnostics").last_publication.clone()
+            })
+            .collect()
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn completion_aggregates_for_test(&self) -> (bool, Option<usize>, usize, usize) {
         let progress = self.progress.lock().expect("sharing choice");
         let children = self.children.lock().expect("sibling children");
@@ -1837,12 +1848,13 @@ impl AppClient {
                     .fold(0, |mask, (index, value)| {
                         mask | (usize::from(value) << index)
                     });
-                entry
-                    .state
-                    .sibling_diagnostics
-                    .lock()
-                    .expect("sibling diagnostics")
-                    .channel_bits = mask;
+                let mut diagnostic = entry.state.sibling_diagnostics.lock().expect("sibling diagnostics");
+                diagnostic.channel_bits = mask;
+                diagnostic.pending_task_finished = entry.publication.as_ref().is_some_and(|pending| pending.task.is_finished());
+                if entry.publication.is_none() {
+                    diagnostic.pending_kind = 0;
+                    diagnostic.pending_started = None;
+                }
             }
         }
         self.linking_owner.sibling_channels = channels;
@@ -2224,6 +2236,16 @@ impl AppClient {
         let mut shutdown = self.history_owner.runtime_shutdown.clone();
         let proof = body.is_some();
         let consent = entry.recipient && !proof;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        {
+            let mut diagnostic = state.sibling_diagnostics.lock().expect("sibling diagnostics");
+            let index = if proof { 2 } else if consent { 1 } else { 0 };
+            diagnostic.prepared[index] += 1;
+            diagnostic.pending_kind = index + 1;
+            diagnostic.pending_started = Some(Instant::now());
+            diagnostic.pending_task_finished = false;
+            diagnostic.last_publication = Some(request.message.id.clone());
+        }
         let task = tokio::spawn(async move {
             let revoked = state.revoked.notified();
             tokio::pin!(revoked);
@@ -2261,11 +2283,9 @@ impl AppClient {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             {
                 use crate::account_chat_sharing::enabled::SiblingPublicationStage as Stage;
-                state
-                    .sibling_diagnostics
-                    .lock()
-                    .expect("sibling diagnostics")
-                    .publication_stage = Some(Stage::AfterRelayPublication);
+                let mut diagnostic = state.sibling_diagnostics.lock().expect("sibling diagnostics");
+                diagnostic.publication_stage = Some(Stage::AfterRelayPublication);
+                diagnostic.acknowledged[if proof { 2 } else if consent { 1 } else { 0 }] += 1;
             }
             Ok(())
         });
