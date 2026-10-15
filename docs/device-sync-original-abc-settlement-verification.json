@@ -1,0 +1,284 @@
+{
+  "scope": "Original SDK A/B/C enrollment and actual three-device roster settlement; native enrollment/UI/artifact adoption remains open",
+  "parent_commit": "1cb1ece079ee69ee0c1a73dbbe659289909843e3",
+  "remote_runner_baseline_head": "43f002d7c94f4f680951014e70a157f097e0208e",
+  "qualified_source_manifest_sha256": "2a590e6a3c8b5f8b07cc7dd7490d9dcc07228402b875c5dd402ab8d6b62b06cb",
+  "qualified_inputs": 2387,
+  "all_local_inputs_match": true,
+  "behavioral_fixture_sha256": "c7a4541c5721729819470ce85e9ba31ab33b7fc40ea4c4fca6446202765a671e",
+  "red": {
+    "actual_tests": 1,
+    "passed": 0,
+    "failed": 1,
+    "log_sha256": "23f885d645cbec59d02c5bfc2edb6a0189ff97129aa00fac6d3ef94af281f249"
+  },
+  "diagnostic_findings": [
+    "B maintenance reselection erased a genuinely accepted coordinator Challenge; exact original in-memory guard reuse preserves it",
+    "C received authenticated B ACK before coordinator Challenge; bounded deferred receipts prevent ratchet consumption from losing that confirmation"
+  ],
+  "first_clean_green": {
+    "tests": 1,
+    "passed": 1,
+    "log_sha256": "bbb6c35116eb6b3ad7c7803c8347ee32c23b33cce18c5ffe1184df38e9d85287",
+    "source_manifest_sha256": "2baf2cc53fea8b49f28943f8d17aa0ffcfa992ad8b1ec5dc5abf2ca71cf8a209"
+  },
+  "final_checks": [
+    {
+      "name": "abc",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "device_linking_original_abc_actions_settle_actual_three_device_roster",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 26.13,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "1f58f505ec6ef2f22e1f27403af3e6cfd78e9e5555558e9ba9aa45903548420e"
+    },
+    {
+      "name": "storage",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "experimental-device-sync",
+        "--lib",
+        "private_settlement",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 42.35,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "b59aa341e99b6d6773c0caa2b57419f6e2106b8f2d161c5b9eaf59ba65be51f7"
+    },
+    {
+      "name": "snapshot",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-traits",
+        "--test",
+        "snapshots",
+        "snapshot_private_settlement_metadata_is_not_admission",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 2.58,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "31b9d39228c8c3158e5e320b363833e9dad7b832577deca62837db9434dad3d0"
+    },
+    {
+      "name": "sdk",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "device_linking_original_sdk",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 47.3,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "fb6c122551986351130c3eabb362f2642ae7ffd57109d97cf727871c5758ea38"
+    },
+    {
+      "name": "b-rollback-cancel",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "device_linking_original_b_action_bridges_actual_c_add_atomically",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 6.76,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "fb38da7472c77129f99ce68b3a24e28ac811e62a4f07cbce1f4be72b3762f30b"
+    },
+    {
+      "name": "sdk-expiry",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "device_linking_worker_expiry_retires_owned_preparation_without_restoring_consent",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 3.25,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "b21cf112e62ee54d36cc594a18c77a0452aa0fd2affcebe4bba54bdef56555db"
+    },
+    {
+      "name": "sdk-cancel-sql",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "device_linking_settlement_cancel_sql_fault_revokes_original_delivery_permission",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "seconds": 4.23,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "a596c936139bf291e45310902714707b5bac8823705e9e566a3d6e907ce1a947"
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "-p",
+        "cgka-engine",
+        "-p",
+        "storage-sqlite",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 33.31,
+      "counts": [],
+      "log_sha256": "21e6174e24daa0a85054a76f7ec5f73122a5545d9031135bc022bb1a38cf6c15"
+    },
+    {
+      "name": "default",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "-p",
+        "cgka-engine",
+        "-p",
+        "storage-sqlite",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 20.1,
+      "counts": [],
+      "log_sha256": "585d4fdcd6b6d555b32f8e18e16daada2af356e6720c1db5c47958a68d78d89a"
+    },
+    {
+      "name": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 3.39,
+      "counts": [],
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "postqualification_documentation_only": [
+    "crates/cgka-engine/AGENTS.md",
+    "crates/marmot-app/AGENTS.md",
+    "crates/traits/AGENTS.md",
+    "crates/storage-sqlite/AGENTS.md",
+    "docs/device-sync-original-abc-settlement-verification.json"
+  ],
+  "notes": [
+    "M5 baseline Git HEAD remained43f during qualification because Git bundle exported HEAD rather than branch; all2387 source bytes independently match the final native-integrated local candidate",
+    "No diagnostic prints, snapshots, dependency changes, schema migrations or serialized grants",
+    "27 focused actual tests passed; three-package production feature all-target Clippy, default all-target check and workspace fmt passed"
+  ]
+}

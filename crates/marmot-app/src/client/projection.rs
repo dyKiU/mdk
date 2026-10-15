@@ -247,6 +247,18 @@ impl AppClient {
     }
 
     pub(crate) fn refresh_group(&mut self, group_id: &GroupId) {
+        #[cfg(feature = "experimental-device-sync")]
+        // Recovery and maintenance can refresh without a GroupEvent. Consult
+        // negative private provenance at the projection entrance too. Refresh
+        // is best effort; an unreadable classification must not expose a chat.
+        if !matches!(
+            self.runtime
+                .session()
+                .exclude_private_group_from_chat(group_id),
+            Ok(false)
+        ) {
+            return;
+        }
         if self.state_group_record(group_id).is_none() {
             match self.has_local_group_deletion_frontier(group_id) {
                 Ok(true) => {
@@ -276,6 +288,15 @@ impl AppClient {
     }
 
     pub(crate) fn add_group(&mut self, group_id: &GroupId) -> Result<(), AppError> {
+        #[cfg(feature = "experimental-device-sync")]
+        if self
+            .runtime
+            .session()
+            .exclude_private_group_from_chat(group_id)
+            .map_err(cgka_session::SessionError::from)?
+        {
+            return Ok(());
+        }
         let previous = self.state_group_record(group_id);
         let group_metadata = self.runtime.group_record(group_id).ok();
         let projection = self.event_group_projection(group_id, group_metadata.as_ref())?;
@@ -499,6 +520,16 @@ impl AppClient {
             self.mark_group_projection_dirty_hex(id);
         }
         for group_id in live_group_ids {
+            #[cfg(feature = "experimental-device-sync")]
+            if self
+                .runtime
+                .session()
+                .exclude_private_group_from_chat(&group_id)
+                .map_err(cgka_session::SessionError::from)?
+            {
+                continue;
+            }
+
             self.cleanup_stale_push_tokens_best_effort(&group_id);
             // Reopen repairs a lost removal-withdrawal announcement from the
             // canonical local leaf, including after the migration backfill ran.
@@ -1501,6 +1532,7 @@ fn read_marker_error_code(error: &AppError) -> &'static str {
             "read_marker_failed:moderation_report_rate_limited"
         }
         AppError::InvalidEditTarget => "read_marker_failed:invalid_edit_target",
+        AppError::AccountChatDepartureDenied => "read_marker_failed:account_chat_departure_denied",
     }
 }
 

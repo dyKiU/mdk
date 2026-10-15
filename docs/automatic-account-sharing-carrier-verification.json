@@ -1,0 +1,64 @@
+{
+  "base": "4d6b63d1e099847107f8cb4391dd3087f4c8c3ac",
+  "candidate_stash": "13aa0d084281248d03463856d80ad1d0eef2b41e",
+  "manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-account-sharing-carrier/automatic-account-sharing-carrier-v4-inputs.json",
+  "manifest_sha256": "8fd4326c95654b9f973747b4bb28a7c7b573397cdfd151868170158848277830",
+  "inputs": 2531,
+  "gates": [
+    {
+      "gate": "catalog",
+      "exit": 0,
+      "seconds": 29.57529926300049,
+      "log": "/Users/pj/project/build/automatic-account-sharing-carrier-v4-catalog.log",
+      "log_sha256": "b8c79b3bf3705ab3a9c683070c502b67ed23e4eacb7507892c3d5a04c294af9d"
+    },
+    {
+      "gate": "clippy",
+      "exit": 0,
+      "seconds": 20.72708010673523,
+      "log": "/Users/pj/project/build/automatic-account-sharing-carrier-v4-clippy.log",
+      "log_sha256": "c2b3ac9fe85ada2c59ac363b1600ee4b9e3ecb1832fb3173aa1b6c1a17c1eeb7"
+    },
+    {
+      "gate": "default",
+      "exit": 0,
+      "seconds": 12.140567779541016,
+      "log": "/Users/pj/project/build/automatic-account-sharing-carrier-v4-default.log",
+      "log_sha256": "ef8a39bab353efbfdce122c68b3d528cfa789262aa83553b19495de235ab0bc2"
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.5994250774383545,
+      "log": "/Users/pj/project/build/automatic-account-sharing-carrier-v4-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "actual_tests": {
+    "passed": 4,
+    "failed": 0,
+    "ignored": 0
+  },
+  "owned_runtime_hashes": {
+    "crates/cgka-engine/src/account_chat_sharing.rs": "34059fc9a939edaebfa5a808adbcfd7b33197f15c9531ef419ae49d7aa43a7bd",
+    "crates/cgka-engine/src/account_chat_sharing/tests.rs": "653d19c8f0df64b783ac7c28a4f6524570ce543ca05d21fcdb010facc26c2475",
+    "crates/cgka-engine/src/account_chat_sharing/transport.rs": "635117093080b7c4c791835337e64c218cf06170091bc0d0edbba9e69d58049f"
+  },
+  "postfreeze_docs": [
+    "crates/cgka-engine/AGENTS.md",
+    "docs/automatic-account-chat-sharing.md",
+    "docs/marmot-architecture/runtime-state-bounds.md",
+    "docs/automatic-account-sharing-carrier-verification.json"
+  ],
+  "previous_cohorts": {
+    "v1": "compile-only u16/u64 kind mismatch; raw retained",
+    "v2": "4 actual tests and all4gates pass; earlier approval-digest-only shape",
+    "v3": "unchanged v2 tiny repeat all4gates pass; final original approval-ID adjustment not yet present"
+  },
+  "limits": [
+    "Passthrough peeler maximum-size fixture only, full Nostr wrapper still pending",
+    "No actual third protected member inner-decrypt control yet",
+    "No durable policy storage or App actor/list/timeline/send implementation yet",
+    "Root-owned migration17 dependencies included unsigned candidate, preserved separately by root"
+  ]
+}

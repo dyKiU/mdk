@@ -1,0 +1,496 @@
+{
+  "schema_version": 1,
+  "base_commit": "545ec22215e9b81b5e50841b2d96c682f7203276",
+  "milestone": "Thin opaque verification-only UniFFI and C bindings over actual App sessions; no enrollment or native artifact adoption claim.",
+  "qualification": {
+    "host": "macbook.m5 Apple Silicon",
+    "rust": "1.97.1",
+    "source_paths": 2370,
+    "frozen_manifest_sha256": "556249757968af19753c10e018aa5553196e9d53d0f1eed1a8f34dfe137f79e2",
+    "source_matched": true,
+    "human_docs_appended_after_checks": [
+      "crates/marmot-uniffi/AGENTS.md",
+      "crates/marmot-c/AGENTS.md",
+      "crates/marmot-uniffi/CHANGELOG.md"
+    ],
+    "shared_target": "MdkRecipientCollectionTargetM5, exclusive; refreshed nonvendor workspace Rust/Cargo inputs before RED and default header generation",
+    "lockfile": "Cargo expansion canonicalized web-time dependency ordering only; parsed package versions and dependency sets are unchanged."
+  },
+  "behavioral_evidence": [
+    {
+      "cohort": "red",
+      "runs": [
+        {
+          "name": "uniffi",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "--features",
+            "experimental-device-sync",
+            "--lib",
+            "commands::device_linking::tests::native_binding"
+          ],
+          "exit_code": 101,
+          "seconds": 83.98,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "sha256": "9091f918d3088a3122806de68c5aada0d3f0d621c369072dec796311f0470038"
+        },
+        {
+          "name": "c",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-c",
+            "--features",
+            "experimental-device-sync,alloc-audit",
+            "--lib",
+            "device_linking::tests::actual_c"
+          ],
+          "exit_code": 101,
+          "seconds": 70.65,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "sha256": "4eea91263bd9a6e8246943cb9eb0e037540aecf4b0d1c21cdbaf768b7a39d6a0"
+        }
+      ]
+    },
+    {
+      "cohort": "v1",
+      "runs": [
+        {
+          "name": "uniffi",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "--features",
+            "experimental-device-sync",
+            "--lib",
+            "commands::device_linking::tests"
+          ],
+          "exit_code": 0,
+          "seconds": 10.95,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "e83e66f803ffa824f04bf18e2ec2bd2d01d50a0628f1bc6d318a489a4c276951"
+        },
+        {
+          "name": "c",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-c",
+            "--features",
+            "experimental-device-sync,alloc-audit",
+            "--lib",
+            "device_linking::tests"
+          ],
+          "exit_code": 101,
+          "seconds": 18.45,
+          "counts": [],
+          "sha256": "9457c669a6b765fe2d1126ab6f089dcedf913313d50b32589b9ccaaf2496aff9",
+          "qualification_error": "Empty selector"
+        }
+      ]
+    },
+    {
+      "cohort": "v2",
+      "runs": [
+        {
+          "name": "uniffi",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "--features",
+            "experimental-device-sync",
+            "--lib",
+            "commands::device_linking::tests"
+          ],
+          "exit_code": 0,
+          "seconds": 8.69,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "1db4ea75fdd129d4ea08c650428d48370fcefe8137124a70331d1f70cc5112fd"
+        },
+        {
+          "name": "c",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-c",
+            "--features",
+            "experimental-device-sync,alloc-audit",
+            "--lib",
+            "device_linking::tests"
+          ],
+          "exit_code": 0,
+          "seconds": 13.86,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 3,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "4fe1ef43b46d378152f0e19aee61ba6274a4e0601364c40ad49df088c84dfb52"
+        },
+        {
+          "name": "uniffi-default",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "--lib",
+            "commands::device_linking::tests"
+          ],
+          "exit_code": 0,
+          "seconds": 66.73,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "274574526c1e599f7b3dc2d974ba171ca24e8f4f7dd7d252b7bc77cf3d1c3e72"
+        },
+        {
+          "name": "c-default",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-c",
+            "--features",
+            "alloc-audit",
+            "--lib",
+            "device_linking::tests"
+          ],
+          "exit_code": 0,
+          "seconds": 54.33,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 3,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "ee0f164f86d7d57003674afaf35ec245265216133fd00f62dec2a6421e6361da"
+        },
+        {
+          "name": "clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "-p",
+            "marmot-c",
+            "--features",
+            "experimental-device-sync",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 101,
+          "seconds": 40.4,
+          "counts": [],
+          "sha256": "344d8b6adb7d427bd7beaf9da44bc95279a1a0cd2d99e131850739b7f029fd41"
+        }
+      ]
+    },
+    {
+      "cohort": "v3",
+      "runs": [
+        {
+          "name": "uniffi",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "--features",
+            "experimental-device-sync",
+            "--lib",
+            "commands::device_linking::tests"
+          ],
+          "exit_code": 0,
+          "seconds": 61.92,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "6fa899834929c0873c8073a8458cf15599f505f82d52a7f21a78ffc86ddb6fc7"
+        },
+        {
+          "name": "c",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-c",
+            "--features",
+            "experimental-device-sync,alloc-audit",
+            "--lib",
+            "device_linking::tests"
+          ],
+          "exit_code": 0,
+          "seconds": 33.3,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 3,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "19f981a01685819d056bc594727a8561b0987b7167225b6259b768c23400f366"
+        },
+        {
+          "name": "uniffi-default",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "--lib",
+            "commands::device_linking::tests"
+          ],
+          "exit_code": 0,
+          "seconds": 32.51,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "48eb59dab8c73822a77871096f0623eaa01198f506655a4c5477f4ba49c2ab36"
+        },
+        {
+          "name": "c-default",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-c",
+            "--features",
+            "alloc-audit",
+            "--lib",
+            "device_linking::tests"
+          ],
+          "exit_code": 0,
+          "seconds": 17.56,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 3,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "17abe0782c276f4cd9919b32a06b6ef1c3fdb58ef4236d209ac41c823ceab884"
+        },
+        {
+          "name": "clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "-p",
+            "marmot-c",
+            "--features",
+            "experimental-device-sync",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 0,
+          "seconds": 33.69,
+          "counts": [],
+          "sha256": "13d4d9825c25089bc9588dcb2eb7a9439827db3eae298f3ed92c31e3a75d77f6"
+        },
+        {
+          "name": "default",
+          "command": [
+            "cargo",
+            "check",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "-p",
+            "marmot-c",
+            "--all-targets"
+          ],
+          "exit_code": 0,
+          "seconds": 33.99,
+          "counts": [],
+          "sha256": "3054f01562e2b0c2b99259f3302a72948e86b18686e1dc0db60a06826cacb371"
+        },
+        {
+          "name": "fmt",
+          "command": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--",
+            "--check"
+          ],
+          "exit_code": 0,
+          "seconds": 4.18,
+          "counts": [],
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "docs",
+          "command": [
+            "python3",
+            "scripts/check_binding_docs.py"
+          ],
+          "exit_code": 0,
+          "seconds": 0.19,
+          "counts": [],
+          "sha256": "b9b12336134b3526f0364c2c8d2ed11d3e6b2c1e43cd05cb4efbc2321ca00db4"
+        },
+        {
+          "name": "docs-tests",
+          "command": [
+            "python3",
+            "scripts/test_check_binding_docs.py"
+          ],
+          "exit_code": 0,
+          "seconds": 0.22,
+          "counts": [],
+          "sha256": "7eecc9251f4a43ae8160718b661d12e52e0818eea935069980fe63697dad3a74"
+        },
+        {
+          "name": "parity",
+          "command": [
+            "python3",
+            "scripts/check_c_binding_parity.py"
+          ],
+          "exit_code": 0,
+          "seconds": 0.12,
+          "counts": [],
+          "sha256": "0e1ac46ce15026c75d080c427f51c50787fe28c930b5db5f5405e5f00d0029fd"
+        }
+      ]
+    }
+  ],
+  "preserved_failure_details": {
+    "red": "Both actual worker SDK pairing tests execute and fail against Unsupported factory baseline; 0/1 UniFFI and 0/1 C.",
+    "v1": "UniFFI passes1; C fixture aborts on NULL/zero-length empty packet list slice. Not a terminal C test pass or a zero-test behavioral RED. Empty fixture drain fixed before v2.",
+    "v2": "All four focused test cohorts pass; production-only all-target Clippy fails items_after_test_module. Public exports moved above test module.",
+    "v3": "Final four focused cohorts pass (1+3+1+3); C test additionally invokes actual blocking snapshot on embedded runtime worker. Feature Clippy, default all-target check, format, docs inventory, 17 companion doc tests and parity pass."
+  },
+  "header_generation": [
+    {
+      "command": [
+        "/Users/pj/project/build/NativeBindingTools/bin/cbindgen",
+        "--config",
+        "crates/marmot-c/cbindgen.toml",
+        "--crate",
+        "marmot-c",
+        "--output",
+        "crates/marmot-c/include/marmot.h",
+        "crates/marmot-c"
+      ],
+      "exit_code": 0,
+      "seconds": 46.96,
+      "tool_version": "cbindgen 0.29.4",
+      "tool_sha256": "ca40468bfbd230290ff4b172fa526385b055c46d79bbc9b5e55358358935fcd7",
+      "log_sha256": "1c309bec66ce8b620c2244856fa775a5ade1bc3e59bb667634d6b63c48105397",
+      "header_sha256": "efb28fef8775c20f5951c5254658fa046eb4d56f722071fc455bb071ad433292"
+    },
+    {
+      "command": [
+        "/Users/pj/project/build/NativeBindingTools/bin/cbindgen",
+        "--config",
+        "/Users/pj/project/build/native-binding-experimental-cbindgen.toml",
+        "--crate",
+        "marmot-c",
+        "--output",
+        "/Users/pj/project/build/native-binding-experimental-marmot.h",
+        "crates/marmot-c"
+      ],
+      "exit_code": 0,
+      "seconds": 55.59,
+      "tool_version": "cbindgen 0.29.4",
+      "tool_sha256": "ca40468bfbd230290ff4b172fa526385b055c46d79bbc9b5e55358358935fcd7",
+      "log_sha256": "1c309bec66ce8b620c2244856fa775a5ade1bc3e59bb667634d6b63c48105397",
+      "header_sha256": "efb28fef8775c20f5951c5254658fa046eb4d56f722071fc455bb071ad433292",
+      "identical_to_default": true
+    }
+  ],
+  "runtime_contract": {
+    "default": "Stable public shape; Unsupported before account lookup/reservation.",
+    "experimental": "Actual SDK packet exchange, standard3 SAS decimals, revision-bound human confirmation, both peer MACs; EnrollmentPending; enrollment capability false/continue NotReady.",
+    "c": "Append-only statuses96-101, bounded copy/preflight before effects, callback-safe runtime bridge, opaque handle/free and deep-free allocaudit."
+  },
+  "remaining": [
+    "Full marmot-uniffi and marmot-c alloc-audit suites and external C shared/static smoke.",
+    "Matched generated Swift/Kotlin/native ABI validation and Apple experimental artifacts.",
+    "Full public native cancellation/drop/expiry/account-switch/stalled SDK/capacity negative controls.",
+    "C recipient guarded admission, B original-action protected transition, A/B/C epoch settlement and real offline/chat-history delivery.",
+    "M1/M5 and dedicated iOS simulator application adoption; physical install remains user-deferred."
+  ]
+}

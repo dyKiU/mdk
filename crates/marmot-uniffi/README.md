@@ -13,6 +13,13 @@ Read the documentation at the tag matching your binaries; `master` can describe 
   selection, lifecycle, snapshots, diagnostics and compatibility
 - Runtime setup: [runtime options and client label](#runtime-options-and-client-label),
   [exclusive root ownership](#exclusive-root-ownership), [service endpoint defaults](#service-endpoint-defaults)
+- [Device verification](#device-verification): opaque sessions, SAS comparison and cancellation
+- [Account-wide sharing approval](ACCOUNT-CHAT-SHARING.md): original paired-device reviews and durable policy scope
+- [Account chat views](ACCOUNT-CHAT-VIEWS.md): automatically refreshed local and paired-source conversation views
+- [Selected-chat copies](SELECTED-CHAT-COPY.md): explicit original selection, sibling consent and bounded private offers
+- [Exact-device revocation](#exact-device-revocation)
+- [Original history transfers](HISTORY-TRANSFER.md): authenticated review, explicit original consent and committed-import observations
+- [Committed synchronized history](SYNCHRONIZED-HISTORY.md): bounded local source-attested records, retention and keyset paging
 - Accounts and identity: [interactive account onboarding](#interactive-account-onboarding),
   [identity references and profiles](#identity-references-and-profiles),
   [KeyPackage inventory](#keypackage-inventory), [KeyPackage client preference](#keypackage-client-preference),
@@ -86,6 +93,7 @@ screen API exists. The method reference marks explicit alternatives individually
 | One chat row | `presentedChatListRow` | `chatListRow` when raw fields are specifically required. Avoid account-wide reads for one row. |
 | Account badges | `subscribeAccountAttention` | `accountUnreadSummary` remains a one-shot lower-level unread query, not a substitute for the prepared attention contract. |
 | Conversation screen | `openConversationWindow` | `timelineMessages` / `subscribeTimelineMessages` for a custom timeline; `messages` / `subscribeMessages` for raw stored messages. |
+| Leave a paired-account chat | `accountChatDepartureState`, then `leaveAccountChat` | `leaveGroup` remains the explicit device-local operation. Show pending/offline/admin requirements honestly; a paired row does not supply local MLS management authority. |
 | Reaction details | `messageReactions` for complete effective participants | Window references contain bounded previews only. See [complete reaction details](CONVERSATION-WINDOW.md#complete-reaction-details). |
 | Composer | `selectedMessageDraft`, revision-conditional save/clear/attachment reads, `sendMessageDraft` | Unconditional `messageDraft` / `saveMessageDraft` / `deleteMessageDraft` for older single-owner flows; new concurrent composers should use revisions. `sendText` and other direct send methods remain supported. |
 | Visible avatars | `requestAvatarAssets` then `readAvatarAssets` using screen metadata | `downloadProfileImage` / `downloadGroupBlossomImage` for explicit low-level downloads; new screens should use MDK's durable cache. |
@@ -221,6 +229,10 @@ persisting formatted strings. The native renderer is supplied by the host app,
 not this crate.
 
 ### Compatibility
+
+Device-linking subscriptions expose `closeStream()` in Swift/Kotlin for closing the
+original stream. Kotlin's generated `close()` disposes the wrapper; it is a separate
+operation. Rust and C retain their existing stream-close names.
 
 Generated source, DTOs, enums, errors, headers and native code form one versioned contract.
 An additive Rust method, record field or enum case does not imply that an old generated binding
@@ -435,7 +447,15 @@ one installation and conversations will not automatically appear on both.
 Reinstallation or cleared local state can produce the same evidence; do not
 claim to have identified a physical device or a particular app.
 
-Offer **Cancel** and **Continue anyway**. For Cancel, invalidate the current UI
+Offer **Cancel** and **Continue**. Continuing after `OtherInstallationPossible` or
+incomplete/`Unknown` discovery signs this installation in as a companion without
+publishing a competing public KeyPackage. Explain that existing invitation keys
+stay unchanged and pairing is required to share chats. A complete `NoneFound`
+check retains ordinary first-installation publication unless this account already
+has a durable companion hold. The hold survives restart, cancellation, rechecking
+and setup cleanup; corrupt records fail account opening. It neither deletes older
+public slots nor transfers an invitation encrypted for a different installation.
+For Cancel, invalidate the current UI
 attempt first, then await `cancel_onboarding(account_ref)` before any new
 `begin_*_onboarding`. Cancellation is legal at every interactive step, including
 an approved but unconfirmed repair and a ready checkpoint that the host has not
@@ -457,13 +477,18 @@ restoration are not explicit sign-in. If the call returns
 retry the same cancel; dropping the waiter does not abort cleanup. Do not treat
 `ready` as an Open Chats command — the host still owns that transition.
 
-For Continue anyway, call `acknowledge_onboarding_single_device(account_ref, snapshot.revision)`.
+For Continue, call `acknowledge_onboarding_single_device(account_ref, snapshot.revision)`.
 If `snapshot.recovery_epoch` is present, use
 `acknowledge_onboarding_single_device_in_epoch(account_ref, snapshot.revision, epoch)`
 and `approve_onboarding_repair_in_epoch(account_ref, snapshot.revision, epoch)`
 for approvals. Pass the epoch from the same displayed snapshot. The original
 revision-only methods reject recovered attempts, even when the number matches.
 MDK rejects a stale revision, persists the acknowledgment, and resumes setup.
+Companion setup marks `KeyPackage` as `Skipped`, completes a distinct local
+`CompanionReady` journal phase and persists readiness before setup cleanup. This
+does not claim network publication, pairing or synchronized history. Native hosts
+must use the matching core artifact; the unchanged method name alone does not
+make older released libraries preserve the receiver.
 The acknowledgment survives KeyPackage publication failure, task interruption,
 and restart. Rechecking an earlier prerequisite, changing discovery sources,
 approving another repair, explicitly retrying `SingleDevice`, or signing in again
@@ -1039,6 +1064,14 @@ The generated Swift file is platform-independent: `output/MarmotKit.swift` and `
 same UniFFI surface, and releases publish it once. The Kotlin binding is generated from the same host library metadata,
 so it exposes the same `Marmot` object, subscription objects, records, enums, and error variants.
 
+Apple builds accept `EXPERIMENTAL_DEVICE_SYNC=1` to select the default-off
+`experimental-device-sync` Rust feature. `marmotkit_features.py` applies the same
+selection to native slices, the Swift generator, packaging manifests and assembly
+provenance. Set the flag consistently for every phase; assembly rejects mixed
+feature inputs. Kotlin/Android builders do not select this experimental feature.
+This build flag does not expose a native linking API or establish synchronization;
+the private protocol and enrollment coordinator require further implementation.
+
 No generated Swift or Kotlin files are committed here; the output directories are ignored because generated bindings
 and packaged native libraries are derived artifacts. Regenerate them from this crate before vendoring into an app
 repository. For published artifacts, exact release and snapshot URLs, checksums, provenance and generated-source
@@ -1203,6 +1236,23 @@ Apple exporters use raw static-library slices and publish a matching privacy man
 See the [privacy audit and adoption guide](apple-privacy/README.md) for declarations, archive validation, host
 integration changes, and unresolved release questions.
 
+
+## Device verification
+
+[Native device verification](DEVICE-LINKING.md) describes opaque original-purpose
+sessions, one-scan automatic encrypted packet exchange, standard SAS decimals, revision-bound human
+confirmation and closeable observations. Inspect actual runtime capabilities:
+default builds return typed Unsupported, and experimental builds support
+verification with revision-bound singleton continuation through the original
+actor-owned actions. Opaque target selection, existing-device approval and
+packet/finalization methods support ready-account protected three-device
+enrollment. The experimental profile exposes enrollment capability; matched artifacts and
+application acceptance remain separate requirements. Completed verification or continuation alone does
+not report synchronized messages or history.
+
+## Exact-device revocation
+
+The default-off experimental `begin_device_revocation` factory returns a held original administrator action. Review its captured groups and target, approve the exact displayed revision, and observe per-group confirmed outcomes. See [Exact-device revocation](DEVICE-REVOCATION.md) for lifetime, cancellation, incomplete progress and target-inventory limits.
 ## Account attachment history
 
 `account_attachment_history_page` reads bounded indexed attachment candidates across one local account. Original album slots retain source identity and shared-parser metadata; group/sender selections and inclusive dates bind the cursor. Empty filtered pages may still continue, and destructive source changes require replacing loaded rows; additions offer a separate head refresh. Reads perform no acquisition or decryption. See [Account attachment history](ACCOUNT-ATTACHMENT-HISTORY.md) for integration and bounds.

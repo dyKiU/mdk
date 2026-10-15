@@ -22,7 +22,9 @@ use cgka_traits::transport::EncryptedPayload;
 use cgka_traits::types::MemberId;
 use cgka_traits::{GroupEvent, GroupId, MessageId, TransportMessage};
 use marmot_forensics::v5::*;
-use transport_nostr_peeler::{NostrMlsPeeler, NostrTransportEvent, WelcomePeelProvenance};
+#[cfg(test)]
+use transport_nostr_peeler::NostrMlsPeeler;
+use transport_nostr_peeler::{NostrTransportEvent, WelcomePeelProvenance};
 
 use crate::AppGroupRecord;
 
@@ -73,13 +75,43 @@ impl PeelSlot {
 /// The only selected test peeler. It delegates product behavior, and observes
 /// the same concrete Welcome peel the engine uses without a second decode.
 pub(crate) struct ProbePeeler {
-    pub inner: NostrMlsPeeler,
+    pub inner: Box<dyn super::welcome_peeler::WelcomePeeler>,
     pub slot: Arc<Mutex<PeelSlot>>,
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl TransportPeeler for ProbePeeler {
+    #[cfg(feature = "experimental-device-sync")]
+    async fn observe_private_linking_welcome(
+        &self,
+        message: &TransportMessage,
+    ) -> Result<cgka_traits::peeler::PrivateLinkingWelcomeObservation, PeelerError> {
+        self.inner.observe_private_linking_welcome(message).await
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    async fn peel_private_linking_welcome_batch(
+        &self,
+        messages: &[TransportMessage],
+        context: &cgka_traits::peeler::PrivateLinkingWelcomeContext,
+    ) -> Result<Vec<u8>, PeelerError> {
+        self.inner
+            .peel_private_linking_welcome_batch(messages, context)
+            .await
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    async fn wrap_private_linking_welcome(
+        &self,
+        payload: &EncryptedPayload,
+        context: &cgka_traits::peeler::PrivateLinkingWelcomeContext,
+    ) -> Result<Vec<TransportMessage>, PeelerError> {
+        self.inner
+            .wrap_private_linking_welcome(payload, context)
+            .await
+    }
+
     async fn peel_group_message(
         &self,
         msg: &TransportMessage,

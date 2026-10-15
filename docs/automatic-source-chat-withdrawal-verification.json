@@ -1,0 +1,378 @@
+{
+  "scope": "Experimental source-device withdrawal; local hide remains local. No account-wide leave or updated native/installed SDK qualification.",
+  "baseline": "aa78c2de8dfe53fe147f817f7b6d0ca667bd7308",
+  "signed_final_qualification": "8e5f65dce89746c7c8d71a7d3aa0308ac70b4a6a",
+  "product_and_test_files": {
+    "crates/cgka-engine/src/account_chat_catalog.rs": "e43fd028a35b3b2b90c6de27423f05cd8bdc3fae4cb818bd07460752fa24b6a2",
+    "crates/cgka-engine/src/history_transfer/tests.rs": "b0272056a34346231435b0e02bdfd341f3ef82ee85ef759572c9424fd5f35e56",
+    "crates/cgka-session/src/account_chat_sharing.rs": "33e0f5517afe9f945475b00462b4542416bb6c52034b76b5f7205f9c72d192c6",
+    "crates/marmot-app/src/client/account_chat_sharing/automatic.rs": "f767eb1001321a810d83a2ef1c4dc993df6010f10c4f25517f65682be38b218d",
+    "crates/marmot-app/src/client/sync.rs": "fafe3a31390a32ff6644288b9257bb500d2bfe25284060784a4ce5b03d89e0d8",
+    "crates/marmot-app/src/native_device_linking/automatic_forwarding_non_admin_acceptance.rs": "5fd080b44617ebe0c02acd7c79e5625ced63e5ea8d40599fcc9e0df1b67153c8",
+    "crates/marmot-app/src/native_device_linking/tests.rs": "3095d33cebac9a45dbb3fde53fbc80813d0d88a3c0fc3a44e40afc562da65f1d",
+    "crates/marmot-app/src/runtime/account_chat_sharing.rs": "6bd0dfd7faeb851728a20258a7e44aca1723a1139a7b989853d82a733e1fd7c9"
+  },
+  "environment": {
+    "rust": "1.97.1-aarch64-apple-darwin",
+    "jobs": 1,
+    "incremental": 0,
+    "dev_debug": 0,
+    "test_debug": 0,
+    "rust_min_stack": 4194304,
+    "existing_target": "/Users/pj/project/build/Mdk986ConformanceTargetM5",
+    "minimum_before_compile_gib": 18,
+    "hard_reserve_gib": 15
+  },
+  "cohorts": [
+    {
+      "prefix": "/Users/pj/project/build/results/automatic-withdrawal-runtime-v1",
+      "input_manifest_sha256": "b803e47fd6a52b676f53e65b2c90df3460b05fe8a036d842707efc5b0cf54570",
+      "results_sha256": "f04abcf3b1c7c237398b62407b3b8940c871a7a7d2cb0091918638680f4c064a",
+      "source_commit": "5ffed9c47a64ec63042534834fc4133450cd67b0",
+      "source_input_count": 2623,
+      "protected_output_count": 16,
+      "gates": [
+        {
+          "gate": "withdrawal",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure",
+            "--",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit": 0,
+          "seconds": 212.45,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-withdrawal-runtime-v1-withdrawal.log",
+          "log_sha256": "4692881b24e1de1256c20dea40c29abcb2f67d7f1c52e5bca41983c44dec98d9",
+          "inputs_unchanged": true,
+          "free_before_bytes": 21266157568,
+          "actual_test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2146 filtered out; finished in 50.67s"
+          ]
+        }
+      ]
+    },
+    {
+      "prefix": "/Users/pj/project/build/results/automatic-withdrawal-affected-v1",
+      "input_manifest_sha256": "b803e47fd6a52b676f53e65b2c90df3460b05fe8a036d842707efc5b0cf54570",
+      "results_sha256": "b1f5b18a58637f391870a37f451ceda176c34195fd14ec7991337f41caf15f48",
+      "source_commit": "5ffed9c47a64ec63042534834fc4133450cd67b0",
+      "source_input_count": 2623,
+      "protected_output_count": 16,
+      "gates": [
+        {
+          "gate": "core-catalog",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "cgka-engine",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "account_chat_catalog_",
+            "--",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit": 0,
+          "seconds": 50.83,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-withdrawal-affected-v1-core-catalog.log",
+          "log_sha256": "fef048a2ea801a3f0a66262dc3c337f71f331ae6699f19b2b00ff11e1d285824",
+          "inputs_unchanged": true,
+          "free_before_bytes": 21181861888,
+          "actual_test_summaries": [
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 250 filtered out; finished in 5.05s"
+          ]
+        },
+        {
+          "gate": "app-catalog",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "automatic_catalog_",
+            "--",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit": 0,
+          "seconds": 250.56,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-withdrawal-affected-v1-app-catalog.log",
+          "log_sha256": "98091f9c7464c6268a0c3b09c2e086d8730300cc1923ea3769821a6354233f45",
+          "inputs_unchanged": true,
+          "free_before_bytes": 21120622592,
+          "actual_test_summaries": [
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 2145 filtered out; finished in 170.65s"
+          ]
+        },
+        {
+          "gate": "app-records",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "automatic_records_",
+            "--",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit": 0,
+          "seconds": 67.92,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-withdrawal-affected-v1-app-records.log",
+          "log_sha256": "57133198ad405703a7ee0a9abe35d4dbffa5b53a25755e6c9f74dfe13b067beb",
+          "inputs_unchanged": true,
+          "free_before_bytes": 20974645248,
+          "actual_test_summaries": [
+            "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 2145 filtered out; finished in 66.51s"
+          ]
+        },
+        {
+          "gate": "test-strict",
+          "command": [
+            "cargo",
+            "clippy",
+            "-p",
+            "cgka-engine",
+            "-p",
+            "cgka-session",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--tests",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit": 0,
+          "seconds": 97.27,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-withdrawal-affected-v1-test-strict.log",
+          "log_sha256": "bf49ce72270ae25e00c2e6a5a3ee2ff4d5a340c6cb0ced6d43600ef2110bafe0",
+          "inputs_unchanged": true,
+          "free_before_bytes": 20954714112,
+          "actual_test_summaries": []
+        },
+        {
+          "gate": "production-strict",
+          "command": [
+            "cargo",
+            "clippy",
+            "-p",
+            "cgka-engine",
+            "-p",
+            "cgka-session",
+            "-p",
+            "marmot-app",
+            "--all-targets",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit": 101,
+          "seconds": 39.93,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-withdrawal-affected-v1-production-strict.log",
+          "log_sha256": "f53566bfc187b9dbd253e81306a6de4f863a5bcfdd867f33dd80f84bd47ac7a6",
+          "inputs_unchanged": true,
+          "free_before_bytes": 20829302784,
+          "actual_test_summaries": []
+        }
+      ]
+    },
+    {
+      "prefix": "/Users/pj/project/build/results/automatic-withdrawal-final-v2",
+      "input_manifest_sha256": "798540f69ac6c940882836a102a4d084949070e52b74b8e95c1690703da021f1",
+      "results_sha256": "813537b9a00e1a0368354e9dcdd53640846bbc73983fefb6a10cf69b43dc11f6",
+      "source_commit": "8e5f65dce89746c7c8d71a7d3aa0308ac70b4a6a",
+      "source_input_count": 2623,
+      "protected_output_count": 16,
+      "gates": [
+        {
+          "gate": "withdrawal",
+          "command": [
+            "cargo",
+            "test",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure",
+            "--",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit": 0,
+          "seconds": 133.91,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-withdrawal-final-v2-withdrawal.log",
+          "log_sha256": "682ab2e39f486d3af5d091765820a65731a99f98be5682a5693584bd7dbda1b3",
+          "inputs_unchanged": true,
+          "free_before_bytes": 20863811584,
+          "actual_test_summaries": [
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2146 filtered out; finished in 50.78s"
+          ]
+        },
+        {
+          "gate": "test-strict",
+          "command": [
+            "cargo",
+            "clippy",
+            "-p",
+            "cgka-engine",
+            "-p",
+            "cgka-session",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "--tests",
+            "--locked",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit": 0,
+          "seconds": 63.94,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-withdrawal-final-v2-test-strict.log",
+          "log_sha256": "6f1da88d79acb0e45addc2676f75ea00e8babd48bf8922719e57f40be3c03967",
+          "inputs_unchanged": true,
+          "free_before_bytes": 20852711424,
+          "actual_test_summaries": []
+        },
+        {
+          "gate": "production-strict",
+          "command": [
+            "cargo",
+            "clippy",
+            "-p",
+            "cgka-engine",
+            "-p",
+            "cgka-session",
+            "-p",
+            "marmot-app",
+            "--all-targets",
+            "--locked",
+            "--features",
+            "experimental-device-sync",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit": 0,
+          "seconds": 52.84,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-withdrawal-final-v2-production-strict.log",
+          "log_sha256": "cadb90fdc79016951723269a42af66b9d0b4915c3d66ec85ccd097bb4d746acc",
+          "inputs_unchanged": true,
+          "free_before_bytes": 20773597184,
+          "actual_test_summaries": []
+        },
+        {
+          "gate": "default-check",
+          "command": [
+            "cargo",
+            "check",
+            "-p",
+            "cgka-engine",
+            "-p",
+            "cgka-session",
+            "-p",
+            "marmot-app",
+            "--all-targets",
+            "--locked"
+          ],
+          "exit": 0,
+          "seconds": 63.95,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-withdrawal-final-v2-default-check.log",
+          "log_sha256": "c4ddb438603b98798ea5eccd4fd233056a009c87768b096812e09d03b0430a8d",
+          "inputs_unchanged": true,
+          "free_before_bytes": 20767739904,
+          "actual_test_summaries": []
+        },
+        {
+          "gate": "format",
+          "command": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--",
+            "--check"
+          ],
+          "exit": 0,
+          "seconds": 4.4,
+          "resource_abort": false,
+          "log": "/Users/pj/project/build/results/automatic-withdrawal-final-v2-format.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "inputs_unchanged": true,
+          "free_before_bytes": 20735819776,
+          "actual_test_summaries": []
+        }
+      ]
+    }
+  ],
+  "native_baseline": [
+    {
+      "result_path": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-de38-withdrawal-v1/result.json",
+      "sha256": "c2745c711485dde08147b0d44707890fd5b7177791640d474da008e5fc69ba64",
+      "passed": 0,
+      "failed": 1,
+      "failure": "agent-actual-chat-membership-sdk",
+      "peers_closed": 5,
+      "classification": "fixture expectation failure before leave"
+    },
+    {
+      "result_path": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-de38-withdrawal-v2/result.json",
+      "sha256": "c6c5c736b87b8f69f3af0b67b26036e5fee349bc9abd42a4a3542464bec022eb",
+      "passed": 0,
+      "failed": 1,
+      "failure": "committed-leave-withdrawal",
+      "peers_closed": 5,
+      "classification": "genuine source withdrawal behavioral RED after actual nonadmin leave and independent creator member-removal"
+    }
+  ],
+  "reuse": "Original catalog2/Core, catalog2/App, Records2/App tests retained: only four test-policy cfg attributes differ from original5ff. Production runtime and policy-enabled test code are equivalent; actual withdrawal and both strict/default/fmt rerun on final8e5. Whole final2623 inputs match local source before documentation.",
+  "limits": [
+    "Explicit user account-wide leave across multiple actual ordinary-member devices and positive rejoin lineage remain open; the SQL source-device terminal fence is deliberately preserved.",
+    "Pending stranger Welcome must not grant sharing: genuine noaccept/decline regression and durable source-eligibility repair are next and unqualified.",
+    "The native baseline RED and new real App runtime GREEN use different harnesses. No updated SDK/native GREEN or installed application claim.",
+    "Fresh pending-catalog termination guard is implemented, but deterministic held-partial-disclosure cancellation interleaving is not separately qualified.",
+    "Involuntary source removal does not fabricate a principal-wide leave intent.",
+    "Full workspace/Apple matrices are not repeated for this scoped source checkpoint. Existing frozen Collection full backend remains disjoint."
+  ],
+  "post_gate_delta": "Only this proof and current-state prose; product/test bytes verified against final manifest."
+}

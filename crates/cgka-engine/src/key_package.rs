@@ -48,6 +48,9 @@ mod validation_crypto {
 pub struct KeyPackageMetadata {
     pub key_package_ref_hex: String,
     pub credential_identity_hex: String,
+    /// Validated MLS leaf signer, distinct from the shared account credential.
+    /// Fresh KeyPackages on one device retain this key; sibling devices do not.
+    pub signature_public_key_hex: String,
     pub protocol_profile: ProtocolProfile,
     pub not_before: u64,
     pub not_after: u64,
@@ -153,6 +156,7 @@ pub fn key_package_metadata(kp: &KeyPackage) -> Result<KeyPackageMetadata, Engin
     Ok(KeyPackageMetadata {
         key_package_ref_hex: hex::encode(key_package_ref.as_slice()),
         credential_identity_hex: hex::encode(member_id.as_slice()),
+        signature_public_key_hex: hex::encode(key_package.leaf_node().signature_key().as_slice()),
         protocol_profile,
         not_before: key_package.life_time().not_before(),
         not_after: key_package.life_time().not_after(),
@@ -350,6 +354,188 @@ impl<S: StorageProvider> Engine<S> {
         self.build_fresh_key_package(&self.storage)
     }
 
+    /// Generate an exact single-use private KeyPackage for experimental linking.
+    ///
+    /// Persists its private MLS bundle atomically, without public publication or
+    /// changes to the normal last-resort lifecycle. An accepted Welcome consumes
+    /// this bundle through OpenMLS. The account owner must separately fence and
+    /// delete unused bundles on cancellation, expiry and restart; generation is
+    /// not an enrollment permission or a bounded pairing lifecycle by itself.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn fresh_linking_key_package(&mut self) -> Result<KeyPackage, EngineError> {
+        self.storage
+            .with_transaction(|storage| self.build_key_package(storage, false))
+    }
+
+    /// Atomically create or resolve one exact private package for a checked
+    /// local reservation. This purpose factory does not authorize a Welcome.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn resolve_linking_key_package(
+        &mut self,
+        scope: &cgka_traits::device_linking_key_package::PurposeAttemptScope,
+    ) -> Result<KeyPackage, EngineError> {
+        use cgka_traits::device_linking_key_package::PurposeKeyPackage;
+        if self.new_protocol_profile != ProtocolProfile::Current
+            || self.identity.self_id.as_slice() != scope.account
+            || self.identity.signer.public() != scope.local_device
+        {
+            return Err(EngineError::InvalidWelcome);
+        }
+        self.storage.with_transaction(|storage| {
+            let purpose = storage
+                .device_linking_key_package_storage()
+                .ok_or_else(|| EngineError::Backend("purpose ownership unavailable".into()))?;
+            purpose.check_purpose_reservation(scope)?;
+            if let Some(saved) = purpose.purpose_key_package()? {
+                if saved.scope == *scope {
+                    if saved.consumed || saved.context.is_some() {
+                        return Err(EngineError::InvalidWelcome);
+                    }
+                    let package = KeyPackage::new(saved.public_bytes.clone())
+                        .with_protocol_profile(ProtocolProfile::Current);
+                    let validated = self.parse_key_package(&package)?;
+                    let reference = validated
+                        .hash_ref(&self.crypto)
+                        .map_err(|_| EngineError::InvalidWelcome)?;
+                    if reference.as_slice() != saved.reference
+                        || validated.leaf_node().signature_key().as_slice()
+                            != saved.signature_public_key
+                        || saved.signature_public_key != scope.local_device
+                        || validated.last_resort()
+                    {
+                        return Err(EngineError::InvalidWelcome);
+                    }
+                    let bundle: Option<KeyPackageBundle> =
+                        OpenMlsStorageProvider::key_package(storage.mls_storage(), &reference)
+                            .map_err(|_| {
+                                EngineError::Backend("purpose bundle lookup failed".into())
+                            })?;
+                    if bundle
+                        .as_ref()
+                        .is_none_or(|bundle| bundle.key_package() != &validated)
+                    {
+                        return Err(EngineError::MissingWelcomeKeyPackage);
+                    }
+                    return Ok(package);
+                }
+                if !saved.consumed || saved.scope.generation >= scope.generation {
+                    return Err(EngineError::InvalidWelcome);
+                }
+            }
+            let package = self.build_key_package(storage, false)?;
+            let metadata = key_package_metadata(&package)?;
+            let reference = hex::decode(metadata.key_package_ref_hex)
+                .map_err(|_| EngineError::InvalidWelcome)?;
+            let signer = hex::decode(metadata.signature_public_key_hex)
+                .map_err(|_| EngineError::InvalidWelcome)?;
+            if reference.len() != 32 || signer.as_slice() != scope.local_device {
+                return Err(EngineError::InvalidWelcome);
+            }
+            purpose.put_purpose_key_package(&PurposeKeyPackage {
+                scope: scope.clone(),
+                public_bytes: package.bytes().to_vec(),
+                reference,
+                signature_public_key: signer,
+                context: None,
+                consumed: false,
+            })?;
+            Ok(package)
+        })
+    }
+
+    /// Retire only the terminal attempt's exact private bundle and ownership.
+    /// Expiration is not admission: this validates persisted identity/bytes/hash
+    /// without requiring a currently valid public KeyPackage lifetime.
+    #[cfg(feature = "experimental-device-sync")]
+    pub async fn retire_linking_key_package(
+        &mut self,
+        scope: &cgka_traits::device_linking_key_package::PurposeAttemptScope,
+    ) -> Result<(), EngineError> {
+        self.retire_linking_key_package_now(scope)
+    }
+
+    /// Run only after acquiring the exclusive session and abandoning pending
+    /// durable verification. A restart cannot restore the old ephemeral token.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn cleanup_unjoined_linking_key_package_on_startup(&mut self) -> Result<bool, EngineError> {
+        let purpose = self
+            .storage
+            .device_linking_key_package_storage()
+            .ok_or_else(|| EngineError::Backend("purpose ownership unavailable".into()))?;
+        let Some(saved) = purpose.purpose_key_package()? else {
+            return Ok(false);
+        };
+        if saved.consumed {
+            return Ok(false);
+        }
+        self.retire_linking_key_package_now(&saved.scope)?;
+        Ok(true)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn retire_linking_key_package_now(
+        &mut self,
+        scope: &cgka_traits::device_linking_key_package::PurposeAttemptScope,
+    ) -> Result<(), EngineError> {
+        if self.identity.self_id.as_slice() != scope.account
+            || self.identity.signer.public() != scope.local_device
+        {
+            return Err(EngineError::InvalidWelcome);
+        }
+        self.storage.with_transaction(|storage| {
+            let purpose = storage
+                .device_linking_key_package_storage()
+                .ok_or_else(|| EngineError::Backend("purpose ownership unavailable".into()))?;
+            let Some(saved) = purpose.purpose_key_package()? else {
+                purpose.retire_purpose_key_package(scope)?;
+                return Ok(());
+            };
+            if saved.scope != *scope {
+                return Err(EngineError::InvalidWelcome);
+            }
+            let encoded = tls_codec::VLBytes::from(saved.reference.as_slice())
+                .tls_serialize_detached()
+                .map_err(|_| EngineError::InvalidWelcome)?;
+            let reference = openmls::prelude::KeyPackageRef::tls_deserialize_exact(&encoded)
+                .map_err(|_| EngineError::InvalidWelcome)?;
+            let bundle: Option<KeyPackageBundle> =
+                OpenMlsStorageProvider::key_package(storage.mls_storage(), &reference)
+                    .map_err(|_| EngineError::Backend("purpose bundle lookup failed".into()))?;
+            if let Some(bundle) = bundle.as_ref() {
+                let key_package = bundle.key_package();
+                let actual_reference = key_package
+                    .hash_ref(&self.crypto)
+                    .map_err(|_| EngineError::InvalidWelcome)?;
+                let actual_message: MlsMessageOut = key_package.clone().into();
+                let actual_bytes = actual_message
+                    .tls_serialize_detached()
+                    .map_err(|_| EngineError::InvalidWelcome)?;
+                if key_package.last_resort()
+                    || actual_reference.as_slice() != saved.reference
+                    || actual_bytes != saved.public_bytes
+                    || key_package.leaf_node().signature_key().as_slice()
+                        != saved.signature_public_key
+                    || saved.signature_public_key != scope.local_device
+                    || crate::identity::validated_member_id_of_leaf(key_package.leaf_node())?
+                        .as_slice()
+                        != scope.account
+                {
+                    return Err(EngineError::InvalidWelcome);
+                }
+            } else if !saved.consumed {
+                return Err(EngineError::MissingWelcomeKeyPackage);
+            }
+            // This checks the terminal current generation before any private
+            // deletion. A failure in either write restores the complete pair.
+            purpose.retire_purpose_key_package(scope)?;
+            if bundle.is_some() {
+                OpenMlsStorageProvider::delete_key_package(storage.mls_storage(), &reference)
+                    .map_err(|_| EngineError::Backend("purpose bundle deletion failed".into()))?;
+            }
+            Ok(())
+        })
+    }
+
     /// Enumerate KeyPackages whose private OpenMLS bundles are durably usable
     /// by this account-device.
     ///
@@ -368,16 +554,29 @@ impl<S: StorageProvider> Engine<S> {
     /// Maintenance uses this inside `StorageProvider::with_transaction` so the
     /// OpenMLS private bundle and the lifecycle record become durable together.
     pub(crate) fn build_fresh_key_package(&self, storage: &S) -> Result<KeyPackage, EngineError> {
+        self.build_key_package(storage, true)
+    }
+
+    pub(crate) fn build_key_package(
+        &self,
+        storage: &S,
+        last_resort: bool,
+    ) -> Result<KeyPackage, EngineError> {
         let caps = leaf_capabilities(&self.registry, self.ciphersuite, self.new_protocol_profile);
         let leaf_extensions = self
             .identity
             .leaf_extensions(&self.supported_app_components)?;
         let provider = EngineOpenMlsProvider::<S>::new(&self.crypto, storage.mls_storage());
 
-        let bundle = MlsKeyPackage::builder()
+        let builder = MlsKeyPackage::builder()
             .leaf_node_capabilities(caps)
-            .leaf_node_extensions(leaf_extensions)
-            .mark_as_last_resort()
+            .leaf_node_extensions(leaf_extensions);
+        let builder = if last_resort {
+            builder.mark_as_last_resort()
+        } else {
+            builder
+        };
+        let bundle = builder
             .build(
                 self.ciphersuite,
                 &provider,

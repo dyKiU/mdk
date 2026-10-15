@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "base": "e856932d2cf7b86b32eb7abec2a653ca5f777247",
+  "scope": "Original exact-device removal: protected three-to-two leaves and two ordinary four-to-three leaf groups, surviving new-message delivery and removed-device refusal. All old protected settlement and origin facts remain denied.",
+  "cohorts": [
+    {
+      "prefix": "device-roster-revocation-red-v1",
+      "exact_candidate_git_stash": "b3ab207de8d16613a731d42fa1c713626f843080",
+      "input_count": 2486,
+      "source_manifest_sha256": "4e82353af879b49d017abe7e54be9acf4a403e90504217aa5e1fd8b723f821be",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 101,
+          "seconds": 38.088650941848755,
+          "log": "/Users/pj/project/build/device-roster-revocation-red-v1-feature.log",
+          "log_sha256": "efe903520171c11e0bb55a293f24e66497668179035fe3ae67aed55534601482",
+          "actual_tests": null
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 49.27334189414978,
+          "log": "/Users/pj/project/build/device-roster-revocation-red-v1-default.log",
+          "log_sha256": "aa859da527b0355cffee3a77438c011e05a939597e8186e157e655bc411df20c",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "device-roster-revocation-red-v2",
+      "exact_candidate_git_stash": "a5d15c769f9b6fc1b2e2df908df96950247250e2",
+      "input_count": 2486,
+      "source_manifest_sha256": "bcec64a4ceff56b365a6a8f65bd7728966e0a3c770d927f8a495d0fc7d2324b5",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 101,
+          "seconds": 30.606247186660767,
+          "log": "/Users/pj/project/build/device-roster-revocation-red-v2-feature.log",
+          "log_sha256": "6681ee0381b9855a84ddda8b6ba091ff48915eb67c7c237daa08caaab61a64d7",
+          "actual_tests": null
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 48.91414499282837,
+          "log": "/Users/pj/project/build/device-roster-revocation-red-v2-default.log",
+          "log_sha256": "b25e6b302a3a6f3563cd4c09273da8a1c27800ac031e05bd09aa5a52c9d46e0d",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "device-roster-revocation-red-v3",
+      "exact_candidate_git_stash": "dd24b25eb52df8f4f92fd9c1316de3d11625a55e",
+      "input_count": 2486,
+      "source_manifest_sha256": "6ebfb5665455a4eac0fcad9c29814436fa62c2ddd1f43423b67b0ee25c679fd5",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 101,
+          "seconds": 73.05130910873413,
+          "log": "/Users/pj/project/build/device-roster-revocation-red-v3-feature.log",
+          "log_sha256": "effa11e77a330cab66728f06cae9fd699535afb4f00d3b4df696936e5ca0a4b2",
+          "actual_tests": {
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "device-roster-revocation-green-v1",
+      "exact_candidate_git_stash": "7e0e15ea5050616a1a7826607d2fdb60330c5a1d",
+      "input_count": 2486,
+      "source_manifest_sha256": "3c2f4e1a73bd9c66ff6a6e6a52b2280523d087f4b6bb1b2ad8f3581943865ccb",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 0,
+          "seconds": 72.15823006629944,
+          "log": "/Users/pj/project/build/device-roster-revocation-green-v1-feature.log",
+          "log_sha256": "99d71b2dfe458f16255b6b28ab2e1d70117b9b751515c81e26af4f740db3dea2",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "prefix": "device-roster-revocation-final-v1",
+      "exact_candidate_git_stash": "74032beea44705a90cb33c9f55e9bb796dd21e23",
+      "input_count": 2486,
+      "source_manifest_sha256": "21443e39559f927c372022b3bc065ecc27c83861ab9035eb6c6d89a96f9d0b18",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 0,
+          "seconds": 84.4998631477356,
+          "log": "/Users/pj/project/build/device-roster-revocation-final-v1-feature.log",
+          "log_sha256": "1171f22b824817cafd76336e89dea56467de9e1701aee2c5996bcf3de10ccf8d",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "gate": "existing-family",
+          "exit": 0,
+          "seconds": 49.81906723976135,
+          "log": "/Users/pj/project/build/device-roster-revocation-final-v1-existing-family.log",
+          "log_sha256": "f035f58cae5b6f5db98a9f405c7e9c2fef2f7e430daeeb1c292cc9a2c5f9d068",
+          "actual_tests": {
+            "passed": 5,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 64.52301001548767,
+          "log": "/Users/pj/project/build/device-roster-revocation-final-v1-default.log",
+          "log_sha256": "c5812c42bef2a4520f5621aad05ca866ca3d43dbc9282e13e90b64efb04f8a55",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "gate": "clippy",
+          "exit": 0,
+          "seconds": 64.17874789237976,
+          "log": "/Users/pj/project/build/device-roster-revocation-final-v1-clippy.log",
+          "log_sha256": "dc60dc6543d70d7785f145b24b317b847b21c199171cfe554b9301ddaf4c8273",
+          "actual_tests": null
+        },
+        {
+          "gate": "default-check",
+          "exit": 0,
+          "seconds": 36.53079676628113,
+          "log": "/Users/pj/project/build/device-roster-revocation-final-v1-default-check.log",
+          "log_sha256": "23e981e58796c38e0b3c85db760cdffc2406d4342dad4b17b79ffd906e8123ac",
+          "actual_tests": null
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "seconds": 3.9874799251556396,
+          "log": "/Users/pj/project/build/device-roster-revocation-final-v1-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "actual_tests": null
+        }
+      ]
+    },
+    {
+      "prefix": "device-roster-revocation-final-v2",
+      "exact_candidate_git_stash": "6a25bfa622cd21f4045a7d17f11b0c2196614265",
+      "input_count": 2486,
+      "source_manifest_sha256": "9f9d15cab04e76571c21ad8fac14deb915d88540e7ebece08fafa7b2bbbc8c1f",
+      "all_inputs_and_raw_logs_verified": true,
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 0,
+          "seconds": 79.62446093559265,
+          "log": "/Users/pj/project/build/device-roster-revocation-final-v2-feature.log",
+          "log_sha256": "c4e10685b6d8be879a4df7cbce6007bcc87e1258e7ba90b34199ba93c078b4ce",
+          "actual_tests": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "gate": "clippy",
+          "exit": 0,
+          "seconds": 31.97904324531555,
+          "log": "/Users/pj/project/build/device-roster-revocation-final-v2-clippy.log",
+          "log_sha256": "1b391ed1ee9e09da6d35b4c1676dcc0c79e21df28e66121d932761b88a41de0e",
+          "actual_tests": null
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "seconds": 3.640552043914795,
+          "log": "/Users/pj/project/build/device-roster-revocation-final-v2-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "actual_tests": null
+        }
+      ]
+    }
+  ],
+  "unchanged_behavioral_red_to_initial_green_fixture_sha256": "f98274ae09b22a5207d7796401d78dc9050e7a8591d9f6092ecac25180b5eca1",
+  "tested_paths": [
+    "crates/cgka-engine/src/device_leaf_revocation.rs",
+    "crates/cgka-session/src/lib.rs",
+    "crates/marmot-app/src/client/device_revocation.rs",
+    "crates/marmot-app/src/device_revocation.rs",
+    "crates/marmot-app/src/device_revocation/enabled.rs",
+    "crates/marmot-app/src/lib.rs",
+    "crates/marmot-app/src/runtime/device_revocation.rs",
+    "crates/marmot-app/src/selected_chat_copy/tests.rs"
+  ],
+  "classification": "RED v1/v2 are compile-only fixture failures. RED v3 is actual NotReady after genuine protected ABC and two ordinary ABCD groups. Initial GREEN uses unchanged behavioral fixture; final controls add stale/self/foreign/busy/idempotence and retained-origin denial assertions.",
+  "limits": [
+    "Admission refuses more than 128 total stored group IDs, including unrelated or removed groups.",
+    "Completed-group observations mean local confirmed commits; this fixture separately verifies peer convergence.",
+    "Fresh positive protected successor anchor/settlement remains required and unimplemented.",
+    "Whole-scope blocked publication, lost reply, expiry, shutdown, SQL rollback, partial repair and encrypted reopen remain unqualified; earlier one-group lifecycle controls retain their separate scope.",
+    "No native bindings/UI, SDK replacement, broader full-suite claim or publication."
+  ],
+  "post_freeze_delta": "This proof and four appended human documentation sections only. Eight runtime/test paths byte-match final tested candidate 6a25bfa6."
+}

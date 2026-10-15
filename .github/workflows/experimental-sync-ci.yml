@@ -1,0 +1,515 @@
+name: Experimental sync CI
+
+on:
+  push:
+    branches: [develop_dy]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Qualification scope (focused scopes are affected-component evidence)
+        type: choice
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering]
+        default: full
+      baseline_gap:
+        description: Also complete the fixed 0cbff718 default archive partition 2/5
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: experimental-sync-${{ github.ref }}-${{ inputs.scope || 'full' }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  RUST_MIN_STACK: "4194304"
+  SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
+
+jobs:
+  experimental-test-build:
+    if: github.event_name != 'workflow_dispatch' || inputs.scope == 'full'
+    name: Build experimental sync tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+      - name: Install Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: experimental-sync-tests
+      - name: Verify complete experimental partition coverage
+        run: bash scripts/check_ci_partitions.sh 12 --workspace --features "$SYNC_FEATURES" --locked
+      - name: Archive experimental workspace tests
+        run: cargo nextest archive --workspace --features "$SYNC_FEATURES" --locked --archive-file experimental-tests.tar.zst
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: experimental-sync-tests
+          path: experimental-tests.tar.zst
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  experimental-test:
+    if: github.event_name != 'workflow_dispatch' || inputs.scope == 'full'
+    name: Experimental sync tests (${{ matrix.partition }}/12)
+    needs: experimental-test-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+      - name: Install Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: experimental-sync-tests
+      - name: Run experimental workspace partition without retries
+        run: cargo nextest run --archive-file experimental-tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile m5-bounded --partition count:${{ matrix.partition }}/12 --no-fail-fast
+
+  cli-component:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'cli-only'
+    name: CLI affected component (${{ matrix.cohort }}, ${{ matrix.partition }}/3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [default, experimental]
+        partition: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Record affected-component source and scope
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+          echo "qualification-scope: cli-only"
+      - name: Install Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: cli-affected-${{ matrix.cohort }}
+      - name: Run all CLI library and integration cases without retries
+        env:
+          COHORT: ${{ matrix.cohort }}
+          PARTITION: ${{ matrix.partition }}
+        run: |
+          set -euo pipefail
+          echo "qualification-partition: count:$PARTITION/3"
+          args=(--locked -p wn-cli --lib --test cli --partition "count:$PARTITION/3")
+          if [[ "$COHORT" == experimental ]]; then
+            args+=(-p marmot-app -p cgka-engine --features wn-cli/otlp-export,wn-cli/product-analytics-export,wn-cli/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks)
+          else
+            args+=(--features test-policy-overrides)
+          fi
+          cargo nextest list "${args[@]}" -E 'package(wn-cli)' --message-format json > cli-inventory.json
+          python3 - <<'PYGUARD'
+          import json
+          inventory = json.load(open("cli-inventory.json"))
+          counts = {}
+          for suite in inventory["rust-suites"].values():
+              matching = sum(case["filter-match"]["status"] == "matches" for case in suite["testcases"].values())
+              if matching:
+                  assert suite["package-name"] == "wn-cli", "non-CLI execution selected"
+                  counts[suite["binary-name"]] = counts.get(suite["binary-name"], 0) + matching
+          assert counts.get("cli", 0) > 0, "empty CLI integration cohort"
+          assert sum(count for name, count in counts.items() if name != "cli") > 0, "empty CLI library cohort"
+          print("qualification-selected-cli-cases:", json.dumps(counts, sort_keys=True))
+          PYGUARD
+          cargo nextest run "${args[@]}" -E 'package(wn-cli)' --profile m5-bounded --test-threads 6 --retries 0 --no-fail-fast
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: cli-affected-inventory-${{ matrix.cohort }}-${{ matrix.partition }}
+          path: cli-inventory.json
+          retention-days: 7
+          if-no-files-found: error
+
+  baseline-default-gap:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'cli-only' && inputs.baseline_gap
+    name: Preserved 0cbff718 default archive (2/5)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: 0cbff718b3d6dfe4d95b4a1966fe8e139423140c
+      - name: Verify preserved archive run source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/dyKiU/mdk/actions/runs/38511640509 > baseline-run.json
+          python3 - <<'PYGUARD'
+          import json
+          run = json.load(open("baseline-run.json"))
+          assert run["id"] == 38511640509
+          assert run["head_sha"] == "0cbff718b3d6dfe4d95b4a1966fe8e139423140c"
+          assert run["path"] == ".github/workflows/ci.yml"
+          assert run["status"] == "completed", "baseline writer still active"
+          PYGUARD
+          test "$(git rev-parse HEAD)" = 0cbff718b3d6dfe4d95b4a1966fe8e139423140c
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+          echo "qualification-scope: preserved-default-partition-2-of-5"
+          echo "archive-source: 0cbff718b3d6dfe4d95b4a1966fe8e139423140c"
+          echo "archive-run: 38511640509"
+      - name: Install Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rust-test
+          run-id: 38511640509
+          repository: dyKiU/mdk
+          github-token: ${{ github.token }}
+      - name: Run only the preserved default partition without retries
+        run: |
+          set -euo pipefail
+          sha256sum tests.tar.zst
+          cargo nextest list --archive-file tests.tar.zst --workspace-remap "$GITHUB_WORKSPACE" --partition count:2/5 -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))' --message-format json > baseline-inventory.json
+          python3 - <<'PYGUARD'
+          import json
+          inventory = json.load(open("baseline-inventory.json"))
+          selected = sum(case["filter-match"]["status"] == "matches" for suite in inventory["rust-suites"].values() for case in suite["testcases"].values())
+          assert selected > 0, "empty preserved baseline partition"
+          print("qualification-selected-baseline-cases:", selected)
+          PYGUARD
+          cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --partition count:2/5 --no-fail-fast -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
+
+  core-regressions:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering"]'), inputs.scope)
+    name: Focused regressions (${{ inputs.scope }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Record affected-component source and scope
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+          echo "qualification-scope: ${{ inputs.scope }}"
+      - name: Install Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: core-regressions
+      - name: Run selected affected regressions without retries
+        env:
+          REGRESSION_SCOPE: ${{ inputs.scope }}
+        run: |
+          set -euo pipefail
+          features=agent-connector/otlp-export,agent-connector/product-analytics-export,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
+          filter='test(connector_relay_list_edit_preserves_entries_the_request_did_not_name) | test(account_sharing_peer_generation_uses_authenticated_role_and_live_original) | test(=confirmed_publish_retries_failed_inbound_replay_through_normal_advance) | binary(crash_recovery_sqlite)'
+          args=(--locked -p agent-connector -p marmot-app -p cgka-engine --lib --test crash_recovery_sqlite --test publish_lifecycle --features "$features")
+          if [[ "$REGRESSION_SCOPE" == connector-regression ]]; then
+            args=(--locked -p agent-connector -p marmot-app -p cgka-engine --lib --features "$features")
+            filter='test(connector_relay_list_edit_preserves_entries_the_request_did_not_name)'
+          elif [[ "$REGRESSION_SCOPE" == revocation-regression || "$REGRESSION_SCOPE" == revocation-family || "$REGRESSION_SCOPE" == revocation-challenge-ordering || "$REGRESSION_SCOPE" == revocation-initial-peel-ordering ]]; then
+            features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
+            args=(--locked -p marmot-app -p cgka-engine --lib --features "$features")
+            filter='package(marmot-app) & test(device_revocation_original_receipt_survives_incoming_storage_rollback_retry)'
+            if [[ "$REGRESSION_SCOPE" == revocation-family ]]; then
+              filter='package(marmot-app) & test(selected_chat_copy::tests::actual::) & test(device_revocation_) & not test(device_revocation_challenge_)'
+            elif [[ "$REGRESSION_SCOPE" == revocation-challenge-ordering ]]; then
+              filter='package(marmot-app) & test(device_revocation_challenge_published_before_storage_retry_preserves_fresh_authority)'
+            elif [[ "$REGRESSION_SCOPE" == revocation-initial-peel-ordering ]]; then
+              filter='package(marmot-app) & test(device_revocation_challenge_initial_peel_before_storage_retry_preserves_fresh_authority)'
+            fi
+          elif [[ "$REGRESSION_SCOPE" == campaign-regression ]]; then
+            features=marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
+            args=(--locked -p cgka-conformance-simulator -p marmot-app -p cgka-engine --bin cgka-conformance-campaign --features "$features")
+            filter='test(kills_and_reaps_a_worker_that_exceeds_its_timeout) | test(preserves_a_workers_nonzero_exit_code)'
+          fi
+          cargo nextest list "${args[@]}" -E "$filter" --message-format json > core-regression-inventory.json
+          python3 - <<'PYGUARD'
+          import json, os
+          inventory = json.load(open("core-regression-inventory.json"))
+          selected = {name for suite in inventory["rust-suites"].values() for name, case in suite["testcases"].items() if case["filter-match"]["status"] == "matches" and not case["ignored"]}
+          required = ["connector_relay_list_edit_preserves_entries_the_request_did_not_name", "account_sharing_peer_generation_uses_authenticated_role_and_live_original", "confirmed_publish_retries_failed_inbound_replay_through_normal_advance", "h5_kill_before_historical_apply_commit_preserves_live_inputs", "h6_kill_after_retained_anchor_rewind_recovers_live_snapshot"]
+          expected = 14
+          if os.environ["REGRESSION_SCOPE"] == "connector-regression":
+              required = ["connector_relay_list_edit_preserves_entries_the_request_did_not_name"]
+              expected = 1
+          elif os.environ["REGRESSION_SCOPE"] == "revocation-regression":
+              required = ["device_revocation_original_receipt_survives_incoming_storage_rollback_retry"]
+              expected = 1
+          elif os.environ["REGRESSION_SCOPE"] == "revocation-challenge-ordering":
+              required = ["device_revocation_challenge_published_before_storage_retry_preserves_fresh_authority"]
+              expected = 1
+          elif os.environ["REGRESSION_SCOPE"] == "revocation-initial-peel-ordering":
+              required = ["device_revocation_challenge_initial_peel_before_storage_retry_preserves_fresh_authority"]
+              expected = 1
+          elif os.environ["REGRESSION_SCOPE"] == "revocation-family":
+              required = [
+                  "group_device_revocation_requires_fresh_original_for_exact_same_account_leaf",
+                  "group_device_revocation_approved_original_removes_only_one_occupied_leaf",
+                  "group_device_revocation_original_cancel_interrupts_actual_blocked_remove_publication",
+                  "group_device_revocation_lost_approval_reply_interrupts_actual_blocked_remove_publication",
+                  "group_device_revocation_removed_leaf_stays_evicted_after_encrypted_reopen",
+                  "device_revocation_original_removes_exact_leaf_from_protected_and_two_ordinary_groups",
+                  "device_revocation_survivors_regain_fresh_original_history_authority",
+                  "device_revocation_retained_remove_cannot_restore_positive_guard_after_encrypted_reopen",
+                  "device_revocation_original_receipt_survives_incoming_storage_rollback_retry",
+                  "device_revocation_confirmation_fact_rollback_preserves_owned_successor_authority",
+              ]
+              expected = 10
+          elif os.environ["REGRESSION_SCOPE"] == "campaign-regression":
+              required = ["kills_and_reaps_a_worker_that_exceeds_its_timeout", "preserves_a_workers_nonzero_exit_code"]
+              expected = 2
+          assert all(any(name.endswith(case) for name in selected) for case in required), "required regression missing"
+          assert len(selected) == expected, f"unexpected actual regression count: {len(selected)}"
+          print("qualification-selected-core-regression-cases:", len(selected))
+          PYGUARD
+          output_args=()
+          if [[ "$REGRESSION_SCOPE" == revocation-challenge-ordering || "$REGRESSION_SCOPE" == revocation-regression || "$REGRESSION_SCOPE" == revocation-initial-peel-ordering ]]; then
+            output_args=(--success-output immediate)
+          fi
+          cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads 6 --retries 0 --no-fail-fast "${output_args[@]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: core-regression-inventory
+          path: core-regression-inventory.json
+          retention-days: 7
+          if-no-files-found: error
+
+  experimental-inventory:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'experimental-inventory'
+    name: Recover unfinished experimental archive inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Verify immutable original run and artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/dyKiU/mdk/actions/runs/38511641089 > original-run.json
+          gh api repos/dyKiU/mdk/actions/artifacts/11870926515 > original-artifact.json
+          python3 - <<'PYGUARD'
+          import json
+          run = json.load(open("original-run.json"))
+          artifact = json.load(open("original-artifact.json"))
+          assert run["head_sha"] == "0cbff718b3d6dfe4d95b4a1966fe8e139423140c"
+          assert run["id"] == 38511641089 and run["run_attempt"] == 1
+          assert run["status"] == "completed" and run["conclusion"] == "cancelled"
+          assert run["path"] == ".github/workflows/experimental-sync-ci.yml"
+          assert artifact["id"] == 11870926515 and not artifact["expired"]
+          assert artifact["name"] == "experimental-sync-tests"
+          assert artifact["workflow_run"]["id"] == 38511641089
+          assert artifact["workflow_run"]["head_sha"] == run["head_sha"]
+          PYGUARD
+          echo "inventory-tool-source: $(git rev-parse HEAD)"
+          echo "archive-source: 0cbff718b3d6dfe4d95b4a1966fe8e139423140c"
+          echo "archive-run: 38511641089"
+      - name: Install pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: experimental-sync-tests
+          run-id: 38511641089
+          repository: dyKiU/mdk
+          github-token: ${{ github.token }}
+      - name: List archive and recover exact remaining cases without executing tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha256sum experimental-tests.tar.zst > archive-sha256.txt
+          cargo nextest list --archive-file experimental-tests.tar.zst --workspace-remap "$GITHUB_WORKSPACE" --message-format json > full-inventory.json
+          mkdir original-logs
+          for job in 115684849829 115684849834 115684849847 115684849872 115684849960; do
+            gh api --allow-escape-sequences "repos/dyKiU/mdk/actions/jobs/$job/logs" > "original-logs/$job.log"
+          done
+          python3 -m unittest discover -s scripts -p test_recover_experimental_coverage.py -v
+          python3 scripts/recover_experimental_coverage.py --inventory full-inventory.json --logs original-logs --output recovered-coverage
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: recovered-experimental-coverage
+          path: |
+            full-inventory.json
+            original-run.json
+            original-artifact.json
+            original-logs
+            archive-sha256.txt
+            recovered-coverage
+          retention-days: 7
+          if-no-files-found: error
+
+  experimental-gap:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'experimental-gap'
+    name: Unfinished experimental archive (${{ matrix.partition }}/12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Install pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: experimental-sync-tests
+          run-id: 38511641089
+          repository: dyKiU/mdk
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: recovered-experimental-coverage
+          run-id: 38524890717
+          repository: dyKiU/mdk
+          github-token: ${{ github.token }}
+          path: coverage-inputs
+      - name: Verify original archive and reconstruct disjoint missing-only selection
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARTITION: ${{ matrix.partition }}
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' 7c9a2c769b74c3a8d97a91fb03481fa34035713f338d4c650cd94474f6e170e6 experimental-tests.tar.zst | sha256sum -c -
+          printf '%s  %s\n' b2622d14041356ad8648d04cb94cbc95505ba54b2401b188c7c81ec5ddf202e2 coverage-inputs/full-inventory.json | sha256sum -c -
+          python3 - <<'PYGUARD'
+          import json
+          run = json.load(open("coverage-inputs/original-run.json"))
+          artifact = json.load(open("coverage-inputs/original-artifact.json"))
+          assert run["id"] == 38511641089 and run["run_attempt"] == 1
+          assert run["head_sha"] == "0cbff718b3d6dfe4d95b4a1966fe8e139423140c"
+          assert artifact["id"] == 11870926515
+          assert artifact["workflow_run"]["head_sha"] == run["head_sha"]
+          PYGUARD
+          mkdir original-logs
+          for job in 115684849829 115684849834 115684849847 115684849872 115684849960; do
+            gh api --allow-escape-sequences "repos/dyKiU/mdk/actions/jobs/$job/logs" > "original-logs/$job.log"
+          done
+          python3 -m unittest discover -s scripts -p test_recover_experimental_coverage.py -v
+          python3 scripts/recover_experimental_coverage.py --inventory coverage-inputs/full-inventory.json --logs original-logs --output recovered-coverage
+          python3 - <<'PYGUARD'
+          import json, os
+          plan = json.load(open("recovered-coverage/execution-plan.json"))
+          row = plan[int(os.environ["PARTITION"]) - 1]
+          assert row["partition"] == int(os.environ["PARTITION"]) and row["count"] > 0
+          with open("selected-plan.json", "w") as output:
+              json.dump(row, output, indent=2)
+          with open("selected-filter.txt", "w") as output:
+              output.write(row["filter"])
+          print("qualification-selected-archive-gap-cases:", row["count"])
+          PYGUARD
+          echo "runner-source: $(git rev-parse HEAD)"
+          echo "archive-source: 0cbff718b3d6dfe4d95b4a1966fe8e139423140c"
+          echo "qualification-scope: unfinished-experimental-archive"
+      - name: Verify exact runnable cases and execute only this missing coverage
+        run: |
+          set -euo pipefail
+          filter="$(cat selected-filter.txt)"
+          cargo nextest list --archive-file experimental-tests.tar.zst --workspace-remap "$GITHUB_WORKSPACE" -E "$filter" --message-format json > selected-inventory.json
+          python3 - <<'PYGUARD'
+          import json
+          plan = json.load(open("selected-plan.json"))
+          inventory = json.load(open("selected-inventory.json"))
+          expected = {(row["suite"], row["test"]) for row in plan["cases"]}
+          actual = {(suite_id, name) for suite_id, suite in inventory["rust-suites"].items() for name, case in suite["testcases"].items() if case["filter-match"]["status"] == "matches" and not case["ignored"]}
+          assert actual == expected and len(actual) == plan["count"], "missing-only execution selection mismatch"
+          PYGUARD
+          cargo nextest run --archive-file experimental-tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile m5-bounded --test-threads 6 --retries 0 --no-fail-fast -E "$filter"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: experimental-gap-${{ matrix.partition }}
+          path: |
+            selected-plan.json
+            selected-filter.txt
+            selected-inventory.json
+            recovered-coverage/summary.json
+            recovered-coverage/required-followups.json
+          retention-days: 7
+          if-no-files-found: error

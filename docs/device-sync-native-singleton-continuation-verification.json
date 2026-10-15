@@ -1,0 +1,242 @@
+{
+  "baseline": "680813137b010aac41c59b6bfbc04773113d2015",
+  "fixture": "native_device_linking::tests::actual::native_public_continuation_settles_actual_original_pair_over_live_relay",
+  "scope": "Public opaque factories, packet exchange, genuine SAS human confirmation and original singleton continuation over an actual relay; no internal proof or purpose API.",
+  "red": {
+    "verified_inputs": 2388,
+    "fixture_reproduced_from": "68081313 plus original public-continuation regression",
+    "baseline": "680813137b010aac41c59b6bfbc04773113d2015",
+    "manifest_sha256": "d5a604c5b6957e07b58a03792988cd8e98eab1e540c0f700a2745e538b727ee6",
+    "log_sha256": "2bcb2346dc9b0678b8a87bfed42cf149954fd2c8b028d8a77ba695662dc53c29",
+    "actual_counts": [
+      {
+        "status": "FAILED",
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      }
+    ]
+  },
+  "qualification": {
+    "green-v2": {
+      "verified_inputs": 2389,
+      "manifest_sha256": "42f809f038fca27d8e7870e707e49dfc098850041f9b899e7d8d9c1709b9fb45",
+      "verified_logs": 1,
+      "passed_tests": 1
+    },
+    "qualification-v1": {
+      "verified_inputs": 2389,
+      "manifest_sha256": "42f809f038fca27d8e7870e707e49dfc098850041f9b899e7d8d9c1709b9fb45",
+      "verified_logs": 5,
+      "passed_tests": 9
+    }
+  },
+  "runs": {
+    "red-v1": {
+      "baseline_head": "680813137b010aac41c59b6bfbc04773113d2015",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "native_device_linking::tests::actual::native_public_continuation_settles_actual_original_pair_over_live_relay",
+        "--",
+        "--exact",
+        "--test-threads=1"
+      ],
+      "exit_code": 101,
+      "seconds": 19.04,
+      "counts": [
+        {
+          "status": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0
+        }
+      ],
+      "inputs": 2388,
+      "manifest_sha256": "d5a604c5b6957e07b58a03792988cd8e98eab1e540c0f700a2745e538b727ee6",
+      "log_sha256": "2bcb2346dc9b0678b8a87bfed42cf149954fd2c8b028d8a77ba695662dc53c29"
+    },
+    "green-v1": {
+      "baseline_head": "680813137b010aac41c59b6bfbc04773113d2015",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "native_device_linking::tests::actual::native_public_continuation_settles_actual_original_pair_over_live_relay",
+        "--",
+        "--exact",
+        "--test-threads=1"
+      ],
+      "exit_code": 101,
+      "seconds": 36.87,
+      "counts": [
+        {
+          "status": "FAILED",
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0
+        }
+      ],
+      "inputs": 2388,
+      "manifest_sha256": "afc5b6853e33d6d534efc1f98d0003b0621aa2f93718fc0f8270b4f397719f3c",
+      "log_sha256": "5ddedd8ad8eba6446a5b23b78adfa4e35960ead573eaa4caaeccb806f3c6e8c3"
+    },
+    "green-v2": {
+      "baseline_head": "680813137b010aac41c59b6bfbc04773113d2015",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "native_device_linking::tests::actual::native_public_continuation_settles_actual_original_pair_over_live_relay",
+        "--",
+        "--exact",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 33.81,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "inputs": 2389,
+      "manifest_sha256": "42f809f038fca27d8e7870e707e49dfc098850041f9b899e7d8d9c1709b9fb45",
+      "log_sha256": "8ff95c817f138aee53e99dc9344ae3711406a025809a000e49425900c5f5547b"
+    },
+    "qualification-v1": {
+      "baseline_head": "680813137b010aac41c59b6bfbc04773113d2015",
+      "inputs": 2389,
+      "manifest_sha256": "42f809f038fca27d8e7870e707e49dfc098850041f9b899e7d8d9c1709b9fb45",
+      "checks": [
+        {
+          "name": "native",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "--lib",
+            "native_device_linking::",
+            "--",
+            "--test-threads=4"
+          ],
+          "exit_code": 0,
+          "seconds": 38.97,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 8,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "acf53f552daa18cf5a38315e1c199fc0fc537c535837c76a08b82c83f4a8dd31"
+        },
+        {
+          "name": "default-api",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--lib",
+            "native_device_linking::tests::default_native_verification_is_unsupported_before_account_or_worker_effects",
+            "--",
+            "--exact"
+          ],
+          "exit_code": 0,
+          "seconds": 60.89,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "23b511f0c25742a1c0e0d87912527e956fa2d19e60f9877224c7e606389b8adb"
+        },
+        {
+          "name": "clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--all-targets",
+            "--features",
+            "experimental-device-sync",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 0,
+          "seconds": 27.46,
+          "counts": [],
+          "log_sha256": "b82684b1b1d1d86450e38e2c48e55c7a5cbe15d8c155b96104e76ac823b71747"
+        },
+        {
+          "name": "default",
+          "command": [
+            "cargo",
+            "check",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--all-targets"
+          ],
+          "exit_code": 0,
+          "seconds": 21.25,
+          "counts": [],
+          "log_sha256": "ff6540a6a940ccd74542f5f43f2b8eab7670a3c2b54e691c1a4816e0bb240576"
+        },
+        {
+          "name": "fmt",
+          "command": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--",
+            "--check"
+          ],
+          "exit_code": 0,
+          "seconds": 3.37,
+          "counts": [],
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  },
+  "independent_verification": "Root verified every qualified source input and raw log hash. RED fixture reconstructed exactly from baseline plus original failing test.",
+  "limits": [
+    "Experimental feature remains default-off; enrollment_supported remains false.",
+    "Existing-group targets and full public three-device enrollment remain gated.",
+    "Native observation remains VerificationCompleteEnrollmentPending even after backend settlement.",
+    "No ABI shape change, regenerated bindings, matched app artifacts or actual chat/history acceptance qualified here."
+  ],
+  "post_qualification_changes": "Documentation and this evidence record only; qualified Rust source unchanged."
+}

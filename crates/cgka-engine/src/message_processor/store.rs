@@ -333,6 +333,117 @@ impl<S: StorageProvider> Engine<S> {
         )
     }
 
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) fn persist_roster_capture_outbound(
+        &self,
+        msg: &TransportMessage,
+        mls_bytes: &[u8],
+        state: &cgka_traits::roster_ack_capture::RosterAckCaptureState,
+        stamp: OwnApplicationConvergenceStamp,
+        outbound: &[u8],
+    ) -> Result<MessageId, EngineError> {
+        let content_id = content_dedup_id(mls_bytes);
+        let openmls_msg = TransportMessage {
+            payload: mls_bytes.to_vec(),
+            ..msg.clone()
+        };
+        self.storage.with_transaction(|storage| {
+            let capture = storage
+                .roster_ack_capture_storage()
+                .ok_or_else(|| EngineError::Backend("capture storage unavailable".into()))?;
+            let current = capture
+                .capture_state()?
+                .ok_or(cgka_traits::storage::StorageError::NotFound)?;
+            if current.generation != state.generation
+                || current.group_id != state.group_id
+                || current.epoch != state.epoch
+                || current.epoch_authenticator_digest != state.epoch_authenticator_digest
+                || current.roster_commitment != state.roster_commitment
+                || current.prepared_ciphertext.as_deref() != Some(mls_bytes)
+            {
+                return Err(EngineError::Backend(
+                    "capture publication binding changed".into(),
+                ));
+            }
+            let payload = StoredMessagePayload::signed_openmls_application_wire(
+                msg.clone(),
+                openmls_msg.clone(),
+                stamp,
+            );
+            self.persist_stored_message_payload(
+                msg.id.clone(),
+                &state.group_id,
+                RowEpochs::at(state.epoch),
+                MessageState::Sent,
+                payload,
+                None,
+            )?;
+            self.persist_sent_openmls_content_marker(
+                &openmls_msg,
+                content_id.clone(),
+                &state.group_id,
+                state.epoch,
+            )?;
+            storage
+                .roster_ack_capture_storage()
+                .ok_or_else(|| EngineError::Backend("capture storage unavailable".into()))?
+                .put_capture_outbound(state.generation, outbound)?;
+            Ok::<_, EngineError>(())
+        })?;
+        Ok(content_id)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) fn persist_private_settlement_outbound(
+        &self,
+        msg: &TransportMessage,
+        mls_bytes: &[u8],
+        admission: &crate::private_roster_settlement::LiveSettlementAdmission,
+        stamp: OwnApplicationConvergenceStamp,
+        outbound: &[u8],
+    ) -> Result<MessageId, EngineError> {
+        let state = self.checked_settlement_round(admission)?;
+        if state.prepared_ciphertext.as_deref() != Some(mls_bytes) {
+            return Err(EngineError::Backend(
+                "private settlement ciphertext binding changed".into(),
+            ));
+        }
+        let content_id = content_dedup_id(mls_bytes);
+        let openmls_msg = TransportMessage {
+            payload: mls_bytes.to_vec(),
+            ..msg.clone()
+        };
+        self.storage.with_transaction(|storage| {
+            self.checked_settlement_round(admission)?;
+            let payload = StoredMessagePayload::signed_openmls_application_wire(
+                msg.clone(),
+                openmls_msg.clone(),
+                stamp,
+            );
+            self.persist_stored_message_payload(
+                msg.id.clone(),
+                &state.anchor.group_id,
+                RowEpochs::at(state.anchor.successor.epoch),
+                MessageState::Sent,
+                payload,
+                None,
+            )?;
+            self.persist_sent_openmls_content_marker(
+                &openmls_msg,
+                content_id.clone(),
+                &state.anchor.group_id,
+                state.anchor.successor.epoch,
+            )?;
+            storage
+                .private_roster_settlement_storage()
+                .ok_or_else(|| EngineError::Backend("capture storage unavailable".into()))?
+                .put_outbound(state.generation, outbound)?;
+            self.checked_settlement_round(admission)?;
+            Ok::<_, EngineError>(())
+        })?;
+        Ok(content_id)
+    }
+
     pub(crate) fn record_sent_openmls_application_message(
         &mut self,
         msg: &TransportMessage,

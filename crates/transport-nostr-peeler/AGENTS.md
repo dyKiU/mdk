@@ -24,6 +24,7 @@ storage. Keep those in adapters or the app layer above this crate.
 | `src/lib.rs` | Public exports and Nostr/Marmot constants. |
 | `src/event.rs` | `NostrTransportEvent` DTO and `TransportMessage` conversion. |
 | `src/peeler.rs` | `TransportPeeler` implementation for Nostr/MLS group messages. |
+| `src/private_welcome.rs` | Default-off private draft NIP-59 batch wrapping/authentication/reassembly; bounded exact context, never join consent. |
 | `src/nip59.rs` | `gift_wrap_rumor`: the one NIP-59 wrap construction shared by Welcomes and moderation reports. |
 | `src/signer.rs` | `MarmotNostrSigner` account signer boundary and `SdkSigner` adapter over rust-nostr's signer traits. |
 | `src/error.rs` | Nostr boundary error vocabulary. |
@@ -65,3 +66,22 @@ skips content validation is a contract violation, not a style choice.
 ```sh
 cargo test -p transport-nostr-peeler
 ```
+
+Experimental private batches use a separate rumor kind/profile and must never
+weaken ordinary kind444 extraction. Verify the full event ID/signature and exact
+same-account signer, bind the entire expected context on every chunk, and enforce
+bounds before decoding. Arrival order may vary but chunk indices are unique;
+all parts and the final raw digest are required before returning any bytes.
+
+```sh
+cargo test -p transport-nostr-peeler --features experimental-device-sync
+```
+
+
+Single-chunk observation shares `authenticate_private_chunk` with complete batch
+peeling. `PrivateWelcomeObservation` has no Debug/Serde/permission semantics.
+Authenticate actual outer event ID/signature, strict routing and same-account seal
+before exposing bounded context/count/index/total. Validate chunk shape and
+canonical decoded length too. A single observation does not validate the complete
+Welcome hash; full batch reassembly must still do so. Caller SDK bindings cannot
+be inferred as trusted from this observation.

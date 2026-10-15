@@ -1,0 +1,338 @@
+{
+  "scope": "Experimental freshly authorized record replay per authenticated peer projection generation",
+  "base": "351afa834d53f5a7b994d813063702f903bc2062",
+  "qualified_source": "66c929471a1110584f05f3f20bfd6de3ebcf7189",
+  "owned_runtime_and_test_files": {
+    "crates/cgka-engine/src/account_chat_sharing.rs": "13452f47449730792867164e1c2132262f0f66e6b1ec2fe0ccaa4eb9385f5e96",
+    "crates/cgka-engine/src/account_chat_sharing/tests.rs": "543b3ea9e76c5064b585bbe28037c09fc9bd5396d40f9839aa38002380562005",
+    "crates/marmot-app/src/account_chat_sharing/enabled.rs": "297b1877d5fe8c6677981ef98c01feba48d6b79c237c275dc6443db80f604dff",
+    "crates/marmot-app/src/client/account_chat_sharing/automatic/records.rs": "83595a7160efb941800e94e127d207427403522e8bd5b1f53562c61a9dbbc0f1",
+    "crates/marmot-app/src/native_device_linking/tests.rs": "9d89417bd00959d63641e9056df58648d42bbd3fa6d430d6b7154039093cde2e",
+    "crates/marmot-app/src/runtime/account_chat_sharing.rs": "c892c401f92ec49d46c58b004d3b8bae40c9764637f9483139ad9f94d3473417",
+    "crates/marmot-app/src/native_device_linking/automatic_record_renewal_acceptance.rs": "854d67eb6f600e809f8073ce563e10fb6f41040b1722b33e31fa89834c05b8cf"
+  },
+  "behavioral_red": {
+    "inputs_manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-record-generation-red-v7-inputs.json",
+    "manifest_sha256": "74a5ba10b715c532cbea0ce9f03ec56bc911d9dc2c4bb0a75f791e4b1d57dd20",
+    "source_commit": "1aea6179315899d851b1824e24a50bdffca4840a",
+    "input_count": 2625,
+    "protected_count": 16,
+    "gates": [
+      {
+        "gate": "withdrawal",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_records_remain_visible_after_acknowledged_ab_batch_and_broad_abc_renewal",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 143.91,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-record-generation-red-v7-withdrawal.log",
+        "log_sha256": "357e2ce57f706a548657e243d3a10ebeb8868acfc0de3093c085f10271e5ae03",
+        "inputs_unchanged": true,
+        "free_before_bytes": 19590172672,
+        "test_summaries": [
+          "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2147 filtered out; finished in 69.35s"
+        ]
+      }
+    ]
+  },
+  "first_green": {
+    "inputs_manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-record-generation-green-v3-inputs.json",
+    "manifest_sha256": "8d25f4476523b6f2e8c0b739eb08cfbe4a4268f9374688146859c58b56740cb3",
+    "source_commit": "678f0421475e1f8b92b7f1ad7d265ad82bca03e2",
+    "input_count": 2627,
+    "protected_count": 16,
+    "gates": [
+      {
+        "gate": "withdrawal",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_records_remain_visible_after_acknowledged_ab_batch_and_broad_abc_renewal",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 109.62,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-record-generation-green-v3-withdrawal.log",
+        "log_sha256": "eb001851c09f138bc07d663dd4102c93e67754dd99a850195ee4ed4e68244a4f",
+        "inputs_unchanged": true,
+        "free_before_bytes": 23422713856,
+        "test_summaries": [
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2147 filtered out; finished in 34.97s"
+        ]
+      }
+    ]
+  },
+  "final_affected_and_static": {
+    "inputs_manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-record-generation/automatic-record-generation-affected-v1-inputs.json",
+    "manifest_sha256": "f9ebca83470c746880f8ebd93af37a2e0045b8787f2b67ebcbcc4dc4afd3ad71",
+    "source_commit": "66c929471a1110584f05f3f20bfd6de3ebcf7189",
+    "input_count": 2627,
+    "protected_count": 16,
+    "gates": [
+      {
+        "gate": "core-sharing",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "cgka-engine",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "account_sharing_",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 31.65,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-record-generation-affected-v1-core-sharing.log",
+        "log_sha256": "e28a859356a05e38488546700a79b3a2106d17e48e59f413f9cb433488e08f27",
+        "inputs_unchanged": true,
+        "free_before_bytes": 23405879296,
+        "test_summaries": [
+          "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 248 filtered out; finished in 6.77s"
+        ]
+      },
+      {
+        "gate": "core-catalog",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "cgka-engine",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "account_chat_catalog_",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 5.36,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-record-generation-affected-v1-core-catalog.log",
+        "log_sha256": "e89817bd0b010b3a149436780d718132b386c9b457af34eeb4a0188dc04065d0",
+        "inputs_unchanged": true,
+        "free_before_bytes": 23367802880,
+        "test_summaries": [
+          "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 251 filtered out; finished in 4.77s"
+        ]
+      },
+      {
+        "gate": "app-catalog",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_catalog_",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 243.25,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-record-generation-affected-v1-app-catalog.log",
+        "log_sha256": "337b6b2b4b8b5c33d2abe61fe1e7f1cd666503f9ecddddb0cb68469ca9fda9e0",
+        "inputs_unchanged": true,
+        "free_before_bytes": 23367548928,
+        "test_summaries": [
+          "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 2146 filtered out; finished in 168.96s"
+        ]
+      },
+      {
+        "gate": "app-records",
+        "command": [
+          "cargo",
+          "test",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "automatic_records_",
+          "--",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 102.1,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-record-generation-affected-v1-app-records.log",
+        "log_sha256": "3fa8eb00e855755d0a8945c2d2e3e273021feaf9a0bb95e59567453720800cec",
+        "inputs_unchanged": true,
+        "free_before_bytes": 23376343040,
+        "test_summaries": [
+          "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 2145 filtered out; finished in 100.72s"
+        ]
+      },
+      {
+        "gate": "test-strict",
+        "command": [
+          "cargo",
+          "clippy",
+          "-p",
+          "cgka-engine",
+          "-p",
+          "cgka-session",
+          "-p",
+          "marmot-app",
+          "--lib",
+          "--tests",
+          "--locked",
+          "--features",
+          "experimental-device-sync,test-policy-overrides",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit": 0,
+        "seconds": 60.94,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-record-generation-affected-v1-test-strict.log",
+        "log_sha256": "21a3f844de75ebcdb66423bef48eba646c0bcb85ebf0112f8f266b12d3d78321",
+        "inputs_unchanged": true,
+        "free_before_bytes": 23375462400,
+        "test_summaries": []
+      },
+      {
+        "gate": "production-strict",
+        "command": [
+          "cargo",
+          "clippy",
+          "-p",
+          "cgka-engine",
+          "-p",
+          "cgka-session",
+          "-p",
+          "marmot-app",
+          "--all-targets",
+          "--locked",
+          "--features",
+          "experimental-device-sync",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit": 0,
+        "seconds": 47.82,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-record-generation-affected-v1-production-strict.log",
+        "log_sha256": "2e614922c3d7e99c4295ecfc144039b9c6aba20828c716e65379f5ab49ab3fce",
+        "inputs_unchanged": true,
+        "free_before_bytes": 23373803520,
+        "test_summaries": []
+      },
+      {
+        "gate": "default-check",
+        "command": [
+          "cargo",
+          "check",
+          "-p",
+          "cgka-engine",
+          "-p",
+          "cgka-session",
+          "-p",
+          "marmot-app",
+          "--all-targets",
+          "--locked"
+        ],
+        "exit": 0,
+        "seconds": 41.76,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-record-generation-affected-v1-default-check.log",
+        "log_sha256": "c7020df1f84a4a57849f9772467cecdfd32c37d2610f1e8fce170ec2b463e51b",
+        "inputs_unchanged": true,
+        "free_before_bytes": 23371993088,
+        "test_summaries": []
+      },
+      {
+        "gate": "format",
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "exit": 0,
+        "seconds": 4.39,
+        "resource_abort": false,
+        "log": "/Users/pj/project/build/results/automatic-record-generation-affected-v1-format.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "inputs_unchanged": true,
+        "free_before_bytes": 23371145216,
+        "test_summaries": []
+      }
+    ]
+  },
+  "red_preconditions": [
+    "Real independent D-to-A incoming ordinary chat publicly accepted by non-admin A",
+    "Actual broad AB originals completed and closed",
+    "B canonical history present, source authenticated RecordReceipt committed before C enrollment",
+    "Actual fully broad ABC original enrollment completed; all three completed originals closed",
+    "B fresh paired header generation2 with zero rows before repair"
+  ],
+  "repair": [
+    "Live original Request/Consent role selects signed peer generation; it never grants local settlement",
+    "Fresh current source bytes are re-encoded and validated before replay; erased terminal outbox payload and old owners are never restored",
+    "Exact committed global receipt plus immutable peer-generation ACK retained atomically through original before/tail guards",
+    "Acknowledged unchanged peer generation suppresses further identical rescans; new genuine recipient projection generation permits freshly authorized replay"
+  ],
+  "getter_acceptance": [
+    "Genuine encrypted roster reselection produces unequal local counters",
+    "Recipient reads signed Request generation, initiator reads signed Consent generation",
+    "Pre-consent initiator, original lease revocation, explicit retirement, construction-time short expiry, Engine drop refuse"
+  ],
+  "preserved_iterations": {
+    "red-v1": "Resource preflight refusal before Cargo",
+    "red-v2": "Compile-only E0603 private probe visibility",
+    "red-v3_and_v4": "Actual initial AB history timeout; backtrace before_abc, not generation RED",
+    "red-v5": "Before-ABC window absent and zero actual source ACKs while completed AB originals held",
+    "red-v6": "After closing AB originals, AB witness and source ACK passed; held ABC originals still produced absent paired header",
+    "green-v1": "Resource preflight refusal before Cargo",
+    "green-v2": "Compile-only E0506 validator borrow across cursor mutation; fixed query ordering"
+  },
+  "source_reuse": "Final candidate differs from first GREEN only by the new Core getter test; production and App regression bytes remain identical",
+  "limits": [
+    "Pending stranger/noaccept/decline disclosure remains an actual unresolved native RED; accepted-source lineage23 is next",
+    "Held completed SDK originals can interfere with automatic discovery; routing/lifecycle cause and host behavior remain separate unqualified work",
+    "Explicit principal-wide leave across multiple actual member devices and positive rejoin remain open",
+    "Unknown source timeline absence must not be conflated with permanent deletion; separate unqualified risk",
+    "No updated Apple SDK, installed app, full new backend matrix or physical journey claim",
+    "Private22 peer-generation ACK storage retains cumulative8192 references and fails closed; no implicit pruning/reset"
+  ],
+  "privacy": "Only source paths, hashes, counts and fixed stage observations; no accounts, message bodies, keys or packets"
+}

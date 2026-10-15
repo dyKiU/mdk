@@ -153,3 +153,22 @@ empty/whitespace/reply-only drafts, incoming messages while a draft is selected,
 clear/failure/newer-edit races, invite indicators, mute expiry, archived/Left gestures,
 offline reopen, paging/anchor retention and live changes on both clients. Keep the
 C9 device performance/adoption record separate from host binding round trips.
+
+
+## Direct-contact reuse across paired installations
+
+Use `existing_account_direct_conversation(account_ref, peer_account_id)` for a
+contact that can have a shared conversation. Its tagged result is either
+`LocalMls { conversation }` with the existing ordinary reuse metadata or
+`PairedSource { conversation }` with an authenticated paired header. Navigate to
+the returned canonical group; do not manufacture a local membership record.
+The local-only `existing_direct_conversation` remains available for consumers
+that intentionally exclude paired chats. Default builds resolve only local MLS
+conversations through the account-level method.
+
+The lookup accepts a public hex key or npub and performs no network operation,
+invitation or follow-list publication. Paired reads use the current approved
+policy and protected roster before and after the worker read. Treat NotReady,
+Closed and runtime errors as unresolved reads, never permission to create a
+replacement chat. A read observes the current local catalog; it is not a remote
+catalog-completion or concurrent-creation guarantee.

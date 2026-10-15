@@ -1,0 +1,81 @@
+{
+  "scope": "Bounded Core and thin Session history recipient observation only. No App/native or UI adoption in this slice.",
+  "source_base": "84113c20771a0092cb0e52ca094836375f9dd406",
+  "tdd": [
+    {
+      "cohort": "red-v1",
+      "original_local_stash": "f12470e588c62263c7d77bb3f8c6825e2fad9d83",
+      "original_remote_stash": "a1eb6c3105083e8571efe00e4c84c961b2ef9f24",
+      "source_hashes_verified": 2498,
+      "input_manifest_sha256": "10c512fc799a0cc0813e76f6e86c33216cabecb77e80f9f0e90db61e0bc83094",
+      "gates": [
+        {
+          "gate": "feature",
+          "exit": 101,
+          "seconds": 17.326529026031494,
+          "log": "/Users/pj/project/build/history-recipient-choices-red-v1-feature.log",
+          "log_sha256": "aebb20feb76a951f46dd3c907efe15ea68c0d0ea4589237de3e5b08f7ec70710"
+        }
+      ]
+    },
+    {
+      "cohort": "green-v1",
+      "original_local_stash": "a05f20d819569d711ed289323a75a52c8908ed32",
+      "original_remote_stash": "0e0195f765a312cab9567a30c52bca720795e247",
+      "source_hashes_verified": 2498,
+      "input_manifest_sha256": "7d55d3d20840d06636ba62faebdc7fa586ad8da8b9a9a75ebb8ba4d9a2d9221d",
+      "gates": [
+        {
+          "gate": "history",
+          "exit": 0,
+          "seconds": 34.12471103668213,
+          "log": "/Users/pj/project/build/history-recipient-choices-green-v1-history.log",
+          "log_sha256": "868589a6e006dfaedda5699f54930737edd046e9394055f5a2fe852e36ee7609"
+        },
+        {
+          "gate": "session",
+          "exit": 0,
+          "seconds": 5.775660037994385,
+          "log": "/Users/pj/project/build/history-recipient-choices-green-v1-session.log",
+          "log_sha256": "a62ec4bd90991201f3014b70aa65be8d2d38a72cecc17eaab82c36881c4c02a2"
+        },
+        {
+          "gate": "default",
+          "exit": 0,
+          "seconds": 7.650839805603027,
+          "log": "/Users/pj/project/build/history-recipient-choices-green-v1-default.log",
+          "log_sha256": "1fe20d590b54e6f906cb45ec8636f72f3dc5814d73589cb3ef405065d8277be5"
+        },
+        {
+          "gate": "clippy",
+          "exit": 0,
+          "seconds": 11.46777606010437,
+          "log": "/Users/pj/project/build/history-recipient-choices-green-v1-clippy.log",
+          "log_sha256": "cd1419eb369bc7727f80897853fd2a542b09ae381222bac805940c7ddc568fa9"
+        },
+        {
+          "gate": "fmt",
+          "exit": 0,
+          "seconds": 3.806839942932129,
+          "log": "/Users/pj/project/build/history-recipient-choices-green-v1-fmt.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  ],
+  "controls": [
+    "Exact occupied remote leaf and local signer exclusion",
+    "Default-denying original lease still refuses transfer after observation",
+    "Missing or ordinary-as-protected group refused",
+    "Uncompleted protected roster selection refused",
+    "Pending ordinary evolution refused; stale original remains invalid after commit; fresh query and new original succeed"
+  ],
+  "target": "MdkRecipientCollectionTargetM5 reused; no new build cache",
+  "toolchain": "Rust1.97.1 aarch64 Apple Darwin",
+  "qualification_limits": [
+    "Core fixture uses injected fixed actor leases, not stock SDK consent",
+    "App/native query APIs, regenerated SDK, picker UI and real installed native acceptance remain open",
+    "Full PR/workspace qualification and integration remain required"
+  ],
+  "historical_default_binary_sha256_unchanged": "93eaf71300bfdb25df091d11a626db7986cf36ad553f3387829efadf79d4e28d"
+}

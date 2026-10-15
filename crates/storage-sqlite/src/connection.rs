@@ -1416,6 +1416,121 @@ impl StorageProvider for SqliteAccountStorage {
         Some(self)
     }
 
+    #[cfg(feature = "experimental-device-sync")]
+    fn accepted_welcome_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::storage::AcceptedWelcomeStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn accepted_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::accepted_device_group_anchor::AcceptedDeviceGroupAnchorStorage>
+    {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn existing_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::existing_device_group_anchor::ExistingDeviceGroupStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn revoked_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::revoked_device_group_anchor::RevokedDeviceGroupStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn private_group_privacy_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::private_group_privacy::PrivateGroupPrivacyStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn private_device_invite_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::private_device_invite::PrivateDeviceInviteStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn device_group_genesis_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::device_group_genesis::DeviceGroupGenesisStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn private_roster_settlement_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::private_roster_settlement::PrivateRosterSettlementStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn roster_ack_capture_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::roster_ack_capture::RosterAckCaptureStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn device_linking_key_package_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::device_linking_key_package::PurposeKeyPackageStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn selected_chat_key_package_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::selected_chat_key_package::SelectedChatKeyPackageStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn mirrored_chat_catalog_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::mirrored_chat_catalog::MirroredChatCatalogStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn approved_account_sharing_policy_storage(
+        &self,
+    ) -> Option<
+        &dyn cgka_traits::approved_account_sharing_policy::ApprovedAccountSharingPolicyStorage,
+    > {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn mirrored_chat_message_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::mirrored_chat_messages::MirroredChatMessageStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn account_chat_record_stream_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::account_chat_record_stream::AccountChatRecordStreamStorage> {
+        Some(self)
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    fn account_chat_send_queue_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::account_chat_send_queue::AccountChatSendQueueStorage> {
+        Some(self)
+    }
+
     fn group_replay_state_fingerprint(
         &self,
         group_id: &cgka_traits::types::GroupId,

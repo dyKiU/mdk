@@ -58,6 +58,16 @@ A production Nostr implementation should derive those answers from Nostr state r
 transport adapter family, so the account runtime can ask the active transport to publish a KeyPackage without knowing
 whether that means Marmot Nostr kind `30443`, another relay-plane format, or a future non-Nostr transport.
 
+A companion installation can leave public invitation reception on another installation by using
+`AccountDeviceRuntime::with_public_key_package_publication_disabled`. This blocks fresh publication,
+republishing, generator upgrades and retained KeyPackage fanout, while leaving ordinary group maintenance available.
+Pausing periodic maintenance alone does not block retained publication retries.
+
+`AccountHome::disable_public_key_package_publication` persists an account-scoped, one-way hold through setup cleanup
+and restart. Embedders must apply the hold when opening their account runtime; `marmot-app` does this automatically.
+Unreadable or invalid hold records fail account opening. These primitives do not pair devices, transfer chat history,
+remove previously published packages or restore an invitation already encrypted for a different installation.
+
 ## Own-leaf maintenance
 
 Secondary maintenance write failures do not discard committed session effects. `run_due_maintenance` retries the

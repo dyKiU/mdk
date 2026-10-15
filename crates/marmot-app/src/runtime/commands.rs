@@ -2324,6 +2324,10 @@ mod tests {
         manager.workers.lock().await.insert(
             account.account_id_hex.clone(),
             ManagedAccountWorker {
+                #[cfg(feature = "experimental-device-sync")]
+                publication_control: std::sync::Arc::new(
+                    crate::runtime::private_commit::PublicationControl::default(),
+                ),
                 ready: true,
                 media_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(
                     super::super::MEDIA_COMMAND_QUEUE_LIMIT,
@@ -2404,6 +2408,10 @@ mod tests {
         runtime.accounts().workers.lock().await.insert(
             account.account_id_hex.clone(),
             ManagedAccountWorker {
+                #[cfg(feature = "experimental-device-sync")]
+                publication_control: std::sync::Arc::new(
+                    crate::runtime::private_commit::PublicationControl::default(),
+                ),
                 ready: true,
                 media_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(
                     super::super::MEDIA_COMMAND_QUEUE_LIMIT,
@@ -2486,6 +2494,10 @@ mod tests {
         manager.workers.lock().await.insert(
             account.account_id_hex.clone(),
             ManagedAccountWorker {
+                #[cfg(feature = "experimental-device-sync")]
+                publication_control: std::sync::Arc::new(
+                    crate::runtime::private_commit::PublicationControl::default(),
+                ),
                 ready: true,
                 media_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(
                     super::super::MEDIA_COMMAND_QUEUE_LIMIT,

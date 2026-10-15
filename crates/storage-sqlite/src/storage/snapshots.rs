@@ -294,6 +294,7 @@ mod tests {
         for message_id in [mid(1), mid(2)] {
             store
                 .put_pending_application_event(&GroupEvent::MessageReceived {
+                    source_leaf: None,
                     authority: None,
                     group_id: g0.id.clone(),
                     message_id,
@@ -958,6 +959,7 @@ mod tests {
             frozen_at_wall_ms: Some(1_200),
             cutoff_cause: Some(ConvergenceCutoffCause::Quiescence),
             fairness_slot_available: false,
+            proposal_dependency_wakes: Vec::new(),
         };
         source.put_convergence_pass(&pass).unwrap();
 

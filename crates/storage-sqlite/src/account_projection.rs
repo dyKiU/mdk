@@ -277,6 +277,9 @@ pub struct StoredAppMessageQuery {
     pub limit: Option<usize>,
 }
 
+/// Maximum rows and kind filters in a bounded raw-event replay page.
+pub const MAX_APP_MESSAGE_REPLAY_PAGE: usize = 128;
+
 #[derive(Clone, Copy, Debug)]
 enum SecurePruneAppEventsMode {
     RecordedBefore(u64),
@@ -2103,6 +2106,77 @@ impl SqliteAccountStorage {
         query: StoredAppMessageQuery,
     ) -> StorageResult<Vec<StoredAppMessageRecord>> {
         self.app_messages_with_visibility(query, false)
+    }
+
+    /// Read the next bounded raw-event page in the canonical local replay order.
+    ///
+    /// Unlike `app_messages`, this starts at the oldest matching record, not the
+    /// newest window. `limit` must be present and within `1..=128`. Continue with
+    /// the last record's `replay_cursor()`. Invalidated and expired rows remain
+    /// available so an authenticated exporter can derive retention effects.
+    ///
+    /// The cursor belongs to this account-device database, never the peer's
+    /// timeline. It is an observation, not permission or complete coverage:
+    /// retention changes and inserts behind it require a fresh scan. Callers
+    /// must separately authenticate source authority and bound serialized bytes.
+    pub fn app_messages_page(
+        &self,
+        query: StoredAppMessageQuery,
+        after: Option<&AppEventReplayCursor>,
+    ) -> StorageResult<Vec<StoredAppMessageRecord>> {
+        let limit = query
+            .limit
+            .filter(|limit| (1..=MAX_APP_MESSAGE_REPLAY_PAGE).contains(limit))
+            .ok_or_else(|| StorageError::Backend("invalid raw-event page limit".into()))?;
+        let mut conditions = Vec::new();
+        let mut values = Vec::new();
+        if let Some(group) = query.group_id_hex {
+            conditions.push("group_id_hex = ?".to_owned());
+            values.push(Value::Text(group));
+        }
+        if let Some(kinds) = query.kinds.filter(|kinds| !kinds.is_empty()) {
+            if kinds.len() > MAX_APP_MESSAGE_REPLAY_PAGE {
+                return Err(StorageError::Backend(
+                    "too many raw-event kind filters".into(),
+                ));
+            }
+            let placeholders = std::iter::repeat_n("?", kinds.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            conditions.push(format!("kind IN ({placeholders})"));
+            for kind in kinds {
+                values.push(Value::Integer(u64_to_i64(kind)?));
+            }
+        }
+        if let Some(cursor) = after {
+            if cursor.insert_order <= 0 {
+                return Err(StorageError::Backend(
+                    "invalid raw-event replay cursor".into(),
+                ));
+            }
+            conditions.push("(recorded_at, message_id_hex, insert_order) > (?, ?, ?)".to_owned());
+            values.extend([
+                Value::Integer(u64_to_i64(cursor.recorded_at)?),
+                Value::Text(cursor.message_id_hex.clone()),
+                Value::Integer(cursor.insert_order),
+            ]);
+        }
+        let where_sql = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+        values.push(Value::Integer(usize_to_i64(limit)?));
+        let sql = format!(
+            "SELECT {APP_EVENT_REPLAY_COLUMNS} FROM app_events {where_sql} ORDER BY {APP_EVENT_REPLAY_ORDER_ASC} LIMIT ?"
+        );
+        let conn = self.lock()?;
+        let mut statement = conn.prepare_cached(&sql).storage()?;
+        statement
+            .query_map(params_from_iter(values.iter()), app_message_from_row)
+            .storage()?
+            .collect::<Result<Vec<_>, _>>()
+            .storage()
     }
 
     fn app_messages_with_visibility(

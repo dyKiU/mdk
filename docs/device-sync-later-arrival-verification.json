@@ -1,0 +1,85 @@
+{
+  "scope": "Later valid encrypted enrollment proposals remain selectable while earlier actual opaque observations are retained. No endorsement publication, admission, ABC settlement, native adoption or history permission is qualified by this slice.",
+  "red": {
+    "head": "b937db939bf6a4c85097f361e8a51b41f2cc2326",
+    "source_sha256": "ec4dfa3efd42d12a5155b8cd392264bc605d6508b5808748333427f1d72514c3",
+    "tracked_inputs": 2343,
+    "exit_code": 101,
+    "seconds": 60.49,
+    "counts": [
+      {
+        "status": "FAILED",
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      }
+    ],
+    "log_sha256": "9bc782b22c53e762abfedbb4ad9c5c39552e3d8693bef49b98616ae8bcbd5894"
+  },
+  "red_reason": "Genuine later canonical encrypted request was durably Processed, but App retained its original batch and returned one selector instead of two.",
+  "green": {
+    "head": "bfec6862228c17d0be0789fa89b8db5f197079c1",
+    "tracked_inputs": 2350,
+    "runs": [
+      {
+        "name": "app",
+        "exit_code": 0,
+        "seconds": 98.39,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "67e3b0625f8a60d4fdd2d9c93acbe3b3c9532f27555a490397525948200ffbf3"
+      },
+      {
+        "name": "core",
+        "exit_code": 0,
+        "seconds": 16.34,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "9877f5809f2e0ff86a12c54d11a9a6c4e3cf2fa87b19da7bb16a3557b569fcfa"
+      },
+      {
+        "name": "clippy",
+        "exit_code": 0,
+        "seconds": 37.85,
+        "counts": [],
+        "log_sha256": "cf9bc95fbe096e9638bd61caa3111d1195693781b88a0c60f78b956f340f19b7"
+      },
+      {
+        "name": "default",
+        "exit_code": 0,
+        "seconds": 27.87,
+        "counts": [],
+        "log_sha256": "4f94d32dc784deda282dbf7c5f44236d2afaaae799a1441668230e5676706216"
+      },
+      {
+        "name": "fmt",
+        "exit_code": 0,
+        "seconds": 4.13,
+        "counts": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "qualified_source_sha256": {
+    "crates/cgka-engine/src/private_enrollment_request.rs": "351413ea0bb1f9f99bd801a90f43f0b98f592751957578a98d4c4ffeffc214fc",
+    "crates/cgka-engine/src/private_roster_settlement_tests.rs": "e625fa0ee97d69352edd3028ad122f90a2a4b8d3a9e6f3d95b9480b07a9f619b",
+    "crates/cgka-session/src/lib.rs": "665bfb14e05db74d33482ef708f7c734ba259d8a780bda20e71b41d850d51a3f",
+    "crates/marmot-app/src/client/private_enrollment_proposal.rs": "e000b08d9ad003661efe0e3db8f7127cabae96837734ea3e58753c5df2d4e645",
+    "crates/marmot-app/src/runtime/device_linking.rs": "ec4dfa3efd42d12a5155b8cd392264bc605d6508b5808748333427f1d72514c3"
+  },
+  "input_verification": "All tracked input hashes checked before and after every M5 gate; local candidate matches all tracked inputs. Proof file added after terminal gates.",
+  "capacity": "Core shared observation queue128; App received proposal retention128; aggregate bound256. Bounded transfer leaves excess original proofs in Core without refreshing deadlines.",
+  "profile": "Rust1.97.1; reused MdkRecipientCollectionTargetM5; debug0; jobs2; RUST_MIN_STACK4194304; RUST_TEST_THREADS4; fd4096."
+}

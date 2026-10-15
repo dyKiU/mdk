@@ -36,6 +36,10 @@ pub enum StorageError {
     NotFound,
     #[error("record already exists")]
     AlreadyExists,
+    /// A mirrored-record batch targets an origin covered by an
+    /// account-wide departure cut. This is a negative disposition, not an import.
+    #[error("mirrored record denied by account departure")]
+    MirroredRecordDeniedByDeparture,
     #[error("snapshot not found: {0}")]
     SnapshotMissing(String),
     /// A canonical timeline cursor row was removed by retention. Callers should
@@ -135,6 +139,8 @@ pub trait GroupStorage {
     /// Atomically erase a group's local state and retain a reset cutoff.
     /// Repeated calls while awaiting a Welcome preserve the original cutoff.
     /// This is not an MLS leave or a protocol tombstone.
+    /// Backends advertising private settlement storage must permanently deny
+    /// the group's selected round in the same owned erasure transaction.
     /// Unsupported backends must fail without deleting anything.
     fn forget_group_local(&self, _id: &GroupId, _at: crate::Timestamp) -> StorageResult<bool> {
         Err(StorageError::Backend(
@@ -320,6 +326,48 @@ pub trait MessageStorage {
         visitor: &mut dyn FnMut(MessageRecord) -> bool,
     ) -> StorageResult<()> {
         for record in self.list_messages_in_states(group_id, states, at_or_after_epoch)? {
+            if !visitor(record) {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// Visit at most `limit` matching rows after an insertion-order cursor.
+    /// The cursor belongs to `group_id` and is independent of its current state
+    /// and the epoch floor. A missing or other-group cursor returns `NotFound`,
+    /// never restarts enumeration. Zero limit or empty states visits nothing.
+    /// The callback must not reenter storage. Backends should stream a bounded
+    /// query; the compatibility fallback materializes the group's arrival order.
+    fn visit_messages_in_states_after(
+        &self,
+        group_id: &GroupId,
+        states: &[MessageState],
+        at_or_after_epoch: EpochId,
+        after: Option<&MessageId>,
+        limit: usize,
+        visitor: &mut dyn FnMut(MessageRecord) -> bool,
+    ) -> StorageResult<()> {
+        if limit == 0 || states.is_empty() {
+            return Ok(());
+        }
+        let records = self.list_messages(group_id, EpochId(0))?;
+        let start = match after {
+            Some(id) => {
+                records
+                    .iter()
+                    .position(|record| &record.id == id)
+                    .ok_or(StorageError::NotFound)?
+                    + 1
+            }
+            None => 0,
+        };
+        for record in records
+            .into_iter()
+            .skip(start)
+            .filter(|record| record.epoch >= at_or_after_epoch && states.contains(&record.state))
+            .take(limit)
+        {
             if !visitor(record) {
                 break;
             }
@@ -947,6 +995,18 @@ pub trait DeferredPeelGenerationStorage {
 
 // ── StorageProvider aggregate ───────────────────────────────────────────────
 
+/// Optional accepted-join evidence capability. Facts only, never authorization.
+pub trait AcceptedWelcomeStorage: Send + Sync {
+    fn put_accepted_welcome_receipt(
+        &self,
+        receipt: &crate::accepted_welcome::AcceptedWelcomeReceipt,
+    ) -> StorageResult<()>;
+    fn accepted_welcome_receipt(
+        &self,
+        id: &MessageId,
+    ) -> StorageResult<Option<crate::accepted_welcome::AcceptedWelcomeReceipt>>;
+}
+
 /// The single storage type parameter carried by the engine.
 ///
 /// Marmot storage concerns live on this trait. OpenMLS storage is exposed
@@ -1033,6 +1093,117 @@ pub trait StorageProvider:
     /// remain valid `StorageProvider`s, while production SQLCipher storage
     /// exposes the durable maintenance capability.
     fn maintenance_storage(&self) -> Option<&dyn MaintenanceStorage> {
+        None
+    }
+
+    /// Unsupported backends explicitly provide no enrollment receipt. Supported
+    /// implementations must propagate failures and participate in the join transaction.
+    fn accepted_welcome_storage(&self) -> Option<&dyn AcceptedWelcomeStorage> {
+        None
+    }
+
+    /// Optional permanent negative private-chat fence. No authorization input.
+    fn private_group_privacy_storage(
+        &self,
+    ) -> Option<&dyn crate::private_group_privacy::PrivateGroupPrivacyStorage> {
+        None
+    }
+
+    /// Optional outgoing private Add staging facts. Defaults unavailable.
+    fn private_device_invite_storage(
+        &self,
+    ) -> Option<&dyn crate::private_device_invite::PrivateDeviceInviteStorage> {
+        None
+    }
+
+    /// Optional trusted-core accepted successor facts. Defaults unavailable.
+    fn accepted_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn crate::accepted_device_group_anchor::AcceptedDeviceGroupAnchorStorage> {
+        None
+    }
+
+    /// Optional original existing-member successor metadata. Defaults unavailable.
+    fn existing_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn crate::existing_device_group_anchor::ExistingDeviceGroupStorage> {
+        None
+    }
+
+    /// Optional original single-Remove successor metadata. Defaults unavailable.
+    fn revoked_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn crate::revoked_device_group_anchor::RevokedDeviceGroupStorage> {
+        None
+    }
+
+    /// Optional private-group creation provenance. Unsupported backends grant nothing.
+    fn device_group_genesis_storage(
+        &self,
+    ) -> Option<&dyn crate::device_group_genesis::DeviceGroupGenesisStorage> {
+        None
+    }
+
+    /// Optional atomic experimental fact capture, never an authorization store.
+    fn private_roster_settlement_storage(
+        &self,
+    ) -> Option<&dyn crate::private_roster_settlement::PrivateRosterSettlementStorage> {
+        None
+    }
+
+    fn roster_ack_capture_storage(
+        &self,
+    ) -> Option<&dyn crate::roster_ack_capture::RosterAckCaptureStorage> {
+        None
+    }
+
+    /// Optional atomic purpose ownership; unavailable backends fail closed.
+    fn device_linking_key_package_storage(
+        &self,
+    ) -> Option<&dyn crate::device_linking_key_package::PurposeKeyPackageStorage> {
+        None
+    }
+
+    /// Optional independent selected-chat purpose facts. Defaults unavailable.
+    fn selected_chat_key_package_storage(
+        &self,
+    ) -> Option<&dyn crate::selected_chat_key_package::SelectedChatKeyPackageStorage> {
+        None
+    }
+
+    /// Optional paired-source catalog observations, never membership or consent.
+    fn mirrored_chat_catalog_storage(
+        &self,
+    ) -> Option<&dyn crate::mirrored_chat_catalog::MirroredChatCatalogStorage> {
+        None
+    }
+
+    /// Optional durable explicit approvals; facts never restore live grants.
+    fn approved_account_sharing_policy_storage(
+        &self,
+    ) -> Option<&dyn crate::approved_account_sharing_policy::ApprovedAccountSharingPolicyStorage>
+    {
+        None
+    }
+
+    /// Optional paired-source logical message observations, never MLS evidence.
+    fn mirrored_chat_message_storage(
+        &self,
+    ) -> Option<&dyn crate::mirrored_chat_messages::MirroredChatMessageStorage> {
+        None
+    }
+
+    /// Optional logical-delivery metadata. Reading it cannot restore authorization.
+    fn account_chat_record_stream_storage(
+        &self,
+    ) -> Option<&dyn crate::account_chat_record_stream::AccountChatRecordStreamStorage> {
+        None
+    }
+
+    /// Optional durable paired-member sends; never a live permission or MLS ID.
+    fn account_chat_send_queue_storage(
+        &self,
+    ) -> Option<&dyn crate::account_chat_send_queue::AccountChatSendQueueStorage> {
         None
     }
 

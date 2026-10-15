@@ -1,0 +1,254 @@
+{
+  "red-v1": {
+    "exact_candidate_stash": "50ace61699d520f666f6f65da84d1dd344bd66d8",
+    "verified_input_count": 2440,
+    "results": {
+      "head": "ae796d82bb07405053963868d5840a191d9edaea",
+      "input_count": 2440,
+      "source_manifest_sha256": "f763012744f7523642c99884e59992562eed4c4681cb2cc3e0f0270ada544d14",
+      "gates": [
+        {
+          "gate": "qualified-public-capability",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "native_public_original_three_device_enrollment_uses_opaque_approval_and_packets",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 101,
+          "seconds": 77.8,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "ff595eba2f39d6f11c59bb4a0f5db5ceef7c043ce37816a837ddc7be81eb2dcd"
+        }
+      ]
+    }
+  },
+  "green-v1": {
+    "exact_candidate_stash": "73f19e2ed619345c1bf4528160e67a920801e6ce",
+    "verified_input_count": 2440,
+    "results": {
+      "head": "ae796d82bb07405053963868d5840a191d9edaea",
+      "input_count": 2440,
+      "source_manifest_sha256": "e425ddb0d9e467a260d62b64d2e1fa418465653d8d4003d596f0b1b5061eface",
+      "gates": [
+        {
+          "gate": "public-abc-capability",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "native_public_original_three_device_enrollment_uses_opaque_approval_and_packets",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 109.66,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "2c1859639e5217ee784ceaf46b6c6237ef289527534486c85ca14e7e508dccca"
+        },
+        {
+          "gate": "original-sdk-observation",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "native_original_recipient_observation_survives_actual_sdk_handoff",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 3.42,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "076514ec51719e61ec733b3b7d0309c1e2b008afe6e9d82c8ef607ea2e186e04"
+        },
+        {
+          "gate": "opaque-sdk-human-revision",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "opaque_native_sessions_complete_real_sdk_with_revision_bound_human_actions",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 3.37,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "75c68e79c097398c6e79e760d96e6cf5dc096365197aafbc6c2df7de298835af"
+        },
+        {
+          "gate": "default-refusal",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "native_device_linking::tests"
+          ],
+          "exit_code": 0,
+          "seconds": 73.45,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 2,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "718985b443efe53f3ed7f3a57382161bb65286d029b55256a874c28a991f83b8"
+        },
+        {
+          "gate": "uniffi-original-continuation",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "--features",
+            "experimental-device-sync",
+            "native_binding_continues_original_actions_and_close_wakes_waiter"
+          ],
+          "exit_code": 0,
+          "seconds": 47.13,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "2fa1ad37894ac805a6e75c0968145a6e603dadc46446f6de4a780aa856bfaacb"
+        },
+        {
+          "gate": "swift-default-capability",
+          "command": [
+            "bash",
+            "crates/marmot-uniffi/device-linking-smoke.sh"
+          ],
+          "exit_code": 0,
+          "seconds": 48.16,
+          "counts": [],
+          "log_sha256": "94860284a5baa1a05308579870247a1cdbf95717eb0b01b145a4f2b5892c33df"
+        },
+        {
+          "gate": "swift-feature-capability",
+          "command": [
+            "env",
+            "EXPERIMENTAL_DEVICE_SYNC=1",
+            "bash",
+            "crates/marmot-uniffi/device-linking-smoke.sh"
+          ],
+          "exit_code": 0,
+          "seconds": 44.03,
+          "counts": [],
+          "log_sha256": "cba5dbacb1ef374381db41c648ed6f240dff5499fa72ffb90ef19c7a9c2fb76d"
+        },
+        {
+          "gate": "production-clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "-p",
+            "marmot-uniffi",
+            "--features",
+            "experimental-device-sync",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 0,
+          "seconds": 38.06,
+          "counts": [],
+          "log_sha256": "a1c654758fd268610fe8c009a95d921aee7134b681ce61e14a2c68c2358c4add"
+        },
+        {
+          "gate": "default-check",
+          "command": [
+            "cargo",
+            "check",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "-p",
+            "marmot-uniffi",
+            "--all-targets"
+          ],
+          "exit_code": 0,
+          "seconds": 28.48,
+          "counts": [],
+          "log_sha256": "e678196f085b4c4faaa8971fa866fabd535dbbe1e2645bc5b18df8f67fe849ff"
+        },
+        {
+          "gate": "fmt",
+          "command": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--",
+            "--check"
+          ],
+          "exit_code": 0,
+          "seconds": 3.41,
+          "counts": [],
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  },
+  "scope": "Experimental build reports the genuine qualified ready-account enrollment API supported. Default remains unsupported. This boolean grants no membership, consent, proof, or continuation; all existing original-owner Core admission gates remain unchanged. Identity-only unfinished onboarding and selected ordinary-chat capability remain separate.",
+  "production_delta": "One enrollment_supported value now follows the existing experimental-device-sync feature flag.",
+  "post_freeze_delta": "Current README status and this qualification document only. Full integrated App and matched SDK qualification still pending."
+}

@@ -1,0 +1,189 @@
+{
+  "scope": "Original stock-SDK A/C proposal -> explicit B-owned action -> real encrypted private relay publication -> actual A MLS receipt plus original local A signature. Authentication progress only; no Add, C recipient admission, B successor provenance, ABC settlement, history sync or native adoption is qualified.",
+  "behavioral_red": {
+    "head": "168113198e669188d64ca52877a592aba394d238",
+    "source_sha256": "d19d99cd4864f0de118b0a7dcb0f6ea14c27591012abab79b7be6a8a45ee55e9",
+    "tracked_inputs": 2351,
+    "exit_code": 101,
+    "seconds": 45.76,
+    "counts": [
+      {
+        "status": "FAILED",
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      }
+    ],
+    "log_sha256": "94edce96d4b3e69907e8287eed842784b0c079bfbd65f3dc24f0a2bbe4e3398b"
+  },
+  "red_reason": "Actual original SDK proposal reached B and B explicitly endorsed; pending A collection was refused by the intentionally denying absent-operation interface.",
+  "compile_failures_preserved": [
+    {
+      "head": "168113198e669188d64ca52877a592aba394d238",
+      "source_sha256": "62e6347a02b04786a00514b2158e3d104d327b5c82d5ac88aa93baa7f59e44f1",
+      "tracked_inputs": 2352,
+      "exit_code": 101,
+      "seconds": 3.03,
+      "counts": [],
+      "log_sha256": "44d8a56998d327384a993d828f64e4e3b9b98d5d7c0fbf4d235570073e7d09f7"
+    },
+    {
+      "head": "168113198e669188d64ca52877a592aba394d238",
+      "source_sha256": "62e6347a02b04786a00514b2158e3d104d327b5c82d5ac88aa93baa7f59e44f1",
+      "tracked_inputs": 2352,
+      "exit_code": 101,
+      "seconds": 32.01,
+      "counts": [],
+      "log_sha256": "e02c97caf43d103060e904774fd449c986d75c6e1489f506a468d01c7b44beda"
+    }
+  ],
+  "compile_corrections": [
+    "Single-receipt validation must borrow the actual mutable original lease.",
+    "Place the new post-cancellation assertion in its intended third-device fixture."
+  ],
+  "genuine_worker_green": {
+    "head": "168113198e669188d64ca52877a592aba394d238",
+    "source_sha256": "c9362bbc269be6979a7c330035d0a052f4d619b7725b7894ada8dc3ae208b40f",
+    "tracked_inputs": 2352,
+    "exit_code": 0,
+    "seconds": 60.41,
+    "counts": [
+      {
+        "status": "ok",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      }
+    ],
+    "log_sha256": "6bc1c9c69d5b545a563b40728816983f704867bf11464815503b5bf05ab5c9d2"
+  },
+  "focused_qualification": {
+    "head": "168113198e669188d64ca52877a592aba394d238",
+    "tracked_inputs": 2352,
+    "runs": [
+      {
+        "name": "core-local",
+        "exit_code": 0,
+        "seconds": 15.0,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "13b915e52136dd68663acbdb2428702ca5d22cb1e2d8f562e05910fb1c5eda9a"
+      },
+      {
+        "name": "core-packets",
+        "exit_code": 0,
+        "seconds": 2.9,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "466dfe86cada26e9f9ae8227e1c359e1e097a9b361667f0e6f325c462aad1ac7"
+      },
+      {
+        "name": "core-cancel",
+        "exit_code": 0,
+        "seconds": 2.96,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "c4c432ff0b421a928a15634c8750c75cede0dc4dfceaf0e542f72e756fbecb11"
+      },
+      {
+        "name": "core-sql",
+        "exit_code": 0,
+        "seconds": 3.08,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "ab33b044f858fd8c3e5f2e054aa595d76dab4f6a6c0c6cf5321fe10a4ca6337d"
+      },
+      {
+        "name": "worker-controls",
+        "exit_code": 0,
+        "seconds": 54.84,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 9,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "876287a9564b594fcdb41ab29a133e28deb224db6a9ac4af92017b3263506172"
+      },
+      {
+        "name": "app-retention",
+        "exit_code": 0,
+        "seconds": 41.12,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "a42cf98dd1c8b5cdee9e7c3b1bceb661a2486eda6a92ccb0d8de61e1291fbcb8"
+      },
+      {
+        "name": "clippy",
+        "exit_code": 0,
+        "seconds": 38.66,
+        "counts": [],
+        "log_sha256": "f2a3b724f97c62e154400e54624d5dc9af9d46a2d692242e18a7ce34a988a850"
+      },
+      {
+        "name": "default",
+        "exit_code": 0,
+        "seconds": 12.84,
+        "counts": [],
+        "log_sha256": "438bdfb09bf7719090a71068ade729f1f56fc5c92a57574298882e94ef158fde"
+      },
+      {
+        "name": "fmt",
+        "exit_code": 0,
+        "seconds": 4.14,
+        "counts": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "qualified_source_sha256": {
+    "crates/marmot-app/src/client/private_enrollment_proposal/publication.rs": "756f14d35fbf922cd1831fe3b6b1e27464dbed38230f2d809ac911aa5600bc03",
+    "crates/cgka-engine/src/private_enrollment_endorsement.rs": "06ecbae2bcf86887afdec4d5ade66bd7f2699f08b602877b70865ba55eebe4ac",
+    "crates/cgka-engine/src/private_enrollment_request.rs": "2337691ba737a0c0dd8ac3f3309ebe9a140c0a7e20e7fedcb846454f9c4b3458",
+    "crates/cgka-engine/src/private_enrollment_request/producer.rs": "8b633d98ea69953b19b1a6debe7b5267d7ba3df76f9a2779046ddba994726158",
+    "crates/cgka-engine/src/private_roster_settlement_tests.rs": "94d6c4d4b419388253b4972202af1f611cc1e618eaf4859bf3c0fec5dd0abe14",
+    "crates/cgka-session/src/lib.rs": "85d68ff29efc8263909fce9bab88f509d935af27ba0e48b96e685c3317334daf",
+    "crates/marmot-app/src/client/device_linking.rs": "249caad290f0f811877900b264e734378186a3862c24b0b891b43e0108c26568",
+    "crates/marmot-app/src/client/private_enrollment_proposal.rs": "d117cbc2077f4f2eb3f1d5b556e3a416759d5e3f724cd16fc0095b7598f2f7a9",
+    "crates/marmot-app/src/runtime/account_worker.rs": "8b501116ede3d1cf532c91a9b1430e230ba901dbece0710a9bc81b8dcbfbad13",
+    "crates/marmot-app/src/runtime/device_linking.rs": "c9362bbc269be6979a7c330035d0a052f4d619b7725b7894ada8dc3ae208b40f",
+    "crates/marmot-app/src/runtime/private_commit.rs": "ecdd77978ccc41ce7f6e6c84a03402ee573b03c77892575020d725e86eb6d48c"
+  },
+  "source_verification": "All 2352 tracked and new source inputs unchanged before/after each M5 gate and matched against local source before commit. Human/agent docs and this proof added after terminal qualification.",
+  "controls": "SDK scope and B binding have distinct typed publication identities. One original action, monotonic deadline, cancellation/shutdown/reply-close wake, bounded 8 deferral and exact frozen ciphertext retry.",
+  "coverage_limit": "The 9 stalled/saturated/fault worker controls exercise existing SDK publication operations. Actual B relay publication, retry and exact cancellation selectors are green; a genuine B stalled-network regression remains a focused follow-up.",
+  "bounds": "Core shared request/endorsement queue 128 plus App retained requests/receipts sharing 128: aggregate 256. Excess observations remain in Core with original clocks. Invalid inner packets cannot occupy sibling collection leaves; storage/original-owner failures propagate.",
+  "profile": "Rust1.97.1; reused MdkRecipientCollectionTargetM5; dev/test debug0; jobs2; RUST_MIN_STACK4194304; RUST_TEST_THREADS4; fd4096."
+}

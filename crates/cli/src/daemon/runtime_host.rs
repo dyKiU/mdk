@@ -12,6 +12,8 @@ pub(crate) struct DaemonState {
 
 #[derive(Default)]
 pub(crate) struct AppRuntimeHost {
+    // Keep the same app/cache/lifecycle owner that constructed this runtime.
+    pub(crate) app: Option<marmot_app::MarmotApp>,
     pub(crate) runtime: Option<marmot_app::MarmotAppRuntime>,
     pub(crate) bridge: Option<JoinHandle<()>>,
     pub(crate) stream_watch: StreamWatchWorkers,
@@ -27,6 +29,7 @@ impl AppRuntimeHost {
         }
         self.stream_watch.abort_all();
         self.runtime = None;
+        self.app = None;
     }
 }
 
@@ -66,9 +69,20 @@ pub(crate) async fn reconcile_and_clone_runtime(
     events: DaemonEventHub,
     workers: &SharedDaemonWorkers,
 ) -> Option<marmot_app::MarmotAppRuntime> {
+    reconcile_and_clone_app_runtime(defaults, state, events, workers)
+        .await
+        .map(|(_, runtime)| runtime)
+}
+
+async fn reconcile_and_clone_app_runtime(
+    defaults: &DaemonDefaults,
+    state: Arc<Mutex<DaemonState>>,
+    events: DaemonEventHub,
+    workers: &SharedDaemonWorkers,
+) -> Option<(marmot_app::MarmotApp, marmot_app::MarmotAppRuntime)> {
     let mut guard = workers.lock().await;
     reconcile_app_runtime(defaults, state, events, &mut guard.runtime).await;
-    guard.runtime.runtime.clone()
+    Some((guard.runtime.app.clone()?, guard.runtime.runtime.clone()?))
 }
 
 pub(crate) async fn handle_app_runtime_account_setup_request(
@@ -116,13 +130,15 @@ pub(crate) async fn handle_app_runtime_command_request(
     if !app_runtime_enabled(defaults) || !is_hosted_runtime_command(cli) {
         return None;
     }
-    let Some(runtime) = reconcile_and_clone_runtime(defaults, state, events, workers).await else {
+    let Some((app, runtime)) =
+        reconcile_and_clone_app_runtime(defaults, state, events, workers).await
+    else {
         return Some(crate::command_output_result(
             cli.json,
             Err(crate::WnError::MissingRelay),
         ));
     };
-    dispatch_hosted_runtime_command(cli, defaults, &runtime).await
+    dispatch_hosted_runtime_command(cli, defaults, &app, &runtime).await
 }
 
 /// Host-based entry used by the stream-compose path (`run_hosted_stream_marker_cli_json`), which
@@ -139,13 +155,13 @@ pub(crate) async fn handle_hosted_runtime_command_with_host(
         return None;
     }
     reconcile_app_runtime(defaults, state, events, host).await;
-    let Some(runtime) = &host.runtime else {
+    let (Some(app), Some(runtime)) = (&host.app, &host.runtime) else {
         return Some(crate::command_output_result(
             cli.json,
             Err(crate::WnError::MissingRelay),
         ));
     };
-    dispatch_hosted_runtime_command(cli, defaults, runtime).await
+    dispatch_hosted_runtime_command(cli, defaults, app, runtime).await
 }
 
 /// Dispatch a hosted runtime command against an already-resolved runtime handle. Performs the
@@ -154,6 +170,7 @@ pub(crate) async fn handle_hosted_runtime_command_with_host(
 async fn dispatch_hosted_runtime_command(
     cli: &Cli,
     defaults: &DaemonDefaults,
+    app: &marmot_app::MarmotApp,
     runtime: &marmot_app::MarmotAppRuntime,
 ) -> Option<CliOutput> {
     let secret_store = match crate::resolve_secret_store(defaults.secret_store) {
@@ -166,16 +183,6 @@ async fn dispatch_hosted_runtime_command(
             Ok(account_home) => account_home,
             Err(err) => return Some(crate::command_output_result(cli.json, Err(err))),
         };
-    let app = match crate::app_for(
-        defaults.home.clone(),
-        defaults.relay.clone(),
-        defaults.discovery_relays.clone(),
-        account_home.clone(),
-    ) {
-        Ok(app) => app,
-        Err(err) => return Some(crate::command_output_result(cli.json, Err(err))),
-    };
-
     let output = match cli.command.clone() {
         crate::Command::UsageDiagnostics { command } => {
             crate::usage_diagnostics_command(runtime, command)
@@ -187,7 +194,7 @@ async fn dispatch_hosted_runtime_command(
         } => {
             crate::commands::groups::group_command_with_runtime(
                 &account_home,
-                &app,
+                app,
                 runtime,
                 command,
                 cli.account.clone(),
@@ -201,7 +208,7 @@ async fn dispatch_hosted_runtime_command(
         crate::Command::Chats { command } => {
             crate::commands::chats::chats_command_with_runtime(
                 &account_home,
-                &app,
+                app,
                 runtime,
                 command,
                 cli.account.clone(),
@@ -215,7 +222,7 @@ async fn dispatch_hosted_runtime_command(
         } => {
             crate::commands::groups::groups_command_with_runtime(
                 &account_home,
-                &app,
+                app,
                 runtime,
                 command,
                 cli.account.clone(),
@@ -229,7 +236,7 @@ async fn dispatch_hosted_runtime_command(
         crate::Command::Message { command } | crate::Command::Messages { command } => {
             crate::commands::messages::message_command_with_runtime(
                 &account_home,
-                &app,
+                app,
                 runtime,
                 command,
                 cli.account.clone(),
@@ -239,7 +246,6 @@ async fn dispatch_hosted_runtime_command(
         crate::Command::Stream { command } => {
             crate::commands::stream::stream_command_app_with_runtime(
                 &account_home,
-                &app,
                 runtime,
                 command,
                 cli.account.clone(),
@@ -249,7 +255,7 @@ async fn dispatch_hosted_runtime_command(
         crate::Command::Keys { command } => {
             crate::commands::key_package::key_package_command_with_runtime(
                 &account_home,
-                &app,
+                app,
                 runtime,
                 command,
                 cli.account.clone(),
@@ -259,7 +265,7 @@ async fn dispatch_hosted_runtime_command(
         crate::Command::Follows { command } => {
             crate::commands::follows::follows_command_with_runtime(
                 &account_home,
-                &app,
+                app,
                 runtime,
                 command,
                 cli.account.clone(),
@@ -270,7 +276,7 @@ async fn dispatch_hosted_runtime_command(
         crate::Command::Profile { command } => {
             crate::commands::profile::profile_command_with_runtime(
                 &account_home,
-                &app,
+                app,
                 runtime,
                 command,
                 cli.account.clone(),
@@ -281,7 +287,7 @@ async fn dispatch_hosted_runtime_command(
         crate::Command::Relays { command } => {
             crate::commands::relays::relays_command_with_runtime(
                 &account_home,
-                &app,
+                app,
                 runtime,
                 command,
                 cli.account.clone(),
@@ -292,7 +298,7 @@ async fn dispatch_hosted_runtime_command(
         crate::Command::Users { command } => {
             crate::commands::users::users_command_with_runtime(
                 &account_home,
-                &app,
+                app,
                 runtime,
                 command,
                 cli.account.clone(),
@@ -302,7 +308,7 @@ async fn dispatch_hosted_runtime_command(
         crate::Command::Media { command } => {
             crate::commands::media::media_command_with_runtime(
                 &account_home,
-                &app,
+                app,
                 runtime,
                 command,
                 cli.account.clone(),
@@ -534,8 +540,8 @@ pub(crate) async fn reconcile_app_runtime(
     }
 
     if host.runtime.is_none() {
-        let runtime = match open_app_runtime(defaults) {
-            Ok(runtime) => runtime,
+        let (app, runtime) = match open_app_runtime(defaults) {
+            Ok(handles) => handles,
             Err(err) => {
                 record_runtime_activity_error(&state, err.to_string());
                 return;
@@ -555,6 +561,7 @@ pub(crate) async fn reconcile_app_runtime(
             runtime.shared_services().agent_streams(),
             receiver,
         ));
+        host.app = Some(app);
         host.runtime = Some(runtime);
         return;
     }
@@ -583,7 +590,7 @@ pub(crate) async fn reconcile_app_runtime(
 
 pub(crate) fn open_app_runtime(
     defaults: &DaemonDefaults,
-) -> Result<marmot_app::MarmotAppRuntime, crate::WnError> {
+) -> Result<(marmot_app::MarmotApp, marmot_app::MarmotAppRuntime), crate::WnError> {
     let secret_store = crate::resolve_secret_store(defaults.secret_store)?;
     let keychain_service = crate::resolve_keychain_service(defaults.keychain_service.clone());
     let account_home = crate::open_account_home(&defaults.home, secret_store, &keychain_service)?;
@@ -596,7 +603,7 @@ pub(crate) fn open_app_runtime(
     )?;
     let runtime = app.runtime();
     marmot_app::configure_product_analytics_from_environment(&runtime, "daemon");
-    Ok(runtime)
+    Ok((app, runtime))
 }
 
 pub(crate) fn spawn_app_runtime_bridge(
@@ -759,15 +766,6 @@ pub(crate) async fn auto_watch_agent_stream_starts(
             Ok(account_home) => account_home,
             Err(_) => return,
         };
-    let app = match crate::app_for(
-        defaults.home.clone(),
-        defaults.relay.clone(),
-        defaults.discovery_relays.clone(),
-        account_home.clone(),
-    ) {
-        Ok(app) => app,
-        Err(_) => return,
-    };
     for message in &summary.messages {
         let Some(start) = marmot_app::StreamStartView::from_event(message.kind, &message.tags)
         else {
@@ -810,7 +808,6 @@ pub(crate) async fn auto_watch_agent_stream_starts(
         if let Ok((report, handle)) = spawn_stream_watch(
             cli,
             account_home.clone(),
-            app.clone(),
             runtime.clone(),
             stream_manager.clone(),
         ) {

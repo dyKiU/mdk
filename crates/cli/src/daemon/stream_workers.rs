@@ -114,17 +114,8 @@ pub(crate) async fn start_stream_watch(
             Ok(account_home) => account_home,
             Err(err) => return daemon_error(json, "stream_watch_failed", err.to_string()),
         };
-    let app = match crate::app_for(
-        defaults.home.clone(),
-        defaults.relay.clone(),
-        defaults.discovery_relays.clone(),
-        account_home.clone(),
-    ) {
-        Ok(app) => app,
-        Err(err) => return crate::command_output_result(json, Err(err)),
-    };
     let (report, handle) =
-        match spawn_stream_watch(cli, account_home, app, runtime.clone(), stream_manager) {
+        match spawn_stream_watch(cli, account_home, runtime.clone(), stream_manager) {
             Ok(spawned) => spawned,
             Err(message) => return daemon_error(json, "stream_watch_failed", message),
         };
@@ -137,7 +128,6 @@ pub(crate) async fn start_stream_watch(
 pub(crate) fn spawn_stream_watch(
     mut cli: Cli,
     account_home: marmot_account::AccountHome,
-    app: marmot_app::MarmotApp,
     runtime: marmot_app::MarmotAppRuntime,
     stream_manager: marmot_app::AgentStreamWatchManager,
 ) -> Result<(DaemonStreamWatchReport, JoinHandle<()>), String> {
@@ -165,7 +155,6 @@ pub(crate) fn spawn_stream_watch(
             json,
             crate::commands::stream::stream_watch_command_app_with_runtime(
                 &account_home,
-                &app,
                 &runtime,
                 command,
                 account_flag,

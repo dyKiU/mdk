@@ -1,0 +1,350 @@
+{
+  "base_commit": "848bc982d423a4958e072ac4afa8b340444bd09a",
+  "input_count": 2410,
+  "source_manifest_sha256": "63a4969b80e5f15071f1f7a03bdcd49a4c47aff78d4470a4c8d5893f9ec39628",
+  "gates": [
+    {
+      "name": "existing_device_group_anchor::tests::existing_anchor_encrypted_reopen_preserves_denial_and_original_bytes",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "experimental-device-sync",
+        "--lib",
+        "existing_device_group_anchor::tests::existing_anchor_encrypted_reopen_preserves_denial_and_original_bytes",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 0,
+      "seconds": 11.29,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "239503cdf5c573d1f6f974ce37c0e8b8eac79bd8f5d1f8a9b9d6603f4a2fb8d7"
+    },
+    {
+      "name": "migrations::accepted_device_group_anchor_tests::accepted_device_group_anchor_schema_is_separate_and_bounded",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "experimental-device-sync",
+        "--lib",
+        "migrations::accepted_device_group_anchor_tests::accepted_device_group_anchor_schema_is_separate_and_bounded",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 0,
+      "seconds": 0.94,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "d12c28758f66eb43ec32404cb8915c637712db750659a82808bc31751b864f63"
+    },
+    {
+      "name": "migrations::device_group_genesis_tests::private_device_group_genesis_schema_is_separate_fact_storage",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "experimental-device-sync",
+        "--lib",
+        "migrations::device_group_genesis_tests::private_device_group_genesis_schema_is_separate_fact_storage",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 0,
+      "seconds": 0.45,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "2f874ded8fd103c5419a92bb8191a73820beeddc5e0520fdc4acb9cc6845d3d6"
+    },
+    {
+      "name": "migrations::private_device_invite_tests::private_device_invite_schema_preserves_confirmed_anchor_separately",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "experimental-device-sync",
+        "--lib",
+        "migrations::private_device_invite_tests::private_device_invite_schema_preserves_confirmed_anchor_separately",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 0,
+      "seconds": 0.46,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "802f3d23711f4635c292a7439cfbdf7968e98815965039957f810d613a1669cf"
+    },
+    {
+      "name": "migrations::private_device_invite_tests::private_device_invite_schema_retirement_and_deletion_preserve_denied_provenance",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "experimental-device-sync",
+        "--lib",
+        "migrations::private_device_invite_tests::private_device_invite_schema_retirement_and_deletion_preserve_denied_provenance",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 0,
+      "seconds": 0.45,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "d3b6e8bba699bb52942236123307085a5ebf6b2db6ee236e2b7c21b0143c2891"
+    },
+    {
+      "name": "migrations::synchronized_history_schema_tests::private_roster_settlement_has_separate_ledger_storage",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "experimental-device-sync",
+        "--lib",
+        "migrations::synchronized_history_schema_tests::private_roster_settlement_has_separate_ledger_storage",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 0,
+      "seconds": 1.11,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "5068644e0a255970effa2eb5bd20191383aa0e98cc9175a7608831facc5d8284"
+    },
+    {
+      "name": "migrations::upgrade_v0_10_4_tests::v0_10_4_account_upgrades_without_losing_state_or_raising_notices",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "experimental-device-sync",
+        "--lib",
+        "migrations::upgrade_v0_10_4_tests::v0_10_4_account_upgrades_without_losing_state_or_raising_notices",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 0,
+      "seconds": 1.72,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "1bf08339e0744080d95aeb876364ed9e363794859382e44dc75592fa3a4f3e83"
+    },
+    {
+      "name": "migrations::accepted_device_group_anchor_tests::accepted_device_group_anchor_schema_is_separate_and_bounded",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "migrations::accepted_device_group_anchor_tests::accepted_device_group_anchor_schema_is_separate_and_bounded",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 0,
+      "seconds": 8.51,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "0c6da2b12fb143becc8653c26e2ac62b13cdcceaf5f340e3b727f7378e4d6663"
+    },
+    {
+      "name": "migrations::device_group_genesis_tests::private_device_group_genesis_schema_is_separate_fact_storage",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "migrations::device_group_genesis_tests::private_device_group_genesis_schema_is_separate_fact_storage",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 0,
+      "seconds": 0.46,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "cd45f1001c01bd68b2bdda83c0a62d1101f2fea20b630fd3ec9168adec32ce42"
+    },
+    {
+      "name": "migrations::private_device_invite_tests::private_device_invite_schema_preserves_confirmed_anchor_separately",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "migrations::private_device_invite_tests::private_device_invite_schema_preserves_confirmed_anchor_separately",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 0,
+      "seconds": 0.45,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "d3e9dddc6bf30c8920b0f7f892dacee0f26588440517e2fc0375e1964c7e3a53"
+    },
+    {
+      "name": "migrations::private_device_invite_tests::private_device_invite_schema_retirement_and_deletion_preserve_denied_provenance",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "migrations::private_device_invite_tests::private_device_invite_schema_retirement_and_deletion_preserve_denied_provenance",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 0,
+      "seconds": 0.45,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "67b1917578ef2d8bc988e14fcd029dade91c5faade17ae4013eb9b6e2578e3ab"
+    },
+    {
+      "name": "migrations::synchronized_history_schema_tests::private_roster_settlement_has_separate_ledger_storage",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "migrations::synchronized_history_schema_tests::private_roster_settlement_has_separate_ledger_storage",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 0,
+      "seconds": 1.13,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "dbda99ec0ff991d037eb6baa020ca69b28ea2310cd1c837c773b7e52b96761c1"
+    },
+    {
+      "name": "migrations::upgrade_v0_10_4_tests::v0_10_4_account_upgrades_without_losing_state_or_raising_notices",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--lib",
+        "migrations::upgrade_v0_10_4_tests::v0_10_4_account_upgrades_without_losing_state_or_raising_notices",
+        "--",
+        "--exact"
+      ],
+      "exit_code": 0,
+      "seconds": 1.74,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "af66bf90ea6cda25f81e15a72e2d39090c4122496c102a5a0895f3746c011eb9"
+    }
+  ],
+  "root_verified_inputs": 2410,
+  "actual_native_passed": 7,
+  "actual_default_passed": 6,
+  "limits": "Focused fixtures only; full backend rerun pending. Earlier tracked-only manifests omit four files and empty default anchor gate excluded; final v2 freezes all inputs."
+}

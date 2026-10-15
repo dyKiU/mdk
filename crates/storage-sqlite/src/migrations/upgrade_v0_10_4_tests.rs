@@ -7,7 +7,7 @@
 //! The test loads it into an encrypted file and opens it through the
 //! production open path.
 
-use super::{MIGRATIONS, run};
+use super::{MIGRATIONS, PRIVATE_MIGRATIONS, run};
 use crate::{SqlCipherHardening, SqlCipherKey, SqliteAccountStorage, open_hardened_sqlcipher};
 use cgka_traits::storage::StorageError;
 use rusqlite::types::Value;
@@ -144,7 +144,7 @@ fn v0_10_4_account_upgrades_without_losing_state_or_raising_notices() {
     let store = SqliteAccountStorage::open_encrypted(&database, &key).unwrap();
     assert_eq!(
         store.migration_summary().0,
-        MIGRATIONS.len() - V0_10_4_LATEST_MIGRATION
+        MIGRATIONS.len() - V0_10_4_LATEST_MIGRATION + PRIVATE_MIGRATIONS.len()
     );
     {
         let conn = store.lock().unwrap();

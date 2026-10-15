@@ -1,0 +1,342 @@
+{
+  "schema": 1,
+  "base": "9ae991955ee0881d49af3d8b77c344a6cbe2f1f4",
+  "runtime_source": "38f389dea16fe42399f4ba03d344875b4a4d3f15",
+  "frozen_input_count": 2603,
+  "independently_verified_runtime_inputs": 1622,
+  "scope": "Account-owned bounded native chat-list/conversation views and read pages over the original App owners; explicit ordinary versus source-attested paired provenance, independent commands/receive, original cancellation, default Unsupported-before-inputs, owned C tagged payloads/deep frees. Merged ordinary timelines remain untrusted for authenticated system-content actions; hosts retain genuine ordinary windows. No protocol or account policy is implemented in bindings.",
+  "owned_input_sha256": {
+    "crates/marmot-c/API-REFERENCE.md": "7c8a43d8b3a3b27d3655c00571a7202c31e5e1c1662bf86fc0d5903212f95206",
+    "crates/marmot-c/CHANGELOG.md": "db8ae3112528bda86a6538a3962a3285207315ab7d475cadd608fcc33edaf699",
+    "crates/marmot-c/README.md": "426d309a52841f2f1bf84f928d185997d520111d0c0c92cf7fba03c2dc4f46e3",
+    "crates/marmot-c/include/marmot.h": "bef6f1ce350d232a6a120698494657a338fc7a02a4e081982aeff57e7be6fc80",
+    "crates/marmot-c/src/lib.rs": "5cb575f9719118542a3aa34369ad7d05054b92172ea1f77e185a101cd2120cfc",
+    "crates/marmot-c/src/subscriptions.rs": "62dfadb6713c24bbd96af87df74e16e531f5bb90a9fffeca2297499b498166df",
+    "crates/marmot-c/src/types/mod.rs": "5b977721fac6134d24d4d08086495e8d942fd940030385872e15d983069c271b",
+    "crates/marmot-uniffi/API-REFERENCE.md": "8be8ca19fb503e1d655d4f7b3be29c8ac3f4e7ca375e13c87b195f0db6ef9d72",
+    "crates/marmot-uniffi/README.md": "1b8c11ff475809a1cba4fda756dd9020e9468da17855431bd65b78bf25c22650",
+    "crates/marmot-uniffi/src/commands/mod.rs": "de3ae5803e6e52470abae6f69de778053c58e434cf640ca6bc8f50a9f346cac3",
+    "crates/marmot-uniffi/src/conversions/conversation_window.rs": "1255c43fe56f80bf93ef908d80dae6a3340eae9307d6a4570886753c3b4b7fae",
+    "crates/marmot-uniffi/src/conversions/mod.rs": "d4d215ed7613f7ad9dba463d710e7d1efe604e2cb9df42c6a4513a4d7fa2a58b",
+    "crates/marmot-uniffi/src/lib.rs": "ce09e77515679ff1fc59e16645ecaaa7f941c937f252cd83e3ceba052ac385c9",
+    "crates/marmot-uniffi/src/subscriptions.rs": "0f9db81f32b4401f624bbae9159550755619ed0a4bce00d276054a1e84c5e804",
+    "crates/marmot-uniffi/tests/chat_projections_smoke.kt": "ae70d833e0658a32ca86eb3795b104a34ef8bd17ac99c9c5960e4dec602fc51f",
+    "crates/marmot-uniffi/tests/chat_projections_smoke.swift": "3cfe863ef3277c1ea52bf56a6bf043549f41345cd078296a27df7f60c3723cde",
+    "crates/marmot-c/src/account_chat_presentation.rs": "1fe0bd75b2a2f48973da82b473a35c87013cbeb9ccf20870bef5d0499b0c6d6b",
+    "crates/marmot-c/src/subscriptions/account_chat_windows.rs": "3197e45ace749d3a0fa91651d2f9a0ce69e57e0efe1ed9a78f816136079f0b32",
+    "crates/marmot-c/src/types/account_chat_presentation.rs": "1e94c912af68ac90920804c783e46dcbf5b081639b62de6b85d4654a390b1b71",
+    "crates/marmot-c/src/types/account_chat_windows.rs": "20c18ede7f2821c2443a9019583a87c693276e07c17934335236c651d25a672b",
+    "crates/marmot-uniffi/ACCOUNT-CHAT-VIEWS.md": "02d6257ddaabe82eb59e283bc7f97c922f982411870237253f6b012f0ab0b810",
+    "crates/marmot-uniffi/src/commands/account_chat_presentation.rs": "e89d94208d7e9080e50178cc860245ffc89aae5c735767cbb558f4e2f7d9a2f8",
+    "crates/marmot-uniffi/src/commands/account_chat_windows.rs": "1eb3ce797bd5adf0fb8bb89f774ed55465a02c63ed451c605f7b6f6de8d140bb",
+    "crates/marmot-uniffi/src/commands/account_chat_windows/tests.rs": "5d214f9b463c2ef3fd84cc0bb6684bd5d3dfa5de058f4a628ebd25b327f7d7c4",
+    "crates/marmot-uniffi/src/conversions/account_chat_presentation.rs": "4ff5d754aa02a42aa58500c82ed9254463f1c09da15d549c253d15787af22138",
+    "crates/marmot-uniffi/src/conversions/account_chat_windows.rs": "ed5de346281619ef49b5267a9de186229f06f7021b1d1408c27b3dec46046cde",
+    "crates/marmot-uniffi/src/subscriptions/account_chat_windows.rs": "19193c28633b8ca650bebd94483db11ce76501006990c8f619808196e79472cc"
+  },
+  "passing_gates": [
+    {
+      "gate": "strict",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync,marmot-app/test-policy-overrides",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 54.56523680686951,
+      "log": "/Users/pj/project/build/account-chat-bindings-v5-strict.log",
+      "sha256": "d77cb2a1c51d8117378d353c369267b765fe7ed85c1b6201412d0c4e3347671d",
+      "source": "38f389dea16fe42399f4ba03d344875b4a4d3f15"
+    },
+    {
+      "gate": "native-uf",
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "--lib",
+        "--features",
+        "experimental-device-sync,marmot-app/test-policy-overrides",
+        "-E",
+        "test(account_chat_windows::tests::) | test(conversation_native_timeline_requires_provenance) | test(native_window_commands_run_during_receive) | test(conversation_native_window_round_trip_commands_drafts_and_close) | test(conversation_native_deadline_bounds_default_and_explicit_waits)",
+        "--test-threads",
+        "2",
+        "--no-fail-fast"
+      ],
+      "exit": 0,
+      "seconds": 84.96499395370483,
+      "log": "/Users/pj/project/build/account-chat-bindings-v5-native-uf.log",
+      "sha256": "4c4788ebe9fa7e6e9b970c9374d044144889f4b7afeb96374c7a56e2f429f3b2",
+      "source": "38f389dea16fe42399f4ba03d344875b4a4d3f15"
+    },
+    {
+      "gate": "native-c",
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--locked",
+        "-p",
+        "marmot-c",
+        "-p",
+        "marmot-uniffi",
+        "--lib",
+        "--features",
+        "experimental-device-sync,marmot-app/test-policy-overrides,alloc-audit",
+        "-E",
+        "test(paired_read_preflight) | test(paired_window_snapshot_deep_free) | test(account_window_open_preflights)",
+        "--test-threads",
+        "1",
+        "--no-fail-fast"
+      ],
+      "exit": 0,
+      "seconds": 86.99833011627197,
+      "log": "/Users/pj/project/build/account-chat-bindings-v5-resume-native-c.log",
+      "sha256": "e72b6af5ca190fdab54f350516daad672686edb9183ff342ab98ed7152738578",
+      "source": "38f389dea16fe42399f4ba03d344875b4a4d3f15"
+    },
+    {
+      "gate": "production-strict",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--lib",
+        "--features",
+        "experimental-device-sync",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 37.15402293205261,
+      "log": "/Users/pj/project/build/account-chat-bindings-v5-resume-production-strict.log",
+      "sha256": "40875b4cdeb4b9bbbfa8cff193222410769fdbb97c9aeec5dcc4f00147d1581a",
+      "source": "38f389dea16fe42399f4ba03d344875b4a4d3f15"
+    },
+    {
+      "gate": "default-uf",
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "--lib",
+        "-E",
+        "test(account_views_default_refuse)",
+        "--test-threads",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 63.15104818344116,
+      "log": "/Users/pj/project/build/account-chat-bindings-v5-resume-default-uf.log",
+      "sha256": "fa59ffd0ce9e924207d8ba795d45d32a21c74fb8622e0bf0b4ebf66fc6149d85",
+      "source": "38f389dea16fe42399f4ba03d344875b4a4d3f15"
+    },
+    {
+      "gate": "default-c",
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--locked",
+        "-p",
+        "marmot-c",
+        "--lib",
+        "--features",
+        "alloc-audit",
+        "-E",
+        "test(paired_read_preflight) | test(account_window_open_preflights)",
+        "--test-threads",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 51.003257751464844,
+      "log": "/Users/pj/project/build/account-chat-bindings-v5-resume-default-c.log",
+      "sha256": "9148bc05936cfbcc9ca389a5e252485a524c5abb7a7199e204aaf3977fbf2208",
+      "source": "38f389dea16fe42399f4ba03d344875b4a4d3f15"
+    },
+    {
+      "gate": "default-check",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--all-targets"
+      ],
+      "exit": 0,
+      "seconds": 37.43261003494263,
+      "log": "/Users/pj/project/build/account-chat-bindings-v5-resume-default-check.log",
+      "sha256": "3f2ce6bc07358bd90c18500aa34516f419bddd92d582a715c06151c5b1fb0f8a",
+      "source": "38f389dea16fe42399f4ba03d344875b4a4d3f15"
+    },
+    {
+      "gate": "generate-swift",
+      "command": [
+        "/Users/pj/project/build/MdkRecipientCollectionTargetM5/debug/uniffi-bindgen",
+        "generate",
+        "--library",
+        "/Users/pj/project/build/MdkRecipientCollectionTargetM5/debug/libmarmot_uniffi.dylib",
+        "--language",
+        "swift",
+        "--out-dir",
+        "/Users/pj/project/build/account-chat-bindings-v6-generated"
+      ],
+      "exit": 0,
+      "seconds": 5.652005910873413,
+      "log": "/Users/pj/project/build/account-chat-bindings-v6-language-resume-generate-swift.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "runtime_source": "38f389dea16fe42399f4ba03d344875b4a4d3f15",
+      "library_sha256": "4eadb05d18048ce682d2043dc88f5f17313c36113512f1bad37a033c073803e5",
+      "swift_fixture_sha256": "3cfe863ef3277c1ea52bf56a6bf043549f41345cd078296a27df7f60c3723cde"
+    },
+    {
+      "gate": "generate-kotlin",
+      "command": [
+        "/Users/pj/project/build/MdkRecipientCollectionTargetM5/debug/uniffi-bindgen",
+        "generate",
+        "--library",
+        "/Users/pj/project/build/MdkRecipientCollectionTargetM5/debug/libmarmot_uniffi.dylib",
+        "--language",
+        "kotlin",
+        "--out-dir",
+        "/Users/pj/project/build/account-chat-bindings-v6-generated"
+      ],
+      "exit": 0,
+      "seconds": 1.2064571380615234,
+      "log": "/Users/pj/project/build/account-chat-bindings-v6-language-resume-generate-kotlin.log",
+      "sha256": "35071a720a8dde15b761b55154748ca346b26377041e7716850d6b41e59e86cb",
+      "runtime_source": "38f389dea16fe42399f4ba03d344875b4a4d3f15",
+      "library_sha256": "4eadb05d18048ce682d2043dc88f5f17313c36113512f1bad37a033c073803e5",
+      "swift_fixture_sha256": "3cfe863ef3277c1ea52bf56a6bf043549f41345cd078296a27df7f60c3723cde"
+    },
+    {
+      "gate": "swift-compile",
+      "command": [
+        "swiftc",
+        "-parse-as-library",
+        "-I",
+        "/Users/pj/project/build/account-chat-bindings-v6-generated",
+        "-Xcc",
+        "-fmodule-map-file=/Users/pj/project/build/account-chat-bindings-v6-generated/marmot_uniffiFFI.modulemap",
+        "-L",
+        "/Users/pj/project/build/MdkRecipientCollectionTargetM5/debug",
+        "-lmarmot_uniffi",
+        "/Users/pj/project/build/account-chat-bindings-v6-generated/CombinedSmoke.swift",
+        "-o",
+        "/Users/pj/project/build/account-chat-bindings-v6-generated/swift-smoke"
+      ],
+      "exit": 0,
+      "seconds": 5.419810771942139,
+      "log": "/Users/pj/project/build/account-chat-bindings-v6-language-resume-swift-compile.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "runtime_source": "38f389dea16fe42399f4ba03d344875b4a4d3f15",
+      "library_sha256": "4eadb05d18048ce682d2043dc88f5f17313c36113512f1bad37a033c073803e5",
+      "swift_fixture_sha256": "3cfe863ef3277c1ea52bf56a6bf043549f41345cd078296a27df7f60c3723cde"
+    },
+    {
+      "gate": "swift-run",
+      "command": [
+        "/Users/pj/project/build/account-chat-bindings-v6-generated/swift-smoke"
+      ],
+      "exit": 0,
+      "seconds": 1.897796869277954,
+      "log": "/Users/pj/project/build/account-chat-bindings-v6-language-resume-swift-run.log",
+      "sha256": "8503c9702da1149533fdad46660bbda90aa70c4fb41dc51b136e0f911859adbf",
+      "runtime_source": "38f389dea16fe42399f4ba03d344875b4a4d3f15",
+      "library_sha256": "4eadb05d18048ce682d2043dc88f5f17313c36113512f1bad37a033c073803e5",
+      "swift_fixture_sha256": "3cfe863ef3277c1ea52bf56a6bf043549f41345cd078296a27df7f60c3723cde"
+    }
+  ],
+  "actual_selected_tests": {
+    "experimental_uniffi": 5,
+    "experimental_c_alloc_audit": 3,
+    "default_uniffi": 1,
+    "default_c_alloc_audit": 2,
+    "binding_docs_regressions": 17
+  },
+  "static_log_sha256": {
+    "v6-binding-docs-tests.log": "bb0fe7e4dc451b07f0b65b7b0530730f86c879c3b12c911081ed739e517c8ea7",
+    "v6-c-parity.log": "c696a3e8a085557733f74aa648fbad1e5604c8b6c59a381c6d2bcbd7765c0275",
+    "v6-cxx-header-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "v6-binding-docs.log": "387cbbf124f028529ce8ba5f8c64090137fd7cfdbd122359713be41eaeef989f",
+    "v6-c-header-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "reused_unchanged_static_gates": {
+    "binding_build_phases": 18,
+    "android_artifact": 8,
+    "apple_privacy": 13,
+    "release_profile": 29
+  },
+  "failed_attempts": [
+    {
+      "cohort": "v1",
+      "kind": "Cargo feature selection plus compile-only foreign enum diagnostics",
+      "runtime_tests": 0
+    },
+    {
+      "cohort": "v3",
+      "kind": "compile-only module ordering",
+      "runtime_tests": 0
+    },
+    {
+      "cohort": "v4",
+      "kind": "new receive fixture assumed no legitimate opening update",
+      "native_uniffi_passed": 4,
+      "native_uniffi_failed": 1,
+      "correction": "Fixture drains legitimate complete replacements before testing original pending receive cancellation; no runtime changes."
+    },
+    {
+      "cohort": "v5 native-c initial",
+      "kind": "Cargo feature package selection",
+      "runtime_tests": 0
+    },
+    {
+      "cohort": "v5 Swift initial",
+      "kind": "compile-only comparisons on non-Equatable generated records",
+      "runtime_tests": 0,
+      "correction": "Compare complete known variant payloads and actual snapshot fields, without generating Equatable implementations."
+    },
+    {
+      "cohort": "v6 initial generation",
+      "kind": "Cargo metadata executable absent from PATH",
+      "runtime_tests": 0
+    },
+    {
+      "cohort": "v6 Kotlin v3",
+      "kind": "Existing generated DeviceLinkingSubscription close collides with UniFFI AutoCloseable close; API26 tooling jar also insufficient",
+      "runtime_tests": 0,
+      "log_sha256": "055d4bdcedec099ec60d41a13057c129e1fb088b9a4d59c877f2c200ebf898dc"
+    }
+  ],
+  "limits": [
+    "Kotlin generation succeeded but actual Kotlin compile/runtime remains blocked by existing close naming conflict; fix and qualify before SDK promotion.",
+    "This development slice qualifies native Rust/C and actual Swift DTO lift/lower; no new packaged SDK or installed host UI is implied.",
+    "Experimental and default compilation controls do not establish an installed three-device delivery demo.",
+    "Full integration/profile suites and published-client interoperability remain promotion gates."
+  ],
+  "evidence": "Parent build/results/account-chat-bindings/ contains immutable source-input manifests, independently verified log hashes, raw attempts and passing logs."
+}

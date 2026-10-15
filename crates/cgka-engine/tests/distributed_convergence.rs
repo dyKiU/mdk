@@ -50,6 +50,9 @@ use tls_codec::Serialize as _;
 mod encrypted_media_source_secret;
 #[path = "distributed_convergence/historical_application_sender.rs"]
 mod historical_application_sender;
+#[cfg(feature = "test-policy-overrides")]
+#[path = "distributed_convergence/required_proposal_public_pass.rs"]
+mod required_proposal_public_pass;
 mod support;
 use support::proof_signer;
 

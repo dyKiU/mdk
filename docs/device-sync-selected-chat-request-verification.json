@@ -1,0 +1,122 @@
+{
+  "scope": "Positive independent A selected-chat request ownership only; no sibling consent, package, ordinary invite/join, delivery or history.",
+  "base_commit": "e6b0e9c159b632b8c07eb68f12f46c3bc930699c",
+  "genuine_red": {
+    "head": "e6b0e9c159b632b8c07eb68f12f46c3bc930699c",
+    "behavioral_fixture_sha256": "f9ebeace388ac34f3284535a5858ec3ea9b5507a587b7608d3e030458effcce6",
+    "input_count": 2399,
+    "source_manifest_sha256": "953691dda1ce5fd383de05f8ebc90f8239cb7117fd5fce54ec095ada686d6f8f",
+    "gates": [
+      {
+        "gate": "native",
+        "exit_code": 101,
+        "seconds": 65.68,
+        "counts": [
+          {
+            "status": "FAILED",
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "a1ceea8d017a23c992204bf265eb0252744c2f7bc6b01304244c1c7d2deb831b"
+      }
+    ]
+  },
+  "setup_failure_before_request": {
+    "head": "e6b0e9c159b632b8c07eb68f12f46c3bc930699c",
+    "behavioral_fixture_sha256": "acf05c2687a867070227526ff99ee1c3f016ce1fcf179b7dff20c9ef46d0bcf7",
+    "input_count": 2402,
+    "source_manifest_sha256": "98da85a74485dd57977a81ee3ebeef6ee64133bd27b1ab2bc44bc34683ef6c7c",
+    "gates": [
+      {
+        "gate": "native",
+        "exit_code": 101,
+        "seconds": 84.68,
+        "counts": [
+          {
+            "status": "FAILED",
+            "passed": 4,
+            "failed": 1,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "8fc93caacfbb61b94d64d0c30804af0c181cce6204b515e5cf1799c28c053e30"
+      }
+    ]
+  },
+  "final_green": {
+    "head": "e6b0e9c159b632b8c07eb68f12f46c3bc930699c",
+    "behavioral_fixture_sha256": "28ed34c4be12a3b5322331aee4ac5d038f89a27254cc0f0f122196e4054a206f",
+    "input_count": 2402,
+    "source_manifest_sha256": "3bd708d11a1062a7cc2ef1912b636ac07862fed019f4f89083df54f4bfa1243a",
+    "gates": [
+      {
+        "gate": "native",
+        "exit_code": 0,
+        "seconds": 70.23,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 5,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "c4c907b370b5028e0b8f3263d70259c619167b07be238bfeebcee7fe7bfa4546"
+      },
+      {
+        "gate": "default",
+        "exit_code": 0,
+        "seconds": 45.4,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "bcb9f6eedba46609f8d1e160097d32abed519884d84c01697721c72e687e8d41"
+      },
+      {
+        "gate": "clippy",
+        "exit_code": 0,
+        "seconds": 29.29,
+        "counts": [],
+        "log_sha256": "eba907b7d9406ce404d4b5150bf3d71a10ff7e93966a36f515e3c2625453c34d"
+      },
+      {
+        "gate": "check",
+        "exit_code": 0,
+        "seconds": 22.0,
+        "counts": [],
+        "log_sha256": "2c296560a1a4c53c90c130bfa5f18aa5cb20c9d029eded90351ac65a08b95d8b"
+      },
+      {
+        "gate": "fmt",
+        "exit_code": 0,
+        "seconds": 3.54,
+        "counts": [],
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "red_origin_git_blob": "e98d127e8c2c2a1215c3c5c4143f5b41c6769080^3:crates/marmot-app/src/selected_chat_copy/tests.rs",
+  "red_to_final_fixture_patch_sha256": "30752e866622f8a4240d1ad747ce2b9184fbf0a6d9e93af13a17f897aca024c8",
+  "red_to_final_fixture_patch": "--- a/crates/marmot-app/src/selected_chat_copy/tests.rs\n+++ b/crates/marmot-app/src/selected_chat_copy/tests.rs\n@@ -1,4 +1,6 @@\n+#[cfg(not(feature = \"experimental-device-sync\"))]\n use super::*;\n+#[cfg(not(feature = \"experimental-device-sync\"))]\n use crate::{MarmotApp, MarmotAppRuntime};\n \n #[cfg(not(feature = \"experimental-device-sync\"))]\n@@ -13,6 +15,15 @@\n             .await,\n         Err(SelectedChatCopyError::Unsupported)\n     ));\n+    let request = SelectedChatCopy { _private: () };\n+    assert!(matches!(\n+        request.snapshot().await,\n+        Err(SelectedChatCopyError::Unsupported)\n+    ));\n+    assert!(matches!(\n+        request.cancel().await,\n+        Err(SelectedChatCopyError::Unsupported)\n+    ));\n     assert!(accounts.managed_accounts().unwrap().is_empty());\n     runtime.shutdown_and_close().await.unwrap();\n }\n@@ -22,9 +33,33 @@\n     feature = \"test-policy-overrides\"\n ))]\n mod actual {\n-    use super::*;\n     use crate::native_device_linking::*;\n+    use crate::{MarmotApp, MarmotAppRuntime};\n+    use cgka_traits::{OutboundFanoutStorage, storage::KeyPackageBundleStorage};\n     use marmot_account::AccountHome;\n+    #[tokio::test]\n+    async fn invalid_selected_chat_bounds_refuse_before_account_or_worker_effects() {\n+        let dir = tempfile::tempdir().unwrap();\n+        let runtime =\n+            MarmotAppRuntime::new(MarmotApp::with_relay(dir.path(), \"wss://relay.example\"));\n+        let accounts = runtime.accounts();\n+        for (group, selector) in [\n+            (cgka_traits::GroupId::new(vec![]), vec![1]),\n+            (cgka_traits::GroupId::new(vec![1; 257]), vec![2]),\n+            (cgka_traits::GroupId::new(vec![1]), vec![]),\n+            (cgka_traits::GroupId::new(vec![1]), vec![2; 257]),\n+            (cgka_traits::GroupId::new(vec![1]), vec![1]),\n+        ] {\n+            assert!(matches!(\n+                accounts\n+                    .begin_selected_chat_copy(\"missing\", &group, selector)\n+                    .await,\n+                Err(crate::SelectedChatCopyError::InvalidSelection)\n+            ));\n+        }\n+        assert!(accounts.managed_accounts().unwrap().is_empty());\n+        runtime.shutdown_and_close().await.unwrap();\n+    }\n     async fn drain(from: &DeviceLinkingSession, to: &DeviceLinkingSession) {\n         for packet in from.outgoing_packets().await.unwrap() {\n             to.receive_packet(packet.bytes).await.unwrap();\n@@ -265,6 +300,14 @@\n                     .is_none()\n             );\n         }\n+        // D is a genuinely joined nonadmin of this actual Current A/D chat.\n+        // Refuse its ordinary role before any protected-roster target lookup.\n+        let role = d_runtime.group_roster(\"test\", &chat).await.unwrap();\n+        assert!(\n+            role.members\n+                .iter()\n+                .any(|member| member.is_self && !member.is_admin)\n+        );\n         let target = managers[0]\n             .device_linking_targets(\"test\")\n             .await\n@@ -272,19 +315,105 @@\n             .pop()\n             .unwrap();\n         assert_eq!(target.device_count, 3);\n-        let missing = managers[0]\n+        let before_bundles: Vec<_> = apps\n+            .iter()\n+            .map(|app| {\n+                app.account_storage(\"test\")\n+                    .unwrap()\n+                    .stored_key_package_bundles()\n+                    .unwrap()\n+            })\n+            .collect();\n+        let before_fanouts: Vec<_> = apps\n+            .iter()\n+            .map(|app| {\n+                app.account_storage(\"test\")\n+                    .unwrap()\n+                    .list_outbound_fanouts()\n+                    .unwrap()\n+            })\n+            .collect();\n+        let request = managers[0]\n+            .begin_selected_chat_copy(\"test\", &chat, target.selector.clone())\n+            .await\n+            .expect(\"explicit ordinary admin request must retain a new independent original owner\");\n+        assert!(matches!(\n+            managers[0]\n+                .begin_selected_chat_copy(\"test\", &chat, vec![])\n+                .await,\n+            Err(crate::SelectedChatCopyError::InvalidSelection)\n+        ));\n+        assert!(matches!(\n+            d_runtime\n+                .accounts()\n+                .begin_selected_chat_copy(\"test\", &chat, target.selector.clone())\n+                .await,\n+            Err(crate::SelectedChatCopyError::NotAdmin)\n+        ));\n+        assert!(matches!(\n+            managers[0]\n+                .begin_selected_chat_copy(\"test\", &chat, target.selector.clone())\n+                .await,\n+            Err(crate::SelectedChatCopyError::Busy)\n+        ));\n+        let snapshot = request.snapshot().await.unwrap();\n+        assert_eq!(\n+            snapshot.phase,\n+            crate::SelectedChatCopyPhase::AwaitingSiblingConsent\n+        );\n+        assert_eq!(snapshot.sibling_count, 2);\n+        assert!(snapshot.revision > 0);\n+        for (i, app) in apps.iter().enumerate() {\n+            let storage = app.account_storage(\"test\").unwrap();\n+            // Compare private material without formatting it on a failed assertion.\n+            assert!(storage.stored_key_package_bundles().unwrap() == before_bundles[i]);\n+            assert!(storage.list_outbound_fanouts().unwrap() == before_fanouts[i]);\n+        }\n+        for app in &apps[1..] {\n+            assert!(app.group(\"test\", &chat_hex).unwrap().is_none());\n+            assert!(\n+                app.timeline_message(\"test\", &chat_hex, &before_id)\n+                    .unwrap()\n+                    .is_none()\n+            );\n+        }\n+        for runtime in [&runtimes[0], &d_runtime] {\n+            assert_eq!(\n+                runtime\n+                    .group_mls_state(\"test\", &chat)\n+                    .await\n+                    .unwrap()\n+                    .member_count,\n+                2\n+            );\n+        }\n+        request.cancel().await.unwrap();\n+        assert_eq!(\n+            request.snapshot().await.unwrap().phase,\n+            crate::SelectedChatCopyPhase::Cancelled\n+        );\n+        let replacement = managers[0]\n+            .begin_selected_chat_copy(\"test\", &chat, target.selector.clone())\n+            .await\n+            .unwrap();\n+        // Cancelling an old request must not retire a newer original owner.\n+        request.cancel().await.unwrap();\n+        assert_eq!(\n+            replacement.snapshot().await.unwrap().phase,\n+            crate::SelectedChatCopyPhase::AwaitingSiblingConsent\n+        );\n+        drop(replacement);\n+        let after_drop = managers[0]\n             .begin_selected_chat_copy(\"test\", &chat, target.selector)\n-            .await;\n-        // Deliberately unavailable implementation makes this behavioral RED.\n-        // Success in this slice means only an opaque request, not enrollment.\n-        assert!(\n-            missing.is_ok(),\n-            \"explicit selected-chat copy request is unavailable: {:?}\",\n-            missing.err()\n-        );\n+            .await\n+            .unwrap();\n         for runtime in runtimes {\n             runtime.shutdown_and_close().await.unwrap();\n         }\n+        assert_eq!(\n+            after_drop.snapshot().await.unwrap().phase,\n+            crate::SelectedChatCopyPhase::Closed\n+        );\n         d_runtime.shutdown_and_close().await.unwrap();\n         relay.shutdown();\n     }\n",
+  "verification": "All RED2399 and finalGREEN2402 input bytes and all seven raw terminal logs independently hash-verified locally; frozen source unchanged through every terminal command. v1 second-chat join timeout is fixture setup failure (4/1), not owner behavioral RED.",
+  "post_freeze_docs_only": [
+    "crates/marmot-app/AGENTS.md",
+    "docs/selected-chat-copy-plan.md",
+    "docs/device-sync-selected-chat-request-verification.json"
+  ],
+  "raw_evidence_prefix": "/Users/pjaeckel/project/whitenoisechat-openclaw/backups/mdk-sync-delivery-20261009/mdk-selected-chat-original-request-",
+  "limitations": [
+    "No advertised enrollment capability change.",
+    "No selected sibling package/consent transport or recipient admission.",
+    "No ordinary sibling delivery or prejoin history transfer.",
+    "Expiry checks exercise production OwnerLease with an already elapsed original Instant, not a manufactured SDK purpose or global clock advance.",
+    "Nonadmin negative is real D in original A/D, refused before protected-target lookup; Legacy negative is genuine freshly created/confirmed Legacy Session inspector."
+  ]
+}

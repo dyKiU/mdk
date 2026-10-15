@@ -1,0 +1,468 @@
+{
+  "schema_version": 1,
+  "base_commit": "b5b86fb173c3065d1310154f0939c4ad27ed4a00",
+  "feature": "experimental-device-sync (default off)",
+  "qualified_milestone": "Original SDK A/C proposal, explicit encrypted B approval, original A all-leaf collection, same original SDK lease transferred into guarded epoch1\u21922 Add preparation for exact C.",
+  "ownership": {
+    "replacement_policy_begin": false,
+    "received_proposal_as_local_consent": false,
+    "original_guard": "Nonclone Core owner retains protected origin/generation, exact original artifact/binding, original signature packets/clocks and remembered raw scope/ciphertext digests. Same guard and actual staging input move into Prepared.",
+    "retry": "Raw SQL failure retains original lease with rolled-back MLS/ledger; wrapper-cache failure retains exact raw draft and staging generation; incomplete approval intake permits automatic later collection.",
+    "publication": "Protected predecessor/generation and sealed signatures rechecked inside dispatch intent SQL and network polls. Actor timer takes earliest original observation deadline; confirmed-Welcome path retains original owner/clocks plus existing actual110 successor validation."
+  },
+  "behavioral_red": [
+    {
+      "artifact": "mdk-a-trusted-add-red-v3-m5-results.json",
+      "scope": "Genuine SDK A/B collection succeeds, absent original handoff denies Add; one actual failed test.",
+      "terminal": {
+        "head": "bb10886f48f74c71d50495d18657c206ad174a03",
+        "source_sha256": "675f86ac536506d0f41a9108b27aa5869c48081be1d76c8f227aa9582f697e74",
+        "tracked_inputs": 2356,
+        "exit_code": 101,
+        "seconds": 60.46,
+        "counts": [
+          {
+            "status": "FAILED",
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "b4e9b21666cd9f29af7d1ce1c6e8c75b3dbe70fe065ff7a789f50411b4b91491"
+      }
+    },
+    {
+      "artifact": "mdk-a-trusted-add-incomplete-red-v2-m5-results.json",
+      "scope": "Genuine SDK first incomplete preparation latches App progress; actual later B receipt cannot be automatically collected; one actual failed test.",
+      "terminal": {
+        "head": "b5b86fb173c3065d1310154f0939c4ad27ed4a00",
+        "source_sha256": "08bbf4a39c0503253ea7d83d6857d5bddd573700eb181c793c3d944c52cb8585",
+        "tracked_inputs": 2360,
+        "exit_code": 101,
+        "seconds": 30.13,
+        "counts": [
+          {
+            "status": "FAILED",
+            "passed": 0,
+            "failed": 1,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "0e609eb8efb19cb383621007b04b0d6f7a0db27b42f58c5ec628ae3fea75d7c3"
+      }
+    }
+  ],
+  "preserved_compile_only_failures": [
+    {
+      "artifact": "mdk-a-trusted-add-red-m5-results.json",
+      "reason": "Test asserted equality using intentionally non-Debug scope.",
+      "terminal": {
+        "head": "f4b64737092b3ecdab3c28f1fb7c2912fd5de207",
+        "source_sha256": "0b033812749c5f03d52c9599ecc77f2444694600cc4c3e33574c7ba76e2077fb",
+        "tracked_inputs": 2353,
+        "exit_code": 101,
+        "seconds": 24.83,
+        "counts": [],
+        "log_sha256": "655130c6a85e1de2a509f369534fa6e7ea7e23a6bb9d21b5328f8f7e80c652a1"
+      }
+    },
+    {
+      "artifact": "mdk-a-trusted-add-red-v2-m5-results.json",
+      "reason": "Test read moved SDK context instead of capturing immutable expected package reference before move.",
+      "terminal": {
+        "head": "bb10886f48f74c71d50495d18657c206ad174a03",
+        "source_sha256": "26303bfba4aed2fc7e912e018e151407cfd10ba1bd9a9ad8343e3c338662ec45",
+        "tracked_inputs": 2356,
+        "exit_code": 101,
+        "seconds": 24.98,
+        "counts": [],
+        "log_sha256": "d5776f98557a119ca65d34f14746924dcc3162f4173654b8762cb36784f6478d"
+      }
+    },
+    {
+      "artifact": "mdk-a-trusted-add-incomplete-red-m5-results.json",
+      "reason": "Incorrect fixture shutdown shape; corrected to actual runtime handles.",
+      "terminal": {
+        "head": "b5b86fb173c3065d1310154f0939c4ad27ed4a00",
+        "source_sha256": "52790fb1421391779f3cd85f9f79398e6e336bab649529ddf0770beef37eaccd",
+        "tracked_inputs": 2360,
+        "exit_code": 101,
+        "seconds": 5.8,
+        "counts": [],
+        "log_sha256": "040c5a429d199ed2091f7df96caa7f914da98eb5d074249867c6c62155ac89e3"
+      }
+    }
+  ],
+  "cohorts": {
+    "mdk-a-trusted-add-final": {
+      "head": "b5b86fb173c3065d1310154f0939c4ad27ed4a00",
+      "inputs": 2360,
+      "results": [
+        {
+          "name": "sdk",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "--lib",
+            "device_linking_original_sdk",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 58.86,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 4,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "6f9618c01a8a8427d4b9d78baec8b5229b9c70e26865b76bd3ef643737b5c5a6"
+        },
+        {
+          "name": "preparation",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "cgka-engine",
+            "--features",
+            "experimental-device-sync",
+            "--lib",
+            "private_device_invite::prepare_tests",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 124.13,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 19,
+              "failed": 0,
+              "ignored": 1
+            }
+          ],
+          "log_sha256": "9a81cc1adf02cbc49a2500e3669a4a43d9d15e8ee76c0a9d596d3de8b56de8a2"
+        },
+        {
+          "name": "bridge",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "--lib",
+            "runtime::device_linking::setup::tests",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 14.81,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 3,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "eb4cf99893d60cfe4add148fb467d90322beb20630cf87c84af1be16dc77b0dc"
+        },
+        {
+          "name": "clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "--locked",
+            "-p",
+            "cgka-engine",
+            "-p",
+            "cgka-session",
+            "-p",
+            "marmot-app",
+            "--all-targets",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 0,
+          "seconds": 26.54,
+          "counts": [],
+          "log_sha256": "47f1dc239b41a6b52639f1918ee5d63af8cd53020ff64b23c7ad20bf3d037f56"
+        },
+        {
+          "name": "default",
+          "command": [
+            "cargo",
+            "check",
+            "--locked",
+            "-p",
+            "cgka-engine",
+            "-p",
+            "cgka-session",
+            "-p",
+            "marmot-app",
+            "--all-targets"
+          ],
+          "exit_code": 0,
+          "seconds": 19.35,
+          "counts": [],
+          "log_sha256": "109b076eeafbe653c3d44625fda7fac6795e424ea38e9116816c1bd130cfa48c"
+        },
+        {
+          "name": "fmt",
+          "command": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--",
+            "--check"
+          ],
+          "exit_code": 0,
+          "seconds": 4.17,
+          "counts": [],
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    },
+    "mdk-a-trusted-add-guard-v1": {
+      "head": "b5b86fb173c3065d1310154f0939c4ad27ed4a00",
+      "inputs": 2360,
+      "results": [
+        {
+          "name": "core-owner",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "cgka-engine",
+            "--features",
+            "experimental-device-sync",
+            "--lib",
+            "private_enrollment_local_proposal",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 44.61,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 4,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "7e96aa8b770357925f8ed8024109a6b73fc9256289177896f07249dc3bee8bb5"
+        },
+        {
+          "name": "sdk-add",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "--lib",
+            "device_linking_original_sdk_endorsed_proposal_transfers_to_trusted_add",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 68.28,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "f2d3d50132f17fc0ac78d61197f158a82eef197bca1c2e99c026999652c721c8"
+        },
+        {
+          "name": "clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "--locked",
+            "-p",
+            "cgka-engine",
+            "-p",
+            "cgka-session",
+            "-p",
+            "marmot-app",
+            "--all-targets",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 0,
+          "seconds": 19.08,
+          "counts": [],
+          "log_sha256": "b26ad9970fa7fa0014f964e18bdf51f29ca1eb54a4c595584ad5f59c45c33e59"
+        },
+        {
+          "name": "default",
+          "command": [
+            "cargo",
+            "check",
+            "--locked",
+            "-p",
+            "cgka-engine",
+            "-p",
+            "cgka-session",
+            "-p",
+            "marmot-app",
+            "--all-targets"
+          ],
+          "exit_code": 0,
+          "seconds": 0.49,
+          "counts": [],
+          "log_sha256": "7577aa7e72bd95d44e50fb707f07dc512d91a639aa3e0b6d5893dc2b5958ae45"
+        },
+        {
+          "name": "fmt",
+          "command": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--",
+            "--check"
+          ],
+          "exit_code": 0,
+          "seconds": 4.18,
+          "counts": [],
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    },
+    "mdk-a-trusted-add-guard-v2": {
+      "head": "b5b86fb173c3065d1310154f0939c4ad27ed4a00",
+      "inputs": 2360,
+      "results": [
+        {
+          "name": "sdk-add",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-app",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "--lib",
+            "device_linking_original_sdk",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 81.46,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 5,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "c6b34a267202022e30afc03827e78d093101f9bf5ffda6fd31c0660108bc69e1"
+        },
+        {
+          "name": "clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "--locked",
+            "-p",
+            "cgka-engine",
+            "-p",
+            "cgka-session",
+            "-p",
+            "marmot-app",
+            "--all-targets",
+            "--features",
+            "experimental-device-sync,test-policy-overrides",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 0,
+          "seconds": 18.04,
+          "counts": [],
+          "log_sha256": "fb178bb94dbb9d9174bf5dbc27e686597caad6761fde8f98cbed90b9b1b5b292"
+        },
+        {
+          "name": "default",
+          "command": [
+            "cargo",
+            "check",
+            "--locked",
+            "-p",
+            "cgka-engine",
+            "-p",
+            "cgka-session",
+            "-p",
+            "marmot-app",
+            "--all-targets"
+          ],
+          "exit_code": 0,
+          "seconds": 0.66,
+          "counts": [],
+          "log_sha256": "1c8d1f786821918fdcf1365da4e2279f678760ad63fee273a38ff82977f19ffb"
+        },
+        {
+          "name": "fmt",
+          "command": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--",
+            "--check"
+          ],
+          "exit_code": 0,
+          "seconds": 4.15,
+          "counts": [],
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  },
+  "cohort_scope": {
+    "mdk-a-trusted-add-final": "Pre-transfer-guard stage draft: genuine SDK4, existing singleton preparation19 passed/1 deliberately ignored, actor setup3; three-package feature all-target Clippy/default/fmt.",
+    "mdk-a-trusted-add-guard-v1": "Actual guard-carry source: Core original-owner4 (injected trusted Core policy, not stock SDK), genuine SDK guarded Add1, feature all-target Clippy/default/fmt. Core guard and its new expiry test unchanged in final v2; producer gains only observational retry progress getter.",
+    "mdk-a-trusted-add-guard-v2": "Final executable source: genuine SDK family5 including incomplete-first-call liveness; feature all-target Clippy/default/fmt. All2360 inputs independently hash-match final local source before documentation additions."
+  },
+  "final_input_manifest": {
+    "artifact": "mdk-a-trusted-add-guard-v2-input.json",
+    "sha256": "52fa95573cd711f377d4303b0fc64bfd190a951066152f20346a1cab1df27da5",
+    "inputs": 2360
+  },
+  "artifact_directory": "/Users/pjaeckel/project/whitenoisechat-openclaw/backups/mdk-sync-delivery-20261009",
+  "independent_verification": "Recomputed all final input hashes, terminal log hashes and actual counts from all three cohorts before adding this proof and human instructions.",
+  "limits": [
+    "No actual A Add publication/own-echo or C multi-leaf original-purpose admission accepted by this milestone.",
+    "No B existing-member protected transition, real epoch2 ABC settlement, normal chat/history delivery or native enrollment adoption qualified.",
+    "Core shorter-B-deadline test injects its trusted policy and durable attempt fixture; genuine App SDK family independently establishes original SAS/proof/lease handoff.",
+    "Genuine B stalled-network coverage remains separate; prior SDK bounded controls are not relabeled as B tests.",
+    "Documentation added after frozen qualification; no runtime source changes after final source match."
+  ]
+}

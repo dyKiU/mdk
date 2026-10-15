@@ -1,0 +1,383 @@
+{
+  "schema": 1,
+  "date": "2026-10-11",
+  "source_base": "e94665a91fbdebe61faaee7b3a7a819e75c8b7b9",
+  "candidate_stash": "2713a518134d31f60dc76240efaa4d0a926ac0c9",
+  "owned_paths": [
+    "crates/marmot-app/src/account_chat_sharing/enabled.rs",
+    "crates/marmot-app/src/client/account_chat_sharing.rs",
+    "crates/marmot-app/src/client/account_chat_sharing/automatic.rs",
+    "crates/marmot-app/src/client/device_linking.rs",
+    "crates/marmot-app/src/client/mod.rs",
+    "crates/marmot-app/src/native_device_linking/tests.rs",
+    "crates/marmot-app/src/runtime/account_chat_sharing.rs"
+  ],
+  "owned_file_sha256": {
+    "crates/marmot-app/src/account_chat_sharing/enabled.rs": "675b768c23b3f260be4faca2b3e2960519bed841de753882a4caf96b61d5fc5c",
+    "crates/marmot-app/src/client/account_chat_sharing.rs": "b75113c30b418b582ffd5ed77ee0e912e3d11aa1ae3f0584fbc8913958f87527",
+    "crates/marmot-app/src/client/account_chat_sharing/automatic.rs": "9acd9f27fcdb842a1542ba216d8fc1655c8c75adcc72159e469ad027447359ee",
+    "crates/marmot-app/src/client/device_linking.rs": "3d8b24bbf217ffad7fb09cf1bb0cfc69451019e9c63604ddd5b8fed259b89430",
+    "crates/marmot-app/src/client/mod.rs": "6decfe07f7dcef33a4fa5d1c139bd608418d2f84308a95ff7c7b0022c00073c1",
+    "crates/marmot-app/src/native_device_linking/tests.rs": "b2a53c36715add1ddbd0ab1445afb35751becc3efc8c824c2206dc9d61a493f0",
+    "crates/marmot-app/src/runtime/account_chat_sharing.rs": "efedfb5161ab21b80061cd271fff672d82b77616e8ab2a9eb7493ecb0a9d9cd4"
+  },
+  "acceptance": [
+    "Independent actual ABC stores and LocalRelay, original explicit A/C policy, initial source chat plus later public create_group automatically imported as canonical source-attested catalog IDs without per-chat actions.",
+    "Actual 4096-byte ordinary description is fragmented and imported intact through signed protected MLS and recipient-only inner encryption.",
+    "B is an actual protected member but has no A/C policy and cannot access the addressed mirror scope; C acquires no ordinary MLS group membership.",
+    "Real A policy INSERT fault holds its original commit while genuinely approved C sends an authenticated Request. Exact pending original remains live before release; same original source approval retries and completed policy automatically promotes retained request. New owner construction caps its deadline at retained original deadline and checks old owner live before/after fresh Core approval.",
+    "Default public native verification/sharing boundary refuses before account or worker effects."
+  ],
+  "behavioral_red": {
+    "prefix": "automatic-policy-sql-race-red-v1",
+    "stash": "2d3a058f01180886d912a8c266fd8efcebbb563d",
+    "test": "automatic_sharing_request_before_source_policy_commit_retains_original_deadline",
+    "failure": "0/1 at retained authenticated pending request requiring another manual approval after source policy commit",
+    "unchanged_test_file_sha256": "b2a53c36715add1ddbd0ab1445afb35751becc3efc8c824c2206dc9d61a493f0"
+  },
+  "qualification_reuse": {
+    "family_candidate": "b87e1b9b7c1f0ea78f491e6e9e1abeea6ee11ed6",
+    "family_counts": "15 passed / 0 failed / 0 ignored",
+    "default_counts": "1 passed / 0 failed / 0 ignored",
+    "final_delta": "Only nested revocation-fence if rewritten as equivalent let-chain, followed by unchanged race1/0 and final strict/default/fmt. Default source excludes experimental actor.",
+    "final_gates": "Race1/0; Core/Session/App all-target strict experimental+test-policy Clippy, all-target default check, whole-workspace fmt all exit0"
+  },
+  "failures_retained": {
+    "actor_v1": "Compile-only missing GroupStorage import/GroupId ordering.",
+    "actor_v2": "Actual fixture create_group rejects8192-byte description.",
+    "actor_v3": "Unattributed discovery timeout; not evidence of SQL startup race.",
+    "actor_v4": "Actual successful4096-byte import then incorrect8192 expected-size assertion.",
+    "race_green_v1": "Compile-only overbroad diagnostic-removal edit, corrected by restoring exact baseline functions.",
+    "race_green_v2": "Compile-only MemberId/slice comparison corrected with as_slice.",
+    "final_v1": "Native15 and default1 pass, strict Clippy rejects single collapsible_if; no behavior failure."
+  },
+  "source_verification": {
+    "cohorts": [
+      {
+        "prefix": "automatic-catalog-actor-v1",
+        "stash": "b1f587f3b3015b3e58b8c983e2a9809c4f783e13",
+        "verified_inputs": 2560,
+        "manifest_sha256": "f497a0e56ee403c71f300443468435f8383a3036e9d4926aa280b0d31fc6f0cc",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 101,
+            "seconds": 47.57241702079773,
+            "log": "/Users/pj/project/build/automatic-catalog-actor-v1-catalog.log",
+            "log_sha256": "2fb88b536b9650d1e868acca032e75460ed34e8aa56de81730639a7616c0303b"
+          }
+        ],
+        "counts": {
+          "catalog": []
+        }
+      },
+      {
+        "prefix": "automatic-catalog-actor-v2",
+        "stash": "e3a75a161b9c8ae7f08eec623c707b20336ef454",
+        "verified_inputs": 2560,
+        "manifest_sha256": "76d981cae3320ad8af9592488b8d3aa8b637ba585cac96ac3469d7736c5acb12",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 101,
+            "seconds": 98.72605609893799,
+            "log": "/Users/pj/project/build/automatic-catalog-actor-v2-catalog.log",
+            "log_sha256": "fcdedd0068cf41ce754637993868bdaf152ad77ac9a9ed405f63f8a46e2b7f47"
+          }
+        ],
+        "counts": {
+          "catalog": [
+            [
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      },
+      {
+        "prefix": "automatic-catalog-actor-v3",
+        "stash": "5d28c2a20c00a59d10205138a34433543291b64c",
+        "verified_inputs": 2560,
+        "manifest_sha256": "75dd27587e6520cc8fe4da7f7e186defef950eef914b09e6d4f9c8fa54e0b8b2",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 101,
+            "seconds": 126.53842282295227,
+            "log": "/Users/pj/project/build/automatic-catalog-actor-v3-catalog.log",
+            "log_sha256": "368958bcb2eee9eedeb46cdee80fa349ff4870dca52a5d956b8a8c230b036dc6"
+          }
+        ],
+        "counts": {
+          "catalog": [
+            [
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      },
+      {
+        "prefix": "automatic-catalog-actor-v4",
+        "stash": "01ea1b967d3c952b4a03cdfc4482e9da95b28b86",
+        "verified_inputs": 2560,
+        "manifest_sha256": "1d66f3440b1ec2bdace75e0ce6f04bc02bacb6da557d920df786dc0d254db571",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 101,
+            "seconds": 143.4021499156952,
+            "log": "/Users/pj/project/build/automatic-catalog-actor-v4-catalog.log",
+            "log_sha256": "ca5702029c5d90f5e6503ff92dd7094a52c242c540ff9671b3521e66860ded70"
+          }
+        ],
+        "counts": {
+          "catalog": [
+            [
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      },
+      {
+        "prefix": "automatic-catalog-actor-v5",
+        "stash": "a7cef4e3f202bfa2628973270351d2315d6bec32",
+        "verified_inputs": 2560,
+        "manifest_sha256": "6dfe457aaeba7fade93af3189698241cb2a11a6981e34a67299eb86015beb2aa",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 0,
+            "seconds": 123.47994184494019,
+            "log": "/Users/pj/project/build/automatic-catalog-actor-v5-catalog.log",
+            "log_sha256": "d3831e3510b460f38646a54d3ccfe24e7f498195196c2fbb99f7e7709119b8c0"
+          }
+        ],
+        "counts": {
+          "catalog": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        }
+      },
+      {
+        "prefix": "automatic-policy-sql-race-red-v1",
+        "stash": "2d3a058f01180886d912a8c266fd8efcebbb563d",
+        "verified_inputs": 2567,
+        "manifest_sha256": "d8596589ecd285600d65ed3757e69fa00e85b92d411de3032f0378d413d552e7",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 101,
+            "seconds": 111.89921164512634,
+            "log": "/Users/pj/project/build/automatic-policy-sql-race-red-v1-catalog.log",
+            "log_sha256": "e1c495db4185080b340603e56345fb455cac9bdfed499a82784cbd12e8371cbe"
+          }
+        ],
+        "counts": {
+          "catalog": [
+            [
+              "0",
+              "1",
+              "0"
+            ]
+          ]
+        }
+      },
+      {
+        "prefix": "automatic-policy-sql-race-green-v1",
+        "stash": "d1033668bd082bec82f06ff4a138ebfcb73d98ac",
+        "verified_inputs": 2567,
+        "manifest_sha256": "db354a1f60037d59dfbaf2c57cfb4cc28f49b68c4f3dd3ca286a2ee37724914e",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 101,
+            "seconds": 53.14577674865723,
+            "log": "/Users/pj/project/build/automatic-policy-sql-race-green-v1-catalog.log",
+            "log_sha256": "ef6cc73349ff36c01e2445a3277533050eb142d685f3792b428d07c64c04a083"
+          }
+        ],
+        "counts": {
+          "catalog": []
+        }
+      },
+      {
+        "prefix": "automatic-policy-sql-race-green-v2",
+        "stash": "397394128dc16aa7c5b444b9481230b86b17ac1d",
+        "verified_inputs": 2567,
+        "manifest_sha256": "8a7e04d5ea823218baf1cc052c1257e83f68c688c8aac064a6760474cc4ad47d",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 101,
+            "seconds": 51.76167607307434,
+            "log": "/Users/pj/project/build/automatic-policy-sql-race-green-v2-catalog.log",
+            "log_sha256": "a8323daeacecec5eb94c1ffdf2bf2d52d9ddcade97c2b580e1689edab69e28d8"
+          }
+        ],
+        "counts": {
+          "catalog": []
+        }
+      },
+      {
+        "prefix": "automatic-policy-sql-race-green-v3",
+        "stash": "b87e1b9b7c1f0ea78f491e6e9e1abeea6ee11ed6",
+        "verified_inputs": 2567,
+        "manifest_sha256": "0b4892c29f9520367254c1cf28d51d5a67c8308835069d96961015daa7e4d42d",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "catalog",
+            "exit": 0,
+            "seconds": 86.46284794807434,
+            "log": "/Users/pj/project/build/automatic-policy-sql-race-green-v3-catalog.log",
+            "log_sha256": "adb97f1ab6ae8664718aebe07eae13212d09cab9318952adbb6e94e403a9080b"
+          }
+        ],
+        "counts": {
+          "catalog": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ]
+        }
+      },
+      {
+        "prefix": "automatic-catalog-actor-final-v1",
+        "stash": "b87e1b9b7c1f0ea78f491e6e9e1abeea6ee11ed6",
+        "verified_inputs": 2567,
+        "manifest_sha256": "0b4892c29f9520367254c1cf28d51d5a67c8308835069d96961015daa7e4d42d",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "native-family",
+            "exit": 0,
+            "seconds": 298.9191880226135,
+            "log": "/Users/pj/project/build/automatic-catalog-actor-final-v1-native-family.log",
+            "log_sha256": "753a537cc37baba307075f0cf7aa01ab8ed50b615fabf39b366a192d58268770"
+          },
+          {
+            "gate": "default",
+            "exit": 0,
+            "seconds": 80.92860698699951,
+            "log": "/Users/pj/project/build/automatic-catalog-actor-final-v1-default.log",
+            "log_sha256": "0371315ce4a6e2478f451593a1ff4cc4a6f402eaf99865204433ffb0bec0969f"
+          },
+          {
+            "gate": "production-clippy",
+            "exit": 101,
+            "seconds": 29.411412954330444,
+            "log": "/Users/pj/project/build/automatic-catalog-actor-final-v1-production-clippy.log",
+            "log_sha256": "ebc9ad4ab1faa97966ab0b5a5d94c693aa7f82cec8744ad22b574dd68fddb98e"
+          }
+        ],
+        "counts": {
+          "native-family": [
+            [
+              "15",
+              "0",
+              "0"
+            ]
+          ],
+          "default": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "production-clippy": []
+        }
+      },
+      {
+        "prefix": "automatic-catalog-actor-final-v2",
+        "stash": "2713a518134d31f60dc76240efaa4d0a926ac0c9",
+        "verified_inputs": 2567,
+        "manifest_sha256": "57ba5713889d1583e62285e64f8034efd35a4208258b13052ff157f547955c0d",
+        "mismatches": [],
+        "gates": [
+          {
+            "gate": "race",
+            "exit": 0,
+            "seconds": 84.9570837020874,
+            "log": "/Users/pj/project/build/automatic-catalog-actor-final-v2-race.log",
+            "log_sha256": "8d75b992325e2c3a6023f624e0779db944cd9858f5ae8b33c437547953569e47"
+          },
+          {
+            "gate": "production-clippy",
+            "exit": 0,
+            "seconds": 59.051918029785156,
+            "log": "/Users/pj/project/build/automatic-catalog-actor-final-v2-production-clippy.log",
+            "log_sha256": "eb624c32ef3ff63ecccf91c0e1071911192359a1e8db5c4a44219a6f557b87a7"
+          },
+          {
+            "gate": "default-check",
+            "exit": 0,
+            "seconds": 50.47543120384216,
+            "log": "/Users/pj/project/build/automatic-catalog-actor-final-v2-default-check.log",
+            "log_sha256": "530c4b8ea66fdf915a5d2644a6380abfb585d0298439b567cf1c91fb1a399061"
+          },
+          {
+            "gate": "fmt",
+            "exit": 0,
+            "seconds": 4.2174718379974365,
+            "log": "/Users/pj/project/build/automatic-catalog-actor-final-v2-fmt.log",
+            "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ],
+        "counts": {
+          "race": [
+            [
+              "1",
+              "0",
+              "0"
+            ]
+          ],
+          "production-clippy": [],
+          "default-check": [],
+          "fmt": []
+        }
+      }
+    ],
+    "total_input_hashes_verified": 28202,
+    "source_resolution": "Signed stash parent plus explicit App-only stash overlay and untracked child, tracked symlink target bytes resolved. Root private21 local draft excluded from remote cohorts and commit.",
+    "raw_backup": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/results/automatic-catalog-actor",
+    "full_source_verification_sha256": "3e281579b7f42c0b69aad9296f2e48374bca9ed20cb9769f3d5c9efa0980922f",
+    "post_freeze_delta": "Only this proof, App README and current-state note authored after terminal gates."
+  },
+  "resource_boundary": {
+    "target": "/Users/pj/project/build/MdkRecipientCollectionTargetM5",
+    "jobs": 1,
+    "incremental": 0,
+    "toolchain": "Rust1.97.1 aarch64-apple-darwin",
+    "protected_historical_binary": "/Users/pj/project/build/historical-final-default-app-93eaf71300bfdb25",
+    "protected_historical_binary_sha256": "93eaf71300bfdb25df091d11a626db7986cf36ad553f3387829efadf79d4e28d"
+  },
+  "limits": [
+    "Initial/later two-entry catalog precursor only; no release, generated SDK, native installation or whole automatic sharing claim.",
+    "Visible normal chat-list/timeline integration, messages/history streaming and genuine forwarded send queue remain unfinished.",
+    "Catalog committed ACK/retry, loss/reorder/offline reconnect, source departure/tombstones and metadata-update controls remain unqualified.",
+    "Channel100-body renewal can interrupt a large entry and reset catalog progress; sustained large catalogs require whole-entry budget reservation and preserved/rescanned acknowledged progress.",
+    "Same signed automatic Request in a fresh outer MLS envelope after channel retirement has no qualified permanent negotiation-replay fence; old keys/opaque owners are not restored, but fresh allocation replay retirement needs a distinct bounded control.",
+    "Pair-wide C/B third-device approve_and_share_chats hook remains pending; no transitive policy inferred.",
+    "Full App/native/backend matrix on this actor source and source-media/reaction/edit coverage remain pending."
+  ]
+}

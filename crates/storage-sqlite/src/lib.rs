@@ -31,10 +31,14 @@ mod chat_presentation;
 mod codec;
 mod connection;
 mod delivery_spill;
+#[cfg(feature = "experimental-device-sync")]
+mod device_linking;
 pub use delivery_spill::{
     DeliverySpillDisposition, DeliverySpillLimits, SpilledDelivery, SpilledDeliveryBatch,
     SpilledDeliveryDeferral,
 };
+#[cfg(feature = "experimental-device-sync")]
+pub use device_linking::{DeviceLinkingBinding, DeviceLinkingError, DeviceLinkingOutcome};
 mod encrypted_media_secrets;
 mod local_submissions;
 mod message_drafts;
@@ -50,6 +54,19 @@ mod query_work_test_support;
 mod recovery_health;
 mod shared;
 mod storage;
+#[cfg(feature = "experimental-device-sync")]
+mod synchronized_history;
+#[cfg(feature = "experimental-device-sync")]
+pub use synchronized_history::{
+    HistoryArchiveFragmentDisposition, HistoryArchiveFragmentReceipt,
+    HistoryArchiveStagingManifest, MAX_HISTORY_ARCHIVE_BYTES, MAX_HISTORY_ARCHIVE_FRAGMENT_BYTES,
+    MAX_SYNCHRONIZED_HISTORY_BYTES, MAX_SYNCHRONIZED_HISTORY_CHUNK_BYTES,
+    MAX_SYNCHRONIZED_HISTORY_CHUNKS, MAX_SYNCHRONIZED_HISTORY_PAGE,
+    MAX_SYNCHRONIZED_HISTORY_RECORDS_PER_CHUNK, MAX_SYNCHRONIZED_HISTORY_TRANSFERS,
+    ProvenancedSynchronizedHistoryRecord, SynchronizedHistoryArchive, SynchronizedHistoryBinding,
+    SynchronizedHistoryError, SynchronizedHistoryImportProgress, SynchronizedHistoryManifest,
+    SynchronizedHistoryRecord, synchronized_history_chunk_digest,
+};
 mod timeline;
 mod user_blocks;
 pub use user_blocks::{BlockListSnapshot, BlockedUser, PendingBlockPublication, StoredBlockList};
@@ -59,8 +76,8 @@ pub use account_projection::{
     AccountChatNotificationSettings, AccountDeliveryRecovery, AccountGroupPushToken,
     AccountNotificationSettings, AccountPendingPushRegistrationRemoval, AccountPushRegistration,
     AccountStoredPushRegistration, AppEventReplayCursor, DeleteLocalGroupDataResult,
-    SelfMembership, StoredAccountGroup, StoredAccountGroupComponent, StoredAccountState,
-    StoredAppMessageQuery, StoredAppMessageRecord, StoredEpochBackfillIntent,
+    MAX_APP_MESSAGE_REPLAY_PAGE, SelfMembership, StoredAccountGroup, StoredAccountGroupComponent,
+    StoredAccountState, StoredAppMessageQuery, StoredAppMessageRecord, StoredEpochBackfillIntent,
     StoredEpochStallEvidence, StoredNostrRoute, clamp_to_max_future_skew,
 };
 pub use attachment_acquisition::{
@@ -166,6 +183,66 @@ pub use attachment_acquisition::{
     AttachmentDownloadPolicy, AttachmentTransferFrame, AttachmentTransferState,
     AttachmentTransferStatus, STORAGE_PARKED_PREFIX_MAX_AGE_SECONDS, STORAGE_READMIT_MARGIN_BYTES,
 };
+
+#[cfg(feature = "experimental-device-sync")]
+mod accepted_welcome;
+
+#[cfg(feature = "experimental-device-sync")]
+mod device_linking_key_package;
+
+#[cfg(feature = "experimental-device-sync")]
+mod roster_ack_capture;
+
+#[cfg(all(test, feature = "experimental-device-sync"))]
+mod device_group_genesis_tests;
+
+#[cfg(feature = "experimental-device-sync")]
+mod device_group_genesis;
+#[cfg(feature = "experimental-device-sync")]
+mod private_group_privacy;
+
+#[cfg(feature = "experimental-device-sync")]
+mod accepted_device_group_anchor;
+#[cfg(all(test, feature = "experimental-device-sync"))]
+mod accepted_device_group_anchor_tests;
+#[cfg(feature = "experimental-device-sync")]
+mod existing_device_group_anchor;
+#[cfg(feature = "experimental-device-sync")]
+mod private_device_invite;
+#[cfg(all(test, feature = "experimental-device-sync"))]
+mod private_device_invite_tests;
+#[cfg(feature = "experimental-device-sync")]
+mod revoked_device_group_anchor;
+#[cfg(feature = "experimental-device-sync")]
+mod selected_chat_key_package;
+
+#[cfg(feature = "experimental-device-sync")]
+pub mod account_chat_departure;
+#[cfg(feature = "experimental-device-sync")]
+mod account_chat_legacy_acceptance;
+#[cfg(feature = "experimental-device-sync")]
+mod account_chat_origin_observation;
+#[cfg(feature = "experimental-device-sync")]
+mod account_chat_record_stream;
+#[cfg(feature = "experimental-device-sync")]
+mod account_chat_send_queue;
+#[cfg(feature = "experimental-device-sync")]
+pub mod account_chat_source;
+#[cfg(feature = "experimental-device-sync")]
+mod approved_account_sharing_policy;
+#[cfg(feature = "experimental-device-sync")]
+mod mirrored_chat_catalog;
+#[cfg(feature = "experimental-device-sync")]
+mod mirrored_chat_messages;
+#[cfg(feature = "experimental-device-sync")]
+mod mirrored_chat_presentation;
+#[cfg(feature = "experimental-device-sync")]
+pub use mirrored_chat_presentation::{
+    AccountConversationObservation, MirroredCatalogObservation, MirroredMessageObservation,
+};
+
+#[cfg(feature = "experimental-device-sync")]
+mod private_roster_settlement;
 
 mod open_progress;
 pub use open_progress::{StorageOpenPhase, StorageOpenProgress};

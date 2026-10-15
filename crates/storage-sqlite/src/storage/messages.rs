@@ -534,6 +534,59 @@ impl MessageStorage for SqliteAccountStorage {
         Ok(())
     }
 
+    fn visit_messages_in_states_after(
+        &self,
+        group_id: &GroupId,
+        states: &[MessageState],
+        at_or_after_epoch: EpochId,
+        after: Option<&MessageId>,
+        limit: usize,
+        visitor: &mut dyn FnMut(MessageRecord) -> bool,
+    ) -> StorageResult<()> {
+        if limit == 0 || states.is_empty() {
+            return Ok(());
+        }
+        let conn = self.lock()?;
+        // insert_order is the INTEGER PRIMARY KEY (rowid). Resolve the cursor
+        // without state/epoch filtering so transitions do not invalidate it.
+        let anchor: i64 = match after {
+            Some(id) => conn
+                .query_row(
+                    "SELECT insert_order FROM cgka_messages WHERE group_id = ?1 AND id = ?2",
+                    params![group_id.as_slice(), id.as_slice()],
+                    |row| row.get(0),
+                )
+                .optional()
+                .storage()?
+                .ok_or(StorageError::NotFound)?,
+            None => 0,
+        };
+        let anchor_index = states.len() + 3;
+        let limit_index = anchor_index + 1;
+        let sql = format!(
+            "SELECT {MESSAGE_COLUMNS} FROM cgka_messages
+             WHERE group_id = ?1 AND epoch >= ?2 AND state IN ({})
+               AND insert_order > ?{anchor_index}
+             ORDER BY insert_order LIMIT ?{limit_index}",
+            state_placeholders(states)
+        );
+        let mut values = state_query_params(group_id, at_or_after_epoch, states)?;
+        values.push(rusqlite::types::Value::Integer(anchor));
+        values.push(rusqlite::types::Value::Integer(
+            i64::try_from(limit).unwrap_or(i64::MAX),
+        ));
+        let mut stmt = conn.prepare_cached(&sql).storage()?;
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(values), message_columns)
+            .storage()?;
+        for row in rows {
+            if !visitor(decode_message_columns(row.storage()?)?) {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     fn put_pending_application_event(&self, event: &GroupEvent) -> StorageResult<()> {
         let (group_id, message_id) = match event {
             GroupEvent::MessageReceived {
@@ -1232,6 +1285,185 @@ mod tests {
     }
 
     #[test]
+    fn state_cursor_pages_in_arrival_order_after_cursor_state_changes() {
+        let store = SqliteAccountStorage::in_memory().unwrap();
+        store.put_group(&sample_group(gid(1), 0, 0)).unwrap();
+        for id in [9, 2, 8, 1, 7] {
+            let mut record = sample_message(mid(id), gid(1), 2);
+            record.state = MessageState::ConvergenceDeferred;
+            store.put_message(&record).unwrap();
+        }
+        let mut visited = Vec::new();
+        store
+            .visit_messages_in_states_after(
+                &gid(1),
+                &[MessageState::ConvergenceDeferred],
+                EpochId(2),
+                None,
+                2,
+                &mut |record| {
+                    visited.push(record.id);
+                    true
+                },
+            )
+            .unwrap();
+        assert_eq!(visited, vec![mid(9), mid(2)]);
+        store
+            .update_message_state(&mid(2), MessageState::Retryable)
+            .unwrap();
+        visited.clear();
+        store
+            .visit_messages_in_states_after(
+                &gid(1),
+                &[MessageState::ConvergenceDeferred],
+                EpochId(2),
+                Some(&mid(2)),
+                2,
+                &mut |record| {
+                    visited.push(record.id);
+                    true
+                },
+            )
+            .unwrap();
+        assert_eq!(visited, vec![mid(8), mid(1)]);
+        visited.clear();
+        store
+            .visit_messages_in_states_after(
+                &gid(1),
+                &[MessageState::ConvergenceDeferred],
+                EpochId(2),
+                Some(&mid(1)),
+                2,
+                &mut |record| {
+                    visited.push(record.id);
+                    true
+                },
+            )
+            .unwrap();
+        assert_eq!(visited, vec![mid(7)]);
+    }
+
+    #[test]
+    fn state_cursor_filters_group_epoch_and_state_before_page_limit() {
+        let store = SqliteAccountStorage::in_memory().unwrap();
+        for group in [gid(1), gid(2)] {
+            store.put_group(&sample_group(group, 0, 0)).unwrap();
+        }
+        for (id, group, epoch, state) in [
+            (9, gid(1), 0, MessageState::Processed),
+            (2, gid(2), 4, MessageState::ConvergenceDeferred),
+            (8, gid(1), 1, MessageState::ConvergenceDeferred),
+            (1, gid(1), 4, MessageState::Processed),
+            (7, gid(1), 3, MessageState::ConvergenceDeferred),
+            (3, gid(1), 4, MessageState::Retryable),
+        ] {
+            let mut record = sample_message(mid(id), group, epoch);
+            record.state = state;
+            store.put_message(&record).unwrap();
+        }
+        let mut visited = Vec::new();
+        store
+            .visit_messages_in_states_after(
+                &gid(1),
+                &[MessageState::ConvergenceDeferred, MessageState::Retryable],
+                EpochId(3),
+                Some(&mid(9)),
+                1,
+                &mut |record| {
+                    visited.push(record.id);
+                    true
+                },
+            )
+            .unwrap();
+        assert_eq!(visited, vec![mid(7)]);
+        visited.clear();
+        store
+            .visit_messages_in_states_after(
+                &gid(1),
+                &[MessageState::ConvergenceDeferred, MessageState::Retryable],
+                EpochId(3),
+                Some(&mid(7)),
+                1,
+                &mut |record| {
+                    visited.push(record.id);
+                    true
+                },
+            )
+            .unwrap();
+        assert_eq!(visited, vec![mid(3)]);
+    }
+
+    #[test]
+    fn state_cursor_limit_zero_empty_filter_and_early_stop_avoid_decoding() {
+        let store = SqliteAccountStorage::in_memory().unwrap();
+        store.put_group(&sample_group(gid(1), 0, 0)).unwrap();
+        for id in [9, 2, 8] {
+            let mut record = sample_message(mid(id), gid(1), 0);
+            record.state = MessageState::ConvergenceDeferred;
+            record.payload = vec![0x5a; 4096];
+            store.put_message(&record).unwrap();
+        }
+        super::FULL_MESSAGE_READS.with(|stats| stats.set((0, 0)));
+        for (states, limit) in [(&[MessageState::ConvergenceDeferred][..], 0), (&[][..], 3)] {
+            store
+                .visit_messages_in_states_after(
+                    &gid(1),
+                    states,
+                    EpochId(0),
+                    Some(&mid(99)),
+                    limit,
+                    &mut |_| panic!("empty page visited a row"),
+                )
+                .unwrap();
+        }
+        assert_eq!(super::FULL_MESSAGE_READS.with(|stats| stats.get()), (0, 0));
+        let mut visited = Vec::new();
+        store
+            .visit_messages_in_states_after(
+                &gid(1),
+                &[MessageState::ConvergenceDeferred],
+                EpochId(0),
+                None,
+                3,
+                &mut |record| {
+                    visited.push(record.id);
+                    false
+                },
+            )
+            .unwrap();
+        assert_eq!(visited, vec![mid(9)]);
+        assert_eq!(
+            super::FULL_MESSAGE_READS.with(|stats| stats.get()),
+            (1, 4096)
+        );
+    }
+
+    #[test]
+    fn state_cursor_missing_deleted_or_other_group_never_restarts() {
+        let store = SqliteAccountStorage::in_memory().unwrap();
+        for group in [gid(1), gid(2)] {
+            store.put_group(&sample_group(group, 0, 0)).unwrap();
+        }
+        for (id, group) in [(9, gid(1)), (2, gid(2)), (8, gid(1))] {
+            let mut record = sample_message(mid(id), group, 0);
+            record.state = MessageState::ConvergenceDeferred;
+            store.put_message(&record).unwrap();
+        }
+        store.delete_message(&mid(9)).unwrap();
+        for id in [mid(99), mid(9), mid(2)] {
+            let result = store.visit_messages_in_states_after(
+                &gid(1),
+                &[MessageState::ConvergenceDeferred],
+                EpochId(0),
+                Some(&id),
+                2,
+                &mut |_| panic!("invalid cursor restarted enumeration"),
+            );
+            assert!(matches!(result, Err(StorageError::NotFound)));
+        }
+    }
+
+    #[test]
     fn released_transport_receipt_journal_does_not_limit_standalone_engine_lifetime() {
         let store = SqliteAccountStorage::in_memory().unwrap();
         store.put_group(&sample_group(gid(1), 0, 0)).unwrap();
@@ -1633,6 +1865,7 @@ mod tests {
 
     fn application_event(message_id: cgka_traits::MessageId) -> GroupEvent {
         GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: gid(1),
             message_id,

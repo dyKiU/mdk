@@ -5420,10 +5420,92 @@ async fn relay_closed_during_group_sync_subscribe_is_recorded() {
     assert_eq!(sync.refusals[0].route_kind, SubscriptionRouteKind::Group);
 }
 
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn private_replacement_restarts_completed_and_refused_replay_obligations() {
+    for refused in [false, true] {
+        let relay = Arc::new(FakeRelayClient::default());
+        let adapter = NostrTransportAdapter::new(relay.clone());
+        let account = MemberId::new(vec![0xA3; 32]);
+        let group = TransportGroupSubscription {
+            group_id: cgka_traits::GroupId::new(vec![0xB3; 18]),
+            transport_group_id: vec![0xC3; 32],
+            endpoints: vec![TransportEndpoint("wss://group.example".into())],
+            retained_since: None,
+        };
+        adapter
+            .activate_account(TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![TransportEndpoint("wss://inbox.example".into())],
+                group_subscriptions: vec![group.clone()],
+                since: None,
+            })
+            .await
+            .unwrap();
+        for subscription in relay.take_issued_subscriptions() {
+            let id = subscription.subscription_id();
+            for endpoint in subscription.endpoints() {
+                if refused
+                    && matches!(
+                        subscription,
+                        NostrSubscription::Group { .. } | NostrSubscription::GroupBatch { .. }
+                    )
+                {
+                    adapter.handle_relay_closed(endpoint.clone(), id.clone(), transport_nostr_adapter::SubscriptionRefusal {
+                        category: Some(TransportEndpointRejectionCategory::Restricted),
+                        disposition: transport_nostr_adapter::SubscriptionRefusalDisposition::Dropped,
+                    }).await;
+                } else {
+                    adapter
+                        .handle_relay_eose(endpoint.clone(), id.clone())
+                        .await;
+                }
+            }
+        }
+        assert!(adapter.account_subscription_eose(&account).await.settled());
+        assert_eq!(
+            adapter
+                .account_subscription_eose(&account)
+                .await
+                .relay_subscription_attempts_refused
+                > 0,
+            refused,
+            "the refusal variant must actually refuse the original group wire",
+        );
+        adapter
+            .configure_private_observation_group(&account, Some(group.group_id.clone()))
+            .await;
+        adapter
+            .sync_account_groups(TransportGroupSync {
+                account_id: account.clone(),
+                group_subscriptions: vec![group.clone()],
+                since: None,
+            })
+            .await
+            .unwrap();
+        let progress = adapter.account_subscription_eose(&account).await;
+        assert!(!progress.settled());
+        assert!(!progress.complete());
+        assert_eq!(progress.relay_subscription_attempts_refused, 0);
+        let id = relay.scoped.lock().unwrap().last().unwrap().0.clone();
+        adapter
+            .handle_relay_eose(group.endpoints[0].clone(), id)
+            .await;
+        assert!(adapter.account_subscription_eose(&account).await.complete());
+    }
+}
 /// Subscribe calls that stay blocked until `release` fires while `hold` is set,
 /// and records every per-subscription unsubscribe.
 #[derive(Default)]
 struct ReleasableSubscribeRelayClient {
+    #[cfg(feature = "experimental-device-sync")]
+    scoped_issued: Mutex<Vec<String>>,
+    #[cfg(feature = "experimental-device-sync")]
+    scoped_closed: Mutex<Vec<String>>,
+    #[cfg(feature = "experimental-device-sync")]
+    scoped_live: Mutex<Vec<String>>,
+    #[cfg(feature = "experimental-device-sync")]
+    scoped_registered: AtomicUsize,
     hold: AtomicBool,
     held: AtomicUsize,
     release: Notify,
@@ -5443,6 +5525,34 @@ struct ReleasableSubscribeRelayClient {
 
 #[async_trait]
 impl NostrRelayClient for ReleasableSubscribeRelayClient {
+    #[cfg(feature = "experimental-device-sync")]
+    fn supports_scoped_subscriptions(&self) -> bool {
+        true
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    async fn subscribe_scoped(
+        &self,
+        subscription: NostrSubscription,
+        id: String,
+    ) -> Result<(), cgka_traits::TransportAdapterError> {
+        self.scoped_issued.lock().unwrap().push(id.clone());
+        self.subscribe(subscription).await?;
+        self.scoped_live.lock().unwrap().push(id);
+        self.scoped_registered.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    #[cfg(feature = "experimental-device-sync")]
+    async fn unsubscribe_scoped(
+        &self,
+        _subscription: NostrSubscription,
+        id: String,
+    ) -> Result<(), cgka_traits::TransportAdapterError> {
+        self.scoped_live.lock().unwrap().retain(|live| live != &id);
+        self.scoped_closed.lock().unwrap().push(id);
+        Ok(())
+    }
     async fn subscribe(
         &self,
         subscription: NostrSubscription,
@@ -5999,4 +6109,139 @@ async fn retired_straggler_close_cannot_interleave_with_a_retry() {
         !log.contains(&format!("-{live_id}")),
         "the live route keeps its REQ: {log:?}"
     );
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancelled_private_group_sync_closes_its_exact_wire_id() {
+    for outlive_straggler_wait in [false, true] {
+        let relay = Arc::new(ReleasableSubscribeRelayClient::default());
+        let adapter = NostrTransportAdapter::new(relay.clone());
+        let account = MemberId::new(vec![0xA7; 32]);
+        let group = sync_fixture_group(0xB7);
+        adapter
+            .activate_account(TransportAccountActivation {
+                account_id: account.clone(),
+                inbox_endpoints: vec![TransportEndpoint("wss://inbox.example".into())],
+                group_subscriptions: vec![group.clone()],
+                since: None,
+            })
+            .await
+            .unwrap();
+        adapter
+            .configure_private_observation_group(&account, Some(group.group_id.clone()))
+            .await;
+        cancel_held_group_sync(&relay, &adapter, &account, vec![group]).await;
+        let actual = relay
+            .scoped_issued
+            .lock()
+            .unwrap()
+            .last()
+            .cloned()
+            .expect("the private REQ was issued");
+        if outlive_straggler_wait {
+            wait_until("cancelled sync retires its held private REQ", || {
+                relay.scoped_closed.lock().unwrap().contains(&actual)
+            })
+            .await;
+        }
+        relay.release.notify_waiters();
+        wait_until("held private REQ actually registered", || {
+            relay.scoped_registered.load(Ordering::SeqCst) == 1
+        })
+        .await;
+        wait_until("cancelled private REQ closes by exact wire ID", || {
+            relay.scoped_closed.lock().unwrap().contains(&actual)
+        })
+        .await;
+        wait_until("registered private REQ is no longer live", || {
+            relay.scoped_live.lock().unwrap().is_empty()
+        })
+        .await;
+    }
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn ordinary_batched_live_receipts_follow_eose_and_repacking() {
+    let relay = Arc::new(FakeRelayClient::default());
+    let adapter = NostrTransportAdapter::new(relay.clone());
+    let account = MemberId::new(vec![0xA8; 32]);
+    let group = sync_fixture_group(0xB8);
+    adapter
+        .activate_account(TransportAccountActivation {
+            account_id: account.clone(),
+            inbox_endpoints: vec![TransportEndpoint("wss://inbox.example".into())],
+            group_subscriptions: vec![group.clone()],
+            since: None,
+        })
+        .await
+        .unwrap();
+    let initial = relay
+        .take_issued_subscriptions()
+        .into_iter()
+        .find(|subscription| matches!(subscription, NostrSubscription::GroupBatch { .. }))
+        .expect("ordinary groups use the upstream batch REQ");
+    let old_id = initial.subscription_id();
+    for (id, expected) in [(&old_id, false), (&old_id, true)] {
+        if expected {
+            adapter
+                .handle_relay_eose(group.endpoints[0].clone(), id.clone())
+                .await;
+        }
+        adapter
+            .handle_live_relay_event(
+                Some(&account),
+                NostrRelayEvent {
+                    endpoint: group.endpoints[0].clone(),
+                    subscription_id: Some(id.clone()),
+                    event: group_event("18", &group.transport_group_id),
+                },
+            )
+            .await
+            .unwrap();
+        let observed = adapter.receive_observed().await.unwrap().unwrap();
+        assert_eq!(
+            observed.observation.is_some(),
+            expected,
+            "only post-EOSE capture is live"
+        );
+    }
+    adapter
+        .sync_account_groups(TransportGroupSync {
+            account_id: account.clone(),
+            group_subscriptions: vec![group.clone(), sync_fixture_group(0xC8)],
+            since: None,
+        })
+        .await
+        .unwrap();
+    let replacement = relay
+        .take_issued_subscriptions()
+        .into_iter()
+        .find(|subscription| subscription.carries_group(&group.group_id))
+        .expect("repacking replaces the group's batch");
+    let new_id = replacement.subscription_id();
+    assert_ne!(new_id, old_id);
+    adapter
+        .handle_relay_eose(group.endpoints[0].clone(), new_id.clone())
+        .await;
+    for (id, expected) in [(old_id, false), (new_id, true)] {
+        adapter
+            .handle_live_relay_event(
+                Some(&account),
+                NostrRelayEvent {
+                    endpoint: group.endpoints[0].clone(),
+                    subscription_id: Some(id),
+                    event: group_event("28", &group.transport_group_id),
+                },
+            )
+            .await
+            .unwrap();
+        let observed = adapter.receive_observed().await.unwrap().unwrap();
+        assert_eq!(
+            observed.observation.is_some(),
+            expected,
+            "retired batch evidence stays negative"
+        );
+    }
 }

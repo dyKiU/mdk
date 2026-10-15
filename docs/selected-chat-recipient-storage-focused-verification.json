@@ -1,0 +1,168 @@
+{
+  "base_commit": "848bc982d423a4958e072ac4afa8b340444bd09a",
+  "exact_green_v1_stash": "4347190ab41e7f6f00a90c033b761952b498b55d",
+  "source_inputs_verified": 2410,
+  "previous_version_files": [
+    "crates/storage-sqlite/src/private_migrations/0012_selected_chat_key_packages.rs",
+    "crates/storage-sqlite/src/selected_chat_key_package.rs",
+    "crates/storage-sqlite/tests/selected_chat_key_package.rs",
+    "crates/traits/src/selected_chat_key_package.rs"
+  ],
+  "source_manifest_sha256": "3329a52ca1872677122f1ba08e0f957da68a5caac97d5fa5f9db67d8520e3821",
+  "gates": [
+    {
+      "gate": "native",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--features",
+        "experimental-device-sync",
+        "--test",
+        "selected_chat_key_package"
+      ],
+      "exit_code": 0,
+      "seconds": 16.24,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "850fb5923475c3809f140a5ae9a478a1744a7971b49b9f6ee867ae08ae4a35ba"
+    },
+    {
+      "gate": "default",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "storage-sqlite",
+        "--test",
+        "selected_chat_key_package"
+      ],
+      "exit_code": 0,
+      "seconds": 5.3,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "17ee421eaa87a307e792fff7afef1bc108f2eb25cbf12931216bffbfae18fd44"
+    },
+    {
+      "gate": "traits",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-traits"
+      ],
+      "exit_code": 0,
+      "seconds": 5.02,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 124,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 32,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "1c8040a89fac3a37773e6a507a8ff3799458c3d2dae444edfb1bdfddc1dc6590"
+    }
+  ],
+  "remaining": "full native/default storage and production gates are still running; durable SQL guards and canonical roster validation require a separate RED/GREEN checkpoint; metadata is not admission or MLS private-key cleanup",
+  "original_red": {
+    "source_inputs": 2407,
+    "gates": [
+      {
+        "gate": "native",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "storage-sqlite",
+          "--features",
+          "experimental-device-sync",
+          "--test",
+          "selected_chat_key_package"
+        ],
+        "exit_code": 101,
+        "seconds": 17.6,
+        "counts": [
+          {
+            "status": "FAILED",
+            "passed": 0,
+            "failed": 4,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "ad0eb1bc8de1d250264964bed7ea20d8b2150631e4fd9dc5b0a80496d5730de5"
+      },
+      {
+        "gate": "default",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "storage-sqlite",
+          "--test",
+          "selected_chat_key_package"
+        ],
+        "exit_code": 0,
+        "seconds": 5.5,
+        "counts": [
+          {
+            "status": "ok",
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ],
+        "log_sha256": "ec80fe0cc80461c8d07fa29f08e30a51fa6f182541857ee431800ff066e4918d"
+      }
+    ],
+    "root_verification": "all 2407 frozen source inputs and both complete logs verified before implementation"
+  }
+}

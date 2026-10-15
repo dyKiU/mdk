@@ -268,11 +268,23 @@ impl LeaveWriteFault {
         self.0.store(write, Ordering::SeqCst);
     }
 
+    fn arm_on_reanchor(&self) {
+        self.0.store(usize::MAX, Ordering::SeqCst);
+    }
+
+    fn should_fail_reanchor(&self, request: &LeaveRequest) -> bool {
+        request.last_proposed_epoch.is_none()
+            && self
+                .0
+                .compare_exchange(usize::MAX, 0, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+    }
+
     fn should_fail(&self) -> bool {
         matches!(
             self.0
                 .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
-                    (remaining > 0).then(|| remaining - 1)
+                    (remaining > 0 && remaining != usize::MAX).then(|| remaining - 1)
                 }),
             Ok(1)
         )
@@ -283,35 +295,58 @@ impl LeaveWriteFault {
     }
 }
 
-/// Nth-write arm like [`LeaveWriteFault`], but scoped to
-/// `update_message_state(_, Failed)` so unrelated state transitions in the
-/// same ingest do not consume it.
+/// Nth-write fault scoped to the retained rows being retired. Its causal
+/// counters are independent of the error detail that canonical replay sanitizes.
 #[derive(Clone, Default)]
-struct FailedStateWriteFault(Arc<AtomicUsize>);
+struct FailedStateWriteFault(Arc<std::sync::Mutex<FailedStateWriteFaultState>>);
+
+#[derive(Default)]
+struct FailedStateWriteFaultState {
+    remaining: usize,
+    rows: Vec<MessageId>,
+    writes: usize,
+    failures: usize,
+}
 
 impl FailedStateWriteFault {
     #[cfg(feature = "test-policy-overrides")]
-    fn arm_on_write(&self, write: usize) {
+    fn arm_on_write(&self, write: usize, rows: impl IntoIterator<Item = MessageId>) {
         assert!(write > 0);
-        self.0.store(write, Ordering::SeqCst);
+        let mut state = self.0.lock().unwrap();
+        *state = FailedStateWriteFaultState {
+            remaining: write,
+            rows: rows.into_iter().collect(),
+            ..Default::default()
+        };
+        assert!(state.rows.len() >= write);
     }
 
     #[cfg(feature = "test-policy-overrides")]
     fn disarm(&self) {
-        self.0.store(0, Ordering::SeqCst);
+        self.0.lock().unwrap().remaining = 0;
     }
 
-    fn should_fail(&self, new_state: MessageState) -> bool {
+    #[cfg(feature = "test-policy-overrides")]
+    fn observed_writes_and_failures(&self) -> (usize, usize) {
+        let state = self.0.lock().unwrap();
+        (state.writes, state.failures)
+    }
+
+    fn should_fail(&self, id: &MessageId, new_state: MessageState) -> bool {
         if new_state != MessageState::Failed {
             return false;
         }
-        matches!(
-            self.0
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
-                    (remaining > 0).then(|| remaining - 1)
-                }),
-            Ok(1)
-        )
+        let mut state = self.0.lock().unwrap();
+        if state.remaining == 0 || !state.rows.contains(id) {
+            return false;
+        }
+        state.writes += 1;
+        state.remaining -= 1;
+        if state.remaining == 0 {
+            state.failures += 1;
+            return true;
+        }
+        false
     }
 }
 
@@ -335,6 +370,8 @@ impl RetainedAnchorRewindCounter {
 /// `SqliteAccountStorage` wrapper that injects a transient `Busy` on
 /// selected record/cache writes. Every other call delegates unchanged.
 struct FaultStorage {
+    #[cfg(feature = "experimental-device-sync")]
+    private_omit_privacy: bool,
     inner: SqliteAccountStorage,
     fault: PutGroupFault,
     capability_fault: CapabilityWriteFault,
@@ -428,7 +465,7 @@ impl MessageStorage for FaultStorage {
         self.inner.delete_message(id)
     }
     fn update_message_state(&self, id: &MessageId, new_state: MessageState) -> StorageResult<()> {
-        if self.failed_state_fault.should_fail(new_state) {
+        if self.failed_state_fault.should_fail(id, new_state) {
             return Err(StorageError::Busy(
                 "injected message-state write failure".into(),
             ));
@@ -605,7 +642,9 @@ impl OutboundFanoutStorage for FaultStorage {
 
 impl LeaveRequestStorage for FaultStorage {
     fn put_leave_request(&self, request: &LeaveRequest) -> StorageResult<()> {
-        if self.leave_write_fault.should_fail() {
+        if self.leave_write_fault.should_fail_reanchor(request)
+            || self.leave_write_fault.should_fail()
+        {
             return Err(StorageError::Busy(
                 "injected leave-persistence write failure".into(),
             ));
@@ -819,6 +858,61 @@ impl cgka_traits::storage::DeferredPeelGenerationStorage for FaultStorage {
 }
 
 impl StorageProvider for FaultStorage {
+    fn maintenance_storage(&self) -> Option<&dyn cgka_traits::storage::MaintenanceStorage> {
+        self.inner.maintenance_storage()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn accepted_welcome_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::storage::AcceptedWelcomeStorage> {
+        self.inner.accepted_welcome_storage()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn device_linking_key_package_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::device_linking_key_package::PurposeKeyPackageStorage> {
+        self.inner.device_linking_key_package_storage()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn roster_ack_capture_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::roster_ack_capture::RosterAckCaptureStorage> {
+        self.inner.roster_ack_capture_storage()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn device_group_genesis_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::device_group_genesis::DeviceGroupGenesisStorage> {
+        self.inner.device_group_genesis_storage()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn accepted_device_group_anchor_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::accepted_device_group_anchor::AcceptedDeviceGroupAnchorStorage>
+    {
+        self.inner.accepted_device_group_anchor_storage()
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn private_group_privacy_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::private_group_privacy::PrivateGroupPrivacyStorage> {
+        if self.private_omit_privacy {
+            None
+        } else {
+            self.inner.private_group_privacy_storage()
+        }
+    }
+    #[cfg(feature = "experimental-device-sync")]
+    fn private_device_invite_storage(
+        &self,
+    ) -> Option<&dyn cgka_traits::private_device_invite::PrivateDeviceInviteStorage> {
+        if self.private_omit_privacy {
+            self.inner.private_device_invite_storage()
+        } else {
+            None
+        }
+    }
+    // This fixture omits exactly one experimental capability.
     type Mls = <SqliteAccountStorage as StorageProvider>::Mls;
 
     fn mls_storage(&self) -> &Self::Mls {
@@ -851,6 +945,8 @@ fn build_fault_selfremove_client(
     let inner = SqliteAccountStorage::in_memory().unwrap();
     let handle = inner.clone();
     let engine = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner,
         fault,
         capability_fault: CapabilityWriteFault::default(),
@@ -1322,6 +1418,8 @@ fn build_release_fault_client(
     let inner = SqliteAccountStorage::in_memory().unwrap();
     let handle = inner.clone();
     let engine = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner,
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -1351,6 +1449,8 @@ fn build_capability_fault_client(
     let inner = SqliteAccountStorage::in_memory().unwrap();
     let handle = inner.clone();
     let engine = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner,
         fault: PutGroupFault::default(),
         capability_fault,
@@ -1381,6 +1481,8 @@ fn build_leave_write_fault_client(
     let inner = SqliteAccountStorage::in_memory().unwrap();
     let handle = inner.clone();
     let engine = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner,
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -2198,6 +2300,8 @@ async fn slow_preparation_case(
     let delay = PreparationDelay::default();
     let storage = SqliteAccountStorage::in_memory().unwrap();
     let mut bob = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner: storage.clone(),
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -2272,6 +2376,8 @@ async fn past_peel_backlog_case(
     let storage = SqliteAccountStorage::in_memory().unwrap();
     let handle = storage.clone();
     let mut bob = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner: storage,
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -2633,6 +2739,8 @@ async fn setup_own_intent_fault_case(
 ) {
     let storage = SqliteAccountStorage::in_memory().unwrap();
     let mut engine = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner: storage.clone(),
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -2844,6 +2952,8 @@ async fn a_failed_terminal_retirement_leaves_every_row_deferred_for_the_next_pas
     let inner = SqliteAccountStorage::in_memory().unwrap();
     let handle = inner.clone();
     let mut carol = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner,
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -2951,7 +3061,7 @@ async fn a_failed_terminal_retirement_leaves_every_row_deferred_for_the_next_pas
         }
         other => panic!("expected group evolution, got {other:?}"),
     };
-    failed_state_fault.arm_on_write(2);
+    failed_state_fault.arm_on_write(2, rows.iter().map(|row| row.id.clone()));
     // The removing commit may realize the removal on the direct apply or
     // through a convergence pass; drive both so the retirement runs wherever
     // this delivery happens to own it.
@@ -2967,9 +3077,14 @@ async fn a_failed_terminal_retirement_leaves_every_row_deferred_for_the_next_pas
         error = carol.advance_convergence(&group_a).await.err();
     }
     let error = error.expect("the injected mid-retire write failure must surface");
+    assert_eq!(
+        failed_state_fault.observed_writes_and_failures(),
+        (2, 1),
+        "the second retained-row retirement write must actually inject the fault"
+    );
     assert!(
-        format!("{error:?}").contains("injected message-state write failure"),
-        "unexpected retire error: {error:?}"
+        matches!(error, EngineError::Storage(_)),
+        "retirement must preserve the storage retry class: {error:?}"
     );
 
     for row in &rows {
@@ -3023,6 +3138,8 @@ async fn eviction_realization_retries_all_cleanup_before_announcing_termination(
         let inner = SqliteAccountStorage::in_memory().unwrap();
         let handle = inner.clone();
         let mut bob = EngineBuilder::new(FaultStorage {
+            #[cfg(feature = "experimental-device-sync")]
+            private_omit_privacy: false,
             inner,
             fault: PutGroupFault::default(),
             capability_fault: CapabilityWriteFault::default(),
@@ -3196,6 +3313,8 @@ async fn assert_convergence_membership_fault(
     let inner = SqliteAccountStorage::in_memory().unwrap();
     let handle = inner.clone();
     let mut bob = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner,
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -3386,6 +3505,8 @@ async fn disband_cleanup_failure_preserves_earlier_canonical_activity_once() {
     let inner = SqliteAccountStorage::in_memory().unwrap();
     let handle = inner.clone();
     let mut bob = EngineBuilder::new(FaultStorage {
+        #[cfg(feature = "experimental-device-sync")]
+        private_omit_privacy: false,
         inner,
         fault: PutGroupFault::default(),
         capability_fault: CapabilityWriteFault::default(),
@@ -3522,3 +3643,127 @@ async fn disband_cleanup_failure_preserves_earlier_canonical_activity_once() {
             .any(|event| matches!(event, GroupEvent::GroupStateChanged { .. }))
     );
 }
+
+#[cfg(feature = "experimental-device-sync")]
+fn backend_missing_private_capability(
+    omit_privacy: bool,
+) -> (cgka_engine::Engine<FaultStorage>, SqliteAccountStorage) {
+    let inner = SqliteAccountStorage::in_memory().unwrap();
+    let handle = inner.clone();
+    let backend = FaultStorage {
+        private_omit_privacy: omit_privacy,
+        inner,
+        fault: PutGroupFault::default(),
+        capability_fault: CapabilityWriteFault::default(),
+        leave_write_fault: LeaveWriteFault::default(),
+        intent_write_fault: LeaveWriteFault::default(),
+        failed_state_fault: FailedStateWriteFault::default(),
+        release_fault: LeaveWriteFault::default(),
+        preparation_delay: PreparationDelay::default(),
+        retained_anchor_rewinds: RetainedAnchorRewindCounter::default(),
+        termination_fault: LeaveWriteFault::default(),
+        post_commit_disband_read_fault: LeaveWriteFault::default(),
+    };
+    assert!(backend.accepted_welcome_storage().is_some());
+    assert!(backend.device_linking_key_package_storage().is_some());
+    assert!(backend.roster_ack_capture_storage().is_some());
+    assert!(backend.device_group_genesis_storage().is_some());
+    assert!(backend.accepted_device_group_anchor_storage().is_some());
+    assert_eq!(
+        backend.private_device_invite_storage().is_some(),
+        omit_privacy
+    );
+    assert_eq!(
+        backend.private_group_privacy_storage().is_none(),
+        omit_privacy
+    );
+    let engine = EngineBuilder::new(backend)
+        .protocol_profile(cgka_traits::group::ProtocolProfile::Current)
+        .identity(pad32(b"backend-without-private-invite"))
+        .account_identity_proof_signer(proof_signer(b"backend-without-private-invite"))
+        .peeler(Box::new(MockPeeler))
+        .build()
+        .unwrap();
+    (engine, handle)
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn private_profile_requires_outgoing_capability_before_signed_advertising() {
+    let (mut engine, _) = backend_missing_private_capability(false);
+    let package = engine.fresh_key_package().await.unwrap();
+    let metadata = cgka_engine::key_package::key_package_metadata(&package).unwrap();
+    assert!(
+        !metadata
+            .app_components
+            .contains(&cgka_traits::device_group_genesis::PRIVATE_DEVICE_GROUP_COMPONENT_ID),
+        "a backend without outgoing persistence must not sign private-profile support"
+    );
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn private_profile_requires_outgoing_capability_before_genesis_creation() {
+    let (mut engine, storage) = backend_missing_private_capability(false);
+    assert!(storage.private_device_invite_storage().is_some());
+    assert!(
+        matches!(
+            engine.create_private_device_group_genesis(),
+            Err(
+                cgka_engine::device_group_genesis::GenesisFactoryError::Genesis(
+                    cgka_traits::device_group_genesis::GenesisError::Unsupported
+                )
+            )
+        ),
+        "the actual wrapper omits outgoing capability despite its inner SQLite supporting it"
+    );
+    assert!(storage.list_groups().unwrap().is_empty());
+    assert!(
+        storage
+            .device_group_genesis_storage()
+            .unwrap()
+            .genesis_selection()
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test]
+async fn private_profile_requires_permanent_privacy_capability_without_changing_ordinary_creation()
+{
+    let (mut engine, storage) = backend_missing_private_capability(true);
+    let package = engine.fresh_key_package().await.unwrap();
+    let metadata = cgka_engine::key_package::key_package_metadata(&package).unwrap();
+    assert!(
+        !metadata
+            .app_components
+            .contains(&cgka_traits::device_group_genesis::PRIVATE_DEVICE_GROUP_COMPONENT_ID)
+    );
+    assert!(matches!(
+        engine.create_private_device_group_genesis(),
+        Err(
+            cgka_engine::device_group_genesis::GenesisFactoryError::Genesis(
+                cgka_traits::device_group_genesis::GenesisError::Unsupported
+            )
+        )
+    ));
+    assert!(storage.list_groups().unwrap().is_empty());
+    let result = engine
+        .create_group(CreateGroupRequest {
+            name: "ordinary unsupported privacy".into(),
+            description: String::new(),
+            members: vec![],
+            required_features: vec![],
+            app_components: vec![],
+            initial_admins: vec![],
+        })
+        .await;
+    assert!(
+        result.is_ok(),
+        "optional private negative capability must not disable ordinary groups"
+    );
+}
+
+#[path = "record_write_atomicity/same_epoch_leave_reanchor.rs"]
+mod same_epoch_leave_reanchor;

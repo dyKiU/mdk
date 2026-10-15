@@ -1,5 +1,7 @@
 #[cfg(feature = "test-policy-overrides")]
 mod canonical_membership;
+#[cfg(feature = "experimental-device-sync")]
+mod device_linking_startup;
 mod draft_lifecycle;
 mod group_lookup;
 pub(crate) mod invite_recovery;
@@ -786,6 +788,13 @@ impl ScriptedPushRelayClient {
         *self.publish_results.lock().unwrap() = results.into_iter().collect();
     }
 
+    #[cfg(all(
+        feature = "test-policy-overrides",
+        feature = "experimental-device-sync"
+    ))]
+    pub(crate) fn published_events_snapshot(&self) -> Vec<NostrTransportEvent> {
+        self.published_events.lock().unwrap().clone()
+    }
     pub(crate) fn published_event_ids(&self) -> Vec<String> {
         self.published_events
             .lock()
@@ -795,7 +804,7 @@ impl ScriptedPushRelayClient {
             .collect()
     }
 
-    fn attempted_event_ids(&self) -> Vec<String> {
+    pub(crate) fn attempted_event_ids(&self) -> Vec<String> {
         self.attempted_events
             .lock()
             .unwrap()
@@ -2163,6 +2172,7 @@ fn recovery_warning_requires_qualified_local_observations_and_survives_local_com
         effects
             .events
             .push(cgka_traits::engine::GroupEvent::MessageReceived {
+                source_leaf: None,
                 authority: None,
                 group_id: group_id.clone(),
                 message_id: cgka_traits::MessageId::new(vec![0xa1; 32]),
@@ -7978,6 +7988,42 @@ async fn legacy_ambiguous_setup_requires_consent_before_reset() {
     let retried = home.import_nostr_account_idempotent(&secret).unwrap();
     assert_eq!(retried.account().account_id_hex, account.account_id_hex);
     runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn companion_publication_hold_is_applied_when_app_opens_an_account() {
+    let directory = tempfile::tempdir().unwrap();
+    let home = AccountHome::open(directory.path());
+    let account = home.create_account("companion").unwrap();
+    home.disable_public_key_package_publication(&account.label)
+        .unwrap();
+    let app = MarmotApp::with_relay(directory.path(), "wss://relay.example");
+    app.ensure_account_state(&account.label).unwrap();
+    let relay_plane = MarmotRelayPlane::with_subscription_rebuild_lookback(Duration::from_secs(30));
+    let mut opened = app
+        .open_account(&account.label, &relay_plane, false)
+        .unwrap();
+    assert!(
+        !opened
+            .runtime
+            .key_package_network_maintenance_due()
+            .unwrap()
+    );
+    assert!(matches!(
+        opened.runtime.publish_fresh_key_package().await,
+        Err(marmot_account::AccountError::PublicKeyPackagePublicationDisabled)
+    ));
+    drop(opened);
+    std::fs::write(
+        home.account_dir(&account.label)
+            .join("public-key-package-hold.json"),
+        b"invalid",
+    )
+    .unwrap();
+    assert!(
+        app.open_account(&account.label, &relay_plane, false)
+            .is_err()
+    );
 }
 
 #[tokio::test]
@@ -17837,6 +17883,7 @@ async fn local_delete_restart_preserves_rotated_route_relay_pairs_for_resurrecti
     assert!(fresh.failures.is_empty());
     let effects = marmot_account::AccountDeviceEffects {
         events: vec![cgka_traits::engine::GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: group_id.clone(),
             message_id: fresh.reports[0].message_id.clone(),
@@ -17946,6 +17993,7 @@ async fn local_delete_batch_suppresses_historical_chat_in_both_event_orders() {
         assert!(fresh.failures.is_empty());
         let epoch = client.runtime.group_record(&group_id).unwrap().epoch;
         let historical_event = cgka_traits::engine::GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: group_id.clone(),
             message_id: historical.reports[0].message_id.clone(),
@@ -17956,6 +18004,7 @@ async fn local_delete_batch_suppresses_historical_chat_in_both_event_orders() {
             encrypted_media_secret: None,
         };
         let fresh_event = cgka_traits::engine::GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: group_id.clone(),
             message_id: fresh.reports[0].message_id.clone(),
@@ -18033,6 +18082,7 @@ async fn account_open_recovers_first_fresh_chat_after_protocol_projection_crash(
     assert!(fresh.failures.is_empty());
     let message_id = fresh.reports[0].message_id.clone();
     let event = cgka_traits::engine::GroupEvent::MessageReceived {
+        source_leaf: None,
         authority: None,
         group_id: group_id.clone(),
         message_id: message_id.clone(),
@@ -18117,6 +18167,7 @@ async fn account_open_keeps_first_fresh_chat_pending_when_group_projection_is_un
     assert!(fresh.failures.is_empty());
     let message_id = fresh.reports[0].message_id.clone();
     let event = cgka_traits::engine::GroupEvent::MessageReceived {
+        source_leaf: None,
         authority: None,
         group_id: group_id.clone(),
         message_id,
@@ -21921,6 +21972,7 @@ async fn check_received_media_source_epoch_secret(carried_secret: bool) {
 
     let effects = marmot_account::AccountDeviceEffects {
         events: vec![cgka_traits::engine::GroupEvent::MessageReceived {
+            source_leaf: None,
             authority: None,
             group_id: group_id.clone(),
             message_id: sent.reports[0].message_id.clone(),
@@ -24312,3 +24364,4 @@ pub(crate) mod alloc_audit {
         PEAK.load(Ordering::Relaxed)
     }
 }
+mod account_chat_departure_defaults;

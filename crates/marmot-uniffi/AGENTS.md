@@ -8,6 +8,9 @@ UniFFI bindings (MarmotKit) for the Marmot app runtime. For integration concepts
 - `src/lib.rs`: the `Marmot` object, constructors and `MarmotOptions`; `src/errors.rs`: `MarmotKitError`.
 - `src/commands/`: `#[uniffi::export] impl Marmot` blocks, one module per feature family.
 - `src/conversions/`: `…Ffi` records/enums and their conversions from `marmot-app` types, one module per family.
+- `src/commands/device_linking.rs` exposes opaque App verification handles;
+  `src/conversions/device_linking.rs` owns their display-only records. See
+  `DEVICE-LINKING.md`; verification capability must not imply enrollment.
 - `src/subscriptions.rs`, `src/subscriptions/`: subscription objects and screen-window handles.
 - `src/markdown.rs` (Markdown display DTOs), `src/publisher.rs` (agent publisher handle), `src/secret_store.rs` and
   `src/external_signer.rs` (host callback traits), `src/bin/uniffi-bindgen.rs` (binding generator).
@@ -37,9 +40,14 @@ Expose `marmot-app` behavior through bindings, following [MDK's host boundary](.
 - Build scripts retain complete no-argument builds and expose generation/native/assembly phases for release CI.
   Keep `test-build-phases.py` covering phase isolation, required assembly inputs and deployment/strip behavior.
   Shared Swift generation feeds both Apple assemblers; transfer phase inputs only from the same workflow run.
+- Own the host Swift verification ABI gate `device-linking-smoke.sh`: default and
+  experimental cohorts use the same feature selector for generator/library and
+  verify display records, binary packets and typed factory gates. This is not
+  native enrollment or Apple artifact validation.
 - Own the host Swift/Kotlin DTO round-trip checks: `chat-projections-smoke.sh`, `options-smoke.sh`,
   `audit-v4-smoke.sh`, `details-markdown-smoke.sh` and `usage-diagnostics-smoke.sh`.
 - Own `build-provenance.py`, `test-build-phases.py`, `test-android-artifact.py` and `test-native-archive.py`.
+- Own `marmotkit_features.py`; keep default-off Apple experimental feature selection identical across native compilation, Swift generation, manifests and provenance verification. Do not advertise it for Android without corresponding builder support.
 - Own `marmotkit-endpoints.env` build-time defaults for audit-log tracker, relay-telemetry OTLP and optional
   product-analytics route URLs.
 - Keep generated bindings out of git; host apps vendor artifacts from `output/` after running the scripts.
@@ -172,3 +180,22 @@ macOS release-artifact checks (after `xcframework-macos.sh`, which needs `OTLP_E
 ```
 
 For Android NDK prerequisites and initialization see README.md#kotlin--android.
+
+Selected-chat request/consent bindings forward opaque original App owners. Keep
+selection/consent separate from verification/enrollment, preserve displayed
+revisions and bounded private packets, and do not infer recipient joining or
+history from InviteConfirmed. See SELECTED-CHAT-COPY.md. Source qualification
+does not establish generated-language ABI or matched native app adoption.
+
+Original history handles forward the same App owner. Never reconstruct consent
+from review records or stored manifests. Preserve default Unsupported-before-
+inputs/effects, displayed revisions and explicit cancellation; completion is a
+committed-import observation. Keep provenance reads separate from live moderation
+projection. C consent lists use list-owned entries with exactly one CFree per
+alias; qualify output preflight, deep frees and appended statuses137–141.
+
+Read-only synchronized history forwards App retention/live-message precedence.
+Keep message-ID keyset cursors separate from consent, preserve ordered media
+verdicts and source-attested provenance, redact DTO Debug, and append query
+statuses142–145. Pages own embedded records; only the page exports a deep-free.
+See `../marmot-uniffi/SYNCHRONIZED-HISTORY.md` for the shared contract.

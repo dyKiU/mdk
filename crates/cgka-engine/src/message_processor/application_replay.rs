@@ -7,7 +7,7 @@
 use super::{AdvanceConvergenceStatus, DeferredPeelExecution};
 use crate::engine::Engine;
 use crate::openmls_projection::{
-    OpenMlsContentKind, OpenMlsProjectionError, ReplayProfilePolicy,
+    CurrentApplicationResult, OpenMlsContentKind, OpenMlsProjectionError, ReplayProfilePolicy,
     process_current_openmls_application, project_mls_message,
 };
 use cgka_traits::engine::{AppMessageInvalidationReason, GroupEvent};
@@ -240,40 +240,98 @@ impl<S: StorageProvider> Engine<S> {
             // Ratchet consumption, disposition and durable app output share
             // one commit. A kill before commit leaves the input retryable;
             // a kill afterwards leaves the pending projection recoverable.
-            let (events, invalidated) = self
-                .storage
-                .with_transaction(|storage| {
-                    let observations = if horizon_reason.is_none() {
-                        process_current_openmls_application(storage, group_id, &message, profile)?
-                    } else {
-                        Vec::new()
-                    };
-                    let events = Self::application_replay_events(group_id, &observations)?;
-                    let invalidated =
-                        if events.is_empty() {
+            #[cfg(feature = "experimental-device-sync")]
+            let settlement_admission = self.settlement_admission_for(group_id)?;
+            #[cfg(feature = "experimental-device-sync")]
+            let mut enrollment_reservation = self.enrollment_intake.reserve()?;
+            let committed =
+                self.storage
+                    .with_transaction(|storage| {
+                        let processed = if horizon_reason.is_none() {
+                            process_current_openmls_application(
+                                storage,
+                                group_id,
+                                &message,
+                                profile,
+                                #[cfg(feature = "experimental-device-sync")]
+                                settlement_admission.as_ref(),
+                                #[cfg(feature = "experimental-device-sync")]
+                                Some(&self.enrollment_intake),
+                            )?
+                        } else {
+                            CurrentApplicationResult {
+                                #[cfg(feature = "experimental-device-sync")]
+                                enrollment_effects: Vec::new(),
+                                #[cfg(feature = "experimental-device-sync")]
+                                settlement_positive: false,
+                                observations: Vec::new(),
+                                private_handled: false,
+                            }
+                        };
+                        #[cfg(feature = "experimental-device-sync")]
+                        let mut processed = processed;
+                        let events =
+                            Self::application_replay_events(group_id, &processed.observations)?;
+                        let invalidated = if events.is_empty() && !processed.private_handled {
                             Some(horizon_reason.unwrap_or(
                                 AppMessageInvalidationReason::UndecryptableInCanonicalState,
                             ))
                         } else {
                             None
                         };
-                    storage.update_message_state(
-                        &message.id,
-                        if invalidated.is_some() {
-                            MessageState::EpochInvalidated
-                        } else {
-                            MessageState::Processed
-                        },
-                    )?;
-                    for event in &events {
-                        storage.put_pending_application_event(event)?;
-                    }
-                    crate::test_crash_hooks::pause_if_requested(
-                        "canonical-application-before-commit",
-                    );
-                    Ok::<_, OpenMlsProjectionError>((events, invalidated))
-                })
-                .map_err(replay_error)?;
+                        storage.update_message_state(
+                            &message.id,
+                            if invalidated.is_some() {
+                                MessageState::EpochInvalidated
+                            } else {
+                                MessageState::Processed
+                            },
+                        )?;
+                        for event in &events {
+                            storage.put_pending_application_event(event)?;
+                        }
+                        crate::test_crash_hooks::pause_if_requested(
+                            "canonical-application-before-commit",
+                        );
+                        #[cfg(feature = "experimental-device-sync")]
+                        crate::private_roster_settlement_receive::ensure_live(
+                            settlement_admission.as_ref(),
+                            processed.settlement_positive,
+                        )
+                        .map_err(|e| OpenMlsProjectionError::Replay(e.to_string()))?;
+                        #[cfg(feature = "experimental-device-sync")]
+                        self.enrollment_intake
+                            .validate_tail(storage, group_id, &mut processed.enrollment_effects)
+                            .map_err(|_| {
+                                OpenMlsProjectionError::Replay(
+                                    "private enrollment metadata final check failed".into(),
+                                )
+                            })?;
+                        #[cfg(feature = "experimental-device-sync")]
+                        crate::private_enrollment_request::EnrollmentIntake::check_capacity(
+                            &enrollment_reservation,
+                            &processed.enrollment_effects,
+                        )
+                        .map_err(crate::openmls_projection::capture_effect_error)?;
+                        Ok::<_, OpenMlsProjectionError>((
+                            events,
+                            invalidated,
+                            #[cfg(feature = "experimental-device-sync")]
+                            processed.enrollment_effects,
+                        ))
+                    })
+                    .map_err(replay_error)?;
+            #[cfg(feature = "experimental-device-sync")]
+            let (events, invalidated, enrollment_effects) = committed;
+            #[cfg(not(feature = "experimental-device-sync"))]
+            let (events, invalidated) = committed;
+            #[cfg(feature = "experimental-device-sync")]
+            {
+                self.enrollment_intake
+                    .finish(&mut enrollment_reservation, enrollment_effects);
+                self.enrollment_intake.classify_nonrequest(&message.id)?;
+                drop(enrollment_reservation);
+            }
             crate::test_crash_hooks::pause_if_requested("canonical-application-completed-durable");
             if invalidated.is_none() {
                 self.seen_message_ids.insert(message.id.clone());
@@ -320,5 +378,10 @@ enum RetainedConvergenceRow {
 }
 
 fn replay_error(error: OpenMlsProjectionError) -> EngineError {
-    EngineError::Backend(format!("canonical application replay: {error}"))
+    match error {
+        OpenMlsProjectionError::PrivateEnrollmentIntakeAtCapacity => {
+            EngineError::PrivateEnrollmentIntakeAtCapacity
+        }
+        other => EngineError::Backend(format!("canonical application replay: {other}")),
+    }
 }

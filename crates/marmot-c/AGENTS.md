@@ -37,6 +37,9 @@ across the boundary. That deserves its own focused design + tests rather than a 
   `c_subscription!` generates the shared surface (handle, callback type, blocking `*_next` with timeout → `MARMOT_STATUS_TIMEOUT`, shutdown →
   `MARMOT_STATUS_CLOSED`, callback install/clear/free); subscribe functions, snapshots, and per-subscription extras
   are hand-written.
+- `src/device_linking.rs` wraps the actual UniFFI session/subscription objects.
+  Keep preflight before effects, callback-safe blocking, bounded byte copies and
+  typed device-linking status values; account policy stays in App.
 - `src/memory.rs` is the only allocation chokepoint; the `alloc-audit` test feature counts live allocations so tests
   can prove deep-free completeness.
 - `src/status.rs` owns `MarmotStatus` and the thread-local last-error channel. `src/secret_store.rs` (host secret-store
@@ -105,3 +108,21 @@ just c-smoke   # compiles and runs examples/smoke.c (valgrind when available)
 just c-parity-gate
 just binding-docs-gate
 ```
+
+Selected-chat opaque aliases retain the same original UniFFI action. Use explicit
+clones and free_plain for handles, matching deep frees for binary/snapshot results,
+bound packet copies before dereference, and preserve status values 127–136.
+Keep default Unsupported and required-output preflight before effects.
+
+Original history handles forward the same App owner. Never reconstruct consent
+from review records or stored manifests. Preserve default Unsupported-before-
+inputs/effects, displayed revisions and explicit cancellation; completion is a
+committed-import observation. Keep provenance reads separate from live moderation
+projection. C consent lists use list-owned entries with exactly one CFree per
+alias; qualify output preflight, deep frees and appended statuses137–141.
+
+Read-only synchronized history forwards App retention/live-message precedence.
+Keep message-ID keyset cursors separate from consent, preserve ordered media
+verdicts and source-attested provenance, redact DTO Debug, and append query
+statuses142–145. Pages own embedded records; only the page exports a deep-free.
+See `../marmot-uniffi/SYNCHRONIZED-HISTORY.md` for the shared contract.

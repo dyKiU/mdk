@@ -1471,6 +1471,9 @@ impl AppClient {
         &mut self,
         telemetry: Option<&AppPerformanceTelemetry>,
     ) -> Result<(), (SyncFailureStage, AppError)> {
+        #[cfg(feature = "experimental-device-sync")]
+        self.refresh_private_transport_route()
+            .map_err(|error| (SyncFailureStage::TransportActivation, error))?;
         // Failed/cancelled activation must retain a retry intent for scheduled work.
         self.pending_runtime_group_subscription_refresh = true;
         // Before any subscription goes out: auth-gated relays (NIP-42)
@@ -1917,6 +1920,27 @@ impl AppClient {
             .events
             .resize_with(effects.events.len(), EventProjectionProgress::default);
         for (event, event_progress) in effects.events.iter().zip(&mut progress.events) {
+            #[cfg(feature = "experimental-device-sync")]
+            if !event_progress.completed {
+                self.observe_account_sharing_control(event).map_err(|_| {
+                    AppError::InvalidAppMessagePayload(
+                        "private account sharing control unavailable".into(),
+                    )
+                })?;
+                self.observe_history_control(event).map_err(|_| {
+                    AppError::InvalidAppMessagePayload("private history control unavailable".into())
+                })?;
+            }
+            #[cfg(feature = "experimental-device-sync")]
+            if !event_progress.completed && self.private_event_must_remain_hidden(event)? {
+                self.notify_private_presentation_transition(event);
+                progress.routes_dirty |= self.refresh_private_transport_route()?;
+                summary.events.push(event.clone());
+                self.prepare_pending_application_event_ack(event);
+                event_progress.completed = true;
+                continue;
+            }
+
             if event_progress.completed {
                 continue;
             }
@@ -2707,9 +2731,10 @@ impl AppClient {
 
     pub(crate) async fn ingest_received_delivery(
         &mut self,
-        delivery: cgka_traits::TransportDelivery,
+        delivery: impl Into<transport_nostr_adapter::ObservedTransportDelivery>,
     ) -> Result<SyncSummary, AppError> {
-        self.ingest_received_delivery_inner(delivery)
+        let delivery = delivery.into();
+        self.ingest_observed_received_delivery_inner(&delivery)
             .await
             .map_err(|(summary, _, _, error, _)| {
                 self.pending_applied_sync_summary.merge(summary);
@@ -2717,16 +2742,61 @@ impl AppClient {
             })
     }
 
+    pub(crate) async fn ingest_observed_received_delivery(
+        &mut self,
+        delivery: &transport_nostr_adapter::ObservedTransportDelivery,
+    ) -> Result<SyncSummary, AppError> {
+        self.ingest_observed_received_delivery_inner(delivery)
+            .await
+            .map_err(|(summary, _, _, error, _)| {
+                self.pending_applied_sync_summary.merge(summary);
+                error
+            })
+    }
+
+    async fn observed_acquisition_deadline(
+        &self,
+        delivery: &transport_nostr_adapter::ObservedTransportDelivery,
+    ) -> Option<std::time::Instant> {
+        #[cfg(feature = "experimental-device-sync")]
+        if let Some(receipt) = &delivery.observation {
+            let deadline = receipt.deadline_for(&delivery.delivery);
+            if self.adapter.account_subscription_attempt().await == Some(receipt.attempt()) {
+                return deadline;
+            }
+            // Negative only: stale attempt shortens cached eligibility too.
+            return deadline.map(|_| std::time::Instant::now());
+        }
+        let _ = delivery;
+        None
+    }
+
+    async fn ingest_observed_received_delivery_inner(
+        &mut self,
+        delivery: &transport_nostr_adapter::ObservedTransportDelivery,
+    ) -> Result<SyncSummary, (SyncSummary, bool, bool, AppError, SyncFailureStage)> {
+        let deadline = self.observed_acquisition_deadline(delivery).await;
+        let result = self
+            .ingest_received_delivery_once_observed(delivery.delivery.clone(), true, deadline)
+            .await;
+        self.settle_spilled_delivery();
+        result.map(|(summary, _)| summary)
+    }
+
     /// Startup's off-worker comparison may receive a delivery before its
     /// immutable network request completes. Keep the applied prefix visible
     /// on a later checkpoint failure, just as the inline startup drain did.
     pub(crate) async fn ingest_received_delivery_with_partial(
         &mut self,
-        delivery: cgka_traits::TransportDelivery,
+        delivery: impl Into<transport_nostr_adapter::ObservedTransportDelivery>,
     ) -> Result<SyncSummary, ClassifiedSyncFailure> {
         let drain_started = std::time::Instant::now();
         let cursor_before_secs = self.state.last_transport_timestamp;
-        match self.ingest_received_delivery_inner(delivery).await {
+        let delivery = delivery.into();
+        match self
+            .ingest_observed_received_delivery_inner(&delivery)
+            .await
+        {
             Ok(summary) => Ok(summary),
             Err((summary, ingested, routes_dirty, error, stage)) => {
                 let counts = DrainCounts {
@@ -2745,16 +2815,6 @@ impl AppClient {
                     .await)
             }
         }
-    }
-
-    async fn ingest_received_delivery_inner(
-        &mut self,
-        delivery: cgka_traits::TransportDelivery,
-    ) -> Result<SyncSummary, (SyncSummary, bool, bool, AppError, SyncFailureStage)> {
-        // A spilled delivery gets exactly the live path's one ingest attempt.
-        let result = self.ingest_received_delivery_once(delivery, true).await;
-        self.settle_spilled_delivery();
-        result.map(|(summary, _)| summary)
     }
 
     /// Admit one delivery a comparison fetched through the ordinary ingest
@@ -2789,6 +2849,25 @@ impl AppClient {
         (SyncSummary, RecoveredDelivery),
         (SyncSummary, bool, bool, AppError, SyncFailureStage),
     > {
+        self.ingest_received_delivery_once_observed(delivery, live_cursor, None)
+            .await
+    }
+
+    async fn ingest_received_delivery_once_observed(
+        &mut self,
+        delivery: cgka_traits::TransportDelivery,
+        live_cursor: bool,
+        acquisition_deadline: Option<std::time::Instant>,
+    ) -> Result<
+        (SyncSummary, RecoveredDelivery),
+        (SyncSummary, bool, bool, AppError, SyncFailureStage),
+    > {
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        self.test_observe_automatic_consent_raw(&delivery.message);
         let cursor_before_secs = self.state.last_transport_timestamp;
         let mut summary = SyncSummary::default();
         let message_id = delivery.message.id.clone();
@@ -2802,19 +2881,20 @@ impl AppClient {
                 SyncFailureStage::StatePersist,
             )
         })?;
-        let ingested = Self::ingest_delivery(receipts, delivery, &mut summary)
-            .await
-            .map_err(|error| {
-                // Projection may have repaired an older durable prefix before
-                // this delivery failed. Its caller owns that prefix now.
-                (
-                    std::mem::take(&mut summary),
-                    false,
-                    false,
-                    error,
-                    SyncFailureStage::CgkaIngest,
-                )
-            })?;
+        let ingested =
+            Self::ingest_delivery_observed(receipts, delivery, &mut summary, acquisition_deadline)
+                .await
+                .map_err(|error| {
+                    // Projection may have repaired an older durable prefix before
+                    // this delivery failed. Its caller owns that prefix now.
+                    (
+                        std::mem::take(&mut summary),
+                        false,
+                        false,
+                        error,
+                        SyncFailureStage::CgkaIngest,
+                    )
+                })?;
         // The ingest is durable, or dropped on purpose: its delivery must not
         // hold back the cursor the saves below commit. A failed ingest never
         // gets here, so it keeps capping every later commit, including the
@@ -3045,6 +3125,13 @@ impl AppClient {
                     .is_some_and(|limit| counts.deliveries >= limit);
             self.pending_applied_sync_summary
                 .merge(std::mem::take(&mut summary));
+            let acquisition_deadline = self.observed_acquisition_deadline(&delivery).await;
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            self.test_observe_automatic_consent_raw(&delivery.message);
             let receipts = match self.transport_receipts() {
                 Ok(receipts) => receipts,
                 Err(error) => {
@@ -3086,7 +3173,13 @@ impl AppClient {
             }
             let mut delivery_summary = SyncSummary::default();
             let message_id = delivery.message.id.clone();
-            let ingest = Self::ingest_delivery(receipts, *delivery, &mut delivery_summary).await;
+            let ingest = Self::ingest_delivery_observed(
+                receipts,
+                delivery.into_delivery(),
+                &mut delivery_summary,
+                acquisition_deadline,
+            )
+            .await;
             self.prepend_pending_applied_summary(&mut summary);
             let ingested = match ingest {
                 Ok(ingested) => ingested,
@@ -3378,10 +3471,11 @@ impl AppClient {
 
     /// Consume the exclusive receipt view used for admission. The SDK drain
     /// shares it with its duplicate decision, while direct ingestion opens one.
-    async fn ingest_delivery(
+    async fn ingest_delivery_observed(
         receipts: super::receipts::SynchronizedTransportReceipts<'_>,
         delivery: cgka_traits::TransportDelivery,
         summary: &mut SyncSummary,
+        acquisition_deadline: Option<std::time::Instant>,
     ) -> Result<DeliveryIngest, AppError> {
         let client = receipts.into_client();
         #[cfg(test)]
@@ -3392,6 +3486,11 @@ impl AppClient {
             ));
         }
         let source_message_id = delivery.message.id.clone();
+        #[cfg(feature = "experimental-device-sync")]
+        let _selected_welcome_episode = super::welcome_peeler::SelectedWelcomeProvenance::begin(
+            &client.selected_welcome_provenance,
+            &source_message_id,
+        );
         let source_message_id_hex = hex::encode(source_message_id.as_slice());
         let outer_transport_at = delivery.message.timestamp.0;
         let source_received_at = delivery.received_at.0;
@@ -3455,6 +3554,36 @@ impl AppClient {
                 }
             }
         }
+        #[cfg(feature = "experimental-device-sync")]
+        if welcome {
+            use super::device_linking::{ClientLinkingError, PrivateWelcomeIngress};
+            let private = client
+                .try_collect_private_device_welcome(&delivery.message)
+                .await
+                .map_err(|error| match error {
+                    ClientLinkingError::Runtime(error) => *error,
+                    ClientLinkingError::Engine(error) => {
+                        AppError::Session(cgka_session::SessionError::Engine(error))
+                    }
+                    // Static failure classes never expose protected context or
+                    // backend text, and preserve the failed delivery's cursor pin.
+                    ClientLinkingError::Collection(
+                        crate::device_linking::welcome_collection::CollectionError::Storage,
+                    ) => AppError::BlockingTask("private Welcome storage unavailable".into()),
+                    _ => AppError::BlockingTask("private Welcome admission refused".into()),
+                })?;
+            if let Some(admission) = private {
+                let joined = matches!(admission, PrivateWelcomeIngress::Joined);
+                if joined {
+                    client.record_durable_transport_reconciliation_delivery(&delivery);
+                }
+                return Ok(DeliveryIngest {
+                    routes_dirty: joined,
+                    must_stay_fetchable: !joined,
+                    refused_group: None,
+                });
+            }
+        }
         let rejoin_offers_before = if welcome {
             Some(client.rejoin_offer_snapshot()?)
         } else {
@@ -3474,28 +3603,58 @@ impl AppClient {
         if let (Some(slot), Some(receive)) = (&client.audit_v5_peel_slot, probe_receive.clone()) {
             slot.lock().unwrap().arm(&delivery.message, receive);
         }
-        let ingest = client
-            .runtime
-            .ingest_delivery_with_observer(delivery, |phase, duration, success| {
-                if let Some(telemetry) = &telemetry {
-                    let operation = match phase {
-                        marmot_account::AccountIngestPhase::Engine => RuntimeOp::IngestEngine,
-                        marmot_account::AccountIngestPhase::EffectPublication => {
-                            RuntimeOp::IngestEffectPublish
-                        }
-                    };
-                    telemetry.record_runtime(
-                        operation,
-                        duration,
-                        if success {
-                            TelemetryOutcome::Success
-                        } else {
-                            TelemetryOutcome::Failure
-                        },
-                    );
-                }
-            })
-            .await;
+        let observer = |phase, duration, success| {
+            if let Some(telemetry) = &telemetry {
+                let operation = match phase {
+                    marmot_account::AccountIngestPhase::Engine => RuntimeOp::IngestEngine,
+                    marmot_account::AccountIngestPhase::EffectPublication => {
+                        RuntimeOp::IngestEffectPublish
+                    }
+                };
+                telemetry.record_runtime(
+                    operation,
+                    duration,
+                    if success {
+                        TelemetryOutcome::Success
+                    } else {
+                        TelemetryOutcome::Failure
+                    },
+                );
+            }
+        };
+        #[cfg(feature = "experimental-device-sync")]
+        let ingest = if let Some(deadline) = acquisition_deadline {
+            client
+                .runtime
+                .ingest_private_enrollment_delivery_with_observer_until(
+                    delivery, deadline, observer,
+                )
+                .await
+        } else {
+            client
+                .runtime
+                .ingest_delivery_with_observer(delivery, observer)
+                .await
+        };
+        #[cfg(not(feature = "experimental-device-sync"))]
+        let ingest = {
+            let _ = acquisition_deadline;
+            client
+                .runtime
+                .ingest_delivery_with_observer(delivery, observer)
+                .await
+        };
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        if welcome {
+            client.app.relay_plane.note_exact_welcome_ingest(
+                &source_message_id,
+                ingest.as_ref().ok().map(|effects| effects.outcome.clone()),
+            );
+        }
         if let (Some(probe), Some(slot)) = (&mut client.audit_v5_probe, &client.audit_v5_peel_slot)
             && let Some(completion) = slot.lock().unwrap().take()
         {
@@ -5902,29 +6061,50 @@ impl AppClient {
                     .cloned()
                     .collect(),
             };
-            let created_chat_list_row = if let Some(group_id_hex) = created_group_id_hex {
-                Some(
+            let persist_projection = || -> Result<Option<crate::ChatListRow>, AppError> {
+                Ok(if let Some(group_id_hex) = created_group_id_hex {
+                    Some(
+                        self.app
+                            .save_state_delta_and_refresh_created_chat_list_row(
+                                &delta,
+                                &frontiers_to_clear,
+                                &application_event_ids_to_ack,
+                                group_id_hex,
+                            )?,
+                    )
+                } else {
                     self.app
-                        .save_state_delta_and_refresh_created_chat_list_row(
-                            &delta,
-                            &frontiers_to_clear,
-                            &application_event_ids_to_ack,
-                            group_id_hex,
-                        )?,
-                )
-            } else {
-                self.app
                 .save_state_delta_clearing_local_group_deletion_frontiers_and_acking_application_events(
                     &delta,
                     &frontiers_to_clear,
                     &application_event_ids_to_ack,
                 )?;
-                None
+                    None
+                })
             };
+            #[cfg(feature = "experimental-device-sync")]
+            let created_chat_list_row = {
+                let storage = self.app.account_storage(&self.state.label)?;
+                cgka_traits::StorageProvider::with_transaction(&storage, |_| {
+                    storage.apply_account_chat_source_changes(
+                        &self.pending_chat_source_changes,
+                        &|change| self.validate_chat_source_change(change),
+                    )?;
+                    let row = persist_projection()?;
+                    for change in &self.pending_chat_source_changes {
+                        self.validate_chat_source_change(change)?;
+                    }
+                    Ok::<_, AppError>(row)
+                })?
+            };
+            #[cfg(not(feature = "experimental-device-sync"))]
+            let created_chat_list_row = persist_projection()?;
             self.pending_seen_event_count = 0;
             self.pending_group_projection_updates.clear();
             self.pending_local_group_deletion_frontier_clears.clear();
             self.pending_application_event_acks.clear();
+            #[cfg(feature = "experimental-device-sync")]
+            self.pending_chat_source_changes.clear();
             Ok(created_chat_list_row)
         })();
         if let Some(observation) = observation {
@@ -6045,6 +6225,18 @@ impl AppClient {
         cleanup: &mut Option<Option<storage_sqlite::TimelineProjectionUpdate>>,
     ) -> Result<bool, AppError> {
         let mut routes_dirty = false;
+        #[cfg(feature = "experimental-device-sync")]
+        self.observe_chat_source_origin(event)?;
+        #[cfg(feature = "experimental-device-sync")]
+        if let cgka_traits::engine::GroupEvent::LocalGroupCopyTerminated { group_id, .. }
+        | cgka_traits::engine::GroupEvent::GroupStateChanged {
+            group_id,
+            change: cgka_traits::engine::GroupStateChange::GroupDisbanded,
+            ..
+        } = event
+        {
+            self.invalidate_automatic_catalog_after_termination(group_id);
+        }
         // Timeline invalidation dispatch: `AppMessageInvalidated` withdraws
         // the delivered source row; `GroupStateInvalidated` withdraws every
         // kind-1210 system row stamped with the superseded commit's
@@ -6313,6 +6505,27 @@ impl AppClient {
             .events
             .resize_with(effects.events.len(), EventProjectionProgress::default);
         for (event, event_progress) in effects.events.iter().zip(&mut progress.events) {
+            #[cfg(feature = "experimental-device-sync")]
+            if !event_progress.completed {
+                self.observe_account_sharing_control(event).map_err(|_| {
+                    AppError::InvalidAppMessagePayload(
+                        "private account sharing control unavailable".into(),
+                    )
+                })?;
+                self.observe_history_control(event).map_err(|_| {
+                    AppError::InvalidAppMessagePayload("private history control unavailable".into())
+                })?;
+            }
+            #[cfg(feature = "experimental-device-sync")]
+            if !event_progress.completed && self.private_event_must_remain_hidden(event)? {
+                self.notify_private_presentation_transition(event);
+                progress.routes_dirty |= self.refresh_private_transport_route()?;
+                summary.events.push(event.clone());
+                self.prepare_pending_application_event_ack(event);
+                event_progress.completed = true;
+                continue;
+            }
+
             if event_progress.completed {
                 continue;
             }
@@ -8105,6 +8318,7 @@ mod tests {
             effects
                 .events
                 .push(cgka_traits::engine::GroupEvent::MessageReceived {
+                    source_leaf: None,
                     authority: None,
                     group_id: group_id.clone(),
                     message_id: sent.reports[0].message_id.clone(),

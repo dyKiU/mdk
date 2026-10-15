@@ -56,6 +56,7 @@ pub use markdown::{
 };
 pub use secret_store::SecretStore;
 pub use subscriptions::ConversationWindowSubscription;
+pub use subscriptions::{AccountChatListWindowSubscription, AccountConversationWindowSubscription};
 
 uniffi::setup_scaffolding!();
 
@@ -502,6 +503,32 @@ pub use subscriptions::{AccountAttentionSubscription, ChatListWindowSubscription
 pub use commands::moderation::*;
 
 pub use commands::AttachmentTransferSubscription;
+
+pub use commands::{DeviceLinkingApproval, DeviceLinkingSession, DeviceLinkingSubscription};
+pub use conversions::{
+    DeviceLinkingApprovalPhaseFfi, DeviceLinkingApprovalReviewMetadataFfi,
+    DeviceLinkingApprovalSnapshotFfi, DeviceLinkingCapabilitiesFfi, DeviceLinkingDecimalsFfi,
+    DeviceLinkingOutgoingPacketFfi, DeviceLinkingPhaseFfi, DeviceLinkingSnapshotFfi,
+    DeviceLinkingTargetFfi,
+};
+
+pub use commands::{SelectedChatConsent, SelectedChatCopy};
+pub use conversions::{
+    SelectedChatConsentPhaseFfi, SelectedChatConsentSnapshotFfi, SelectedChatCopyPhaseFfi,
+    SelectedChatCopySnapshotFfi,
+};
+
+pub use commands::AccountSharingApproval;
+pub use commands::{HistoryConsent, HistoryTransfer};
+pub use conversions::{
+    AccountSharingSnapshotFfi, AccountSharingTargetFfi, AccountSharingTargetsFfi,
+};
+
+pub use commands::DeviceRevocation;
+pub use conversions::DeviceRevocationSnapshotFfi;
+pub use conversions::{HistoryTransferRecipientFfi, HistoryTransferSnapshotFfi};
+
+pub use conversions::{ArchivedHistoryPageFfi, ArchivedHistoryRecordFfi};
 
 #[cfg(test)]
 mod tests {

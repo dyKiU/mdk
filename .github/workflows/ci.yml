@@ -46,12 +46,18 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Classify changed paths
         id: classify
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           EVENT_NAME: ${{ github.event_name }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == "workflow_dispatch" \
@@ -62,7 +68,7 @@ jobs:
           else
             # Disable rename detection so a code-to-Markdown rename exposes
             # both the removed code path and the added documentation path.
-            git diff --no-renames --name-only -z "$BASE_SHA" "$GITHUB_SHA" \
+            git diff --no-renames --name-only -z "$BASE_SHA" "$CANDIDATE_SHA" \
               | python3 scripts/classify_ci_changes.py --github-output "$GITHUB_OUTPUT"
           fi
 
@@ -94,6 +100,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -167,6 +178,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -199,6 +215,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Test Claude Code, Codex, Pi, OpenCode, and Goose installers
         run: |
@@ -221,6 +242,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -266,6 +292,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -299,6 +330,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -353,6 +389,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         shell: bash
@@ -406,6 +447,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -437,6 +483,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -459,7 +510,7 @@ jobs:
           shared-key: rust-test
 
       - name: Verify workspace shard coverage
-        run: bash scripts/check_ci_partitions.sh 5 --workspace --exclude cgka-conformance-simulator --features wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks --locked --timings -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
+        run: bash scripts/check_ci_partitions.sh 12 --workspace --exclude cgka-conformance-simulator --features wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks --locked --timings -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
 
       - name: Upload workspace compiler timings
         if: always()
@@ -484,20 +535,25 @@ jobs:
           if-no-files-found: error
 
   rust-test:
-    name: Rust tests (${{ matrix.partition }}/5)
+    name: Rust tests (${{ matrix.partition }}/12)
     needs: rust-test-build
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        partition: [1, 2, 3, 4, 5]
+        partition: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
     steps:
       - name: Check out repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -522,7 +578,7 @@ jobs:
         # The subprocess-heavy `wn-cli::cli` suite runs in its own
         # `cli-e2e` job so its fan-out never starves these fast unit tests
         # (issue #103). `relay_runtime` keeps its own serial job.
-        run: cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --partition count:${{ matrix.partition }}/5 -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
+        run: cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 --partition count:${{ matrix.partition }}/12 -E 'not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
 
   rust-test-extras:
     name: Doctests and diagnostic exporters
@@ -536,6 +592,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -574,6 +635,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -626,6 +692,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -648,10 +719,10 @@ jobs:
 
       - name: Run CLI end-to-end tests
         # Dedicated job: this subprocess-heavy suite is capped by the `cli-e2e`
-        # test-group and the `ci` profile adds retries + a hung-test backstop.
+        # test-group; retain the hung-test backstop and report failures without retries.
         # The real-relay test self-skips here; it has its own `Relay CLI E2E`
         # job with a docker relay stack.
-        run: cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --partition count:${{ matrix.partition }}/2 --profile ci
+        run: cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --partition count:${{ matrix.partition }}/2 --profile ci --retries 0
 
   relay-runtime-build:
     name: Build relay runtime tests
@@ -665,6 +736,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -717,6 +793,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -758,6 +839,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -789,7 +875,7 @@ jobs:
       - name: Run real relay CLI E2E
         env:
           MDK_E2E_REQUIRE_RELAYS: "1"
-        run: cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci -E 'test(=real_local_relays_deliver_cli_messages_over_sdk_path)'
+        run: cargo nextest run --archive-file tests.tar.zst --extract-to "$GITHUB_WORKSPACE" --workspace-remap "$GITHUB_WORKSPACE" --profile ci --retries 0 -E 'test(=real_local_relays_deliver_cli_messages_over_sdk_path)'
 
       - name: Dump local relay logs
         if: failure()
@@ -811,6 +897,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -876,6 +967,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -919,21 +1015,21 @@ jobs:
           run_group() {
             case "$1" in
               smoke-*)
-                "${nextest[@]}" --profile ci --partition "count:${1#smoke-}/2" \
+                "${nextest[@]}" --profile ci --retries 0 --partition "count:${1#smoke-}/2" \
                   -E "$(just --evaluate simulator-smoke-filter) and not binary(offline_catchup_regression)"
                 ;;
               offline-history)
                 # Preserve the complete suite, including both 1024-message cases.
-                "${nextest[@]}" --profile ci -E 'binary(=offline_catchup_regression)'
+                "${nextest[@]}" --profile ci --retries 0 -E 'binary(=offline_catchup_regression)'
                 ;;
               process)
-                "${nextest[@]}" --profile ci \
+                "${nextest[@]}" --profile ci --retries 0 \
                   -E "binary(=process_orchestrator) and ($(just --evaluate simulator-process-filter))"
                 ;;
               models)
                 local status=0
                 for binary in route_assurance independent_reference_model lifecycle_model mutation_adequacy protocol_decision_gate semantic_reduction; do
-                  "${nextest[@]}" --profile ci -E "binary(=$binary)" || status=1
+                  "${nextest[@]}" --profile ci --retries 0 -E "binary(=$binary)" || status=1
                 done
                 return "$status"
                 ;;
@@ -961,6 +1057,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Rust toolchain
         run: |
@@ -1013,6 +1114,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install Tamarin dependencies
         timeout-minutes: 15
@@ -1066,6 +1172,11 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Record qualification source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
 
       - name: Install system dependencies
         timeout-minutes: 15

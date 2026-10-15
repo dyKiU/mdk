@@ -4391,6 +4391,62 @@ fn messages_subscribe_streams_messages_and_quic_previews_from_daemon() {
         sent["transcript_hash"]
     );
 
+    // The daemon retains this account's live runtime through start, preview,
+    // final publication and verification. None of these commands may reopen a
+    // competing account database through a per-request app.
+    let finished = run_json(
+        home.path(),
+        &[
+            "--account",
+            &alice,
+            "stream",
+            "finish",
+            group_id,
+            "--stream-id",
+            stream_id,
+            "--start-event-id",
+            start_message_id,
+            "--transcript-hash",
+            sent["transcript_hash"].as_str().expect("transcript hash"),
+            "--chunk-count",
+            &sent["chunk_count"].to_string(),
+            "daemon",
+            "preview",
+            "line",
+        ],
+    );
+    assert_eq!(finished["agent_text_stream"]["kind"], "final");
+    assert_eq!(
+        finished["agent_text_stream"]["start_event_id"],
+        start_message_id
+    );
+    subscription.wait_for(Duration::from_secs(20), |line| {
+        line["result"]["message"]["agent_text_stream"]["kind"] == "final"
+            && line["result"]["message"]["agent_text_stream"]["stream_id"] == stream_id
+    });
+    let verified = run_json(
+        home.path(),
+        &[
+            "--account",
+            &bob,
+            "stream",
+            "verify",
+            group_id,
+            "--stream-id",
+            stream_id,
+            "--transcript-hash",
+            sent["transcript_hash"].as_str().expect("transcript hash"),
+            "--chunk-count",
+            &sent["chunk_count"].to_string(),
+        ],
+    );
+    assert_eq!(verified["verified"], true);
+    assert_eq!(verified["final_message"]["stream_id"], stream_id);
+    assert_eq!(
+        verified["final_message"]["message_id"],
+        finished["message_ids"][0]
+    );
+
     drop(subscription);
     stop_daemon(&socket, &mut child);
 }

@@ -1,0 +1,142 @@
+{
+  "base": "a98cf6f0eee59123d2c303aa6a7f5608dcb6492e",
+  "branch": "codex/history-reader",
+  "source_manifest": "build/results/history-readonly-query-green-v2-inputs.json",
+  "source_manifest_sha256": "1d5a44287fe15ac1c33c89d27acff4f721337d340c09b45525b2994d86bae0c4",
+  "frozen_input_count": 2465,
+  "local_matches_all_frozen_inputs_before_documentation_delta": true,
+  "modified_qualified_paths": {
+    "crates/marmot-app/AGENTS.md": "12114b79963bd30690d6cd265a153017e1f977911ca88778aac212306845a398",
+    "crates/marmot-app/README.md": "1a8ca79e54cfe264ab7181e44a2c6edb79e26fe033bf6ef57f79c75ee797c8a6",
+    "crates/marmot-app/src/lib.rs": "cf940cb374d3add42b6261bcc6632c0cdce0c53398fc3f3c95b6e047f57e343d",
+    "crates/marmot-app/src/synchronized_history.rs": "acb5030d36424126ef323278ee5ba3e7a0941f4a7e88e840e3b97b3628e1affa",
+    "crates/marmot-app/src/synchronized_history/tests.rs": "e45d82d27c3628286606e2e8073e338981c0e8c655d78d4bddd9a41d2247cec2"
+  },
+  "original_regression_sha256": "f1482814972e122bfc730f0552f2eda56115bb307347b04ba65179f1702773c5",
+  "original_regression_unchanged_between_actual_red_and_final_green": true,
+  "original_red_stash_m5": "4b2f9cffa92c9162d8c7388fab7d8bc745a3d608",
+  "prior_attempts": [
+    {
+      "cohort": "red-v1",
+      "classification": "Fixture compile failure: nonexistent GroupId::from_slice; no behavioral RED",
+      "gate": "focused",
+      "exit": 101,
+      "seconds": 31.418941974639893,
+      "log": "/Users/pj/project/build/history-readonly-query-red-v1-focused.log",
+      "log_sha256": "1ae147b236cc1bc98e7cd5d26e9b672e5b88dc8d5ea24a973ef8a7da7d08bbef",
+      "counts": []
+    },
+    {
+      "cohort": "red-v2",
+      "classification": "Genuine missing public query behavior: Unavailable; unchanged original regression",
+      "gate": "focused",
+      "exit": 101,
+      "seconds": 52.258089780807495,
+      "log": "/Users/pj/project/build/history-readonly-query-red-v2-focused.log",
+      "log_sha256": "9e6d09f20ecc7c4b583f406549b45398735131f75f61f2e8f32716eaac3d055f",
+      "counts": [
+        {
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "filtered": 1953
+        }
+      ]
+    },
+    {
+      "cohort": "green-v1",
+      "classification": "First implementation runtime failure: legacy public identity did not resolve its label directory",
+      "gate": "focused",
+      "exit": 101,
+      "seconds": 53.2491340637207,
+      "log": "/Users/pj/project/build/history-readonly-query-green-v1-focused.log",
+      "log_sha256": "960ac3f1291746699d0e8ec5656dbae6f978346c3098598437a751ce2a5ab5af",
+      "counts": [
+        {
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "filtered": 1953
+        }
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "gate": "feature-family",
+      "exit": 0,
+      "seconds": 58.66197919845581,
+      "log": "/Users/pj/project/build/history-readonly-query-green-v2-feature-family.log",
+      "log_sha256": "3a726b95253309764779614f1841754b5da297728ff810fa3380887f06be7257",
+      "counts": [
+        {
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "filtered": 1953
+        }
+      ]
+    },
+    {
+      "gate": "default-family",
+      "exit": 0,
+      "seconds": 48.69200897216797,
+      "log": "/Users/pj/project/build/history-readonly-query-green-v2-default-family.log",
+      "log_sha256": "c713b8778962627788424a26dd461ce96190399e746bfb481aef70e9f63a69c5",
+      "counts": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "filtered": 1866
+        }
+      ]
+    },
+    {
+      "gate": "production-clippy",
+      "exit": 0,
+      "seconds": 29.37155795097351,
+      "log": "/Users/pj/project/build/history-readonly-query-green-v2-production-clippy.log",
+      "log_sha256": "940e827e5e60fcbdfd8829d171b1a0b0ab909c4f7a91f667ad7e6cdd58ccdd50",
+      "counts": []
+    },
+    {
+      "gate": "default-check",
+      "exit": 0,
+      "seconds": 22.26265287399292,
+      "log": "/Users/pj/project/build/history-readonly-query-green-v2-default-check.log",
+      "log_sha256": "c50bd0f53f5b83402bca1ca3c397b130f1a1aced3b057a636a64a60eb65065d8",
+      "counts": []
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.4738759994506836,
+      "log": "/Users/pj/project/build/history-readonly-query-green-v2-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "counts": []
+    }
+  ],
+  "post_gate_documentation_only_delta": {
+    "docs/marmot-architecture/overview/current-state.md": {
+      "before": "c2eb5da7b1bb813b08e5d8026c0d3465916c98d300f2906cf32c45c9ab885317",
+      "after": "54625c2c2b66a1cf8ed441e5a3ee8a22a07fa8f191403a70775bad73b046353f"
+    }
+  },
+  "review": "Root implementation and raw/source verification; separate read-only agent review found no additional concrete blocker; not an independent implementation audit",
+  "claims": [
+    "Public App query returns completed logical content and source provenance with message-ID keyset pages",
+    "Legacy label directory is resolved by canonical public identity; accounts and groups stay isolated",
+    "Unfinished imports invisible; live authenticated events shadow archives",
+    "Captured expiry, retention fences and payload-free tombstones preserved",
+    "Canonical logical payload failures are typed; shared media parser preserves rejected slots and valid siblings",
+    "Default Unsupported before account/storage effects; closed storage never reopens"
+  ],
+  "limits": [
+    "Storage-seeded isolated query tests only; no original actor, native ABI, installed application or conversation/UI acceptance",
+    "Read-only archive operations may perform normal one-time account cutover/projection initialization",
+    "Source-attested history is not independently MLS-authenticated original-author traffic or consent",
+    "Matched actor integration requires separate gates; source remains default-off private experimental profile",
+    "Focused linker __eh_frame size diagnostic retained; production lint passes"
+  ]
+}

@@ -1,0 +1,451 @@
+{
+  "red-v2": {
+    "exact_candidate_stash": "911271cf920828fe6f5dcbe294b2f908c48fe5a2",
+    "verified_input_count": 2439,
+    "results": {
+      "head": "fc8a3542b966c8b6029d0d5432e3041fd105ca2b",
+      "input_count": 2439,
+      "source_manifest_sha256": "94588c986e6f19a0e8eac541b93fb81755a38b4f985bc8023a58d29b8594cf0e",
+      "gates": [
+        {
+          "gate": "uniffi-original-red",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "--features",
+            "experimental-device-sync",
+            "opaque_binding_three_device_enrollment_reports_actual_completion",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 101,
+          "seconds": 57.71,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "f727c94aa35bbe354f53d5781252019742b9e66d826e8e2c14ad4df830d3a486"
+        },
+        {
+          "gate": "c-original-red",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-c",
+            "--features",
+            "experimental-device-sync,alloc-audit",
+            "actual_c_three_device_enrollment_retains_approval_after_list_free",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 101,
+          "seconds": 61.72,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "bae6d779cc617fdf5339ea9d24ad8b141f67f268ed2fcabf07d2e5b8d6905b86"
+        },
+        {
+          "gate": "uniffi-default",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "default_binding_refuses_before_account_effects"
+          ],
+          "exit_code": 0,
+          "seconds": 52.98,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "19a077c0c09c1d8473de29a4b9e85e91ecbedb48cfdd24293391c7cb83ca5992"
+        },
+        {
+          "gate": "c-default-controls",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-c",
+            "--features",
+            "alloc-audit",
+            "enrollment_outputs_preflight_and_new_records_deep_free"
+          ],
+          "exit_code": 0,
+          "seconds": 51.25,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "ea1703c777cdc2c4054b6c813f2c2db0ca4f4d810d695ebf70a2cb32afdcdc8b"
+        }
+      ]
+    }
+  },
+  "green-v1": {
+    "exact_candidate_stash": "c6620236e034aff3b10c0176e0be69bb3f121de8",
+    "verified_input_count": 2439,
+    "results": {
+      "head": "fc8a3542b966c8b6029d0d5432e3041fd105ca2b",
+      "input_count": 2439,
+      "source_manifest_sha256": "37f837befcf3a2af0f6918239f5a665f674e0074111b9d8434f3dc33687cab22",
+      "gates": [
+        {
+          "gate": "uniffi-real-review",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "--features",
+            "experimental-device-sync",
+            "opaque_binding_three_device_enrollment_reports_actual_completion",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 70.42,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "7b1fc92ff87ed77feaf87287b1a3529cdc6789ee0321f1bddcd4e654d46d068e"
+        },
+        {
+          "gate": "c-real-review",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-c",
+            "--features",
+            "experimental-device-sync,alloc-audit",
+            "actual_c_three_device_enrollment_retains_approval_after_list_free",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "seconds": 81.58,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "e46bb8a8d1c6bfa6be1f9ac13800dcd73f7f1609140ef6a1789b58fc890e3bea"
+        },
+        {
+          "gate": "uniffi-default",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "default_binding_refuses_before_account_effects"
+          ],
+          "exit_code": 0,
+          "seconds": 45.42,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "7384e01e0b6902e3a61d1cf1bca17cf18fef1a283ce65af33f5b77bfffcdcacd"
+        },
+        {
+          "gate": "c-default-controls",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-c",
+            "--features",
+            "alloc-audit",
+            "enrollment_outputs_preflight_and_new_records_deep_free"
+          ],
+          "exit_code": 0,
+          "seconds": 46.49,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "44ffd6901fd9263e501697c7f2270dbd8af4446ccfa35520f02088c1b9c5cdbb"
+        },
+        {
+          "gate": "c-feature-controls",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "-p",
+            "marmot-c",
+            "--features",
+            "experimental-device-sync,alloc-audit",
+            "enrollment_outputs_preflight_and_new_records_deep_free"
+          ],
+          "exit_code": 0,
+          "seconds": 29.31,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            },
+            {
+              "status": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "log_sha256": "99b1ba3e4ac3ee229a5468b793a81fac6e0e19b75a05aadeb1b2df458dc78aba"
+        },
+        {
+          "gate": "production-clippy",
+          "command": [
+            "cargo",
+            "clippy",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "-p",
+            "marmot-c",
+            "--features",
+            "experimental-device-sync",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings"
+          ],
+          "exit_code": 0,
+          "seconds": 27.04,
+          "counts": [],
+          "log_sha256": "575b2f38f940e0bc95e7c0418d421060c64c15d684aad30794c32fa8fc064e3e"
+        },
+        {
+          "gate": "default-check",
+          "command": [
+            "cargo",
+            "check",
+            "--locked",
+            "-p",
+            "marmot-uniffi",
+            "-p",
+            "marmot-c",
+            "--all-targets"
+          ],
+          "exit_code": 0,
+          "seconds": 21.87,
+          "counts": [],
+          "log_sha256": "4251006b05bedf5cde12bd252ceab5593c67e1509080cb9ace0bf2e9289276fa"
+        },
+        {
+          "gate": "fmt",
+          "command": [
+            "cargo",
+            "fmt",
+            "--all",
+            "--",
+            "--check"
+          ],
+          "exit_code": 0,
+          "seconds": 3.62,
+          "counts": [],
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    }
+  },
+  "scope": "Original opaque approval handle read-only metadata; no enrollment grant/capability change. Matched generated Swift and native SDK artifact qualification remains pending.",
+  "runtime_paths_unchanged_after_green": [
+    "crates/marmot-c/src/device_linking.rs",
+    "crates/marmot-c/src/device_linking/tests.rs",
+    "crates/marmot-c/src/types/device_linking.rs",
+    "crates/marmot-uniffi/src/commands/device_linking.rs",
+    "crates/marmot-uniffi/src/commands/device_linking/tests.rs",
+    "crates/marmot-uniffi/src/conversions/device_linking.rs",
+    "crates/marmot-uniffi/src/lib.rs"
+  ],
+  "post_freeze_changes": "Generated C header and authored documentation plus this proof only.",
+  "documentation_checks": {
+    "uniffi_callables": 377,
+    "c_callables": 559,
+    "parity_exports": 364,
+    "doc_regressions_passed": 17
+  },
+  "header": {
+    "generator": "cbindgen 0.29.4",
+    "sha256": "114bc54f3becd22acd9ba379c857c6de8551e231a2968a2b741904ac0abcc28a",
+    "v1": "Compile-only invocation failure missing required RUSTC_BOOTSTRAP=1; v2 corrected environment exited 0."
+  }
+}

@@ -1,0 +1,185 @@
+{
+  "qualified_source": "83f5a82d80c9f53bdcbab602f349544397ba07f6",
+  "scope": "Full experimental App/UniFFI/C suites, matched disposable host Swift ABI and production feature all-target Clippy. Combined with signed default qualification04ffb0d6. No installed Apple artifact replacement or native multi-host/history claim.",
+  "input_count": 2448,
+  "source_manifest_sha256": "2d81cdde850550ed51b5933684922ef9fbdb4b124c9747f7ebea234cfae7bab0",
+  "manifest_schema": "relative path -> SHA256 of actual bytes, cached + others; symlinks dereferenced",
+  "gates": [
+    {
+      "gate": "app-feature-full-lib",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2080,
+          "failed": 0,
+          "ignored": 6
+        }
+      ],
+      "seconds": 2072.88,
+      "log_sha256": "7602541321c2577c1a36d595ee0f05b604c9c3be7c9106a147fedc1468f22803"
+    },
+    {
+      "gate": "uniffi-feature-full",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-uniffi",
+        "--features",
+        "experimental-device-sync"
+      ],
+      "exit_code": 0,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 199,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 29,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "seconds": 103.87,
+      "log_sha256": "a1adb91f28dd6389cbebbfeab0df1a790803343d71fee8e45e8322cac71821e2"
+    },
+    {
+      "gate": "c-feature-full",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-c",
+        "--features",
+        "experimental-device-sync,alloc-audit"
+      ],
+      "exit_code": 0,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 86,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "seconds": 86.57,
+      "log_sha256": "0955c2700c0c494c9234c1c063fcb3f64ffd470f7916194a2044cfe41277689e"
+    },
+    {
+      "gate": "swift-feature",
+      "command": [
+        "env",
+        "EXPERIMENTAL_DEVICE_SYNC=1",
+        "bash",
+        "crates/marmot-uniffi/device-linking-smoke.sh"
+      ],
+      "exit_code": 0,
+      "counts": [],
+      "seconds": 48.17,
+      "log_sha256": "b34c130da5f68a023fcec6098442316e00d271a4fbbfe940824685ec0abbd419"
+    },
+    {
+      "gate": "production-feature-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "-p",
+        "marmot-uniffi",
+        "-p",
+        "marmot-c",
+        "--features",
+        "experimental-device-sync",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "counts": [],
+      "seconds": 33.94,
+      "log_sha256": "236ae5af888df366edb166978d14c176c2548fdca794c259977d8b4d6a4ac374"
+    }
+  ],
+  "swift_coverage": "18 session +6 approval +5 selected request +5 selected consent snapshots; binary selectors/target/packet round trips, capability, typed factory/observation guards, shutdown; actual generated matched host library.",
+  "independent_verification": {
+    "signed_archive_input_bytes_matched": 2448,
+    "complete_feature_log_hashes_matched": 5,
+    "complete_default_log_hashes_matched": 11,
+    "feature_default_manifests_identical": true
+  },
+  "artifacts": "backups/mdk-sync-delivery-20261009 in parent workspace; prefix mdk-sync-final-controls-feature-v1",
+  "complete_report_sha256": "35784f4d5ddc80f01c1b5edb7abf895b48eea5409f3df107013ed656eb6d7769",
+  "post_freeze_delta": "Default and experimental evidence documents only; all tested runtime paths remain exact signed83f.",
+  "remaining_acceptance": [
+    "Build and validate a new matched final SDK in a separate output checkout; installed apps retain3fab during validation.",
+    "Native multi-host selected chat delivery.",
+    "Historical message retrieval/transfer and unfinished-onboarding admission."
+  ]
+}

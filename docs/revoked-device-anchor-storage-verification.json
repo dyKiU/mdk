@@ -1,0 +1,129 @@
+{
+  "base": "6d8d13916d5492cb361a1c20ea88914297905e45",
+  "scope": "Synthetic bounded authenticated Remove metadata persistence only; Core/Session/App integration and full workspace/SDK/native qualification pending. No row or snapshot reconstructs original consent, deadline or settlement guard. No external MDK publication.",
+  "red": {
+    "baseline_stash": "e21de8b325df08f09c4d2df74508b2b01ead7a65",
+    "inputs_verified": 2490,
+    "raw_log_sha256": "5ee9d909982ea711fe9946afaee7cfd818978afce0481d803aec7d65830d6db5",
+    "actual_test_result": "0 passed; 1 failed",
+    "failure": "single-Remove successor storage unavailable",
+    "compile_only": false
+  },
+  "green_stashes": {
+    "local": "8f33ef2d76b04071e321632bb5c0dc326c49187e",
+    "remote": "c3d4050000a74303c0d0c87c4f8220a039a6d459"
+  },
+  "green_source_inputs_verified": 2491,
+  "green_manifest_sha256": "3d6063bbf6ef5db4ccd8582feff5ffa8a55b93eb8f52251a4e46dc36acb94ff3",
+  "gates": [
+    {
+      "gate": "feature",
+      "exit": 0,
+      "seconds": 37.79862403869629,
+      "log": "/Users/pj/project/build/revoked-anchor-storage-green-v5-feature.log",
+      "log_sha256": "0bc4eb7fce412b30650f9eb65cbbb09932441af4a5c637ff25ed6da09264c228",
+      "test_results": [
+        [
+          "10",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "gate": "affected",
+      "exit": 0,
+      "seconds": 20.891780138015747,
+      "log": "/Users/pj/project/build/revoked-anchor-storage-green-v5-affected.log",
+      "log_sha256": "9e8c15263bfd7d0e6e67e2da83d2c8d166a12e7eae1d62a091b7c38c6c0247fc",
+      "test_results": [
+        [
+          "26",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "gate": "traits",
+      "exit": 0,
+      "seconds": 5.257462978363037,
+      "log": "/Users/pj/project/build/revoked-anchor-storage-green-v5-traits.log",
+      "log_sha256": "53481b08d02278fa2155003c48abeab03662f5b570e377f3b42b822f8e7a074b",
+      "test_results": [
+        [
+          "124",
+          "0",
+          "0"
+        ],
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "4",
+          "0",
+          "0"
+        ],
+        [
+          "6",
+          "0",
+          "0"
+        ],
+        [
+          "32",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "gate": "default-check",
+      "exit": 0,
+      "seconds": 5.635828018188477,
+      "log": "/Users/pj/project/build/revoked-anchor-storage-green-v5-default-check.log",
+      "log_sha256": "cae2d9ff05cca3ebe690e00a888adbb28322db24942911aac3522842c9167391",
+      "test_results": []
+    },
+    {
+      "gate": "storage-clippy",
+      "exit": 0,
+      "seconds": 10.772764205932617,
+      "log": "/Users/pj/project/build/revoked-anchor-storage-green-v5-storage-clippy.log",
+      "log_sha256": "6a1fe968d06f239a04b45d677654aea54e45e1571f4e53515867a4eb8cbf22a9",
+      "test_results": []
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 4.433422088623047,
+      "log": "/Users/pj/project/build/revoked-anchor-storage-green-v5-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "test_results": []
+    }
+  ],
+  "attempts": {
+    "green_v1": "compile-only six errors; retained raw evidence",
+    "green_v2": "compile-only remaining ConnectionGuard conversion error; retained raw evidence",
+    "green_v3": "actual8/8 focused pass",
+    "green_v4": "additional test imported nonexistent SnapshotStorage; focused/affected/clippy compile failures, fmt module ordering failure; traits/default check passed; retained all evidence",
+    "green_v5": "actual10/10 and all six gates pass"
+  },
+  "invariants": [
+    "private16 additive; frozen core102/private1-15 untouched",
+    "128 retained references including terminal rows; no deletion/replacement/mutation/denial rollback",
+    "exact active predecessor and Completed local generation/full roster",
+    "canonical exact single Remove; source and local survive",
+    "present account/signer owner mismatches reject",
+    "successor insert and predecessor denial atomic; failed insert restores previous live metadata",
+    "group deletion denies metadata; group snapshot rollback cannot reactivate",
+    "bounded all-facts accessor for negative privacy observations only"
+  ],
+  "raw_directory": "../build/results/revoked-anchor-storage"
+}

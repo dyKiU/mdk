@@ -38,6 +38,8 @@ pub(crate) mod app_payload;
 pub(crate) mod audit_helpers;
 pub mod auto_committer;
 pub(crate) mod bounded_id_set;
+#[cfg(feature = "test-policy-overrides")]
+pub mod canonical_probe_observer;
 pub mod canonicalization;
 pub mod capabilities;
 pub mod capability_manager;
@@ -47,6 +49,14 @@ pub mod convergence;
 pub mod convergence_clock;
 pub(crate) mod convergence_input;
 mod deadline;
+#[cfg(feature = "experimental-device-sync")]
+pub mod device_group_genesis;
+#[cfg(feature = "experimental-device-sync")]
+mod device_group_lineage;
+#[cfg(feature = "experimental-device-sync")]
+pub mod device_group_snapshot;
+#[cfg(feature = "experimental-device-sync")]
+pub mod device_leaf_revocation;
 pub mod disband;
 pub mod distributed_convergence;
 pub mod engine;
@@ -55,6 +65,8 @@ pub mod epoch_manager;
 pub mod feature_registry;
 pub mod group_authority;
 pub mod group_context_view;
+#[cfg(feature = "experimental-device-sync")]
+mod group_creation_origin;
 pub mod group_lifecycle;
 pub mod group_state_changes;
 pub mod identity;
@@ -68,6 +80,16 @@ pub(crate) mod mls_group_cache;
 pub mod openmls_projection;
 pub mod own_commit_intent;
 pub mod pending_commit_guard;
+#[cfg(feature = "experimental-device-sync")]
+pub mod private_device_invite;
+#[cfg(feature = "experimental-device-sync")]
+pub mod private_enrollment_predecessor;
+#[cfg(feature = "experimental-device-sync")]
+pub mod private_roster_settlement;
+#[cfg(feature = "experimental-device-sync")]
+mod private_successor;
+#[cfg(feature = "experimental-device-sync")]
+pub mod private_transport;
 pub mod provider;
 pub mod publish;
 pub mod self_update;
@@ -94,3 +116,40 @@ pub use wire_format::{
 // ── Compile-time witnesses ──────────────────────────────────────────────────
 
 const _: fn(Box<dyn cgka_traits::CgkaEngine + Send + Sync>) = |_| {};
+
+#[cfg(feature = "experimental-device-sync")]
+pub mod linking_welcome_policy;
+
+#[cfg(feature = "experimental-device-sync")]
+mod roster_ack_capture;
+
+#[cfg(feature = "experimental-device-sync")]
+mod private_linking_join;
+
+#[cfg(feature = "experimental-device-sync")]
+mod private_roster_settlement_receive;
+#[cfg(all(
+    feature = "experimental-device-sync",
+    any(
+        test,
+        feature = "test-policy-overrides",
+        all(feature = "test-crash-hooks", debug_assertions)
+    )
+))]
+#[doc(hidden)]
+pub mod private_settlement_test_observation;
+
+#[cfg(feature = "experimental-device-sync")]
+pub mod private_enrollment_request;
+
+#[cfg(feature = "experimental-device-sync")]
+pub mod private_enrollment_endorsement;
+
+#[cfg(feature = "experimental-device-sync")]
+pub mod account_chat_catalog;
+#[cfg(feature = "experimental-device-sync")]
+pub mod account_chat_sharing;
+#[cfg(feature = "experimental-device-sync")]
+pub mod history_transfer;
+#[cfg(feature = "experimental-device-sync")]
+pub mod selected_chat_consent;

@@ -1,0 +1,77 @@
+{
+  "scope": "Original Core pair control MLS wrapping; no actor history transfer or committed import receipt",
+  "base": "8facb4d953830682eb2c51bf6bf376b2b6c8b0be",
+  "original_red_stash": "90027ce71279b64504dd7996b96654236444042b",
+  "final_candidate_stash": "e70f1092eee2ba96403dc6c755299954ac724a59",
+  "source_manifest_sha256": "81a91a7fc14085c07ad624b7c7f612627160f21e5ea2335d886fda69f1c6c9d2",
+  "input_count": 2457,
+  "source_manifest_format": "Direct relative path to dereferenced SHA256, tracked plus untracked source",
+  "all_frozen_inputs_match_final_runtime_candidate": true,
+  "genuine_red": {
+    "prefix": "history-channel-transport-red-v1",
+    "passed": 0,
+    "failed": 1,
+    "runtime_seconds": 1.56,
+    "reason": "same original request expects actual MLS wrapper, dedicated API explicitly denies owned history transport not ready",
+    "log_sha256": "01383c29657f2bf2f0d1cc6216d5abcfae2f9f369d14306a6bba24febae46b23"
+  },
+  "unchanged_red_fixture_green": {
+    "prefix": "history-channel-transport-green-v1",
+    "passed": 1,
+    "failed": 0,
+    "runtime_seconds": 1.59,
+    "log_sha256": "5a11043621e910f995a8a19650307fab0ebf8fd61dab4af3b9ca190ec850adfe"
+  },
+  "final_gates": [
+    {
+      "gate": "focused",
+      "exit": 0,
+      "seconds": 28.280457973480225,
+      "log": "/Users/pj/project/build/history-channel-transport-gates-v2-focused.log",
+      "log_sha256": "cbdfba15f5a43b4e98a6afcd88b9245290a96bd589bb6ced75f0874ddf13bc29"
+    },
+    {
+      "gate": "production-clippy",
+      "exit": 0,
+      "seconds": 9.602349042892456,
+      "log": "/Users/pj/project/build/history-channel-transport-gates-v2-production-clippy.log",
+      "log_sha256": "6e1fb7f6066cb88ba9b10829b7ce6dda7996b6872e9f7eac60c06365b847e2a3"
+    },
+    {
+      "gate": "default-check",
+      "exit": 0,
+      "seconds": 6.8886988162994385,
+      "log": "/Users/pj/project/build/history-channel-transport-gates-v2-default-check.log",
+      "log_sha256": "b8cb3ab2ab0bb9b5b543acd6663e14d3f021f60c90d2daec8cca3ee418b75280"
+    },
+    {
+      "gate": "fmt",
+      "exit": 0,
+      "seconds": 3.432694911956787,
+      "log": "/Users/pj/project/build/history-channel-transport-gates-v2-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "focused_counts": {
+    "passed": 6,
+    "failed": 0,
+    "ignored": 0
+  },
+  "coverage": "Actual pair MLS Request/Consent/Archive/ACK with Member source proofs and leaf-signed exact channel context; original opaque channel and independent fixed Core leases; exact wrapper bytes and at most two controls per original; wrong role and cached canceled-owner refusal. Earlier five crypto controls retained.",
+  "prior_lint_failure": {
+    "prefix": "history-channel-transport-gates-v1",
+    "focused_passed": 6,
+    "clippy_exit": 101,
+    "log_sha256": "88fd55f897427e0adcac9686ad02b53bea293222ba616fd754ca497d7e214328",
+    "correction": "Only collapsible_if let-chain; reran all four gates on exact final source."
+  },
+  "limits": [
+    "No App actor request/explicit native recipient consent/import transaction/committed ACK yet; original genuine public ABC history NotReady RED remains uncommitted/preserved.",
+    "Actual third group member outer MLS decrypt plus inner refusal is not yet qualified.",
+    "One archive body and reply only; ordered bounded manifest/chunks/ACK remain separate.",
+    "4096-byte plaintext is an upper refusal bound subject to whole16KiB frame and nested event encoding; no guarantee4096 always wraps. Deterministic safe chunk ceiling/maximum-size tests remain required.",
+    "Wrapping failure/exact ciphertext retry, SQL-tail fault and pending-wrap expiry/cancel acceptance remain required before final transfer delivery.",
+    "No ordinary Sent/fanout/restart replay; only process-local original-owned exact ciphertext/wrapper retention. Existing final83 SDK/native artifacts unchanged."
+  ],
+  "post_freeze_changes": "Only human docs/AGENTS and this compact proof appended after final gates."
+}

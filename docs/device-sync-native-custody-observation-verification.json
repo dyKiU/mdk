@@ -1,0 +1,103 @@
+{
+  "baseline": "43f002d7c94f4f680951014e70a157f097e0208e",
+  "scope": "Retain native verification observation after the same original SDK proof moves into recipient enrollment custody. Does not enable native enrollment, chat or history.",
+  "implementation": "Only an exact in-memory original SettlementGuard scope may report verification complete after handoff. It must remain live; revoked or expired owners remain terminal. Stored facts cannot restore this observation. Consumed SAS decimals remain absent.",
+  "source": {
+    "qualified_input_count": 2386,
+    "red_manifest_sha256": "852efcd4eb7c266f8fa3bf1ead89bb103fa48cce8708aadd24c05c022c186e76",
+    "green_manifest_sha256": "fcbe9248de6464b687e942ebc68dda0224d6c36d977f68a1266efdb43e808cf3",
+    "independent_local_manifest_match": true,
+    "changed_during_runs": [],
+    "post_qualification_change": "This evidence document only."
+  },
+  "checks": [
+    {
+      "name": "actual-original-recipient-sdk-handoff-red",
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0,
+      "exit_code": 101,
+      "reason": "actual snapshot Cancelled, expected VerificationCompleteEnrollmentPending",
+      "log_sha256": "eb4d631d4e06fdd23518cae4723fb21a93c058bbb7194d3801716fd561160d39"
+    },
+    {
+      "name": "same-unchanged-regression-green",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "d6581f3ebefc3aa7507eb49bb7d7c77dbdbe67fe53fdae8fb438bbe6815e8328"
+    },
+    {
+      "name": "complete-native-feature-suite",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "4f3cbfa911dddc052a5bdc88bd9cc6beb33c06a2e05eee87a14ee877de2c4840"
+    },
+    {
+      "name": "clippy-v1",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 31.57,
+      "log_sha256": "a96f753d04ec521a2ac3d1051df39a6e6e9f03225f5fed055ed9d3661e9654ee"
+    },
+    {
+      "name": "default-v1",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 18.72,
+      "log_sha256": "8785ff10684d99aaa8bcf11e5954868451d102acc1de10af3bc16df2c9f80cc2"
+    },
+    {
+      "name": "fmt-v1",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 3.25,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "commands": [
+    "cargo test --locked -p marmot-app --features experimental-device-sync,test-policy-overrides --lib native_original_recipient_observation_survives_actual_sdk_handoff -- --nocapture",
+    "cargo test --locked -p marmot-app --features experimental-device-sync,test-policy-overrides --lib native_device_linking::tests -- --nocapture"
+  ],
+  "controls": "Actual isolated account workers exchange genuine SDK packets and confirm matching SAS before the same proof is taken. After handoff, verification remains pending with no decimals; continuation stays NotReady and enrollment capability false. Exact cancellation works and an old scope cannot cancel a fresh reservation. Existing native lifecycle tests retain their original scope.",
+  "qualification_pending": [],
+  "preserved_harness_failure": "red-v1 did not launch Cargo because SSH PATH lacked Cargo. Corrected direct Rust1.97.1 toolchain PATH in red-v2; red-v1 is not a behavioral regression.",
+  "remaining": "Actual A/B/C settlement, native continuation/UI, final matched artifacts and chat/history delivery remain open.",
+  "independent_verification": {
+    "terminal_log_count": 6,
+    "all_log_hashes_match": true,
+    "red_and_green_input_count_each": 2386,
+    "all_source_bytes_match": true,
+    "local_code_commit": "10bf5d92",
+    "post_qualification_change": "Evidence document only; no behavior or fixture changes after GREEN."
+  },
+  "preserved_host_interruption": "M5 SSH timed out before the production checker launched. Stale task SSH transports were closed after verifying no checker ran. Fresh production Clippy/default/fmt completed after connectivity returned; no outage is counted as a compiler or behavioral result."
+}

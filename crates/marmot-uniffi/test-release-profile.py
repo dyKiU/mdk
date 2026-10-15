@@ -719,6 +719,7 @@ class ReleaseProfileTests(unittest.TestCase):
         env["PATH"] = f"{bin_dir}:{env['PATH']}"
         env["MARMOTKIT_WORKSPACE_DIR"] = str(workspace)
         env["MARMOTKIT_CRATE_DIR"] = str(crate)
+        env["CARGO_TARGET_DIR"] = str(workspace / "target")
         env["OTLP_EXPORT"] = "1"
         env["PRODUCT_ANALYTICS_EXPORT"] = "1"
         subprocess.run([str(HERE / script)], check=True, env=env, cwd=ROOT)

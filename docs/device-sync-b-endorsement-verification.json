@@ -1,0 +1,512 @@
+{
+  "format": 1,
+  "base_commit": "7a7d4ed7160ae92646682c5359b3934df4a1163b",
+  "scope": "Original observed selection, artifact carrier and explicit account-owned B endorsement custody only.",
+  "toolchain": "Rust 1.97.1 / Apple Silicon M5 / Xcode explicit / debug0 jobs2 testthreads4 FD4096",
+  "dependency": "Unchanged portable vendored OpenMLS 98666ed02d254ff6e2cc7d88f756d3701703be16; no vendor/dependency/schema/wire/native changes.",
+  "source_manifest": {
+    "remote": "/Users/pj/project/build/mdk-b-approval-final-v3-input.json",
+    "sha256": "33b096f8c41fb19a5a4ac0b7b27d5c7fc411c6d0567696451d9f44a2528e740e",
+    "paths": 2341,
+    "verification": "Every path checked before/after each gate; changed compiled files match local signed candidate byte-for-byte.",
+    "compiled_delta_sha256": {
+      "crates/cgka-engine/src/private_enrollment_endorsement.rs": "98e639ecb8a13ded2ad894e5c87412ac94514b6be343f548596a64fd00875098",
+      "crates/cgka-engine/src/private_enrollment_predecessor.rs": "d2470007ce5c8358c0f23fd034c906806db32c8d124aa154a81cf67d7092df70",
+      "crates/cgka-engine/src/private_enrollment_request.rs": "ba4b2f8812ace208819a816f061893da67ff242398d59d57ce1728e461937434",
+      "crates/cgka-engine/src/private_roster_settlement.rs": "05d73f6ff5a5633af91bdc69d0e3b3ccc4dd909e35f25c4924d470b7cd5c99bc",
+      "crates/cgka-engine/src/private_roster_settlement_tests.rs": "5e42dc862a039cfe5480dcfc6a91830ad81672cb2eca8949edb959ff496ebfc9",
+      "crates/cgka-session/src/lib.rs": "35736cfc857e858a1b848acf5604f41fa2830bb925154c2088585eef6277947c",
+      "crates/marmot-app/src/client/device_linking.rs": "0d366b0ddb3a9d61960b6f462cde8077874b095792f54ba871ca40a67eab63d8",
+      "crates/marmot-app/src/client/private_enrollment_proposal.rs": "3fb8e02ffc5776eaa601c970b34b9c82ccd28b6ea18fa4fb5769344fb7e40b26",
+      "crates/marmot-app/src/runtime/device_linking.rs": "8e249130b285f7e1760760ed1b333f192be00009d64882fe9d609181c134d6ce"
+    },
+    "post_qualification_documentation_only": [
+      "crates/cgka-engine/AGENTS.md",
+      "crates/cgka-engine/README.md",
+      "crates/cgka-session/README.md",
+      "crates/marmot-app/AGENTS.md",
+      "crates/marmot-app/README.md"
+    ]
+  },
+  "qualification": [
+    {
+      "name": "generation",
+      "exit_code": 0,
+      "seconds": 56.04,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "46f57404d2c61ce130a731579d65202f1e8e15d9ba52ab831804fa2c708b9843",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "private_enrollment_endorsement"
+      ]
+    },
+    {
+      "name": "owner",
+      "exit_code": 0,
+      "seconds": 17.14,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "0862dd50ba45556b901a2014aef61ac63b0916647d1e89221884348c0a49ec5e",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "device_linking_original_sdk_received_proposal_requires_explicit_b_owner"
+      ]
+    },
+    {
+      "name": "controls",
+      "exit_code": 0,
+      "seconds": 19.26,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "8344007628b26357bf9f0f9833d042a29c1f40b6e20d9127fac5d9234faf5667",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "device_linking_b_endorsement"
+      ]
+    },
+    {
+      "name": "carrier",
+      "exit_code": 0,
+      "seconds": 4.78,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "7024ae4fed26d9fbdc772ecc85f43552291628464653a7f26e87708f3bf905e7",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "device_linking_received_proposal_rejects_artifact_signed_by_other_current_leaf"
+      ]
+    },
+    {
+      "name": "sdk",
+      "exit_code": 0,
+      "seconds": 5.0,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "94bcfef1497cb1bbf695f6bad542016a67bda26f3c5370ad4dffaad9b47c3f96",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "device_linking_original_sdk_produces_received_proposal_without_add"
+      ]
+    },
+    {
+      "name": "received",
+      "exit_code": 0,
+      "seconds": 63.04,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "639fdf35218bb2ac4d5012b5042e4b6590a0a6e84b1a73a72af28e2441127de0",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "marmot-app",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "device_linking_received_proposal"
+      ]
+    },
+    {
+      "name": "core-family",
+      "exit_code": 0,
+      "seconds": 208.68,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 43,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "548de7bb584a3c9713c9f6875436a0cfc990e919750be2febdb9dc25d427e1b7",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--lib",
+        "private_roster_settlement"
+      ]
+    },
+    {
+      "name": "session",
+      "exit_code": 0,
+      "seconds": 124.64,
+      "counts": [
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "sha256": "f5798d0cc9e4b36ec9fac1368de44454be4b63c325250caafa75887be4db60d9",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cgka-session",
+        "--features",
+        "experimental-device-sync,test-policy-overrides"
+      ]
+    },
+    {
+      "name": "feature-clippy",
+      "exit_code": 0,
+      "seconds": 22.54,
+      "counts": [],
+      "sha256": "ba095bfbd0ea8abfc53a19e3cd0e54a9ba0cc0990ea5eda24841ade533e2ece9",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "-p",
+        "cgka-session",
+        "-p",
+        "marmot-app",
+        "--all-targets",
+        "--features",
+        "experimental-device-sync,test-policy-overrides",
+        "--",
+        "-D",
+        "warnings"
+      ]
+    },
+    {
+      "name": "default",
+      "exit_code": 0,
+      "seconds": 5.88,
+      "counts": [],
+      "sha256": "002b2656a942823f654af099182e234ef81cace80d65f4bd7ca4fa0848d7068d",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "-p",
+        "cgka-engine",
+        "-p",
+        "cgka-session",
+        "-p",
+        "marmot-app",
+        "--all-targets"
+      ]
+    },
+    {
+      "name": "fmt",
+      "exit_code": 0,
+      "seconds": 3.42,
+      "counts": [],
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ]
+    }
+  ],
+  "count_policy": "Per-gate nonempty counts; overlapping filters repeat tests. Session unit/doc zero excluded.",
+  "historical_evidence": [
+    {
+      "prefix": "mdk-b-approval-red",
+      "classification": "Initial carrier fixture passed a prior digest mismatch; owner and owned-generation controls genuinely failed.",
+      "results_sha256": "dd7ac6f1c2dffef7189339dee72ac13441fd2f4406fed6ae77e3577a7670e7d3",
+      "runs": [
+        {
+          "name": "carrier",
+          "exit_code": 0,
+          "seconds": 28.76,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "c588e260d6e72306319537368eda586530778fc1091d857ac67265585a60fbc8"
+        },
+        {
+          "name": "owner",
+          "exit_code": 101,
+          "seconds": 4.99,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "sha256": "cbf569f7334fefb8139f226901fd6ca07ec9ff4750d2eebccbb829436e5ec4a4"
+        },
+        {
+          "name": "generation",
+          "exit_code": 101,
+          "seconds": 5.09,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "sha256": "38ec7f0a80599e5916d9afa4c889808c36ee240962aad2c126006d4bdbf0016e"
+        }
+      ]
+    },
+    {
+      "prefix": "mdk-b-approval-carrier-red-v2",
+      "classification": "Canonical wrong-carrier artifact reached the missing signer binding and genuinely failed.",
+      "results_sha256": "2563f19a7cddd2ba8036516886c1b355fc5927d40c6e3ee9bc93f937fd8d6448",
+      "runs": [
+        {
+          "name": "carrier",
+          "exit_code": 101,
+          "seconds": 16.79,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "sha256": "20197cb1125bd39a761002fad0fbe55a861a2d5d69e1260d66b850e66842ad13"
+        }
+      ]
+    },
+    {
+      "prefix": "mdk-b-approval-resume",
+      "classification": "Original paused Green generation was interrupted; resumed generation passed; no interrupted pass claim.",
+      "results_sha256": "dd55cb9ca6a586b033db8e3f34a23431cf3f7d62d3edea54dd5b8e65a4c580ae",
+      "runs": [
+        {
+          "name": "generation",
+          "exit_code": 0,
+          "seconds": 6.7,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "e6a81317bd3378daedecc0ffa02ab1b38a1f85295458aca10c8ebf79d2b49681"
+        }
+      ]
+    },
+    {
+      "prefix": "mdk-b-approval-observation-red",
+      "classification": "Old real received request incorrectly created its first action after genuine same-tree Completed replacement.",
+      "results_sha256": "738c45d2f3adee9dba367d1d2dcfdfd8266dbbbd4d3b9360721616cb445f33ae",
+      "runs": [
+        {
+          "name": "generation",
+          "exit_code": 101,
+          "seconds": 5.02,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "sha256": "8479664235f078280d1c6bb5d0aa6cd1c9bacdfce9d99d9b3b24c71d32449760"
+        }
+      ]
+    },
+    {
+      "prefix": "mdk-b-approval-mixed-red",
+      "classification": "Two real encrypted requests processed; unrelated invalid request blocked opaque selection.",
+      "results_sha256": "bc837a6183e2d4ae7d9d07beaef50ef4b7152a24f296176f2cd9bacd2dec3f94",
+      "runs": [
+        {
+          "name": "generation",
+          "exit_code": 101,
+          "seconds": 24.15,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 0,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "sha256": "382185d71ce512603033c0b62644cd8bc4cbe3dabfe973b89419dfd0e1c0ff59"
+        }
+      ]
+    },
+    {
+      "prefix": "mdk-b-approval-final",
+      "classification": "Seven Core controls passed; cross-owner portable packet fixture failed the new correct fence.",
+      "results_sha256": "5484f46cb790debb03b66d8ecf68be327981439a2c492cd09db656a74d1f2264",
+      "runs": [
+        {
+          "name": "generation",
+          "exit_code": 101,
+          "seconds": 56.82,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 7,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "sha256": "621a6f37649657ba26f6d5a0d15ba77563831229ac33d02a72747609f32306c5"
+        }
+      ]
+    },
+    {
+      "prefix": "mdk-b-approval-final-v2",
+      "classification": "Core8 and owner1 passed; mixed/drop passed; reopen post-assertion wrongly read the closed old handle. Corrected fixture reads actual reopened storage.",
+      "results_sha256": "634d57e9c0b82ef1e8e9f318b996564ad0247b354cf58101cc48c148e432bf7f",
+      "runs": [
+        {
+          "name": "generation",
+          "exit_code": 0,
+          "seconds": 56.89,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 8,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "939781ad6a33c64707f372abf9cff14238aa9a333adc2ef897a5479c891b927a"
+        },
+        {
+          "name": "owner",
+          "exit_code": 0,
+          "seconds": 38.47,
+          "counts": [
+            {
+              "status": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0
+            }
+          ],
+          "sha256": "802e038b63deccbe7395af9dc388d638d8b3864b7a6930dbe4fcf89ec62223de"
+        },
+        {
+          "name": "controls",
+          "exit_code": 101,
+          "seconds": 26.49,
+          "counts": [
+            {
+              "status": "FAILED",
+              "passed": 2,
+              "failed": 1,
+              "ignored": 0
+            }
+          ],
+          "sha256": "c7aaed2888e1267c643648243d5a5df51c6430a97999e3c4fde630ec7b4fb470"
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "No full App suite or native artifact qualification.",
+    "B explicit action retains its original observed deadline and exact protected origin/generation; receipt and signature packets cannot recreate SDK consent.",
+    "Abandoned reply and actual encrypted reopen deny recreation; cancelled original receipt cannot be reapproved under the same binding.",
+    "Portable A packet fixture uses its actual signer for metadata verification and explicitly rejects transferring B observation into A action. It is not original-SDK A approval.",
+    "Endorsement publication, original A-owned collection, all-current-leaf enforcement, recipient admission and atomic sibling transition remain separate unimplemented boundaries. No third-device/history grant."
+  ]
+}

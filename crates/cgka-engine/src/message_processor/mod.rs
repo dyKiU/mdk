@@ -90,6 +90,8 @@ pub(crate) fn prepare_local_group_termination<S: StorageProvider>(
     storage: &S,
     group_id: &GroupId,
 ) -> Result<LocalGroupTermination, EngineError> {
+    #[cfg(feature = "experimental-device-sync")]
+    crate::private_roster_settlement_receive::deny_settlement_for_group(storage, group_id)?;
     let voluntary = storage.leave_request(group_id)?.is_some();
     let mut record = storage.get_group(group_id)?;
     let newly_removed = !record.removed;
@@ -794,11 +796,30 @@ impl<S: StorageProvider> Engine<S> {
     pub(crate) async fn do_ingest(
         &mut self,
         msg: TransportMessage,
+        #[cfg(feature = "experimental-device-sync")] live_delivery: Option<
+            crate::private_enrollment_request::LiveEnrollmentDelivery,
+        >,
     ) -> Result<IngestOutcome, EngineError> {
         // Clear a marker left by cancellation/panic in an earlier ingest; only
         // the current call may suppress its own seen-cache insertion.
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            self.live_enrollment_ingress = None;
+        }
         self.retryable_unpersisted_ingest_id = None;
         self.last_ingest_left_object_unpersisted = false;
+        #[cfg(feature = "experimental-device-sync")]
+        if let Some(outcome) = self.ingest_private_commit_echo(&msg).await? {
+            // Authorization refusal remains marker-free, so the exact object
+            // may later return after genuine dispatch intent.
+            self.last_ingest_left_object_unpersisted = matches!(
+                outcome,
+                IngestOutcome::Ignored {
+                    category: InputRejectionCategory::AuthorizationFailed
+                }
+            );
+            return Ok(outcome);
+        }
         // Durable dedup / own-echo check. Storage is consulted before the hot
         // cache so a restarted engine can classify replayed transport messages
         // the same way as a running process.
@@ -826,16 +847,25 @@ impl<S: StorageProvider> Engine<S> {
             });
         }
 
-        let outcome = match &msg.envelope {
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            self.live_enrollment_ingress = live_delivery.filter(|origin| origin.id == msg.id);
+        }
+        let result = match &msg.envelope {
             TransportEnvelope::Welcome { recipient } => {
-                self.ingest_welcome(&msg, recipient.clone()).await?
+                self.ingest_welcome(&msg, recipient.clone()).await
             }
             TransportEnvelope::GroupMessage { transport_group_id } => {
                 self.ingest_group_message(&msg, transport_group_id.clone())
-                    .await?
+                    .await
             }
         };
 
+        #[cfg(feature = "experimental-device-sync")]
+        {
+            self.live_enrollment_ingress = None;
+        }
+        let outcome = result?;
         let retryable_unpersisted = self
             .retryable_unpersisted_ingest_id
             .take()
@@ -1573,6 +1603,12 @@ impl<S: StorageProvider> Engine<S> {
         now_ms: u64,
         deadline: Option<Instant>,
     ) -> Result<bool, EngineError> {
+        if !self.prepare_convergence_input_advance(group_id)? {
+            return Ok(false);
+        }
+        // One bounded dependency page per maintenance command, not per
+        // internal replay/settlement loop.
+        self.resume_proposal_dependency_wakes(group_id)?;
         let mut execution = DeferredPeelExecution::Background {
             deadline,
             rows_remaining: MAX_DEFERRED_ROWS_PER_SWEEP,
@@ -1673,7 +1709,9 @@ impl<S: StorageProvider> Engine<S> {
                         },
                         execution.replay_deadline(),
                     )
-                    .map_err(|e| EngineError::Backend(format!("converge inputs: {e}")))?;
+                    .map_err(|e| {
+                        crate::openmls_projection::enrollment_replay_error(e, "converge inputs")
+                    })?;
                 if record_outbound_phases {
                     self.engine_metrics.note_outbound_required_convergence_ms(
                         convergence_started
@@ -2297,7 +2335,10 @@ impl<S: StorageProvider> Engine<S> {
                     execution.replay_deadline(),
                 )
                 .map_err(|error| {
-                    EngineError::Backend(format!("converge completed peel generation: {error}"))
+                    crate::openmls_projection::enrollment_replay_error(
+                        error,
+                        "converge completed peel generation",
+                    )
                 })?;
             }
             self.note_foreground_deferred_phase(
@@ -2338,7 +2379,12 @@ impl<S: StorageProvider> Engine<S> {
                     now,
                     execution.replay_deadline(),
                 )
-                .map_err(|error| EngineError::Backend(format!("converge swept batch: {error}")))?;
+                .map_err(|error| {
+                    crate::openmls_projection::enrollment_replay_error(
+                        error,
+                        "converge swept batch",
+                    )
+                })?;
             }
             tracing::debug!(
                 target: "cgka_engine::message_processor",
@@ -2637,7 +2683,12 @@ impl<S: StorageProvider> Engine<S> {
                     completed_at,
                     execution.replay_deadline(),
                 )
-                .map_err(|error| EngineError::Backend(format!("converge swept batch: {error}")))?;
+                .map_err(|error| {
+                    crate::openmls_projection::enrollment_replay_error(
+                        error,
+                        "converge swept batch",
+                    )
+                })?;
             }
         }
 
