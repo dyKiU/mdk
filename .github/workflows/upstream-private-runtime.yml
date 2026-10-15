@@ -38,10 +38,10 @@ jobs:
           if [[ -d target ]]; then du -sh target; fi
           available_kib=$(df -Pk . | awk 'NR==2 {print $4}')
           test "$available_kib" -ge 8388608
-      - name: Contract-correct conversation state, three actual receive omissions and restores
+      - name: Exact pending conversation receive consumption, restored control and foreign departure
         env:
           CARGO_INCREMENTAL: '1'
-        run: python3 scripts/qualify_upstream_private_runtime.py --phase receives-remaining
+        run: python3 scripts/qualify_upstream_private_runtime.py --phase conversation-qualified
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

@@ -11,7 +11,7 @@ import tempfile
 import time
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--phase', choices=('cancel-red', 'receives', 'cancel-green', 'conversation-probe', 'receives-remaining'), default='cancel-red')
+parser.add_argument('--phase', choices=('cancel-red', 'receives', 'cancel-green', 'conversation-probe', 'receives-remaining', 'conversation-qualified'), default='cancel-red')
 args = parser.parse_args()
 
 if os.environ.get('GITHUB_ACTIONS') != 'true':
@@ -81,7 +81,7 @@ def receive_execution(test, marker, failure=None, integration=False):
     runtime = re.findall(r'test result: (?:ok|FAILED)\.[^\n]*; finished in ([0-9.]+)s', text)
     row['runtime_seconds'] = float(runtime[0]) if len(runtime) == 1 else None
     row['positive_close_marker'] = marker in text
-    row['aggregate_witnesses'] = re.findall(r'private_conversation_receive_(?:witness|semantic) [^\n]*', text)
+    row['aggregate_witnesses'] = re.findall(r'private_conversation_receive_(?:witness|semantic|completion) [^\n]*', text)
     command_valid = ('account_conversation_receive_' not in test or 'private_conversation_receive_semantic command_valid=true' in text)
     row['compiler_error_codes'] = sorted(set(re.findall(r'error\[(E\d+)\]', text)))
     one = (len(summary) == 1 and row.get('passed', 0) + row.get('failed', 0) == 1
@@ -91,7 +91,9 @@ def receive_execution(test, marker, failure=None, integration=False):
     row['panic_locations'] = [{'file': path, 'line': int(line)} for path, line, _ in panics]
     if failure:
         own = len(panics) == 1 and panics[0][0].startswith('crates/marmot-uniffi/src/commands/') and panics[0][2].startswith(failure)
-        row['qualified'] = bool(one and row.get('failed') == 1 and result.returncode == 101 and own and row['positive_close_marker'] and command_valid)
+        actual_consumption = ('account_conversation_receive_' not in test or 'actual_unpolled_consumption=true' in text)
+        row['actual_unpolled_consumption_proved'] = actual_consumption
+        row['qualified'] = bool(one and row.get('failed') == 1 and result.returncode == 101 and own and row['positive_close_marker'] and command_valid and actual_consumption)
     else:
         row['qualified'] = bool(one and row.get('passed') == 1 and result.returncode == 0 and row['positive_close_marker'] and command_valid)
     row['failure_class'] = 'intended-runtime-outcome' if row['qualified'] else 'prerequisite-or-other-failure'
@@ -101,11 +103,14 @@ def receive_execution(test, marker, failure=None, integration=False):
 
 
 def qualify_receives():
-    if args.phase == 'receives-remaining':
+    if args.phase in ('receives-remaining', 'conversation-qualified'):
         report['reused_controls'] = {
-            'source': '7c362e8ac1adf04eb03e376707d802b657b7666a',
-            'run': 'https://github.com/dyKiU/mdk/actions/runs/38786208192',
-            'tests': [RECEIVES[0][0], RECEIVES[1][0], 'private_pairing_exports_complete_on_a_foreign_executor_without_tokio'],
+            'source': '8eda2ba27b1e45049e9f1ccb715704cc1f9fff23',
+            'run': 'https://github.com/dyKiU/mdk/actions/runs/38789318054',
+            'tests': [RECEIVES[0][0], RECEIVES[1][0]],
+            'foreign_control_source': '7c362e8ac1adf04eb03e376707d802b657b7666a',
+            'foreign_control_run': 'https://github.com/dyKiU/mdk/actions/runs/38786208192',
+            'foreign_control_test': 'private_pairing_exports_complete_on_a_foreign_executor_without_tokio',
             'reason': 'unchanged relevant production bodies; only reviewed negative-cancel wrappers and new conversation oracle changed',
         }
         test, _, _, _, marker = RECEIVES[2]
@@ -122,7 +127,8 @@ def qualify_receives():
         if not all(controls) or not foreign:
             return False
     report['receive_mutations'] = []
-    for test, path, anchor, failure, marker in RECEIVES:
+    selected = RECEIVES[2:] if args.phase == 'conversation-qualified' else RECEIVES
+    for test, path, anchor, failure, marker in selected:
         source = Path(path)
         original = source.read_bytes()
         if original.decode().count(anchor) != 1:
@@ -145,7 +151,7 @@ def qualify_receives():
     command = ['python3', 'scripts/verify_upstream_boundary_mutations.py', '--case', 'departure', '--output', str(departure)]
     result = subprocess.run(command, timeout=3600)
     report['departure_controller'] = {'command': command, 'exit_code': result.returncode}
-    return (len(report['executions']) == (7 if args.phase == 'receives-remaining' else 10) and all(row['qualified'] for row in report['executions'])
+    return (len(report['executions']) == (3 if args.phase == 'conversation-qualified' else 7 if args.phase == 'receives-remaining' else 10) and all(row['qualified'] for row in report['executions'])
             and result.returncode == 0)
 
 
@@ -188,6 +194,28 @@ def qualify_cancels():
     return len(report['executions']) == 12 and all(row['qualified'] for row in report['executions'])
 
 
+def strip_exact_test_receive_observation(text):
+    field = '    #[cfg(all(test, feature = "experimental-device-sync"))]\n    completed_receives: std::sync::atomic::AtomicUsize,\n'
+    initial = '            #[cfg(all(test, feature = "experimental-device-sync"))]\n            completed_receives: std::sync::atomic::AtomicUsize::new(0),\n'
+    for block in (field, initial):
+        if text.count(block) != 1:
+            raise ValueError('Test-only receive observation field/init must match exactly')
+        text = text.replace(block, '', 1)
+    pattern = r'\n    #\[cfg\(all\(test, feature = "experimental-device-sync"\)\)\]\n    pub\(crate\) fn completed_receive_count_for_test\(&self\) -> usize \{.*?\n    \}\n'
+    accessors = re.findall(pattern, text, re.S)
+    expected = ' #[cfg(all(test, feature = "experimental-device-sync"))] pub(crate) fn completed_receive_count_for_test(&self) -> usize { self.completed_receives.load(std::sync::atomic::Ordering::SeqCst) } '
+    compact = lambda value: re.sub(r'\s+', '', value)
+    if len(accessors) != 1 or compact(accessors[0]) != compact(expected):
+        raise ValueError('Test-only receive accessor changed')
+    text = text.replace(accessors[0], '', 1)
+    pattern = r'\.map\(\|value\| \{.*?value\.into\(\).*?\}\)'
+    observers = re.findall(pattern, text, re.S)
+    expected = '.map(|value| { #[cfg(all(test, feature = "experimental-device-sync"))] self.completed_receives.fetch_add(1, std::sync::atomic::Ordering::SeqCst); value.into() })'
+    if len(observers) != 1 or compact(observers[0]) != compact(expected):
+        raise ValueError('Only the reviewed successful-recv observation is permitted')
+    return text.replace(observers[0], '.map(Into::into)', 1)
+
+
 def verify_production_adaptation():
     names = ('commands/history_transfer.rs', 'commands/account_chat_departure.rs',
              'commands/account_chat_presentation.rs', 'commands/device_linking.rs',
@@ -203,10 +231,13 @@ def verify_production_adaptation():
         if name in ('commands/device_linking.rs', 'subscriptions/account_chat_windows.rs'):
             expected = expected.replace('    pub async fn next(',
                 '    #[marmot_uniffi_macros::receive]\n    pub async fn next(')
-        if args.phase in ('cancel-green', 'conversation-probe', 'receives-remaining') and name in ('commands/device_linking.rs', 'commands/selected_chat_copy.rs'):
+        if args.phase in ('cancel-green', 'conversation-probe', 'receives-remaining', 'conversation-qualified') and name in ('commands/device_linking.rs', 'commands/selected_chat_copy.rs'):
             expected = expected.replace('    pub async fn cancel(&self)',
                 '    #[marmot_uniffi_macros::survives_cancellation]\n    pub async fn cancel(&self)')
-        compared[path] = Path(path).read_text() == expected
+        actual = Path(path).read_text()
+        if args.phase == 'conversation-qualified' and name == 'subscriptions/account_chat_windows.rs':
+            actual = strip_exact_test_receive_observation(actual)
+        compared[path] = actual == expected
     report['production_exact_expected_attribute_adaptation'] = compared
     if not all(compared.values()):
         raise ValueError('Unexpected production change beyond the reviewed runtime annotations')

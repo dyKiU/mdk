@@ -204,8 +204,18 @@ async fn actual_window_receive_cancellation(conversation: bool) {
         .await
         .unwrap();
     let observed = if conversation {
-        let sent = kit.send_text(account.clone(), group.clone(), "Actual native receive state".into()).await.unwrap();
-        assert!(sent.message_ids.len() == 1, "real receive fixture must publish exactly one message");
+        let sent = kit
+            .send_text(
+                account.clone(),
+                group.clone(),
+                "Actual native receive state".into(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            sent.message_ids.len() == 1,
+            "real receive fixture must publish exactly one message"
+        );
         let expected_message = &sent.message_ids[0];
         let window = kit
             .open_account_conversation_window(account, group.clone(), 2)
@@ -228,8 +238,12 @@ async fn actual_window_receive_cancellation(conversation: bool) {
             }
         };
         assert!(futures::poll!(&mut pending).is_pending());
+        let completed_before = window.completed_receive_count_for_test();
         let replacement = window.older_page(sequence, None).await.unwrap();
         tokio::time::sleep(Duration::from_millis(20)).await;
+        let completed_unpolled = window.completed_receive_count_for_test();
+        let unpolled_consumption = completed_unpolled > completed_before;
+        eprintln!("private_conversation_receive_completion baseline_count={completed_before} unpolled_count={completed_unpolled} actual_unpolled_consumption={unpolled_consumption}");
         drop(pending);
         let retained = tokio::time::timeout(Duration::from_secs(2), window.__ffi_next()).await;
         let (observed_sequence, same_generation, result_kind) = match &retained {
@@ -255,9 +269,13 @@ async fn actual_window_receive_cancellation(conversation: bool) {
                     if row.message_id_hex == *expected_message && row.group_id_hex == group && !row.deleted && row.plaintext == "Actual native receive state"))
         };
         let command_valid = valid_page(&replacement);
-        let observed = command_valid && matches!(retained, Ok(Ok(Some(update)))
+        let observed = command_valid
+            && !unpolled_consumption
+            && matches!(retained, Ok(Ok(Some(update)))
             if update.generation == replacement.generation && update.sequence >= replacement.sequence && valid_page(&update));
-        eprintln!("private_conversation_receive_semantic command_valid={command_valid} retained_required_state={observed}");
+        eprintln!(
+            "private_conversation_receive_semantic command_valid={command_valid} retained_required_state={observed}"
+        );
         window.cancel();
         observed
     } else {
