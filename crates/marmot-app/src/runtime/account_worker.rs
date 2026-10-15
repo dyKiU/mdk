@@ -813,7 +813,8 @@ pub(crate) enum AccountWorkerCommand {
     ))]
     LiveRevocationSettlementBindingForTest {
         group: GroupId,
-        respond: oneshot::Sender<crate::client::device_linking::RevocationBindingObservationForTest>,
+        respond:
+            oneshot::Sender<crate::client::device_linking::RevocationBindingObservationForTest>,
     },
     #[cfg(all(
         test,
