@@ -11,7 +11,7 @@ import tempfile
 import time
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--phase', choices=('cancel-red', 'receives', 'cancel-green'), default='cancel-red')
+parser.add_argument('--phase', choices=('cancel-red', 'receives', 'cancel-green', 'conversation-probe'), default='cancel-red')
 args = parser.parse_args()
 
 if os.environ.get('GITHUB_ACTIONS') != 'true':
@@ -81,6 +81,7 @@ def receive_execution(test, marker, failure=None, integration=False):
     runtime = re.findall(r'test result: (?:ok|FAILED)\.[^\n]*; finished in ([0-9.]+)s', text)
     row['runtime_seconds'] = float(runtime[0]) if len(runtime) == 1 else None
     row['positive_close_marker'] = marker in text
+    row['aggregate_witnesses'] = re.findall(r'private_conversation_receive_witness [^\n]*', text)
     row['compiler_error_codes'] = sorted(set(re.findall(r'error\[(E\d+)\]', text)))
     one = (len(summary) == 1 and row.get('passed', 0) + row.get('failed', 0) == 1
            and row.get('ignored') == 0 and re.search(r'^running 1 test$', text, re.M)
@@ -186,7 +187,7 @@ def verify_production_adaptation():
         if name in ('commands/device_linking.rs', 'subscriptions/account_chat_windows.rs'):
             expected = expected.replace('    pub async fn next(',
                 '    #[marmot_uniffi_macros::receive]\n    pub async fn next(')
-        if args.phase == 'cancel-green' and name in ('commands/device_linking.rs', 'commands/selected_chat_copy.rs'):
+        if args.phase in ('cancel-green', 'conversation-probe') and name in ('commands/device_linking.rs', 'commands/selected_chat_copy.rs'):
             expected = expected.replace('    pub async fn cancel(&self)',
                 '    #[marmot_uniffi_macros::survives_cancellation]\n    pub async fn cancel(&self)')
         compared[path] = Path(path).read_text() == expected
@@ -241,6 +242,9 @@ try:
             if row['compiler_error_codes']:
                 break
         report['passed'] = len(report['executions']) == 4 and all(r['qualified'] for r in report['executions'])
+    elif args.phase == 'conversation-probe':
+        test, _, _, _, marker = RECEIVES[2]
+        report['passed'] = receive_execution(test, marker)
     elif args.phase == 'cancel-green':
         report['passed'] = qualify_cancels()
     else:

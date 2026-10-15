@@ -204,6 +204,13 @@ async fn actual_window_receive_cancellation(conversation: bool) {
         tokio::time::sleep(Duration::from_millis(20)).await;
         drop(pending);
         let retained = tokio::time::timeout(Duration::from_secs(2), window.__ffi_next()).await;
+        let (observed_sequence, same_generation, result_kind) = match &retained {
+            Ok(Ok(Some(update))) => (Some(update.sequence), update.generation == replacement.generation, "replacement"),
+            Ok(Ok(None)) => (None, false, "closed"),
+            Ok(Err(_)) => (None, false, "error"),
+            Err(_) => (None, false, "timeout"),
+        };
+        eprintln!("private_conversation_receive_witness command_sequence={} observed_sequence={observed_sequence:?} same_generation={same_generation} result_kind={result_kind}", replacement.sequence);
         let observed = matches!(retained, Ok(Ok(Some(update))) if update.sequence == replacement.sequence);
         window.cancel();
         observed
