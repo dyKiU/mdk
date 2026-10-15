@@ -18,6 +18,7 @@ ENVIRONMENT_KEYS = {
     'WN_HISTORY_SOURCE_PICKER_FIXTURE', 'WN_SOURCE_PICKER_FIXTURE', 'WN_HISTORY_SOURCE_UI_BRIDGE',
     'WN_SOURCE_PICKER_BUTTON_BRIDGE', 'WN_SOURCE_TRANSFER_BRIDGE', 'WN_IOS_SOURCE_TRANSFER_BRIDGE',
     'WN_IOS_SOURCE_TRANSFER_PUBLIC_BRIDGE', 'WN_HISTORY_APPROVAL_BRIDGE', 'WN_MAC_HISTORY_APPROVAL_BRIDGE',
+    'WN_NATIVE_PAIRING_QR_ACCEPTANCE',
 }
 SELECTORS = {
     'macos': {
@@ -28,6 +29,7 @@ SELECTORS = {
         'GenuineHistoryRecipientTransferTests/testFreshRecipientOriginalThroughSessionModelAndIOSSource',
     },
     'ios-simulator': {
+        'NativePairingQRCodeTests/testActualThreeDevicePacketsPassAppCodecAndOriginalSdkAuthentication',
         'GenuineAutomaticAccountSwitchTests/testActualAccountsReplacePairedOwnersAndSceneSuspensionClosesRuntime',
         'GenuineImportedHistoryPaneTests/testRealCommittedImportThroughAccountOwnedReaderAndHostedPane',
         'GenuineHistorySourcePickerTests/testActualNativeChoicesCreateRefreshAndCancelOriginalThroughAccountOwner',
