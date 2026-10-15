@@ -74,12 +74,26 @@ struct CatalogProgress {
     sent: BTreeMap<Vec<u8>, [u8; 32]>,
     record_cursor: records::RecordSourceCursor,
 }
+pub(crate) const MAX_AUTOMATIC_HANDSHAKES: usize = 4;
+struct AutomaticHandshakePublication {
+    kind: AccountSharingControl,
+    deadline: std::time::Instant,
+    payload_digest: [u8; 32],
+    task: tokio::task::JoinHandle<Result<cgka_traits::TransportPublishReport, AccountSharingError>>,
+}
+impl Drop for AutomaticHandshakePublication {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
 pub(crate) struct AutomaticChannel {
     original: Arc<State>,
     policy: ApprovedAccountSharingPolicy,
     channel: OwnedAccountSharingChannel,
     recipient: bool,
     ready: bool,
+    handshake_publication: Option<AutomaticHandshakePublication>,
     handshake_published: bool,
     handshake_published_at: Option<std::time::Instant>,
     pending: VecDeque<PendingBody>,
@@ -518,6 +532,7 @@ impl AppClient {
                     channel,
                     recipient: true,
                     ready: false,
+                    handshake_publication: None,
                     handshake_published: false,
                     handshake_published_at: None,
                     pending: VecDeque::new(),
@@ -970,6 +985,7 @@ impl AppClient {
                     channel,
                     recipient: true,
                     ready: false,
+                    handshake_publication: None,
                     handshake_published: false,
                     handshake_published_at: None,
                     pending: VecDeque::new(),
@@ -1072,6 +1088,7 @@ impl AppClient {
                 channel,
                 recipient: false,
                 ready: false,
+                handshake_publication: None,
                 handshake_published: false,
                 handshake_published_at: None,
                 pending: VecDeque::new(),
@@ -1269,7 +1286,9 @@ impl AppClient {
             } else {
                 AccountSharingControl::Request
             };
-            self.publish_automatic_control(entry, kind).await?;
+            if !self.publish_automatic_control(entry, kind).await? {
+                return Ok(());
+            }
             entry.handshake_published = true;
             entry.handshake_published_at = Some(std::time::Instant::now());
             if entry.recipient {
@@ -1349,8 +1368,12 @@ impl AppClient {
             .session()
             .seal_account_shared_body(&mut entry.channel, body.kind, entry.next_body, &body.bytes)
             .map_err(|_| AccountSharingError::NotReady)?;
-        self.publish_automatic_control(entry, AccountSharingControl::Body(entry.next_body))
-            .await?;
+        if !self
+            .publish_automatic_control(entry, AccountSharingControl::Body(entry.next_body))
+            .await?
+        {
+            return Ok(());
+        }
         entry.pending.pop_front();
         entry.next_body += 1;
         if entry.pending.is_empty()
@@ -1606,7 +1629,49 @@ impl AppClient {
         &mut self,
         entry: &mut AutomaticChannel,
         kind: AccountSharingControl,
-    ) -> Result<(), AccountSharingError> {
+    ) -> Result<bool, AccountSharingError> {
+        if let Some(publication) = entry.handshake_publication.as_ref() {
+            if publication.kind != kind {
+                return Err(AccountSharingError::NotReady);
+            }
+            if !publication.task.is_finished() {
+                return Ok(false);
+            }
+            let mut publication = entry
+                .handshake_publication
+                .take()
+                .expect("finished automatic handshake");
+            let report = (&mut publication.task)
+                .await
+                .map_err(|_| AccountSharingError::RuntimeUnavailable)??;
+            self.finish_automatic_publication(
+                entry,
+                kind,
+                publication.deadline,
+                publication.payload_digest,
+                report,
+            )?;
+            return Ok(true);
+        }
+        let slot = if matches!(
+            kind,
+            AccountSharingControl::Request | AccountSharingControl::Consent
+        ) {
+            match self
+                .account_sharing_owner
+                .automatic_handshake_slots
+                .clone()
+                .try_acquire_owned()
+            {
+                Ok(slot) => Some(slot),
+                Err(tokio::sync::TryAcquireError::NoPermits) => return Ok(false),
+                Err(tokio::sync::TryAcquireError::Closed) => {
+                    return Err(AccountSharingError::Closed);
+                }
+            }
+        } else {
+            None
+        };
         self.automatic_policy_current(&entry.policy)?;
         let message = self
             .runtime
@@ -1614,7 +1679,6 @@ impl AppClient {
             .wrap_account_sharing_control(&mut entry.channel, kind)
             .await
             .map_err(|_| AccountSharingError::NotReady)?;
-        #[cfg(all(test, feature = "test-policy-overrides"))]
         let input_payload_digest: [u8; 32] = Sha256::digest(&message.payload).into();
         let evidence = self
             .runtime
@@ -1685,7 +1749,83 @@ impl AppClient {
                 },
             );
         }
-        let _publication = tokio::select! {biased;()=stopping=>return Err(AccountSharingError::Closed),()=&mut revoked=>return Err(AccountSharingError::Closed),()=tokio::time::sleep_until(publication_deadline.into())=>{entry.renew=true;return Err(AccountSharingError::Closed)},report=self.adapter.publish_selected_chat(request)=>{let report=report.map_err(|_|AccountSharingError::RuntimeUnavailable)?;if !report.met_required_acks(){return Err(AccountSharingError::NotReady)} report}};
+        if let Some(slot) = slot {
+            // Core has prepared actual consent under the live durable policy.
+            // An authenticated peer body may race its relay ACK; Core still
+            // validates the exact channel before any body can be imported.
+            if kind == AccountSharingControl::Consent {
+                entry.ready = true;
+            }
+            let original = entry.original.clone();
+            let adapter = self.adapter.clone();
+            let mut shutdown = self.history_owner.runtime_shutdown.clone();
+            let task = tokio::spawn(async move {
+                let _slot = slot;
+                let revoked = original.revoked.notified();
+                tokio::pin!(revoked);
+                revoked.as_mut().enable();
+                let stopping = async {
+                    if let Some(watch) = shutdown.as_mut() {
+                        if *watch.borrow() {
+                            return;
+                        }
+                        while watch.changed().await.is_ok() {
+                            if *watch.borrow() {
+                                return;
+                            }
+                        }
+                    } else {
+                        std::future::pending::<()>().await
+                    }
+                };
+                tokio::pin!(stopping);
+                if !original.live() {
+                    return Err(AccountSharingError::Closed);
+                }
+                let report = tokio::select! { biased;
+                    () = &mut stopping => return Err(AccountSharingError::Closed),
+                    () = &mut revoked => return Err(AccountSharingError::Closed),
+                    () = tokio::time::sleep_until(publication_deadline.into()) => return Err(AccountSharingError::Closed),
+                    report = adapter.publish_automatic_control(request) => report.map_err(|_| AccountSharingError::RuntimeUnavailable)?,
+                };
+                if !original.live() {
+                    return Err(AccountSharingError::Closed);
+                }
+                if !report.met_required_acks() {
+                    return Err(AccountSharingError::NotReady);
+                }
+                Ok(report)
+            });
+            entry.handshake_publication = Some(AutomaticHandshakePublication {
+                kind,
+                deadline: publication_deadline,
+                payload_digest: input_payload_digest,
+                task,
+            });
+            return Ok(false);
+        }
+        let _publication = tokio::select! {biased;()=stopping=>return Err(AccountSharingError::Closed),()=&mut revoked=>return Err(AccountSharingError::Closed),()=tokio::time::sleep_until(publication_deadline.into())=>{entry.renew=true;return Err(AccountSharingError::Closed)},report=self.adapter.publish_automatic_control(request)=>{let report=report.map_err(|_|AccountSharingError::RuntimeUnavailable)?;if !report.met_required_acks(){return Err(AccountSharingError::NotReady)} report}};
+        self.finish_automatic_publication(
+            entry,
+            kind,
+            publication_deadline,
+            input_payload_digest,
+            _publication,
+        )?;
+        Ok(true)
+    }
+    fn finish_automatic_publication(
+        &self,
+        entry: &mut AutomaticChannel,
+        _kind: AccountSharingControl,
+        publication_deadline: std::time::Instant,
+        _input_payload_digest: [u8; 32],
+        _publication: cgka_traits::TransportPublishReport,
+    ) -> Result<(), AccountSharingError> {
+        if !entry.original.live() || std::time::Instant::now() >= publication_deadline {
+            entry.renew = true;
+            return Err(AccountSharingError::Closed);
+        }
         self.automatic_policy_current(&entry.policy)?;
         if !self.automatic_record_publication_current(entry)? {
             return Err(AccountSharingError::Closed);
@@ -1696,10 +1836,10 @@ impl AppClient {
             .map_err(|_| AccountSharingError::Closed)
             .inspect(|_| {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
-                if matches!(kind, AccountSharingControl::Consent)
+                if matches!(_kind, AccountSharingControl::Consent)
                     && let (Some(content_id), Some(inner_wire_sha256)) = (
-                        entry.channel.outbound_content_id_for_test(kind),
-                        entry.channel.outbound_control_wire_digest_for_test(kind),
+                        entry.channel.outbound_content_id_for_test(_kind),
+                        entry.channel.outbound_control_wire_digest_for_test(_kind),
                     )
                 {
                     consent_delivery_probe::published(
@@ -1712,7 +1852,7 @@ impl AppClient {
                             nonce: entry.channel.scope().nonce,
                             content_id,
                             outer_id: _publication.message_id.clone(),
-                            input_outer_payload_sha256: input_payload_digest,
+                            input_outer_payload_sha256: _input_payload_digest,
                             inner_wire_sha256,
                         },
                     );

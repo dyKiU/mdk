@@ -579,6 +579,14 @@ approved sibling. The worker revalidates the live parent and channel before
 recording publication; a relay ACK never substitutes for the peer's authenticated
 consent or policy proof. Channel retirement cancels its pending publication.
 
+Automatic-policy request/consent publication has its own four-job account budget,
+so a blocked background handshake cannot occupy the account worker or prevent
+foreground enrollment. A recipient can accept only Core-authenticated bodies
+under its already-approved consent and live policy; a relay ACK grants no import
+permission. Completion rechecks the held channel, policy and deadline. Logical
+record/body publication keeps its existing source-disclosure and atomic journal
+checks in the actor.
+
 The private framing is not an adopted Marmot wire protocol. Offers and verifier
 frames have a versioned, kind-separated binary envelope with a bounded canonical
 JSON body. Decoders reject oversized, truncated, trailing and cross-kind packets;
