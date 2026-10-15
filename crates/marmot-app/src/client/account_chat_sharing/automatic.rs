@@ -1810,8 +1810,11 @@ impl AppClient {
                     Ok(report)
                 }
                 .await;
+                let progressed = outcome.is_ok();
                 let _ = finished.send(outcome);
-                publication_work.progressed();
+                if progressed {
+                    publication_work.progressed();
+                }
             });
             entry.handshake_publication = Some(AutomaticHandshakePublication {
                 kind,

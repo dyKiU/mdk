@@ -574,10 +574,10 @@ admission remain separate gates.
 
 Sibling chat-sharing publication prepares the exact control under its account
 worker, then waits for the relay in at most four original-owned jobs per account.
-Actual publication results and newly authenticated channel progress wake the same
-account worker through a coalescing signal. Results become readable before the
+Successful publication results and newly authenticated channel progress wake the
+same account worker through a coalescing signal. Results become readable before the
 wake; pending jobs do not poll or create new authority. The periodic expiry tick
-remains unchanged.
+remains unchanged; failed jobs retain periodic retry cadence.
 Initial policy/proof progress precedes consent retries; later consent and proof
 retries service the older deadline so a one-second worker cadence cannot starve
 the handoff.

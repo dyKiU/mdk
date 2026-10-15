@@ -2254,8 +2254,11 @@ impl AppClient {
             .await;
             // Publish the actual result first, so the worker cannot consume a
             // wake before the task's result is ready for nonblocking harvest.
+            let progressed = outcome.is_ok();
             let _ = finished.send(outcome);
-            publication_work.progressed();
+            if progressed {
+                publication_work.progressed();
+            }
         });
         entry.publication = Some(SiblingPublication {
             proof,
