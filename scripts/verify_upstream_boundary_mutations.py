@@ -9,10 +9,10 @@ import re
 import subprocess
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'automatic-publication', 'sibling-publication'], required=True)
+parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority'], required=True)
 parser.add_argument('--output', type=Path, required=True)
 args = parser.parse_args()
-publication_cases = {'automatic-publication', 'sibling-publication'}
+publication_cases = {'automatic-publication', 'sibling-publication', 'sibling-retry-priority'}
 nextest_cases = publication_cases | {'worker-spawn-stack'}
 held_marker = None
 failure_marker = None
@@ -75,6 +75,16 @@ elif args.case in publication_cases:
         new = '        let slot: Option<tokio::sync::OwnedSemaphorePermit> = None;\n'
         test = prefix + 'automatic_sync_does_not_block_foreground_enrollment_completion'
         held_marker = 'automatic-enrollment-control stage=automatic-publication-held-before-completion'
+        failure_marker = 'automatic pairing did not reach required phase: expected=EnrollmentComplete'
+    elif args.case == 'sibling-retry-priority':
+        source = Path('crates/marmot-app/src/client/device_linking/sibling_sharing.rs')
+        old = ('                && (!entry.ready\n'
+               '                    || (entry.proof_published\n'
+               '                        && entry.handshake_retry_at <= entry.proof_retry_at)))')
+        # Remove only the new ordering guard; preserve the original due timer.
+        new = '                )'
+        test = prefix + 'third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts'
+        held_marker = 'automatic-enrollment-control stage=fourth-device-completion'
         failure_marker = 'automatic pairing did not reach required phase: expected=EnrollmentComplete'
     else:
         source = Path('crates/marmot-app/src/client/device_linking/sibling_sharing.rs')
@@ -146,10 +156,15 @@ def execute(phase):
         row['rust_min_stack_bytes'] = int(os.environ['RUST_MIN_STACK'])
         row['selected_nonignored_tests'] = 1 if counts else None
     if args.case in publication_cases:
-        row['held_publication_observed'] = held_marker in output
+        row['required_runtime_marker_observed'] = held_marker in output
+        if args.case != 'sibling-retry-priority':
+            row['held_publication_observed'] = held_marker in output
         row['liveness_assertion_observed'] = failure_marker in output
-        row['held_before_liveness_assertion'] = (held_marker in output and failure_marker in output
-                                                and output.index(held_marker) < output.index(failure_marker))
+        row['runtime_marker_before_liveness_assertion'] = (
+            held_marker in output and failure_marker in output
+            and output.index(held_marker) < output.index(failure_marker))
+        if args.case != 'sibling-retry-priority':
+            row['held_before_liveness_assertion'] = row['runtime_marker_before_liveness_assertion']
         row['rust_min_stack_bytes'] = int(os.environ['RUST_MIN_STACK'])
         row['selected_nonignored_tests'] = 1 if counts else None
     proof['runs'].append(row)
@@ -163,7 +178,7 @@ def matches(row, passed, failed):
 
 baseline = execute('baseline')
 if (baseline['exit_code'] != 0 or not matches(baseline, expected, 0)
-        or (args.case in publication_cases and not baseline['held_publication_observed'])):
+        or (args.case in publication_cases and not baseline['required_runtime_marker_observed'])):
     raise SystemExit('Baseline did not execute the intended passing regression cohort')
 attempt_error = None
 try:
@@ -173,7 +188,7 @@ try:
     if args.case == 'worker-spawn-stack':
         proof['runtime_mutant_killed'] &= mutant['runtime_signal_observed']
     if args.case in publication_cases:
-        proof['runtime_mutant_killed'] &= mutant['held_before_liveness_assertion']
+        proof['runtime_mutant_killed'] &= mutant['runtime_marker_before_liveness_assertion']
 except (OSError, subprocess.SubprocessError) as error:
     attempt_error = type(error).__name__
     proof['mutation_error_category'] = attempt_error
@@ -185,7 +200,7 @@ if not proof['source_restored']:
     raise SystemExit('Exact source restoration failed')
 control = execute('restored-control')
 proof['restored_control_passed'] = (control['exit_code'] == 0 and matches(control, expected, 0)
-                                  and (args.case not in publication_cases or control['held_publication_observed']))
+                                  and (args.case not in publication_cases or control['required_runtime_marker_observed']))
 proof['final_source_sha256'] = hashlib.sha256(source.read_bytes()).hexdigest()
 proof['completed'] = (proof.get('runtime_mutant_killed', False) and proof['restored_control_passed']
                       and proof['final_source_sha256'] == proof['original_sha256'] and attempt_error is None)
