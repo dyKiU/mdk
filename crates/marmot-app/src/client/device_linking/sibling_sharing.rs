@@ -87,13 +87,19 @@ impl Drop for PublicationMaintenanceTimer {
         let now = crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
         let elapsed = self.started.elapsed().as_millis() as u64;
         if let Some(original) = self.original.as_ref().and_then(std::sync::Weak::upgrade) {
-            let mut probe = original.native_observation_probe.lock().expect("native observation probe");
+            let mut probe = original
+                .native_observation_probe
+                .lock()
+                .expect("native observation probe");
             let timing = &mut probe.maintenance[self.kind as usize];
             timing[2] = now;
             timing[3] = timing[3].max(elapsed);
         }
         if let Some(state) = self.source.as_ref().and_then(std::sync::Weak::upgrade) {
-            let mut diagnostic = state.sibling_diagnostics.lock().expect("sibling diagnostics");
+            let mut diagnostic = state
+                .sibling_diagnostics
+                .lock()
+                .expect("sibling diagnostics");
             let timing = &mut diagnostic.maintenance[self.kind as usize];
             timing[2] = now;
             timing[3] = timing[3].max(elapsed);
@@ -1465,23 +1471,36 @@ impl AppClient {
         &self,
         kind: PublicationMaintenanceKind,
     ) -> Option<PublicationMaintenanceTimer> {
-        let original = self.linking_owner.sharing_approval.as_ref().map(Arc::downgrade);
+        let original = self
+            .linking_owner
+            .sharing_approval
+            .as_ref()
+            .map(Arc::downgrade);
         let source = self.publication_source_state_for_test();
         let now = crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
         if let Some(original) = original.as_ref().and_then(std::sync::Weak::upgrade) {
-            let mut probe = original.native_observation_probe.lock().expect("native observation probe");
+            let mut probe = original
+                .native_observation_probe
+                .lock()
+                .expect("native observation probe");
             let timing = &mut probe.maintenance[kind as usize];
             timing[0] += 1;
             timing[1] = now;
         }
         if let Some(state) = source.as_ref().and_then(std::sync::Weak::upgrade) {
-            let mut diagnostic = state.sibling_diagnostics.lock().expect("sibling diagnostics");
+            let mut diagnostic = state
+                .sibling_diagnostics
+                .lock()
+                .expect("sibling diagnostics");
             let timing = &mut diagnostic.maintenance[kind as usize];
             timing[0] += 1;
             timing[1] = now;
         }
         (original.is_some() || source.is_some()).then(|| PublicationMaintenanceTimer {
-            original, source, kind, started: Instant::now()
+            original,
+            source,
+            kind,
+            started: Instant::now(),
         })
     }
     pub(crate) fn begin_sibling_source_channel(
@@ -1542,8 +1561,11 @@ impl AppClient {
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         {
-            state.sibling_diagnostics.lock().expect("sibling diagnostics").readiness[5] =
-                crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
+            state
+                .sibling_diagnostics
+                .lock()
+                .expect("sibling diagnostics")
+                .readiness[5] = crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
         }
         self.linking_owner.sibling_channels.push(SiblingChannel {
             original,
@@ -2441,9 +2463,16 @@ impl AppClient {
                     .lock()
                     .expect("sibling diagnostics");
                 diagnostic.publication_stage = Some(Stage::AfterRelayPublication);
-                let index = if proof { 2 } else if consent { 1 } else { 0 };
+                let index = if proof {
+                    2
+                } else if consent {
+                    1
+                } else {
+                    0
+                };
                 diagnostic.acknowledged[index] += 1;
-                diagnostic.acknowledged_ms[index] = crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
+                diagnostic.acknowledged_ms[index] =
+                    crate::account_chat_sharing::enabled::sibling_clock_ms_for_test();
             }
             Ok(())
         });
