@@ -6370,7 +6370,10 @@ async fn enrollment_acquisition_delayed_notification_worker_preserves_clock_and_
                 && routes.iter().any(|route| {
                     route.group_id == group.group_id
                         && route.transport_group_id == group.transport_group_id
-                }) => Some(subscription.subscription_id()),
+                }) =>
+            {
+                Some(subscription.subscription_id())
+            }
             _ => None,
         })
         .expect("activation issued a live batch containing this exact account/group route");

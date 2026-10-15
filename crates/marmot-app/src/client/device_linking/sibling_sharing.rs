@@ -1774,11 +1774,19 @@ impl AppClient {
                     entry.policy_committed,
                     entry.proof_published,
                     entry.peer_committed,
-                    entry.state.progress.lock().expect("sibling progress").complete,
+                    entry
+                        .state
+                        .progress
+                        .lock()
+                        .expect("sibling progress")
+                        .complete,
                 ];
-                let mask = bits.into_iter().enumerate().fold(0, |mask, (index, value)| {
-                    mask | (usize::from(value) << index)
-                });
+                let mask = bits
+                    .into_iter()
+                    .enumerate()
+                    .fold(0, |mask, (index, value)| {
+                        mask | (usize::from(value) << index)
+                    });
                 entry
                     .state
                     .sibling_diagnostics
