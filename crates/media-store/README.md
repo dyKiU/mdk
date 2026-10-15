@@ -15,8 +15,17 @@ database, which this crate reaches through a catalog trait implemented by `stora
   decrypt only what they touch. The vendored [C2SP CCTV](https://github.com/C2SP/CCTV) age payload vectors exercise
   the same sealing code.
 
-Later steps of mdk#2314 add the file lifecycle (intent-first publish, key-first deletion, the bounded sweep),
-`.wire` download partials, handoff leases, free-disk admission and the evictable cache category.
+- **The store** (`MediaStore`): one file per body under `<account>/media/<shard>/<id>`, named by a random id.
+  Publishing commits a `pending` catalog row, writes and syncs the file once, then commits it `ready` in one
+  transaction with its reference. Identical content is stored once, but only reused if its file is on disk. Deleting
+  the catalog row erases the key; the file is unlinked after. A bounded sweep reclaims anything a crash left behind,
+  and marks a ready row whose file vanished as *lost*. Readers check the close latch on every read.
+- **The catalog traits**: `MediaCatalog` (store-wide rows) and `PublishTarget` (one publication's commit), implemented
+  on the account database by `storage-sqlite`. The `catalog-conformance` feature exports the suite every
+  implementation must pass, and an in-memory catalog.
+
+Later steps of mdk#2314 add `.wire` download partials, handoff leases, free-disk admission and the evictable cache
+category, and move attachments onto the store.
 
 ## Using it
 

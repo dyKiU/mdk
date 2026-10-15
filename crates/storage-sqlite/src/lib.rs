@@ -40,6 +40,8 @@ pub use delivery_spill::{
 #[cfg(feature = "experimental-device-sync")]
 pub use device_linking::{DeviceLinkingBinding, DeviceLinkingError, DeviceLinkingOutcome};
 mod encrypted_media_secrets;
+mod media_catalog;
+pub use media_catalog::{SlotPublication, SqliteMediaCatalog};
 mod local_submissions;
 mod message_drafts;
 pub use local_submissions::LocalSubmission;

@@ -49,6 +49,7 @@ not "fix" it into the per-account database.
 | `src/attachment_acquisition/access.rs` | Read-only source-bound retained-asset lookup and opaque reference encoding; no demand registration. |
 | `src/attachment_acquisition/controls.rs` | Durable user intent and coalesced transfer metadata in the job store. |
 | `src/attachment_acquisition/partial.rs` | Attempt-fenced SQLCipher ciphertext checkpoints, combined retained/partial byte accounting, bounded writes and abandoned-partial cleanup. |
+| `src/media_catalog.rs` | The account database's side of the [`media-store`](../media-store/AGENTS.md) crate: `media_files`/`media_file_refs` rows (migration 0110), the `MediaCatalog` impl, per-use `PublishTarget`s and their one-transaction ready commits, reference release. Runs the crate's catalog conformance suite. No media file I/O here. |
 | `src/media_store_bench.rs`, `examples/media_store_bench.rs` | `media-store-benchmarks` feature: the `media-store` file format against the SQLCipher retained path, runnable on devices (mdk#2314 step 0). |
 | `src/attachment_history.rs` | Bounded canonical attachment-slot discovery and per-group revision-fenced cursors; source/visibility triggers maintain the derived index. |
 | `src/timeline.rs` | Materialized message-timeline aggregation; `timeline/` holds capture, edits, opening (`conversation_open` / `conversation_window`), presentation, and reports. |
@@ -73,6 +74,11 @@ not "fix" it into the per-account database.
 - Build every long-lived connection on `CloseableConnection` so a host can release the database's file locks at a known
   instant. Closing is terminal: surviving clones return `StorageError::Closed`, and nothing reopens implicitly. See
   `docs/marmot-architecture/overview/local-artifact-safety.md`.
+- The media file lifecycle belongs to the `media-store` crate; this crate holds its metadata and never touches media
+  files. Every `PublishTarget::commit_ready`/`commit_existing` is one transaction (fences, presence-checked reuse,
+  ready, attach), and the catalog must keep passing the crate's conformance suite. Deleting a `media_files` row is the
+  key erase (`secure_delete`); the file is unlinked afterwards by the store. See
+  `docs/marmot-architecture/overview/local-artifact-safety.md#encrypted-media-files`.
 - Retained-anchor policy is engine/group policy. SQLite stores snapshots and policy bytes; the engine decides when to
   prune.
 - Follow `docs/marmot-architecture/storage-format-v2.md`: numbered schema migrations gate database compatibility;
