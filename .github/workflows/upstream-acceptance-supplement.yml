@@ -278,7 +278,6 @@ jobs:
             ${{ runner.temp }}/final-mac-relay.json
             ${{ runner.temp }}/final-mac-relay.log
             packages/qualification.json
-            scripts/upstream_apple_ci/acceptance-cohort.json
             scripts/upstream_apple_ci/HOSTED-SOURCE.json
             scripts/upstream_apple_ci/native/SOURCE.json
           if-no-files-found: warn
