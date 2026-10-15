@@ -1,0 +1,95 @@
+name: Upstream scoped iOS timestamp controls
+
+on:
+  push:
+    branches: [ci/upstream-ios-timestamp-controls-20261015]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: upstream-ios-timestamp-controls-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  timestamp-controls:
+    runs-on: macos-26
+    timeout-minutes: 80
+    env:
+      SOURCE_SHA: 3f18b2d1acac4f87680b35f39bf8dce67dcf28ec
+      SDK_RUN_ID: "38689678576"
+      IOS_SHA: c63ce3a8f645f172f30e83aeb761ca2eec259d9e
+      GH_TOKEN: ${{ github.token }}
+      CARGO_INCREMENTAL: "1"
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: dyKiU/whitenoise-ios
+          ref: ${{ env.IOS_SHA }}
+          path: ios
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26"
+      - name: Download and verify the existing immutable SDK without rebuilding
+        run: |
+          df -h "$RUNNER_TEMP"
+          gh run download "$SDK_RUN_ID" --repo dyKiU/mdk \
+            --name "upstream-experimental-apple-$SOURCE_SHA" --dir packages
+          python3 scripts/upstream_apple_ci/install.py --packages packages \
+            --source "$SOURCE_SHA" --run-id "$SDK_RUN_ID" --platform ios --app ios --app-sha "$IOS_SHA"
+          destination=$(cd ios && bash scripts/pick-simulator.sh)
+          printf 'WN_TEST_DESTINATION=%s\n' "$destination" >> "$GITHUB_ENV"
+          defaults write com.apple.iphonesimulator PasteboardAutomaticSync -bool false
+      - name: Build the pinned isolated relay fixture
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          cargo +1.97.1 build --locked --manifest-path ios/scripts/test-relay/Cargo.toml --target-dir ios/build/TestRelay
+      - name: Execute the adapted negative-Unix all-style integration regression
+        working-directory: ios
+        env:
+          WN_EXPERIMENTAL_DEVICE_SYNC: "1"
+          WN_TEST_DERIVED_DATA: ${{ runner.temp }}/final-ios-derived-data
+          WN_TEST_SOURCE_PACKAGES: ${{ runner.temp }}/final-ios-packages
+          WN_TEST_RESULT_BUNDLE: ${{ runner.temp }}/timestamp-regression.xcresult
+          WN_TEST_RELAY_BINARY: ${{ github.workspace }}/ios/build/TestRelay/debug/white-noise-sync-test-relay
+          WN_TEST_JOBS: "2"
+        run: |
+          bash scripts/test-with-relay.sh \
+            '-only-testing:whitenoise-iosTests/MarkdownPlainTextTests/negativeUnixTimestampsUseLocalizedStaticTextForEveryStyle()' \
+            '-only-testing:whitenoise-iosTests/MarkdownTimestampTests/negativeUnixInstantsHaveIndependentLocalizedStaticExpectations()'
+      - name: Record exactly two executed regression controls without skips
+        if: always()
+        run: |
+          python3 scripts/upstream_apple_ci/summarize.py --result "$RUNNER_TEMP/timestamp-regression.xcresult" \
+            --app-sha "$IOS_SHA" --output "$RUNNER_TEMP/timestamp-regression-summary.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          summary = json.loads((Path(os.environ['RUNNER_TEMP']) / 'timestamp-regression-summary.json').read_text())['xcresult_summary']
+          if (summary.get('totalTestCount'), summary.get('passedTests'), summary.get('failedTests'), summary.get('skippedTests')) != (2, 2, 0, 0):
+              raise SystemExit('Expected exactly two passing native regression controls with zero skips')
+          PY
+      - name: Kill both literal fallback mutants and verify exact restored native controls
+        run: python3 scripts/upstream_apple_ci/timestamp-mutations.py
+      - name: Retain compact source, SDK and actual mutation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios-timestamp-controls-${{ env.IOS_SHA }}-${{ env.SOURCE_SHA }}
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/timestamp-regression-summary.json
+            ${{ runner.temp }}/ios-timestamp-mutations/result.json
+            ${{ runner.temp }}/ios-timestamp-mutations/*.log
+            packages/qualification.json
