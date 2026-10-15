@@ -483,11 +483,15 @@ impl SharedConnection {
         // `wait_for_transaction_slot` wakes to an error rather than a deadlock.
         self.inner.closed.store(true, Ordering::Release);
         self.wake_transaction_waiters();
-        let result = self.inner.connection.close();
-        // Drain in-flight SQL first: a previous reader cannot reinsert after this.
         #[cfg(feature = "experimental-device-sync")]
-        self.clear_private_settlement_decode();
-        result
+        {
+            let result = self.inner.connection.close();
+            // Drain in-flight SQL first: a previous reader cannot reinsert after this.
+            self.clear_private_settlement_decode();
+            result
+        }
+        #[cfg(not(feature = "experimental-device-sync"))]
+        self.inner.connection.close()
     }
 
     fn wake_transaction_waiters(&self) {

@@ -647,6 +647,9 @@ fn private_settlement_decode_memo_clears_absent_invalid_and_oversized_rows() {
     assert!(storage.read_round().unwrap().unwrap() == original, "valid oversized legacy JSON is bypassed, never rejected");
     assert!(storage.read_round().unwrap().unwrap() == original);
     assert_eq!(storage.connection.private_settlement_decode_counts(), (before+2, false));
+    storage.lock().unwrap().execute("UPDATE private_roster_settlement SET state=?1", [&raw]).unwrap();
+    assert!(storage.read_round().unwrap().unwrap() == original);
+    assert!(storage.connection.private_settlement_decode_counts().1, "row absence must retire an actually warm memo");
     storage.lock().unwrap().execute("DELETE FROM private_roster_settlement", []).unwrap();
     assert!(storage.read_round().unwrap().is_none());
     assert!(!storage.connection.private_settlement_decode_counts().1);
@@ -733,4 +736,44 @@ fn private_settlement_decode_memo_close_drains_inflight_sql_before_clearing() {
     drop(conn);
     thread.join().unwrap().unwrap();
     assert!(!storage.connection.private_settlement_decode_counts().1, "close must clear after the last in-flight SQL decoder releases its guard");
+}
+
+
+#[test]
+fn private_settlement_decode_memo_direct_group_deletions_retire_warm_metadata() {
+    use cgka_traits::storage::GroupStorage;
+    for forget in [false, true] {
+        let storage = SqliteAccountStorage::in_memory().unwrap();
+        complete(&storage);
+        let group = cgka_traits::group::Group {
+            id: anchor().group_id,
+            name: "isolated stored group".into(),
+            description: String::new(),
+            epoch: EpochId(1),
+            members: vec![],
+            required_capabilities: Default::default(),
+            protocol_profile: cgka_traits::group::ProtocolProfile::Current,
+            removed: false,
+            unrecoverable: false,
+            disbanded: None,
+            join_epoch: EpochId(0),
+            local_copy_install_epoch: EpochId(0),
+            local_copy_welcome_created_at: None,
+        };
+        storage.put_group(&group).unwrap();
+        assert!(storage.get_group(&group.id).unwrap() == group);
+        storage.read_round().unwrap();
+        assert!(storage.connection.private_settlement_decode_counts().1);
+        if forget {
+            assert!(storage.forget_group_local(&group.id, cgka_traits::Timestamp(100)).unwrap());
+            assert!(storage.is_group_forgotten(&group.id).unwrap());
+        } else {
+            storage.delete_group(&group.id).unwrap();
+        }
+        // Inspect before another read could independently clear stale raw bytes.
+        assert!(!storage.connection.private_settlement_decode_counts().1, "actual direct group deletion retires warm decoded metadata before another read");
+        assert!(matches!(storage.get_group(&group.id), Err(StorageError::NotFound)));
+        assert!(storage.read_round().unwrap().unwrap().phase == PrivateSettlementPhase::Denied);
+        assert!(storage.read_facts().unwrap().is_empty());
+    }
 }
