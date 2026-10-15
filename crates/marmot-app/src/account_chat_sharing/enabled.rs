@@ -22,6 +22,8 @@ pub(crate) struct State {
     pub(crate) progress: Mutex<Progress>,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) sibling_progress_for_test: AtomicUsize,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) sibling_publication_for_test: Mutex<Option<cgka_traits::MessageId>>,
     pub(crate) legacy_capture:
         Mutex<Option<Arc<crate::client::legacy_chat_acceptance::CapturedLegacyChats>>>,
     cancelled: AtomicBool,
@@ -59,6 +61,8 @@ impl State {
             }),
             #[cfg(all(test, feature = "test-policy-overrides"))]
             sibling_progress_for_test: AtomicUsize::new(0),
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            sibling_publication_for_test: Mutex::new(None),
             legacy_capture: Mutex::new(None),
             cancelled: AtomicBool::new(false),
             revoked: tokio::sync::Notify::new(),

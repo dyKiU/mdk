@@ -2842,6 +2842,7 @@ mod actual {
         relay_reader: &nostr_sdk::prelude::Client,
         protected: &cgka_traits::GroupId,
         observation: ChallengeBeforeRetry,
+        intake: Option<&cgka_engine::private_settlement_test_observation::Observer>,
     ) -> Result<bool, &'static str> {
         let source = fixture.apps[0]
             .account_storage("test")
@@ -2864,7 +2865,7 @@ mod actual {
         } else {
             None
         };
-        let (message, canonical, ciphertext) =
+        let (message, canonical, ciphertext, event, account) =
             tokio::time::timeout(std::time::Duration::from_secs(20), async {
                 loop {
                     let roster = source
@@ -2932,11 +2933,17 @@ mod actual {
                             .timeout(std::time::Duration::from_secs(2))
                             .await
                             .map_err(|_| "relay observation unavailable")?;
-                        if events
+                        if let Some(event) = events
                             .iter()
-                            .any(|event| event.id == event_id && event.verify().is_ok())
+                            .find(|event| event.id == event_id && event.verify().is_ok())
                         {
-                            break Ok((msg, fact.message_id, ciphertext.clone()));
+                            break Ok((
+                                msg,
+                                fact.message_id,
+                                ciphertext.clone(),
+                                event.clone(),
+                                round.anchor.account,
+                            ));
                         }
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
@@ -2998,6 +3005,27 @@ mod actual {
             Err(_) if matches!(observation, ChallengeBeforeRetry::InitialPeel) => {
                 eprintln!(
                     "revocation_challenge_initial_peel_prerequisite_unmet exact_state_epoch_matches_predecessor={exact_attempt_observation:?}"
+                );
+                // Observe only after the unchanged prerequisite has failed.
+                // Neither cached/filter evidence nor private intake counts grant authority.
+                let account = cgka_traits::MemberId::new(account.to_vec());
+                let plane = &fixture.apps[1].relay_plane;
+                let notifications = plane
+                    .account_notification_disposition_for_test(&account, &event.id.to_string());
+                let sdk = match serde_json::to_string(&event) {
+                    Ok(encoded) => Some(
+                        tokio::time::timeout(
+                            std::time::Duration::from_secs(2),
+                            plane.account_sdk_event_observation_for_test(&account, &encoded),
+                        )
+                        .await,
+                    ),
+                    Err(_) => None,
+                };
+                eprintln!(
+                    "revocation_initial_peel_post_failure notification_raw_zero_positive_error_router_missing_present={notifications:?} sdk_cached_filter_untimed={sdk:?} core_exact={:?} core_group={:?}",
+                    intake.map(|observer| observer.summary(Some(&canonical))),
+                    intake.map(|observer| observer.summary(None))
                 );
                 Err("exact challenge initial peel epoch prerequisite timed out")
             }
@@ -3470,6 +3498,9 @@ mod actual {
                     relay_reader,
                     &protected,
                     observation,
+                    settlement_intake
+                        .as_ref()
+                        .and_then(|result| result.as_ref().ok()),
                 )
                 .await;
                 // Recheck after the observation, before releasing the real SQL fault.

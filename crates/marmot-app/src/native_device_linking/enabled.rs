@@ -370,6 +370,16 @@ impl DeviceLinkingSession {
             .map(|choice| choice.recipient_channel_progress_for_test())
     }
 
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_publications_for_test(&self) -> Option<Vec<cgka_traits::MessageId>> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()
+            .map(|choice| choice.recipient_publications_for_test())
+    }
+
     // Test inspection of the original actor-owned identity, never a native API
     // or a constructor for a proof, scope or continuation.
     #[cfg(all(test, feature = "test-policy-overrides"))]

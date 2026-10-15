@@ -468,6 +468,21 @@ impl OriginalEnrollmentSharingChoice {
             .collect()
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn recipient_publications_for_test(&self) -> Vec<cgka_traits::MessageId> {
+        self.children
+            .lock()
+            .expect("sibling children")
+            .iter()
+            .filter_map(|child| {
+                child
+                    .sibling_publication_for_test
+                    .lock()
+                    .expect("sibling publication")
+                    .clone()
+            })
+            .collect()
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn recipient_rejections_for_test(&self) -> [usize; 4] {
         std::array::from_fn(|index| self.recipient_diagnostics[index + 6].load(Ordering::Acquire))
     }
@@ -2048,6 +2063,14 @@ impl AppClient {
         let mut shutdown = self.history_owner.runtime_shutdown.clone();
         let proof = body.is_some();
         let consent = entry.recipient && !proof;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        {
+            *entry
+                .state
+                .sibling_publication_for_test
+                .lock()
+                .expect("sibling publication") = Some(request.message.id.clone());
+        }
         let task = tokio::spawn(async move {
             let revoked = state.revoked.notified();
             tokio::pin!(revoked);

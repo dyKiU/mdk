@@ -309,10 +309,47 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
             d.sibling_recipient_rejections_for_test(),
             d.sibling_projection_aggregates_for_test()
         );
+        // A fresh reader is created only after the original wait has failed.
+        // Fetch the exact public ciphertext IDs privately and report booleans only.
+        let pending = d.sibling_publications_for_test().unwrap_or_default();
+        let ids = pending
+            .iter()
+            .filter_map(|id| nostr_sdk::prelude::EventId::from_slice(id.as_slice()).ok())
+            .collect::<Vec<_>>();
+        let reader = nostr_sdk::prelude::Client::builder().build();
+        let observed = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            reader.add_relay(url.as_str()).await.ok()?;
+            reader.connect().await;
+            let events = reader
+                .fetch_events(nostr_sdk::prelude::ReqTarget::single(
+                    url.as_str(),
+                    [nostr_sdk::prelude::Filter::new().ids(ids.clone())],
+                ))
+                .timeout(std::time::Duration::from_secs(2))
+                .await
+                .ok()?;
+            Some(
+                ids.iter()
+                    .map(|id| {
+                        events
+                            .iter()
+                            .any(|event| event.id == *id && event.verify().is_ok())
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), reader.shutdown()).await;
+        eprintln!(
+            "automatic-enrollment-control post-failure-pending-count={} relay-retained-valid={observed:?} later-channel-progress={:?}",
+            pending.len(),
+            d.sibling_channel_progress_for_test()
+        );
         std::panic::resume_unwind(failure);
     }
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
     assert_eq!(d.sibling_channel_progress_for_test().unwrap().len(), 2);
+    assert_eq!(d.sibling_publications_for_test().unwrap().len(), 2);
     if let Some((observed, release)) = held_automatic {
         // Pairing has already completed while the background publication is held.
         // Now prove that ordinary automatic work resumes without another action.
