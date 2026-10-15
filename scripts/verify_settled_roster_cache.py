@@ -21,6 +21,7 @@ OWNER = "client::device_linking::sibling_sharing::tests::"
 CORE_NAMES = [
     "private_roster_settlement_warm_group_cache_rejects_foreign_mls_tree_deletion",
     "private_roster_settlement_warm_group_cache_rechecks_foreign_confirmation_facts",
+    "private_roster_settlement_warm_group_cache_rechecks_foreign_denial",
     "private_roster_settlement_requires_exact_confirmations_on_both_real_successors",
     "private_roster_settlement_completed_encrypted_reopen_preserves_roster_without_admission",
     "private_roster_settlement_delete_permanently_fences_completed_round",
@@ -55,7 +56,8 @@ def run(name, selected, expected):
     proof["unwrap_error_categories"] = [value for value in re.findall(r"Err.? value: ([A-Za-z]+)", output) if value in error_names]
     proof["closed_failure_categories"] = [category for needle, category in [
         ("automatic pairing did not reach required phase", "original-phase-not-reached"),
-        ("reusing parsed MLS state never reuses completed authorization", "fresh-facts-assertion"),
+        ("cached parsed state never revives a denied settlement", "fresh-denial-assertion"),
+        ("corrupt completed facts retain their exact typed storage error", "typed-corruption-assertion"),
         ("cached parsed state cannot conceal an authoritative foreign tree deletion", "foreign-tree-assertion"),
     ] if needle in output]
     report["controls"][name] = proof
@@ -67,11 +69,17 @@ if os.environ.get("SETTLED_CACHE_DIAGNOSTIC") == "safety-only":
     run("two-safety-fixture-diagnosis", selected, 2)
     raise SystemExit(0)
 all_filter = "(" + " | ".join("test(=" + name + ")" for name in app) + ") | (package(cgka-engine) & (" + " | ".join("test(" + name + ")" for name in CORE_NAMES) + "))"
-proof, _ = run("original-nine-and-six-safety-controls", all_filter, 15)
+safety_only = os.environ.get("SETTLED_CACHE_DIAGNOSTIC") == "denial-controls"
+if safety_only:
+    selected = "package(cgka-engine) & (" + " | ".join("test(" + case + ")" for case in CORE_NAMES[:3]) + ")"
+    proof, _ = run("three-safety-controls", selected, 3)
+    assert proof["passed"] == 3 and proof["failed"] == 0
+else:
+    proof, _ = run("original-nine-and-seven-safety-controls", all_filter, 16)
 # Preserve failures but still execute the independent narrow mutation evidence.
-report["all_fifteen_passed"] = proof["passed"] == 15 and proof["failed"] == 0
-fact_filter = "package(cgka-engine) & test(private_roster_settlement_warm_group_cache_rechecks_foreign_confirmation_facts)"
-proof, _ = run("facts-baseline", fact_filter, 1)
+report["all_sixteen_passed"] = not safety_only and proof["passed"] == 16 and proof["failed"] == 0
+fact_filter = "package(cgka-engine) & test(private_roster_settlement_warm_group_cache_rechecks_foreign_denial)"
+proof, _ = run("denial-baseline", fact_filter, 1)
 assert proof["passed"] == 1 and proof["failed"] == 0
 path = Path("crates/cgka-engine/src/private_roster_settlement.rs")
 original = path.read_bytes()
@@ -81,18 +89,19 @@ replacement = b"let Some(state) = storage.private_roster_settlement_storage().ok
 assert original.count(anchor) == 1
 try:
     path.write_bytes(original.replace(anchor, replacement))
-    proof, output = run("facts-bypass-mutant", fact_filter, 1)
-    report["facts_mutant_runtime_detected"] = proof["passed"] == 0 and proof["failed"] == 1 and "reusing parsed MLS state never reuses completed authorization" in output
+    proof, output = run("completed-check-bypass-mutant", fact_filter, 1)
+    report["denial_mutant_runtime_detected"] = proof["passed"] == 0 and proof["failed"] == 1 and "cached parsed state never revives a denied settlement" in output
     save()
-    assert report["facts_mutant_runtime_detected"], "actual fresh-facts assertion must kill mutant"
+    assert report["denial_mutant_runtime_detected"], "actual fresh-facts assertion must kill mutant"
 finally:
     path.write_bytes(original)
     report["source_sha256_before"] = original_hash
     report["source_sha256_restored"] = hashlib.sha256(path.read_bytes()).hexdigest()
     save()
 assert report["source_sha256_restored"] == original_hash
-proof, _ = run("facts-restored", fact_filter, 1)
+proof, _ = run("denial-restored", fact_filter, 1)
 assert proof["passed"] == 1 and proof["failed"] == 0
-report["qualification_passed"] = report["all_fifteen_passed"] and report["facts_mutant_runtime_detected"]
+report["safety_and_mutation_passed"] = report["denial_mutant_runtime_detected"]
+report["qualification_passed"] = report["all_sixteen_passed"] and report["denial_mutant_runtime_detected"]
 save()
-assert report["qualification_passed"], "original regression or safety/mutation gate remains failing"
+assert report["safety_and_mutation_passed"] if safety_only else report["qualification_passed"], "original regression or safety/mutation gate remains failing"

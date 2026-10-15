@@ -3107,18 +3107,43 @@ async fn private_roster_settlement_warm_group_cache_rechecks_foreign_denial() {
     let key = SqlCipherKey::new("18".repeat(32)).unwrap();
     let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     let (initiator, responder, group) = complete_pair(storage.clone()).await;
-    assert!(responder.validated_settled_device_roster(&group).unwrap().is_some());
-    let generation = storage.private_roster_settlement_storage().unwrap()
-        .read_round().unwrap().unwrap().generation;
-    let foreign = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
-    foreign.private_roster_settlement_storage().unwrap().deny_round(generation).unwrap();
     assert!(
-        responder.validated_private_successor(&group).unwrap().is_some(),
+        responder
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_some()
+    );
+    let generation = storage
+        .private_roster_settlement_storage()
+        .unwrap()
+        .read_round()
+        .unwrap()
+        .unwrap()
+        .generation;
+    let foreign = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    foreign
+        .private_roster_settlement_storage()
+        .unwrap()
+        .deny_round(generation)
+        .unwrap();
+    assert!(
+        responder
+            .validated_private_successor(&group)
+            .unwrap()
+            .is_some(),
         "the same protected successor remains valid after the actual round denial"
     );
     assert!(
-        responder.validated_settled_device_roster(&group).unwrap().is_none(),
+        responder
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_none(),
         "cached parsed state never revives a denied settlement"
     );
-    assert!(initiator.validated_settled_device_roster(&group).unwrap().is_some());
+    assert!(
+        initiator
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_some()
+    );
 }
