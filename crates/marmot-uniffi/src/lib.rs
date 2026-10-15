@@ -204,6 +204,9 @@ pub struct MarmotOptions {
     pub secret_store: Option<Arc<dyn SecretStore>>,
     #[uniffi(default = None)]
     pub attachment_acquisition_mode: Option<AttachmentAcquisitionModeFfi>,
+    /// Dedicated encrypted pairing transport; omitted uses operational relays.
+    #[uniffi(default = None)]
+    pub pairing_relay_urls: Option<Vec<String>>,
 }
 
 impl MarmotOptions {
@@ -227,6 +230,7 @@ impl MarmotOptions {
                     .into(),
             )
             .with_key_package_client_name(self.client_name.clone())
+            .with_pairing_relay_urls(self.pairing_relay_urls.clone().unwrap_or_default())
     }
 }
 
@@ -535,6 +539,16 @@ mod tests {
             marmot_app::CursorPersistence::Advance
         );
         assert_eq!(defaults.key_package_client_name, None);
+        assert!(defaults.pairing_relay_urls.is_empty());
+        assert_eq!(
+            MarmotOptions {
+                pairing_relay_urls: Some(vec!["wss://relay.example.com".into()]),
+                ..Default::default()
+            }
+            .app_config()
+            .pairing_relay_urls,
+            vec!["wss://relay.example.com"]
+        );
         assert_eq!(
             defaults.attachment_acquisition_mode,
             marmot_app::AttachmentAcquisitionMode::NativeAutomatic

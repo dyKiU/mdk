@@ -14,14 +14,17 @@ fun main() {
     val defaults = MarmotOptions()
     check(defaults.relayPolicy == null && defaults.cursorPersistence == null)
     check(defaults.clientName == null && defaults.secretStore == null)
+    check(defaults.pairingRelayUrls == null)
     val options = MarmotOptions(
         relayPolicy = RelayPolicyFfi.ALLOW_LOOPBACK_RELAYS_AND_BLOBS,
         cursorPersistence = CursorPersistenceFfi.FROZEN,
         clientName = "whitenoise",
+        pairingRelayUrls = listOf("wss://relay.example.com"),
     )
     val copy = FfiConverterTypeMarmotOptions.lift(FfiConverterTypeMarmotOptions.lower(options))
     check(copy.relayPolicy == options.relayPolicy && copy.cursorPersistence == options.cursorPersistence)
     check(copy.clientName == "whitenoise")
+    check(copy.pairingRelayUrls == options.pairingRelayUrls)
     // Foreign callbacks are lowered into Rust by the constructor, not locally lifted.
     copy.secretStore = OptionsStore()
     val root = Files.createTempDirectory("marmot-options-").toFile()

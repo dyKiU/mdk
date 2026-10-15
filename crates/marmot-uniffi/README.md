@@ -244,11 +244,14 @@ The reference's names, signatures and source-line links are checked against sour
 ## Runtime options and client label
 
 `MarmotOptions` combines `relayPolicy`, `cursorPersistence`, `clientName`, `secretStore` and
-`attachmentAcquisitionMode` in `Marmot.newWithConfiguration`. Each field is optional in generated
+`attachmentAcquisitionMode`, plus optional `pairingRelayUrls`, in `Marmot.newWithConfiguration`. Each field is optional in generated
 Swift/Kotlin: omitted policies mean public-only endpoints and an advancing cursor;
 an omitted label stays untagged, omitted storage uses the platform keychain, and an omitted
 acquisition mode keeps native automatic acquisition (see
 [host-managed acquisition](ATTACHMENT-ACCESS.md#host-managed-automatic-acquisition-0104)).
+`pairingRelayUrls` selects dedicated one-scan pairing transport relays; omitted or empty
+uses the runtime relays. It does not change ordinary chat routing or published account
+relay lists (see [one-scan pairing](DEVICE-LINKING.md)).
 Existing constructors keep their signatures and delegate to this same configuration
 path. Use the options constructor when combining a label with a custom relay policy.
 C hosts use `marmot_client_new_with_configuration` and a `MarmotClientOptions`
