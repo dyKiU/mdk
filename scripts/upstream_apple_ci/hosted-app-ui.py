@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import signal
 import subprocess
 import time
@@ -187,7 +188,7 @@ def exact_pass(summary):
             and summary.get("skippedTests") == 0 and summary.get("totalTestCount") == 1)
 
 
-def wait_ready(process, bridge, seconds, case, log):
+def wait_ready(process, bridge, seconds, case, log, observer=None):
     deadline = time.monotonic() + seconds
     ready = CASES[case][3]
     def has_started():
@@ -199,11 +200,95 @@ def wait_ready(process, bridge, seconds, case, log):
         # exact Swift-style start form too. Neither a skip nor a suite start is ready.
         return any(method + suffix in text for suffix in ("' started", "]' started"))
     while not has_started():
+        if observer is not None:
+            observer()
         if process.poll() is not None:
             raise RuntimeError("unit-ended-before-ui-ready")
         if time.monotonic() >= deadline:
             raise TimeoutError("ui-ready-timeout")
         time.sleep(0.1)
+    if observer is not None:
+        observer()
+
+
+def observe_control(prefix, unit, driver, started, observations):
+    """Closed log markers observed on this host; not inferred execution timestamps."""
+    seconds = round(time.monotonic() - started, 3)
+    for role, method, process in (
+        ("unit", "testExternalDriverAttachesWithoutReplacingHostedApp", unit),
+        ("driver", "testExternalHostedControlTap", driver),
+    ):
+        log = Path(str(prefix) + "-" + role + ".log")
+        if log.exists():
+            with log.open("rb") as stream:
+                stream.seek(max(0, log.stat().st_size - 1024 * 1024))
+                text = stream.read().decode(errors="replace")
+            if any(method + suffix in text for suffix in ("' started", "]' started")):
+                observations.setdefault(role + "_method_start_observed_seconds", seconds)
+            if any(method + suffix in text for suffix in ("' passed", "]' passed", "' failed", "]' failed", "' skipped", "]' skipped")):
+                observations.setdefault(role + "_method_end_observed_seconds", seconds)
+        if process is not None and process.poll() is not None:
+            observations.setdefault(role + "_process_exit_observed_seconds", seconds)
+
+
+def finish_control_driver(driver, unit, prefix, started, observations):
+    # Observe the unchanged 120-second driver bound without waiting on the unit.
+    deadline = time.monotonic() + 120
+    while driver.poll() is None:
+        observe_control(prefix, unit, driver, started, observations)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return finish(driver, 0)
+        try:
+            code = driver.wait(timeout=min(0.1, remaining))
+            observe_control(prefix, unit, driver, started, observations)
+            return code
+        except subprocess.TimeoutExpired:
+            pass
+    observe_control(prefix, unit, driver, started, observations)
+    return driver.returncode
+
+
+def control_diagnostics(source, prefix, observations):
+    filename = "whitenoise-iosUITests/HostedHistoryApprovalUITests.swift"
+    path = source / filename
+    expected = {
+        "XCTAssertEqual(app.state, .runningForeground)": "host-foreground",
+        "XCTAssertTrue(button.waitForExistence(timeout: 15))": "control-button-exists",
+        "XCTAssertTrue(button.isHittable)": "control-button-hittable",
+        "button.tap()": "control-button-tap",
+        "XCTAssertTrue(app.staticTexts[result].waitForExistence(timeout: 5))": "control-result-visible",
+    }
+    sites = {}
+    in_helper = False
+    for line, text in enumerate(path.read_text().splitlines(), 1):
+        if "private func tapExistingHostedButton(" in text:
+            in_helper = True
+        elif in_helper and text.strip() == "}":
+            break
+        elif in_helper and text.strip() in expected:
+            sites[line] = expected[text.strip()]
+    verified = set(sites.values()) == set(expected.values()) and len(sites) == len(expected)
+    observed = {}
+    unknown = 0
+    log = Path(str(prefix) + "-driver.log")
+    if log.exists():
+        with log.open(errors="replace") as stream:
+            for text in stream:
+                match = re.search(r"HostedHistoryApprovalUITests\.swift:([0-9]+)(?::[0-9]+)?: error:", text)
+                if match is not None:
+                    line = int(match[1])
+                    if verified and line in sites:
+                        observed[line] = observed.get(line, 0) + 1
+                    else:
+                        unknown += 1
+    return {"source_file": filename, "source_sha256": digest(path), "source_contract_verified": verified,
+            "failure_site_status": "matched" if observed else "unavailable",
+            "failure_sites": [{"line": line, "category": sites[line], "occurrences": count}
+                              for line, count in sorted(observed.items())],
+            "unclassified_source_failure_count": unknown,
+            "timing_scope": "Monotonic host observations of closed markers; not CPU or exact XCTest event times",
+            "observations": observations, "raw_values_exported": False}
 
 
 def finish(process, seconds):
@@ -371,6 +456,7 @@ def main():
     start = time.monotonic()
     running = None
     ui = None
+    control_observations = {}
     try:
         if args.platform == "ios":
             subprocess.run(["xcrun", "simctl", "install", args.simulator, str(runner)], env=env, check=True)
@@ -381,14 +467,23 @@ def main():
             running = subprocess.Popen(base + ["-xctestrun", str(unit_plan), "-resultBundlePath",
                 str(prefix) + "-unit.xcresult"], stdout=output, stderr=subprocess.STDOUT,
                 env=env, start_new_session=True)
+            if args.case == "control":
+                control_observations["unit_process_launched_seconds"] = round(time.monotonic() - start, 3)
             try:
-                wait_ready(running, bridge, 140, args.case, Path(str(prefix) + "-unit.log"))
+                observer = (lambda: observe_control(prefix, running, ui, start, control_observations)) if args.case == "control" else None
+                wait_ready(running, bridge, 140, args.case, Path(str(prefix) + "-unit.log"), observer)
                 report["unit_ready_observed"] = True
+                if args.case == "control":
+                    control_observations["unit_ready_observed_seconds"] = round(time.monotonic() - start, 3)
                 with Path(str(prefix) + "-driver.log").open("x") as output_driver:
                     ui = subprocess.Popen(base + ["-xctestrun", str(driver_plan), "-resultBundlePath",
                         str(prefix) + "-driver.xcresult"], stdout=output_driver, stderr=subprocess.STDOUT,
                         env=env, start_new_session=True)
-                    report["driver_exit_code"] = finish(ui, 120)
+                    if args.case == "control":
+                        control_observations["driver_process_launched_seconds"] = round(time.monotonic() - start, 3)
+                        report["driver_exit_code"] = finish_control_driver(ui, running, prefix, start, control_observations)
+                    else:
+                        report["driver_exit_code"] = finish(ui, 120)
             finally:
                 report["unit_exit_code"] = finish(running, 120)
     except Exception as error:
@@ -412,6 +507,9 @@ def main():
                 "-u", str(host)], capture_output=True)
             report["owned_host_registration_cleanup_exit"] = registration.returncode
         report["seconds"] = round(time.monotonic() - start, 2)
+        if args.case == "control":
+            observe_control(prefix, running, ui, start, control_observations)
+            report["control_diagnostics"] = control_diagnostics(source, prefix, control_observations)
         for key, check in [
             ("source_unchanged", lambda: freeze_source(source, args.source_commit) == frozen),
             ("sdk_unchanged", lambda: freeze_sdk(args.sdk_package, args.sdk_source) == sdk),

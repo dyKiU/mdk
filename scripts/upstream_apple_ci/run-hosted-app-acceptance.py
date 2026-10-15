@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import hashlib
 import fcntl
 import importlib.util
@@ -162,6 +163,32 @@ class Runner:
                         compact[name] = {'counts_status': 'available', **{key: counts[key] for key in fields}}
                     if label == 'ios-native-qr':
                         break
+                diagnostic = raw.get('control_diagnostics')
+                if label == 'ios-control' and isinstance(diagnostic, dict):
+                    categories = {'host-foreground', 'control-button-exists', 'control-button-hittable',
+                                  'control-button-tap', 'control-result-visible'}
+                    keys = {'unit_process_launched_seconds', 'driver_process_launched_seconds', 'unit_ready_observed_seconds'}
+                    keys.update(role + suffix for role in ('unit', 'driver') for suffix in (
+                        '_method_start_observed_seconds', '_method_end_observed_seconds', '_process_exit_observed_seconds'))
+                    closed = {'source_file': 'whitenoise-iosUITests/HostedHistoryApprovalUITests.swift',
+                              'source_contract_verified': diagnostic.get('source_contract_verified') is True,
+                              'failure_site_status': 'matched' if diagnostic.get('failure_site_status') == 'matched' else 'unavailable',
+                              'failure_sites': [], 'observations': {},
+                              'timing_scope': 'Monotonic host observations; not CPU or exact XCTest event times'}
+                    if isinstance(diagnostic.get('source_sha256'), str) and re.fullmatch('[0-9a-f]{64}', diagnostic['source_sha256']):
+                        closed['source_sha256'] = diagnostic['source_sha256']
+                    for site in diagnostic.get('failure_sites', []):
+                        if not isinstance(site, dict):
+                            continue
+                        if (site.get('category') in categories and type(site.get('line')) is int and site['line'] > 0
+                                and type(site.get('occurrences')) is int and site['occurrences'] > 0):
+                            closed['failure_sites'].append({k: site[k] for k in ('line', 'category', 'occurrences')})
+                    for key, value in diagnostic.get('observations', {}).items():
+                        if key in keys and type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 3600:
+                            closed['observations'][key] = value
+                    if type(diagnostic.get('unclassified_source_failure_count')) is int:
+                        closed['unclassified_source_failure_count'] = diagnostic['unclassified_source_failure_count']
+                    compact['control_diagnostics'] = closed
             except (OSError, ValueError, KeyError, TypeError):
                 compact['receipt_status'] = 'invalid-or-identity-mismatch'
         if label.endswith('-build'):
@@ -200,6 +227,8 @@ class Runner:
         self.state['steps'][label] = row
         self.save()
         started = time.monotonic()
+        print(json.dumps({'phase': label, 'event': 'start',
+                          'utc': datetime.now(timezone.utc).isoformat(timespec='seconds')}), flush=True)
         process = None
         try:
             # Child helpers reserve every prefix-* sibling for their own fresh
@@ -224,6 +253,8 @@ class Runner:
             row['seconds'] = round(time.monotonic() - started, 3)
             self.save()
             self.report['stage_timings'].append({'label': label, 'kind': kind, 'seconds': row['seconds']})
+            print(json.dumps({'phase': label, 'event': 'end', 'seconds': row['seconds'], 'exit_code': row['exit_code'],
+                              'utc': datetime.now(timezone.utc).isoformat(timespec='seconds')}), flush=True)
             if row['exit_code'] != 0 or 'error_category' in row or row.get('required_termination'):
                 try:
                     self.failed_receipt(label)
@@ -309,6 +340,10 @@ class Runner:
                 and str(receipt['sdk_run_id']) == self.args.sdk_run_id, 'exact-initial-ui-control-required')
         result = {'passed': 1, 'unit': receipt['unit'], 'driver': receipt['driver'],
                   'sdk_source': self.args.sdk_source, 'source_commit': self.args.ios_commit}
+        observations = receipt.get('control_diagnostics', {}).get('observations', {})
+        result['control_observations'] = {key: value for key, value in observations.items()
+            if re.fullmatch(r'(unit|driver)_(process_launched|ready_observed|method_start_observed|method_end_observed|process_exit_observed)_seconds', key)
+            and type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 3600}
         self.state['cases'][name] = result
         self.report['cases'][name] = result
         self.save()
