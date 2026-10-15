@@ -95,6 +95,11 @@ migration 107; back up before upgrade because downgrade is unsupported. See the
 
 - All binaries use `libcrux-kem` 0.0.10, fixing malformed hybrid-key and
   short-seed panics (RUSTSEC-2026-0330 and RUSTSEC-2026-0331).
+- All daemon-hosted commands share the original app and account runtime, avoiding
+  competing database opens during group changes, chat subscriptions and reads.
+
+- Daemon-hosted stream start, finish, watch and verification use the daemon's
+  existing account runtime rather than reopening a competing account database.
 
 - A sent message the engine queued while the group was converging is no longer
   marked failed when an unrelated publish in the same batch fails, and a sent

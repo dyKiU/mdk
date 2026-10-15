@@ -236,7 +236,17 @@ impl AppClient {
             .app
             .account_storage(&self.state.label)
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
-        let receipt = storage
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if records_cut_acceptance::hold_complete_records(
+            self.app.account_home().root(),
+            &group,
+            batch.batch_digest,
+            entry.policy.peer_device,
+            entry.channel.scope().nonce,
+        ) {
+            return Err(AccountSharingError::NotReady);
+        }
+        let applied = storage
             .account_chat_record_stream_storage()
             .ok_or(AccountSharingError::NotReady)?
             .apply_account_chat_record_batch(
@@ -245,17 +255,47 @@ impl AppClient {
                 &batch,
                 crate::unix_now_seconds(),
                 &|| self.automatic_record_original(entry),
-            )
-            .map_err(|error| {
+            );
+        let receipt = match applied {
+            Ok(receipt) => receipt,
+            Err(error) => {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                records_cut_acceptance::observe_record_failure(
+                    self.app.account_home().root(),
+                    &group,
+                    batch.batch_digest,
+                    entry.policy.peer_device,
+                    entry.channel.scope().nonce,
+                    matches!(
+                        &error,
+                        cgka_traits::storage::StorageError::MirroredRecordDeniedByDeparture
+                    ),
+                );
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 self.test_trace_catalog_stage(
                     "record_sql",
                     diagnostics::storage_category(&error),
                     None,
                 );
-                let _ = error;
-                AccountSharingError::RuntimeUnavailable
-            })?;
+                if matches!(
+                    error,
+                    cgka_traits::storage::StorageError::MirroredRecordDeniedByDeparture
+                ) {
+                    // Revalidate the original at this negative disposition's tail.
+                    // A refused batch creates neither an import nor a receipt.
+                    self.automatic_record_original(entry)
+                        .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+                    entry.records.assembly = None;
+                    return Ok(());
+                }
+                return Err(AccountSharingError::RuntimeUnavailable);
+            }
+        };
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        records_cut_acceptance::observe_committed_record_receipt(
+            self.app.account_home().root(),
+            batch.batch_digest,
+        );
         // Wake observation owners only after the original-checked SQL commit.
         // Their worker reads still revalidate current policy at publication.
         self.notify_mirrored_presentation_changed();

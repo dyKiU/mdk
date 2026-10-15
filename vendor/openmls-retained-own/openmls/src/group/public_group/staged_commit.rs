@@ -136,7 +136,9 @@ impl PublicGroup {
             log::error!("Error building the proposal queue for the commit ({e:?})");
             match e {
                 FromCommittedProposalsError::LibraryError(e) => StageCommitError::LibraryError(e),
-                FromCommittedProposalsError::ProposalNotFound => StageCommitError::MissingProposal,
+                FromCommittedProposalsError::ProposalNotFound(reference) => {
+                    StageCommitError::MissingProposalReference(reference)
+                }
                 FromCommittedProposalsError::SelfRemoval => StageCommitError::AttemptedSelfRemoval,
                 FromCommittedProposalsError::DuplicatePskId(psk_id) => {
                     StageCommitError::DuplicatePskId(psk_id)

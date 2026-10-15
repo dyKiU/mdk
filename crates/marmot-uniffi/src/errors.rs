@@ -469,6 +469,8 @@ pub enum MarmotKitError {
     DeviceRevocationStaleRevision,
     #[error("Device revocation: RuntimeUnavailable")]
     DeviceRevocationRuntimeUnavailable,
+    #[error("account-wide chat departure prevents sends")]
+    AccountChatDepartureDenied,
 }
 
 impl From<AppError> for MarmotKitError {
@@ -486,6 +488,7 @@ impl From<&AppError> for MarmotKitError {
             AppError::InvalidAppComponent(details) => Self::InvalidAppComponent {
                 details: details.clone(),
             },
+            AppError::AccountChatDepartureDenied => Self::AccountChatDepartureDenied,
             AppError::UserBlocked => Self::UserBlocked,
             AppError::BlockListUnavailable => Self::BlockListUnavailable,
             AppError::BlockPublicationUncertain => Self::BlockPublicationUncertain,

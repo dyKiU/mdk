@@ -25,6 +25,11 @@ async fn default_binding_refuses_before_account_effects() {
         Err(MarmotKitError::DeviceLinkingUnsupported)
     ));
     assert!(matches!(
+        kit.approve_automatic_device_linking_session("missing".into(), "invalid".into(), None)
+            .await,
+        Err(MarmotKitError::DeviceLinkingUnsupported)
+    ));
+    assert!(matches!(
         kit.device_linking_targets("missing".into()).await,
         Err(MarmotKitError::DeviceLinkingUnsupported)
     ));
@@ -75,14 +80,15 @@ async fn native_binding_continues_original_actions_and_close_wakes_waiter() {
         .await
         .unwrap();
     let a = kits[0]
-        .approve_device_linking_session("test".into(), c.setup_packet(), None)
+        .approve_automatic_device_linking_session(
+            "test".into(),
+            c.automatic_pairing_code().await.unwrap(),
+            None,
+        )
         .await
         .unwrap();
-    c.receive_setup_packet(a.setup_packet()).await.unwrap();
-    for _ in 0..8 {
-        drain(&a, &c).await;
-        drain(&c, &a).await;
-    }
+    a.automatic_pairing_code().await.unwrap();
+    wait_for_automatic_binding_phase(&a, &c, DeviceLinkingPhaseFfi::ComparisonAvailable).await;
     let ac = a.snapshot().await.unwrap();
     let cc = c.snapshot().await.unwrap();
     assert_eq!(ac.phase, DeviceLinkingPhaseFfi::ComparisonAvailable);
@@ -94,10 +100,12 @@ async fn native_binding_continues_original_actions_and_close_wakes_waiter() {
     ));
     a.confirm_comparison(ac.revision).await.unwrap();
     c.confirm_comparison(cc.revision).await.unwrap();
-    for _ in 0..8 {
-        drain(&a, &c).await;
-        drain(&c, &a).await;
-    }
+    wait_for_automatic_binding_phase(
+        &a,
+        &c,
+        DeviceLinkingPhaseFfi::VerificationCompleteEnrollmentPending,
+    )
+    .await;
     assert_eq!(
         a.snapshot().await.unwrap().phase,
         DeviceLinkingPhaseFfi::VerificationCompleteEnrollmentPending
@@ -108,14 +116,14 @@ async fn native_binding_continues_original_actions_and_close_wakes_waiter() {
     );
     assert!(kits[0].device_linking_capabilities().enrollment_supported);
     assert!(matches!(
-        c.continue_linking_and_share_chats(c.snapshot().await.unwrap().revision + 1)
+        c.continue_automatic_linking(c.snapshot().await.unwrap().revision + 1, true)
             .await,
         Err(MarmotKitError::DeviceLinkingStaleRevision)
     ));
-    c.continue_linking_and_share_chats(c.snapshot().await.unwrap().revision)
+    c.continue_automatic_linking(c.snapshot().await.unwrap().revision, true)
         .await
         .unwrap();
-    a.continue_linking_and_share_chats(a.snapshot().await.unwrap().revision)
+    a.continue_automatic_linking(a.snapshot().await.unwrap().revision, true)
         .await
         .unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(30), async {
@@ -157,6 +165,26 @@ async fn native_binding_continues_original_actions_and_close_wakes_waiter() {
     }
     relay.shutdown();
 }
+#[cfg(feature = "experimental-device-sync")]
+async fn wait_for_automatic_binding_phase(
+    a: &DeviceLinkingSession,
+    c: &DeviceLinkingSession,
+    phase: DeviceLinkingPhaseFfi,
+) {
+    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        loop {
+            if a.snapshot().await.unwrap().phase == phase
+                && c.snapshot().await.unwrap().phase == phase
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
 #[cfg(feature = "experimental-device-sync")]
 async fn drain(from: &DeviceLinkingSession, to: &DeviceLinkingSession) {
     for packet in from.outgoing_packets().await.unwrap() {

@@ -7,9 +7,10 @@ use crate::device_linking::{
 use cgka_traits::device_linking_key_package::PurposeAttemptScope;
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use tokio::sync::{Mutex as AsyncMutex, Notify, watch};
+mod automatic;
 
 pub(super) struct SessionState {
     manager: AccountManager,
@@ -17,6 +18,7 @@ pub(super) struct SessionState {
     scope: PurposeAttemptScope,
     setup: Vec<u8>,
     new_device: bool,
+    endorsed_setup: bool,
     operation: AsyncMutex<PacketProgress>,
     sharing_choice: Mutex<
         Option<
@@ -27,9 +29,15 @@ pub(super) struct SessionState {
     updates: watch::Sender<DeviceLinkingSnapshot>,
     closed: AtomicBool,
     runtime: tokio::runtime::Handle,
+    transport_cancel: tokio_util::sync::CancellationToken,
+    transport_bootstrap: AsyncMutex<Option<String>>,
+    transport_hint: Mutex<Option<crate::device_linking::network::PeerHint>>,
+    transport_deadline: std::time::Instant,
+    pending_transport: Mutex<Option<automatic::Driver>>,
 }
 #[derive(Default)]
 struct PacketProgress {
+    automatic_enrollment: Option<automatic::OriginalAutomaticEnrollmentChoice>,
     offer_acknowledged: bool,
     started: bool,
     enrollment_started: bool,
@@ -146,6 +154,11 @@ impl SessionState {
     }
     fn close(&self) {
         self.closed.store(true, Ordering::Release);
+        self.transport_cancel.cancel();
+        self.pending_transport
+            .lock()
+            .expect("pending pairing transport")
+            .take();
         if let Some(choice) = self.sharing_choice.lock().expect("sharing choice").take() {
             choice.cancel();
         }
@@ -167,6 +180,7 @@ impl AccountManager {
         &self,
         account_ref: &str,
     ) -> Result<DeviceLinkingSession, DeviceLinkingError> {
+        let transport_deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
         let account = self
             .resolve(account_ref)
             .map_err(|_| DeviceLinkingError::RuntimeUnavailable)?
@@ -180,6 +194,8 @@ impl AccountManager {
             account,
             packet,
             true,
+            transport_deadline,
+            false,
         ))
     }
     pub async fn approve_device_linking_session(
@@ -188,6 +204,7 @@ impl AccountManager {
         request: Vec<u8>,
         target: Option<Vec<u8>>,
     ) -> Result<DeviceLinkingSession, DeviceLinkingError> {
+        let transport_deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
         if target
             .as_ref()
             .is_some_and(|selector| selector.is_empty() || selector.len() > 256)
@@ -198,6 +215,7 @@ impl AccountManager {
             .resolve(account_ref)
             .map_err(|_| DeviceLinkingError::RuntimeUnavailable)?
             .label;
+        let endorsed_setup = target.is_some();
         let packet = self
             .approve_device_linking_setup(
                 account_ref,
@@ -211,10 +229,21 @@ impl AccountManager {
             account,
             packet,
             false,
+            transport_deadline,
+            endorsed_setup,
         ))
     }
 }
 impl DeviceLinkingSession {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn automatic_retirement_probe_for_test(&self) -> impl Fn() -> bool + use<> {
+        let state = self.inner.clone();
+        move || {
+            state.closed.load(Ordering::Acquire)
+                && state.transport_cancel.is_cancelled()
+                && state.check_open().is_err()
+        }
+    }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn sibling_projection_aggregates_for_test(&self) -> Option<[usize; 4]> {
         self.inner
@@ -343,6 +372,8 @@ impl DeviceLinkingSession {
         account: String,
         packet: SetupPacket,
         new_device: bool,
+        transport_deadline: std::time::Instant,
+        endorsed_setup: bool,
     ) -> Self {
         let snapshot = DeviceLinkingSnapshot {
             revision: 1,
@@ -360,12 +391,18 @@ impl DeviceLinkingSession {
             scope: packet.scope,
             setup: packet.packet,
             new_device,
+            endorsed_setup,
             operation: AsyncMutex::new(PacketProgress::default()),
             sharing_choice: Mutex::new(None),
             snapshot: Mutex::new(snapshot),
             updates,
             closed: AtomicBool::new(false),
             runtime: tokio::runtime::Handle::current(),
+            transport_cancel: tokio_util::sync::CancellationToken::new(),
+            transport_bootstrap: AsyncMutex::new(None),
+            transport_hint: Mutex::new(None),
+            transport_deadline,
+            pending_transport: Mutex::new(None),
         });
         let weak = Arc::downgrade(&inner);
         inner.runtime.spawn(async move {
@@ -385,7 +422,10 @@ impl DeviceLinkingSession {
                 }
             }
         });
-        Self { inner }
+        Self {
+            inner,
+            owns_lifetime: true,
+        }
     }
     pub fn setup_packet(&self) -> Vec<u8> {
         self.inner.setup.clone()
@@ -741,8 +781,10 @@ impl DeviceLinkingSession {
 }
 impl Drop for DeviceLinkingSession {
     fn drop(&mut self) {
-        self.inner.close();
-        self.inner.defer_cleanup();
+        if self.owns_lifetime {
+            self.inner.close();
+            self.inner.defer_cleanup();
+        }
     }
 }
 impl DeviceLinkingSubscription {
@@ -789,6 +831,13 @@ pub(crate) struct ApprovalRegistryEntry {
 pub(crate) type ApprovalRegistry =
     std::collections::HashMap<(String, [u8; 32]), ApprovalRegistryEntry>;
 pub(super) struct ApprovalState {
+    // Background transport borrows must not delay the final public handle's
+    // negative fence, or allow a polled alias to resurrect a dropped action.
+    public_handles: AtomicUsize,
+    cleanup_scheduled: AtomicBool,
+    original_cancellation: Mutex<
+        Option<cgka_engine::private_enrollment_endorsement::EnrollmentEndorsementCancellation>,
+    >,
     manager: AccountManager,
     account: String,
     binding: [u8; 32],
@@ -797,6 +846,9 @@ pub(super) struct ApprovalState {
         Option<Arc<crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval>>,
     >,
     snapshot: Mutex<DeviceLinkingApprovalSnapshot>,
+    transport_started: AtomicBool,
+    transport_cancel: tokio_util::sync::CancellationToken,
+    deadline: std::time::Instant,
     closed: AtomicBool,
     runtime: tokio::runtime::Handle,
 }
@@ -837,6 +889,15 @@ impl ApprovalState {
         Ok(snapshot.clone())
     }
     fn close(&self) {
+        self.transport_cancel.cancel();
+        if let Some(control) = self
+            .original_cancellation
+            .lock()
+            .expect("original approval cancellation")
+            .take()
+        {
+            control.cancel();
+        }
         self.closed.store(true, Ordering::Release);
         if let Some(original) = self
             .sharing_original
@@ -856,9 +917,11 @@ impl ApprovalState {
         }
     }
 }
-impl Drop for ApprovalState {
-    fn drop(&mut self) {
-        self.close();
+impl ApprovalState {
+    fn defer_cleanup(&self) {
+        if self.cleanup_scheduled.swap(true, Ordering::AcqRel) {
+            return;
+        }
         let manager = self.manager.clone();
         let account = self.account.clone();
         let binding = self.binding;
@@ -869,6 +932,21 @@ impl Drop for ApprovalState {
         });
     }
 }
+impl Drop for DeviceLinkingApproval {
+    fn drop(&mut self) {
+        if self.owns_lifetime && self.inner.public_handles.fetch_sub(1, Ordering::AcqRel) == 1 {
+            self.inner.close();
+            self.inner.defer_cleanup();
+        }
+    }
+}
+impl Drop for ApprovalState {
+    fn drop(&mut self) {
+        self.close();
+        self.defer_cleanup();
+    }
+}
+
 impl AccountManager {
     pub async fn device_linking_targets(
         &self,
@@ -916,14 +994,29 @@ impl AccountManager {
                     let Some(state) = entry.get().handle.upgrade() else {
                         continue;
                     };
+                    if state
+                        .public_handles
+                        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                            count.checked_add(1).filter(|_| count != 0)
+                        })
+                        .is_err()
+                    {
+                        continue;
+                    }
                     state
                 }
                 std::collections::hash_map::Entry::Vacant(entry) => {
                     let state = Arc::new(ApprovalState {
+                        public_handles: AtomicUsize::new(1),
+                        cleanup_scheduled: AtomicBool::new(false),
+                        original_cancellation: Mutex::new(None),
                         manager: self.clone(),
                         account: account.clone(),
                         binding,
                         operation: AsyncMutex::new(None),
+                        transport_started: AtomicBool::new(false),
+                        transport_cancel: tokio_util::sync::CancellationToken::new(),
+                        deadline,
                         sharing_original: Mutex::new(None),
                         snapshot: Mutex::new(DeviceLinkingApprovalSnapshot {
                             revision: 1,
@@ -939,14 +1032,28 @@ impl AccountManager {
                     state
                 }
             };
-            if !state.closed.load(Ordering::Acquire) {
-                result.push(DeviceLinkingApproval { inner: state });
+            let approval = DeviceLinkingApproval {
+                inner: state,
+                owns_lifetime: true,
+            };
+            if !approval.inner.closed.load(Ordering::Acquire) {
+                result.push(approval);
             }
         }
         Ok(result)
     }
 }
 impl DeviceLinkingApproval {
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn automatic_retirement_probe_for_test(
+        &self,
+    ) -> impl Fn() -> bool + Send + Sync + use<> {
+        let background_borrow = self.inner.clone();
+        move || {
+            background_borrow.closed.load(Ordering::Acquire)
+                && background_borrow.transport_cancel.is_cancelled()
+        }
+    }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn sharing_original_for_test(
         &self,
@@ -1022,6 +1129,11 @@ impl DeviceLinkingApproval {
         ) {
             return Err(DeviceLinkingError::NotReady);
         }
+        let transport = if self.inner.transport_started.load(Ordering::Acquire) {
+            None
+        } else {
+            automatic::SiblingDriver::prepare(&self.inner).await?
+        };
         if share_chats {
             let original = self
                 .inner
@@ -1049,7 +1161,29 @@ impl DeviceLinkingApproval {
                 .await
                 .map_err(map_error)?;
         }
+        let control = self
+            .inner
+            .manager
+            .native_approval_cancellation(&self.inner.account, &self.inner.binding)
+            .await
+            .map_err(map_error)?;
+        {
+            let mut held = self
+                .inner
+                .original_cancellation
+                .lock()
+                .expect("original approval cancellation");
+            if self.inner.closed.load(Ordering::Acquire) {
+                control.cancel();
+                return Err(DeviceLinkingError::Closed);
+            }
+            *held = Some(control);
+        }
         self.inner.check_open()?;
+        if let Some(transport) = transport {
+            self.inner.transport_started.store(true, Ordering::Release);
+            transport.spawn(&self.inner);
+        }
         self.inner
             .manager
             .publish_received_enrollment_endorsement(&self.inner.account, &self.inner.binding)

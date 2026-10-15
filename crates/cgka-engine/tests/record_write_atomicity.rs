@@ -268,11 +268,23 @@ impl LeaveWriteFault {
         self.0.store(write, Ordering::SeqCst);
     }
 
+    fn arm_on_reanchor(&self) {
+        self.0.store(usize::MAX, Ordering::SeqCst);
+    }
+
+    fn should_fail_reanchor(&self, request: &LeaveRequest) -> bool {
+        request.last_proposed_epoch.is_none()
+            && self
+                .0
+                .compare_exchange(usize::MAX, 0, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+    }
+
     fn should_fail(&self) -> bool {
         matches!(
             self.0
                 .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
-                    (remaining > 0).then(|| remaining - 1)
+                    (remaining > 0 && remaining != usize::MAX).then(|| remaining - 1)
                 }),
             Ok(1)
         )
@@ -630,7 +642,9 @@ impl OutboundFanoutStorage for FaultStorage {
 
 impl LeaveRequestStorage for FaultStorage {
     fn put_leave_request(&self, request: &LeaveRequest) -> StorageResult<()> {
-        if self.leave_write_fault.should_fail() {
+        if self.leave_write_fault.should_fail_reanchor(request)
+            || self.leave_write_fault.should_fail()
+        {
             return Err(StorageError::Busy(
                 "injected leave-persistence write failure".into(),
             ));
@@ -844,6 +858,9 @@ impl cgka_traits::storage::DeferredPeelGenerationStorage for FaultStorage {
 }
 
 impl StorageProvider for FaultStorage {
+    fn maintenance_storage(&self) -> Option<&dyn cgka_traits::storage::MaintenanceStorage> {
+        self.inner.maintenance_storage()
+    }
     #[cfg(feature = "experimental-device-sync")]
     fn accepted_welcome_storage(
         &self,
@@ -3747,3 +3764,6 @@ async fn private_profile_requires_permanent_privacy_capability_without_changing_
         "optional private negative capability must not disable ordinary groups"
     );
 }
+
+#[path = "record_write_atomicity/same_epoch_leave_reanchor.rs"]
+mod same_epoch_leave_reanchor;

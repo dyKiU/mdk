@@ -38,6 +38,8 @@ pub(crate) mod app_payload;
 pub(crate) mod audit_helpers;
 pub mod auto_committer;
 pub(crate) mod bounded_id_set;
+#[cfg(feature = "test-policy-overrides")]
+pub mod canonical_probe_observer;
 pub mod canonicalization;
 pub mod capabilities;
 pub mod capability_manager;
@@ -126,6 +128,16 @@ mod private_linking_join;
 
 #[cfg(feature = "experimental-device-sync")]
 mod private_roster_settlement_receive;
+#[cfg(all(
+    feature = "experimental-device-sync",
+    any(
+        test,
+        feature = "test-policy-overrides",
+        all(feature = "test-crash-hooks", debug_assertions)
+    )
+))]
+#[doc(hidden)]
+pub mod private_settlement_test_observation;
 
 #[cfg(feature = "experimental-device-sync")]
 pub mod private_enrollment_request;

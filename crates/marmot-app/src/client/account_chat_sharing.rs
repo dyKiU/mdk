@@ -8,6 +8,8 @@ use crate::{
 };
 use cgka_engine::account_chat_sharing::{ACCOUNT_SHARING_CONTROL_KIND, AccountSharingControl};
 use cgka_traits::{GroupEvent, StorageProvider, app_event::MarmotAppEvent};
+#[cfg(all(test, feature = "test-policy-overrides"))]
+use sha2::Digest as _;
 use std::sync::Arc;
 impl AppClient {
     pub(crate) fn account_sharing_targets(
@@ -122,7 +124,39 @@ impl AppClient {
         let wire = app.content.as_bytes();
         #[cfg(all(test, feature = "test-policy-overrides"))]
         self.test_trace_catalog_stage("outer_intake", "private_control", None);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let GroupEvent::MessageReceived { message_id, .. } = event {
+            automatic::consent_delivery_probe::event_received(
+                self.app.account_home().root(),
+                group_id,
+                message_id,
+                source,
+                sha2::Sha256::digest(wire).into(),
+            );
+        }
         let received = self.authenticate_sharing_control_intake(group_id, source, wire);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        automatic::consent_delivery_probe::authenticated(
+            self.app.account_home().root(),
+            group_id,
+            source,
+            sha2::Sha256::digest(wire).into(),
+            received.as_ref().ok(),
+            match &received {
+                Ok(_) => automatic::consent_delivery_probe::Outcome::Success,
+                Err(AccountSharingError::NotReady) => {
+                    automatic::consent_delivery_probe::Outcome::NotReady
+                }
+                Err(AccountSharingError::Closed) => {
+                    automatic::consent_delivery_probe::Outcome::Closed
+                }
+                Err(AccountSharingError::RuntimeUnavailable) => {
+                    automatic::consent_delivery_probe::Outcome::RuntimeUnavailable
+                }
+                Err(_) => automatic::consent_delivery_probe::Outcome::Refused,
+            },
+        );
+
         let received = match received {
             Ok(received) => received,
             Err(error) => {
@@ -140,7 +174,24 @@ impl AppClient {
                 return Err(error);
             }
         };
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        automatic::records_cut_acceptance::observe_authenticated_records(
+            self.app.account_home().root(),
+            event,
+            &received,
+        );
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let Some(received) = self.test_defer_delayed_higher_request(wire, received) else {
+            return Ok(());
+        };
         let result = self.dispatch_authenticated_account_sharing_control(&received, wire);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        automatic::consent_delivery_probe::dispatched(
+            self.app.account_home().root(),
+            &received,
+            sha2::Sha256::digest(wire).into(),
+            Self::test_consent_outcome(&result),
+        );
         if result.is_err() && self.retain_pending_sibling_control(group_id, source, wire) {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             self.test_trace_catalog_stage("outer_retention", "dispatch_failure_retained", None);
@@ -390,3 +441,11 @@ impl AppClient {
         Ok(())
     }
 }
+
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) use automatic::departure_replay_probe::DepartureReplayProbe;
+
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) use automatic::duplicate_departure_probe::{
+    DuplicateDepartureBinding, DuplicateDepartureProbe,
+};

@@ -66,6 +66,7 @@ use crate::{
     SelfMembership, SendSummary, unix_now_seconds,
 };
 
+mod account_chat_departure;
 #[cfg(feature = "experimental-device-sync")]
 pub(crate) mod account_chat_sharing;
 mod audit;
@@ -2465,14 +2466,21 @@ impl AppClient {
                 "injected create local projection failure".into(),
             ))
         } else {
-            (|| {
-                #[cfg(feature = "experimental-device-sync")]
-                for event in &source_origin_events {
-                    self.observe_chat_source_origin(event)?;
-                }
+            #[cfg(feature = "experimental-device-sync")]
+            {
+                (|| {
+                    for event in &source_origin_events {
+                        self.observe_chat_source_origin(event)?;
+                    }
+                    self.add_group(&group_id)
+                        .and_then(|()| self.save_state_with_created_chat_list_row(&group_id))
+                })()
+            }
+            #[cfg(not(feature = "experimental-device-sync"))]
+            {
                 self.add_group(&group_id)
                     .and_then(|()| self.save_state_with_created_chat_list_row(&group_id))
-            })()
+            }
         };
         record_app_performance(
             telemetry,
@@ -6281,6 +6289,10 @@ impl AppClient {
         &self,
         group_id: &GroupId,
     ) -> Result<(), AppError> {
+        #[cfg(feature = "experimental-device-sync")]
+        self.app
+            .ensure_local_chat_not_account_departed(&self.state.label, group_id)?;
+
         self.ensure_group(group_id)?;
         if self
             .app
@@ -7929,3 +7941,17 @@ mod poll_send_validation_tests {
         ));
     }
 }
+
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+pub(crate) use account_chat_sharing::DepartureReplayProbe;
+
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+pub(crate) use account_chat_sharing::{DuplicateDepartureBinding, DuplicateDepartureProbe};

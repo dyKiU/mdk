@@ -7,6 +7,24 @@ async fn default_native_verification_is_unsupported_before_account_or_worker_eff
     let dir = tempfile::tempdir().unwrap();
     let runtime = MarmotAppRuntime::new(MarmotApp::with_relay(dir.path(), "wss://relay.example"));
     let accounts = runtime.accounts();
+    assert!(matches!(
+        DeviceLinkingSession { _private: () }
+            .continue_automatic_linking(1, true)
+            .await,
+        Err(DeviceLinkingError::Unsupported)
+    ));
+    assert!(matches!(
+        accounts
+            .approve_automatic_device_linking_session("missing", "invalid bootstrap".into(), None)
+            .await,
+        Err(DeviceLinkingError::Unsupported)
+    ));
+    assert!(matches!(
+        DeviceLinkingSession { _private: () }
+            .automatic_pairing_code()
+            .await,
+        Err(DeviceLinkingError::Unsupported)
+    ));
     assert_eq!(
         accounts.device_linking_capabilities(),
         DeviceLinkingCapabilities {
@@ -126,6 +144,83 @@ pub(super) mod actual {
         }
         (dirs, runtimes)
     }
+    #[tokio::test]
+    async fn cancelled_first_setup_allows_fresh_first_setup_approval() {
+        fresh_first_setup_after_cancel(false).await;
+    }
+
+    #[tokio::test]
+    async fn reopened_cancelled_first_setup_requires_fresh_comparison() {
+        fresh_first_setup_after_cancel(true).await;
+    }
+
+    async fn fresh_first_setup_after_cancel(reopen: bool) {
+        let (dirs, mut runtimes) = workers().await;
+        let recipient = runtimes[0].accounts();
+        let approver = runtimes[1].accounts();
+        let first = recipient
+            .begin_device_linking_session("test")
+            .await
+            .unwrap();
+        let response = approver
+            .approve_device_linking_session("test", first.setup_packet(), None)
+            .await
+            .unwrap();
+        response.cancel().await.unwrap();
+        first.cancel().await.unwrap();
+        let retired_response = response.setup_packet();
+        drop(response);
+        drop(first);
+        drop(recipient);
+        drop(approver);
+        if reopen {
+            for runtime in &runtimes {
+                runtime.shutdown_and_close().await.unwrap();
+            }
+            runtimes = std::array::from_fn(|i| {
+                MarmotAppRuntime::new(
+                    MarmotApp::with_relay(dirs[i].path(), "wss://relay.example")
+                        .with_test_relay_client(Arc::new(
+                            crate::tests::ScriptedPushRelayClient::default(),
+                        )),
+                )
+            });
+            for runtime in &runtimes {
+                runtime.reconcile_accounts().await.unwrap();
+            }
+        }
+        let recipient = runtimes[0].accounts();
+        let approver = runtimes[1].accounts();
+        assert!(
+            approver
+                .device_linking_targets("test")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let fresh = recipient
+            .begin_device_linking_session("test")
+            .await
+            .unwrap();
+        let retry = approver
+            .approve_device_linking_session("test", fresh.setup_packet(), None)
+            .await;
+        if let Ok(session) = &retry {
+            assert!(fresh.receive_setup_packet(retired_response).await.is_err());
+            verify_public_pair(session, &fresh).await;
+            session.cancel().await.unwrap();
+        }
+        fresh.cancel().await.unwrap();
+        for runtime in runtimes {
+            runtime.shutdown_and_close().await.unwrap();
+        }
+        assert!(
+            retry.is_ok(),
+            "fresh approval after cancellation: {:?}",
+            retry.err()
+        );
+    }
+
     async fn drain(from: &DeviceLinkingSession, to: &DeviceLinkingSession) {
         for packet in from.outgoing_packets().await.unwrap() {
             to.receive_packet(packet.bytes).await.unwrap();
@@ -242,6 +337,15 @@ pub(super) mod actual {
         AutomaticFreshAcceptedRejoin,
         AutomaticLegacyFormatAcceptedRejoin,
         AutomaticTwoLegitimateSources,
+        AutomaticDelayedRequestCollision,
+        AutomaticPendingRequestRestart,
+        AutomaticRecordsCutConsent,
+        AutomaticDepartureFfiFixture,
+        AutomaticAccountDeparture,
+        AutomaticAccountDepartureOrdering,
+        AutomaticAccountDepartureSourceWins,
+        AutomaticAccountDepartureDuplicateReceipt,
+        AutomaticAccountDepartureFreshRejoin,
         AutomaticRecordGenerationRenewal,
         AutomaticHeldThreeBInitiates,
         AutomaticHeldThreeCInitiates,
@@ -286,6 +390,7 @@ pub(super) mod actual {
             scenario,
             ApprovalScenario::AutomaticHeldThreeBInitiates
                 | ApprovalScenario::AutomaticHeldThreeCInitiates
+                | ApprovalScenario::AutomaticRecordsCutConsent
         ) {
             super::automatic_held_three_original_acceptance::order_actual_signers(
                 &mut apps,
@@ -295,12 +400,30 @@ pub(super) mod actual {
             .await;
         }
         // Establish the exact ordinary A/B leaves before managed workers own any engines.
-        let two_source_peer = if scenario == ApprovalScenario::AutomaticTwoLegitimateSources {
+        let two_source_peer = if matches!(
+            scenario,
+            ApprovalScenario::AutomaticDelayedRequestCollision
+                | ApprovalScenario::AutomaticPendingRequestRestart
+                | ApprovalScenario::AutomaticRecordsCutConsent
+                | ApprovalScenario::AutomaticTwoLegitimateSources
+                | ApprovalScenario::AutomaticDepartureFfiFixture
+                | ApprovalScenario::AutomaticAccountDeparture
+                | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
+                | ApprovalScenario::AutomaticAccountDepartureOrdering
+                | ApprovalScenario::AutomaticAccountDepartureSourceWins
+                | ApprovalScenario::AutomaticAccountDepartureDuplicateReceipt
+        ) {
             Some(
                 Box::pin(
-                    super::automatic_two_source_leave_acceptance::TwoSourcePeer::prepare(
-                        &apps, &url,
-                    ),
+                    async {
+                        if matches!(scenario,ApprovalScenario::AutomaticAccountDepartureOrdering | ApprovalScenario::AutomaticAccountDepartureDuplicateReceipt) {
+                            super::automatic_two_source_leave_acceptance::TwoSourcePeer::prepare_preferred_administrator(&apps, &url).await
+                        } else if scenario == ApprovalScenario::AutomaticAccountDepartureSourceWins {
+                            super::automatic_two_source_leave_acceptance::TwoSourcePeer::prepare_preferred_source(&apps, &url).await
+                        } else {
+                            super::automatic_two_source_leave_acceptance::TwoSourcePeer::prepare(&apps, &url).await
+                        }
+                    },
                 )
                 .await,
             )
@@ -309,6 +432,17 @@ pub(super) mod actual {
         };
         let legacy_encoding = (scenario == ApprovalScenario::AutomaticLegacyFormatAcceptedRejoin)
             .then(|| crate::AppClient::test_legacy_account_chat_encoding(dirs[0].path()));
+        if matches!(
+            scenario,
+            ApprovalScenario::AutomaticDelayedRequestCollision
+                | ApprovalScenario::AutomaticPendingRequestRestart
+                | ApprovalScenario::AutomaticRecordsCutConsent
+        ) {
+            assert!(
+                two_source_peer.is_some(),
+                "restart/collision fixture must establish the real ordinary two-source chat"
+            );
+        }
         let runtimes = apps.clone().map(MarmotAppRuntime::new);
         runtimes[0].reconcile_accounts().await.unwrap();
         // Establish the real incoming chat while A is the sole active public
@@ -411,7 +545,16 @@ pub(super) mod actual {
                 | ApprovalScenario::AutomaticHeldThreeCInitiates
                 | ApprovalScenario::AutomaticHeldSponsorInitiates
                 | ApprovalScenario::AutomaticHeldRecipientInitiates
+                | ApprovalScenario::AutomaticDelayedRequestCollision
+                | ApprovalScenario::AutomaticPendingRequestRestart
+                | ApprovalScenario::AutomaticRecordsCutConsent
                 | ApprovalScenario::AutomaticTwoLegitimateSources
+                | ApprovalScenario::AutomaticDepartureFfiFixture
+                | ApprovalScenario::AutomaticAccountDeparture
+                | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
+                | ApprovalScenario::AutomaticAccountDepartureOrdering
+                | ApprovalScenario::AutomaticAccountDepartureSourceWins
+                | ApprovalScenario::AutomaticAccountDepartureDuplicateReceipt
                 | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
                 | ApprovalScenario::BroadProjectionHeadFailure
@@ -752,7 +895,16 @@ pub(super) mod actual {
             ApprovalScenario::AutomaticRecordGenerationRenewal
                 | ApprovalScenario::AutomaticHeldThreeBInitiates
                 | ApprovalScenario::AutomaticHeldThreeCInitiates
+                | ApprovalScenario::AutomaticDelayedRequestCollision
+                | ApprovalScenario::AutomaticPendingRequestRestart
+                | ApprovalScenario::AutomaticRecordsCutConsent
                 | ApprovalScenario::AutomaticTwoLegitimateSources
+                | ApprovalScenario::AutomaticDepartureFfiFixture
+                | ApprovalScenario::AutomaticAccountDeparture
+                | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
+                | ApprovalScenario::AutomaticAccountDepartureOrdering
+                | ApprovalScenario::AutomaticAccountDepartureSourceWins
+                | ApprovalScenario::AutomaticAccountDepartureDuplicateReceipt
                 | ApprovalScenario::BroadEnrollment
                 | ApprovalScenario::BroadPreAuthFailure
                 | ApprovalScenario::BroadProjectionHeadFailure
@@ -864,7 +1016,16 @@ pub(super) mod actual {
                     ApprovalScenario::AutomaticRecordGenerationRenewal
                         | ApprovalScenario::AutomaticHeldThreeBInitiates
                         | ApprovalScenario::AutomaticHeldThreeCInitiates
+                        | ApprovalScenario::AutomaticDelayedRequestCollision
+                        | ApprovalScenario::AutomaticPendingRequestRestart
+                        | ApprovalScenario::AutomaticRecordsCutConsent
                         | ApprovalScenario::AutomaticTwoLegitimateSources
+                        | ApprovalScenario::AutomaticDepartureFfiFixture
+                        | ApprovalScenario::AutomaticAccountDeparture
+                        | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
+                        | ApprovalScenario::AutomaticAccountDepartureOrdering
+                        | ApprovalScenario::AutomaticAccountDepartureSourceWins
+                        | ApprovalScenario::AutomaticAccountDepartureDuplicateReceipt
                         | ApprovalScenario::BroadEnrollment
                         | ApprovalScenario::BroadPreAuthFailure
                         | ApprovalScenario::BroadProjectionHeadFailure
@@ -994,14 +1155,208 @@ pub(super) mod actual {
             return;
         }
         if let Some(peer) = two_source_peer {
-            Box::pin(peer.verify_device_only_leave(&apps, &runtimes)).await;
+            let departure_scenario = matches!(
+                scenario,
+                ApprovalScenario::AutomaticRecordsCutConsent
+                    | ApprovalScenario::AutomaticDepartureFfiFixture
+                    | ApprovalScenario::AutomaticAccountDeparture
+                    | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
+                    | ApprovalScenario::AutomaticAccountDepartureOrdering
+                    | ApprovalScenario::AutomaticAccountDepartureSourceWins
+                    | ApprovalScenario::AutomaticAccountDepartureDuplicateReceipt
+            );
+            if departure_scenario {
+                for app in &apps {
+                    assert_eq!(
+                        app.account_storage("test")
+                            .unwrap()
+                            .approved_account_sharing_policy_storage()
+                            .unwrap()
+                            .approved_account_sharing_policies()
+                            .unwrap()
+                            .len(),
+                        2,
+                        "departure fixture must actually use all three broader SDK choices"
+                    );
+                }
+                super::automatic_two_source_leave_acceptance::wait_for_paired_records(
+                    &runtimes[2],
+                    &peer.group,
+                    &peer.initial_ids,
+                    None,
+                )
+                .await;
+                let c_round = apps[2]
+                    .account_storage("test")
+                    .unwrap()
+                    .private_roster_settlement_storage()
+                    .unwrap()
+                    .read_round()
+                    .unwrap()
+                    .unwrap();
+                let source_devices: [_; 2] = std::array::from_fn(|index| {
+                    apps[index]
+                        .account_storage("test")
+                        .unwrap()
+                        .private_roster_settlement_storage()
+                        .unwrap()
+                        .read_round()
+                        .unwrap()
+                        .unwrap()
+                        .anchor
+                        .local_device
+                });
+                tokio::time::timeout(std::time::Duration::from_secs(40),async {
+                    loop {
+                        let store=apps[2].account_storage("test").unwrap();
+                        let witnessed=source_devices.iter().filter(|source|store.current_mirrored_chat_origin_observation(&c_round.anchor.account,&c_round.anchor.local_device,source,&peer.group).unwrap().is_some()).count();
+                        if witnessed==2 {eprintln!("account_departure_precheck_broad_policies=2 source_origin_witnesses=2 committed_history=true");break;}
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }).await.expect("both genuine source catalog origin observations must precede departure readiness");
+                // These genuine ceremonies have completed. Cancel their held
+                // originals before the departure fixture closes/reopens workers;
+                // cancellation does not revoke an already committed policy.
+                for session in [&a, &c] {
+                    session.cancel().await.unwrap();
+                }
+                approval.cancel().await.unwrap();
+            }
+            if matches!(
+                scenario,
+                ApprovalScenario::AutomaticDelayedRequestCollision
+                    | ApprovalScenario::AutomaticPendingRequestRestart
+                    | ApprovalScenario::AutomaticRecordsCutConsent
+            ) {
+                use futures::FutureExt;
+                let result = std::panic::AssertUnwindSafe(async {
+                    for session in [&a, &c] {
+                        session.cancel().await.unwrap();
+                    }
+                    approval.cancel().await.unwrap();
+                    for runtime in &runtimes {
+                        runtime.shutdown_and_close().await.unwrap();
+                        assert!(runtime.storage_is_closed());
+                    }
+                    if scenario == ApprovalScenario::AutomaticPendingRequestRestart {
+                        Box::pin(
+                            crate::AppClient::test_pending_lower_request_survives_higher_restart(
+                                [dirs[0].path(), dirs[1].path()],
+                                &url,
+                                &peer.group,
+                                &peer.initial_ids[0],
+                            ),
+                        )
+                        .await;
+                    } else if scenario == ApprovalScenario::AutomaticRecordsCutConsent {
+                        let roots = apps
+                            .each_ref()
+                            .map(|app| app.account_home().root().to_path_buf());
+                        Box::pin(
+                            crate::AppClient::test_records_cut_does_not_block_peer_consent(
+                                [roots[0].as_path(), roots[1].as_path(), roots[2].as_path()],
+                                &url,
+                                &peer.group,
+                                &peer.initial_ids[0],
+                            ),
+                        )
+                        .await;
+                    } else {
+                        Box::pin(crate::AppClient::test_delayed_higher_request_collision(
+                            [dirs[0].path(), dirs[1].path()],
+                            &url,
+                            &peer.group,
+                            &peer.initial_ids[0],
+                        ))
+                        .await;
+                    }
+                })
+                .catch_unwind()
+                .await;
+                let d_closed = peer.runtime.shutdown_and_close().await.is_ok()
+                    && peer.runtime.storage_is_closed();
+                let mut abc_closed = true;
+                for runtime in &runtimes {
+                    abc_closed &= runtime.storage_is_closed()
+                        || (runtime.shutdown_and_close().await.is_ok()
+                            && runtime.storage_is_closed());
+                }
+                relay.shutdown();
+                eprintln!("delayed_request_cleanup_d_closed={d_closed} abc_closed={abc_closed}");
+                if let Err(original) = result {
+                    std::panic::resume_unwind(original);
+                }
+                assert!(d_closed && abc_closed);
+                return;
+            }
+            if scenario == ApprovalScenario::AutomaticDepartureFfiFixture {
+                super::account_departure_ffi_fixture::serve_fixture(&apps, &runtimes, &peer, &url)
+                    .await;
+                relay.shutdown();
+                return;
+            }
+            let departure_result = if matches!(
+                scenario,
+                ApprovalScenario::AutomaticAccountDeparture
+                    | ApprovalScenario::AutomaticAccountDepartureFreshRejoin
+                    | ApprovalScenario::AutomaticAccountDepartureOrdering
+                    | ApprovalScenario::AutomaticAccountDepartureSourceWins
+                    | ApprovalScenario::AutomaticAccountDepartureDuplicateReceipt
+            ) {
+                use futures::FutureExt;
+                Some(
+                    std::panic::AssertUnwindSafe(Box::pin(
+                        super::automatic_account_departure_rejoin_acceptance::verify_or_depart(
+                            scenario,
+                            &apps,
+                            &runtimes,
+                            &peer,
+                            &url,
+                            relay_database.as_ref(),
+                        ),
+                    ))
+                    .catch_unwind()
+                    .await,
+                )
+            } else {
+                Box::pin(peer.verify_device_only_leave(&apps, &runtimes)).await;
+                None
+            };
+            if let Some(result) = departure_result {
+                // Every owner gets a checked close even if the assertion or a
+                // separate close failed. Report cleanup separately, then retain
+                // the original behavioral failure rather than masking it.
+                let d_close = peer.runtime.shutdown_and_close().await.is_ok()
+                    && peer.runtime.storage_is_closed();
+                let mut abc_close = true;
+                for runtime in &runtimes {
+                    let closed = if runtime.storage_is_closed() {
+                        true
+                    } else {
+                        runtime.shutdown_and_close().await.is_ok() && runtime.storage_is_closed()
+                    };
+                    abc_close &= closed;
+                }
+                relay.shutdown();
+                eprintln!("account_departure_cleanup_d_closed={d_close} abc_closed={abc_close}");
+                if let Err(original) = result {
+                    std::panic::resume_unwind(original);
+                }
+                assert!(
+                    d_close && abc_close,
+                    "all departure fixture owners must close positively"
+                );
+                return;
+            }
             // The broad AB ceremony already cancelled initial_a and b before
             // starting the third-device ceremony. Only its current originals
             // remain owned here; every cancellation must succeed.
-            for session in [&a, &c] {
-                session.cancel().await.unwrap();
+            if !departure_scenario {
+                for session in [&a, &c] {
+                    session.cancel().await.unwrap();
+                }
+                approval.cancel().await.unwrap();
             }
-            approval.cancel().await.unwrap();
             peer.runtime.shutdown_and_close().await.unwrap();
             assert!(peer.runtime.storage_is_closed());
             for runtime in runtimes {
@@ -1486,6 +1841,15 @@ pub(super) mod actual {
                     &mirror,
                 )
                 .await;
+                if scenario == ApprovalScenario::AutomaticForwarding {
+                    super::automatic_forwarding_acceptance::verify_cancelled_host_admission(
+                        &apps,
+                        &runtimes[2],
+                        initial_shared_chat.as_ref().unwrap(),
+                        &mirror,
+                    )
+                    .await;
+                }
             }
             if let Some(peer) = &incoming_peer {
                 peer.verify_forwarded_receipt(&runtimes[2]).await;
@@ -2271,7 +2635,7 @@ pub(super) mod actual {
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-#[path = "sibling_sharing_acceptance.rs"]
+#[path = "tests/sibling_sharing_acceptance.rs"]
 mod sibling_sharing_acceptance;
 
 #[cfg(all(
@@ -2292,7 +2656,7 @@ mod automatic_records_acceptance;
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-#[path = "automatic_forwarding_acceptance.rs"]
+#[path = "tests/automatic_forwarding_acceptance.rs"]
 mod automatic_forwarding_acceptance;
 
 #[cfg(all(
@@ -2334,12 +2698,75 @@ mod automatic_held_three_original_acceptance;
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-#[path = "automatic_two_source_leave_acceptance.rs"]
+#[path = "tests/automatic_two_source_leave_acceptance.rs"]
 mod automatic_two_source_leave_acceptance;
 
 #[cfg(all(
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-#[path = "automatic_fresh_rejoin_acceptance.rs"]
+#[path = "tests/account_departure_ffi_fixture.rs"]
+mod account_departure_ffi_fixture;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "tests/automatic_account_departure_acceptance.rs"]
+mod automatic_account_departure_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "tests/automatic_fresh_rejoin_acceptance.rs"]
 mod automatic_fresh_rejoin_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "tests/automatic_account_departure_rejoin_acceptance.rs"]
+mod automatic_account_departure_rejoin_acceptance;
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[test]
+fn delayed_higher_request_after_real_consent_renews_the_lower_original() {
+    crate::tests::run_composed_app_runtime_test("delayed-real-higher-request", || async {
+        Box::pin(actual::run_native_public_three_device_enrollment(
+            actual::ApprovalScenario::AutomaticDelayedRequestCollision,
+        ))
+        .await;
+    });
+}
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[test]
+fn pending_lower_request_recovers_after_higher_restarts_before_consent() {
+    crate::tests::run_composed_app_runtime_test("pending-real-lower-request", || async {
+        Box::pin(actual::run_native_public_three_device_enrollment(
+            actual::ApprovalScenario::AutomaticPendingRequestRestart,
+        ))
+        .await;
+    });
+}
+
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[test]
+fn actual_records_after_departure_cut_do_not_block_peer_consent() {
+    crate::tests::run_composed_app_runtime_test("records-cut-peer-consent", || async {
+        Box::pin(actual::run_native_public_three_device_enrollment(
+            actual::ApprovalScenario::AutomaticRecordsCutConsent,
+        ))
+        .await;
+    });
+}

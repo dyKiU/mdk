@@ -355,5 +355,74 @@
     "Final combined integration full required suites",
     "Generated foreign-language SDK qualification",
     "Installed three-device acceptance"
-  ]
+  ],
+  "fault_target_followup_2026_10_13": {
+    "date": "2026-10-13",
+    "base": "29dbd0b1067f25e003c408d4c0fc5f5c394d4c26",
+    "scope": "Test-only fault targeting; production authentication, routing and synchronization are unchanged.",
+    "cause": "Protected MLS source and epoch match multiple broadcast sibling controls. The one-shot injector claimed a control with a different channel nonce. Core authentication succeeded but exact channel routing correctly refused it.",
+    "red": {
+      "full_app": {
+        "passed": 2187,
+        "failed": 1,
+        "ignored": 7
+      },
+      "targeted_reproduced": true,
+      "diagnostic_counts": [
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        3,
+        255
+      ],
+      "interpretation": "One retained attempt, no Core authentication error, no matching-channel success: a different authenticated nonce was selected."
+    },
+    "fix": "Read-only Core authentication selects the exact channel nonce and peer before the existing AcqRel atomic claims the one-shot fault. The retained retry must independently authenticate the exact captured bytes on the same original; the acceptance test asserts that exact route.",
+    "validation": {
+      "component": {
+        "log": "/Users/pj/project/build/results/sibling-fault-scope-final-component.log",
+        "sha256": "5c5a238cdc55556530ae7a044c21bea8fc2f867db5824e70ac2ff3571ed0043c",
+        "results": [
+          {
+            "passed": 11,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      },
+      "repetitions": {
+        "log": "/Users/pj/project/build/results/sibling-fault-scope-final-repeats.log",
+        "sha256": "a2674960902d1d3f4dba853600b3ca8d01f09704a8815469ce317b16f3892a3a",
+        "results": [
+          {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          },
+          {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        ]
+      },
+      "source_sha256": {
+        "crates/marmot-app/src/client/device_linking/sibling_sharing.rs": "3a8ba2e60557989144f4eb512f65da03194b397cdb18bd29471e786679899f08",
+        "crates/marmot-app/src/native_device_linking/sibling_sharing_acceptance.rs": "d31adc605bfd6b8a275d174d6999dfdb4c5fb90ed24bb9e2b067bb074470bbd5"
+      }
+    },
+    "limits": [
+      "Full backend run failed and was interrupted after the failed App suite; it is not a completed qualification.",
+      "No SDK rebuild, artifact promotion or app deployment is established by this focused test-only slice.",
+      "Existing source checkout and MdkRecipientCollectionTargetM5 reused; no new worktrees."
+    ]
+  }
 }

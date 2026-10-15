@@ -277,6 +277,35 @@ impl SqliteAccountStorage {
         self.account_chat_source_origin_for_verdict(account, local_device, group, 2)
     }
 
+    /// Exact historical accepted/denied lineage observation. This is usable only
+    /// as a negative target check; it never restores an original or membership.
+    pub fn account_chat_source_origin_was_accepted(
+        &self,
+        account: &[u8; 32],
+        local_device: &[u8; 32],
+        group: &GroupId,
+        origin: cgka_traits::mirrored_chat_catalog::AcceptedChatOrigin,
+    ) -> StorageResult<bool> {
+        if !(1..=MAX_ACCOUNT_CHAT_SOURCE_ORIGINS as u64).contains(&origin.order) {
+            return Err(invalid());
+        }
+        let conn = self.lock()?;
+        crate::approved_account_sharing_policy::check_configured_owner(
+            &conn,
+            account,
+            local_device,
+        )?;
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM account_chat_source_origins o
+             WHERE o.group_id=?1 AND o.account=?2 AND o.local_device=?3
+               AND o.origin_id=?4 AND o.origin_order=?5 AND o.verdict IN(1,2)
+               AND (substr(o.origin,1,1)!=X'02' OR EXISTS(
+                 SELECT 1 FROM account_chat_legacy_acceptance_evidence e WHERE e.origin_id=o.origin_id)))",
+            params![group.as_slice(),account.as_slice(),local_device.as_slice(),origin.id.as_slice(),origin.order as i64],
+            |row|row.get(0),
+        ).storage()
+    }
+
     fn account_chat_source_origin_for_verdict(
         &self,
         account: &[u8; 32],
@@ -402,6 +431,43 @@ mod tests {
         );
         let second = read().unwrap();
         assert!(second.id != first.id && second.order > first.order);
+        assert!(
+            storage
+                .account_chat_source_origin_was_accepted(&[1; 32], &[2; 32], &group, first)
+                .unwrap()
+        );
+        assert!(
+            storage
+                .account_chat_source_origin_was_accepted(&[1; 32], &[2; 32], &group, second)
+                .unwrap()
+        );
+        assert!(
+            !storage
+                .account_chat_source_origin_was_accepted(
+                    &[1; 32],
+                    &[2; 32],
+                    &group,
+                    cgka_traits::mirrored_chat_catalog::AcceptedChatOrigin {
+                        id: [9; 32],
+                        order: first.order
+                    }
+                )
+                .unwrap()
+        );
+        assert!(
+            !storage
+                .account_chat_source_origin_was_accepted(
+                    &[1; 32],
+                    &[2; 32],
+                    &group,
+                    cgka_traits::mirrored_chat_catalog::AcceptedChatOrigin {
+                        id: first.id,
+                        order: 8192
+                    }
+                )
+                .unwrap()
+        );
+
         assert!(
             storage
                 .current_account_chat_source_origin(&[9; 32], &[2; 32], &group)

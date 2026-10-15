@@ -4627,7 +4627,7 @@ pub async fn acknowledge_packet( &self, acknowledgement_id: String, ) -> Result<
 
 Record successful transport delivery of the exact outgoing opaque acknowledgement ID. This clears the transport frame only and must never be interpreted as peer comparison, enrollment or synchronized history.
 
-[Source](src/commands/device_linking.rs#L109)
+[Source](src/commands/device_linking.rs#L140)
 
 ### `DeviceLinkingSession::cancel`
 
@@ -4637,7 +4637,7 @@ pub async fn cancel(&self) -> Result<(), MarmotKitError>
 
 Set exact negative session state before awaiting actor cleanup, independently of positive-operation locks. Await this when possible, close observation streams and discard stale callbacks; cleanup failure never restores permission.
 
-[Source](src/commands/device_linking.rs#L152)
+[Source](src/commands/device_linking.rs#L183)
 
 ### `DeviceLinkingSession::confirm_comparison`
 
@@ -4647,7 +4647,7 @@ pub async fn confirm_comparison(&self, displayed_revision: u64) -> Result<(), Ma
 
 Submit an explicit human comparison for the revision actually displayed. Stale revisions fail before SDK confirmation; both local confirmations and authenticated peer MACs are required. Never substitute a cached Boolean.
 
-[Source](src/commands/device_linking.rs#L120)
+[Source](src/commands/device_linking.rs#L151)
 
 ### `DeviceLinkingSession::continue_linking`
 
@@ -4657,7 +4657,7 @@ pub async fn continue_linking(&self, displayed_revision: u64) -> Result<(), Marm
 
 After genuine verification, feature builds accept revision-bound singleton continuation through the original actor-owned actions. Before verification or for gated existing-group enrollment, return typed NotReady. Default builds are Unsupported; no synchronized completion can be inferred from this operation.
 
-[Source](src/commands/device_linking.rs#L168)
+[Source](src/commands/device_linking.rs#L199)
 
 ### `DeviceLinkingSession::outgoing_packets`
 
@@ -4667,7 +4667,7 @@ pub async fn outgoing_packets( &self, ) -> Result<Vec<DeviceLinkingOutgoingPacke
 
 Read bounded SDK transport packets with opaque acknowledgement IDs. Deliver to the peer and acknowledge only transport progress; reading or acknowledging does not grant enrollment consent.
 
-[Source](src/commands/device_linking.rs#L93)
+[Source](src/commands/device_linking.rs#L124)
 
 ### `DeviceLinkingSession::receive_packet`
 
@@ -4677,7 +4677,7 @@ pub async fn receive_packet(&self, packet: Vec<u8>) -> Result<(), MarmotKitError
 
 Deliver bounded SDK offer/frame bytes to the original actor. The worker checks canonical codec, context binding and role; bytes cannot select a new purpose or construct consent.
 
-[Source](src/commands/device_linking.rs#L105)
+[Source](src/commands/device_linking.rs#L136)
 
 ### `DeviceLinkingSession::receive_setup_packet`
 
@@ -4687,7 +4687,7 @@ pub async fn receive_setup_packet(&self, packet: Vec<u8>) -> Result<(), MarmotKi
 
 Accept the approver challenge under this session's original recipient purpose. Invalid bounded metadata preserves the valid retry; host-supplied context, generation and proofs are not accepted.
 
-[Source](src/commands/device_linking.rs#L89)
+[Source](src/commands/device_linking.rs#L120)
 
 ### `DeviceLinkingSession::setup_packet`
 
@@ -4697,7 +4697,7 @@ pub fn setup_packet(&self) -> Vec<u8>
 
 Copy the bounded original setup metadata for the peer transport. Bytes contain no transferable live owner and cannot recreate a session after cancellation, expiry or restart; do not log them.
 
-[Source](src/commands/device_linking.rs#L85)
+[Source](src/commands/device_linking.rs#L116)
 
 ### `DeviceLinkingSession::snapshot`
 
@@ -4707,7 +4707,7 @@ pub async fn snapshot(&self) -> Result<DeviceLinkingSnapshotFfi, MarmotKitError>
 
 Observe phase, displayed revision and standard SAS decimals from the original SDK. Preserve the revision with the visible comparison; EnrollmentPending does not mean linked or synchronized.
 
-[Source](src/commands/device_linking.rs#L116)
+[Source](src/commands/device_linking.rs#L147)
 
 ### `DeviceLinkingSession::subscribe`
 
@@ -4717,7 +4717,7 @@ pub fn subscribe(&self) -> Arc<DeviceLinkingSubscription>
 
 Create a coalesced observation stream with an initial snapshot. Drive one receiver, explicitly close it when its UI scope ends, and separately cancel the session; the stream carries no verifier authority.
 
-[Source](src/commands/device_linking.rs#L124)
+[Source](src/commands/device_linking.rs#L155)
 
 ### `DeviceLinkingSubscription::close`
 
@@ -4725,9 +4725,9 @@ Create a coalesced observation stream with an initial snapshot. Drive one receiv
 pub fn close(&self)
 ```
 
-Close this observation stream and wake waiting reads. This is an independent negative observation control, not session cancellation; use the original session's cancel when ending verification.
+Close this observation stream and wake waiting reads. Swift/Kotlin expose this action as `closeStream()`; Kotlin's generated `close()` disposes the wrapper. The verification session remains independent; use its original cancel action to end verification.
 
-[Source](src/commands/device_linking.rs#L225)
+[Source](src/commands/device_linking.rs#L256)
 
 ### `DeviceLinkingSubscription::next`
 
@@ -4737,7 +4737,7 @@ pub async fn next(&self) -> Result<DeviceLinkingSnapshotFfi, MarmotKitError>
 
 Await the initial/coalesced observation with one active receiver. Explicit `close()` wakes pending reads with typed Closed; cancelled waits do not consume a future update. Session cancellation remains a separate operation.
 
-[Source](src/commands/device_linking.rs#L219)
+[Source](src/commands/device_linking.rs#L250)
 
 ### `Marmot::approve_device_linking_session`
 
@@ -4747,7 +4747,7 @@ pub async fn approve_device_linking_session( &self, account_ref: String, request
 
 Create the approver challenge from the recipient's bounded original setup request. Use `target=None` for singleton verification; existing-group targets remain gated. This action does not replace explicit SAS comparison or authorize enrollment.
 
-[Source](src/commands/device_linking.rs#L68)
+[Source](src/commands/device_linking.rs#L82)
 
 ### `Marmot::begin_device_linking_session`
 
@@ -4757,7 +4757,7 @@ pub async fn begin_device_linking_session( &self, account_ref: String, ) -> Resu
 
 Reserve the new device's original purpose in its serial worker and retain the returned opaque session in the account UI scope. Default builds return typed Unsupported before account effects; cancellation requires a fresh attempt rather than packet-based restoration.
 
-[Source](src/commands/device_linking.rs#L56)
+[Source](src/commands/device_linking.rs#L70)
 
 ### `Marmot::device_linking_capabilities`
 
@@ -4767,7 +4767,7 @@ pub fn device_linking_capabilities(&self) -> DeviceLinkingCapabilitiesFfi
 
 Read actual Rust support before presenting device verification. Default builds report verification false; enrollment remains false while full public three-device enrollment is gated; experimental singleton continuation does not imply chat/history delivery. See [device verification](DEVICE-LINKING.md).
 
-[Source](src/commands/device_linking.rs#L24)
+[Source](src/commands/device_linking.rs#L38)
 
 ### `DeviceLinkingApproval::approve`
 
@@ -4777,7 +4777,7 @@ pub async fn approve(&self, displayed_revision: u64) -> Result<(), MarmotKitErro
 
 **Current.** Explicit human approval of the revision actually displayed for this original existing-device action. Stale, expired or cancelled actions are refused; historical roster records cannot authorize this operation.
 
-[Source](src/commands/device_linking.rs#L186)
+[Source](src/commands/device_linking.rs#L217)
 
 ### `DeviceLinkingApproval::cancel`
 
@@ -4787,7 +4787,7 @@ pub async fn cancel(&self) -> Result<(), MarmotKitError>
 
 **Current.** Revoke this exact original existing-device action before waiting for worker cleanup. Prefer awaited cancellation when its account/UI scope ends; release all retained handles afterward.
 
-[Source](src/commands/device_linking.rs#L212)
+[Source](src/commands/device_linking.rs#L243)
 
 ### `DeviceLinkingApproval::receive_enrollment_packet`
 
@@ -4797,7 +4797,7 @@ pub async fn receive_enrollment_packet( &self, displayed_revision: u64, packet: 
 
 **Current.** Submit the approver’s bounded complete all-leaf packet under this original existing-device action and displayed revision. Rust authenticates the packet and stages the protected transition; successful receipt alone is not settlement.
 
-[Source](src/commands/device_linking.rs#L201)
+[Source](src/commands/device_linking.rs#L232)
 
 ### `Marmot::begin_selected_chat_copy`
 
@@ -4929,6 +4929,7 @@ Read display-only source progress, revision and sibling/consent/offer counts. In
 
 [Source](src/commands/selected_chat_copy.rs#L66)
 
+
 ### `DeviceLinkingApproval::review_metadata`
 
 ```rust
@@ -4937,7 +4938,7 @@ pub async fn review_metadata( &self, displayed_revision: u64, ) -> Result<crate:
 
 Read authenticated display metadata from this original pending approval at the displayed revision. The returned source and joining device signature keys and predecessor device count are observations, never enrollment permission. Stale revisions and non-pending phases are refused; read a fresh snapshot before explicitly approving.
 
-[Source](src/commands/device_linking.rs#L175)
+[Source](src/commands/device_linking.rs#L206)
 
 ### `DeviceLinkingApproval::snapshot`
 
@@ -4947,7 +4948,7 @@ pub async fn snapshot(&self) -> Result<DeviceLinkingApprovalSnapshotFfi, MarmotK
 
 **Current.** Read the sanitized revision and approval phase. Settled is a historical observation of actual protected completion; it grants no further positive action. Display the returned revision before requesting approval.
 
-[Source](src/commands/device_linking.rs#L182)
+[Source](src/commands/device_linking.rs#L213)
 
 ### `DeviceLinkingSession::enrollment_packet`
 
@@ -4957,7 +4958,7 @@ pub async fn enrollment_packet( &self, displayed_revision: u64, ) -> Result<Vec<
 
 **Current.** Export the complete bounded packet from the original approver session before its lease transfers into Add. Retry DeviceLinkingNotReady while genuine leaf approvals are incomplete; transfer bytes privately to the original recipient actions.
 
-[Source](src/commands/device_linking.rs#L130)
+[Source](src/commands/device_linking.rs#L161)
 
 ### `DeviceLinkingSession::finalize_linking`
 
@@ -4967,7 +4968,7 @@ pub async fn finalize_linking(&self, displayed_revision: u64) -> Result<(), Marm
 
 **Current.** Explicitly finalize the original approver session after recipients have handled its complete enrollment packet. The actor validates the displayed revision and original guarded action, then schedules Add/echo/Welcome and settlement; observe EnrollmentComplete separately.
 
-[Source](src/commands/device_linking.rs#L148)
+[Source](src/commands/device_linking.rs#L179)
 
 ### `DeviceLinkingSession::receive_enrollment_packet`
 
@@ -4977,7 +4978,7 @@ pub async fn receive_enrollment_packet( &self, displayed_revision: u64, packet: 
 
 **Current.** Deliver the complete bounded all-leaf packet to the original new-device session with its displayed revision. Rust validates the original purpose and packet; the host supplies no context, verifier proof or reconstructed permission.
 
-[Source](src/commands/device_linking.rs#L137)
+[Source](src/commands/device_linking.rs#L168)
 
 ### `Marmot::device_linking_targets`
 
@@ -4987,7 +4988,7 @@ pub async fn device_linking_targets( &self, account_ref: String, ) -> Result<Vec
 
 **Current.** Observe opaque selectors and device counts for actual completed protected groups on this ready account. Pass a selected selector to approve_device_linking_session; the actor freshly revalidates the tree. Default builds return Unsupported before account effects.
 
-[Source](src/commands/device_linking.rs#L28)
+[Source](src/commands/device_linking.rs#L42)
 
 ### `Marmot::pending_device_linking_approvals`
 
@@ -4997,7 +4998,7 @@ pub async fn pending_device_linking_approvals( &self, account_ref: String, ) -> 
 
 **Current.** Obtain shared opaque handles for original existing-device actions received on this account. Polls preserve the same action and original lifetime. Display snapshots and require explicit human approval; cancel/drop closes the exact action. Default builds return Unsupported before account effects.
 
-[Source](src/commands/device_linking.rs#L42)
+[Source](src/commands/device_linking.rs#L56)
 
 ### `HistoryConsent::approve`
 
@@ -5079,8 +5080,6 @@ Poll authenticated requests for this account without approving them. Retain an o
 
 [Source](src/commands/history_transfer.rs#L68)
 
-## Committed synchronized history
-
 ### `Marmot::synchronized_history_page`
 
 ```rust
@@ -5091,6 +5090,9 @@ Read a bounded committed logical archive separately from live conversation rows.
 
 [Source](src/commands/synchronized_history.rs#L8)
 
+<details>
+<summary>New exports — complete and organize before merging</summary>
+
 ### `Marmot::history_transfer_recipients`
 
 ```rust
@@ -5100,6 +5102,7 @@ pub async fn history_transfer_recipients( &self, account_ref: String, group_id_h
 Observe bounded current linked-recipient choices for an ordinary MLS chat. Each record has the actual protected-group leaf index and public device identity, excluding the local device. Listing creates no transfer or consent. Pass the selected device identity to `begin_history_transfer`, which independently revalidates eligibility. Default builds refuse before input parsing or account effects. See [the original-history contract](HISTORY-TRANSFER.md).
 
 [Source](src/commands/history_transfer.rs#L17)
+
 
 ### `AccountSharingApproval::approve`
 
@@ -5139,7 +5142,7 @@ pub async fn continue_linking_and_share_chats( &self, displayed_revision: u64, )
 
 Explicitly continue the original verified pairing while approving account-wide chat sharing with its authenticated peer. Display the existing/future-chat, history and messaging scope before invoking the named action. Ordinary continue_linking retains its narrower scope; use the displayed revision and handle stale/cancelled originals.
 
-[Source](src/commands/device_linking.rs#L158)
+[Source](src/commands/device_linking.rs#L189)
 
 ### `Marmot::account_chat_sharing_targets`
 
@@ -5299,7 +5302,7 @@ pub async fn approve_and_share_chats( &self, displayed_revision: u64, ) -> Resul
 
 Approve this exact original existing-device enrollment while authorizing existing and future chat sharing with the joining device. Use the revision actually displayed by this handle; ordinary approval cannot be upgraded retrospectively. Retain the same handle through packet admission and settlement. Cancellation immediately retires pending original work, and `Settled` is reported only after the durable bilateral handoff completes. This does not confer ordinary MLS membership or recreate an approval after restart.
 
-[Source](src/commands/device_linking.rs#L191)
+[Source](src/commands/device_linking.rs#L222)
 
 ### `DeviceRevocation::approve`
 
@@ -5340,5 +5343,63 @@ pub async fn begin_device_revocation( &self, account_ref: String, target_device:
 Create a fresh authenticated original review for an exact 32-byte device selector. Default builds refuse before account effects; explicit approval is separate. See [exact-device revocation](DEVICE-REVOCATION.md).
 
 [Source](src/commands/device_revocation.rs#L13)
+
+<details>
+<summary>New exports — complete and organize before merging</summary>
+
+</details>
+
+<details>
+<summary>Current fork sync and account controls</summary>
+
+### `Marmot::account_chat_departure_state`
+
+```rust
+pub async fn account_chat_departure_state( &self, account_ref: String, group_id_hex: String, ) -> Result<AccountChatDepartureStateFfi, MarmotKitError>
+```
+
+Read the account-wide departure state for this canonical chat, including a paired-only chat. Use this dedicated state rather than treating a mirrored row as local MLS membership. `Available` requires current authenticated source coverage; `Pending`, `NeedsAdministrator` and `Unavailable` retain their reason. Only `Completed` confirms actual ordinary removals and peer receipts. Treat the optional operation ID as an opaque observation; the runtime owns retries and durable progress. Without approved sharing this returns `Unavailable` with no device-only leave effect.
+
+[Source](src/commands/account_chat_departure.rs#L8)
+
+### `Marmot::leave_account_chat`
+
+```rust
+pub async fn leave_account_chat( &self, account_ref: String, group_id_hex: String, ) -> Result<AccountChatDepartureStateFfi, MarmotKitError>
+```
+
+Request account-wide departure using authenticated current source origins. Actual ordinary source devices publish standard SelfRemove; a paired-only caller never acquires ordinary membership. Present `Pending` honestly while sources are offline or removals await an administrator. Preserve actual-member management/last-administrator checks and explicit demotion journeys. Poll `account_chat_departure_state` for completion; normal sends are refused by `AccountChatDepartureDenied` after the negative intent. Use `leave_group` only for an explicitly device-local departure. Missing sharing/source coverage returns `Unavailable` without silently performing that alternative.
+
+[Source](src/commands/account_chat_departure.rs#L22)
+
+### `DeviceLinkingSession::automatic_pairing_code`
+
+```rust
+pub async fn automatic_pairing_code(&self) -> Result<String, MarmotKitError>
+```
+
+After adopting this exact original into the current host account/runtime scope, activate its encrypted relay transport. The initiating device displays the returned bounded WNPAIR1 bootstrap once; the scanner activates the same method but displays no response QR. This never confirms SAS comparison or enrollment. Cancellation, drop, account exit and the original ten-minute deadline retire the mailbox and ephemeral keys. See [automatic pairing](DEVICE-LINKING.md#one-scan-automatic-transport).
+
+[Source](src/commands/device_linking.rs#L100)
+
+### `DeviceLinkingSession::continue_automatic_linking`
+
+```rust
+pub async fn continue_automatic_linking( &self, displayed_revision: u64, share_chats: bool, ) -> Result<(), MarmotKitError>
+```
+
+After displaying the completed comparison snapshot and the exact sharing scope, submit the human enrollment choice using that displayed revision. Both devices still confirm comparison independently; existing protected devices approve their own genuine request. Packets, processing receipts and finalization proceed automatically under the retained original. True also explicitly approves sharing existing/future chats, history and messaging; false retains ordinary enrollment terms. No snapshot or received packet creates permission.
+
+[Source](src/commands/device_linking.rs#L105)
+
+### `Marmot::approve_automatic_device_linking_session`
+
+```rust
+pub async fn approve_automatic_device_linking_session( &self, account_ref: String, code: String, target: Option<Vec<u8>>, ) -> Result<Arc<DeviceLinkingSession>, MarmotKitError>
+```
+
+Use a single scanned compact WNPAIR1 bootstrap instead of manual setup and verifier packet exchange. The app-configured safe relay set is used, never a QR-supplied URL. This factory downloads authenticated encrypted setup, validates its digest and delegates to the original native factory. The returned original is paused: validate exact host account/runtime adoption before automatic_pairing_code activates its response. Default builds return Unsupported before account effects.
+
+[Source](src/commands/device_linking.rs#L24)
 
 </details>

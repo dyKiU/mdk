@@ -73,10 +73,23 @@ impl SiblingProjectionHeadProbe {
         ]
     }
 }
+// One negative observation of actual intake; weak identities never retain authority.
+#[cfg(all(test, feature = "test-policy-overrides"))]
+struct InjectedSiblingControl {
+    group: cgka_traits::GroupId,
+    source: cgka_traits::source_leaf::SourceLeafProof,
+    wire: zeroize::Zeroizing<Vec<u8>>,
+    original: std::sync::Weak<SiblingOriginal>,
+    state: std::sync::Weak<State>,
+    nonce: [u8; 32],
+    authenticated_kind: Option<&'static str>,
+}
 #[cfg(all(test, feature = "test-policy-overrides"))]
 #[derive(Default)]
 pub(crate) struct SiblingPreAuthFailureProbe {
     armed: AtomicBool,
+    injected_control: Mutex<Option<InjectedSiblingControl>>,
+    exact_authentication_routes: [std::sync::atomic::AtomicUsize; 2],
     failures: std::sync::atomic::AtomicUsize,
     authenticated_retries: std::sync::atomic::AtomicUsize,
     buffered: std::sync::atomic::AtomicUsize,
@@ -186,6 +199,85 @@ impl SiblingPreAuthFailureProbe {
             armed: AtomicBool::new(true),
             ..Self::default()
         }
+    }
+    fn capture_injected_control(
+        &self,
+        entry: &SiblingChannel,
+        group: &cgka_traits::GroupId,
+        source: &cgka_traits::source_leaf::SourceLeafProof,
+        wire: &[u8],
+    ) {
+        let mut captured = self
+            .injected_control
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if captured.is_none() && !wire.is_empty() && wire.len() <= 16 * 1024 {
+            *captured = Some(InjectedSiblingControl {
+                group: group.clone(),
+                source: source.clone(),
+                wire: zeroize::Zeroizing::new(wire.to_vec()),
+                original: Arc::downgrade(&entry.original),
+                state: Arc::downgrade(&entry.state),
+                nonce: entry.channel.scope().nonce,
+                authenticated_kind: None,
+            });
+        }
+    }
+    fn observe_exact_authentication(
+        &self,
+        entry: &SiblingChannel,
+        item: (
+            &cgka_traits::GroupId,
+            &cgka_traits::source_leaf::SourceLeafProof,
+            &[u8],
+        ),
+        received: &cgka_engine::account_chat_sharing::ReceivedAccountSharingControl,
+        retained_retry: bool,
+    ) {
+        use cgka_engine::account_chat_sharing::AccountSharingControl;
+        let mut captured = self
+            .injected_control
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let Some(captured) = captured.as_mut() else {
+            return;
+        };
+        if !entry.original.live()
+            || !entry.state.live()
+            || !captured.original.ptr_eq(&Arc::downgrade(&entry.original))
+            || !captured.state.ptr_eq(&Arc::downgrade(&entry.state))
+            || &captured.group != item.0
+            || &captured.source != item.1
+            || captured.wire.as_slice() != item.2
+            || captured.nonce != entry.channel.scope().nonce
+            || received.nonce != captured.nonce
+            || received.signer != entry.channel.scope().recipient
+        {
+            return;
+        }
+        captured.authenticated_kind = Some(match received.control {
+            AccountSharingControl::Request => "request",
+            AccountSharingControl::Consent => "consent",
+            AccountSharingControl::Body(_) => "body",
+        });
+        self.exact_authentication_routes[usize::from(retained_retry)]
+            .fetch_add(1, Ordering::AcqRel);
+    }
+    /// Exact injected-item Core successes by normal intake / retained retry.
+    pub(crate) fn authentication_routes_for_test(
+        &self,
+    ) -> ([usize; 2], Option<&'static str>, bool) {
+        let captured = self
+            .injected_control
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        (
+            std::array::from_fn(|index| {
+                self.exact_authentication_routes[index].load(Ordering::Acquire)
+            }),
+            captured.as_ref().and_then(|item| item.authenticated_kind),
+            captured.is_some(),
+        )
     }
     pub(crate) fn failures(&self) -> usize {
         self.failures.load(Ordering::Acquire)
@@ -570,10 +662,25 @@ impl AppClient {
                 continue;
             }
             if let Some(probe) = &entry.pre_auth_failure
-                && probe.armed.swap(false, Ordering::AcqRel)
+                && probe.armed.load(Ordering::Acquire)
             {
-                probe.failures.fetch_add(1, Ordering::AcqRel);
-                return Err(crate::AccountSharingError::NotReady);
+                // MLS delivery broadcasts controls for every sibling channel.
+                // Select the exact fault target through read-only Core authentication;
+                // a matching protected source alone can belong to another nonce.
+                // This test-only preflight grants no channel authority. The retained
+                // retry still authenticates the same bytes through the ordinary path.
+                let matches_channel = self
+                    .runtime
+                    .session()
+                    .authenticate_received_account_sharing_control(group, source, wire)
+                    .is_ok_and(|received| {
+                        received.nonce == scope.nonce && received.signer == scope.recipient
+                    });
+                if matches_channel && probe.armed.swap(false, Ordering::AcqRel) {
+                    probe.capture_injected_control(entry, group, source, wire);
+                    probe.failures.fetch_add(1, Ordering::AcqRel);
+                    return Err(crate::AccountSharingError::NotReady);
+                }
             }
         }
         #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -616,10 +723,25 @@ impl AppClient {
                 probe.core_retries.fetch_add(1, Ordering::AcqRel);
             }
         }
-        self.runtime
+        let result = self
+            .runtime
             .session()
             .authenticate_received_account_sharing_control(group, source, wire)
-            .map_err(|_| crate::AccountSharingError::NotReady)
+            .map_err(|_| crate::AccountSharingError::NotReady);
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Ok(received) = &result {
+            for entry in &self.linking_owner.sibling_channels {
+                if let Some(probe) = &entry.pre_auth_failure {
+                    probe.observe_exact_authentication(
+                        entry,
+                        (group, source, wire),
+                        received,
+                        false,
+                    );
+                }
+            }
+        }
+        result
     }
     /// Bounded negative observation under an existing B channel or actual C choice.
     /// No frame parsing or fresh owner construction; Core must authenticate it.
@@ -809,6 +931,12 @@ impl AppClient {
                             && probe.failures() > 0
                         {
                             probe.authenticated_retries.fetch_add(1, Ordering::AcqRel);
+                            probe.observe_exact_authentication(
+                                entry,
+                                (&item.group, &item.source, &item.wire),
+                                &received,
+                                true,
+                            );
                         }
                         // A downstream failure transfers to the bounded authenticated
                         // queue; no new approval or transport redelivery is needed.

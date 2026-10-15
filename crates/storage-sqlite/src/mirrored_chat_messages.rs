@@ -190,6 +190,7 @@ impl MirroredChatMessageStorage for SqliteAccountStorage {
             check_catalog(&conn, scope, &key, group)?;
             let mut changed = 0;
             for original in records {
+                if crate::account_chat_departure::account_chat_departure_denies_source_on_connection(&conn,&scope.account,&scope.local_device,group,&scope.source_device,original.accepted_origin)? {return Err(invalid());}
                 let matches: bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM mirrored_chat_live_catalog WHERE scope=?1 AND group_id=?2 AND origin_id IS ?3 AND origin_order IS ?4)",params![key,group.as_slice(),original.accepted_origin.map(|o|o.id.to_vec()),original.accepted_origin.map(|o|o.order as i64)],|r|r.get(0)).storage()?;
                 if !matches {return Err(invalid());}
                 let old = load(&conn, &key, group, &original.event_id)?;

@@ -1204,8 +1204,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn kills_and_reaps_a_worker_that_exceeds_its_timeout() {
-        let child = Command::new("sh")
-            .args(["-c", "sleep 2"])
+        // Exercise a direct worker, as the campaign does. Killing a shell can
+        // leave its sleep grandchild holding nextest's output pipe on Linux.
+        let child = Command::new("sleep")
+            .arg("2")
             .spawn()
             .expect("spawn sleeping child");
         let usage = wait_with_usage(child, Duration::from_millis(10)).expect("reap child");

@@ -59,7 +59,7 @@ impl AppClient {
         Ok(scopes)
     }
 
-    fn presentation_scope(
+    pub(super) fn presentation_scope(
         &self,
         policy: &ApprovedAccountSharingPolicy,
     ) -> Result<MirroredChatScope, AccountSharingError> {

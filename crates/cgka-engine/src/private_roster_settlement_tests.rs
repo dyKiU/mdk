@@ -116,6 +116,13 @@ async fn private_roster_settlement_completed_encrypted_reopen_preserves_roster_w
             == &expected
     );
     assert!(reopened.settlement_admission_for(&group).unwrap().is_none());
+    assert!(
+        reopened
+            .device_revocation_storage_retry_groups()
+            .unwrap()
+            .is_empty(),
+        "durable completed facts cannot restore a revoked retry owner"
+    );
     assert!(reopened.linking_welcome_policy.is_none());
     assert!(
         reopened.prepare_private_roster_ack(&group).await.is_err(),
@@ -2198,6 +2205,7 @@ impl crate::private_device_invite::PrivateInviteLease for LocalProposalLease {
 }
 
 enum LocalProposalOwnerControl {
+    Metadata,
     HandoffClocks,
     Retain,
     Reopen,
@@ -2284,6 +2292,24 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
     let mut proposal = result.unwrap();
     assert_eq!(proposal.original_deadline(), deadline);
     let binding = proposal.binding_digest().unwrap();
+    let metadata_tags = vec![vec!["transport".into(), "public-key".into()]];
+    if matches!(control, LocalProposalOwnerControl::Metadata) {
+        assert!(
+            a.set_owned_local_enrollment_metadata(&mut proposal, vec![vec!["x".repeat(2049)]])
+                .is_err()
+        );
+        assert!(
+            b.set_owned_local_enrollment_metadata(&mut proposal, metadata_tags.clone())
+                .is_err()
+        );
+        a.set_owned_local_enrollment_metadata(&mut proposal, metadata_tags.clone())
+            .unwrap();
+        assert_eq!(proposal.binding_digest().unwrap(), binding);
+        assert!(
+            a.set_owned_local_enrollment_metadata(&mut proposal, vec![vec!["different".into()]])
+                .is_err()
+        );
+    }
     assert!(
         b.wrap_private_enrollment_proposal(&mut proposal)
             .await
@@ -2356,6 +2382,11 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
         "actual encrypted proposal must reach the private opaque inlet"
     );
     assert_eq!(requests[0].binding_digest().unwrap(), binding);
+    if matches!(control, LocalProposalOwnerControl::Metadata) {
+        assert_eq!(requests[0].metadata_tags(), metadata_tags);
+        a.set_owned_local_enrollment_metadata(&mut proposal, metadata_tags.clone())
+            .unwrap();
+    }
     assert_eq!(
         requests[0].key_package_reference(),
         expected.key_package_reference
@@ -2372,7 +2403,9 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
     );
     if matches!(
         control,
-        LocalProposalOwnerControl::Retain | LocalProposalOwnerControl::HandoffClocks
+        LocalProposalOwnerControl::Retain
+            | LocalProposalOwnerControl::HandoffClocks
+            | LocalProposalOwnerControl::Metadata
     ) {
         let mut b_owned = b
             .endorse_private_enrollment_request(&requests[0], &artifact, &package, &[10; 32])
@@ -2587,6 +2620,11 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
 #[tokio::test]
 async fn private_enrollment_local_proposal_real_encryption_preserves_original_owner_and_retry() {
     exercise_local_enrollment_proposal(LocalProposalOwnerControl::Retain).await;
+}
+
+#[tokio::test]
+async fn private_enrollment_local_proposal_metadata_is_immutable_authenticated_and_not_authority() {
+    exercise_local_enrollment_proposal(LocalProposalOwnerControl::Metadata).await;
 }
 #[tokio::test]
 async fn private_enrollment_local_proposal_reopened_shared_policy_cannot_use_original_owner() {
@@ -2920,3 +2958,68 @@ async fn private_enrollment_local_proposal_handoff_preserves_original_lease_and_
 
 #[path = "private_enrollment_sharing_tests.rs"]
 mod sharing_endorsement;
+
+#[tokio::test]
+async fn revoked_successor_retry_scope_refuses_terminal_mismatch_expiry_and_cancellation() {
+    let (initiator, responder, group) =
+        complete_pair(SqliteAccountStorage::in_memory().unwrap()).await;
+    let mut round = responder
+        .storage
+        .private_roster_settlement_storage()
+        .unwrap()
+        .read_round()
+        .unwrap()
+        .unwrap();
+    // Predicate-only negative scope model based on a real joined/settled tree.
+    // These local copies are never installed in an Engine, written to SQL, or
+    // used to grant a revoked original. Genuine Revoked ownership is proved by
+    // the separate App confirmation-fault journey.
+    round.anchor.origin = cgka_traits::private_device_invite::PrivateInviteOrigin::Revoked(7);
+    round.phase = PrivateSettlementPhase::Pending;
+    let mut admission = LiveSettlementAdmission {
+        anchor: round.anchor.clone(),
+        generation: round.generation,
+        deadline: Instant::now() + Duration::from_secs(30),
+        cancelled: AtomicBool::new(false),
+        guard: None,
+    };
+    let matches =
+        crate::device_leaf_revocation::transition::pending_revoked_successor_round_matches;
+    assert!(matches(&admission, &round));
+    for phase in [
+        PrivateSettlementPhase::Denied,
+        PrivateSettlementPhase::Completed,
+    ] {
+        let mut terminal = round.clone();
+        terminal.phase = phase;
+        assert!(!matches(&admission, &terminal));
+    }
+    let mut mismatched = round.clone();
+    mismatched.generation += 1;
+    assert!(!matches(&admission, &mismatched));
+    mismatched = round.clone();
+    mismatched.anchor.context_digest[0] ^= 1;
+    assert!(!matches(&admission, &mismatched));
+    admission.cancel();
+    assert!(!matches(&admission, &round));
+    admission.cancelled.store(false, Ordering::SeqCst);
+    admission.deadline = Instant::now() - Duration::from_secs(1);
+    assert!(!matches(&admission, &round));
+    // Real durable completed facts and an invited owner's live metadata do not
+    // manufacture the missing Revoked in-memory capability.
+    assert!(
+        initiator
+            .device_revocation_storage_retry_groups()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        responder
+            .device_revocation_storage_retry_groups()
+            .unwrap()
+            .is_empty()
+    );
+    drop(initiator);
+    drop(responder);
+    let _ = group;
+}

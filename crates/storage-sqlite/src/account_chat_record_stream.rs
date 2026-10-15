@@ -511,6 +511,15 @@ policy_id=?1 AND group_id=?2 AND digest=?3",
             {
                 return Err(invalid());
             }
+            crate::mirrored_chat_catalog::check_owner(&conn, scope)?;
+            for record in &records {
+                if crate::account_chat_departure::account_chat_departure_denies_source_on_connection(
+                    &conn, &scope.account, &scope.local_device, group,
+                    &scope.source_device, record.accepted_origin,
+                )? {
+                    return Err(StorageError::MirroredRecordDeniedByDeparture);
+                }
+            }
             crate::mirrored_chat_messages::check_catalog(&conn, scope, &key, group)?;
             let old: Option<Vec<u8>> = conn
                 .query_row(

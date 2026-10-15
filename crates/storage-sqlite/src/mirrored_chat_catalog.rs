@@ -140,6 +140,11 @@ fn entry_bytes(scope: &MirroredChatScope, entry: &MirroredChatEntry) -> StorageR
         return Err(invalid());
     }
     validate_origin(entry.accepted_origin)?;
+    if entry.direct_peer_account.is_some_and(|peer| {
+        peer == [0; 32] || peer == scope.account || entry.state != MirroredChatState::Active
+    }) {
+        return Err(invalid());
+    }
     if entry
         .same_account_source_count
         .is_some_and(|n| !(1..=128).contains(&n))
@@ -235,14 +240,15 @@ impl MirroredChatCatalogStorage for SqliteAccountStorage {
                         continue;
                     }
                 }
+                if entry.state==MirroredChatState::Active && crate::account_chat_departure::account_chat_departure_denies_source_on_connection(&conn,&scope.account,&scope.local_device,&entry.group_id,&scope.source_device,entry.accepted_origin)? {continue;}
                 if !prepare_lineage(&conn,scope,entry)? {continue;}
                 if let Some(old)=previous {
                     if entry.source_sequence<old.source_sequence {continue;}
                     if old.state!=MirroredChatState::Active && entry.state!=old.state && !(old.state==MirroredChatState::Left && entry.state==MirroredChatState::Active && entry.accepted_origin.is_some_and(|b| old.accepted_origin.map_or(entry.source_epoch>old.source_epoch, |a| a.id!=b.id && b.order>a.order))) { return Err(conflict()); }
                     if entry.source_epoch<old.source_epoch { return Err(conflict()); }
-                    conn.execute("UPDATE mirrored_chat_catalog SET source_sequence=?3,state=?4,record=?5,origin_id=?6,origin_order=?7 WHERE scope=?1 AND group_id=?2",params![scope_key,entry.group_id.as_slice(),entry.source_sequence as i64,state_value(entry.state),body,entry.accepted_origin.map(|o|o.id.to_vec()),entry.accepted_origin.map(|o|o.order as i64)]).storage()?;
+                    conn.execute("UPDATE mirrored_chat_catalog SET source_sequence=?3,state=?4,record=?5,origin_id=?6,origin_order=?7,direct_peer=?8 WHERE scope=?1 AND group_id=?2",params![scope_key,entry.group_id.as_slice(),entry.source_sequence as i64,state_value(entry.state),body,entry.accepted_origin.map(|o|o.id.to_vec()),entry.accepted_origin.map(|o|o.order as i64),entry.direct_peer_account.map(|peer|peer.to_vec())]).storage()?;
                 } else {
-                    conn.execute("INSERT INTO mirrored_chat_catalog(scope,group_id,source_sequence,state,record,origin_id,origin_order) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![scope_key,entry.group_id.as_slice(),entry.source_sequence as i64,state_value(entry.state),body,entry.accepted_origin.map(|o|o.id.to_vec()),entry.accepted_origin.map(|o|o.order as i64)]).storage()?;
+                    conn.execute("INSERT INTO mirrored_chat_catalog(scope,group_id,source_sequence,state,record,origin_id,origin_order,direct_peer) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",params![scope_key,entry.group_id.as_slice(),entry.source_sequence as i64,state_value(entry.state),body,entry.accepted_origin.map(|o|o.id.to_vec()),entry.accepted_origin.map(|o|o.order as i64),entry.direct_peer_account.map(|peer|peer.to_vec())]).storage()?;
                 }
                 changed+=1;
             }

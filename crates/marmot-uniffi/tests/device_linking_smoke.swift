@@ -110,6 +110,14 @@ struct DeviceLinkingSmoke {
         } catch MarmotKitError.DeviceLinkingRuntimeUnavailable {
             precondition(caps.verificationSupported)
         }
+        do {
+            _ = try await kit.approveAutomaticDeviceLinkingSession(accountRef: "missing", code: "invalid", target: nil)
+            preconditionFailure("missing account must not create an automatic pairing")
+        } catch MarmotKitError.DeviceLinkingUnsupported {
+            precondition(!caps.verificationSupported)
+        } catch MarmotKitError.DeviceLinkingRuntimeUnavailable {
+            precondition(caps.verificationSupported)
+        }
         let accounts = try kit.listAccounts()
         for action in 0..<3 {
             do {

@@ -123,6 +123,60 @@ impl SqliteAccountStorage {
         .collect()
     }
 
+    /// Resolve a source-attested direct peer through the bounded current scope
+    /// set and peer index. This is a presentation route, never MLS membership.
+    pub fn mirrored_direct_conversation_observation(
+        &self,
+        scopes: &[MirroredChatScope],
+        peer: &[u8; 32],
+    ) -> StorageResult<Option<MirroredCatalogObservation>> {
+        let keys = eligible(scopes, 1)?;
+        if *peer == [0; 32] || scopes.first().is_some_and(|scope| scope.account == *peer) {
+            return Err(invalid());
+        }
+        let conn = self.lock()?;
+        for scope in scopes {
+            mirrored_chat_catalog::check_owner(&conn, scope)?;
+        }
+        if keys.is_empty() {
+            return Ok(None);
+        }
+        let (prefix, mut arguments) = selection(&keys);
+        arguments.push(Value::Blob(peer.to_vec()));
+        let sql = format!(
+            "{prefix} SELECT e.position,c.group_id,c.source_sequence,c.state,c.record
+             FROM eligible e JOIN mirrored_chat_catalog c INDEXED BY mirrored_catalog_direct_peer
+               ON c.scope=e.scope
+             WHERE c.direct_peer=? AND c.state=0
+               AND EXISTS(SELECT 1 FROM mirrored_chat_live_catalog live
+                 WHERE live.scope=c.scope AND live.group_id=c.group_id)
+               AND NOT EXISTS(SELECT 1 FROM cgka_groups g WHERE g.id=c.group_id)
+             ORDER BY c.group_id,c.scope LIMIT 1"
+        );
+        let mut statement = conn.prepare(&sql).storage()?;
+        let mut rows = statement.query(params_from_iter(arguments)).storage()?;
+        let Some(row) = rows.next().storage()? else {
+            return Ok(None);
+        };
+        let scope = scopes
+            .get(row.get::<_, i64>(0).storage()? as usize)
+            .ok_or_else(invalid)?;
+        let entry = mirrored_chat_catalog::decode_entry(
+            scope,
+            row.get(1).storage()?,
+            row.get(2).storage()?,
+            row.get(3).storage()?,
+            row.get(4).storage()?,
+        )?;
+        if entry.direct_peer_account != Some(*peer) {
+            return Err(invalid());
+        }
+        Ok(Some(MirroredCatalogObservation {
+            scope: scope.clone(),
+            entry,
+        }))
+    }
+
     /// Resolve one mirrored header without walking preceding catalogue pages.
     pub fn mirrored_catalog_observation(
         &self,

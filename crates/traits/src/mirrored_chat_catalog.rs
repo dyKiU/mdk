@@ -50,6 +50,10 @@ pub struct MirroredChatEntry {
     /// Actual same-account ordinary leaf count; observation only, never quorum authority.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub same_account_source_count: Option<u32>,
+    /// Source-attested direct peer account, for routing an existing conversation.
+    /// Absence is unknown, never permission to infer a peer or MLS membership.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_peer_account: Option<[u8; 32]>,
 }
 
 /// Optional storage of already authenticated observations. Core owns approval,

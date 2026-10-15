@@ -1083,6 +1083,11 @@ mod private_migration_0023_chat_source_acceptance;
 mod private_migration_0024_legacy_chat_acceptance;
 #[path = "private_migrations/0025_mirrored_chat_origins.rs"]
 mod private_migration_0025_mirrored_chat_origins;
+#[path = "private_migrations/0026_account_chat_departure.rs"]
+mod private_migration_0026_account_chat_departure;
+
+#[path = "private_migrations/0027_mirrored_direct_peer.rs"]
+mod private_migration_0027_mirrored_direct_peer;
 
 const PRIVATE_MIGRATIONS: &[Migration] = &[
     Migration {
@@ -1234,6 +1239,16 @@ const PRIVATE_MIGRATIONS: &[Migration] = &[
         name: "0025_mirrored_chat_origins",
         suspend_foreign_keys: &[],
         apply: private_migration_0025_mirrored_chat_origins::apply,
+    },
+    Migration {
+        version: 26,
+        name: "0026_account_chat_departure",
+        apply: private_migration_0026_account_chat_departure::apply,
+    },
+    Migration {
+        version: 27,
+        name: "0027_mirrored_direct_peer",
+        apply: private_migration_0027_mirrored_direct_peer::apply,
     },
 ];
 

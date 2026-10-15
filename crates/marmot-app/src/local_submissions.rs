@@ -294,6 +294,8 @@ impl MarmotApp {
         );
         let request_hash = request_hash.finalize().to_vec();
         let result = StorageProvider::with_transaction(&storage, |storage| {
+            #[cfg(feature = "experimental-device-sync")]
+            self.ensure_local_chat_not_account_departed(&account.label, group)?;
             if let Some(existing) = storage.local_submission(&group_hex, &token)? {
                 if existing.request_hash != request_hash {
                     return Err(AppError::InvalidAppMessagePayload(

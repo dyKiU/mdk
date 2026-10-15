@@ -544,6 +544,16 @@ device approvals have a separate phase enum and report `Settled`. The shared
 contract explains revision-bound packet handling and finalization. Positive
 actions close after settlement; historical completion is not chat/history sync.
 
+For one-scan enrollment, `marmot_approve_automatic_device_linking_session`
+accepts bounded UTF-8 bootstrap bytes. After exact host adoption,
+`marmot_device_linking_session_automatic_pairing_code` activates the retained
+original and returns owned UTF-8 bytes, freed with `marmot_device_linking_bytes_free`.
+Only the initiating host displays that bootstrap. The blocking
+`marmot_device_linking_session_continue_automatic_linking` submits the displayed
+revision and explicit sharing choice. Keep visual comparison and sibling approvals;
+see [shared one-scan semantics](../marmot-uniffi/DEVICE-LINKING.md#one-scan-automatic-transport).
+
+
 ## Selected-chat copies
 
 The [shared selected-chat contract](../marmot-uniffi/SELECTED-CHAT-COPY.md)
@@ -619,6 +629,18 @@ deep frees; their device buffers and target entries belong to those roots.
 Approval calls are blocking and callback-safe. Status values 146–150 append
 account-sharing errors without renumbering existing values. No observation DTO
 or list entry grants approval.
+
+### Account-wide chat departure
+
+Use `marmot_account_chat_departure_state` and `marmot_leave_account_chat` for
+ordinary or paired-only chats, following the shared method contract. Pending
+sources or administrator requirements do not mean remote MLS leaves were
+removed. Results own their optional operation string and have a matching
+state deep-free; inputs remain borrowed. Required outputs are cleared before
+effects. `marmot_leave_group` retains explicitly device-local semantics.
+Status158 appends the typed account-departure send denial without changing
+121–132. Missing sharing/coverage returns an unavailable business state with
+no fallback device leave.
 
 ## Account chat views
 

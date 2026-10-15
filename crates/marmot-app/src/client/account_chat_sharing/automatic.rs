@@ -1,8 +1,25 @@
 //! Fresh scheduling from durable explicit policy. Stored facts do not restore keys.
 use super::*;
 #[cfg(all(test, feature = "test-policy-overrides"))]
+pub(super) mod consent_delivery_probe;
+mod departure;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(super) mod departure_replay_probe;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[path = "automatic/tests/diagnostics.rs"]
 pub(super) mod diagnostics;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(super) mod duplicate_departure_probe;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[path = "automatic/tests/pending_restart_acceptance.rs"]
+mod pending_restart_acceptance;
 mod records;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[path = "../sync/tests/records_cut_acceptance.rs"]
+pub(super) mod records_cut_acceptance;
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[path = "automatic/tests/restart_acceptance.rs"]
+mod restart_acceptance;
 mod sends;
 use crate::account_chat_sharing::enabled::OriginalLease;
 use base64::Engine as _;
@@ -63,6 +80,7 @@ pub(crate) struct AutomaticChannel {
     recipient: bool,
     ready: bool,
     handshake_published: bool,
+    handshake_published_at: Option<std::time::Instant>,
     pending: VecDeque<PendingBody>,
     next_body: u64,
     cursor: Option<crate::GroupId>,
@@ -72,9 +90,19 @@ pub(crate) struct AutomaticChannel {
     pending_catalog: Option<PendingCatalog>,
     records: records::RecordProgress,
     sends: sends::SendProgress,
+    departures: departure::DepartureProgress,
     renew: bool,
 }
 impl AutomaticChannel {
+    fn pending_canonical_request_expired(&self) -> bool {
+        !self.recipient
+            && !self.ready
+            && self.policy.local_device < self.policy.peer_device
+            && self
+                .handshake_published_at
+                .is_some_and(|published| published.elapsed() >= std::time::Duration::from_secs(10))
+    }
+
     fn take_catalog_progress(&mut self) -> CatalogProgress {
         CatalogProgress {
             generation: self.channel.scope().local_generation,
@@ -190,7 +218,7 @@ impl AppClient {
                     old.is_some_and(|old| incoming.source_epoch >= old.source_epoch)
                 )))
             },
-            |line| eprintln!("{line}, owner={owner}"),
+            |line| diagnostics::emit(line, owner),
         );
         seen.insert(key);
     }
@@ -202,6 +230,18 @@ impl AppClient {
         diagnostics::trace_root(root, owner)
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn test_label_account_chat_peers(
+        root: &std::path::Path,
+        peers: &[([u8; 32], &'static str)],
+    ) {
+        diagnostics::label_peers(root, peers);
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    fn test_trace_automatic_peer_stage(&self, stage: &'static str, device: &[u8], category: &str) {
+        let peer = diagnostics::peer(self.app.account_home().root(), device);
+        self.test_trace_catalog_stage(stage, &format!("{category}, peer={peer}"), None);
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     fn test_trace_automatic_progress(
         &self,
         stage: &'static str,
@@ -209,9 +249,12 @@ impl AppClient {
         outcome: &str,
     ) {
         let summary = format!(
-            "{outcome}, ready={}, recipient_channel={}, pending_bodies={}, pending_catalog={}, pending_records={}, sent_groups={}, catalog_cursor={}, renew={}, {}",
+            "{outcome}, ready={}, handshake_published={}, recipient_channel={}, local_is_lower={}, departure_pending={}, pending_bodies={}, pending_catalog={}, pending_records={}, sent_groups={}, catalog_cursor={}, renew={}, {}",
             entry.ready,
+            entry.handshake_published,
             entry.recipient,
+            entry.policy.local_device < entry.policy.peer_device,
+            entry.departures.test_has_pending(),
             entry.pending.len(),
             entry.pending_catalog.is_some(),
             entry.records.has_pending(),
@@ -220,7 +263,47 @@ impl AppClient {
             entry.renew,
             entry.records.test_progress()
         );
-        self.test_trace_catalog_stage(stage, &summary, None);
+        self.test_trace_automatic_peer_stage(stage, &entry.policy.peer_device, &summary);
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn test_capture_automatic_consent_delivery(
+        account: [u8; 32],
+        group: crate::GroupId,
+        roots: [&std::path::Path; 3],
+        devices: [[u8; 32]; 3],
+    ) -> std::sync::Arc<consent_delivery_probe::ConsentDeliveryProbe> {
+        consent_delivery_probe::arm(
+            account,
+            group,
+            std::array::from_fn(|index| consent_delivery_probe::Peer {
+                root: roots[index].to_path_buf(),
+                device: devices[index],
+            }),
+        )
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn test_observe_automatic_consent_raw(
+        &self,
+        message: &cgka_traits::TransportMessage,
+    ) {
+        consent_delivery_probe::raw_received(
+            self.app.account_home().root(),
+            &message.id,
+            Sha256::digest(&message.payload).into(),
+        );
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn test_consent_outcome(
+        result: &Result<(), AccountSharingError>,
+    ) -> consent_delivery_probe::Outcome {
+        use consent_delivery_probe::Outcome;
+        match result {
+            Ok(()) => Outcome::Success,
+            Err(AccountSharingError::NotReady) => Outcome::NotReady,
+            Err(AccountSharingError::Closed) => Outcome::Closed,
+            Err(AccountSharingError::RuntimeUnavailable) => Outcome::RuntimeUnavailable,
+            Err(_) => Outcome::Refused,
+        }
     }
     fn automatic_policy_id(
         policy: &ApprovedAccountSharingPolicy,
@@ -254,7 +337,16 @@ impl AppClient {
             .runtime
             .session()
             .account_chat_sharing_targets(&policy.protected_group)
-            .map_err(|_| AccountSharingError::Closed)?;
+            .map_err(|error| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_automatic_peer_stage(
+                    "automatic_policy_core_targets",
+                    &policy.peer_device,
+                    error.privacy_safe_kind(),
+                );
+                let _ = error;
+                AccountSharingError::Closed
+            })?;
         if current.protected_epoch < policy.approved_protected_epoch
             || !current
                 .targets
@@ -284,17 +376,40 @@ impl AppClient {
         wire: &[u8],
     ) -> Result<bool, AccountSharingError> {
         if received.control == AccountSharingControl::Request {
-            let Ok(request) = self
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_automatic_peer_stage(
+                "automatic_request_received",
+                &received.source,
+                "outer_core_authenticated",
+            );
+            let authentication = self
                 .runtime
                 .session()
-                .authenticate_account_sharing_request(wire)
-            else {
+                .authenticate_account_sharing_request(wire);
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_automatic_peer_stage(
+                "automatic_request_core_auth",
+                &received.source,
+                authentication
+                    .as_ref()
+                    .err()
+                    .map(|error| error.privacy_safe_kind())
+                    .unwrap_or("authenticated"),
+            );
+            let Ok(request) = authentication else {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_catalog_stage("automatic_request_authentication", "refused", None);
                 return Ok(false);
             };
-            let storage = self
-                .app
-                .account_storage(&self.state.label)
-                .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+            let storage = self.app.account_storage(&self.state.label).map_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_automatic_peer_stage(
+                    "automatic_request_policy_storage",
+                    &received.signer,
+                    "runtime_unavailable",
+                );
+                AccountSharingError::RuntimeUnavailable
+            })?;
             let Some(store) = storage.approved_account_sharing_policy_storage() else {
                 return Ok(false);
             };
@@ -312,15 +427,71 @@ impl AppClient {
                             == Some(request.scope().approved_policy_identity)
                 });
             let Some(policy) = matching else {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_automatic_peer_stage(
+                    "automatic_request_policy",
+                    &received.signer,
+                    "no_match",
+                );
                 return Ok(false);
             };
-            self.automatic_policy_current(&policy)?;
+            let current = self.automatic_policy_current(&policy);
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_automatic_peer_stage(
+                "automatic_request_current_policy",
+                &policy.peer_device,
+                current
+                    .as_ref()
+                    .err()
+                    .map(diagnostics::sharing_category)
+                    .unwrap_or("current"),
+            );
+            current?;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_automatic_peer_stage(
+                "automatic_request_policy",
+                &policy.peer_device,
+                if policy.local_device < policy.peer_device {
+                    "higher_request_authenticated"
+                } else {
+                    "lower_request_authenticated"
+                },
+            );
             let id = Self::automatic_policy_id(&policy)?;
+            if policy.local_device < policy.peer_device {
+                // An authenticated higher-device request is a restart signal,
+                // never consent for its noncanonical direction. A live lower
+                // pending request wins; otherwise begin a fresh lower original.
+                // This also handles a delayed losing request after Consent.
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                let peer_device = policy.peer_device;
+                let restart = self.ensure_canonical_automatic_initiator(policy);
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.test_trace_automatic_peer_stage(
+                    "automatic_request_canonical_restart",
+                    &peer_device,
+                    restart
+                        .as_ref()
+                        .err()
+                        .map(diagnostics::sharing_category)
+                        .unwrap_or("ok"),
+                );
+                restart?;
+                return Ok(true);
+            }
             if self
                 .account_sharing_owner
                 .automatic
                 .get(&id)
-                .is_some_and(|entry| entry.channel.scope().nonce == received.nonce)
+                .is_some_and(|entry| {
+                    entry.channel.scope().nonce == received.nonce
+                        && entry.original.live()
+                        && self
+                            .runtime
+                            .session()
+                            .validate_account_sharing_channel(&entry.channel)
+                            .is_ok()
+                })
             {
                 return Ok(true);
             }
@@ -347,6 +518,7 @@ impl AppClient {
                     recipient: true,
                     ready: false,
                     handshake_published: false,
+                    handshake_published_at: None,
                     pending: VecDeque::new(),
                     next_body: 0,
                     cursor: None,
@@ -356,6 +528,7 @@ impl AppClient {
                     pending_catalog: None,
                     records: records::RecordProgress::default(),
                     sends: sends::SendProgress::default(),
+                    departures: departure::DepartureProgress::default(),
                     renew: false,
                 },
             );
@@ -374,7 +547,11 @@ impl AppClient {
             .map(|(id, _)| *id);
         let Some(id) = id else {
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            self.test_trace_catalog_stage("automatic_dispatch", "no_nonce_match", None);
+            self.test_trace_automatic_peer_stage(
+                "automatic_dispatch",
+                &received.signer,
+                "no_nonce_match",
+            );
             return Ok(false);
         };
         let mut entry = self
@@ -384,6 +561,12 @@ impl AppClient {
             .expect("found automatic channel");
         #[cfg(all(test, feature = "test-policy-overrides"))]
         self.test_trace_automatic_progress("dispatch_before", &entry, "matched");
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        consent_delivery_probe::automatic_matched(
+            self.app.account_home().root(),
+            received,
+            Sha256::digest(wire).into(),
+        );
         let result = (|| {
             self.automatic_policy_current(&entry.policy)?;
             if received.control == AccountSharingControl::Consent && !entry.recipient {
@@ -392,6 +575,12 @@ impl AppClient {
                     .bind_account_sharing_consent(&mut entry.channel, wire)
                     .map_err(|_| AccountSharingError::NotReady)?;
                 entry.ready = true;
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                consent_delivery_probe::consent_bound(
+                    self.app.account_home().root(),
+                    received,
+                    Sha256::digest(wire).into(),
+                );
             } else if matches!(received.control, AccountSharingControl::Body(_)) && entry.ready {
                 let (kind, _, body) = self
                     .runtime
@@ -426,11 +615,35 @@ impl AppClient {
                     AccountSharedBodyKind::SendReceipt => {
                         self.accept_automatic_send_receipt(&mut entry, &body)?
                     }
+                    AccountSharedBodyKind::DepartureIntent
+                    | AccountSharedBodyKind::DepartureReceipt => {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        self.test_trace_automatic_progress(
+                            "departure_body_core_opened",
+                            &entry,
+                            if kind == AccountSharedBodyKind::DepartureIntent {
+                                "intent"
+                            } else {
+                                "receipt"
+                            },
+                        );
+                        self.accept_automatic_departure(&mut entry, kind, &body)?;
+                    }
                     _ => return Err(AccountSharingError::NotReady),
                 }
             }
             Ok(true)
         })();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_trace_automatic_progress(
+            "dispatch_after",
+            &entry,
+            result
+                .as_ref()
+                .err()
+                .map(diagnostics::sharing_category)
+                .unwrap_or("ok"),
+        );
         self.account_sharing_owner.automatic.insert(id, entry);
         result
     }
@@ -715,6 +928,18 @@ impl AppClient {
                 self.account_sharing_owner.entries.insert(nonce, entry);
                 continue;
             }
+            if policy.local_device < policy.peer_device {
+                // The early request was authenticated under its still-live
+                // original, but actual policy completion does not make its
+                // noncanonical direction the automatic channel owner.
+                match self.ensure_canonical_automatic_initiator(policy) {
+                    Ok(()) => old.cancel(),
+                    Err(_) => {
+                        self.account_sharing_owner.entries.insert(nonce, entry);
+                    }
+                }
+                continue;
+            }
             let original = State::new_until(
                 &self.account_sharing_owner.lifetime,
                 policy.approval_id,
@@ -745,6 +970,7 @@ impl AppClient {
                     recipient: true,
                     ready: false,
                     handshake_published: false,
+                    handshake_published_at: None,
                     pending: VecDeque::new(),
                     next_body: 0,
                     cursor: None,
@@ -754,11 +980,68 @@ impl AppClient {
                     pending_catalog: None,
                     records: records::RecordProgress::default(),
                     sends: sends::SendProgress::default(),
+                    departures: departure::DepartureProgress::default(),
                     renew: false,
                 },
             );
         }
         Ok(())
+    }
+    fn ensure_canonical_automatic_initiator(
+        &mut self,
+        policy: ApprovedAccountSharingPolicy,
+    ) -> Result<(), AccountSharingError> {
+        self.automatic_policy_current(&policy)?;
+        let id = Self::automatic_policy_id(&policy)?;
+        if self
+            .account_sharing_owner
+            .automatic
+            .get(&id)
+            .is_some_and(|entry| {
+                !entry.recipient
+                    && !entry.ready
+                    && !entry.renew
+                    && !entry.pending_canonical_request_expired()
+                    && entry.original.live()
+                    && self
+                        .runtime
+                        .session()
+                        .validate_account_sharing_channel(&entry.channel)
+                        .is_ok()
+            })
+        {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.test_trace_automatic_progress(
+                "canonical_restart_signal",
+                self.account_sharing_owner.automatic.get(&id).unwrap(),
+                "retained_live_pending_lower",
+            );
+            return Ok(());
+        }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.test_trace_catalog_stage("canonical_restart_signal", "begin_fresh_lower", None);
+        let mut previous = self.account_sharing_owner.automatic.remove(&id);
+        let progress = previous
+            .as_mut()
+            .map(AutomaticChannel::take_catalog_progress);
+        match self.begin_automatic_channel(policy, progress) {
+            Ok(()) => {
+                // Fresh begin owns an independent actual Core lease before the
+                // previous one is retired. No old lease/deadline is extended.
+                drop(previous);
+                Ok(())
+            }
+            Err(error) => {
+                if let Some(mut previous) = previous {
+                    // A transient failure must not consume the only restart
+                    // observation. Usual maintenance retries the same negative
+                    // renewal; the original's lifetime remains unchanged.
+                    previous.renew = true;
+                    self.account_sharing_owner.automatic.insert(id, previous);
+                }
+                Err(error)
+            }
+        }
     }
     fn begin_automatic_channel(
         &mut self,
@@ -789,6 +1072,7 @@ impl AppClient {
                 recipient: false,
                 ready: false,
                 handshake_published: false,
+                handshake_published_at: None,
                 pending: VecDeque::new(),
                 next_body: 0,
                 cursor: None,
@@ -798,6 +1082,7 @@ impl AppClient {
                 pending_catalog: None,
                 records: records::RecordProgress::default(),
                 sends: sends::SendProgress::default(),
+                departures: departure::DepartureProgress::default(),
                 renew: false,
             },
         );
@@ -862,6 +1147,7 @@ impl AppClient {
         let policies = store
             .approved_account_sharing_policies()
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+
         #[cfg(all(test, feature = "test-policy-overrides"))]
         self.test_trace_catalog_stage(
             "maintain_begin",
@@ -881,6 +1167,15 @@ impl AppClient {
                     None,
                 );
             })?;
+
+        let current: Vec<_> = policies
+            .iter()
+            .filter(|policy| self.automatic_policy_current(policy).is_ok())
+            .cloned()
+            .collect();
+        self.maintain_local_account_chat_departures(&current)
+            .await?;
+
         for policy in policies {
             let id = Self::automatic_policy_id(&policy)?;
             if self.automatic_policy_current(&policy).is_err() {
@@ -888,6 +1183,27 @@ impl AppClient {
                     self.notify_mirrored_presentation_changed();
                 }
                 continue;
+            }
+            let retry_canonical =
+                self.account_sharing_owner
+                    .automatic
+                    .get(&id)
+                    .is_some_and(|entry| {
+                        entry.policy.local_device < entry.policy.peer_device
+                            && (entry.renew || entry.pending_canonical_request_expired())
+                            && entry.original.live()
+                            && self
+                                .runtime
+                                .session()
+                                .validate_account_sharing_channel(&entry.channel)
+                                .is_ok()
+                    });
+            if retry_canonical {
+                // An acknowledged publication is not a peer Consent. Re-enter
+                // normal fresh Core begin after a bounded unanswered request,
+                // keeping the old owner alive until new begin succeeds. Its
+                // lease/deadline and any observed permission remain unchanged.
+                self.ensure_canonical_automatic_initiator(policy.clone())?;
             }
             let retired = self
                 .account_sharing_owner
@@ -904,14 +1220,10 @@ impl AppClient {
                         || entry.renew
                 });
             let mut progress = None;
-            let mut budget_renewal = false;
             if retired && let Some(mut old) = self.account_sharing_owner.automatic.remove(&id) {
-                budget_renewal = old.renew || old.next_body >= CHANNEL_BODY_BUDGET;
                 progress = Some(old.take_catalog_progress());
             }
-            if !self.account_sharing_owner.automatic.contains_key(&id)
-                && (policy.local_device < policy.peer_device || budget_renewal)
-            {
+            if !self.account_sharing_owner.automatic.contains_key(&id) {
                 self.begin_automatic_channel(policy, progress)?;
             }
         }
@@ -958,12 +1270,17 @@ impl AppClient {
             };
             self.publish_automatic_control(entry, kind).await?;
             entry.handshake_published = true;
+            entry.handshake_published_at = Some(std::time::Instant::now());
             if entry.recipient {
                 entry.ready = true;
             }
             return Ok(());
         }
         if !entry.ready {
+            return Ok(());
+        }
+        self.retry_automatic_departure(entry)?;
+        if entry.renew {
             return Ok(());
         }
         if let Some(pending) = &entry.pending_catalog
@@ -992,6 +1309,9 @@ impl AppClient {
             return Ok(());
         }
         if entry.pending.is_empty() {
+            self.prepare_automatic_departure(entry)?;
+        }
+        if entry.pending.is_empty() {
             self.prepare_automatic_sends(entry).await?;
         }
         if entry.pending.is_empty()
@@ -1017,6 +1337,10 @@ impl AppClient {
             entry.renew = true;
             return Ok(());
         }
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if self.automatic_departure_reply_held(entry)? {
+            return Ok(());
+        }
         let Some(body) = entry.pending.front() else {
             return Ok(());
         };
@@ -1036,6 +1360,7 @@ impl AppClient {
         }
         self.automatic_record_mark_published(entry);
         self.automatic_send_mark_published(entry);
+        self.automatic_departure_mark_published(entry)?;
         Ok(())
     }
     fn prepare_automatic_catalog(
@@ -1166,6 +1491,7 @@ impl AppClient {
             accepted_origin,
 
             same_account_source_count,
+            direct_peer_account: None,
         };
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if self.test_uses_legacy_account_chat_encoding() {
@@ -1267,6 +1593,8 @@ impl AppClient {
             .wrap_account_sharing_control(&mut entry.channel, kind)
             .await
             .map_err(|_| AccountSharingError::NotReady)?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let input_payload_digest: [u8; 32] = Sha256::digest(&message.payload).into();
         let evidence = self
             .runtime
             .session()
@@ -1315,7 +1643,28 @@ impl AppClient {
             }
         };
         let publication_deadline = self.automatic_record_publication_deadline(entry)?;
-        tokio::select! {biased;()=stopping=>return Err(AccountSharingError::Closed),()=&mut revoked=>return Err(AccountSharingError::Closed),()=tokio::time::sleep_until(publication_deadline.into())=>{entry.renew=true;return Err(AccountSharingError::Closed)},report=self.adapter.publish_selected_chat(request)=>{if !report.map_err(|_|AccountSharingError::RuntimeUnavailable)?.met_required_acks(){return Err(AccountSharingError::NotReady)}}}
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if matches!(kind, AccountSharingControl::Consent)
+            && let (Some(content_id), Some(inner_wire_sha256)) = (
+                entry.channel.outbound_content_id_for_test(kind),
+                entry.channel.outbound_control_wire_digest_for_test(kind),
+            )
+        {
+            consent_delivery_probe::prepared(
+                self.app.account_home().root(),
+                &consent_delivery_probe::PreparedConsent {
+                    account: entry.policy.account,
+                    protected_group: entry.policy.protected_group.clone(),
+                    local_device: entry.policy.local_device,
+                    peer_device: entry.policy.peer_device,
+                    nonce: entry.channel.scope().nonce,
+                    content_id,
+                    input_outer_payload_sha256: input_payload_digest,
+                    inner_wire_sha256,
+                },
+            );
+        }
+        let _publication = tokio::select! {biased;()=stopping=>return Err(AccountSharingError::Closed),()=&mut revoked=>return Err(AccountSharingError::Closed),()=tokio::time::sleep_until(publication_deadline.into())=>{entry.renew=true;return Err(AccountSharingError::Closed)},report=self.adapter.publish_selected_chat(request)=>{let report=report.map_err(|_|AccountSharingError::RuntimeUnavailable)?;if !report.met_required_acks(){return Err(AccountSharingError::NotReady)} report}};
         self.automatic_policy_current(&entry.policy)?;
         if !self.automatic_record_publication_current(entry)? {
             return Err(AccountSharingError::Closed);
@@ -1324,5 +1673,29 @@ impl AppClient {
             .session()
             .validate_account_sharing_channel(&entry.channel)
             .map_err(|_| AccountSharingError::Closed)
+            .inspect(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                if matches!(kind, AccountSharingControl::Consent)
+                    && let (Some(content_id), Some(inner_wire_sha256)) = (
+                        entry.channel.outbound_content_id_for_test(kind),
+                        entry.channel.outbound_control_wire_digest_for_test(kind),
+                    )
+                {
+                    consent_delivery_probe::published(
+                        self.app.account_home().root(),
+                        &consent_delivery_probe::Publication {
+                            account: entry.policy.account,
+                            protected_group: entry.policy.protected_group.clone(),
+                            local_device: entry.policy.local_device,
+                            peer_device: entry.policy.peer_device,
+                            nonce: entry.channel.scope().nonce,
+                            content_id,
+                            outer_id: _publication.message_id.clone(),
+                            input_outer_payload_sha256: input_payload_digest,
+                            inner_wire_sha256,
+                        },
+                    );
+                }
+            })
     }
 }

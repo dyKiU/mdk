@@ -13,7 +13,7 @@ mod publication;
 mod sibling_sharing;
 
 const MAX_PART_BYTES: usize = 16 * 1024;
-struct ValidatedProposalParts {
+pub(super) struct ValidatedProposalParts {
     artifact: Vec<u8>,
     package: KeyPackage,
     context_digest: [u8; 32],
@@ -283,7 +283,7 @@ impl AppClient {
         let request = selected.ok_or_else(rejected)?;
         let parts = self.authenticate_received_enrollment_proposal(request)?;
         let deadline = request.observed_deadline();
-        let owned = if share_chats {
+        let mut owned = if share_chats {
             self.runtime
                 .session()
                 .endorse_private_enrollment_request_and_share_chats(
@@ -301,6 +301,14 @@ impl AppClient {
             )
         }
         .map_err(ClientLinkingError::Engine)?;
+        if let Some((owner, tags)) = &self.linking_owner.approval_pairing_metadata
+            && owner == binding
+        {
+            self.runtime
+                .session()
+                .set_owned_enrollment_metadata(&mut owned, tags.clone())
+                .map_err(ClientLinkingError::Engine)?;
+        }
         self.runtime
             .session()
             .validate_owned_private_enrollment_endorsement(&owned)
@@ -380,6 +388,33 @@ impl AppClient {
                 Some(super::private_settlement::OwnedExistingSettlementAttempt::new(guard));
         }
         Ok(())
+    }
+
+    /// Only negative control over the actual already-owned original. Never
+    /// reconstruct an action from its binding, packet or retained observation.
+    pub(crate) fn native_approval_cancellation(
+        &self,
+        binding: &[u8; 32],
+    ) -> Result<
+        cgka_engine::private_enrollment_endorsement::EnrollmentEndorsementCancellation,
+        ClientLinkingError,
+    > {
+        let attempt = self
+            .linking_owner
+            .received_endorsement
+            .as_ref()
+            .ok_or_else(rejected)?;
+        if attempt.binding != *binding
+            || attempt.cancelled
+            || std::time::Instant::now() >= attempt.deadline
+        {
+            return Err(rejected());
+        }
+        self.runtime
+            .session()
+            .validate_owned_private_enrollment_endorsement(&attempt.owned)
+            .map_err(ClientLinkingError::Engine)?;
+        Ok(attempt.owned.cancellation_handle())
     }
 
     pub(crate) fn cancel_received_enrollment_endorsement(
@@ -538,7 +573,7 @@ impl AppClient {
         Ok(self.linking_owner.received_enrollment_proposals.len())
     }
 
-    fn authenticate_received_enrollment_proposal(
+    pub(super) fn authenticate_received_enrollment_proposal(
         &self,
         request: &AuthenticatedEnrollmentRequest,
     ) -> Result<ValidatedProposalParts, ClientLinkingError> {

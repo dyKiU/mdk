@@ -214,7 +214,7 @@ impl<S: StorageProvider> Engine<S> {
             Some(pass) if pass.phase == ConvergencePassPhase::Collecting => {
                 Some(pass.cutoff_monotonic_ms().saturating_sub(now.monotonic_ms))
             }
-            Some(pass) if pass.is_active() => Some(0),
+            Some(pass) if pass.is_active() || !pass.proposal_dependency_wakes.is_empty() => Some(0),
             // RawTransport applications do not open a convergence pass. A
             // failed post-confirmation replay still needs a scheduler edge,
             // after existing pass deadlines and pending-publication gates.
@@ -490,8 +490,19 @@ impl<S: StorageProvider> Engine<S> {
         // content id) or a direct caller, so a re-wrapped duplicate maps to the
         // same convergence row.
         let content_id = crate::message_processor::content_dedup_id(&message.payload);
-        match self.storage.get_message(&content_id) {
-            Ok(record) if record.state == MessageState::PeelDeferred => {}
+        let already_retained = match self.storage.get_message(&content_id) {
+            Ok(record) if record.state == MessageState::PeelDeferred => false,
+            Ok(record)
+                if record.group_id == *group_id
+                    && crate::openmls_projection::OPENMLS_GRAPH_INPUT_STATES
+                        .contains(&record.state) =>
+            {
+                // Direct intake can retain a proposal before routing it here.
+                // An existing row is not evidence that the current collecting
+                // pass admitted it. Preserve its state/payload and run normal
+                // admission; frozen cutoffs and pass-opening rules still apply.
+                true
+            }
             Ok(_) => {
                 if let Some(transport_id) = processed_transport_id {
                     self.storage
@@ -500,9 +511,9 @@ impl<S: StorageProvider> Engine<S> {
                 }
                 return Ok(());
             }
-            Err(StorageError::NotFound) => {}
+            Err(StorageError::NotFound) => false,
             Err(e) => return Err(OpenMlsProjectionError::Storage(format!("{e:?}"))),
-        }
+        };
 
         let projection = project_mls_message(&message.payload)?;
         let Some(source_epoch) = projection.source_epoch else {
@@ -539,7 +550,9 @@ impl<S: StorageProvider> Engine<S> {
         // boundary. A crash may leave an unassigned row only when admission is
         // intentionally blocked by an unstable local mutation owner.
         let (admission, opened) = self.storage.with_transaction(|storage| {
-            storage.put_message(&record)?;
+            if !already_retained {
+                storage.put_message(&record)?;
+            }
             if let Some(transport_id) = processed_transport_id {
                 storage.put_processed_transport_id(group_id, transport_id)?;
             }
@@ -562,6 +575,209 @@ impl<S: StorageProvider> Engine<S> {
                 .map_err(storage_projection_error)?
                 .epoch;
             self.realize_group_unrecoverable_for_frozen_pass(group_id, epoch);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn wake_commit_for_authenticated_proposal(
+        &mut self,
+        group: &GroupId,
+        proposal: &TransportMessage,
+        reference: &str,
+        source_epoch: EpochId,
+    ) -> Result<(), cgka_traits::EngineError> {
+        let tip = self
+            .convergence_tip_epoch(group)
+            .map_err(|error| cgka_traits::EngineError::Backend(error.to_string()))?;
+        let policy = self
+            .convergence_policy_for_group(group)
+            .map_err(|error| cgka_traits::EngineError::Backend(error.to_string()))?;
+        if source_epoch > tip
+            || tip.0.saturating_sub(source_epoch.0) > policy.convergence.max_rewind_commits
+        {
+            return Ok(());
+        }
+        let Some(mut pass) = self.storage.convergence_pass(group)? else {
+            return Ok(());
+        };
+        if !pass
+            .proposal_dependency_wakes
+            .iter()
+            .any(|wake| wake.proposal_id == proposal.id)
+        {
+            if pass.proposal_dependency_wakes.len() >= 64 {
+                return Err(cgka_traits::EngineError::Backend(
+                    "proposal dependency wake capacity exceeded".into(),
+                ));
+            }
+            pass.proposal_dependency_wakes.push(
+                cgka_traits::convergence_pass::ProposalDependencyWake {
+                    proposal_id: proposal.id.clone(),
+                    proposal_ref: reference.into(),
+                    source_epoch,
+                    after: None,
+                },
+            );
+            self.storage.put_convergence_pass(&pass)?;
+        }
+        self.resume_proposal_dependency_wakes(group)
+    }
+
+    pub(crate) fn resume_proposal_dependency_wakes(
+        &mut self,
+        group: &GroupId,
+    ) -> Result<(), cgka_traits::EngineError> {
+        let Some(mut pass) = self.storage.convergence_pass(group)? else {
+            return Ok(());
+        };
+        let Some(mut wake) = pass.proposal_dependency_wakes.first().cloned() else {
+            return Ok(());
+        };
+        let tip = self
+            .convergence_tip_epoch(group)
+            .map_err(|error| cgka_traits::EngineError::Backend(error.to_string()))?;
+        let policy = self
+            .convergence_policy_for_group(group)
+            .map_err(|error| cgka_traits::EngineError::Backend(error.to_string()))?;
+        let source_epoch = wake.source_epoch;
+        if source_epoch > tip
+            || tip.0.saturating_sub(source_epoch.0) > policy.convergence.max_rewind_commits
+        {
+            pass.proposal_dependency_wakes.remove(0);
+            self.storage.put_convergence_pass(&pass)?;
+            if !pass.proposal_dependency_wakes.is_empty() {
+                self.schedule_pending_convergence_group(group);
+            }
+            return Ok(());
+        }
+        let proposal_record = self.storage.get_message(&wake.proposal_id)?;
+        let Some((proposal, projection)) =
+            crate::openmls_projection::decode_openmls_wire_projection(&proposal_record.payload)
+        else {
+            return Err(cgka_traits::EngineError::Backend(
+                "proposal dependency wire unavailable".into(),
+            ));
+        };
+        if proposal_record.group_id != *group
+            || proposal_record.epoch != source_epoch
+            || projection.kind != OpenMlsContentKind::Proposal
+            || projection.source_epoch != Some(source_epoch.0)
+            || proposal.id != proposal_record.id
+            || proposal.id.as_slice() != projection.message_digest
+        {
+            return Err(cgka_traits::EngineError::Backend(
+                "proposal dependency wire mismatch".into(),
+            ));
+        }
+        let reference = wake.proposal_ref.as_str();
+        let mut records = Vec::new();
+        self.storage.visit_messages_in_states_after(
+            group,
+            &[MessageState::ConvergenceDeferred],
+            source_epoch,
+            wake.after.as_ref(),
+            64,
+            &mut |record| {
+                records.push(record);
+                true
+            },
+        )?;
+        let page_complete = records.len() < 64;
+        let mut consumed = 0usize;
+        let started = web_time::Instant::now();
+        let profile = ReplayProfilePolicy {
+            reject_legacy_group_additions: self.new_protocol_profile
+                == cgka_traits::group::ProtocolProfile::Current,
+        };
+        for record in &records {
+            if started.elapsed() >= std::time::Duration::from_millis(500) {
+                break;
+            }
+            consumed += 1;
+            wake.after = Some(record.id.clone());
+            if record.epoch != source_epoch {
+                continue;
+            }
+            let Some((commit, projection)) =
+                crate::openmls_projection::decode_openmls_wire_projection(&record.payload)
+            else {
+                continue;
+            };
+            if projection.kind != OpenMlsContentKind::Commit
+                || projection.source_epoch != Some(source_epoch.0)
+                || commit.id != record.id
+                || record.id.as_slice() != projection.message_digest
+            {
+                continue;
+            }
+            let attempt = || {
+                crate::openmls_projection::authenticated_proposal_enables_parked_commit(
+                    &self.storage,
+                    group,
+                    &commit,
+                    &proposal,
+                    reference,
+                    profile,
+                )
+                .map_err(|error| {
+                    crate::openmls_projection::enrollment_replay_error(
+                        error,
+                        "proposal dependency probe",
+                    )
+                })
+            };
+            let enabled = if source_epoch == tip {
+                attempt()?
+            } else {
+                crate::openmls_projection::with_retained_anchor_group(
+                    &self.storage,
+                    &self.crypto,
+                    group,
+                    source_epoch,
+                    crate::snapshot_guard::RewindSite::Replay,
+                    "proposal-dependency",
+                    |_, _| attempt().map(Some),
+                )?
+                .unwrap_or(false)
+            };
+            if enabled {
+                let changed = self.storage.with_transaction(|storage| {
+                    let current = storage.get_message(&record.id)?;
+                    if current.group_id == *group
+                        && current.epoch == source_epoch
+                        && current.state == MessageState::ConvergenceDeferred
+                        && current.payload == record.payload
+                    {
+                        storage.update_message_state(&record.id, MessageState::Retryable)?;
+                        return Ok::<_, cgka_traits::EngineError>(true);
+                    }
+                    Ok(false)
+                })?;
+                if changed {
+                    self.schedule_pending_convergence_group(group);
+                }
+            }
+        }
+        // Preserve progress independently of pass membership/cutoffs. A restart
+        // reconstructs the immutable proposal and repeats authenticated replay.
+        let mut current = self.storage.convergence_pass(group)?.ok_or_else(|| {
+            cgka_traits::EngineError::Backend("proposal dependency pass disappeared".into())
+        })?;
+        if current
+            .proposal_dependency_wakes
+            .first()
+            .is_some_and(|job| job.proposal_id == wake.proposal_id)
+        {
+            if page_complete && consumed == records.len() {
+                current.proposal_dependency_wakes.remove(0);
+            } else {
+                current.proposal_dependency_wakes[0] = wake;
+            }
+            let pending = !current.proposal_dependency_wakes.is_empty();
+            self.storage.put_convergence_pass(&current)?;
+            if pending {
+                self.schedule_pending_convergence_group(group);
+            }
         }
         Ok(())
     }
@@ -711,9 +927,18 @@ impl<S: StorageProvider> Engine<S> {
         pass: &DurableConvergencePass,
         tip: EpochId,
     ) -> Result<(), OpenMlsProjectionError> {
-        self.storage
-            .delete_convergence_pass(&pass.group_id)
-            .map_err(storage_projection_error)?;
+        if pass.proposal_dependency_wakes.is_empty() {
+            self.storage
+                .delete_convergence_pass(&pass.group_id)
+                .map_err(storage_projection_error)?;
+        } else {
+            let mut retained = pass.clone();
+            retained.phase = ConvergencePassPhase::Completed;
+            retained.fairness_slot_available = false;
+            self.storage
+                .put_convergence_pass(&retained)
+                .map_err(storage_projection_error)?;
+        }
         self.audit_group(
             &pass.group_id,
             marmot_forensics::AuditEventKind::ConvergencePassDiscarded {
@@ -818,6 +1043,9 @@ impl<S: StorageProvider> Engine<S> {
             frozen_at_wall_ms: None,
             cutoff_cause: None,
             fairness_slot_available: false,
+            proposal_dependency_wakes: previous
+                .as_ref()
+                .map_or_else(Vec::new, |pass| pass.proposal_dependency_wakes.clone()),
         };
         self.storage
             .put_convergence_pass(&pass)
@@ -1383,6 +1611,10 @@ impl<S: StorageProvider> Engine<S> {
                 .conformance_replay_probe_count
                 .saturating_add(result.replay_probe_count);
         }
+        #[cfg(feature = "test-policy-overrides")]
+        if let Ok(own_leaf) = self.do_own_leaf_index(group_id) {
+            crate::canonical_probe_observer::result(group_id, own_leaf, &result);
+        }
         let evaluated_status = result.convergence_status;
         // Missing dependencies stay retained for the next generation. Once a
         // pass is frozen, later arrivals cannot extend or alter this batch.
@@ -1539,6 +1771,23 @@ impl<S: StorageProvider> Engine<S> {
         } else {
             None
         };
+        // A proposal is tied to the actual MLS branch, not only its numeric
+        // epoch. Preserve the user's durable leave intent while remembering
+        // the branch it was proposed on before canonical apply rewinds it.
+        let previous_leave_anchor = if result.selected_tip == Some(previous_tip.0) {
+            self.storage
+                .leave_request(group_id)?
+                .filter(|request| request.last_proposed_epoch == Some(previous_tip))
+                .map(|request| {
+                    self.with_mls_group(group_id, |group| {
+                        Ok((request, group.epoch_authenticator().as_slice().to_vec()))
+                    })
+                })
+                .transpose()
+                .map_err(|error| OpenMlsProjectionError::Replay(error.to_string()))?
+        } else {
+            None
+        };
         #[cfg(feature = "experimental-device-sync")]
         let settlement_admission =
             self.settlement_admission_for(group_id)
@@ -1580,6 +1829,7 @@ impl<S: StorageProvider> Engine<S> {
             )?;
             #[cfg(feature = "experimental-device-sync")]
             let mut output = output;
+            let mut reanchored_leave_request = None;
             // Membership cleanup belongs to canonical apply: a failed queue or
             // leave-request write must roll back MLS and the completed pass too.
             let membership_effects = if let Some(before) = previous_membership.as_ref() {
@@ -1589,6 +1839,19 @@ impl<S: StorageProvider> Engine<S> {
                 )
                 .map_err(|error| OpenMlsProjectionError::Storage(format!("{error:?}")))?
                 .ok_or_else(|| OpenMlsProjectionError::Replay("selected group missing".into()))?;
+                if let Some((request, authenticator)) = previous_leave_anchor.as_ref()
+                    && group.epoch().as_u64() == previous_tip.0
+                    && group.epoch_authenticator().as_slice() != authenticator.as_slice()
+                    && crate::identity::local_leaf_is_active(&group, self.identity.self_id())
+                    && crate::app_components::lifecycle_of_group(&group)
+                        .map_err(|error| OpenMlsProjectionError::Replay(error.to_string()))?
+                        != Some(cgka_traits::app_components::GroupLifecycleV1::Disbanded)
+                {
+                    let mut request = request.clone();
+                    request.last_proposed_epoch = None;
+                    storage.put_leave_request(&request)?;
+                    reanchored_leave_request = Some(request);
+                }
                 // Disband owns its terminal cleanup and must not announce an
                 // intermediate local restoration from its replayed source tree.
                 if crate::app_components::lifecycle_of_group(&group)
@@ -1658,6 +1921,7 @@ impl<S: StorageProvider> Engine<S> {
                 application_events,
                 membership_effects,
                 output.handled_private_ids,
+                reanchored_leave_request,
                 #[cfg(feature = "experimental-device-sync")]
                 output.enrollment_effects,
                 #[cfg(feature = "experimental-device-sync")]
@@ -1670,12 +1934,22 @@ impl<S: StorageProvider> Engine<S> {
             application_events,
             membership_effects,
             handled_private_ids,
+            reanchored_leave_request,
             enrollment_effects,
             staged_settlement_admission,
         ) = committed;
         #[cfg(not(feature = "experimental-device-sync"))]
-        let (group_changes, application_events, membership_effects, handled_private_ids) =
-            committed;
+        let (
+            group_changes,
+            application_events,
+            membership_effects,
+            handled_private_ids,
+            reanchored_leave_request,
+        ) = committed;
+        if let Some(request) = reanchored_leave_request {
+            self.leave_requests.insert(group_id.clone(), request);
+            self.leaving_groups.insert(group_id.clone());
+        }
         #[cfg(feature = "experimental-device-sync")]
         {
             if let Some(admission) = staged_settlement_admission {
@@ -2274,6 +2548,10 @@ impl<S: StorageProvider> Engine<S> {
                     .any(|dropped| dropped.message_id == record_id_hex)
             {
                 continue;
+            }
+            #[cfg(feature = "test-policy-overrides")]
+            if let Ok(own_leaf) = self.do_own_leaf_index(group_id) {
+                crate::canonical_probe_observer::superseded(group_id, own_leaf, &record.id);
             }
             self.storage
                 .update_message_state(&record.id, MessageState::EpochInvalidated)

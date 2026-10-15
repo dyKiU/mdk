@@ -36,6 +36,10 @@ pub enum StorageError {
     NotFound,
     #[error("record already exists")]
     AlreadyExists,
+    /// A mirrored-record batch targets an origin covered by an
+    /// account-wide departure cut. This is a negative disposition, not an import.
+    #[error("mirrored record denied by account departure")]
+    MirroredRecordDeniedByDeparture,
     #[error("snapshot not found: {0}")]
     SnapshotMissing(String),
     /// A canonical timeline cursor row was removed by retention. Callers should
@@ -322,6 +326,48 @@ pub trait MessageStorage {
         visitor: &mut dyn FnMut(MessageRecord) -> bool,
     ) -> StorageResult<()> {
         for record in self.list_messages_in_states(group_id, states, at_or_after_epoch)? {
+            if !visitor(record) {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// Visit at most `limit` matching rows after an insertion-order cursor.
+    /// The cursor belongs to `group_id` and is independent of its current state
+    /// and the epoch floor. A missing or other-group cursor returns `NotFound`,
+    /// never restarts enumeration. Zero limit or empty states visits nothing.
+    /// The callback must not reenter storage. Backends should stream a bounded
+    /// query; the compatibility fallback materializes the group's arrival order.
+    fn visit_messages_in_states_after(
+        &self,
+        group_id: &GroupId,
+        states: &[MessageState],
+        at_or_after_epoch: EpochId,
+        after: Option<&MessageId>,
+        limit: usize,
+        visitor: &mut dyn FnMut(MessageRecord) -> bool,
+    ) -> StorageResult<()> {
+        if limit == 0 || states.is_empty() {
+            return Ok(());
+        }
+        let records = self.list_messages(group_id, EpochId(0))?;
+        let start = match after {
+            Some(id) => {
+                records
+                    .iter()
+                    .position(|record| &record.id == id)
+                    .ok_or(StorageError::NotFound)?
+                    + 1
+            }
+            None => 0,
+        };
+        for record in records
+            .into_iter()
+            .skip(start)
+            .filter(|record| record.epoch >= at_or_after_epoch && states.contains(&record.state))
+            .take(limit)
+        {
             if !visitor(record) {
                 break;
             }

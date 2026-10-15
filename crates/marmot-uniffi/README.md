@@ -93,6 +93,7 @@ screen API exists. The method reference marks explicit alternatives individually
 | One chat row | `presentedChatListRow` | `chatListRow` when raw fields are specifically required. Avoid account-wide reads for one row. |
 | Account badges | `subscribeAccountAttention` | `accountUnreadSummary` remains a one-shot lower-level unread query, not a substitute for the prepared attention contract. |
 | Conversation screen | `openConversationWindow` | `timelineMessages` / `subscribeTimelineMessages` for a custom timeline; `messages` / `subscribeMessages` for raw stored messages. |
+| Leave a paired-account chat | `accountChatDepartureState`, then `leaveAccountChat` | `leaveGroup` remains the explicit device-local operation. Show pending/offline/admin requirements honestly; a paired row does not supply local MLS management authority. |
 | Reaction details | `messageReactions` for complete effective participants | Window references contain bounded previews only. See [complete reaction details](CONVERSATION-WINDOW.md#complete-reaction-details). |
 | Composer | `selectedMessageDraft`, revision-conditional save/clear/attachment reads, `sendMessageDraft` | Unconditional `messageDraft` / `saveMessageDraft` / `deleteMessageDraft` for older single-owner flows; new concurrent composers should use revisions. `sendText` and other direct send methods remain supported. |
 | Visible avatars | `requestAvatarAssets` then `readAvatarAssets` using screen metadata | `downloadProfileImage` / `downloadGroupBlossomImage` for explicit low-level downloads; new screens should use MDK's durable cache. |
@@ -1239,14 +1240,14 @@ integration changes, and unresolved release questions.
 ## Device verification
 
 [Native device verification](DEVICE-LINKING.md) describes opaque original-purpose
-sessions, bounded packet exchange, standard SAS decimals, revision-bound human
+sessions, one-scan automatic encrypted packet exchange, standard SAS decimals, revision-bound human
 confirmation and closeable observations. Inspect actual runtime capabilities:
 default builds return typed Unsupported, and experimental builds support
 verification with revision-bound singleton continuation through the original
 actor-owned actions. Opaque target selection, existing-device approval and
 packet/finalization methods support ready-account protected three-device
-enrollment. Enrollment capability remains false pending matched artifacts and
-application acceptance. Completed verification or continuation alone does
+enrollment. The experimental profile exposes enrollment capability; matched artifacts and
+application acceptance remain separate requirements. Completed verification or continuation alone does
 not report synchronized messages or history.
 
 ## Exact-device revocation

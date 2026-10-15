@@ -108,7 +108,7 @@ zeroize = "1"
 keyring-core = "1"
 quinn = { version = "0.11", default-features = false, features = ["log", "runtime-tokio", "rustls-ring"] }
 rcgen = "0.14"
-rustls = { version = "0.23.45", default-features = false, features = ["ring", "std"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
 # Direct verifier for the transports' ALPN-carrying Rustls client configs.
 # Quinn's convenience verifier feature is unused and would add a second copy.
 rustls-platform-verifier = "0.6"

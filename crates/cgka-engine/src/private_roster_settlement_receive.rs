@@ -16,6 +16,8 @@ pub(crate) struct SettlementEffect {
     admission: Option<Arc<LiveSettlementAdmission>>,
     frame: Option<SettlementFrame>,
     pub(crate) message_id: MessageId,
+    #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+    diagnostic_recipient: Option<[u8; 32]>,
 }
 fn refused() -> EngineError {
     EngineError::Other("private settlement admission expired".into())
@@ -95,6 +97,8 @@ pub(crate) fn stage_settlement_effect(
     payload: &[u8],
     sender: Option<&MemberId>,
     message_id: &MessageId,
+    #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+    diagnostic_recipient: Option<[u8; 32]>,
 ) -> SettlementEffect {
     let frame = (payload.len() <= 16 * 1024)
         .then_some(sender)
@@ -108,6 +112,8 @@ pub(crate) fn stage_settlement_effect(
         admission: admission.cloned(),
         frame,
         message_id: message_id.clone(),
+        #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+        diagnostic_recipient,
     }
 }
 
@@ -116,17 +122,48 @@ pub(crate) fn apply_settlement_effect<S: StorageProvider>(
     group_id: &GroupId,
     effect: SettlementEffect,
 ) -> Result<bool, EngineError> {
+    #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+    use crate::private_settlement_test_observation::Category;
+    #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+    let diagnostic_id = effect.message_id.clone();
+    #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+    let observe = |category| {
+        crate::private_settlement_test_observation::record(
+            group_id,
+            effect.diagnostic_recipient,
+            &diagnostic_id,
+            category,
+        )
+    };
+    #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+    observe(Category::Attempt);
+    #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+    let missing = if effect.admission.is_none() {
+        Category::MissingAdmission
+    } else if effect.source.is_none() {
+        Category::MissingSource
+    } else {
+        Category::InvalidFrame
+    };
     let (Some(source), Some(live), Some(frame)) = (effect.source, effect.admission, effect.frame)
     else {
+        #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+        observe(missing);
         return Ok(false);
     };
     if !live.is_live() {
+        #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+        observe(Category::Expired);
         return Ok(false);
     }
     let Some(store) = storage.private_roster_settlement_storage() else {
+        #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+        observe(Category::MissingRound);
         return Ok(false);
     };
     let Some(round) = store.read_round()? else {
+        #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+        observe(Category::MissingRound);
         return Ok(false);
     };
     if round.generation != live.generation
@@ -139,6 +176,8 @@ pub(crate) fn apply_settlement_effect<S: StorageProvider>(
         || frame.context_digest != round.anchor.context_digest
         || frame.coordinator != round.anchor.coordinator
     {
+        #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+        observe(Category::RoundScope);
         return Ok(false);
     }
     let record = storage.get_group(group_id)?;
@@ -147,6 +186,8 @@ pub(crate) fn apply_settlement_effect<S: StorageProvider>(
         || record.disbanded.is_some()
         || record.epoch != round.anchor.successor.epoch
     {
+        #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+        observe(Category::TreeScope);
         return Ok(false);
     }
     let Some(group) = MlsGroup::load(
@@ -155,6 +196,8 @@ pub(crate) fn apply_settlement_effect<S: StorageProvider>(
     )
     .map_err(|_| EngineError::Backend("private settlement tree read failed".into()))?
     else {
+        #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+        observe(Category::TreeScope);
         return Ok(false);
     };
     if !crate::private_successor::anchor_matches_actual_tree(
@@ -163,9 +206,13 @@ pub(crate) fn apply_settlement_effect<S: StorageProvider>(
         &group,
         &round.anchor,
     )? {
+        #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+        observe(Category::TreeScope);
         return Ok(false);
     }
     if source.signer == round.anchor.local_device {
+        #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+        observe(Category::LocalSource);
         return Ok(false);
     }
     // A second authenticated but different statement for an occupied slot is
@@ -174,6 +221,8 @@ pub(crate) fn apply_settlement_effect<S: StorageProvider>(
         fact.leaf_index == source.leaf_index
             && (fact.signature_public_key != source.signer || fact.message_id != effect.message_id)
     }) {
+        #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+        observe(Category::ConflictingFact);
         return Ok(false);
     }
     let confirmation = PrivateSettlementFact {
@@ -193,6 +242,8 @@ pub(crate) fn apply_settlement_effect<S: StorageProvider>(
                     .round_nonce
                     .is_some_and(|nonce| nonce != frame.round_nonce)
             {
+                #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+                observe(Category::ChallengeBinding);
                 return Ok(false);
             }
             store.bind_round_nonce(round.generation, frame.round_nonce, source.leaf_index)?;
@@ -200,6 +251,8 @@ pub(crate) fn apply_settlement_effect<S: StorageProvider>(
         SettlementPhase::Ack => {
             if round.round_nonce.is_none() {
                 if source.signer == round.anchor.coordinator {
+                    #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+                    observe(Category::AckBinding);
                     return Ok(false);
                 }
                 store.defer_remote_ack(
@@ -209,14 +262,26 @@ pub(crate) fn apply_settlement_effect<S: StorageProvider>(
                     },
                 )?;
                 ensure_live(Some(&live), true)?;
+                #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+                observe(Category::Accepted);
                 return Ok(true);
             }
             if round.round_nonce != Some(frame.round_nonce) {
+                #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+                observe(Category::AckBinding);
                 return Ok(false);
             }
         }
     }
-    store.record_remote_confirmation(&confirmation)?;
+    #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+    let confirmation_result = store
+        .record_remote_confirmation(&confirmation)
+        .inspect_err(|_| {
+            observe(Category::ConfirmationWriteError);
+        });
+    #[cfg(not(any(test, all(feature = "test-crash-hooks", debug_assertions))))]
+    let confirmation_result = store.record_remote_confirmation(&confirmation);
+    confirmation_result?;
     if matches!(frame.phase, SettlementPhase::Challenge) {
         // Only the actual coordinator's sealed Challenge binds the nonce.
         // Promote matching earlier receipts inside this same crypto SQL unit;
@@ -234,6 +299,8 @@ pub(crate) fn apply_settlement_effect<S: StorageProvider>(
         store.clear_deferred_acks(round.generation)?;
     }
     ensure_live(Some(&live), true)?;
+    #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+    observe(Category::Accepted);
     Ok(true)
 }
 /// Actual adopted tree denial, never called by probes or public observations.

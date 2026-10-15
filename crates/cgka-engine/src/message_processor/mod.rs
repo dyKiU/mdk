@@ -1603,6 +1603,12 @@ impl<S: StorageProvider> Engine<S> {
         now_ms: u64,
         deadline: Option<Instant>,
     ) -> Result<bool, EngineError> {
+        if !self.prepare_convergence_input_advance(group_id)? {
+            return Ok(false);
+        }
+        // One bounded dependency page per maintenance command, not per
+        // internal replay/settlement loop.
+        self.resume_proposal_dependency_wakes(group_id)?;
         let mut execution = DeferredPeelExecution::Background {
             deadline,
             rows_remaining: MAX_DEFERRED_ROWS_PER_SWEEP,

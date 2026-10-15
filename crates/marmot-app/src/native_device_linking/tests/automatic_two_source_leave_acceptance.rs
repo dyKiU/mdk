@@ -22,25 +22,58 @@ fn automatic_two_legitimate_sources_keep_surviving_device_history_after_self_rem
 
 pub(super) struct TwoSourcePeer {
     _root: tempfile::TempDir,
-    app: MarmotApp,
+    pub(super) app: MarmotApp,
     pub(super) runtime: MarmotAppRuntime,
-    group: crate::GroupId,
-    a_index: u32,
-    b_index: u32,
-    initial_ids: Vec<String>,
+    pub(super) group: crate::GroupId,
+    pub(super) a_index: u32,
+    pub(super) b_index: u32,
+    pub(super) initial_ids: Vec<String>,
 }
 
 impl TwoSourcePeer {
     pub(super) async fn prepare(apps: &[MarmotApp; 3], url: &str) -> Self {
+        Self::prepare_with_committer_order(apps, url, None).await
+    }
+
+    pub(super) async fn prepare_preferred_administrator(apps: &[MarmotApp; 3], url: &str) -> Self {
+        Self::prepare_with_committer_order(apps, url, Some(true)).await
+    }
+
+    pub(super) async fn prepare_preferred_source(apps: &[MarmotApp; 3], url: &str) -> Self {
+        Self::prepare_with_committer_order(apps, url, Some(false)).await
+    }
+
+    async fn prepare_with_committer_order(
+        apps: &[MarmotApp; 3],
+        url: &str,
+        prefer_administrator: Option<bool>,
+    ) -> Self {
         eprintln!("two_source_fixture_stage=ordinary_setup_entered");
         let root = tempfile::tempdir().unwrap();
-        let keys = nostr::prelude::Keys::generate();
+        let source_account = apps[0].account_home().account("test").unwrap();
+        // Real independent principals are selected before any invitation or
+        // commit. Equal ordinary forks prefer the lower authenticated committer.
+        let keys = (0..1024)
+            .map(|_| nostr::prelude::Keys::generate())
+            .find(|keys| match prefer_administrator {
+                None => true,
+                Some(true) => keys.public_key().to_hex() < source_account.account_id_hex,
+                Some(false) => keys.public_key().to_hex() > source_account.account_id_hex,
+            })
+            .expect("bounded genuine principal selection must find preferred administrator");
         let peer_account = AccountHome::open(root.path())
             .import_account("test", &keys.secret_key().to_secret_hex())
             .unwrap();
         let app = MarmotApp::with_relay(root.path(), url);
-        let source_account = apps[0].account_home().account("test").unwrap();
         assert!(source_account.account_id_hex != peer_account.account_id_hex);
+        if prefer_administrator == Some(true) {
+            assert!(peer_account.account_id_hex < source_account.account_id_hex);
+            eprintln!("two_source_fixture_preferred_real_administrator_committer=true");
+        }
+        if prefer_administrator == Some(false) {
+            assert!(peer_account.account_id_hex > source_account.account_id_hex);
+            eprintln!("two_source_fixture_preferred_real_source_committer=true");
+        }
         crate::tests::remember_test_member_inbox(&app, &source_account.account_id_hex, url);
         // B has no engine/public package yet: the public first invitation has only A.
         let (mut a, mut d, group, a_index, a_metadata) = Box::pin(prepare_first_source(
@@ -133,6 +166,15 @@ impl TwoSourcePeer {
         })
         .await
         .expect("D must confirm only A device departure while B actual leaf survives");
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                let source = apps[1].account_storage("test").unwrap();
+                let recipient = self.app.account_storage("test").unwrap();
+                let (source_epoch, recipient_epoch, authenticator_equal, head_equal) = super::automatic_account_departure_acceptance::compare_actual_branches_for_test(&source, &recipient, &self.group).expect("ordinary surviving-source convergence observation must not hide storage failure");
+                if source_epoch == recipient_epoch && authenticator_equal && head_equal { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        }).await.expect("B and D must reach the same actual canonical branch before the surviving-source steady-state send");
         let future = runtimes[1]
             .send_message(
                 "test",
@@ -144,7 +186,7 @@ impl TwoSourcePeer {
         assert_eq!(future.published, 1);
         assert_eq!(future.message_ids.len(), 1);
         let group_hex = hex::encode(self.group.as_slice());
-        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        let delivery = tokio::time::timeout(std::time::Duration::from_secs(30), async {
             loop {
                 let storage = self.app.account_storage("test").unwrap();
                 if future
@@ -157,8 +199,39 @@ impl TwoSourcePeer {
                 tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             }
         })
-        .await
-        .expect("independent D must actually decrypt surviving B ordinary send");
+        .await;
+        if delivery.is_err() {
+            use futures::FutureExt;
+            let diagnostics = tokio::time::timeout(std::time::Duration::from_secs(5),
+                std::panic::AssertUnwindSafe(async {
+                    use cgka_traits::storage::MessageStorage;
+                    use sha2::{Digest, Sha256};
+                    let source = apps[1].account_storage("test").map_err(|_| ())?;
+                    let recipient = self.app.account_storage("test").map_err(|_| ())?;
+                    let branches = super::automatic_account_departure_acceptance::compare_actual_branches_for_test(&source,&recipient,&self.group).map_err(|_| ())?;
+                    eprintln!("two_source_delivery_failure_actual_branch_epochs_and_equal={branches:?}");
+                    for id in &future.message_ids {
+                        let outer = cgka_traits::MessageId::new(hex::decode(id).map_err(|_| ())?);
+                        let row = source.get_message(&outer).map_err(|_| ())?;
+                        let payload = cgka_traits::message::StoredMessagePayload::decode(&row.payload).map_err(|_| ())?;
+                        let wire = payload.as_openmls_wire().ok_or(())?;
+                        let content = cgka_traits::MessageId::new(Sha256::digest(&wire.payload).to_vec());
+                        let canonical = match recipient.get_message(&content) {
+                            Ok(row) => Some((row.epoch.0, row.state)),
+                            Err(cgka_traits::StorageError::NotFound) => None,
+                            Err(_) => return Err(()),
+                        };
+                        let alias = recipient.app_message(&group_hex,&hex::encode(content.as_slice())).map_err(|_| ())?.is_some();
+                        eprintln!("two_source_delivery_failure_source_state={:?} recipient_canonical={canonical:?} canonical_alias_delivered={alias}",row.state);
+                    }
+                    Ok::<(), ()>(())
+                }).catch_unwind()).await;
+            eprintln!(
+                "two_source_delivery_failure_diagnostics_unknown={}",
+                !matches!(diagnostics, Ok(Ok(Ok(()))))
+            );
+        }
+        delivery.expect("independent D must actually decrypt surviving B ordinary send");
         let b_device = apps[1]
             .account_storage("test")
             .unwrap()
@@ -365,7 +438,7 @@ async fn converge_and_send(
 // setup poll frame. Type erasure prevents that frame from retaining its concrete
 // temporary size; the same actual confirmed effects still pass through App.
 #[inline(never)]
-fn observe_confirmed_invite<'a>(
+pub(super) fn observe_confirmed_invite<'a>(
     client: &'a mut crate::AppClient,
     effects: &'a marmot_account::AccountDeviceEffects,
 ) -> std::pin::Pin<
@@ -451,7 +524,7 @@ async fn wait_for_peer_messages(
     .expect("independent D must decrypt both real ordinary sender events");
 }
 
-fn stored_indices(app: &MarmotApp, group: &crate::GroupId) -> BTreeSet<u32> {
+pub(super) fn stored_indices(app: &MarmotApp, group: &crate::GroupId) -> BTreeSet<u32> {
     let storage = app.account_storage("test").unwrap();
     storage
         .with_read_snapshot(|storage| -> Result<_, cgka_traits::StorageError> {
@@ -466,7 +539,7 @@ fn stored_indices(app: &MarmotApp, group: &crate::GroupId) -> BTreeSet<u32> {
         .unwrap()
 }
 
-async fn wait_for_paired_records(
+pub(super) async fn wait_for_paired_records(
     runtime: &MarmotAppRuntime,
     group: &crate::GroupId,
     ids: &[String],

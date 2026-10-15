@@ -901,6 +901,12 @@ impl<S: StorageProvider> Engine<S> {
         {
             return Ok(false);
         }
+        #[cfg(feature = "test-policy-overrides")]
+        if let Ok(own_leaf) = self.do_own_leaf_index(group_id)
+            && crate::canonical_probe_observer::leave_reproposal_held(group_id, own_leaf)
+        {
+            return Ok(false);
+        }
         if request.last_proposed_epoch == Some(group.epoch) {
             return Ok(false);
         }

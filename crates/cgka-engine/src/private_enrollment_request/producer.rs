@@ -35,6 +35,7 @@ pub struct OwnedLocalEnrollmentProposal {
     ciphertext: Option<Vec<u8>>,
     wrapped: Option<TransportMessage>,
     own_endorsement: Option<Vec<u8>>,
+    metadata_tags: Option<Vec<Vec<String>>>,
 }
 impl OwnedLocalEnrollmentProposal {
     pub fn binding_digest(&mut self) -> Result<[u8; 32], EngineError> {
@@ -62,6 +63,44 @@ impl OwnedLocalEnrollmentProposal {
     }
 }
 impl<S: StorageProvider> Engine<S> {
+    /// Attach bounded, immutable outer metadata to this live original before
+    /// encryption. Metadata never changes the request binding or signed terms.
+    pub fn set_owned_local_enrollment_metadata(
+        &self,
+        proposal: &mut OwnedLocalEnrollmentProposal,
+        tags: Vec<Vec<String>>,
+    ) -> Result<(), EngineError> {
+        self.check_local_enrollment_proposal(proposal)?;
+        if tags.is_empty() || !super::bounded_enrollment_metadata(&tags) {
+            return Err(unavailable());
+        }
+        if let Some(previous) = &proposal.metadata_tags {
+            return if previous == &tags {
+                Ok(())
+            } else {
+                Err(unavailable())
+            };
+        }
+        if proposal.ciphertext.is_some() || proposal.wrapped.is_some() {
+            return Err(unavailable());
+        }
+        let payload = cgka_traits::app_event::MarmotAppEvent::new(
+            hex::encode(proposal.frame.account),
+            0,
+            REQUEST_KIND,
+            tags.clone(),
+            serde_json::to_string(&proposal.frame).map_err(|_| unavailable())?,
+        )
+        .encode()
+        .map_err(|_| unavailable())?;
+        if payload.len() > PAYLOAD_LIMIT {
+            return Err(unavailable());
+        }
+        self.check_local_enrollment_proposal(proposal)?;
+        proposal.payload = payload;
+        proposal.metadata_tags = Some(tags);
+        Ok(())
+    }
     /// Derive a proposal solely from fresh crypto inputs and the original trusted
     /// owner lease. No context, deadline or consent DTO is accepted from a caller.
     /// No Add, invitation ledger, ordinary Sent row or SDK admission is created.
@@ -209,6 +248,7 @@ impl<S: StorageProvider> Engine<S> {
             ciphertext: None,
             wrapped: None,
             own_endorsement: None,
+            metadata_tags: None,
         })
     }
 

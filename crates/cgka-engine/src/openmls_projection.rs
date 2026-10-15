@@ -238,7 +238,9 @@ impl ReplayBudget {
 
 #[derive(Clone, Debug)]
 enum CandidatePathProbeResult {
+    RefutationPending,
     Materialized(Option<OpenMlsMaterializedCandidate>),
+    MissingReferencedProposal,
     RejectedProposal {
         message_id: String,
         category: cgka_traits::ingest::ProposalRejectionCategory,
@@ -381,6 +383,9 @@ pub enum OpenMlsProjectionError {
     MissingGroup,
     Snapshot(String),
     Replay(String),
+    /// Negative dependency hint only; leaf/path/authority validation has not completed.
+    MissingReferencedProposal,
+    RejectedDependencyScanPending,
     RejectedProposal {
         message_id: String,
         category: cgka_traits::ingest::ProposalRejectionCategory,
@@ -427,6 +432,12 @@ impl std::fmt::Display for OpenMlsProjectionError {
             OpenMlsProjectionError::MissingGroup => write!(f, "MLS group not found"),
             OpenMlsProjectionError::Snapshot(e) => write!(f, "snapshot failed: {e}"),
             OpenMlsProjectionError::Replay(e) => write!(f, "OpenMLS replay failed: {e}"),
+            OpenMlsProjectionError::RejectedDependencyScanPending => {
+                write!(f, "rejected dependency scan requires another bounded slice")
+            }
+            OpenMlsProjectionError::MissingReferencedProposal => {
+                write!(f, "referenced proposal unavailable")
+            }
             OpenMlsProjectionError::RejectedProposal {
                 message_id,
                 category,
@@ -1011,22 +1022,81 @@ fn replay_openmls_messages_prevalidated_output<S: StorageProvider>(
     own_commits: &PrevalidatedOwnCommits,
     profile_policy: ReplayProfilePolicy,
 ) -> Result<OpenMlsReplayOutput, OpenMlsProjectionError> {
+    replay_openmls_messages_prevalidated_output_with_refutation(
+        storage,
+        group_id,
+        messages,
+        own_commits,
+        profile_policy,
+        None,
+    )
+}
+
+fn replay_openmls_messages_prevalidated_output_with_refutation<S: StorageProvider>(
+    storage: &S,
+    group_id: &GroupId,
+    messages: &[TransportMessage],
+    own_commits: &PrevalidatedOwnCommits,
+    profile_policy: ReplayProfilePolicy,
+    cursor: Option<&mut RejectedDependencyCursor>,
+) -> Result<OpenMlsReplayOutput, OpenMlsProjectionError> {
     // A probe restores its starting state before this transaction commits.
     // Joining all temporary OpenMLS writes avoids a durable commit per value;
     // the guard still restores state for nested/nontransactional backends.
-    storage.with_transaction(|storage| {
-        replay_openmls_messages_probe(storage, group_id, messages, own_commits, profile_policy)
-    })
+    let mut staged_cursor = cursor.as_deref().cloned();
+    let result = storage.with_transaction(|storage| {
+        replay_openmls_messages_probe_with_refutation(
+            storage,
+            group_id,
+            messages,
+            own_commits,
+            profile_policy,
+            staged_cursor.as_mut(),
+        )
+    });
+    // Publish scratch progress only after the crypto/SQL restoration boundary.
+    // Storage/snapshot failure and unwind retain the original cursor.
+    if (result.is_ok()
+        || matches!(
+            &result,
+            Err(OpenMlsProjectionError::RejectedDependencyScanPending
+                | OpenMlsProjectionError::MissingReferencedProposal
+                | OpenMlsProjectionError::InvalidCommit { .. })
+        ))
+        && let Some(cursor) = cursor
+    {
+        *cursor = staged_cursor.expect("staged cursor mirrors supplied continuation");
+    }
+    result
 }
 
 // Keep the restoration body separate so tests can compare identical replay work
 // with and without the transaction. Production callers enter through the wrapper.
+#[cfg(test)]
 fn replay_openmls_messages_probe<S: StorageProvider>(
     storage: &S,
     group_id: &GroupId,
     messages: &[TransportMessage],
     own_commits: &PrevalidatedOwnCommits,
     profile_policy: ReplayProfilePolicy,
+) -> Result<OpenMlsReplayOutput, OpenMlsProjectionError> {
+    replay_openmls_messages_probe_with_refutation(
+        storage,
+        group_id,
+        messages,
+        own_commits,
+        profile_policy,
+        None,
+    )
+}
+
+fn replay_openmls_messages_probe_with_refutation<S: StorageProvider>(
+    storage: &S,
+    group_id: &GroupId,
+    messages: &[TransportMessage],
+    own_commits: &PrevalidatedOwnCommits,
+    profile_policy: ReplayProfilePolicy,
+    cursor: Option<&mut RejectedDependencyCursor>,
 ) -> Result<OpenMlsReplayOutput, OpenMlsProjectionError> {
     use crate::snapshot_guard::SnapshotRollbackGuard;
     // RAII: on any unwind path (panic during replay, early error)
@@ -1048,7 +1118,10 @@ fn replay_openmls_messages_probe<S: StorageProvider>(
         messages,
         own_commits,
         profile_policy,
-        None,
+        ReplayScratch {
+            retain_replayed_anchors: None,
+            rejected_dependency_cursor: cursor,
+        },
         #[cfg(feature = "experimental-device-sync")]
         None,
     );
@@ -1091,6 +1164,26 @@ fn materialize_openmls_candidate_paths_budgeted<S: StorageProvider>(
     budget: &mut ReplayBudget,
     profile_policy: ReplayProfilePolicy,
 ) -> Result<Vec<OpenMlsMaterializedCandidate>, OpenMlsProjectionError> {
+    materialize_openmls_candidate_paths_budgeted_with_refutation(
+        storage,
+        group_id,
+        paths,
+        own_commits,
+        budget,
+        profile_policy,
+        None,
+    )
+}
+
+fn materialize_openmls_candidate_paths_budgeted_with_refutation<S: StorageProvider>(
+    storage: &S,
+    group_id: &GroupId,
+    paths: &[OpenMlsCandidatePath],
+    own_commits: &PrevalidatedOwnCommits,
+    budget: &mut ReplayBudget,
+    profile_policy: ReplayProfilePolicy,
+    mut cursor: Option<&mut RejectedDependencyCursor>,
+) -> Result<Vec<OpenMlsMaterializedCandidate>, OpenMlsProjectionError> {
     let mut candidates = Vec::with_capacity(paths.len());
     for path in paths {
         if path.messages.is_empty() {
@@ -1101,12 +1194,13 @@ fn materialize_openmls_candidate_paths_budgeted<S: StorageProvider>(
         budget.consume()?;
         #[cfg(test)]
         let probe_started = std::time::Instant::now();
-        let replay = replay_openmls_messages_prevalidated_output(
+        let replay = replay_openmls_messages_prevalidated_output_with_refutation(
             storage,
             group_id,
             &path.messages,
             own_commits,
             profile_policy,
+            cursor.as_deref_mut(),
         );
         #[cfg(test)]
         budget
@@ -1426,7 +1520,10 @@ pub(crate) fn process_current_openmls_application<S: StorageProvider>(
         std::slice::from_ref(message),
         &PrevalidatedOwnCommits::default(),
         profile_policy,
-        None,
+        ReplayScratch {
+            retain_replayed_anchors: None,
+            rejected_dependency_cursor: None,
+        },
         #[cfg(feature = "experimental-device-sync")]
         Some(&mut PrivateReplayEffects {
             revocation_transition: None,
@@ -2460,7 +2557,10 @@ fn capture_candidate_tip_context<S: StorageProvider>(
         messages,
         own_commits,
         profile_policy,
-        None,
+        ReplayScratch {
+            retain_replayed_anchors: None,
+            rejected_dependency_cursor: None,
+        },
         #[cfg(feature = "experimental-device-sync")]
         None,
     )
@@ -2574,16 +2674,24 @@ fn build_stored_openmls_candidate_paths_reference<S: StorageProvider>(
                     continue;
                 }
 
-                let candidate = match probe_candidate_path(
-                    storage,
-                    group_id,
-                    messages.clone(),
-                    &digests,
-                    &pending_proposals,
-                    own_commits,
-                    budget,
-                    profile_policy,
-                )? {
+                let mut cursor = RejectedDependencyCursor::default();
+                let candidate = match loop {
+                    let result = probe_candidate_path(
+                        storage,
+                        group_id,
+                        messages.clone(),
+                        &digests,
+                        &pending_proposals,
+                        own_commits,
+                        budget,
+                        profile_policy,
+                        &mut cursor,
+                    )?;
+                    if matches!(result, CandidatePathProbeResult::RefutationPending) {
+                        continue;
+                    }
+                    break result;
+                } {
                     CandidatePathProbeResult::Materialized(Some(candidate)) => {
                         materialized_commit_ids.insert(commit.message.id.to_string());
                         candidate
@@ -2592,6 +2700,10 @@ fn build_stored_openmls_candidate_paths_reference<S: StorageProvider>(
                         replay_rejected_commit_ids.insert(commit.message.id.to_string());
                         continue;
                     }
+                    CandidatePathProbeResult::RefutationPending => {
+                        unreachable!("reference loop drains pending pages")
+                    }
+                    CandidatePathProbeResult::MissingReferencedProposal => continue,
                     CandidatePathProbeResult::RejectedProposal {
                         message_id,
                         category,
@@ -2729,19 +2841,27 @@ fn probe_candidate_path<S: StorageProvider>(
     own_commits: &PrevalidatedOwnCommits,
     budget: &mut ReplayBudget,
     profile_policy: ReplayProfilePolicy,
+    cursor: &mut RejectedDependencyCursor,
 ) -> Result<CandidatePathProbeResult, OpenMlsProjectionError> {
+    if cursor.path != digests {
+        *cursor = RejectedDependencyCursor {
+            path: digests.to_vec(),
+            ..Default::default()
+        };
+    }
     let path = OpenMlsCandidatePath {
         branch_id: branch_id_for_path_digests(digests),
         messages,
     };
     let replay_paths = candidate_paths_with_pending_replay_messages(&[path], pending_proposals)?;
-    match materialize_openmls_candidate_paths_budgeted(
+    match materialize_openmls_candidate_paths_budgeted_with_refutation(
         storage,
         group_id,
         &replay_paths,
         own_commits,
         budget,
         profile_policy,
+        Some(cursor),
     ) {
         Ok(mut candidates) => Ok(CandidatePathProbeResult::Materialized(candidates.pop())),
         Err(OpenMlsProjectionError::RejectedProposal {
@@ -2762,8 +2882,51 @@ fn probe_candidate_path<S: StorageProvider>(
             message_id,
             rejection_category,
         }),
+        Err(OpenMlsProjectionError::RejectedDependencyScanPending) => {
+            Ok(CandidatePathProbeResult::RefutationPending)
+        }
+        Err(OpenMlsProjectionError::MissingReferencedProposal) => {
+            Ok(CandidatePathProbeResult::MissingReferencedProposal)
+        }
         Err(OpenMlsProjectionError::Replay(_)) => Ok(CandidatePathProbeResult::Materialized(None)),
         Err(err) => Err(err),
+    }
+}
+
+/// Re-prove dependency absence, then full commit validity with the actual new
+/// authenticated proposal. No result here installs a branch or grants authority.
+pub(crate) fn authenticated_proposal_enables_parked_commit<S: StorageProvider>(
+    storage: &S,
+    group: &GroupId,
+    commit: &TransportMessage,
+    proposal: &TransportMessage,
+    reference: &str,
+    profile: ReplayProfilePolicy,
+) -> Result<bool, OpenMlsProjectionError> {
+    let own = PrevalidatedOwnCommits::default();
+    match replay_openmls_messages_prevalidated_output(
+        storage,
+        group,
+        std::slice::from_ref(commit),
+        &own,
+        profile,
+    ) {
+        Err(OpenMlsProjectionError::MissingReferencedProposal) => {}
+        Err(error @ (OpenMlsProjectionError::Storage(_) | OpenMlsProjectionError::Snapshot(_))) => {
+            return Err(error);
+        }
+        _ => return Ok(false),
+    }
+    match replay_openmls_messages_prevalidated_output(storage, group, &[proposal.clone(), commit.clone()], &own, profile) {
+        Ok(replay) => Ok(replay.observations.iter().any(|observation| matches!(observation,
+            OpenMlsReplayObservation::ProposalStored { message_id, proposal_ref, .. }
+                if message_id == &proposal.id.to_string() && proposal_ref == reference
+        )) && replay.observations.iter().any(|observation| matches!(observation,
+            OpenMlsReplayObservation::CommitStaged { message_id, consumed_proposal_refs, .. }
+                if message_id == &commit.id.to_string() && consumed_proposal_refs.iter().any(|consumed| consumed == reference)
+        ))),
+        Err(error @ (OpenMlsProjectionError::Storage(_) | OpenMlsProjectionError::Snapshot(_))) => Err(error),
+        _ => Ok(false),
     }
 }
 
@@ -3515,7 +3678,10 @@ fn apply_openmls_canonicalization_result_inner<S: StorageProvider>(
             replay_messages,
             &PrevalidatedOwnCommits::default(),
             profile_policy,
-            Some(max_retained_anchor_rewind),
+            ReplayScratch {
+                retain_replayed_anchors: Some(max_retained_anchor_rewind),
+                rejected_dependency_cursor: None,
+            },
             #[cfg(feature = "experimental-device-sync")]
             Some(&mut PrivateReplayEffects {
                 revocation_transition,
@@ -3777,6 +3943,15 @@ fn apply_selected_private_capture_candidates<S: StorageProvider>(
                     &message_id,
                 ));
             } else if settlement_control {
+                #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+                if !can_settle {
+                    crate::private_settlement_test_observation::record(
+                        group_id,
+                        crate::private_settlement_test_observation::recipient(&group),
+                        &message_id,
+                        crate::private_settlement_test_observation::Category::SelectedScope,
+                    );
+                }
                 if can_settle {
                     let effect = crate::private_roster_settlement_receive::stage_settlement_effect(
                         settlement_source,
@@ -3784,6 +3959,8 @@ fn apply_selected_private_capture_candidates<S: StorageProvider>(
                         &payload,
                         sender.as_ref(),
                         &message_id,
+                        #[cfg(any(test, all(feature = "test-crash-hooks", debug_assertions)))]
+                        crate::private_settlement_test_observation::recipient(&group),
                     );
                     positive = crate::private_roster_settlement_receive::apply_settlement_effect(
                         storage, group_id, effect,
@@ -4411,17 +4588,144 @@ impl PrivateReplayEffects<'_> {
 /// Authenticate messages against successive source trees for probe or canonical apply.
 /// `retain_replayed_anchors` enables durable apply and per-commit presentation deltas;
 /// probes omit both while still validating the complete candidate branch.
+// Require an actual authenticated commit into this candidate epoch. Ignoring
+// off-branch evidence never resolves a proposal reference: a subsequent commit
+// still fails normally if any of its genuine dependencies is unavailable.
+fn replayed_commit_establishes_proposal_epoch(
+    source_epoch: u64,
+    observations: &[OpenMlsReplayObservation],
+) -> bool {
+    observations.iter().any(|observation| {
+        matches!(
+            observation,
+            OpenMlsReplayObservation::CommitStaged { resulting_epoch, .. }
+                if *resulting_epoch == source_epoch
+        )
+    })
+}
+
+/// Re-authenticate retained public wire against this exact replay candidate.
+/// Failed state selects rows to inspect; only the authenticated reference and
+/// current standalone authorization refusal can refute the commit dependency.
+/// Never queue the refused proposal, merge a commit, or read private handshakes.
+#[derive(Clone, Default)]
+struct RejectedDependencyCursor {
+    path: Vec<[u8; 32]>,
+    commit: Option<MessageId>,
+    reference: String,
+    epoch: u64,
+    after: Option<MessageId>,
+}
+
+fn rejected_referenced_proposal<S: StorageProvider>(
+    storage: &S,
+    crypto: &RustCrypto,
+    group: &mut MlsGroup,
+    group_id: &GroupId,
+    commit: &TransportMessage,
+    reference: &str,
+    cursor: &mut RejectedDependencyCursor,
+) -> Result<Option<cgka_traits::ingest::ProposalRejectionCategory>, OpenMlsProjectionError> {
+    let epoch = group.epoch().as_u64();
+    if cursor.commit.as_ref() != Some(&commit.id)
+        || cursor.reference != reference
+        || cursor.epoch != epoch
+    {
+        cursor.commit = Some(commit.id.clone());
+        cursor.reference = reference.into();
+        cursor.epoch = epoch;
+        cursor.after = None;
+    }
+    let mut records = Vec::new();
+    storage
+        .visit_messages_in_states_after(
+            group_id,
+            &[MessageState::Failed],
+            EpochId(epoch),
+            cursor.after.as_ref(),
+            64,
+            &mut |record| {
+                records.push(record);
+                true
+            },
+        )
+        .map_err(|_| OpenMlsProjectionError::Storage("rejected dependency lookup failed".into()))?;
+    let full_page = records.len() == 64;
+    let started = web_time::Instant::now();
+    let provider = EngineOpenMlsProvider::<S>::new(crypto, storage.mls_storage());
+    for record in records {
+        if started.elapsed() >= std::time::Duration::from_millis(500) && cursor.after.is_some() {
+            return Err(OpenMlsProjectionError::RejectedDependencyScanPending);
+        }
+        cursor.after = Some(record.id.clone());
+        if record.group_id != *group_id || record.epoch != EpochId(epoch) {
+            continue;
+        }
+        let Ok(payload) = StoredMessagePayload::decode(&record.payload) else {
+            continue;
+        };
+        let Some(wire) = payload.as_openmls_wire() else {
+            continue;
+        };
+        if record.id.as_slice() != Sha256::digest(&wire.payload).as_slice() {
+            continue;
+        }
+        let Ok(Some(protocol)) = protocol_message_from_bytes(&wire.payload) else {
+            continue;
+        };
+        if !matches!(&protocol, ProtocolMessage::PublicMessage(_))
+            || protocol.epoch().as_u64() != epoch
+            || protocol.group_id().as_slice() != group_id.as_slice()
+            || protocol.content_type() != ContentType::Proposal
+        {
+            continue;
+        }
+        let processed = match group.process_message(&provider, protocol) {
+            Ok(processed) => processed,
+            Err(ProcessMessageError::StorageError(_)) => {
+                return Err(OpenMlsProjectionError::Storage(
+                    "rejected dependency authentication storage failure".into(),
+                ));
+            }
+            Err(_) => continue,
+        };
+        let ProcessedMessageContent::ProposalMessage(queued) = processed.into_content() else {
+            continue;
+        };
+        if tls_hex(queued.proposal_reference_ref())? != reference {
+            continue;
+        }
+        if let Err(rejection) = crate::app_components::authorize_standalone_proposal(group, &queued)
+        {
+            return Ok(Some(rejection.category));
+        }
+    }
+    if full_page {
+        return Err(OpenMlsProjectionError::RejectedDependencyScanPending);
+    }
+    Ok(None)
+}
+
+struct ReplayScratch<'a> {
+    retain_replayed_anchors: Option<u64>,
+    rejected_dependency_cursor: Option<&'a mut RejectedDependencyCursor>,
+}
+
 fn process_openmls_messages_inner<S: StorageProvider>(
     storage: &S,
     group_id: &GroupId,
     messages: &[TransportMessage],
     own_commits: &PrevalidatedOwnCommits,
     profile_policy: ReplayProfilePolicy,
-    retain_replayed_anchors: Option<u64>,
+    scratch: ReplayScratch<'_>,
     #[cfg(feature = "experimental-device-sync")] mut private_effects: Option<
         &mut PrivateReplayEffects<'_>,
     >,
 ) -> Result<OpenMlsReplayOutput, OpenMlsProjectionError> {
+    let ReplayScratch {
+        retain_replayed_anchors,
+        mut rejected_dependency_cursor,
+    } = scratch;
     let reject_legacy_group_additions = profile_policy.reject_legacy_group_additions
         && storage
             .get_group(group_id)
@@ -4446,6 +4750,8 @@ fn process_openmls_messages_inner<S: StorageProvider>(
     // at its source epoch, so on a diverging prefix its anchor state would
     // not be the state the commit actually produces there.
     let mut prefix_canonical = true;
+    // Reuse the authenticated candidate-epoch proof within this replay.
+    let mut validated_proposal_epoch = None;
     for message in messages {
         let (projection, protocol) = project_protocol_message(&message.payload)?;
         let message_id = hex::encode(message.id.as_slice());
@@ -4532,6 +4838,8 @@ fn process_openmls_messages_inner<S: StorageProvider>(
             });
             continue;
         }
+        #[cfg(feature = "test-policy-overrides")]
+        let candidate_epoch_for_observation = mls_group.epoch().as_u64();
         let processed = match if projection.kind == OpenMlsContentKind::Commit {
             process_commit_with_app_data_updates(&mut mls_group, &provider, protocol)
         } else {
@@ -4539,6 +4847,125 @@ fn process_openmls_messages_inner<S: StorageProvider>(
         } {
             Ok(processed) => processed,
             Err(err) if projection.kind == OpenMlsContentKind::Commit => {
+                #[cfg(feature = "test-policy-overrides")]
+                crate::canonical_probe_observer::replay_failure(
+                    group_id,
+                    mls_group.own_leaf_index().u32(),
+                    messages,
+                    "commit",
+                    source_epoch,
+                    candidate_epoch_for_observation,
+                    match &err {
+                        ProcessMessageError::ValidationError(
+                            ValidationError::InvalidMembershipTag,
+                        ) => "invalid_membership_tag",
+                        ProcessMessageError::ValidationError(ValidationError::UnableToDecrypt(
+                            _,
+                        )) => "unable_to_decrypt",
+                        ProcessMessageError::ValidationError(ValidationError::WrongEpoch) => {
+                            "wrong_epoch"
+                        }
+                        ProcessMessageError::ValidationError(ValidationError::UnknownMember) => {
+                            "unknown_member"
+                        }
+                        ProcessMessageError::ValidationError(_) => "other_validation",
+                        ProcessMessageError::GroupStateError(_) => "group_state",
+                        ProcessMessageError::InvalidCommit(error) => match error {
+                            openmls::group::StageCommitError::MissingProposal
+                            | openmls::group::StageCommitError::MissingProposalReference(_) => {
+                                "missing_proposal"
+                            }
+                            openmls::group::StageCommitError::OwnCommitMismatch => {
+                                "own_commit_mismatch"
+                            }
+                            openmls::group::StageCommitError::EpochMismatch => {
+                                "commit_epoch_mismatch"
+                            }
+                            openmls::group::StageCommitError::ConfirmationTagMismatch => {
+                                "confirmation_tag_mismatch"
+                            }
+                            openmls::group::StageCommitError::ConfirmationTagMissing => {
+                                "confirmation_tag_missing"
+                            }
+                            openmls::group::StageCommitError::RequiredPathNotFound => {
+                                "required_path_missing"
+                            }
+                            openmls::group::StageCommitError::OwnKeyNotFound => "own_key_missing",
+                            openmls::group::StageCommitError::MissingDecryptionKey => {
+                                "decryption_key_missing"
+                            }
+                            openmls::group::StageCommitError::AttemptedSelfRemoval => {
+                                "attempted_self_removal"
+                            }
+                            openmls::group::StageCommitError::PathLeafNodeVerificationFailure => {
+                                "path_leaf_verification"
+                            }
+                            openmls::group::StageCommitError::UpdatePathError(_) => {
+                                "apply_update_path"
+                            }
+                            openmls::group::StageCommitError::VerifiedUpdatePathError(_) => {
+                                "verify_update_path"
+                            }
+                            openmls::group::StageCommitError::ProposalValidationError(_) => {
+                                "proposal_validation"
+                            }
+                            openmls::group::StageCommitError::AppDataUpdateValidationError(_) => {
+                                "app_data_validation"
+                            }
+                            openmls::group::StageCommitError::ApplyAppDataUpdateError(_) => {
+                                "apply_app_data"
+                            }
+                            openmls::group::StageCommitError::LibraryError(_) => "commit_library",
+                            _ => "other_invalid_commit",
+                        },
+                        ProcessMessageError::StorageError(_) => "storage",
+                        ProcessMessageError::LibraryError(_) => "library",
+                        ProcessMessageError::IncompatibleWireFormat => "incompatible_wire_format",
+                        ProcessMessageError::UnauthorizedExternalApplicationMessage => {
+                            "unauthorized_external_application"
+                        }
+                        ProcessMessageError::UnauthorizedExternalCommitMessage => {
+                            "unauthorized_external_commit"
+                        }
+                        ProcessMessageError::UnsupportedProposalType => "unsupported_proposal",
+                        _ => "other",
+                    },
+                );
+                if let ProcessMessageError::InvalidCommit(
+                    openmls::group::StageCommitError::MissingProposalReference(missing),
+                ) = &err
+                    && let Some(cursor) = rejected_dependency_cursor.as_deref_mut()
+                    && let Some(category) = rejected_referenced_proposal(
+                        storage,
+                        &crypto,
+                        &mut mls_group,
+                        group_id,
+                        message,
+                        &tls_hex(missing.reference())?,
+                        cursor,
+                    )?
+                {
+                    return Err(OpenMlsProjectionError::InvalidCommit {
+                        message_id,
+                        reason: crate::app_components::proposal_rejection_category_tag(category)
+                            .into(),
+                        rejection_category: Some(category),
+                    });
+                }
+                if matches!(
+                    &err,
+                    ProcessMessageError::InvalidCommit(
+                        openmls::group::StageCommitError::MissingProposal
+                            | openmls::group::StageCommitError::MissingProposalReference(_)
+                    )
+                ) {
+                    return Err(OpenMlsProjectionError::MissingReferencedProposal);
+                }
+                if matches!(&err, ProcessMessageError::StorageError(_)) {
+                    return Err(OpenMlsProjectionError::Storage(
+                        "MLS commit replay storage failure".into(),
+                    ));
+                }
                 if let Some(category) = crate::app_components::classify_process_message_rejection(
                     &err,
                     ContentType::Commit,
@@ -4553,6 +4980,57 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                 return Err(replay_error("process_message", err));
             }
             Err(err) if projection.kind == OpenMlsContentKind::Proposal => {
+                #[cfg(feature = "test-policy-overrides")]
+                crate::canonical_probe_observer::replay_failure(
+                    group_id,
+                    mls_group.own_leaf_index().u32(),
+                    messages,
+                    "proposal",
+                    source_epoch,
+                    candidate_epoch_for_observation,
+                    match &err {
+                        ProcessMessageError::ValidationError(
+                            ValidationError::InvalidMembershipTag,
+                        ) => "invalid_membership_tag",
+                        ProcessMessageError::ValidationError(ValidationError::UnableToDecrypt(
+                            _,
+                        )) => "unable_to_decrypt",
+                        ProcessMessageError::ValidationError(ValidationError::WrongEpoch) => {
+                            "wrong_epoch"
+                        }
+                        ProcessMessageError::ValidationError(ValidationError::UnknownMember) => {
+                            "unknown_member"
+                        }
+                        ProcessMessageError::ValidationError(_) => "other_validation",
+                        ProcessMessageError::GroupStateError(_) => "group_state",
+                        _ => "other",
+                    },
+                );
+                // Replay supplies proposals from all candidate branches. A
+                // proposal whose membership tag belongs to a rival cannot
+                // veto this already authenticated branch. It is never stored
+                // or accepted here; later commits still authenticate and must
+                // resolve every actually consumed proposal reference. Other
+                // validation, authorization and storage errors remain strict.
+                if matches!(
+                    &err,
+                    ProcessMessageError::ValidationError(ValidationError::InvalidMembershipTag)
+                ) && source_epoch == mls_group.epoch().as_u64()
+                    && (validated_proposal_epoch == Some(source_epoch)
+                        || replayed_commit_establishes_proposal_epoch(source_epoch, &observations))
+                {
+                    validated_proposal_epoch = Some(source_epoch);
+                    observations.push(OpenMlsReplayObservation::Ignored {
+                        message_id,
+                        kind: projection.kind,
+                    });
+                    continue;
+                }
+                if matches!(&err, ProcessMessageError::StorageError(_)) {
+                    return Err(OpenMlsProjectionError::Storage(
+                        "MLS proposal replay storage failure".into(),
+                    ));
+                }
                 if let Some(category) = crate::app_components::classify_process_message_rejection(
                     &err,
                     ContentType::Proposal,
@@ -5010,6 +5488,11 @@ fn process_openmls_messages_inner<S: StorageProvider>(
                                 &payload,
                                 sender_id.as_ref(),
                                 &message.id,
+                                #[cfg(any(
+                                    test,
+                                    all(feature = "test-crash-hooks", debug_assertions)
+                                ))]
+                                crate::private_settlement_test_observation::recipient(&mls_group),
                             );
                         effects.settlement.push(effect);
                     }

@@ -292,9 +292,21 @@ fn spawn_crash_child(database: &Path, point: &str, extra_env: &[(&str, &str)]) -
     // pipe before it reaches its pause point.
     let mut stderr = child.stderr.take().expect("child stderr");
     let stderr_reader = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = stderr.read_to_string(&mut text);
-        text
+        // Keep draining after the retained diagnostic cap so the child cannot
+        // block on a full pipe while the parent waits for its crash marker.
+        let mut retained = Vec::new();
+        let mut chunk = [0; 4096];
+        loop {
+            let Ok(count) = stderr.read(&mut chunk) else {
+                break;
+            };
+            if count == 0 {
+                break;
+            }
+            let keep = count.min(65_536usize.saturating_sub(retained.len()));
+            retained.extend_from_slice(&chunk[..keep]);
+        }
+        String::from_utf8_lossy(&retained).into_owned()
     });
     let label = std::iter::once(point.to_owned())
         .chain(

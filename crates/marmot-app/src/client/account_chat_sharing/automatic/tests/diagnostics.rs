@@ -2,6 +2,7 @@
 use cgka_traits::storage::StorageError;
 pub(super) fn storage_category(error: &StorageError) -> &'static str {
     match error {
+        StorageError::MirroredRecordDeniedByDeparture => "record_denied_by_departure",
         StorageError::Serialization(message)
             if message == "conflicting mirrored chat observation" =>
         {
@@ -89,27 +90,80 @@ fn failed_diagnostic_query_keeps_the_original_boundary_before_its_own_failure() 
     );
 }
 
+struct TraceRegistration {
+    owner: &'static str,
+    peers: Vec<([u8; 32], &'static str)>,
+}
 fn traced_roots()
--> &'static std::sync::Mutex<std::collections::BTreeMap<std::path::PathBuf, &'static str>> {
+-> &'static std::sync::Mutex<std::collections::BTreeMap<std::path::PathBuf, TraceRegistration>> {
     static ROOTS: std::sync::OnceLock<
-        std::sync::Mutex<std::collections::BTreeMap<std::path::PathBuf, &'static str>>,
+        std::sync::Mutex<std::collections::BTreeMap<std::path::PathBuf, TraceRegistration>>,
     > = std::sync::OnceLock::new();
     ROOTS.get_or_init(Default::default)
 }
 pub(super) struct TraceRoot(std::path::PathBuf);
 impl Drop for TraceRoot {
     fn drop(&mut self) {
-        traced_roots().lock().unwrap().remove(&self.0);
+        traced_roots()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&self.0);
     }
 }
 pub(super) fn trace_root(root: &std::path::Path, owner: &'static str) -> TraceRoot {
-    assert!(matches!(owner, "source" | "recipient"));
+    assert!(matches!(
+        owner,
+        "source" | "source_a" | "source_b" | "recipient"
+    ));
     let mut roots = traced_roots().lock().unwrap();
-    assert!(roots.len() < 8 && roots.insert(root.to_owned(), owner).is_none());
+    assert!(
+        roots.len() < 8
+            && roots
+                .insert(
+                    root.to_owned(),
+                    TraceRegistration {
+                        owner,
+                        peers: Vec::new()
+                    }
+                )
+                .is_none()
+    );
     TraceRoot(root.to_owned())
 }
 pub(super) fn owner(root: &std::path::Path) -> Option<&'static str> {
-    traced_roots().lock().unwrap().get(root).copied()
+    traced_roots()
+        .lock()
+        .unwrap()
+        .get(root)
+        .map(|registration| registration.owner)
+}
+pub(super) fn label_peers(root: &std::path::Path, peers: &[([u8; 32], &'static str)]) {
+    assert!(
+        peers.len() <= 3
+            && peers
+                .iter()
+                .all(|(_, label)| matches!(*label, "source_a" | "source_b" | "recipient"))
+    );
+    let mut roots = traced_roots().lock().unwrap();
+    let registration = roots
+        .get_mut(root)
+        .expect("actual fixture trace must be registered");
+    assert!(registration.peers.is_empty());
+    registration.peers = peers.to_vec();
+}
+pub(super) fn peer(root: &std::path::Path, device: &[u8]) -> &'static str {
+    traced_roots()
+        .lock()
+        .unwrap()
+        .get(root)
+        .and_then(|registration| {
+            registration
+                .peers
+                .iter()
+                .find(|(peer, _)| peer.as_slice() == device)
+                .map(|(_, label)| *label)
+        })
+        .unwrap_or("unknown")
 }
 pub(crate) fn sharing_category(error: &crate::AccountSharingError) -> &'static str {
     match error {
@@ -119,4 +173,8 @@ pub(crate) fn sharing_category(error: &crate::AccountSharingError) -> &'static s
         crate::AccountSharingError::StaleRevision => "stale_revision",
         crate::AccountSharingError::RuntimeUnavailable => "runtime_unavailable",
     }
+}
+
+pub(super) fn emit(line: &str, owner: &str) {
+    eprintln!("{line}, owner={owner}");
 }

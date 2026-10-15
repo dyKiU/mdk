@@ -2862,6 +2862,12 @@ impl AppClient {
         (SyncSummary, RecoveredDelivery),
         (SyncSummary, bool, bool, AppError, SyncFailureStage),
     > {
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        self.test_observe_automatic_consent_raw(&delivery.message);
         let cursor_before_secs = self.state.last_transport_timestamp;
         let mut summary = SyncSummary::default();
         let message_id = delivery.message.id.clone();
@@ -3120,6 +3126,12 @@ impl AppClient {
             self.pending_applied_sync_summary
                 .merge(std::mem::take(&mut summary));
             let acquisition_deadline = self.observed_acquisition_deadline(&delivery).await;
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            self.test_observe_automatic_consent_raw(&delivery.message);
             let receipts = match self.transport_receipts() {
                 Ok(receipts) => receipts,
                 Err(error) => {

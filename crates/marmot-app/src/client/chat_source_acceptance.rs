@@ -11,7 +11,7 @@ use storage_sqlite::account_chat_source::{
 };
 
 #[cfg(test)]
-#[path = "chat_source_privacy_acceptance.rs"]
+#[path = "tests/chat_source_privacy_acceptance.rs"]
 mod privacy_acceptance;
 #[cfg(test)]
 #[path = "chat_source_acceptance_tests.rs"]
@@ -120,6 +120,15 @@ impl AppClient {
                 "chat source origin unavailable".into(),
             ))
         })?;
+        // A daemon or short-lived CLI client can still have this pending group
+        // seeded by deferred open. Hydrate before the atomic acceptance write;
+        // its read-only authority checks must keep rejecting unhydrated state.
+        // Denial remains valid after self-removal and does not require live MLS.
+        if !denied && !self.runtime.session_mut().ensure_group_hydrated(group)? {
+            return Err(AppError::Storage(StorageError::Serialization(
+                "chat source membership unavailable".into(),
+            )));
+        }
         let operation = if denied {
             AccountChatSourceOperation::Deny
         } else {
@@ -329,6 +338,21 @@ impl AppClient {
         if verdict != Some(AccountChatSourceVerdict::Accepted) {
             return Ok(false);
         }
+
+        let accepted_origin = storage.current_account_chat_source_origin(
+            &scope.account,
+            &scope.local_device,
+            group,
+        )?;
+        if storage.account_chat_departure_denies_source(
+            &scope.account,
+            &scope.local_device,
+            group,
+            &scope.local_device,
+            accepted_origin,
+        )? {
+            return Ok(false);
+        }
         let authority = self.runtime.session().group_authority(group)?;
         Ok(authority.facts.is_member
             && !authority.facts.removed
@@ -344,10 +368,24 @@ impl AppClient {
                 explicitly_accepted: true,
             },
         )?;
-        Ok(self
-            .app
-            .account_storage(&self.state.label)?
-            .current_account_chat_source(&scope.account, &scope.local_device, group)?
-            == Some(AccountChatSourceVerdict::Denied))
+        let storage = self.app.account_storage(&self.state.label)?;
+        let origin = storage
+            .current_account_chat_source_origin(&scope.account, &scope.local_device, group)?
+            .or(storage.current_account_chat_source_terminal_origin(
+                &scope.account,
+                &scope.local_device,
+                group,
+            )?);
+        Ok(
+            storage.current_account_chat_source(&scope.account, &scope.local_device, group)?
+                == Some(AccountChatSourceVerdict::Denied)
+                || storage.account_chat_departure_denies_source(
+                    &scope.account,
+                    &scope.local_device,
+                    group,
+                    &scope.local_device,
+                    origin,
+                )?,
+        )
     }
 }

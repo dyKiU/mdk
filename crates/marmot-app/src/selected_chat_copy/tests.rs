@@ -1018,6 +1018,30 @@ mod actual {
     async fn device_revocation_original_receipt_survives_incoming_storage_rollback_retry() {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry).await;
     }
+    #[tokio::test]
+    async fn device_revocation_challenge_published_before_storage_retry_preserves_fresh_authority()
+    {
+        selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry).await;
+    }
+    #[tokio::test]
+    async fn device_revocation_challenge_initial_peel_before_storage_retry_preserves_fresh_authority()
+     {
+        selected_chat_delivery(
+            RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry,
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn device_revocation_confirmation_fact_rollback_preserves_owned_successor_authority() {
+        selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry)
+            .await;
+    }
+    #[derive(Clone, Copy)]
+    enum ChallengeBeforeRetry {
+        Receipt,
+        InitialPeel,
+        ConfirmationWriteAfterSuccessor,
+    }
     #[derive(Clone, Copy, PartialEq)]
     enum RecipientAdmissionScenario {
         None,
@@ -1034,6 +1058,9 @@ mod actual {
         DeviceRosterSuccessor,
         DeviceRosterSuccessorReopen,
         DeviceRosterSuccessorStorageRetry,
+        DeviceRosterChallengeBeforeRetry,
+        DeviceRosterChallengeInitialPeelBeforeRetry,
+        DeviceRosterConfirmationStorageRetry,
         HistoryTransfer,
         HistoryRecipientQuery,
         HistoryRequestReplay,
@@ -1440,24 +1467,54 @@ mod actual {
                 | RecipientAdmissionScenario::DeviceRosterSuccessor
                 | RecipientAdmissionScenario::DeviceRosterSuccessorReopen
                 | RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
+                | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
+                | RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
+                | RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry
         ) {
             request.cancel().await.unwrap();
             drop(original_consents);
-            assert_device_roster_removal(
+            use futures::FutureExt;
+            let verdict = std::panic::AssertUnwindSafe(assert_device_roster_removal(
                 &fixture,
                 &managers,
+                &directory_reader,
                 matches!(
                     scenario,
                     RecipientAdmissionScenario::DeviceRosterSuccessor
                         | RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
+                        | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
+                        | RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
+                        | RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry
                 ),
                 scenario == RecipientAdmissionScenario::DeviceRosterSuccessorReopen,
-                scenario == RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry,
-            )
+                matches!(
+                    scenario,
+                    RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry
+                        | RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry
+                        | RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry
+                ),
+                match scenario {
+                    RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry => {
+                        Some(ChallengeBeforeRetry::Receipt)
+                    }
+                    RecipientAdmissionScenario::DeviceRosterChallengeInitialPeelBeforeRetry => {
+                        Some(ChallengeBeforeRetry::InitialPeel)
+                    }
+                    RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry => {
+                        Some(ChallengeBeforeRetry::ConfirmationWriteAfterSuccessor)
+                    }
+                    _ => None,
+                },
+            ))
+            .catch_unwind()
             .await;
             directory_reader.shutdown().await;
             for runtime in all_runtimes {
                 runtime.shutdown_and_close().await.unwrap();
+            }
+            eprintln!("revocation_runtime_positive_closes=4 original_verdict_preserved=true");
+            if let Err(panic) = verdict {
+                std::panic::resume_unwind(panic);
             }
             return;
         }
@@ -2267,6 +2324,7 @@ mod actual {
                 }
                 return;
             }
+            let revision_before_consent = transfer.snapshot().await.unwrap().revision;
             consent.approve(review.revision).await.unwrap();
             if matches!(
                 scenario,
@@ -2281,7 +2339,20 @@ mod actual {
                 );
                 let _release_on_drop = ReleaseSelectedWelcome(release.clone());
                 let transfer = std::sync::Arc::new(transfer);
-                let revision = transfer.snapshot().await.unwrap().revision;
+                // Recipient approval publishes asynchronously. Wait for this original
+                // source to authenticate Consent before reading its action revision.
+                // Otherwise queued consent can invalidate the revision before dispatch.
+                let revision = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    loop {
+                        let snapshot = transfer.snapshot().await.unwrap();
+                        if snapshot.revision > revision_before_consent {
+                            break snapshot.revision;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .expect("source must authenticate actual Consent before chunk continuation");
                 let operation = transfer.clone();
                 let mut continuation =
                     tokio::spawn(async move { operation.continue_transfer(revision).await });
@@ -2766,12 +2837,182 @@ mod actual {
         }
     }
 
+    async fn observe_challenge_while_successor_rolled_back(
+        fixture: &SelectedChatFixture,
+        relay_reader: &nostr_sdk::prelude::Client,
+        protected: &cgka_traits::GroupId,
+        observation: ChallengeBeforeRetry,
+    ) -> Result<bool, &'static str> {
+        let source = fixture.apps[0]
+            .account_storage("test")
+            .map_err(|_| "source storage unavailable")?;
+        let recipient = fixture.apps[1]
+            .account_storage("test")
+            .map_err(|_| "recipient storage unavailable")?;
+        let predecessor_epoch = if matches!(observation, ChallengeBeforeRetry::InitialPeel) {
+            let actual = openmls::group::MlsGroup::load(
+                recipient.mls_storage(),
+                &openmls::group::GroupId::from_slice(protected.as_slice()),
+            )
+            .map_err(|_| "recipient predecessor MLS unavailable")?
+            .ok_or("recipient predecessor MLS absent")?;
+            let epoch = actual.epoch().as_u64();
+            if epoch == 0 {
+                return Err("initial peel discriminator requires nonzero actual predecessor epoch");
+            }
+            Some(epoch)
+        } else {
+            None
+        };
+        let (message, canonical, ciphertext) =
+            tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                loop {
+                    let roster = source
+                        .private_roster_settlement_storage()
+                        .ok_or("source roster unavailable")?;
+                    let round = roster
+                        .read_round()
+                        .map_err(|_| "source round unavailable")?
+                        .ok_or("source round absent")?;
+                    if round.anchor.group_id != *protected
+                        || !matches!(
+                            round.anchor.origin,
+                            cgka_traits::private_device_invite::PrivateInviteOrigin::Revoked(_)
+                        )
+                    {
+                        return Err("source successor scope mismatch");
+                    }
+                    if let (Some(bytes), Some(ciphertext)) =
+                        (&round.outbound, &round.prepared_ciphertext)
+                    {
+                        let actual = openmls::group::MlsGroup::load(
+                            source.mls_storage(),
+                            &openmls::group::GroupId::from_slice(protected.as_slice()),
+                        )
+                        .map_err(|_| "source MLS observation unavailable")?
+                        .ok_or("source MLS group absent")?;
+                        if actual.epoch().as_u64() != round.anchor.successor.epoch.0
+                            || !actual.own_leaf_node().is_some_and(|leaf| {
+                                leaf.signature_key().as_slice() == round.anchor.coordinator
+                            })
+                        {
+                            return Err("source current successor mismatch");
+                        }
+                        let result: cgka_traits::engine::SendResult = serde_json::from_slice(bytes)
+                            .map_err(|_| "outbound decode unavailable")?;
+                        let cgka_traits::engine::SendResult::ApplicationMessage {
+                            msg,
+                            group_id,
+                            source_epoch,
+                            ..
+                        } = result
+                        else {
+                            return Err("outbound kind mismatch");
+                        };
+                        if group_id != *protected || source_epoch != round.anchor.successor.epoch {
+                            return Err("outbound successor mismatch");
+                        }
+                        let fact = roster
+                            .read_facts()
+                            .map_err(|_| "source facts unavailable")?
+                            .into_iter()
+                            .find(|fact| {
+                                fact.generation == round.generation
+                                    && Some(fact.leaf_index) == round.coordinator_leaf_index
+                                    && fact.signature_public_key == round.anchor.coordinator
+                            })
+                            .ok_or("exact coordinator fact absent")?;
+                        let event_id = nostr_sdk::prelude::EventId::from_slice(msg.id.as_slice())
+                            .map_err(|_| "outbound event unavailable")?;
+                        let events = relay_reader
+                            .fetch_events(nostr_sdk::prelude::ReqTarget::single(
+                                fixture.url.as_str(),
+                                [nostr_sdk::prelude::Filter::new().ids([event_id])],
+                            ))
+                            .timeout(std::time::Duration::from_secs(2))
+                            .await
+                            .map_err(|_| "relay observation unavailable")?;
+                        if events
+                            .iter()
+                            .any(|event| event.id == event_id && event.verify().is_ok())
+                        {
+                            break Ok((msg, fact.message_id, ciphertext.clone()));
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .map_err(|_| "challenge publication prerequisite timed out")??;
+        // A transport wrapper may be parked before MLS keys are available. A
+        // canonical row instead proves exact peeled ciphertext receipt. Neither
+        // row state grants a live original or a settled roster.
+        let mut exact_attempt_observation = None;
+        let observed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                for id in [&message.id, &canonical] {
+                    match recipient.get_message(id) {
+                        Ok(row) => {
+                            let payload = cgka_traits::StoredMessagePayload::decode(&row.payload)
+                                .map_err(|_| "recipient payload unavailable")?;
+                            let exact_outer = payload.as_exact_transport().is_some_and(|stored| {
+                                stored.id == message.id && stored.payload == message.payload
+                            });
+                            let exact_inner = row.id == canonical
+                                && row.group_id == *protected
+                                && payload
+                                    .as_openmls_wire()
+                                    .is_some_and(|stored| stored.payload == ciphertext);
+                            if matches!(observation, ChallengeBeforeRetry::InitialPeel) {
+                                if exact_outer || exact_inner {
+                                    exact_attempt_observation = Some((row.state,
+                                        Some(row.epoch.0) == predecessor_epoch));
+                                }
+                                // These bytes and epoch come from the real handler's
+                                // persisted row, not a fixture rewrite. The only two raw
+                                // PeelDeferred writes stamp epoch0 before quarantine,
+                                // or current_epoch after completed peel/fallback refusal.
+                                // A nonzero exact predecessor stamp distinguishes the
+                                // latter; it does not prove private-frame decryption.
+                                if exact_outer && row.group_id == *protected
+                                    && row.state == cgka_traits::MessageState::PeelDeferred
+                                    && Some(row.epoch.0) == predecessor_epoch
+                                {
+                                    eprintln!("revocation_challenge_initial_peel exact_outer=true state=peel_deferred persisted_epoch_matches_actual_nonzero_predecessor=true private_frame_decryption_proven=false");
+                                    return Ok(true);
+                                }
+                            } else if exact_outer || exact_inner {
+                                return Ok(true);
+                            }
+                        }
+                        Err(cgka_traits::storage::StorageError::NotFound) => {}
+                        Err(_) => return Err("recipient row unavailable"),
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        match observed {
+            Ok(result) => result,
+            Err(_) if matches!(observation, ChallengeBeforeRetry::InitialPeel) => {
+                eprintln!(
+                    "revocation_challenge_initial_peel_prerequisite_unmet exact_state_epoch_matches_predecessor={exact_attempt_observation:?}"
+                );
+                Err("exact challenge initial peel epoch prerequisite timed out")
+            }
+            Err(_) => Ok(false), // Publication is known; arrival remains unproved.
+        }
+    }
+
     async fn assert_device_roster_removal(
         fixture: &SelectedChatFixture,
         managers: &[crate::runtime::AccountManager; 3],
+        relay_reader: &nostr_sdk::prelude::Client,
         require_fresh_successor: bool,
         retained_remove_reopen: bool,
         retained_remove_storage_retry: bool,
+        challenge_before_retry: Option<ChallengeBeforeRetry>,
     ) {
         use cgka_traits::{GroupStorage, StorageProvider};
         let d = fixture.d_app.account_home().account("test").unwrap();
@@ -2962,6 +3203,50 @@ mod actual {
                 .into_iter()
                 .collect()
         );
+        let confirmation_write_fault = matches!(
+            challenge_before_retry,
+            Some(ChallengeBeforeRetry::ConfirmationWriteAfterSuccessor)
+        );
+        let predecessor_settlement = if challenge_before_retry.is_some() {
+            let storage = fixture.apps[1].account_storage("test").unwrap();
+            let roster = storage.private_roster_settlement_storage().unwrap();
+            let round = roster.read_round().unwrap().unwrap();
+            assert!(
+                round.phase
+                    == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed,
+                "actual retry predecessor must already be Completed"
+            );
+            Some((
+                round.generation,
+                round.phase,
+                roster.read_facts().unwrap().len(),
+            ))
+        } else {
+            None
+        };
+        let settlement_intake =
+            (retained_remove_storage_retry || confirmation_write_fault).then(|| {
+                (|| -> Result<_, &'static str> {
+                    let storage = fixture.apps[1]
+                        .account_storage("test")
+                        .map_err(|_| "intake observer storage unavailable")?;
+                    let group = openmls::group::MlsGroup::load(
+                        storage.mls_storage(),
+                        &openmls::group::GroupId::from_slice(protected.as_slice()),
+                    )
+                    .map_err(|_| "intake observer group unavailable")?
+                    .ok_or("intake observer group absent")?;
+                    let recipient: [u8; 32] = group
+                        .own_leaf_node()
+                        .ok_or("intake observer recipient absent")?
+                        .signature_key()
+                        .as_slice()
+                        .try_into()
+                        .map_err(|_| "intake observer recipient unavailable")?;
+                    cgka_engine::private_settlement_test_observation::arm(&protected, recipient)
+                })()
+            });
+        let mut a_errors = fixture.runtimes[0].subscribe();
         let mut b_errors = fixture.runtimes[1].subscribe();
         let fault = if retained_remove_reopen || retained_remove_storage_retry {
             let app = &fixture.apps[1];
@@ -2987,7 +3272,165 @@ mod actual {
         } else {
             None
         };
-        original.approve(review.revision).await.unwrap();
+        if confirmation_write_fault {
+            let account = fixture.apps[0].account_home().account("test").unwrap();
+            let (held, release) = fixture.apps[0].relay_plane.hold_next_private_confirmation(
+                cgka_traits::MemberId::new(hex::decode(account.account_id_hex).unwrap()),
+                protected.clone(),
+            );
+            let inject_late_fault = async {
+                let actual_wire = tokio::time::timeout(std::time::Duration::from_secs(20), held)
+                    .await
+                    .expect("actual source Challenge must reach the real publication seam")
+                    .expect("source confirmation observation remains owned");
+                let source = fixture.apps[0].account_storage("test").unwrap();
+                let source_roster = source.private_roster_settlement_storage().unwrap();
+                let source_round = source_roster.read_round().unwrap().unwrap();
+                let coordinator = source_round.coordinator_leaf_index.unwrap();
+                assert_eq!(
+                    source_round.anchor.local_device, source_round.anchor.coordinator,
+                    "held source must be the actual current coordinator"
+                );
+                let canonical = source_roster
+                    .read_facts()
+                    .unwrap()
+                    .into_iter()
+                    .find(|fact| {
+                        fact.generation == source_round.generation
+                            && fact.leaf_index == coordinator
+                            && fact.signature_public_key == source_round.anchor.coordinator
+                    })
+                    .expect("actual coordinator must have prepared the held Challenge")
+                    .message_id;
+                let actual: cgka_traits::engine::SendResult =
+                    serde_json::from_slice(source_round.outbound.as_ref().unwrap()).unwrap();
+                let cgka_traits::engine::SendResult::ApplicationMessage {
+                    msg,
+                    group_id,
+                    source_epoch,
+                    ..
+                } = actual
+                else {
+                    panic!("actual held Challenge kind");
+                };
+                assert!(
+                    msg.id == actual_wire.id
+                        && msg.payload == actual_wire.payload
+                        && group_id == protected
+                        && source_epoch == source_round.anchor.successor.epoch
+                );
+                let recipient = fixture.apps[1].account_storage("test").unwrap();
+                tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    loop {
+                        let tree = openmls::group::MlsGroup::load(
+                            recipient.mls_storage(),
+                            &openmls::group::GroupId::from_slice(protected.as_slice()),
+                        )
+                        .unwrap()
+                        .unwrap();
+                        let anchor = recipient
+                            .revoked_device_group_anchor_storage()
+                            .unwrap()
+                            .revoked_anchor()
+                            .unwrap();
+                        if tree.epoch().as_u64()
+                            == before_epochs[&hex::encode(protected.as_slice())] + 1
+                            && tree.members().count() == 2
+                            && !tree
+                                .members()
+                                .any(|leaf| leaf.signature_key.as_slice() == target_device)
+                            && anchor.is_some_and(|anchor| {
+                                !anchor.denied
+                                    && anchor.draft.successor == source_round.anchor.successor
+                            })
+                        {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .expect(
+                    "real B protected Remove successor must commit before fact fault injection",
+                );
+                let round = recipient
+                    .private_roster_settlement_storage()
+                    .unwrap()
+                    .read_round()
+                    .unwrap()
+                    .unwrap();
+                assert!(
+                    round.phase
+                        == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Pending
+                        && round.generation == predecessor_settlement.unwrap().0 + 1
+                        && round.anchor.successor == source_round.anchor.successor
+                        && recipient
+                            .private_roster_settlement_storage()
+                            .unwrap()
+                            .read_facts()
+                            .unwrap()
+                            .is_empty()
+                );
+                let app = &fixture.apps[1];
+                let path = app.account_storage_path("test");
+                let keys = app.account_home().load_signing_keys("test").unwrap();
+                let key = app
+                    .sqlcipher_key(
+                        "test",
+                        &keys,
+                        &path,
+                        crate::sqlcipher::SqlcipherDatabaseKind::Session,
+                    )
+                    .unwrap();
+                let connection = rusqlite::Connection::open(path).unwrap();
+                storage_sqlite::open_hardened_sqlcipher(
+                    &connection,
+                    &key,
+                    storage_sqlite::SqlCipherHardening::cipher_only(),
+                )
+                .unwrap();
+                connection.execute_batch(&format!("CREATE TRIGGER reject_revoked_confirmation BEFORE INSERT ON private_roster_settlement_facts WHEN NEW.leaf_index={coordinator} BEGIN SELECT RAISE(ABORT,'isolated successor confirmation rollback'); END;")).unwrap();
+                eprintln!(
+                    "revocation_confirmation_fault_successor_committed=true exact_held_challenge=true successor_round_pending_zero_facts=true"
+                );
+                drop(release); // Unchanged real relay publication under the same original.
+                let observer = settlement_intake
+                    .as_ref()
+                    .unwrap()
+                    .as_ref()
+                    .expect("exact private intake observation must be armed");
+                tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                    loop {
+                        let summary = observer.summary(Some(&canonical));
+                        assert!(
+                            !summary.incomplete,
+                            "exact confirmation fault observation must remain bounded"
+                        );
+                        if summary
+                            .counts
+                            .iter()
+                            .any(|(kind, count)| *kind == "confirmation_write_error" && *count > 0)
+                        {
+                            eprintln!(
+                                "revocation_confirmation_fault_exact_handler_write_failed=true"
+                            );
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                })
+                .await
+                .expect("genuine exact Challenge must attempt B's failed confirmation write");
+                connection
+                    .execute_batch("DROP TRIGGER reject_revoked_confirmation;")
+                    .unwrap();
+                drop(connection);
+            };
+            let (approved, ()) = tokio::join!(original.approve(review.revision), inject_late_fault);
+            approved.unwrap();
+        } else {
+            original.approve(review.revision).await.unwrap();
+        }
         if let Some(connection) = fault {
             tokio::time::timeout(std::time::Duration::from_secs(20), async {
                 loop {
@@ -3021,6 +3464,61 @@ mod actual {
                 before.epoch().as_u64(),
                 before_epochs[&hex::encode(protected.as_slice())]
             );
+            let challenge_observation = if let Some(observation) = challenge_before_retry {
+                let observed = observe_challenge_while_successor_rolled_back(
+                    fixture,
+                    relay_reader,
+                    &protected,
+                    observation,
+                )
+                .await;
+                // Recheck after the observation, before releasing the real SQL fault.
+                // Relay publication alone never establishes B receipt or permission.
+                assert!(
+                    b_storage
+                        .revoked_device_group_anchor_storage()
+                        .unwrap()
+                        .revoked_anchor()
+                        .unwrap()
+                        .is_none()
+                );
+                let still_before = openmls::group::MlsGroup::load(
+                    b_storage.mls_storage(),
+                    &openmls::group::GroupId::from_slice(protected.as_slice()),
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(
+                    still_before.epoch().as_u64(),
+                    before_epochs[&hex::encode(protected.as_slice())]
+                );
+                let roster = b_storage.private_roster_settlement_storage().unwrap();
+                let round = roster.read_round().unwrap().unwrap();
+                let facts = roster.read_facts().unwrap().len();
+                let before = predecessor_settlement.unwrap();
+                let phase = match round.phase {
+                    cgka_traits::private_roster_settlement::PrivateSettlementPhase::Pending => {
+                        "pending"
+                    }
+                    cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed => {
+                        "completed"
+                    }
+                    cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied => {
+                        "denied"
+                    }
+                };
+                eprintln!(
+                    "revocation_held_rollback_round generation={} phase={phase} facts={facts}",
+                    round.generation
+                );
+                assert!(
+                    round.generation == before.0 && round.phase == before.1 && facts == before.2,
+                    "failed successor transaction must retain exact Completed predecessor generation/phase/fact count"
+                );
+                Some(observed)
+            } else {
+                None
+            };
             if retained_remove_reopen {
                 fixture.runtimes[1].shutdown_and_close().await.unwrap();
             }
@@ -3028,6 +3526,12 @@ mod actual {
                 .execute_batch("DROP TRIGGER reject_revoked_successor;")
                 .unwrap();
             drop(connection);
+            if let Some(observed) = challenge_observation {
+                let received = observed.expect("genuine current successor challenge must be published while B's actual Remove is rolled back");
+                eprintln!(
+                    "revocation_challenge_before_retry relay_seen=true recipient_exact_wire_seen={received} recipient_old_epoch=true recipient_successor_anchor_absent=true"
+                );
+            }
             if retained_remove_reopen {
                 let reopened_app = MarmotApp::with_relay(fixture.dirs[1].path(), &fixture.url);
                 let reopened = MarmotAppRuntime::new(reopened_app.clone());
@@ -3201,27 +3705,312 @@ mod actual {
                 .signature_key()
                 .as_slice()
                 .to_vec();
+            let mut recipient_not_ready = 0;
+            let mut begin_not_ready = 0;
+            let fresh_started = std::time::Instant::now();
             let fresh = tokio::time::timeout(std::time::Duration::from_secs(25), async {
                 loop {
-                    let choices = match managers[0].history_transfer_recipients("test", &fixture.chat).await {
+                    let choices = match managers[0]
+                        .history_transfer_recipients("test", &fixture.chat)
+                        .await
+                    {
                         Ok(choices) => choices,
                         Err(crate::HistoryTransferError::NotReady) => {
+                            recipient_not_ready += 1;
                             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                             continue;
                         }
                         Err(error) => panic!("fresh successor recipient query failed: {error:?}"),
                     };
-                    assert_eq!(choices.len(), 1, "only the surviving linked B device is eligible");
-                    assert!(choices.iter().all(|choice| choice.device != target_device), "removed C cannot remain a public history recipient choice");
-                    let chosen = choices.into_iter().find(|choice| choice.device == recipient)
+                    assert_eq!(
+                        choices.len(),
+                        1,
+                        "only the surviving linked B device is eligible"
+                    );
+                    assert!(
+                        choices.iter().all(|choice| choice.device != target_device),
+                        "removed C cannot remain a public history recipient choice"
+                    );
+                    let chosen = choices
+                        .into_iter()
+                        .find(|choice| choice.device == recipient)
                         .expect("public query must return the actual surviving B leaf");
-                    match managers[0].begin_history_transfer("test", &fixture.chat, chosen.device).await {
+                    match managers[0]
+                        .begin_history_transfer("test", &fixture.chat, chosen.device)
+                        .await
+                    {
                         Ok(original) => break original,
-                        Err(crate::HistoryTransferError::NotReady) => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
-                        Err(error) => panic!("fresh successor history authority failed before settlement: {error:?}"),
+                        Err(crate::HistoryTransferError::NotReady) => {
+                            begin_not_ready += 1;
+                            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                        }
+                        Err(error) => panic!(
+                            "fresh successor history authority failed before settlement: {error:?}"
+                        ),
                     }
                 }
-            }).await.expect("surviving A/B must regain fresh original history authority from an actually settled protected Remove successor, while every old origin remains denied");
+            })
+            .await;
+            let fresh_wait_ms = fresh_started.elapsed().as_millis();
+            if fresh.is_err() || retained_remove_storage_retry || confirmation_write_fault {
+                // Failure-only structural observations distinguish discovery from
+                // original construction without emitting keys, packets or payloads.
+                let observe_rounds = || {
+                    fixture.apps[..2].iter().map(|app| -> Result<_, &'static str> {
+                    let storage = app.account_storage("test").map_err(|_| "account storage unavailable")?;
+                    let roster = storage.private_roster_settlement_storage().ok_or("roster storage unavailable")?;
+                    let round = roster.read_round().map_err(|_| "roster observation failed")?;
+                    let facts = roster.read_facts().map_err(|_| "fact observation failed")?.len();
+                    Ok(round.map(|round| {
+                        let phase = match round.phase {
+                            cgka_traits::private_roster_settlement::PrivateSettlementPhase::Pending => "pending",
+                            cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed => "completed",
+                            cgka_traits::private_roster_settlement::PrivateSettlementPhase::Denied => "denied",
+                        };
+                        (round.generation, phase, facts, round.deferred_acks.len())
+                    }))
+                }).collect::<Vec<_>>()
+                };
+                let rounds = observe_rounds();
+                // These are comparisons of retained observations, never live admission.
+                // Account/group and shared successor fields must match; local_device is
+                // deliberately excluded because A and B are distinct surviving leaves.
+                let observe_shared_anchor = || -> Result<_, &'static str> {
+                    let read = |index: usize| {
+                        fixture.apps[index]
+                            .account_storage("test")
+                            .map_err(|_| "anchor storage unavailable")?
+                            .private_roster_settlement_storage()
+                            .ok_or("anchor roster unavailable")?
+                            .read_round()
+                            .map_err(|_| "anchor round unavailable")?
+                            .ok_or("anchor round absent")
+                    };
+                    let a = read(0)?;
+                    let b = read(1)?;
+                    Ok((
+                        a.anchor.account == b.anchor.account,
+                        a.anchor.group_id == b.anchor.group_id,
+                        a.anchor.successor == b.anchor.successor,
+                        a.anchor.roster_commitment == b.anchor.roster_commitment,
+                        a.anchor.enrollment_nonce == b.anchor.enrollment_nonce,
+                        a.anchor.context_digest == b.anchor.context_digest,
+                        a.anchor.coordinator == b.anchor.coordinator,
+                        (a.round_nonce.is_some(), b.round_nonce.is_some()),
+                        a.round_nonce.zip(b.round_nonce).map(|(a, b)| a == b),
+                    ))
+                };
+                let shared_anchor = observe_shared_anchor();
+                // Snapshot before the bounded post-deadline relay observation.
+                // A local confirmation precedes publication; it is not an ACK.
+                let observe_delivery = || -> Result<_, &'static str> {
+                    let a = fixture.apps[0]
+                        .account_storage("test")
+                        .map_err(|_| "source storage unavailable")?;
+                    let b = fixture.apps[1]
+                        .account_storage("test")
+                        .map_err(|_| "recipient storage unavailable")?;
+                    let roster = a
+                        .private_roster_settlement_storage()
+                        .ok_or("source roster unavailable")?;
+                    let round = roster
+                        .read_round()
+                        .map_err(|_| "source round unavailable")?
+                        .ok_or("source round absent")?;
+                    let fact = roster
+                        .read_facts()
+                        .map_err(|_| "source facts unavailable")?
+                        .into_iter()
+                        .find(|fact| {
+                            fact.generation == round.generation
+                                && Some(fact.leaf_index) == round.coordinator_leaf_index
+                                && fact.signature_public_key == round.anchor.coordinator
+                        });
+                    let received = fact
+                        .as_ref()
+                        .map(|fact| match b.get_message(&fact.message_id) {
+                            Ok(row) => Ok(Some((row.group_id == round.anchor.group_id, row.state))),
+                            Err(cgka_traits::storage::StorageError::NotFound) => Ok(None),
+                            Err(_) => Err("recipient row unavailable"),
+                        })
+                        .transpose()?;
+                    let outbound = round
+                        .outbound
+                        .as_ref()
+                        .map(|bytes| {
+                            serde_json::from_slice::<cgka_traits::engine::SendResult>(bytes)
+                                .map_err(|_| "outbound decode unavailable")
+                        })
+                        .transpose()?;
+                    let event_id = match outbound {
+                        Some(cgka_traits::engine::SendResult::ApplicationMessage {
+                            msg,
+                            group_id,
+                            source_epoch,
+                            ..
+                        }) if group_id == round.anchor.group_id
+                            && source_epoch == round.anchor.successor.epoch =>
+                        {
+                            Some(
+                                nostr_sdk::prelude::EventId::from_slice(msg.id.as_slice())
+                                    .map_err(|_| "outbound event unavailable")?,
+                            )
+                        }
+                        Some(_) => return Err("outbound scope unavailable"),
+                        None => None,
+                    };
+                    Ok((
+                        (
+                            round.prepared_ciphertext.is_some(),
+                            round.outbound.is_some(),
+                            round.round_nonce.is_some(),
+                            fact.is_some(),
+                            received,
+                        ),
+                        event_id,
+                        fact.map(|fact| fact.message_id),
+                    ))
+                };
+                let delivery = observe_delivery();
+                let exact_challenge = delivery.as_ref().ok().and_then(|(_, _, id)| id.clone());
+                let intake = settlement_intake.as_ref().map(|observer| match observer {
+                    Ok(observer) => Ok(observer.summary(exact_challenge.as_ref())),
+                    Err(error) => Err(*error),
+                });
+                let source_original = match tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    original.snapshot(),
+                )
+                .await
+                {
+                    Ok(Ok(snapshot)) => Ok((snapshot.complete, snapshot.completed_groups.len())),
+                    Ok(Err(_)) => Err("original snapshot refused"),
+                    Err(_) => Err("original snapshot unavailable"),
+                };
+                let error_observations = [&mut a_errors, &mut b_errors].map(|subscription| {
+                    let mut counts = [0usize; 7];
+                    let mut incomplete = true;
+                    for _ in 0..256 {
+                        match subscription.try_recv() {
+                            Ok(crate::MarmotAppEvent::AccountError(error)) => {
+                                let bucket = match error.message.as_str() {
+                                    "runtime receive failed: storage_backend" => 0,
+                                    message if message.starts_with("runtime receive failed:") => 1,
+                                    "scheduled convergence failed: storage_backend"
+                                    | "scheduled convergence sync failed: storage_backend" => 2,
+                                    message if message.starts_with("scheduled convergence") => 3,
+                                    message
+                                        if message.starts_with("scheduled maintenance failed:") =>
+                                    {
+                                        4
+                                    }
+                                    message
+                                        if message.starts_with("runtime startup")
+                                            || message.starts_with("runtime restart") =>
+                                    {
+                                        5
+                                    }
+                                    _ => 6,
+                                };
+                                counts[bucket] += 1;
+                            }
+                            Ok(_) => {}
+                            Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
+                                incomplete = false;
+                                break;
+                            }
+                            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_))
+                            | Err(tokio::sync::broadcast::error::TryRecvError::Closed) => break,
+                        }
+                    }
+                    (counts, incomplete)
+                });
+                let (delivery_state, relay_seen) = match delivery {
+                    Ok((state, Some(event_id), _)) => {
+                        let observed = relay_reader
+                            .fetch_events(nostr_sdk::prelude::ReqTarget::single(
+                                fixture.url.as_str(),
+                                [nostr_sdk::prelude::Filter::new().ids([event_id])],
+                            ))
+                            .timeout(std::time::Duration::from_secs(2))
+                            .await;
+                        (
+                            Ok(state),
+                            observed
+                                .map(|events| events.iter().any(|event| event.id == event_id))
+                                .map_err(|_| "relay observation unavailable"),
+                        )
+                    }
+                    Ok((state, None, _)) => (Ok(state), Err("outbound absent")),
+                    Err(error) => (Err(error), Err("relay observation unavailable")),
+                };
+                match &fresh {
+                    Ok(_) => eprintln!(
+                        "revocation_original_progress fresh_wait_ms={fresh_wait_ms} rounds(generation,phase,facts,deferred)={rounds:?}; source(prepared,outbound,nonce,coordinator_fact,recipient_row_scope_state)={delivery_state:?}; exact_outbound_relay_seen={relay_seen:?}; actual_source_original_complete_groups={source_original:?}; shared_anchor(account,group,successor,roster,enrollment,context,coordinator,nonce_present,nonce_equal)={shared_anchor:?}; exact_challenge_intake={intake:?}; source_recipient_errors(receive_storage,receive_other,convergence_storage,convergence_other,maintenance,restart,other;incomplete)={error_observations:?}"
+                    ),
+                    Err(error) => {
+                        // The original fixed-deadline failure is irrevocable. This
+                        // observation cannot construct fresh authority or turn it into
+                        // a pass; it only distinguishes delayed settlement from a stall.
+                        eprintln!(
+                            "revocation_original_deadline_failed fresh_wait_ms={fresh_wait_ms}; shared_anchor={shared_anchor:?}; rounds={rounds:?}; source={delivery_state:?}; relay={relay_seen:?}; exact_challenge_intake={intake:?}"
+                        );
+                        let later_started = tokio::time::Instant::now();
+                        let later = tokio::time::timeout(
+                            std::time::Duration::from_secs(55),
+                            async {
+                                loop {
+                                    let completed = fixture.apps[..2].iter().all(|app| {
+                                        app.account_storage("test")
+                                            .ok()
+                                            .and_then(|storage| {
+                                                storage.private_roster_settlement_storage()
+                                                    .and_then(|roster| roster.read_round().ok().flatten())
+                                            })
+                                            .is_some_and(|round| round.phase == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed)
+                                    });
+                                    if completed {
+                                        break;
+                                    }
+                                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                                }
+                            },
+                        ).await;
+                        let later_delivery = observe_delivery();
+                        let later_relay = match &later_delivery {
+                            Ok((_, Some(event_id), _)) => relay_reader
+                                .fetch_events(nostr_sdk::prelude::ReqTarget::single(
+                                    fixture.url.as_str(),
+                                    [nostr_sdk::prelude::Filter::new().ids([*event_id])],
+                                ))
+                                .timeout(std::time::Duration::from_secs(2))
+                                .await
+                                .map(|events| events.iter().any(|event| event.id == *event_id))
+                                .map_err(|_| "later relay observation unavailable"),
+                            _ => Err("later outbound unavailable"),
+                        };
+                        let later_intake =
+                            settlement_intake.as_ref().map(|observer| match observer {
+                                Ok(observer) => Ok(observer.summary(exact_challenge.as_ref())),
+                                Err(error) => Err(*error),
+                            });
+                        // Remove retained identifiers before safe formatting.
+                        let later_delivery = later_delivery.map(|(state, _, _)| state);
+                        eprintln!(
+                            "revocation_original_post_failure observation_ms={} both_rounds_completed={} rounds={:?} shared_anchor={:?} source={later_delivery:?} relay={later_relay:?} exact_challenge_intake={later_intake:?}; original_failure_preserved=true",
+                            later_started.elapsed().as_millis(),
+                            later.is_ok(),
+                            observe_rounds(),
+                            observe_shared_anchor()
+                        );
+                        panic!(
+                            "surviving A/B must regain fresh original history authority from an actually settled protected Remove successor, while every old origin remains denied: {error:?}; recipient_not_ready={recipient_not_ready}; begin_not_ready={begin_not_ready}; rounds(generation,phase,facts,deferred)={rounds:?}; source(prepared,outbound,nonce,coordinator_fact,recipient_row_scope_state)={delivery_state:?}; exact_outbound_relay_seen={relay_seen:?}; actual_source_original_complete_groups={source_original:?}; shared_anchor(account,group,successor,roster,enrollment,context,coordinator,nonce_present,nonce_equal)={shared_anchor:?}; exact_challenge_intake={intake:?}; source_recipient_errors(receive_storage,receive_other,convergence_storage,convergence_other,maintenance,restart,other;incomplete)={error_observations:?}"
+                        );
+                    }
+                }
+            }
+            let fresh =
+                fresh.expect("fresh authority failure already reported with safe observations");
             assert!(
                 matches!(
                     managers[0]

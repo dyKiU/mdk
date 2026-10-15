@@ -306,6 +306,28 @@ impl<StorageError> From<ExternalCommitBuilderFinalizeError<StorageError>>
     }
 }
 
+/// Exact missing dependency from an authenticated commit lookup. This is a
+/// negative hint, not evidence that the proposal or commit is authorized.
+#[derive(PartialEq, Clone)]
+pub struct MissingProposalReference(crate::ciphersuite::hash_ref::ProposalRef);
+
+impl MissingProposalReference {
+    pub(crate) fn new(reference: crate::ciphersuite::hash_ref::ProposalRef) -> Self {
+        Self(reference)
+    }
+
+    /// Read the reference privately for exact dependency matching.
+    pub fn reference(&self) -> &crate::ciphersuite::hash_ref::ProposalRef {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for MissingProposalReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("MissingProposalReference(<redacted>)")
+    }
+}
+
 /// Stage Commit error
 #[derive(Error, Debug, PartialEq, Clone)]
 pub enum StageCommitError {
@@ -343,6 +365,9 @@ pub enum StageCommitError {
     /// The proposal queue is missing a proposal for the commit.
     #[error("The proposal queue is missing a proposal for the commit.")]
     MissingProposal,
+    /// Exact absent dependency, captured only after commit authentication.
+    #[error("The proposal queue is missing a referenced proposal for the commit.")]
+    MissingProposalReference(MissingProposalReference),
     /// Missing own key to apply proposal.
     #[error("Missing own key to apply proposal.")]
     OwnKeyNotFound,
@@ -703,7 +728,7 @@ pub(crate) enum FromCommittedProposalsError {
     LibraryError(#[from] LibraryError),
     /// Not all proposals in the Commit were found locally.
     #[error("Not all proposals in the Commit were found locally.")]
-    ProposalNotFound,
+    ProposalNotFound(MissingProposalReference),
     /// The sender of a Commit tried to remove themselves.
     #[error("The sender of a Commit tried to remove themselves.")]
     SelfRemoval,

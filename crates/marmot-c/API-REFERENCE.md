@@ -5586,7 +5586,7 @@ MarmotStatus marmot_approve_device_linking_session(const struct MarmotClient *cl
 
 Create the approver challenge from borrowed bounded request bytes. NULL/zero target chooses singleton verification; existing-group targets stay gated. Required output is cleared before any reservation. This does not replace explicit SAS confirmation.
 
-[Header contract](include/marmot.h#L10462)
+[Header contract](include/marmot.h#L9907)
 
 ### `marmot_begin_device_linking_session`
 
@@ -5596,7 +5596,7 @@ MarmotStatus marmot_begin_device_linking_session(const struct MarmotClient *clie
 
 Reserve an opaque original-purpose new-device session. Required output is preflighted before account effects; default builds return DEVICE_LINKING_UNSUPPORTED with NULL output. Free the handle before its client, after cancelling the exact session.
 
-[Header contract](include/marmot.h#L10453)
+[Header contract](include/marmot.h#L9898)
 
 ### `marmot_device_linking_bytes_free`
 
@@ -5606,7 +5606,7 @@ void marmot_device_linking_bytes_free(struct MarmotDeviceLinkingBytes *ptr);
 
 Deep-free the owned setup bytes returned by this library exactly once. NULL is a no-op; never free embedded fields separately, caller input, or memory from another allocator.
 
-[Header contract](include/marmot.h#L13760)
+[Header contract](include/marmot.h#L13131)
 
 ### `marmot_device_linking_capabilities`
 
@@ -5616,7 +5616,7 @@ MarmotStatus marmot_device_linking_capabilities(const struct MarmotClient *clien
 
 Read actual Rust verification/enrollment capabilities. Required output is cleared before client access; deep-free the returned record. Enrollment remains false while full public three-device enrollment is gated; experimental singleton continuation does not imply chat/history delivery.
 
-[Header contract](include/marmot.h#L10445)
+[Header contract](include/marmot.h#L9890)
 
 ### `marmot_device_linking_capabilities_free`
 
@@ -5626,7 +5626,7 @@ void marmot_device_linking_capabilities_free(struct MarmotDeviceLinkingCapabilit
 
 Deep-free the owned capability record returned by this library exactly once. NULL is a no-op; never free embedded fields separately, caller input, or memory from another allocator.
 
-[Header contract](include/marmot.h#L13734)
+[Header contract](include/marmot.h#L13105)
 
 ### `marmot_device_linking_outgoing_packet_list_free`
 
@@ -5636,7 +5636,7 @@ void marmot_device_linking_outgoing_packet_list_free(struct MarmotDeviceLinkingO
 
 Deep-free the owned packet list, acknowledgement strings and byte arrays returned by this library exactly once. NULL is a no-op; never free embedded fields separately, caller input, or memory from another allocator.
 
-[Header contract](include/marmot.h#L13753)
+[Header contract](include/marmot.h#L13124)
 
 ### `marmot_device_linking_session_acknowledge_packet`
 
@@ -5646,7 +5646,7 @@ MarmotStatus marmot_device_linking_session_acknowledge_packet(const struct Marmo
 
 Acknowledge borrowed UTF-8 transport metadata, bounded to 134 bytes. This clears a transport frame only; it does not approve the comparison, enrollment or history synchronization.
 
-[Header contract](include/marmot.h#L10542)
+[Header contract](include/marmot.h#L10020)
 
 ### `marmot_device_linking_session_cancel`
 
@@ -5656,7 +5656,7 @@ MarmotStatus marmot_device_linking_session_cancel(const struct MarmotDeviceLinki
 
 Revoke the exact native session before blocking on actor cleanup, independently of positive-operation locks. A failure cannot restore permission; close streams and discard stale callbacks.
 
-[Header contract](include/marmot.h#L10559)
+[Header contract](include/marmot.h#L10037)
 
 ### `marmot_device_linking_session_confirm_comparison`
 
@@ -5666,7 +5666,7 @@ MarmotStatus marmot_device_linking_session_confirm_comparison(const struct Marmo
 
 Apply explicit human confirmation to the displayed revision. Stale revisions return DEVICE_LINKING_STALE_REVISION before SDK confirmation; both devices and authenticated peer MACs are required.
 
-[Header contract](include/marmot.h#L10517)
+[Header contract](include/marmot.h#L9995)
 
 ### `marmot_device_linking_session_continue_linking`
 
@@ -5676,7 +5676,7 @@ MarmotStatus marmot_device_linking_session_continue_linking(const struct MarmotD
 
 After genuine verification, feature builds accept revision-bound singleton continuation through the original actor-owned actions. Before verification or for gated existing-group enrollment, return DEVICE_LINKING_NOT_READY. VerificationCompleteEnrollmentPending must not be interpreted as linked or synchronized.
 
-[Header contract](include/marmot.h#L10525)
+[Header contract](include/marmot.h#L10003)
 
 ### `marmot_device_linking_session_free`
 
@@ -5686,7 +5686,7 @@ void marmot_device_linking_session_free(struct MarmotDeviceLinkingSession *handl
 
 Release the opaque handle only when no calls are active, before its creating client. NULL is a no-op; final native session drop schedules exact cancellation. Prefer blocking cancel before release.
 
-[Header contract](include/marmot.h#L10582)
+[Header contract](include/marmot.h#L10060)
 
 ### `marmot_device_linking_session_outgoing_packets`
 
@@ -5696,7 +5696,7 @@ MarmotStatus marmot_device_linking_session_outgoing_packets(const struct MarmotD
 
 Read an owned bounded SDK packet list without consuming verifier authority. Deliver and acknowledge transport IDs only; deep-free the list and treat NULL/zero payload lists as empty.
 
-[Header contract](include/marmot.h#L10483)
+[Header contract](include/marmot.h#L9961)
 
 ### `marmot_device_linking_session_receive_packet`
 
@@ -5706,7 +5706,7 @@ MarmotStatus marmot_device_linking_session_receive_packet(const struct MarmotDev
 
 Deliver borrowed SDK transport bytes. The outer copy bound is 512 KiB and the App checks stricter canonical codec, role and binding limits. Oversized inputs fail before caller-byte access.
 
-[Header contract](include/marmot.h#L10508)
+[Header contract](include/marmot.h#L9986)
 
 ### `marmot_device_linking_session_receive_setup_packet`
 
@@ -5716,7 +5716,7 @@ MarmotStatus marmot_device_linking_session_receive_setup_packet(const struct Mar
 
 Deliver borrowed bounded approver challenge bytes under the original recipient scope. Caller memory is copied, not retained or freed; invalid packets preserve the valid retry.
 
-[Header contract](include/marmot.h#L10499)
+[Header contract](include/marmot.h#L9977)
 
 ### `marmot_device_linking_session_setup_packet`
 
@@ -5726,7 +5726,7 @@ MarmotStatus marmot_device_linking_session_setup_packet(const struct MarmotDevic
 
 Copy owned bounded original setup bytes. Free the result using bytes_free; bytes cannot restore a live owner after cancel/expiry/restart and should not be logged.
 
-[Header contract](include/marmot.h#L10475)
+[Header contract](include/marmot.h#L9934)
 
 ### `marmot_device_linking_session_snapshot`
 
@@ -5736,7 +5736,7 @@ MarmotStatus marmot_device_linking_session_snapshot(const struct MarmotDeviceLin
 
 Read an owned sanitized phase/revision/SAS snapshot through the callback-safe blocking bridge. Required output is preflighted before reading; deep-free the result, including optional decimal storage.
 
-[Header contract](include/marmot.h#L10491)
+[Header contract](include/marmot.h#L9969)
 
 ### `marmot_device_linking_session_subscribe`
 
@@ -5746,7 +5746,7 @@ MarmotStatus marmot_device_linking_session_subscribe(const struct MarmotDeviceLi
 
 Create an independently closeable coalesced observation stream. Required output is preflighted before creation; use one receiver and free the stream before its client.
 
-[Header contract](include/marmot.h#L10551)
+[Header contract](include/marmot.h#L10029)
 
 ### `marmot_device_linking_snapshot_free`
 
@@ -5756,7 +5756,7 @@ void marmot_device_linking_snapshot_free(struct MarmotDeviceLinkingSnapshot *ptr
 
 Deep-free the owned snapshot and optional decimals returned by this library exactly once. NULL is a no-op; never free embedded fields separately, caller input, or memory from another allocator.
 
-[Header contract](include/marmot.h#L13744)
+[Header contract](include/marmot.h#L13115)
 
 ### `marmot_device_linking_subscription_close`
 
@@ -5766,7 +5766,7 @@ MarmotStatus marmot_device_linking_subscription_close(const struct MarmotDeviceL
 
 Wake waiting reads with DEVICE_LINKING_CLOSED without freeing the stream. This observation control does not cancel the session; cancel its original session separately.
 
-[Header contract](include/marmot.h#L10575)
+[Header contract](include/marmot.h#L10053)
 
 ### `marmot_device_linking_subscription_free`
 
@@ -5776,7 +5776,7 @@ void marmot_device_linking_subscription_free(struct MarmotDeviceLinkingSubscript
 
 Release the opaque stream only with no active calls and before its creating client. Explicitly close/join a pending receiver before free; NULL is a no-op.
 
-[Header contract](include/marmot.h#L10589)
+[Header contract](include/marmot.h#L10067)
 
 ### `marmot_device_linking_subscription_next`
 
@@ -5786,7 +5786,7 @@ MarmotStatus marmot_device_linking_subscription_next(const struct MarmotDeviceLi
 
 Read an owned coalesced observation with preflight before dequeue. Zero timeout waits; TIMEOUT leaves output NULL and consumes no update. Explicit close returns DEVICE_LINKING_CLOSED. One receiver per stream; concurrent close is supported.
 
-[Header contract](include/marmot.h#L10566)
+[Header contract](include/marmot.h#L10044)
 
 ### `marmot_device_linking_approval_approve`
 
@@ -5796,7 +5796,7 @@ MarmotStatus marmot_device_linking_approval_approve(const struct MarmotDeviceLin
 
 Block through the callback-safe bridge to explicitly approve the displayed original-action revision. Stale revisions and expired/cancelled actions are rejected. The handle is borrowed for the call.
 
-[Header contract](include/marmot.h#L10639)
+[Header contract](include/marmot.h#L10117)
 
 ### `marmot_device_linking_approval_cancel`
 
@@ -5806,7 +5806,7 @@ MarmotStatus marmot_device_linking_approval_cancel(const struct MarmotDeviceLink
 
 Block until exact original-action cancellation cleanup completes. Prefer cancel before freeing the last owned handle; this does not free a list-borrowed entry.
 
-[Header contract](include/marmot.h#L10665)
+[Header contract](include/marmot.h#L10143)
 
 ### `marmot_device_linking_approval_clone`
 
@@ -5816,7 +5816,7 @@ MarmotStatus marmot_device_linking_approval_clone(const struct MarmotDeviceLinki
 
 Retain an independent owned handle sharing the same original action. Clone a borrowed list entry before freeing its parent list. Deep-free the clone separately with marmot_device_linking_approval_free; cloning creates no permission or lifetime extension.
 
-[Header contract](include/marmot.h#L10614)
+[Header contract](include/marmot.h#L10092)
 
 ### `marmot_device_linking_approval_free`
 
@@ -5826,7 +5826,7 @@ void marmot_device_linking_approval_free(struct MarmotDeviceLinkingApproval *han
 
 NULL-safe release of a standalone retained approval handle. Never free a borrowed parent-list entry separately. Release before the creating client and never while a call uses the handle.
 
-[Header contract](include/marmot.h#L10699)
+[Header contract](include/marmot.h#L10177)
 
 ### `marmot_device_linking_approval_list_free`
 
@@ -5836,7 +5836,7 @@ void marmot_device_linking_approval_list_free(struct MarmotDeviceLinkingApproval
 
 NULL-safe deep-free of the returned list, including all its borrowed handle entries. Independently retained clones remain valid; never release a borrowed entry separately.
 
-[Header contract](include/marmot.h#L10706)
+[Header contract](include/marmot.h#L10184)
 
 ### `marmot_device_linking_approval_receive_enrollment_packet`
 
@@ -5846,7 +5846,7 @@ MarmotStatus marmot_device_linking_approval_receive_enrollment_packet(const stru
 
 Deliver borrowed bounded complete all-leaf packet bytes under the original B action and displayed revision. Rust validates/stages the protected transition; receipt success alone is not settlement. Input bytes are not retained.
 
-[Header contract](include/marmot.h#L10655)
+[Header contract](include/marmot.h#L10133)
 
 ### `marmot_begin_selected_chat_copy`
 
@@ -5856,7 +5856,7 @@ MarmotStatus marmot_begin_selected_chat_copy(const struct MarmotClient *client, 
 
 Create the opaque original selected-chat request for an explicitly selected ordinary MLS group and completed protected roster. Default returns typed Unsupported before account effects; required output is preflighted and cleared. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11119)
+[Header contract](include/marmot.h#L10529)
 
 ### `marmot_receive_selected_chat_copy_request`
 
@@ -5866,7 +5866,7 @@ MarmotStatus marmot_receive_selected_chat_copy_request(const struct MarmotClient
 
 Import a bounded private request as an original sibling consent handle. Import is observation only; explicit displayed-revision approval is required. Input bytes are copied only after the 16 KiB limit check. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11131)
+[Header contract](include/marmot.h#L10541)
 
 ### `marmot_selected_chat_bytes_free`
 
@@ -5876,7 +5876,7 @@ void marmot_selected_chat_bytes_free(struct MarmotSelectedChatBytes *ptr);
 
 Deep-free the owned binary result and its bytes. NULL is a no-op; do not free embedded bytes separately or retain them after this call. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L13835)
+[Header contract](include/marmot.h#L13206)
 
 ### `marmot_selected_chat_consent_approve`
 
@@ -5886,7 +5886,7 @@ MarmotStatus marmot_selected_chat_consent_approve(const struct MarmotSelectedCha
 
 Explicitly approve this original sibling action at the revision displayed to the user. Stale revisions and canceled or expired owners are denied. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11232)
+[Header contract](include/marmot.h#L10642)
 
 ### `marmot_selected_chat_consent_cancel`
 
@@ -5896,7 +5896,7 @@ MarmotStatus marmot_selected_chat_consent_cancel(const struct MarmotSelectedChat
 
 Block until exact original negative cancellation is requested. Cancel before freeing the final UI/account alias; cancellation does not recreate or transfer a lease. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11258)
+[Header contract](include/marmot.h#L10668)
 
 ### `marmot_selected_chat_consent_clone`
 
@@ -5906,7 +5906,7 @@ MarmotStatus marmot_selected_chat_consent_clone(const struct MarmotSelectedChatC
 
 Return an independently owned handle alias retaining the same original action. Free each clone once; dropping one alias leaves other aliases alive. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11209)
+[Header contract](include/marmot.h#L10619)
 
 ### `marmot_selected_chat_consent_free`
 
@@ -5916,7 +5916,7 @@ void marmot_selected_chat_consent_free(struct MarmotSelectedChatConsent *handle)
 
 Release one opaque alias, with NULL allowed. The final alias schedules original negative cleanup; never free concurrently with a call using this handle. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11217)
+[Header contract](include/marmot.h#L10627)
 
 ### `marmot_selected_chat_consent_offer_packet`
 
@@ -5926,7 +5926,7 @@ MarmotStatus marmot_selected_chat_consent_offer_packet(const struct MarmotSelect
 
 Return the bounded original private offer after approval. Exact retries preserve bytes. Transfer privately to the source and deep-free the returned binary result; do not publish its package to a directory. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11249)
+[Header contract](include/marmot.h#L10659)
 
 ### `marmot_selected_chat_consent_response_packet`
 
@@ -5936,7 +5936,7 @@ MarmotStatus marmot_selected_chat_consent_response_packet(const struct MarmotSel
 
 Return the bounded approved response for private source collection at this displayed revision. Before explicit approval it returns typed NotReady. Deep-free the returned binary result. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11240)
+[Header contract](include/marmot.h#L10650)
 
 ### `marmot_selected_chat_consent_snapshot`
 
@@ -5946,7 +5946,7 @@ MarmotStatus marmot_selected_chat_consent_snapshot(const struct MarmotSelectedCh
 
 Return an owned display-only revision, phase and binary selected-chat selector. The snapshot grants no membership; use its matching deep free. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11224)
+[Header contract](include/marmot.h#L10634)
 
 ### `marmot_selected_chat_consent_snapshot_free`
 
@@ -5956,7 +5956,7 @@ void marmot_selected_chat_consent_snapshot_free(struct MarmotSelectedChatConsent
 
 Deep-free this owned consent snapshot, including its binary selector. NULL is a no-op; never free the selector separately. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L13828)
+[Header contract](include/marmot.h#L13199)
 
 ### `marmot_selected_chat_copy_cancel`
 
@@ -5966,7 +5966,7 @@ MarmotStatus marmot_selected_chat_copy_cancel(const struct MarmotSelectedChatCop
 
 Negatively cancel the exact original selection and pending publication ownership. This does not roll back already confirmed canonical ordinary group state. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11202)
+[Header contract](include/marmot.h#L10612)
 
 ### `marmot_selected_chat_copy_clone`
 
@@ -5976,7 +5976,7 @@ MarmotStatus marmot_selected_chat_copy_clone(const struct MarmotSelectedChatCopy
 
 Return an independently owned alias retaining this original request. Free each clone once; one alias free does not cancel retained aliases. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11142)
+[Header contract](include/marmot.h#L10552)
 
 ### `marmot_selected_chat_copy_continue`
 
@@ -5986,7 +5986,7 @@ MarmotStatus marmot_selected_chat_copy_continue(const struct MarmotSelectedChatC
 
 Continue this original request at its displayed revision after every sibling consent and offer. InviteConfirmed describes source Add confirmation, not recipient joining or historical synchronization. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11194)
+[Header contract](include/marmot.h#L10604)
 
 ### `marmot_selected_chat_copy_free`
 
@@ -5996,7 +5996,7 @@ void marmot_selected_chat_copy_free(struct MarmotSelectedChatCopy *handle);
 
 Release one original-request alias; NULL is allowed. The final alias schedules original negative cleanup. Do not free concurrently with a call. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11150)
+[Header contract](include/marmot.h#L10560)
 
 ### `marmot_selected_chat_copy_receive_consent_packet`
 
@@ -6006,7 +6006,7 @@ MarmotStatus marmot_selected_chat_copy_receive_consent_packet(const struct Marmo
 
 Collect a bounded authenticated approved sibling response at the source current revision. Input is borrowed for this call, bounded before copy, and cannot create consent from metadata alone. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11174)
+[Header contract](include/marmot.h#L10584)
 
 ### `marmot_selected_chat_copy_receive_offer_packet`
 
@@ -6016,7 +6016,7 @@ MarmotStatus marmot_selected_chat_copy_receive_offer_packet(const struct MarmotS
 
 Collect a bounded private offer under the same original request and retained approved response. Exact duplicates are idempotent; invalid packets do not advance revision or collected count. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11184)
+[Header contract](include/marmot.h#L10594)
 
 ### `marmot_selected_chat_copy_request_packet`
 
@@ -6026,7 +6026,7 @@ MarmotStatus marmot_selected_chat_copy_request_packet(const struct MarmotSelecte
 
 Return the bounded original request packet at the displayed revision. Privately transfer the bytes to siblings and free the owned binary result with its matching free. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11165)
+[Header contract](include/marmot.h#L10575)
 
 ### `marmot_selected_chat_copy_snapshot`
 
@@ -6036,7 +6036,7 @@ MarmotStatus marmot_selected_chat_copy_snapshot(const struct MarmotSelectedChatC
 
 Return an owned display-only source revision, phase and sibling/consent/offer counts. Required output is cleared before effects; use the matching snapshot free. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L11157)
+[Header contract](include/marmot.h#L10567)
 
 ### `marmot_selected_chat_copy_snapshot_free`
 
@@ -6046,7 +6046,8 @@ void marmot_selected_chat_copy_snapshot_free(struct MarmotSelectedChatCopySnapsh
 
 Deep-free the owned source snapshot. NULL is a no-op; release only results allocated by the matching snapshot call. See [selected-chat ownership](README.md#selected-chat-copies).
 
-[Header contract](include/marmot.h#L13818)
+[Header contract](include/marmot.h#L13189)
+
 
 ### `marmot_device_linking_approval_review_metadata`
 
@@ -6056,7 +6057,7 @@ MarmotStatus marmot_device_linking_approval_review_metadata(const struct MarmotD
 
 Read authenticated source/joining device signature keys and predecessor count from this same original pending approval at the displayed revision. Required output is cleared before handle access; stale or non-pending actions are refused. The display record grants no permission and must be released with its matching deep free.
 
-[Header contract](include/marmot.h#L10630)
+[Header contract](include/marmot.h#L10108)
 
 ### `marmot_device_linking_approval_review_metadata_free`
 
@@ -6066,7 +6067,7 @@ void marmot_device_linking_approval_review_metadata_free(struct MarmotDeviceLink
 
 Release the library-owned review record and both owned binary key buffers. NULL is a no-op. Free the root exactly once; do not free its embedded buffers separately.
 
-[Header contract](include/marmot.h#L13789)
+[Header contract](include/marmot.h#L13160)
 
 ### `marmot_device_linking_approval_snapshot`
 
@@ -6076,7 +6077,7 @@ MarmotStatus marmot_device_linking_approval_snapshot(const struct MarmotDeviceLi
 
 Return an owned sanitized revision/phase record. Output is cleared before effects. Settled is historical actual protected completion and grants no positive action; deep-free the record with its matching free.
 
-[Header contract](include/marmot.h#L10622)
+[Header contract](include/marmot.h#L10100)
 
 ### `marmot_device_linking_approval_snapshot_free`
 
@@ -6086,7 +6087,7 @@ void marmot_device_linking_approval_snapshot_free(struct MarmotDeviceLinkingAppr
 
 NULL-safe deep-free of exactly one returned approval snapshot. It does not cancel or free the original approval handle.
 
-[Header contract](include/marmot.h#L13770)
+[Header contract](include/marmot.h#L13141)
 
 ### `marmot_device_linking_session_enrollment_packet`
 
@@ -6096,7 +6097,7 @@ MarmotStatus marmot_device_linking_session_enrollment_packet(const struct Marmot
 
 Copy complete all-leaf enrollment bytes from the original approver before its lease transfers into Add. NotReady permits retry while approvals are incomplete. Required output clears before effects; free returned bytes with marmot_device_linking_bytes_free.
 
-[Header contract](include/marmot.h#L10672)
+[Header contract](include/marmot.h#L10150)
 
 ### `marmot_device_linking_session_finalize_linking`
 
@@ -6106,7 +6107,7 @@ MarmotStatus marmot_device_linking_session_finalize_linking(const struct MarmotD
 
 Explicitly finalize the original approver action with its displayed revision after recipients handle the complete packet. Callback-safe blocking schedules guarded Add/echo/Welcome; observe EnrollmentComplete separately.
 
-[Header contract](include/marmot.h#L10691)
+[Header contract](include/marmot.h#L10169)
 
 ### `marmot_device_linking_session_receive_enrollment_packet`
 
@@ -6116,7 +6117,7 @@ MarmotStatus marmot_device_linking_session_receive_enrollment_packet(const struc
 
 Validate borrowed complete packet bytes under the original new-device purpose and displayed revision. The boundary bounds copies before reading bytes; Rust applies stricter codec/authentication limits. Inputs are not retained.
 
-[Header contract](include/marmot.h#L10681)
+[Header contract](include/marmot.h#L10159)
 
 ### `marmot_device_linking_target_list_free`
 
@@ -6126,7 +6127,7 @@ void marmot_device_linking_target_list_free(struct MarmotDeviceLinkingTargetList
 
 NULL-safe deep-free of the returned target list and every owned selector byte buffer. Borrow selector bytes only while the parent list remains live.
 
-[Header contract](include/marmot.h#L13779)
+[Header contract](include/marmot.h#L13150)
 
 ### `marmot_device_linking_targets`
 
@@ -6136,7 +6137,7 @@ MarmotStatus marmot_device_linking_targets(const struct MarmotClient *client, co
 
 Return an owned list of opaque selectors/device counts for completed protected groups. Selection grants no permission; the actor freshly revalidates a chosen target. Default builds deny before account effects; deep-free the list.
 
-[Header contract](include/marmot.h#L10596)
+[Header contract](include/marmot.h#L10074)
 
 ### `marmot_pending_device_linking_approvals`
 
@@ -6146,7 +6147,7 @@ MarmotStatus marmot_pending_device_linking_approvals(const struct MarmotClient *
 
 Return an owned list of borrowed existing-device approval handles sharing their original actions. Display each snapshot and require human revision-bound approval. Clone before retaining past parent-list free; default builds deny before account effects.
 
-[Header contract](include/marmot.h#L10605)
+[Header contract](include/marmot.h#L10083)
 
 ### `marmot_begin_history_transfer`
 
@@ -6156,7 +6157,7 @@ MarmotStatus marmot_begin_history_transfer(const struct MarmotClient *client, co
 
 Begin an original bounded source action for one opaque MLS chat ID and one linked recipient with exactly 32 device bytes. Retain the returned handle; recipient approval is separate. Default builds return HistoryTransferUnsupported before reading inputs. Required output is cleared before effects; inputs are borrowed and calls block.
 
-[Header contract](include/marmot.h#L10840)
+[Header contract](include/marmot.h#L10250)
 
 ### `marmot_history_consent_approve`
 
@@ -6166,7 +6167,7 @@ MarmotStatus marmot_history_consent_approve(const struct MarmotHistoryConsent *h
 
 Approve the exact original request at the revision returned by its snapshot. A stale revision, cancelled owner or expired original is refused. This blocking call does not reconstruct consent from a record or persisted receipt.
 
-[Header contract](include/marmot.h#L10929)
+[Header contract](include/marmot.h#L10339)
 
 ### `marmot_history_consent_cancel`
 
@@ -6176,7 +6177,7 @@ MarmotStatus marmot_history_consent_cancel(const struct MarmotHistoryConsent *ha
 
 Explicitly cancel the shared original action across all aliases. Cancellation supplies no new consent and does not revoke admitted chat membership or erase committed retained history. Keep the handle live for the call.
 
-[Header contract](include/marmot.h#L10937)
+[Header contract](include/marmot.h#L10347)
 
 ### `marmot_history_consent_clone`
 
@@ -6186,7 +6187,7 @@ MarmotStatus marmot_history_consent_clone(const struct MarmotHistoryConsent *han
 
 Retain an alias of the same original action. Required output is cleared before effects. Free this alias separately; releasing another alias does not cancel a retained original. Do not call concurrently with freeing the input handle.
 
-[Header contract](include/marmot.h#L10906)
+[Header contract](include/marmot.h#L10316)
 
 ### `marmot_history_consent_free`
 
@@ -6196,7 +6197,7 @@ void marmot_history_consent_free(struct MarmotHistoryConsent *handle);
 
 Release this library-owned original alias exactly once. Releasing the final original owner cancels unfinished work; it does not erase committed retained history. NULL is a no-op. Never free concurrently with a call.
 
-[Header contract](include/marmot.h#L10914)
+[Header contract](include/marmot.h#L10324)
 
 ### `marmot_history_consent_list_free`
 
@@ -6206,7 +6207,7 @@ void marmot_history_consent_list_free(struct MarmotHistoryConsentList *list);
 
 Deep-free a library-owned list, its entry array and every list-owned consent alias exactly once. Clone any alias needed after this call. NULL is a no-op; do not free embedded entries separately or concurrently with calls.
 
-[Header contract](include/marmot.h#L10861)
+[Header contract](include/marmot.h#L10271)
 
 ### `marmot_history_consent_snapshot`
 
@@ -6216,7 +6217,7 @@ MarmotStatus marmot_history_consent_snapshot(const struct MarmotHistoryConsent *
 
 Read the original authenticated review, displayed revision, snapshot bounds and committed-completion observation. The owned result carries no resumable consent; free it with marmot_history_transfer_snapshot_free. Required output is cleared before effects; this call blocks.
 
-[Header contract](include/marmot.h#L10921)
+[Header contract](include/marmot.h#L10331)
 
 ### `marmot_history_transfer_cancel`
 
@@ -6226,7 +6227,7 @@ MarmotStatus marmot_history_transfer_cancel(const struct MarmotHistoryTransfer *
 
 Explicitly cancel the shared original action across all aliases. Cancellation supplies no new consent and does not revoke admitted chat membership or erase committed retained history. Keep the handle live for the call.
 
-[Header contract](include/marmot.h#L10899)
+[Header contract](include/marmot.h#L10309)
 
 ### `marmot_history_transfer_clone`
 
@@ -6236,7 +6237,7 @@ MarmotStatus marmot_history_transfer_clone(const struct MarmotHistoryTransfer *h
 
 Retain an alias of the same original action. Required output is cleared before effects. Free this alias separately; releasing another alias does not cancel a retained original. Do not call concurrently with freeing the input handle.
 
-[Header contract](include/marmot.h#L10868)
+[Header contract](include/marmot.h#L10278)
 
 ### `marmot_history_transfer_continue_transfer`
 
@@ -6246,7 +6247,7 @@ MarmotStatus marmot_history_transfer_continue_transfer(const struct MarmotHistor
 
 Continue the exact original source action at its displayed revision. Success observes the authenticated committed-import receipt, rather than only local publication. Recipient consent remains required; the call blocks and should run away from the UI thread.
 
-[Header contract](include/marmot.h#L10891)
+[Header contract](include/marmot.h#L10301)
 
 ### `marmot_history_transfer_free`
 
@@ -6256,7 +6257,7 @@ void marmot_history_transfer_free(struct MarmotHistoryTransfer *handle);
 
 Release this library-owned original alias exactly once. Releasing the final original owner cancels unfinished work; it does not erase committed retained history. NULL is a no-op. Never free concurrently with a call.
 
-[Header contract](include/marmot.h#L10876)
+[Header contract](include/marmot.h#L10286)
 
 ### `marmot_history_transfer_snapshot`
 
@@ -6266,7 +6267,7 @@ MarmotStatus marmot_history_transfer_snapshot(const struct MarmotHistoryTransfer
 
 Read the original authenticated review, displayed revision, snapshot bounds and committed-completion observation. The owned result carries no resumable consent; free it with marmot_history_transfer_snapshot_free. Required output is cleared before effects; this call blocks.
 
-[Header contract](include/marmot.h#L10883)
+[Header contract](include/marmot.h#L10293)
 
 ### `marmot_history_transfer_snapshot_free`
 
@@ -6276,7 +6277,7 @@ void marmot_history_transfer_snapshot_free(struct MarmotHistoryTransferSnapshot 
 
 Deep-free a library-owned review snapshot, including its chat string and device byte buffers. NULL is a no-op; embedded fields must not be freed separately.
 
-[Header contract](include/marmot.h#L13799)
+[Header contract](include/marmot.h#L13170)
 
 ### `marmot_pending_history_requests`
 
@@ -6286,7 +6287,7 @@ MarmotStatus marmot_pending_history_requests(const struct MarmotClient *client, 
 
 Poll authenticated original recipient requests without approving them. The returned list owns its consent aliases. Clone a selected handle before freeing the list, then review and explicitly approve its displayed revision. Default builds return HistoryTransferUnsupported before reading inputs.
 
-[Header contract](include/marmot.h#L10852)
+[Header contract](include/marmot.h#L10262)
 
 ### `marmot_archived_history_page_free`
 
@@ -6296,7 +6297,7 @@ void marmot_archived_history_page_free(struct MarmotArchivedHistoryPage *ptr);
 
 Deep-free one library-owned committed-history page, including embedded records, tags, media outcomes, strings, provenance buffers and cursor. NULL is a no-op. Do not free embedded records or fields separately; the root owns the whole allocation graph. See [ownership contract](../marmot-uniffi/SYNCHRONIZED-HISTORY.md#c-ownership).
 
-[Header contract](include/marmot.h#L13845)
+[Header contract](include/marmot.h#L13216)
 
 ### `marmot_synchronized_history_page`
 
@@ -6306,7 +6307,10 @@ MarmotStatus marmot_synchronized_history_page(const struct MarmotClient *client,
 
 Read local committed source-attested history using App retention and live-message precedence. Required output is cleared before input reads/effects; NULL cursor starts the first message-ID page and limit is 1–200. On success, free the owned page with marmot_archived_history_page_free. This synchronous storage call must run off the UI thread and never grants transfer/media permission. Default builds return status117 before input reads. See [shared reader contract](../marmot-uniffi/SYNCHRONIZED-HISTORY.md).
 
-[Header contract](include/marmot.h#L12575)
+[Header contract](include/marmot.h#L11985)
+
+<details>
+<summary>Account-owned chat views</summary>
 
 ### `marmot_history_transfer_recipient_list_free`
 
@@ -6316,7 +6320,7 @@ void marmot_history_transfer_recipient_list_free(struct MarmotHistoryTransferRec
 
 Release a recipient-choice list returned by `marmot_history_transfer_recipients`, including every embedded device buffer. NULL is a no-op. Entries are list-owned: copy display bytes before freeing the root, never free individual entries or borrowed input buffers.
 
-[Header contract](include/marmot.h#L13808)
+[Header contract](include/marmot.h#L13179)
 
 ### `marmot_history_transfer_recipients`
 
@@ -6326,7 +6330,8 @@ MarmotStatus marmot_history_transfer_recipients(const struct MarmotClient *clien
 
 Observe current eligible remote linked-device leaves for an account and MLS group. This does not create a transfer, consent, channel or lease. Required `out` is validated and cleared before input reads; default builds return `MARMOT_STATUS_HISTORY_TRANSFER_UNSUPPORTED` before reading foreign inputs. Feature builds require a live client and borrowed NUL-terminated account/group strings. On success the caller owns the list and releases it with `marmot_history_transfer_recipient_list_free`. Leaf indices and exact 32-byte device identities are observations; starting a transfer must freshly validate the selected identity. A successful empty list means there is no eligible remote recipient. Run this blocking query off the UI thread.
 
-[Header contract](include/marmot.h#L10830)
+[Header contract](include/marmot.h#L10240)
+
 
 ### `marmot_account_chat_sharing_targets`
 
@@ -6336,7 +6341,7 @@ MarmotStatus marmot_account_chat_sharing_targets(const struct MarmotClient *clie
 
 Observe current actual Completed protected peers in leaf-index order without granting permission. The owned root contains embedded public-device buffers; release it with marmot_account_sharing_targets_free. Required output is preflighted and cleared before effects; default builds refuse before input reads.
 
-[Header contract](include/marmot.h#L6550)
+[Header contract](include/marmot.h#L6169)
 
 ### `marmot_account_sharing_approval_approve`
 
@@ -6346,7 +6351,7 @@ MarmotStatus marmot_account_sharing_approval_approve(const struct MarmotAccountS
 
 Explicitly approve the same original at its displayed revision after the user accepts existing/future chats, history and messaging scope. The blocking call is callback-safe. Stale, cancelled, retired or unavailable originals return typed failures; snapshot fields cannot recreate consent.
 
-[Header contract](include/marmot.h#L6609)
+[Header contract](include/marmot.h#L6228)
 
 ### `marmot_account_sharing_approval_cancel`
 
@@ -6356,7 +6361,7 @@ MarmotStatus marmot_account_sharing_approval_cancel(const struct MarmotAccountSh
 
 Cancel an unfinished original. Every clone aliases the same owner and sees the cancellation. This does not revoke a completed durable sharing policy. NULL is rejected as a missing owner.
 
-[Header contract](include/marmot.h#L6617)
+[Header contract](include/marmot.h#L6236)
 
 ### `marmot_account_sharing_approval_clone`
 
@@ -6366,7 +6371,7 @@ MarmotStatus marmot_account_sharing_approval_clone(const struct MarmotAccountSha
 
 Retain an alias of the exact original owner without creating permission. Use this before releasing a pending-approval list that owns an entry. Required output is cleared before the handle is accessed. Release each returned alias exactly once.
 
-[Header contract](include/marmot.h#L6579)
+[Header contract](include/marmot.h#L6198)
 
 ### `marmot_account_sharing_approval_free`
 
@@ -6376,7 +6381,7 @@ void marmot_account_sharing_approval_free(struct MarmotAccountSharingApproval *h
 
 Release one library-owned opaque alias; NULL is a no-op. Releasing the last alias cancels unfinished work. Never free an entry still owned by a list directly, and do not call concurrently with another operation on the freed pointer.
 
-[Header contract](include/marmot.h#L6587)
+[Header contract](include/marmot.h#L6206)
 
 ### `marmot_account_sharing_approval_list_free`
 
@@ -6386,7 +6391,7 @@ void marmot_account_sharing_approval_list_free(struct MarmotAccountSharingApprov
 
 Deep-free a library-owned pending list and each original alias it owns; NULL is a no-op. Clone retained entries before freeing their parent. Releasing the last alias cancels an unfinished original.
 
-[Header contract](include/marmot.h#L6594)
+[Header contract](include/marmot.h#L6213)
 
 ### `marmot_account_sharing_approval_snapshot`
 
@@ -6396,7 +6401,7 @@ MarmotStatus marmot_account_sharing_approval_snapshot(const struct MarmotAccount
 
 Observe the held original’s authenticated device identities, protected epoch, displayed revision and completion. The owned result is display-only and cannot reconstruct consent. Required output is cleared before handle access; release the result with marmot_account_sharing_snapshot_free.
 
-[Header contract](include/marmot.h#L6601)
+[Header contract](include/marmot.h#L6220)
 
 ### `marmot_account_sharing_snapshot_free`
 
@@ -6406,7 +6411,7 @@ void marmot_account_sharing_snapshot_free(struct MarmotAccountSharingSnapshot *p
 
 Deep-free a library-owned snapshot and its group/device buffers; NULL is a no-op. Fields belong to this root and must not be freed separately. The snapshot is an observation, not an approval owner.
 
-[Header contract](include/marmot.h#L13865)
+[Header contract](include/marmot.h#L13226)
 
 ### `marmot_account_sharing_targets_free`
 
@@ -6416,7 +6421,7 @@ void marmot_account_sharing_targets_free(struct MarmotAccountSharingTargets *ptr
 
 Deep-free a library-owned peer-inventory root, group string, ordered embedded entries and public-device buffers; NULL is a no-op. Embedded targets have no independent free and grant no permission.
 
-[Header contract](include/marmot.h#L13875)
+[Header contract](include/marmot.h#L13236)
 
 ### `marmot_begin_account_chat_sharing`
 
@@ -6426,7 +6431,7 @@ MarmotStatus marmot_begin_account_chat_sharing(const struct MarmotClient *client
 
 Begin an opaque original broad-sharing review with one current authenticated protected peer. The borrowed recipient must have exactly 32 bytes. This avoids re-enrolling an existing pair; it does not approve the original. Retain the returned owner throughout user review and free it once. Output preflight precedes effects and default refusal precedes input reads.
 
-[Header contract](include/marmot.h#L6559)
+[Header contract](include/marmot.h#L6178)
 
 ### `marmot_device_linking_session_continue_linking_and_share_chats`
 
@@ -6436,7 +6441,7 @@ MarmotStatus marmot_device_linking_session_continue_linking_and_share_chats(cons
 
 Explicitly continue the same verified pairing original at the displayed revision while approving account-wide sharing with its authenticated peer. Display the existing/future-chat, history and messaging scope before calling. Ordinary continuation retains its narrower scope. This blocking call is callback-safe and typed stale/cancel failures must remain visible.
 
-[Header contract](include/marmot.h#L10534)
+[Header contract](include/marmot.h#L10012)
 
 ### `marmot_pending_account_chat_sharing`
 
@@ -6446,7 +6451,7 @@ MarmotStatus marmot_pending_account_chat_sharing(const struct MarmotClient *clie
 
 Observe addressed authenticated original requests without approving. Returned entries are owned by their list. Clone any retained original before freeing the list, then free the clone separately. Preserve the selected account and displayed revision when presenting the broad sharing scope.
 
-[Header contract](include/marmot.h#L6570)
+[Header contract](include/marmot.h#L6189)
 
 ### `marmot_account_chat_list_window_snapshot_free`
 
@@ -6456,7 +6461,7 @@ void marmot_account_chat_list_window_snapshot_free(struct MarmotAccountChatListW
 
 Deep-free an owned replacement snapshot, including its active tagged payloads and embedded cursor. NULL is a no-op. Never free embedded rows, headers or provenance separately.
 
-[Header contract](include/marmot.h#L13905)
+[Header contract](include/marmot.h#L13266)
 
 ### `marmot_account_chat_list_window_subscription_cancel`
 
@@ -6466,7 +6471,7 @@ MarmotStatus marmot_account_chat_list_window_subscription_cancel(const struct Ma
 
 Idempotently cancel the original App window and wake its pending receiver. Does not free the handle or previously returned snapshots. Keep the handle live until all active calls return.
 
-[Header contract](include/marmot.h#L12484)
+[Header contract](include/marmot.h#L11894)
 
 ### `marmot_account_chat_list_window_subscription_free`
 
@@ -6476,7 +6481,7 @@ void marmot_account_chat_list_window_subscription_free(struct MarmotAccountChatL
 
 Cancel and free this library-owned handle before freeing its client. NULL is a no-op. No active call may borrow the handle; previously returned snapshots remain independently owned by the caller.
 
-[Header contract](include/marmot.h#L12491)
+[Header contract](include/marmot.h#L11901)
 
 ### `marmot_account_chat_list_window_subscription_next`
 
@@ -6486,7 +6491,7 @@ MarmotStatus marmot_account_chat_list_window_subscription_next(const struct Marm
 
 Receive one complete source-qualified replacement through the original window. Use one receiver; commands may run concurrently. Zero timeout waits indefinitely, Timeout consumes no replacement, and Closed ends the stream. Free each returned snapshot with its matching root free.
 
-[Header contract](include/marmot.h#L12475)
+[Header contract](include/marmot.h#L11885)
 
 ### `marmot_account_chat_list_window_subscription_paired_page`
 
@@ -6496,7 +6501,7 @@ MarmotStatus marmot_account_chat_list_window_subscription_paired_page(const stru
 
 Extend the bounded paired-source catalog using the installed sequence and opaque returned group cursor. Stale sequences fail; this is local paging, not a synchronization trigger or an MLS admission. Inputs are borrowed; the returned replacement owns its rows and cursor.
 
-[Header contract](include/marmot.h#L12552)
+[Header contract](include/marmot.h#L11962)
 
 ### `marmot_account_chat_list_window_subscription_snapshot`
 
@@ -6506,7 +6511,7 @@ MarmotStatus marmot_account_chat_list_window_subscription_snapshot(const struct 
 
 Take the initial complete replacement once; a second call returns Closed. Outputs are preflighted and cleared before consuming the snapshot. Free the returned root snapshot only, and preserve its sequence for conditional paging.
 
-[Header contract](include/marmot.h#L12467)
+[Header contract](include/marmot.h#L11877)
 
 ### `marmot_account_conversation_window_snapshot_free`
 
@@ -6516,7 +6521,7 @@ void marmot_account_conversation_window_snapshot_free(struct MarmotAccountConver
 
 Deep-free an owned replacement snapshot, including its active tagged payloads and embedded cursor. NULL is a no-op. Never free embedded rows, headers or provenance separately.
 
-[Header contract](include/marmot.h#L13915)
+[Header contract](include/marmot.h#L13276)
 
 ### `marmot_account_conversation_window_subscription_cancel`
 
@@ -6526,7 +6531,7 @@ MarmotStatus marmot_account_conversation_window_subscription_cancel(const struct
 
 Idempotently cancel the original App window and wake its pending receiver. Does not free the handle or previously returned snapshots. Keep the handle live until all active calls return.
 
-[Header contract](include/marmot.h#L12526)
+[Header contract](include/marmot.h#L11936)
 
 ### `marmot_account_conversation_window_subscription_free`
 
@@ -6536,7 +6541,7 @@ void marmot_account_conversation_window_subscription_free(struct MarmotAccountCo
 
 Cancel and free this library-owned handle before freeing its client. NULL is a no-op. No active call may borrow the handle; previously returned snapshots remain independently owned by the caller.
 
-[Header contract](include/marmot.h#L12533)
+[Header contract](include/marmot.h#L11943)
 
 ### `marmot_account_conversation_window_subscription_next`
 
@@ -6546,7 +6551,7 @@ MarmotStatus marmot_account_conversation_window_subscription_next(const struct M
 
 Receive one complete source-qualified replacement through the original window. Use one receiver; commands may run concurrently. Zero timeout waits indefinitely, Timeout consumes no replacement, and Closed ends the stream. Free each returned snapshot with its matching root free.
 
-[Header contract](include/marmot.h#L12517)
+[Header contract](include/marmot.h#L11927)
 
 ### `marmot_account_conversation_window_subscription_older_page`
 
@@ -6556,7 +6561,7 @@ MarmotStatus marmot_account_conversation_window_subscription_older_page(const st
 
 Read bounded earlier paired observations using the installed sequence and returned chronological cursor verbatim. Stale sequences fail. This read grants no send, moderation or attachment authority; the returned replacement must be root-freed.
 
-[Header contract](include/marmot.h#L12562)
+[Header contract](include/marmot.h#L11972)
 
 ### `marmot_account_conversation_window_subscription_snapshot`
 
@@ -6566,7 +6571,7 @@ MarmotStatus marmot_account_conversation_window_subscription_snapshot(const stru
 
 Take the initial complete replacement once; a second call returns Closed. Outputs are preflighted and cleared before consuming the snapshot. Free the returned root snapshot only, and preserve its sequence for conditional paging.
 
-[Header contract](include/marmot.h#L12509)
+[Header contract](include/marmot.h#L11919)
 
 ### `marmot_open_account_chat_list_window`
 
@@ -6576,7 +6581,7 @@ MarmotStatus marmot_open_account_chat_list_window(const struct MarmotClient *cli
 
 Open an account-owned local view with 2–128 ordinary or authenticated paired-source rows. Default cohorts return Unsupported after output preflight and before reading inputs. Take the initial snapshot once, then receive replacements; cancel and free the handle before its client. This view does not initiate manual synchronization.
 
-[Header contract](include/marmot.h#L12499)
+[Header contract](include/marmot.h#L11909)
 
 ### `marmot_open_account_conversation_window`
 
@@ -6586,7 +6591,7 @@ MarmotStatus marmot_open_account_conversation_window(const struct MarmotClient *
 
 Open an account-owned bounded conversation view with 1–128 rows and explicit local or paired-source provenance. Default cohorts refuse before reading inputs. Retain the genuine ordinary conversation window for authenticated system content, draft-bound actions and ordinary media authority. Cancel and free the handle before its client.
 
-[Header contract](include/marmot.h#L12541)
+[Header contract](include/marmot.h#L11951)
 
 ### `marmot_paired_chat_list_page`
 
@@ -6596,7 +6601,7 @@ MarmotStatus marmot_paired_chat_list_page(const struct MarmotClient *client, con
 
 Read a bounded authenticated paired-source catalog without networking or fabricated MLS membership. Pass the opaque group cursor verbatim. Default cohorts return Unsupported before reading inputs. Borrowed inputs remain caller-owned; free the returned root page with marmot_paired_chat_list_page_free.
 
-[Header contract](include/marmot.h#L6526)
+[Header contract](include/marmot.h#L6145)
 
 ### `marmot_paired_chat_list_page_free`
 
@@ -6606,7 +6611,7 @@ void marmot_paired_chat_list_page_free(struct MarmotPairedChatListPage *ptr);
 
 Deep-free an owned page with all embedded records and its optional cursor. NULL is a no-op. Do not separately free borrowed or embedded fields.
 
-[Header contract](include/marmot.h#L13885)
+[Header contract](include/marmot.h#L13246)
 
 ### `marmot_paired_chat_message_page`
 
@@ -6616,7 +6621,7 @@ MarmotStatus marmot_paired_chat_message_page(const struct MarmotClient *client, 
 
 Read bounded canonical message observations and source provenance using the returned event-ID/time cursor. Group IDs remain opaque variable-length MLS IDs. This local read grants no send, attachment or moderation authority; default cohorts refuse before reading inputs. Free the returned root page with marmot_paired_chat_message_page_free.
 
-[Header contract](include/marmot.h#L6538)
+[Header contract](include/marmot.h#L6157)
 
 ### `marmot_paired_chat_message_page_free`
 
@@ -6626,7 +6631,7 @@ void marmot_paired_chat_message_page_free(struct MarmotPairedChatMessagePage *pt
 
 Deep-free an owned page with all embedded records and its optional cursor. NULL is a no-op. Do not separately free borrowed or embedded fields.
 
-[Header contract](include/marmot.h#L13895)
+[Header contract](include/marmot.h#L13256)
 
 ### `marmot_device_linking_approval_approve_and_share_chats`
 
@@ -6636,7 +6641,10 @@ MarmotStatus marmot_device_linking_approval_approve_and_share_chats(const struct
 
 Block through the callback-safe bridge to approve this displayed original enrollment and sharing existing and future chats with its joining device. Call only after an explicit broader choice; ordinary `marmot_device_linking_approval_approve` cannot be upgraded later. The joining device must separately make its own broader continuation choice. The handle is borrowed for the call, and stale revisions or expired/cancelled originals are rejected. Approval may return before bilateral settlement finishes: continue observing the original snapshot until `Settled`, or explicitly cancel pending work. Default builds refuse with the typed unsupported status; cancelling pending work does not revoke an already committed durable policy.
 
-[Header contract](include/marmot.h#L10647)
+[Header contract](include/marmot.h#L10125)
+
+<details>
+<summary>New exports — complete and organize before merging</summary>
 
 ### `marmot_begin_device_revocation`
 
@@ -6646,7 +6654,7 @@ MarmotStatus marmot_begin_device_revocation(const struct MarmotClient *client, c
 
 Capture one fresh original administrator review for an exact 32-byte device selector. No removal occurs before explicit approval. Required output is cleared first; default builds refuse before foreign input reads.
 
-[Header contract](include/marmot.h#L10713)
+[Header contract](include/marmot.h#L10191)
 
 ### `marmot_device_revocation_approve`
 
@@ -6656,7 +6664,7 @@ MarmotStatus marmot_device_revocation_approve(const struct MarmotDeviceRevocatio
 
 Approve the displayed revision on the held original. Stale revisions refuse; retries preserve confirmed per-group progress and never renew the original deadline.
 
-[Header contract](include/marmot.h#L10747)
+[Header contract](include/marmot.h#L10225)
 
 ### `marmot_device_revocation_cancel`
 
@@ -6666,7 +6674,7 @@ MarmotStatus marmot_device_revocation_cancel(const struct MarmotDeviceRevocation
 
 Permanently cancel the original across all aliases. Already confirmed removals remain; later approval is closed.
 
-[Header contract](include/marmot.h#L10755)
+[Header contract](include/marmot.h#L10233)
 
 ### `marmot_device_revocation_clone`
 
@@ -6676,7 +6684,7 @@ MarmotStatus marmot_device_revocation_clone(const struct MarmotDeviceRevocation 
 
 Retain the same original action in another independently freed alias. This does not allocate a new review or extend its deadline.
 
-[Header contract](include/marmot.h#L10724)
+[Header contract](include/marmot.h#L10202)
 
 ### `marmot_device_revocation_free`
 
@@ -6686,7 +6694,7 @@ void marmot_device_revocation_free(struct MarmotDeviceRevocation *handle);
 
 Release one alias exactly once; NULL is accepted. Do not free concurrently with calls. Last alias drop retires the original.
 
-[Header contract](include/marmot.h#L10732)
+[Header contract](include/marmot.h#L10210)
 
 ### `marmot_device_revocation_snapshot`
 
@@ -6696,7 +6704,7 @@ MarmotStatus marmot_device_revocation_snapshot(const struct MarmotDeviceRevocati
 
 Read the fixed protected/ordinary scope and confirmed completed prefix. The snapshot is observation only; revision is 1 until completion, then 2. Free its owned contents with the matching snapshot free.
 
-[Header contract](include/marmot.h#L10739)
+[Header contract](include/marmot.h#L10217)
 
 ### `marmot_device_revocation_snapshot_free`
 
@@ -6706,6 +6714,71 @@ void marmot_device_revocation_snapshot_free(struct MarmotDeviceRevocationSnapsho
 
 Deep-free the returned snapshot including target bytes and all group strings. NULL is accepted; never free borrowed or stack records.
 
-[Header contract](include/marmot.h#L13925)
+[Header contract](include/marmot.h#L13286)
+
+</details>
+
+<details>
+<summary>Current fork sync and account controls</summary>
+
+### `marmot_account_chat_departure_state`
+
+```c
+MarmotStatus marmot_account_chat_departure_state(const struct MarmotClient *client, const char *account_ref, const char *group_id_hex, struct MarmotAccountChatDepartureState **out);
+```
+
+Read the shared account-wide departure state for an ordinary or paired-only chat. Borrow `account_ref` and variable-length MLS `group_id_hex` for this blocking, callback-safe call. The required output is cleared before inputs or work. Interpret the returned departure status/reason separately from the function status; mirrored observations do not provide MLS management authority. Release the owned result with `marmot_account_chat_departure_state_free`.
+
+[Header contract](include/marmot.h#L7013)
+
+### `marmot_account_chat_departure_state_free`
+
+```c
+void marmot_account_chat_departure_state_free(struct MarmotAccountChatDepartureState *ptr);
+```
+
+Deep-free an owned departure-state result, including its optional operation-ID string. NULL is accepted. Do not separately free embedded fields or free the same result twice.
+
+[Header contract](include/marmot.h#L13296)
+
+### `marmot_leave_account_chat`
+
+```c
+MarmotStatus marmot_leave_account_chat(const struct MarmotClient *client, const char *account_ref, const char *group_id_hex, struct MarmotAccountChatDepartureState **out);
+```
+
+Invoke the shared account-wide leave workflow, including from a paired-only caller. Borrow inputs and provide the required cleared result output. Pending offline sources, administrator requirements and unavailable coverage are business states, not completed membership removal. Poll `marmot_account_chat_departure_state`; the runtime retains exact durable intent/retry identity. Actual-member admin barriers remain explicit. Use `marmot_leave_group` only for an intentionally device-local leave. Negative intents deny ordinary token sends with appended status158. Free each returned state through its matching deep-free.
+
+[Header contract](include/marmot.h#L7028)
+
+### `marmot_approve_automatic_device_linking_session`
+
+```c
+MarmotStatus marmot_approve_automatic_device_linking_session(const struct MarmotClient *client, const char *account, const uint8_t *code, uintptr_t code_len, const uint8_t *target, uintptr_t target_len, struct MarmotDeviceLinkingSession **out);
+```
+
+Pass a borrowed UTF-8 bootstrap buffer bounded to 1024 bytes, an account label and optional protected-roster selector. Required out is cleared before input access; NULL/zero target selects first-device setup. The returned original remains paused until exact host account/runtime adoption and automatic_pairing_code activation. Default runtime returns Unsupported before reading bootstrap bytes or account effects. Never free client/handle during this blocking call. See [one-scan transport](../marmot-uniffi/DEVICE-LINKING.md#one-scan-automatic-transport).
+
+[Header contract](include/marmot.h#L9921)
+
+### `marmot_device_linking_session_automatic_pairing_code`
+
+```c
+MarmotStatus marmot_device_linking_session_automatic_pairing_code(const struct MarmotDeviceLinkingSession *handle, struct MarmotDeviceLinkingBytes **out);
+```
+
+After exact host adoption, activate this retained original and return owned UTF-8 bootstrap bytes. Display only on the initiating device; the scanning device activates without showing a response QR. Free the result with marmot_device_linking_bytes_free. Required out is cleared before handle access; errors return no allocation. This blocking call grants no comparison/enrollment approval and cannot restore a retired original.
+
+[Header contract](include/marmot.h#L9943)
+
+### `marmot_device_linking_session_continue_automatic_linking`
+
+```c
+MarmotStatus marmot_device_linking_session_continue_automatic_linking(const struct MarmotDeviceLinkingSession *handle, uint64_t displayed_revision, uint8_t share_chats);
+```
+
+Submit the comparison-complete original using the revision displayed to the user. A nonzero share_chats explicitly approves existing/future chats, history and messaging; zero retains ordinary enrollment. Keep visual number comparison and each existing-device approval. Native encrypted transport and processing receipts handle packet delivery/finalization. The handle must remain live for the blocking call; transport metadata never grants authority.
+
+[Header contract](include/marmot.h#L9952)
 
 </details>

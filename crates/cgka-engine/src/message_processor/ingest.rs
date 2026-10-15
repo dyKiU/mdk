@@ -1398,6 +1398,11 @@ impl<S: StorageProvider> Engine<S> {
                                 &payload,
                                 sender.as_ref(),
                                 &msg.id,
+                                #[cfg(any(
+                                    test,
+                                    all(feature = "test-crash-hooks", debug_assertions)
+                                ))]
+                                crate::private_settlement_test_observation::recipient(&mls_group),
                             );
                         settlement_positive =
                             crate::private_roster_settlement_receive::apply_settlement_effect(
@@ -1881,8 +1886,38 @@ impl<S: StorageProvider> Engine<S> {
                         self.convergence_now_ms(),
                     )?;
                 }
+                let authenticated_reference = hex::encode(
+                    queued
+                        .proposal_reference_ref()
+                        .tls_serialize_detached()
+                        .map_err(|_| {
+                            EngineError::Backend(
+                                "authenticated proposal reference unavailable".into(),
+                            )
+                        })?,
+                );
                 self.return_mls_group(&group_id, mls_group);
-                self.valid_proposal_groups.insert(group_id);
+                self.valid_proposal_groups.insert(group_id.clone());
+                self.wake_commit_for_authenticated_proposal(
+                    &group_id,
+                    &openmls_msg,
+                    &authenticated_reference,
+                    msg_epoch,
+                )?;
+                // The proposal already passed MLS authentication and standalone
+                // authorization. Its retained row must also join an existing
+                // collecting pass before that pass freezes a by-reference
+                // commit without the dependency. Use normal admission, including
+                // its stable-owner, cutoff, digest and quarantine guards.
+                self.buffer_openmls_convergence_message_with_time(
+                    &group_id,
+                    openmls_msg.clone(),
+                    self.convergence_now(),
+                    Some(&raw_msg_id),
+                )
+                .map_err(|error| {
+                    EngineError::Backend(format!("admit authenticated proposal: {error}"))
+                })?;
                 reported(IngestOutcome::Processed)
             }
             DirectProcessedContent::Other(

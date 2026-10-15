@@ -762,6 +762,15 @@ impl AccountDeviceSession {
     }
 
     #[cfg(feature = "experimental-device-sync")]
+    pub fn set_owned_local_enrollment_metadata(
+        &self,
+        proposal: &mut cgka_engine::private_enrollment_request::OwnedLocalEnrollmentProposal,
+        tags: Vec<Vec<String>>,
+    ) -> Result<(), EngineError> {
+        self.engine
+            .set_owned_local_enrollment_metadata(proposal, tags)
+    }
+    #[cfg(feature = "experimental-device-sync")]
     pub async fn wrap_private_enrollment_proposal(
         &mut self,
         proposal: &mut cgka_engine::private_enrollment_request::OwnedLocalEnrollmentProposal,
@@ -1478,6 +1487,14 @@ impl AccountDeviceSession {
         })
     }
 
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn set_owned_enrollment_metadata(
+        &self,
+        endorsement: &mut cgka_engine::private_enrollment_endorsement::OwnedEnrollmentEndorsement,
+        tags: Vec<Vec<String>>,
+    ) -> Result<(), EngineError> {
+        self.engine.set_owned_enrollment_metadata(endorsement, tags)
+    }
     #[cfg(feature = "experimental-device-sync")]
     pub async fn wrap_private_enrollment_endorsement(
         &mut self,

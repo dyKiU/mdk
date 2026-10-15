@@ -60,10 +60,7 @@ impl AppClient {
         &self,
         error: &crate::AppError,
     ) -> Option<Vec<cgka_traits::GroupId>> {
-        if !matches!(
-            error.as_engine_error(),
-            Some(cgka_traits::EngineError::Storage(_))
-        ) {
+        if !revoked_retry_is_engine_storage(error) {
             return None;
         }
         let groups = self
@@ -72,6 +69,27 @@ impl AppClient {
             .device_revocation_storage_retry_groups()
             .ok()?;
         (!groups.is_empty()).then_some(groups)
+    }
+
+    /// Keep only the exact live-group delivery whose atomic ingest failed.
+    pub(crate) fn revoked_confirmation_storage_retry(
+        &self,
+        error: &crate::AppError,
+        delivery: &cgka_traits::TransportDelivery,
+    ) -> Option<Arc<cgka_engine::device_leaf_revocation::DeviceRevocationSettlementControl>> {
+        if delivery.message.payload.len() > 512 * 1024 {
+            return None;
+        }
+        let groups = self.device_revocation_storage_retry_groups(error)?;
+        let control = self
+            .runtime
+            .session()
+            .device_revocation_settlement_control()
+            .ok()??;
+        (control.is_live()
+            && delivery.group_id_hint.as_ref() == Some(control.group())
+            && groups.contains(control.group()))
+        .then_some(control)
     }
 
     pub(crate) fn pending_existing_private_settlement(
@@ -291,5 +309,30 @@ impl cgka_engine::private_roster_settlement::TrustedPrivateSettlementPublisher
             ));
         }
         Ok(())
+    }
+}
+
+fn revoked_retry_is_engine_storage(error: &crate::AppError) -> bool {
+    matches!(
+        error.as_engine_error(),
+        Some(cgka_traits::EngineError::Storage(_))
+    )
+}
+#[cfg(test)]
+mod revoked_retry_error_tests {
+    use super::*;
+    #[test]
+    fn only_atomic_engine_storage_failures_can_retain_the_revoked_owner() {
+        let engine_storage = crate::AppError::Session(cgka_session::SessionError::Engine(
+            cgka_traits::EngineError::Storage(cgka_traits::storage::StorageError::NotFound),
+        ));
+        assert!(revoked_retry_is_engine_storage(&engine_storage));
+        let other = crate::AppError::Session(cgka_session::SessionError::Engine(
+            cgka_traits::EngineError::Other("test refusal".into()),
+        ));
+        assert!(!revoked_retry_is_engine_storage(&other));
+        assert!(!revoked_retry_is_engine_storage(&crate::AppError::Storage(
+            cgka_traits::storage::StorageError::NotFound
+        )));
     }
 }

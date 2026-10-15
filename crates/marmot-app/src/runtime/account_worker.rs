@@ -343,6 +343,16 @@ pub(crate) struct AccountWorkerRuntime {
 }
 
 pub(crate) enum AccountWorkerCommand {
+    AccountDeparture(Box<super::account_chat_departure::Command>),
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    AccountDepartureLocalLeafProbe {
+        group: GroupId,
+        respond: oneshot::Sender<Result<bool, AppError>>,
+    },
     #[cfg(feature = "experimental-device-sync")]
     DeviceRevocation(Box<super::device_revocation::Command>),
     #[cfg(feature = "experimental-device-sync")]
@@ -1878,6 +1888,12 @@ async fn run_app_runtime_account_worker(
         crate::selected_chat_copy::enabled::SelectedRecipientAttempt,
         TokioInstant,
     )> = None;
+    #[cfg(feature = "experimental-device-sync")]
+    let mut revoked_confirmation_retry: Option<(
+        Box<transport_nostr_adapter::ObservedTransportDelivery>,
+        Arc<cgka_engine::device_leaf_revocation::DeviceRevocationSettlementControl>,
+        TokioInstant,
+    )> = None;
     'worker: loop {
         #[cfg(feature = "experimental-device-sync")]
         {
@@ -2444,6 +2460,19 @@ async fn run_app_runtime_account_worker(
                     }
                     client.adapter.release_account_delivery(&delivery.message.id);
                 }
+                #[cfg(feature = "experimental-device-sync")]
+                if let Some((_, _, retry_at)) = revoked_confirmation_retry.as_ref() {
+                    tokio::time::sleep_until(*retry_at).await;
+                    let (delivery, control, _) = revoked_confirmation_retry.take().expect("one exact revoked confirmation");
+                    if control.is_live()
+                        && client.revoked_settlement_control(&control.binding()).is_ok()
+                        && client.runtime.session().device_revocation_storage_retry_groups()
+                            .is_ok_and(|groups| groups.contains(control.group()))
+                    {
+                        return Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(delivery));
+                    }
+                    client.adapter.release_account_delivery(&delivery.message.id);
+                }
                 if enrollment_capacity_retry.is_some() {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(
@@ -2491,6 +2520,10 @@ async fn run_app_runtime_account_worker(
                             && let Some(attempt) = client.selected_recipient_storage_retry(error)
                         {
                             selected_welcome_retry = Some((delivery, attempt, TokioInstant::now() + Duration::from_secs(1)));
+                        } else if let Some(error) = result.as_ref().err()
+                            && let Some(control) = client.revoked_confirmation_storage_retry(error, &delivery.delivery)
+                        {
+                            revoked_confirmation_retry = Some((delivery, control, TokioInstant::now() + Duration::from_secs(1)));
                         } else if matches!(result.as_ref().err().and_then(AppError::as_engine_error),
                             Some(cgka_traits::error::EngineError::PrivateEnrollmentIntakeAtCapacity)) {
                             enrollment_capacity_retry = Some(delivery);
@@ -2625,6 +2658,11 @@ async fn run_app_runtime_account_worker(
                         if selected_welcome_retry.as_ref().is_some_and(|(_, attempt, _)| attempt.is_live()) {
                             // Reopening revokes the actual selected consent. Keep
                             // only this exact failed observation for fresh admission.
+                            continue 'worker;
+                        }
+                        #[cfg(feature = "experimental-device-sync")]
+                        if revoked_confirmation_retry.as_ref().is_some_and(|(_, control, _)| control.is_live()) {
+                            // Keep the same owner and exact failed transport observation.
                             continue 'worker;
                         }
                         #[cfg(feature = "experimental-device-sync")]
@@ -4812,6 +4850,34 @@ fn account_worker_command_future<'a>(
         AccountWorkerCommand::AccountChatPresentation(command) => Box::pin(async move {
             super::account_chat_presentation::handle(client, *command);
             false
+        }),
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        AccountWorkerCommand::AccountDepartureLocalLeafProbe { group, respond } => {
+            Box::pin(async move {
+                let result = client
+                    .runtime
+                    .session()
+                    .canonical_group_membership(&group)
+                    .map(|membership| membership.local_leaf_active)
+                    .map_err(AppError::from);
+                let _ = respond.send(result);
+                false
+            })
+        }
+        AccountWorkerCommand::AccountDeparture(command) => Box::pin(async move {
+            let group = super::account_chat_departure::handle(client, *command).await;
+            publish_client_pending_projection_updates(
+                client,
+                events,
+                account_id_hex,
+                account_label,
+            );
+            publish_app_runtime_group_state_updated(events, account_id_hex, account_label, &group);
+            true
         }),
         #[cfg(feature = "experimental-device-sync")]
         AccountWorkerCommand::AccountSharing(command) => Box::pin(async move {

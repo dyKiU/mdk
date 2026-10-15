@@ -788,7 +788,10 @@ impl ScriptedPushRelayClient {
         *self.publish_results.lock().unwrap() = results.into_iter().collect();
     }
 
-    #[cfg(feature = "test-policy-overrides")]
+    #[cfg(all(
+        feature = "test-policy-overrides",
+        feature = "experimental-device-sync"
+    ))]
     pub(crate) fn published_events_snapshot(&self) -> Vec<NostrTransportEvent> {
         self.published_events.lock().unwrap().clone()
     }
@@ -24361,3 +24364,4 @@ pub(crate) mod alloc_audit {
         PEAK.load(Ordering::Relaxed)
     }
 }
+mod account_chat_departure_defaults;

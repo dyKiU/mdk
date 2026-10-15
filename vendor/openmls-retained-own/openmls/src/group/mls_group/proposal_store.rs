@@ -345,7 +345,13 @@ impl ProposalQueue {
 
                             queued_proposal.clone()
                         }
-                        None => return Err(FromCommittedProposalsError::ProposalNotFound),
+                        None => {
+                            return Err(FromCommittedProposalsError::ProposalNotFound(
+                                crate::group::errors::MissingProposalReference::new(
+                                    *proposal_reference.clone(),
+                                ),
+                            ));
+                        }
                     }
                 }
             };

@@ -521,6 +521,45 @@ impl<S: cgka_traits::storage::StorageProvider> crate::Engine<S> {
         &self,
     ) -> Result<Vec<cgka_traits::GroupId>, EngineError> {
         let mut groups = Vec::new();
+        // A confirmation write may roll back after the actual Remove has already
+        // committed. Retain only its existing live successor owner, never rebuild
+        // an admission from a durable round or extend the original deadline.
+        let admission = self
+            .settlement_admission
+            .lock()
+            .map_err(|_| unavailable())?
+            .clone();
+        if let Some(admission) = admission.filter(|admission| {
+            admission.is_live()
+                && matches!(
+                    admission.anchor.origin,
+                    cgka_traits::private_device_invite::PrivateInviteOrigin::Revoked(_)
+                )
+        }) {
+            let group = &admission.anchor.group_id;
+            self.ensure_group_live(group)?;
+            if let Some(round) = self
+                .storage
+                .private_roster_settlement_storage()
+                .ok_or_else(unavailable)?
+                .read_round()?
+                && pending_revoked_successor_round_matches(&admission, &round)
+                && let Some(actual) = openmls::group::MlsGroup::load(
+                    self.storage.mls_storage(),
+                    &openmls::group::GroupId::from_slice(group.as_slice()),
+                )
+                .map_err(|_| unavailable())?
+                && crate::private_successor::anchor_matches_actual_tree(
+                    &self.storage,
+                    group,
+                    &actual,
+                    &admission.anchor,
+                )?
+                && admission.is_live()
+            {
+                groups.push(group.clone());
+            }
+        }
         for intent in self.revocation_transition.live_received_intents()? {
             if !self.has_pending_convergence_inputs(&intent.group)? {
                 continue;
@@ -576,4 +615,19 @@ impl<S: cgka_traits::storage::StorageProvider> crate::Engine<S> {
                 })
             }))
     }
+}
+
+// A negative retry scope check, not a constructor or settlement grant.
+pub(crate) fn pending_revoked_successor_round_matches(
+    admission: &crate::private_roster_settlement::LiveSettlementAdmission,
+    round: &cgka_traits::private_roster_settlement::PrivateSettlementState,
+) -> bool {
+    admission.is_live()
+        && matches!(
+            admission.anchor.origin,
+            cgka_traits::private_device_invite::PrivateInviteOrigin::Revoked(_)
+        )
+        && round.phase == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Pending
+        && round.generation == admission.generation
+        && round.anchor == admission.anchor
 }

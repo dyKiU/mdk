@@ -1,4 +1,6 @@
 //! Synthetic SQL acceptance; original channel authentication remains Core-owned.
+#[path = "cut_refusal.rs"]
+mod cut_refusal;
 #[path = "generation_receipts.rs"]
 mod generation_receipts;
 use super::*;
@@ -80,6 +82,8 @@ fn configure(s: &SqliteAccountStorage) {
             accepted_origin: None,
 
             same_account_source_count: None,
+
+            direct_peer_account: None,
         }],
         &|| Ok(()),
     )
@@ -315,6 +319,8 @@ fn record_stream_apply_receipt_and_progress_are_atomic_and_out_of_order_safe() {
             accepted_origin: None,
 
             same_account_source_count: None,
+
+            direct_peer_account: None,
         }],
         &|| Ok(()),
     )

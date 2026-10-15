@@ -42,6 +42,21 @@ use crate::directory::DirectorySyncPlan;
 mod delivery_spill;
 mod directory;
 mod directory_wire;
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+mod ordinary_commit_gate;
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[path = "tests/ordinary_commit_observation.rs"]
+mod ordinary_commit_observation;
+#[cfg(feature = "experimental-device-sync")]
+pub(crate) mod pairing;
 #[cfg(test)]
 pub(crate) mod publish_accounting_tests;
 mod safety;
@@ -104,6 +119,13 @@ pub struct MarmotRelayPlane {
     inner: Arc<MarmotRelayPlaneInner>,
 }
 
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+mod private_confirmation_gate;
+
 struct MarmotRelayPlaneInner {
     subscription_rebuild_lookback: Option<Duration>,
     relay_safety: RelaySafetyPolicy,
@@ -115,7 +137,25 @@ struct MarmotRelayPlaneInner {
         feature = "experimental-device-sync",
         feature = "test-policy-overrides"
     ))]
+    private_confirmation_gate: std::sync::Mutex<Option<private_confirmation_gate::Gate>>,
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     selected_welcome_gate: std::sync::Mutex<Option<SelectedWelcomePublicationGate>>,
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    ordinary_commit_gate: std::sync::Mutex<Option<ordinary_commit_gate::Gate>>,
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    ordinary_commit_observation: std::sync::Mutex<Option<Arc<ordinary_commit_observation::Watch>>>,
     #[cfg(all(
         test,
         feature = "experimental-device-sync",
@@ -1518,7 +1558,25 @@ impl MarmotRelayPlane {
                     feature = "experimental-device-sync",
                     feature = "test-policy-overrides"
                 ))]
+                private_confirmation_gate: std::sync::Mutex::new(None),
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
                 selected_welcome_gate: std::sync::Mutex::new(None),
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                ordinary_commit_gate: std::sync::Mutex::new(None),
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                ordinary_commit_observation: std::sync::Mutex::new(None),
                 #[cfg(all(
                     test,
                     feature = "experimental-device-sync",
@@ -3886,6 +3944,12 @@ impl MarmotRelayPlaneAccountAdapter {
         &self,
         request: TransportPublishRequest,
     ) -> Result<TransportPublishReport, TransportAdapterError> {
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        private_confirmation_gate::hold(self, &request).await;
         self.publish_with_local_mirror(request, false).await
     }
 
@@ -4746,6 +4810,18 @@ impl TransportAdapter for MarmotRelayPlaneAccountAdapter {
         &self,
         request: TransportPublishRequest,
     ) -> Result<TransportPublishReport, TransportAdapterError> {
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        ordinary_commit_gate::hold(self, &request).await?;
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        ordinary_commit_observation::observe(self, &request);
         self.publish_with_local_mirror(request, true).await
     }
 
