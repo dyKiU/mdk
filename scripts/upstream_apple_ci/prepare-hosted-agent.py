@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Derive a diagnostic-only hosted agent without modifying frozen native sources."""
+"""Derive a bounded hosted acceptance agent without modifying frozen native sources."""
 from __future__ import annotations
 
 import argparse
@@ -16,6 +16,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True,
                         help="Fresh source directory in the runner's temporary workspace")
+    parser.add_argument("--history-pagination", action="store_true",
+                        help="Add a read-only history cursor command with a fixed page limit of 37")
     args = parser.parse_args()
     source = Path(__file__).resolve().parent / "native"
     manifest = json.loads((source / "SOURCE.json").read_text())
@@ -24,7 +26,8 @@ def main() -> None:
     args.output.mkdir(parents=True, exist_ok=False, mode=0o700)
     provenance = {"frozen_workspace_commit": manifest["workspace_commit"],
                   "adapter_sha256": digest(Path(__file__).read_bytes()), "files": {},
-                  "adaptation": "Only classify non-SDK failures by fixed cases and the closed no-Tokio-runtime panic category; never emit descriptions or payloads."}
+                  "history_pagination": args.history_pagination,
+                  "adaptation": "Optionally add a read-only bounded cursor command; classify non-SDK failures by fixed cases and the closed no-Tokio-runtime panic category; never emit descriptions or payloads."}
     for name in ("build.sh", "Acceptance.swift", "Agent.swift", "StoreControls.swift"):
         original = (source / name).read_bytes()
         if digest(original) != manifest["files"][name]:
@@ -69,7 +72,29 @@ def main() -> None:
             text = original.decode()
             if text.count(old) != 1:
                 raise ValueError("Expected one original harness category branch")
-            derived = text.replace(old, new).encode()
+            text = text.replace(old, new)
+            if args.history_pagination:
+                start = text.index('            case "history-page":')
+                end = text.index('        #endif', start)
+                original_page = text[start:end]
+                if original_page.count('case "history-page":') != 1:
+                    raise ValueError("Expected one frozen history page command")
+                cursor_page = original_page.replace('case "history-page":', 'case "history-page-37":')
+                cursor_page = cursor_page.replace('stage = "actual-synchronized-history-page"',
+                    'stage = "actual-synchronized-history-cursor-page"')
+                cursor_page = cursor_page.replace('                let page = try runtime.synchronizedHistoryPage(',
+                    '                if let cursor = request.message {\n'
+                    '                    guard cursor.count == 64, cursor.allSatisfy({ "0123456789abcdef".contains($0) })\n'
+                    '                    else { throw AcceptanceFailure.invalidArguments }\n'
+                    '                }\n'
+                    '                let page = try runtime.synchronizedHistoryPage(')
+                cursor_page = cursor_page.replace('afterMessageIdHex: nil, limit: 200)',
+                    'afterMessageIdHex: request.message, limit: 37)')
+                cursor_page = cursor_page.replace('                guard page.nextMessageIdHex == nil else { throw AcceptanceFailure.unexpectedAccount }\n', '')
+                cursor_page = cursor_page.replace('                return [\n',
+                    '                return [\n                    "next": page.nextMessageIdHex.map { $0 as Any } ?? NSNull(),\n', 1)
+                text = text[:end] + cursor_page + text[end:]
+            derived = text.encode()
         (args.output / name).write_bytes(derived)
         provenance["files"][name] = {"original_sha256": digest(original), "derived_sha256": digest(derived)}
     (args.output / "DERIVED-SOURCE.json").write_text(json.dumps(provenance, indent=2) + "\n")

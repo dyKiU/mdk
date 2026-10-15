@@ -8,6 +8,19 @@ on:
       - "scripts/upstream_apple_ci/**"
   workflow_dispatch:
     inputs:
+      lane:
+        description: Explicit acceptance lane (all includes every supported lane)
+        default: all
+        required: true
+        type: choice
+        options:
+          - all
+          - history-pagination
+          - published-interop
+          - hosted-history
+          - final-ios
+          - final-mac
+          - one-scan
       sdk_run_id:
         description: Existing Apple SDK producer run ID
         default: "38689678576"
@@ -61,6 +74,7 @@ jobs:
       - name: Resolve supplemental cohort
         id: identity
         env:
+          REQUESTED_LANE: ${{ inputs.lane }}
           REQUESTED_SDK_RUN_ID: ${{ inputs.sdk_run_id }}
           REQUESTED_SDK_SHA: ${{ inputs.sdk_sha }}
           REQUESTED_MAC_SHA: ${{ inputs.mac_sha }}
@@ -137,6 +151,9 @@ jobs:
       - name: Native original history, cancellation, departure and revocation
         if: matrix.lane == 'hosted-history'
         run: bash scripts/upstream_apple_ci/hosted-history.sh
+      - name: Native bounded 199-record history cursor pagination
+        if: matrix.lane == 'history-pagination'
+        run: bash scripts/upstream_apple_ci/hosted-history-pagination.sh
       - name: Real native one-scan, direct-chat discovery and offline history
         if: matrix.lane == 'one-scan'
         run: bash scripts/upstream_apple_ci/hosted-one-scan.sh
@@ -220,6 +237,7 @@ jobs:
             ${{ runner.temp }}/interop-evidence/result.json
             ${{ runner.temp }}/interop-evidence/published-provenance.json
             ${{ runner.temp }}/hosted-history-evidence/result.json
+            ${{ runner.temp }}/hosted-history-pagination-evidence/result.json
             ${{ runner.temp }}/hosted-one-scan/result.json
             ${{ runner.temp }}/localization-mutation/result.json
             ${{ runner.temp }}/attachment-storage-mutation/result.json
@@ -232,6 +250,7 @@ jobs:
             ${{ runner.temp }}/missing-key-mutations-ios/ios-obsolete-direct-chat-mutant.log
             ${{ runner.temp }}/missing-key-mutations-ios/ios-obsolete-direct-chat-restored-control.log
             ${{ runner.temp }}/history-agent-source/DERIVED-SOURCE.json
+            ${{ runner.temp }}/pagination-agent-source/DERIVED-SOURCE.json
             ${{ runner.temp }}/one-scan-agent-source/DERIVED-SOURCE.json
             ${{ runner.temp }}/final-ios.xcresult
             ${{ runner.temp }}/final-ios-summary.json

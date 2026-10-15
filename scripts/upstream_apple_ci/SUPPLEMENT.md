@@ -13,7 +13,7 @@ Apple jobs validate its package provenance using the original producer run ID
 and source SHA; the supplemental workflow/tool commit remains a distinct
 identity. These helpers do not change any running qualification checkout.
 
-The five hosted lanes establish separate evidence:
+The hosted lanes establish separate evidence:
 
 - Published 0.13.0 versus experimental iOS SDK interoperability: separately
   compiled simulator workers on two isolated simulators, independent accounts,
@@ -53,7 +53,25 @@ result's explicit remaining limitations before treating a scenario as qualified.
 `acceptance-lanes.json` freezes the explicit lanes selected for this run. A scoped
 repair run is not a full qualification by itself: reuse earlier passing lanes only
 when their product, SDK, test body and relevant configuration are unchanged, and
-retain their exact original source/run identities. The current repair reruns only
-archive/departure in hosted history, preserving separately recorded passing
-revocation/withdrawal evidence. One-scan diagnostics observe original commands
-without changing deadlines, comparison, approval or sharing requirements.
+retain their exact original source/run identities. The separate pagination push does not rerun the ongoing five-lane cohort.
+One-scan diagnostics observe original commands without changing deadlines,
+comparison, approval or sharing requirements.
+
+
+The separate `history-pagination` lane sends 199 actual prejoin messages through
+an ordinary member, then preserves the original explicit selected-chat consent
+and admission actions. One postjoin message remains live. An explicit history
+original reviews all 200 source records; after recipient approval, its 199
+historical records must enumerate in six pages of 37/37/37/37/37/14 with exact
+canonical IDs, contents, tags and source/transfer/manifest provenance. A second
+complete enumeration must match exactly, with no nonrecipient archive disclosure.
+Worker stores and messages remain private; only aggregate results and derived
+source provenance are uploaded. The added native command is read-only, fixes its
+page size to 37, and validates the optional cursor. Frozen sources are unchanged.
+
+This is a representative bounded pagination gate. The SDK rejects the entire
+source snapshot above 200 records with `NotReady`; this lane does not remove that
+limit or establish full-history replacement equivalence, transferred retention,
+expiry or message-deletion behavior. Existing two-record archive scenarios remain
+unchanged. Push scope is frozen in `acceptance-lanes.json`; manual dispatch can
+select one lane or `all` without changing that committed push scope.

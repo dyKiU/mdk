@@ -28,6 +28,7 @@ import cross_host as original
 from cross_host import GateFailure, Peer, require
 from revocation_probe import device_revocation_probe
 from hosted_archive import selected_chat
+from hosted_pagination import run as pagination
 
 
 def verify_helpers() -> None:
@@ -181,7 +182,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True,
                         help="Fresh aggregate-only report directory; never contains stores or private logs")
     parser.add_argument("--port", type=int, default=18515)
-    parser.add_argument("--scenarios", nargs="+", choices=("archive", "departure", "revocation", "withdrawal"),
+    parser.add_argument("--scenarios", nargs="+", choices=("archive", "departure", "revocation", "withdrawal", "pagination"),
                         default=["archive", "departure", "revocation", "withdrawal"],
                         help="Run only affected journeys; unselected journeys are not qualified by this report")
     args = parser.parse_args()
@@ -200,12 +201,15 @@ def main() -> int:
               "additional_helpers_manifest_sha256": hashlib.sha256((HERE / "HOSTED-SOURCE.json").read_bytes()).hexdigest(),
               "passed": 0, "failed": 0, "scenarios": [],
               "selected_scenarios": args.scenarios,
-              "unselected_scenarios": [name for name in ("archive", "departure", "revocation", "withdrawal")
+              "unselected_scenarios": [name for name in ("archive", "departure", "revocation", "withdrawal", "pagination")
                                        if name not in args.scenarios],
               "scope": "Actual macOS native SDK originals on one hosted CI runner; synthetic independent stores only.",
-              "not_established": ["complete multi-page historical archive", "expiry and retention enforcement",
+              "not_established": ["history above the SDK 200-record source snapshot cap (NotReady); no full-history replacement equivalence",
+                                  "expiry and retention enforcement",
                                   "message deletion tombstone propagation", "iOS native execution",
                                   "installed application UI", "published-client interoperability", "cross-host operation"]}
+    if "pagination" not in args.scenarios:
+        report["not_established"].append("recipient cursor pagination is not selected in this run")
     if args.agent_provenance is not None:
         report["agent_source_provenance"] = json.loads(args.agent_provenance.read_text())
     started = time.monotonic()
@@ -226,7 +230,8 @@ def main() -> int:
                     journey = Journey(args.agent, private / kind, args.port)
                     began = time.monotonic()
                     try:
-                        row["observations"] = archive(journey) if kind == "archive" else lifecycle(journey, kind)
+                        row["observations"] = (archive(journey) if kind == "archive" else
+                                               pagination(journey) if kind == "pagination" else lifecycle(journey, kind))
                         row["passed"] = True
                     except (GateFailure, OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
                         # Fixed stages only: never export arbitrary SDK/IPC exception payloads.
