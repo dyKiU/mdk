@@ -75,7 +75,7 @@ jobs:
               if native!='ios-control':
                   assert sdk!='3f18b2d1acac4f87680b35f39bf8dce67dcf28ec','Old SDK cannot qualify protocol/native bodies'
               assert cohort['mac_sha']=='bb36d29471d885c92b6369c2ea70f961aa1d77c7'
-              assert cohort['ios_sha']=='807bf2536e0c03c3ba79f9ce0e25f3f3becc1fc1'
+              assert cohort['ios_sha']=='70672b2a3a240aff6d8536319767cfeec8201b00'
           else:
               assert not sdk and not sdk_run
           with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
