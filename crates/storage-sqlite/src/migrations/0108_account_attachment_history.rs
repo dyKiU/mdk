@@ -50,20 +50,23 @@ mod tests {
             crate::migrations::run_all(&mut conn).unwrap(),
             crate::migrations::MIGRATIONS.len() - 106 + private_count
         );
-        let core_receipts: usize = conn
+        let core_receipts: i64 = conn
             .query_row("SELECT count(*) FROM cgka_schema_migrations", [], |r| {
                 r.get(0)
             })
             .unwrap();
-        let private_receipts: usize = conn
+        let private_receipts: i64 = conn
             .query_row(
                 "SELECT count(*) FROM cgka_experimental_device_sync_schema_migrations",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(core_receipts, crate::migrations::MIGRATIONS.len());
-        assert_eq!(private_receipts, private_count);
+        assert_eq!(
+            usize::try_from(core_receipts).unwrap(),
+            crate::migrations::MIGRATIONS.len()
+        );
+        assert_eq!(usize::try_from(private_receipts).unwrap(), private_count);
         assert_eq!(crate::migrations::run_all(&mut conn).unwrap(), 0);
         let count: i64 = conn
             .query_row("SELECT count(*) FROM attachment_history", [], |r| r.get(0))
