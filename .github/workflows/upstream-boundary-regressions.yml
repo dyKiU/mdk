@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        case: [departure, worker-reap]
+        case: [departure, worker-reap, relay-acquisition]
     env:
       CARGO_INCREMENTAL: "1"
       CARGO_BUILD_JOBS: "2"

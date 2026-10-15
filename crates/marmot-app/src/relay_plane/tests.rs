@@ -6331,7 +6331,7 @@ async fn enrollment_acquisition_delayed_notification_worker_preserves_clock_and_
         .unwrap();
     let relay = Arc::new(RecordingRelayClient::default());
     let plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
-    let account_adapter = plane.account_adapter(account.clone(), relay);
+    let account_adapter = plane.account_adapter(account.clone(), relay.clone());
     let group = TransportGroupSubscription {
         group_id: GroupId::new(vec![2; 32]),
         transport_group_id: vec![3; 32],
@@ -6354,7 +6354,27 @@ async fn enrollment_acquisition_delayed_notification_worker_preserves_clock_and_
         .account_subscription_attempt(&account)
         .await
         .unwrap();
-    let subscription = NostrSubscription::Group {
+    let issued_subscription = relay
+        .subscriptions
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|subscription| match subscription {
+            NostrSubscription::GroupBatch {
+                account_id,
+                routes,
+                endpoints,
+                ..
+            } if account_id == &account
+                && endpoints == &group.endpoints
+                && routes.iter().any(|route| {
+                    route.group_id == group.group_id
+                        && route.transport_group_id == group.transport_group_id
+                }) => Some(subscription.subscription_id()),
+            _ => None,
+        })
+        .expect("activation issued a live batch containing this exact account/group route");
+    let legacy_subscription = NostrSubscription::Group {
         account_id: account.clone(),
         group_id: group.group_id.clone(),
         transport_group_id: group.transport_group_id.clone(),
@@ -6363,6 +6383,8 @@ async fn enrollment_acquisition_delayed_notification_worker_preserves_clock_and_
         attempt,
     }
     .subscription_id();
+    assert_ne!(issued_subscription, legacy_subscription);
+    let subscription = issued_subscription;
     let source = Arc::new(QueuedWorkerFailureSource::busy(sdk_account));
     let supervisor = spawn_relay_notification_supervisor_scoped(
         source.clone(),
@@ -6399,18 +6421,41 @@ async fn enrollment_acquisition_delayed_notification_worker_preserves_clock_and_
     .tag(Tag::parse(["h".to_owned(), hex::encode(&group.transport_group_id)]).unwrap())
     .finalize(&Keys::generate())
     .unwrap();
+    let legacy_event = EventBuilder::new(Kind::Custom(445), "legacy wire negative control")
+        .tag(Tag::parse(["h".to_owned(), hex::encode(&group.transport_group_id)]).unwrap())
+        .finalize(&Keys::generate())
+        .unwrap();
     let acquisition_bound =
         std::time::Instant::now() + Duration::from_secs(600) + Duration::from_millis(50);
     source
         .sender
         .send(RelayPoolNotification::Event {
-            relay_url: endpoint,
+            relay_url: endpoint.clone(),
             subscription_id: SubscriptionId::new(subscription),
             event: Box::new(signed),
         })
         .unwrap();
+    // Even after the real batch's EOSE, a reconstructed legacy wire ID must
+    // never authorize acquisition for another event on the same logical route.
+    source
+        .sender
+        .send(RelayPoolNotification::Message {
+            relay_url: endpoint.clone(),
+            message: Box::new(RelayMessage::EndOfStoredEvents(std::borrow::Cow::Owned(
+                SubscriptionId::new(&legacy_subscription),
+            ))),
+        })
+        .unwrap();
+    source
+        .sender
+        .send(RelayPoolNotification::Event {
+            relay_url: endpoint,
+            subscription_id: SubscriptionId::new(legacy_subscription),
+            event: Box::new(legacy_event),
+        })
+        .unwrap();
     timeout(Duration::from_secs(2), async {
-        while source.notifications_queued.load(Ordering::SeqCst) < 3 {
+        while source.notifications_queued.load(Ordering::SeqCst) < 5 {
             tokio::task::yield_now().await;
         }
     })
@@ -6437,6 +6482,21 @@ async fn enrollment_acquisition_delayed_notification_worker_preserves_clock_and_
     assert!(
         deadline <= acquisition_bound,
         "internal notification queue wait cannot create a fresh observation clock"
+    );
+    let legacy_delivery = timeout(
+        Duration::from_secs(2),
+        account_adapter.receive_account_delivery(),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .unwrap();
+    let AccountDeliveryReceive::Delivery(legacy_delivery) = legacy_delivery else {
+        panic!("legacy wire control must exercise actual delivery routing")
+    };
+    assert!(
+        legacy_delivery.observation.is_none(),
+        "a legacy wire ID cannot acquire freshness from the real batch's EOSE"
     );
     supervisor.abort();
 }

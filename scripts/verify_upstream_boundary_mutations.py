@@ -8,7 +8,7 @@ import re
 import subprocess
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--case', choices=['departure', 'worker-reap'], required=True)
+parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition'], required=True)
 parser.add_argument('--output', type=Path, required=True)
 args = parser.parse_args()
 if args.case == 'departure':
@@ -18,12 +18,20 @@ if args.case == 'departure':
                'experimental-device-sync', 'commands::account_chat_departure::tests::',
                '--', '--test-threads=1']
     expected = 2
-else:
+elif args.case == 'worker-reap':
     source = Path('crates/marmot-app/src/runtime/mod.rs')
     old, new = 'let completed = handle.is_finished();', 'let completed = true;'
     command = ['cargo', 'test', '--locked', '-p', 'marmot-app', '--lib', '--features',
                'cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks',
                'runtime::tests::stuck_worker_reap_does_not_block_a_healthy_account',
+               '--', '--exact', '--test-threads=1']
+    expected = 1
+else:
+    source = Path('crates/marmot-app/src/relay_plane/tests.rs')
+    old, new = 'let subscription = issued_subscription;', 'let subscription = legacy_subscription.clone();'
+    command = ['cargo', 'test', '--locked', '-p', 'marmot-app', '--lib', '--features',
+               'experimental-device-sync',
+               'relay_plane::tests::enrollment_acquisition_delayed_notification_worker_preserves_clock_and_fifo_eose',
                '--', '--exact', '--test-threads=1']
     expected = 1
 
