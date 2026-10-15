@@ -66,6 +66,8 @@ pub(crate) struct OriginalEnrollmentSharingChoice {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     native_observation_probe: Mutex<NativeObservationProbe>,
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) passive_sdk_consent: AtomicBool,
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     recipient_diagnostics: [std::sync::atomic::AtomicUsize; 19],
     #[cfg(all(test, feature = "test-policy-overrides"))]
     received_requests: Mutex<Vec<([u8; 32], [bool; 3])>>,
@@ -1187,6 +1189,8 @@ impl AppClient {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             native_observation_probe: Mutex::default(),
             #[cfg(all(test, feature = "test-policy-overrides"))]
+            passive_sdk_consent: AtomicBool::new(false),
+            #[cfg(all(test, feature = "test-policy-overrides"))]
             recipient_diagnostics: std::array::from_fn(|_| std::sync::atomic::AtomicUsize::new(0)),
             #[cfg(all(test, feature = "test-policy-overrides"))]
             received_requests: Mutex::new(Vec::new()),
@@ -2210,6 +2214,13 @@ impl AppClient {
                     frame.other[0] += 1;
                 }
             } else {
+                if kind == AccountSharingControl::Consent
+                    && let SiblingOriginal::Recipient { choice, .. } = entry.original.as_ref()
+                    && choice.passive_sdk_consent.load(Ordering::Acquire)
+                    && let Some(id) = &event_id
+                {
+                    transport_nostr_adapter::NostrSdkRelayClient::register_sibling_consent_observation_for_test(id.as_slice());
+                }
                 diagnostic.passive_frames[passive_index] = Some(SiblingPassiveFrame {
                     wrapped_id: message.id.clone(),
                     event_id,

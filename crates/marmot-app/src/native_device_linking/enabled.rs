@@ -398,6 +398,12 @@ impl DeviceLinkingSession {
             .map(|choice| choice.completion_aggregates_for_test())
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn observe_passive_sdk_consent_for_test(&self) {
+        if let Some(choice) = self.inner.sharing_choice.lock().expect("passive SDK choice").as_ref() {
+            choice.passive_sdk_consent.store(true, std::sync::atomic::Ordering::Release);
+        }
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn passive_sibling_child_for_test(
         &self,
         nonce: [u8; 32],

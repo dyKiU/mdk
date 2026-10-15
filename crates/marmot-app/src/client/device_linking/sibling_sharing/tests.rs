@@ -78,6 +78,8 @@ fn choice() -> Arc<OriginalEnrollmentSharingChoice> {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         native_observation_probe: Mutex::default(),
         #[cfg(all(test, feature = "test-policy-overrides"))]
+        passive_sdk_consent: AtomicBool::new(false),
+        #[cfg(all(test, feature = "test-policy-overrides"))]
         recipient_diagnostics: std::array::from_fn(|_| std::sync::atomic::AtomicUsize::new(0)),
         #[cfg(all(test, feature = "test-policy-overrides"))]
         received_requests: Mutex::new(Vec::new()),

@@ -40,6 +40,39 @@ use crate::{
     SubscriptionRefusal, SubscriptionRefusalDisposition, SubscriptionReissue,
 };
 
+// Test-only, two exact consenting events. Identity stays in this private map;
+// callers can read only fixed stage counters after their original timeout.
+#[cfg(feature = "test-policy-overrides")]
+mod sibling_passive {
+    type Observation = (Vec<u8>, std::time::Instant, [[u64; 3]; 20]);
+    fn observations() -> &'static std::sync::Mutex<Vec<Observation>> {
+        static VALUES: std::sync::OnceLock<std::sync::Mutex<Vec<Observation>>> = std::sync::OnceLock::new();
+        VALUES.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+    }
+    pub(super) fn register(id: &[u8]) {
+        let mut values = observations().lock().expect("passive SDK registration");
+        if id.len() == 32 && values.len() < 2 && !values.iter().any(|value| value.0 == id) {
+            let mut stages = [[0; 3]; 20];
+            stages[0][0] = 1;
+            values.push((id.to_vec(), std::time::Instant::now(), stages));
+        }
+    }
+    pub(super) fn stage(id: &[u8], index: usize) {
+        let mut values = observations().lock().expect("passive SDK stage");
+        if let Some((_, started, stages)) = values.iter_mut().find(|value| value.0 == id) {
+            let elapsed = started.elapsed().as_millis() as u64;
+            let stage = &mut stages[index];
+            if stage[0] == 0 { stage[1] = elapsed; }
+            stage[0] += 1;
+            stage[2] = elapsed;
+        }
+    }
+    pub(super) fn snapshot(id: &[u8]) -> Option<[[u64; 3]; 20]> {
+        observations().lock().expect("passive SDK snapshot").iter()
+            .find(|value| value.0 == id).map(|value| value.2)
+    }
+}
+
 const SDK_RELAY_CONNECT_WAIT: Duration = Duration::from_secs(5);
 /// Keep the SDK's own reconnect sleep aligned with MDK's durable transport
 /// retry budget. The SDK default adaptively grows to 60 seconds, which leaves
@@ -992,6 +1025,14 @@ struct PreparedPublish {
 }
 
 impl NostrSdkRelayClient {
+    #[cfg(feature = "test-policy-overrides")]
+    pub fn register_sibling_consent_observation_for_test(id: &[u8]) {
+        sibling_passive::register(id);
+    }
+    #[cfg(feature = "test-policy-overrides")]
+    pub fn sibling_consent_observation_for_test(id: &[u8]) -> Option<[[u64; 3]; 20]> {
+        sibling_passive::snapshot(id)
+    }
     #[cfg(feature = "test-policy-overrides")]
     fn diagnose_publish_stage(&self, stage: &'static str) {
         tracing::warn!(
@@ -3072,6 +3113,8 @@ impl NostrSdkRelayClient {
         event: &Event,
         transport_endpoint: &TransportEndpoint,
     ) -> Result<Option<TransportEndpointAckKind>, TransportEndpointFailure> {
+        #[cfg(feature = "test-policy-overrides")]
+        sibling_passive::stage(&event.id.to_bytes(), 6);
         let local_failure = |reason: &str| TransportEndpointFailure {
             endpoint: transport_endpoint.clone(),
             reason: reason.to_owned(),
@@ -3120,11 +3163,21 @@ impl NostrSdkRelayClient {
                     .ok_or_else(|| local_failure("send event failed"))?;
                 #[cfg(feature = "test-policy-overrides")]
                 self.diagnose_publish_stage("sdk-send-start");
+                #[cfg(feature = "test-policy-overrides")]
+                sibling_passive::stage(&event.id.to_bytes(), 7);
                 let result = relay.send_event(event).await;
+                #[cfg(feature = "test-policy-overrides")]
+                sibling_passive::stage(&event.id.to_bytes(), 8);
                 #[cfg(feature = "test-policy-overrides")]
                 self.diagnose_publish_stage("sdk-send-returned");
                 match result {
-                    Ok(output) => Ok(typed_relay_ack_kind(Some(output.status()))),
+                    Ok(output) => {
+                        #[cfg(feature = "test-policy-overrides")]
+                        if matches!(output.status(), EventSendStatus::Ack(_)) {
+                            sibling_passive::stage(&event.id.to_bytes(), 9);
+                        }
+                        Ok(typed_relay_ack_kind(Some(output.status())))
+                    },
                     Err(error) if error.kind() == SdkErrorKind::Rejected => {
                         let message = error.to_string();
                         if relay_endpoint_publish_accepted(false, Some(&message)) {
@@ -3216,6 +3269,8 @@ impl NostrSdkRelayClient {
     ) -> Result<NostrPublishOutcome, TransportAdapterError> {
         // A configured threshold of zero relaxes the quorum but never permits
         // confirming work that no relay accepted.
+        #[cfg(feature = "test-policy-overrides")]
+        sibling_passive::stage(&request.event.id.to_bytes(), 19);
         let ack_goal = request.required_acks.max(1);
         let message_id = cgka_traits::MessageId::new(request.event.id.to_bytes().to_vec());
         let attempted_endpoints = request
@@ -3234,8 +3289,14 @@ impl NostrSdkRelayClient {
             let sdk = self.clone();
             let event = request.event.clone();
             publishes.spawn(async move {
+                #[cfg(feature = "test-policy-overrides")]
+                sibling_passive::stage(&event.id.to_bytes(), 18);
                 if connect_before_send {
+                    #[cfg(feature = "test-policy-overrides")]
+                    sibling_passive::stage(&event.id.to_bytes(), 4);
                     sdk.connect_publish_relay(endpoint.clone()).await?;
+                    #[cfg(feature = "test-policy-overrides")]
+                    sibling_passive::stage(&event.id.to_bytes(), 5);
                 }
                 sdk.send_event_to_relay(endpoint, event).await
             });
@@ -3268,6 +3329,8 @@ impl NostrSdkRelayClient {
                     Ok(Ok(receipt)) => {
                         accepted.push(receipt);
                         if accepted.len() >= ack_goal {
+                            #[cfg(feature = "test-policy-overrides")]
+                            sibling_passive::stage(message_id.as_slice(), 10);
                             publishes.abort_all();
                             aborted_publishes = true;
                             break (accepted, failed, timed_out);
@@ -3283,7 +3346,11 @@ impl NostrSdkRelayClient {
         if aborted_publishes {
             #[cfg(feature = "test-policy-overrides")]
             self.diagnose_publish_stage("aborted-join-drain-start");
+            #[cfg(feature = "test-policy-overrides")]
+            sibling_passive::stage(message_id.as_slice(), 11);
             while publishes.join_next().await.is_some() {}
+            #[cfg(feature = "test-policy-overrides")]
+            sibling_passive::stage(message_id.as_slice(), 12);
             #[cfg(feature = "test-policy-overrides")]
             self.diagnose_publish_stage("aborted-join-drain-returned");
 
@@ -3306,7 +3373,11 @@ impl NostrSdkRelayClient {
         }
         #[cfg(feature = "test-policy-overrides")]
         self.diagnose_publish_stage("ambiguous-reset-start");
+        #[cfg(feature = "test-policy-overrides")]
+        sibling_passive::stage(message_id.as_slice(), 13);
         self.reset_ambiguous_publish_relays(&failed).await;
+        #[cfg(feature = "test-policy-overrides")]
+        sibling_passive::stage(message_id.as_slice(), 14);
         #[cfg(feature = "test-policy-overrides")]
         self.diagnose_publish_stage("ambiguous-reset-returned");
 
@@ -3323,9 +3394,15 @@ impl NostrSdkRelayClient {
         &self,
         request: PreparedPublish,
     ) -> Result<NostrPublishOutcome, TransportAdapterError> {
+        #[cfg(feature = "test-policy-overrides")]
+        let passive_id = request.event.id.to_bytes();
+        #[cfg(feature = "test-policy-overrides")]
+        sibling_passive::stage(&passive_id, 1);
         let mut lease = ScopedPublishRelayLease::new(self.clone());
         let mut unavailable = HashMap::new();
         for endpoint in &request.endpoints {
+            #[cfg(feature = "test-policy-overrides")]
+            sibling_passive::stage(&passive_id, 2);
             match lease.retain(endpoint).await {
                 Ok(()) => {}
                 Err(failure) => {
@@ -3334,6 +3411,8 @@ impl NostrSdkRelayClient {
             }
         }
 
+        #[cfg(feature = "test-policy-overrides")]
+        sibling_passive::stage(&passive_id, 3);
         // Preserve the original single-event latency behavior: each relay
         // races connect + send as one task, and reaching the acknowledgement
         // goal aborts relays that are still connecting. The multi-event path
@@ -3345,9 +3424,15 @@ impl NostrSdkRelayClient {
             .await;
         #[cfg(feature = "test-policy-overrides")]
         self.diagnose_publish_stage("single-release-start");
+        #[cfg(feature = "test-policy-overrides")]
+        sibling_passive::stage(&passive_id, 15);
         lease.release().await;
         #[cfg(feature = "test-policy-overrides")]
+        sibling_passive::stage(&passive_id, 16);
+        #[cfg(feature = "test-policy-overrides")]
         self.diagnose_publish_stage("single-release-returned");
+        #[cfg(feature = "test-policy-overrides")]
+        sibling_passive::stage(&passive_id, 17);
 
         outcome
     }

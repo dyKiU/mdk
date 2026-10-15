@@ -210,6 +210,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     a.continue_automatic_linking(a.snapshot().await.unwrap().revision, true)
         .await
         .unwrap();
+    #[cfg(feature = "test-policy-overrides")]
+    if crate::account_chat_sharing::enabled::sibling_passive_enabled() {
+        d.observe_passive_sdk_consent_for_test();
+    }
     let mut approvals = Vec::new();
     for manager in &managers[1..3] {
         let approval = tokio::time::timeout(std::time::Duration::from_secs(20), async {
@@ -853,11 +857,15 @@ fn observe_passive_sibling_failure(
                 } else {
                     None
                 };
+                let sdk_stages = if direction == 1 && kind == 1 {
+                    frame.event_id.as_ref().and_then(|id|
+                        transport_nostr_adapter::NostrSdkRelayClient::sibling_consent_observation_for_test(id.as_slice()))
+                } else { None };
                 eprintln!(
                     "sibling-passive {}",
                     serde_json::json!({
                         "record": "control", "peer": peer, "direction": direction, "kind": kind,
-                        "captured": true,
+                        "captured": true, "sdk_stages": sdk_stages,
                         "counts": [frame.prepared, frame.started, frame.acknowledged, frame.harvested],
                         "other_identity_counts": frame.other,
                         "ages_ms": [Some(cutoff.saturating_duration_since(frame.prepared_at).as_millis() as u64),

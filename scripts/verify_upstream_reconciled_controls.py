@@ -30,8 +30,10 @@ assert os.environ["RUST_MIN_STACK"] == "4194304"
 subprocess.run(["git", "merge-base", "--is-ancestor", UPSTREAM, "HEAD"], check=True)
 source_paths = ["crates", "Cargo.toml", "Cargo.lock"]
 for adapted in [
+    "crates/transport-nostr-adapter/src/sdk_client.rs",
     "crates/marmot-app/src/account_chat_sharing/enabled.rs",
     "crates/marmot-app/src/client/device_linking/sibling_sharing.rs",
+    "crates/marmot-app/src/client/device_linking/sibling_sharing/tests.rs",
     "crates/marmot-app/src/client/private_enrollment_proposal.rs",
     "crates/marmot-app/src/native_device_linking/enabled.rs",
     "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs",
@@ -224,7 +226,10 @@ if scope in {"latest-three", "latest-controls", "latest-passive"}:
                         if not row["captured"]:
                             assert set(row) == minimal
                         else:
-                            assert set(row) == minimal | {"counts", "other_identity_counts", "ages_ms", "ids_unchanged", "signed_event_available", "wrapped_matches_signed", "ack_matches_signed", "ack_not_harvested", "storage_status", "admission_status", "durably_admitted", "content_state", "notification", "projection"}
+                            assert set(row) == minimal | {"counts", "other_identity_counts", "ages_ms", "ids_unchanged", "signed_event_available", "wrapped_matches_signed", "ack_matches_signed", "ack_not_harvested", "storage_status", "admission_status", "durably_admitted", "content_state", "notification", "projection", "sdk_stages"}
+                            assert optional(row["sdk_stages"], lambda stages: isinstance(stages, list) and len(stages) == 20 and all(ints(stage, 3) for stage in stages))
+                            if row["direction"] != 1 or row["kind"] != 1:
+                                assert row["sdk_stages"] is None
                             assert ints(row["counts"], 4)
                             assert ints(row["other_identity_counts"], 4)
                             assert isinstance(row["ages_ms"], list) and len(row["ages_ms"]) == 3 and all(optional(item, lambda value: type(value) is int and 0 <= value < 2**64) for item in row["ages_ms"])
@@ -236,6 +241,8 @@ if scope in {"latest-three", "latest-controls", "latest-passive"}:
                     rows.append(row)
                 except (KeyError, TypeError, ValueError, AssertionError):
                     rejected += 1
+            report["sdk_stage_columns"] = ["count", "first_elapsed_ms", "last_elapsed_ms"]
+            report["sdk_stage_names"] = ["Registered", "SingleEntered", "RetainStart", "RetainReturned", "ConnectStart", "ConnectSucceeded", "SendAttemptStart", "WireSendStart", "WireSendReturned", "WireAcknowledged", "RequiredQuorum", "DrainStart", "DrainReturned", "ResetStart", "ResetReturned", "ReleaseStart", "ReleaseReturned", "SingleReturn", "EndpointTaskFirstPoll", "PreparedEventStart"]
             report["passive_correlations"] = rows
             report["passive_parse_rejections"] = rejected
             report["qualification_passed"] = False
@@ -245,6 +252,8 @@ if scope in {"latest-three", "latest-controls", "latest-passive"}:
             expected = {(peer, "peer", None, None) for peer in [0, 1]} | {(peer, "control", direction, kind) for peer in [0, 1] for direction, kinds in [(0, [0, 2]), (1, [1, 2])] for kind in kinds}
             assert proof["failed"] == 1 and "fourth-device-completion" in proof["completion_stage_markers"] and "original-phase-not-reached" in proof["closed_failure_categories"], "the unchanged fourth-phase failure must be retained"
             assert not rejected and len(rows) == 10 and identities == expected, "bounded complete passive correlation required"
+            consent_rows = [row for row in rows if row["record"] == "control" and row["direction"] == 1 and row["kind"] == 1]
+            assert len(consent_rows) == 2 and all(row.get("sdk_stages") is not None and row["sdk_stages"][0][0] == 1 for row in consent_rows), "both exact consenting publications must be observed"
             report["diagnostic_complete"] = True
             save()
             raise SystemExit(0)
