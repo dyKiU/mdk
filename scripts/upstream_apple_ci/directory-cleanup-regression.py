@@ -51,9 +51,22 @@ try:
             report.update(runtime_counts_available=True, passed_count=int(passed),
                           failed_count=int(failed), ignored_count=int(ignored))
         panics = re.findall(r"thread '[^\n]*' panicked at ([^\n]+):\n([^\n]+)", text)
+        report['panics'] = []
+        for site, message in panics:
+            safe_site = site if re.fullmatch(r'crates/marmot-app/src/sqlcipher/concurrency_tests\.rs:\d+:\d+', site) else 'outside_expected_fixture'
+            category = 'other_assertion'
+            if message.startswith('called `Result::unwrap()` on an `Err` value:'):
+                category = 'unexpected_result_unwrap'
+            elif message.startswith('called `Option::unwrap()` on a `None` value'):
+                category = 'unexpected_option_unwrap'
+            elif message == 'late cleanup removed a published directory database':
+                category = 'published_directory_database_removed'
+            elif message == 'assertion `left == right` failed: late cleanup replaced a published directory database':
+                category = 'published_directory_database_replaced'
+            report['panics'].append({'site': safe_site, 'category': category})
         intended = [
             (site, message) for site, message in panics
-            if re.fullmatch(r'crates/marmot-app/src/sqlcipher/concurrency_tests\.rs:\d+:\d+:', site)
+            if re.fullmatch(r'crates/marmot-app/src/sqlcipher/concurrency_tests\.rs:\d+:\d+', site)
             and message in ('late cleanup removed a published directory database',
                             'assertion `left == right` failed: late cleanup replaced a published directory database')]
         report['intended_filesystem_oracle'] = len(panics) == len(intended) == 1
