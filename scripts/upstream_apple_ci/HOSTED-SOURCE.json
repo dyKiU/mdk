@@ -44,8 +44,8 @@
     },
     "run-hosted-app-acceptance.py": {
       "source": "new hosted app acceptance and named whole-old-adapter mutation harness",
-      "sha256": "fd6a6884811214ed24e97ced07782a5751153ceb07e46f01db01052654e71944",
-      "scope": "Genuine source-only paired recipient roots and real app adapters; all native app cases followed by one whole-old-adapter runtime mutant per requested platform, with separate aggregate counts and exact restored controls"
+      "sha256": "b83a9582b94904fdf41985809a3dc8122056b76e514bed909d76524c4b6911e9",
+      "scope": "Genuine source-only paired recipient app acceptance; separate per-platform whole-old-adapter mutation scopes and immutable-cohort fan-in, no normal source/SDK guard overrides"
     },
     "paired_direct_mutation.py": {
       "source": "new hosted app acceptance and named whole-old-adapter mutation harness",

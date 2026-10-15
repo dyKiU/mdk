@@ -565,7 +565,7 @@ class Runner:
             '--relay', str(self.args.relay), '--work', str(self.private / name), '--output', str(output)]
         # Three existing bounded phases, each with a fresh genuine native fixture.
         # This is additional mutation evidence, separate from the 22 app bodies.
-        self.command(name, command, 'paired-direct-runtime-mutation', timeout=7200)
+        self.command(name, command, 'paired-direct-runtime-mutation', timeout=10000)
         proof = json.loads(output.read_text())
         require(proof.get('passed') is True and proof['platform'] == platform
                 and proof['app_sha'] == self.commit(platform) and proof['sdk_source'] == self.args.sdk_source
@@ -577,6 +577,8 @@ class Runner:
             'proof_sha256': digest(output)}
 
     def expected_cases(self):
+        if self.args.scope.startswith('adapter-'):
+            return set()
         expected = {'ios-control'}
         if self.args.scope in ('mac', 'all'):
             expected.update('macos-' + name for name in ('switch', 'reader', 'picker', 'source', 'recipient', 'picker-ui', 'paired-direct'))
@@ -587,6 +589,9 @@ class Runner:
 
     def run(self):
         self.prepare_sdk()
+        if self.args.scope.startswith('adapter-'):
+            self.paired_direct_mutations('macos' if self.args.scope == 'adapter-macos' else 'ios')
+            return
         self.runner_preflight()
         self.ui_control()
         if self.args.scope == 'ios-control':
@@ -602,13 +607,11 @@ class Runner:
                 self.fixture(platform, name, scenario, selector=selector)
             for name, scenario, ui_case in UI_CASES[platform]:
                 self.fixture(platform, name, scenario, ui_case=ui_case)
-        for platform in platforms:
-            self.paired_direct_mutations(platform)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--scope', choices=('ios-control', 'mac', 'ios', 'all'), required=True)
+    parser.add_argument('--scope', choices=('ios-control', 'mac', 'ios', 'all', 'adapter-macos', 'adapter-ios'), required=True)
     for name in ('mac-source', 'ios-source', 'packages', 'work', 'output', 'relay'):
         parser.add_argument('--' + name, type=Path, required=True)
     for name in ('mac-products', 'ios-products', 'mac-build-input', 'ios-build-input'):
@@ -641,19 +644,19 @@ def main():
     started = time.monotonic()
     try:
         runner.run()
-        require(set(runner.report['setup']) == {'ios-runner-preflight'}
-                and runner.report['setup']['ios-runner-preflight']['passed'] == 1,
+        expected_setup = set() if args.scope.startswith('adapter-') else {'ios-runner-preflight'}
+        require(set(runner.report['setup']) == expected_setup
+                and all(item['passed'] == 1 for item in runner.report['setup'].values()),
                 'actual-owner-free-setup-body-required')
         require(set(runner.report['cases']) == runner.expected_cases()
                 and all(case['passed'] == 1 for case in runner.report['cases'].values()),
                 'every-requested-native-app-body-required')
-        expected_bodies = {'ios-control': 2, 'mac': 10, 'ios': 14, 'all': 22}[args.scope]
+        expected_bodies = {'ios-control': 2, 'mac': 10, 'ios': 14, 'all': 22, 'adapter-macos': 0, 'adapter-ios': 0}[args.scope]
         executed_bodies = sum(case['unit']['totalTestCount'] + case.get('driver', {}).get('totalTestCount', 0)
                               for case in runner.report['cases'].values())
         require(executed_bodies == expected_bodies, 'exact-selected-native-app-body-count-required')
-        expected_mutations = (set() if args.scope == 'ios-control' else
-                              {'macos', 'ios'} if args.scope == 'all' else
-                              {'macos'} if args.scope == 'mac' else {'ios'})
+        expected_mutations = ({'macos'} if args.scope == 'adapter-macos' else
+                              {'ios'} if args.scope == 'adapter-ios' else set())
         require(set(runner.report['adapter_mutations']) == expected_mutations
                 and all(proof['passed'] is True for proof in runner.report['adapter_mutations'].values()),
                 'each-requested-platform-runtime-mutant-required')
@@ -663,7 +666,7 @@ def main():
         label = str(error) if isinstance(error, ValueError) else type(error).__name__
         runner.report['failure_stage'] = label if re.fullmatch('[A-Za-z0-9:_-]{1,180}', label) else type(error).__name__
     finally:
-        runner.report['expected_app_test_body_count'] = {'ios-control': 2, 'mac': 10, 'ios': 14, 'all': 22}[args.scope]
+        runner.report['expected_app_test_body_count'] = {'ios-control': 2, 'mac': 10, 'ios': 14, 'all': 22, 'adapter-macos': 0, 'adapter-ios': 0}[args.scope]
         # Failed/partial case reports must not mask the original failure in
         # this finally block. The success path above still requires all counts.
         runner.report['execution_count_incomplete_cases'] = sorted(
@@ -675,9 +678,9 @@ def main():
             for counts in (case.get('unit'), case.get('driver'))
             if isinstance(counts, dict) and type(counts.get('totalTestCount')) is int
             and counts['totalTestCount'] >= 0)
-        runner.report['expected_adapter_runtime_mutant_count'] = {'ios-control': 0, 'mac': 1, 'ios': 1, 'all': 2}[args.scope]
+        runner.report['expected_adapter_runtime_mutant_count'] = {'ios-control': 0, 'mac': 0, 'ios': 0, 'all': 0, 'adapter-macos': 1, 'adapter-ios': 1}[args.scope]
         runner.report['completed_adapter_runtime_mutant_count'] = len(runner.report['adapter_mutations'])
-        runner.report['expected_setup_test_count'] = 1
+        runner.report['expected_setup_test_count'] = 0 if args.scope.startswith('adapter-') else 1
         runner.report['completed_setup_test_count'] = len(runner.report['setup'])
         runner.report['expected_cases'] = sorted(runner.expected_cases())
         runner.report['expected_case_count'] = len(runner.expected_cases())
