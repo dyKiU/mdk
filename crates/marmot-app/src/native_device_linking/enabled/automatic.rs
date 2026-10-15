@@ -9,6 +9,31 @@ use nostr::prelude::{Event, Keys, PublicKey, Timestamp};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
+#[cfg(all(test, feature = "test-policy-overrides"))]
+struct MailboxPublicationTimer {
+    ordinal: u64,
+    sibling_index: Option<usize>,
+    started: std::time::Instant,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+impl MailboxPublicationTimer {
+    fn begin(sibling_index: Option<usize>) -> Option<Self> {
+        if std::env::var_os("WN_UPSTREAM_PUBLICATION_DIAGNOSTICS").is_none() {
+            return None;
+        }
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let ordinal = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        eprintln!("pairing-mailbox-control ordinal={ordinal} sibling_index={sibling_index:?} stage=entered global_ms={}", crate::account_chat_sharing::enabled::sibling_clock_ms_for_test());
+        Some(Self { ordinal, sibling_index, started: std::time::Instant::now() })
+    }
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+impl Drop for MailboxPublicationTimer {
+    fn drop(&mut self) {
+        eprintln!("pairing-mailbox-control ordinal={} sibling_index={:?} stage=exited global_ms={} elapsed_ms={}", self.ordinal, self.sibling_index, crate::account_chat_sharing::enabled::sibling_clock_ms_for_test(), self.started.elapsed().as_millis());
+    }
+}
+
 // Stable diagnostic codes never format peer or runtime error contents.
 fn error_kind(error: &DeviceLinkingError) -> &'static str {
     match error {
@@ -342,14 +367,20 @@ impl Driver {
             return Ok(());
         };
         self.last_send = std::time::Instant::now();
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let mut sibling_index = 0;
         for (sibling, sender) in &self.siblings {
             for message in sender.outgoing() {
                 let event = self
                     .channel
                     .seal(*sibling, message, Timestamp::now().as_secs())
                     .map_err(wire_error)?;
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                let _publication_timing = MailboxPublicationTimer::begin(Some(sibling_index));
                 let _ = self.mailbox.publish(&event).await;
             }
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            { sibling_index += 1; }
         }
         for message in self.sender.outgoing() {
             // Fresh encryption on each retry avoids relay/SDK event deduplication.
@@ -357,6 +388,8 @@ impl Driver {
                 .channel
                 .seal(peer, message, Timestamp::now().as_secs())
                 .map_err(wire_error)?;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            let _publication_timing = MailboxPublicationTimer::begin(None);
             let _ = self.mailbox.publish(&event).await;
         }
         Ok(())

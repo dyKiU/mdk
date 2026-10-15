@@ -2154,6 +2154,8 @@ async fn run_app_runtime_account_worker(
                 yield_to_convergence = true;
                 match command {
                     Some((command, approved_pending)) => {
+                        #[cfg(all(test, feature = "test-policy-overrides", feature = "experimental-device-sync"))]
+                        let _command_timing = client.time_publication_maintenance_for_test(crate::client::device_linking::sibling_sharing::PublicationMaintenanceKind::Command);
                         #[cfg(test)]
                         tests::secondary_retry_scheduler_tests::record_command(&account_id_hex, &command);
                         // ready_command_index has already approved pending work
@@ -2482,6 +2484,8 @@ async fn run_app_runtime_account_worker(
                     ))
                 } else { client.receive_next_delivery().await }
             }, if !client.has_pending_effect_projections() => {
+                #[cfg(all(test, feature = "test-policy-overrides", feature = "experimental-device-sync"))]
+                let _inbound_timing = client.time_publication_maintenance_for_test(crate::client::device_linking::sibling_sharing::PublicationMaintenanceKind::Inbound);
                 #[cfg(test)]
                 if let Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(delivery)) = &received
                     && let (Ok(event_id), Some(subscription_id)) = (

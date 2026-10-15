@@ -36,7 +36,7 @@ pub(crate) type NativeObservationSnapshot = (
     [usize; 6],
     [u64; 6],
     Option<(NativeObservationReason, u64)>,
-    [[u64; 4]; 7],
+    [[u64; 4]; 9],
     [u64; 4],
 );
 #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -46,7 +46,7 @@ struct NativeObservationProbe {
     elapsed_ms: [u64; 6],
     reason: Option<(NativeObservationReason, u64)>,
     // Each category: count, entered global ms, exited global ms, max elapsed ms.
-    maintenance: [[u64; 4]; 7],
+    maintenance: [[u64; 4]; 9],
     // First/last addressed Request intake, then first/last Core-approved admission.
     request_intake_ms: [u64; 4],
 }
@@ -58,7 +58,7 @@ impl Default for NativeObservationProbe {
             counts: [0; 6],
             elapsed_ms: [0; 6],
             reason: None,
-            maintenance: [[0; 4]; 7],
+            maintenance: [[0; 4]; 9],
             request_intake_ms: [0; 4],
         }
     }
@@ -73,6 +73,8 @@ pub(crate) enum PublicationMaintenanceKind {
     Sibling,
     Automatic,
     AutomaticBody,
+    Command,
+    Inbound,
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(crate) struct PublicationMaintenanceTimer {

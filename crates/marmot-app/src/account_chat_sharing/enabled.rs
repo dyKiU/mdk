@@ -54,9 +54,10 @@ pub(crate) struct SiblingMaintenanceDiagnostics {
     pub(crate) prepared_ms: [u64; 3],
     pub(crate) acknowledged_ms: [u64; 3],
     pub(crate) received_ms: [u64; 3],
-    pub(crate) maintenance: [[u64; 4]; 7],
+    pub(crate) maintenance: [[u64; 4]; 9],
     // Checks, last category/time, first guard-valid/roster-ready/channel-ready/check.
     pub(crate) readiness: [u64; 7],
+    pub(crate) readiness_category_ms: [u64; 8],
     pub(crate) acknowledged: [usize; 3],
     pub(crate) pending_kind: usize,
     pub(crate) pending_started: Option<Instant>,
@@ -76,8 +77,9 @@ pub(crate) type SiblingMaintenanceSnapshot = (
     [usize; 3],
     [usize; 3],
     (u64, [u64; 3], [u64; 3], [u64; 3]),
-    [[u64; 4]; 7],
+    [[u64; 4]; 9],
     [u64; 7],
+    [u64; 8],
 );
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl SiblingMaintenanceDiagnostics {
@@ -104,6 +106,7 @@ impl SiblingMaintenanceDiagnostics {
             ),
             self.maintenance,
             self.readiness,
+            self.readiness_category_ms,
         )
     }
 }

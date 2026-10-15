@@ -747,6 +747,8 @@ impl SubscriptionFloors {
 pub struct NostrSdkRelayClient {
     #[cfg(feature = "test-policy-overrides")]
     publication_diagnostic_ordinal: u64,
+    #[cfg(feature = "test-policy-overrides")]
+    publication_operation_ordinal: u64,
     client: Client,
     signer: Option<SdkSigner>,
     account_id: Option<MemberId>,
@@ -998,6 +1000,7 @@ impl NostrSdkRelayClient {
             target: "transport_nostr_adapter::sdk_client::test_publication",
             method = "diagnose_publish_stage",
             client_ordinal = self.publication_diagnostic_ordinal,
+            operation_ordinal = self.publication_operation_ordinal,
             stage,
             "test-only publication boundary"
         );
@@ -1010,6 +1013,8 @@ impl NostrSdkRelayClient {
                 static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
                 NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             },
+            #[cfg(feature = "test-policy-overrides")]
+            publication_operation_ordinal: 0,
             publish_relay_cache: Arc::new(PublishRelayCache {
                 client: client.clone(),
                 lifecycle: Mutex::new(PublishRelayState::default()),
@@ -4360,7 +4365,20 @@ impl NostrRelayClient for NostrSdkRelayClient {
         );
         if prepared.len() == 1 {
             let outcome = match prepared.pop().expect("one prepared publish") {
-                Ok(request) => vec![self.publish_prepared_single(request).await],
+                Ok(request) => {
+                    #[cfg(feature = "test-policy-overrides")]
+                    let diagnostic_publisher = {
+                        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+                        let mut publisher = self.clone();
+                        publisher.publication_operation_ordinal = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        publisher
+                    };
+                    #[cfg(feature = "test-policy-overrides")]
+                    let publisher = &diagnostic_publisher;
+                    #[cfg(not(feature = "test-policy-overrides"))]
+                    let publisher = self;
+                    vec![publisher.publish_prepared_single(request).await]
+                },
                 Err(error) => vec![Err(error)],
             };
             return NostrPublishBatch {

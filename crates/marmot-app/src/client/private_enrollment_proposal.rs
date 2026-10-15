@@ -65,6 +65,7 @@ impl OriginalSiblingSharingApproval {
             .sibling_diagnostics
             .lock()
             .expect("sibling diagnostics");
+        diagnostic.readiness_category_ms[category as usize] = now;
         let readiness = &mut diagnostic.readiness;
         if category == 0 {
             readiness[0] += 1;
