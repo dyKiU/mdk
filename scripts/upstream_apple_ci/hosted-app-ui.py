@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build frozen Apple hosted products or execute one attach-only unit/UI pair in CI."""
 import argparse
+import paired_direct_mutation
 import copy
 import hashlib
 import json
@@ -63,7 +64,7 @@ def write_json(path, value):
         output.write("\n")
 
 
-def freeze_source(source, commit):
+def freeze_source(source, commit, mutation_mode=None):
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
     if head != commit:
         raise ValueError("source-commit-mismatch")
@@ -79,7 +80,7 @@ def freeze_source(source, commit):
         if name not in SDK_PATHS:
             original = subprocess.check_output(["git", "show", "HEAD:" + name], cwd=source)
             actual = os.readlink(path).encode() if path.is_symlink() else path.read_bytes()
-            if actual != original:
+            if actual != paired_direct_mutation.expected_bytes(name, original, mutation_mode):
                 raise ValueError("non-sdk-source-diff")
     return hashes
 
@@ -325,6 +326,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("source", "products", "prefix", "bridge", "sdk-package"):
         parser.add_argument("--" + name, required=True, type=Path)
+    parser.add_argument("--paired-direct-mutation", choices=[paired_direct_mutation.MODE])
     parser.add_argument("--build-input", type=Path)
     parser.add_argument("--stage", choices=["build", "run", "runner-preflight"], default="run")
     parser.add_argument("--case", choices=CASES, default="control")
@@ -335,6 +337,8 @@ def main():
     parser.add_argument("--platform", choices=CONFIGURATIONS, default="ios")
     parser.add_argument("--developer-dir", default="/Applications/Xcode.app/Contents/Developer")
     args = parser.parse_args()
+    if args.paired_direct_mutation and (args.stage != "build" or os.environ.get("GITHUB_ACTIONS") != "true"):
+        raise ValueError("named-direct-mutation-build-only")
     runner_preflight = args.stage == "runner-preflight"
     if runner_preflight and (args.platform != "ios" or args.case != "control" or args.environment is not None):
         raise ValueError("owner-free-ios-control-preflight-only")
@@ -355,7 +359,7 @@ def main():
     if args.sdk_source != os.environ["SOURCE_SHA"]:
         raise ValueError("SDK-source-must-match-the-qualified-workflow-cohort")
     reserve_paths(prefix, bridge)
-    frozen = freeze_source(source, args.source_commit)
+    frozen = freeze_source(source, args.source_commit, args.paired_direct_mutation)
     sdk = freeze_sdk(args.sdk_package, args.sdk_source)
     if args.platform == "ios":
         require_owned_simulator(args.simulator, dict(os.environ, DEVELOPER_DIR=args.developer_dir))
@@ -404,9 +408,10 @@ def main():
                                env=environment, check=True)
                 subprocess.run(["codesign", "--verify", "--deep", "--strict", str(bundle)],
                                env=environment, check=True)
-        unchanged = freeze_source(source, args.source_commit) == frozen and freeze_sdk(args.sdk_package, args.sdk_source) == sdk
+        unchanged = freeze_source(source, args.source_commit, args.paired_direct_mutation) == frozen and freeze_sdk(args.sdk_package, args.sdk_source) == sdk
         write_json(Path(str(prefix) + "-results.json"), {"exit_code": build_exit, "error_category": build_error,
                    "source_commit": args.source_commit, "sdk_source": args.sdk_source,
+                   "intentional_source_mutation": paired_direct_mutation.identity(args.platform, args.paired_direct_mutation),
                    "unchanged": unchanged, "command": command, "sdk": sdk,
                    "products": freeze_products(products) if build_exit == 0 else {},
                    "plans": {str(path.relative_to(products)): digest(path)
@@ -531,7 +536,7 @@ def main():
                 observe_control(prefix, running, ui, start, control_observations)
             report["control_diagnostics"] = control_diagnostics(source, prefix, control_observations, runner_preflight)
         for key, check in [
-            ("source_unchanged", lambda: freeze_source(source, args.source_commit) == frozen),
+            ("source_unchanged", lambda: freeze_source(source, args.source_commit, args.paired_direct_mutation) == frozen),
             ("sdk_unchanged", lambda: freeze_sdk(args.sdk_package, args.sdk_source) == sdk),
             ("products_unchanged", lambda: freeze_products(products) == product_files),
             ("plans_unchanged", lambda: all(digest(Path(path)) == value for path, value in plan_files.items()))
