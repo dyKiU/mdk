@@ -291,19 +291,7 @@ pub(crate) fn handle(client: &crate::AppClient, command: Command) {
                 } else {
                     None
                 };
-                let paired_header = header.map(|row| crate::PairedChatSummary {
-                    group_id: row.entry.group_id,
-                    name: row.entry.name,
-                    description: row.entry.description,
-                    source: crate::PairedChatSource {
-                        device: row.scope.source_device,
-                        policy_digest: row.scope.policy_digest,
-                        protected_generation: row.scope.protected_generation,
-                        source_epoch: row.entry.source_epoch,
-                        source_sequence: row.entry.source_sequence,
-                        source_digest: row.entry.source_digest,
-                    },
-                });
+                let paired_header = header.map(Into::into);
                 Ok(crate::AccountConversationPage {
                     local_group,
                     paired_header,
@@ -325,22 +313,7 @@ pub(crate) fn handle(client: &crate::AppClient, command: Command) {
                     let next_group = (rows.len() == limit)
                         .then(|| rows.last().map(|row| row.entry.group_id.clone()))
                         .flatten();
-                    let chats = rows
-                        .into_iter()
-                        .map(|row| crate::PairedChatSummary {
-                            group_id: row.entry.group_id,
-                            name: row.entry.name,
-                            description: row.entry.description,
-                            source: crate::PairedChatSource {
-                                device: row.scope.source_device,
-                                policy_digest: row.scope.policy_digest,
-                                protected_generation: row.scope.protected_generation,
-                                source_epoch: row.entry.source_epoch,
-                                source_sequence: row.entry.source_sequence,
-                                source_digest: row.entry.source_digest,
-                            },
-                        })
-                        .collect();
+                    let chats = rows.into_iter().map(Into::into).collect();
                     PairedChatListPage { chats, next_group }
                 });
             let _ = respond.send(result);

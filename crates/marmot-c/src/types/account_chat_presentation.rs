@@ -11,6 +11,7 @@ c_mirror! { MarmotPairedChatSource from PairedChatSourceFfi {
 } }
 c_mirror! { MarmotPairedChatSummary from PairedChatSummaryFfi {
     str group_id_hex, str name, str description, rec source: MarmotPairedChatSource,
+    opt_str direct_peer_account_id_hex,
 } }
 c_mirror! { MarmotPairedChatMessage from PairedChatMessageFfi {
     copy kind: u16, copy canonical_chat: bool, str message_id_hex, str author_hex,
@@ -103,6 +104,7 @@ mod direct_route_tests {
                     group_id_hex: "22".into(),
                     name: "Fixture".into(),
                     description: "Test".into(),
+                    direct_peer_account_id_hex: Some("99".repeat(32)),
                     source: PairedChatSourceFfi {
                         device_hex: "33".repeat(32),
                         policy_digest_hex: "44".repeat(32),
@@ -127,6 +129,12 @@ mod direct_route_tests {
                     MarmotExistingAccountDirectConversation::PairedSource { conversation } => {
                         assert_eq!(index, 1);
                         assert_eq!((**conversation).source.protected_generation, 1);
+                        assert_eq!(
+                            std::ffi::CStr::from_ptr((**conversation).direct_peer_account_id_hex)
+                                .to_str()
+                                .unwrap(),
+                            "99".repeat(32)
+                        );
                     }
                 }
                 marmot_existing_account_direct_conversation_free(out);
