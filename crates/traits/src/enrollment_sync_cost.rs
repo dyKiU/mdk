@@ -119,7 +119,9 @@ fn cpu_ns() -> Option<u64> {
 /// Blob sizes only; bytes themselves never leave the original local read.
 pub fn record_bytes(bucket: Bucket, size: usize) {
     let phase = PHASE.load(Ordering::Relaxed);
-    if !(1..=2).contains(&phase) { return; }
+    if !(1..=2).contains(&phase) {
+        return;
+    }
     let mut totals = TOTALS.lock().unwrap_or_else(|error| error.into_inner());
     let item = &mut totals[usize::from(phase - 1)][bucket as usize];
     let size = u64::try_from(size).unwrap_or(u64::MAX);
