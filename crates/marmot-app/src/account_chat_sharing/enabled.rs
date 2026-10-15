@@ -33,6 +33,8 @@ pub(crate) enum SiblingPublicationStage {
     AfterRelayPublication,
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) type SiblingLifecycleEvent = (Instant, u8, Option<usize>, Option<bool>, u8);
+#[cfg(all(test, feature = "test-policy-overrides"))]
 #[derive(Default)]
 pub(crate) struct SiblingMaintenanceDiagnostics {
     // Original live, state live, ready, handshake published, local policy,
@@ -42,7 +44,7 @@ pub(crate) struct SiblingMaintenanceDiagnostics {
     pub(crate) failures: usize,
     pub(crate) last_failure: Option<SiblingMaintenanceFailure>,
     pub(crate) publication_stage: Option<SiblingPublicationStage>,
-    pub(crate) lifecycle: Vec<(Instant, u8, Option<usize>, Option<bool>, u8)>,
+    pub(crate) lifecycle: Vec<SiblingLifecycleEvent>,
     pub(crate) lifecycle_dropped: usize,
     pub(crate) lifecycle_pending: Option<(bool, Arc<AtomicUsize>)>,
 }
