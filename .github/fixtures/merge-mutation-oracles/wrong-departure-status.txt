@@ -1,0 +1,24 @@
+[1m[92m   Compiling[0m marmot-c v0.13.0 (/home/runner/work/mdk/mdk/crates/marmot-c)
+[1m[92m    Finished[0m `test` profile [unoptimized] target(s) in 8.88s
+[1m[92m     Running[0m unittests src/lib.rs (target/debug/deps/marmot_c-73939b0f4ccd0921)
+
+running 1 test
+test status::tests::every_runtime_error_variant_maps_to_a_distinct_status ... FAILED
+
+failures:
+
+---- status::tests::every_runtime_error_variant_maps_to_a_distinct_status stdout ----
+
+thread 'status::tests::every_runtime_error_variant_maps_to_a_distinct_status' (9158) panicked at crates/marmot-c/src/status.rs:762:9:
+assertion `left == right` failed
+  left: 6
+ right: 158
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    status::tests::every_runtime_error_variant_maps_to_a_distinct_status
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 108 filtered out; finished in 0.00s
+
+[1m[91merror[0m: test failed, to rerun pass `-p marmot-c --lib`

@@ -1,0 +1,24 @@
+[1m[92m   Compiling[0m transport-nostr-adapter v0.13.0 (/home/runner/work/mdk/mdk/crates/transport-nostr-adapter)
+[1m[92m    Finished[0m `test` profile [unoptimized] target(s) in 2.58s
+[1m[92m     Running[0m tests/inbound_routing.rs (target/debug/deps/inbound_routing-a018115294763609)
+
+running 1 test
+test ordinary_batched_live_receipts_follow_eose_and_repacking ... FAILED
+
+failures:
+
+---- ordinary_batched_live_receipts_follow_eose_and_repacking stdout ----
+
+thread 'ordinary_batched_live_receipts_follow_eose_and_repacking' (8894) panicked at crates/transport-nostr-adapter/tests/inbound_routing.rs:6241:9:
+assertion `left == right` failed: retired batch evidence stays negative
+  left: false
+ right: true
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    ordinary_batched_live_receipts_follow_eose_and_repacking
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 68 filtered out; finished in 0.00s
+
+[1m[91merror[0m: test failed, to rerun pass `-p transport-nostr-adapter --test inbound_routing`

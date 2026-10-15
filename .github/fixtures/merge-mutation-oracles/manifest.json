@@ -1,0 +1,34 @@
+{
+  "source_commit": "3090a323ae823de6b213eb60561aec7031f276bc",
+  "origin": "retained remote GitHub Actions artifact 3090-artifact/mutations; complete original unedited mutant logs",
+  "logs": [
+    {
+      "name": "premature-noop",
+      "test": "cancelled_private_group_sync_closes_its_exact_wire_id",
+      "file": "premature-noop.txt",
+      "sha256": "353cf6117241ca735285f92c64a511e54bd5fd9480aff582352bf2ab52aabb8d",
+      "exit_code": 101
+    },
+    {
+      "name": "legacy-group-wire",
+      "test": "ordinary_batched_live_receipts_follow_eose_and_repacking",
+      "file": "legacy-group-wire.txt",
+      "sha256": "b87f0b4e88c43134d18ae56a974c9860e79f63e62079613c4bdd5d05404c4b54",
+      "exit_code": 101
+    },
+    {
+      "name": "stale-wire-index",
+      "test": "ordinary_batched_live_receipts_follow_eose_and_repacking",
+      "file": "stale-wire-index.txt",
+      "sha256": "8280db8aa66baf7a296c39b34daf3b71a2a4ac22cc8f99140ed61033c8d2b5e3",
+      "exit_code": 101
+    },
+    {
+      "name": "wrong-departure-status",
+      "test": "status::tests::every_runtime_error_variant_maps_to_a_distinct_status",
+      "file": "wrong-departure-status.txt",
+      "sha256": "335d98e854261812d1fbc3dc7cc79788ffcb6cb71ecec9bfa3da071aab977051",
+      "exit_code": 101
+    }
+  ]
+}
