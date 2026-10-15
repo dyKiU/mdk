@@ -57,7 +57,7 @@ def main():
         "features": provenance["features"], "toolchain": provenance["toolchain"],
         "build_profile": provenance["build_profile"], "original_nextest_profile": provenance["nextest_profile"],
         "test": TEST, "selected_nonignored": 1, "rust_min_stack_bytes": 4194304,
-        "automatic_retries": 0, "test_threads": 1, "sampler": "perf software cpu-clock:u leaf-only 99Hz",
+        "automatic_retries": 0, "test_threads": 1, "diagnostic_watchdog_seconds": 220, "sampler": "perf software cpu-clock:u leaf-only 99Hz",
         "perf_version": version, "preflight_passed": preflight,
         "qualification_passed": False,
         "scope": "Sampler-influenced diagnostic only; original unchanged normal failure retained. Static symbols only, no callgraph memory capture.",
@@ -68,7 +68,7 @@ def main():
         args.report.write_text(json.dumps(report, indent=2) + "\n")
         raise SystemExit("Software CPU sampling unavailable; no test executed")
     raw_path = Path(os.environ["RUNNER_TEMP"]) / "owned-pairing-leaf.perf.data"
-    command = ["sudo", "-n", "--preserve-env", perf, "record", "-q", "-e", "cpu-clock:u", "-F", "99", "-o", str(raw_path), "--",
+    command = ["sudo", "-n", "--preserve-env", perf, "record", "-q", "-e", "cpu-clock:u", "-F", "99", "-o", str(raw_path), "--", "/usr/bin/timeout", "--signal=TERM", "--kill-after=10s", "220s",
                "sudo", "-n", "--preserve-env", "-u", "#" + str(os.getuid()), "--",
                str(binary), "--exact", TEST, "--test-threads=1", "--nocapture"]
     try:
