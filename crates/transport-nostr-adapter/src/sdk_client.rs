@@ -46,7 +46,8 @@ use crate::{
 mod sibling_passive {
     type Observation = (Vec<u8>, std::time::Instant, [[u64; 3]; 20]);
     fn observations() -> &'static std::sync::Mutex<Vec<Observation>> {
-        static VALUES: std::sync::OnceLock<std::sync::Mutex<Vec<Observation>>> = std::sync::OnceLock::new();
+        static VALUES: std::sync::OnceLock<std::sync::Mutex<Vec<Observation>>> =
+            std::sync::OnceLock::new();
         VALUES.get_or_init(|| std::sync::Mutex::new(Vec::new()))
     }
     pub(super) fn register(id: &[u8]) {
@@ -62,14 +63,20 @@ mod sibling_passive {
         if let Some((_, started, stages)) = values.iter_mut().find(|value| value.0 == id) {
             let elapsed = started.elapsed().as_millis() as u64;
             let stage = &mut stages[index];
-            if stage[0] == 0 { stage[1] = elapsed; }
+            if stage[0] == 0 {
+                stage[1] = elapsed;
+            }
             stage[0] += 1;
             stage[2] = elapsed;
         }
     }
     pub(super) fn snapshot(id: &[u8]) -> Option<[[u64; 3]; 20]> {
-        observations().lock().expect("passive SDK snapshot").iter()
-            .find(|value| value.0 == id).map(|value| value.2)
+        observations()
+            .lock()
+            .expect("passive SDK snapshot")
+            .iter()
+            .find(|value| value.0 == id)
+            .map(|value| value.2)
     }
 }
 
@@ -3177,7 +3184,7 @@ impl NostrSdkRelayClient {
                             sibling_passive::stage(&event.id.to_bytes(), 9);
                         }
                         Ok(typed_relay_ack_kind(Some(output.status())))
-                    },
+                    }
                     Err(error) if error.kind() == SdkErrorKind::Rejected => {
                         let message = error.to_string();
                         if relay_endpoint_publish_accepted(false, Some(&message)) {

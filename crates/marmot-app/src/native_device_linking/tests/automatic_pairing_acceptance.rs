@@ -860,7 +860,9 @@ fn observe_passive_sibling_failure(
                 let sdk_stages = if direction == 1 && kind == 1 {
                     frame.event_id.as_ref().and_then(|id|
                         transport_nostr_adapter::NostrSdkRelayClient::sibling_consent_observation_for_test(id.as_slice()))
-                } else { None };
+                } else {
+                    None
+                };
                 eprintln!(
                     "sibling-passive {}",
                     serde_json::json!({

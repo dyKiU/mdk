@@ -399,8 +399,16 @@ impl DeviceLinkingSession {
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn observe_passive_sdk_consent_for_test(&self) {
-        if let Some(choice) = self.inner.sharing_choice.lock().expect("passive SDK choice").as_ref() {
-            choice.passive_sdk_consent.store(true, std::sync::atomic::Ordering::Release);
+        if let Some(choice) = self
+            .inner
+            .sharing_choice
+            .lock()
+            .expect("passive SDK choice")
+            .as_ref()
+        {
+            choice
+                .passive_sdk_consent
+                .store(true, std::sync::atomic::Ordering::Release);
         }
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
