@@ -70,6 +70,13 @@ def execute(short, witness, oracle):
                panic_locations=re.findall(r'panicked at ([^\s:]+\.rs:\d+:\d+)', text))
     summaries = re.findall(r'test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored;', text)
     actual = re.findall(r'^test ([\w:]+) \.\.\.', text, re.M)
+    # Retain diagnostic compiler categories and static assertion identifiers only.
+    # Never publish raw transport output, endpoints, event IDs, or packet material.
+    row['failure_excerpt'] = [
+        line.strip() for line in text.splitlines()
+        if re.fullmatch(r'error\[E\d+\]: [A-Za-z0-9_ `:<>(),&\[\]\-]+', line.strip())
+        or line.strip() in {case, oracle, witness}
+    ][:12]
     row['actual_cases'] = actual
     row['witness'] = witness in text
     if len(summaries) == 1:
