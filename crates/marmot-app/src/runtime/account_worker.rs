@@ -1026,14 +1026,16 @@ pub(crate) fn spawn_app_runtime_account_worker(
     startup_progress: AccountStartupProgress,
     shutdown: oneshot::Receiver<()>,
 ) -> JoinHandle<()> {
-    tokio::spawn(run_app_runtime_account_worker(
+    // Pin the large worker future before moving it into Tokio's spawn frame.
+    // Reopening an account can otherwise exhaust a bounded caller stack.
+    tokio::spawn(Box::pin(run_app_runtime_account_worker(
         runtime,
         command_tx,
         commands,
         ready,
         startup_progress,
         shutdown,
-    ))
+    )))
 }
 
 async fn run_app_runtime_account_worker(
