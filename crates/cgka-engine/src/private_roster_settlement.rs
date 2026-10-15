@@ -1,7 +1,7 @@
 //! Protected all-leaf settlement boundary under construction. No permissions.
 use crate::{Engine, device_group_snapshot::CandidateDeviceGroupSnapshot};
 use cgka_traits::private_roster_settlement::{
-    PrivateSettlementAnchor, PrivateSettlementFact, PrivateSettlementPhase, PrivateSettlementState,
+    PrivateRosterSettlementStorage, PrivateSettlementAnchor, PrivateSettlementFact, PrivateSettlementPhase, PrivateSettlementRead, PrivateSettlementState,
 };
 use serde::{Deserialize, Serialize};
 
@@ -166,7 +166,7 @@ impl<S: StorageProvider> Engine<S> {
             else {
                 return Ok(None);
             };
-            let Some(state) = completed_round_for_tree(storage, group, &actual)? else {
+            let Some(state) = completed_round_for_tree_in_snapshot(storage, group, &actual)? else {
                 return Ok(None);
             };
             if &state.anchor != evidence.settlement_anchor() {
@@ -731,9 +731,32 @@ pub(crate) fn completed_round_for_predecessor_tree<S: StorageProvider>(
     let Some(store) = storage.private_roster_settlement_storage() else {
         return Ok(None);
     };
-    let Some(read) = store.read_round_with_loaded_facts()? else {
+    let Some(state) = store.read_round()? else {
         return Ok(None);
     };
+    validate_completed_round_read(storage, group, actual, store, PrivateSettlementRead { state, loaded_facts: None })
+}
+
+/// The sole caller is validated_settled_device_roster, inside its existing
+/// pinned read snapshot. Never use loaded facts for bare Add/Remove/ingest reads.
+fn completed_round_for_tree_in_snapshot<S: StorageProvider>(
+    storage: &S,
+    group: &GroupId,
+    actual: &openmls::group::MlsGroup,
+) -> Result<Option<PrivateSettlementState>, EngineError> {
+    if actual.pending_commit().is_some() { return Ok(None); }
+    let Some(store) = storage.private_roster_settlement_storage() else { return Ok(None); };
+    let Some(read) = store.read_round_with_loaded_facts()? else { return Ok(None); };
+    validate_completed_round_read(storage, group, actual, store, read)
+}
+
+fn validate_completed_round_read<S: StorageProvider>(
+    storage: &S,
+    group: &GroupId,
+    actual: &openmls::group::MlsGroup,
+    store: &dyn PrivateRosterSettlementStorage,
+    read: PrivateSettlementRead,
+) -> Result<Option<PrivateSettlementState>, EngineError> {
     let state = read.state;
     if state.phase != PrivateSettlementPhase::Completed
         || state.anchor.group_id != *group

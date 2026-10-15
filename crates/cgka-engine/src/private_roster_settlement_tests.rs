@@ -3181,3 +3181,23 @@ async fn private_roster_settlement_fresh_read_rechecks_foreign_origin_denial() {
     assert!(responder.validated_settled_device_roster(&group).unwrap().is_none(), "denied protected origin cannot reuse a previous completed observation");
     assert!(initiator.validated_settled_device_roster(&group).unwrap().is_some());
 }
+
+#[tokio::test]
+async fn private_roster_settlement_loaded_facts_stay_inside_pinned_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("isolated-pinned-facts.db");
+    let key = SqlCipherKey::new("18".repeat(32)).unwrap();
+    let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let (initiator, responder, group) = complete_pair(storage.clone()).await;
+    let foreign = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    storage.with_read_snapshot(|_| -> Result<(), EngineError> {
+        let first = responder.validated_settled_device_roster(&group)?.unwrap();
+        foreign.private_roster_settlement_storage().unwrap().deny_round(first.settlement_generation())?;
+        let pinned = responder.validated_settled_device_roster(&group)?.unwrap();
+        assert_eq!(first.settlement_generation(), pinned.settlement_generation());
+        assert!(first.candidate() == pinned.candidate(), "nested reads retain the actual pinned tree and facts");
+        Ok(())
+    }).unwrap();
+    assert!(responder.validated_settled_device_roster(&group).unwrap().is_none(), "fresh call after the snapshot must observe the foreign denial");
+    assert!(initiator.validated_settled_device_roster(&group).unwrap().is_some());
+}
