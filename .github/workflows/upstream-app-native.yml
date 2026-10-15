@@ -74,8 +74,8 @@ jobs:
               assert re.fullmatch('[0-9a-f]{40}',sdk) and re.fullmatch('[1-9][0-9]*',sdk_run)
               if native=='all':
                   assert sdk!='3f18b2d1acac4f87680b35f39bf8dce67dcf28ec','Old SDK cannot qualify protocol/native bodies'
-              assert cohort['mac_sha']=='ff37f6201fa96a630da0ab3376a670442ddc5768'
-              assert cohort['ios_sha']=='59606f8cdf3dfdf86c18e5bf8a15e8177c475df1'
+              assert cohort['mac_sha']=='43917e25f6cbbf163db05ed2af285d80b2607aae'
+              assert cohort['ios_sha']=='fb8ab84886dcff95f9c81de93b9e67468c1f6bfc'
           else:
               assert not sdk and not sdk_run
           with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
@@ -187,6 +187,7 @@ jobs:
             scripts/upstream_apple_ci/hosted-app-ui.py \
             scripts/upstream_apple_ci/hosted-root-mutations.py \
             scripts/upstream_apple_ci/timestamp-mutations.py \
+            scripts/upstream_apple_ci/sdk-manifest-guards.py \
             scripts/upstream_apple_ci/run-hosted-app-acceptance.py
           bash -n scripts/upstream_apple_ci/build-hosted-simulator-agent.sh
           mkdir -p "$RUNNER_TEMP/tools-preflight"
@@ -194,7 +195,7 @@ jobs:
           import hashlib,json,os,subprocess
           from pathlib import Path
           names=['acceptance-identity.py','hosted-app-fixtures.py','hosted-app-unit.py','hosted-app-ui.py',
-                 'hosted-root-mutations.py','timestamp-mutations.py','build-hosted-simulator-agent.sh',
+                 'hosted-root-mutations.py','timestamp-mutations.py','sdk-manifest-guards.py','build-hosted-simulator-agent.sh',
                  'run-hosted-app-acceptance.py']
           paths=[Path('scripts/upstream_apple_ci')/name for name in names]
           report={'tools_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
