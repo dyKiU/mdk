@@ -99,6 +99,7 @@ jobs:
           assert proof['features']=='marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks'
           PYGUARD
           filter='package(marmot-app) & binary(=marmot_app) & test(=native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts)'
+          mkdir -p "$RUNNER_TEMP/immutable-92e-test"
           cargo nextest list --archive-file immutable-92e/tests.tar.zst --extract-to "$RUNNER_TEMP/immutable-92e-test" -E "$filter" --message-format json > "$RUNNER_TEMP/inventory.json"
           python3 "$RUNNER_TEMP/pairing-cpu.py" --inventory "$RUNNER_TEMP/inventory.json" --archive immutable-92e/tests.tar.zst --provenance immutable-92e/provenance.json --report namespace-profile/result.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
