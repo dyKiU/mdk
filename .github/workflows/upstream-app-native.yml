@@ -67,6 +67,14 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "26"
+      - name: Install the iOS repository's pinned SwiftLint
+        if: matrix.platform == 'ios'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/swiftlint.zip" \
+            https://github.com/realm/SwiftLint/releases/download/0.63.2/portable_swiftlint.zip
+          unzip -o "$RUNNER_TEMP/swiftlint.zip" -d "$RUNNER_TEMP/swiftlint" >/dev/null
+          sudo install "$RUNNER_TEMP/swiftlint/swiftlint" /usr/local/bin/swiftlint
+          test "$(swiftlint version)" = 0.63.2
       - name: Export exact repository formatting patch without compiling
         run: |
           python3 - <<'PY'
@@ -81,18 +89,35 @@ jobs:
           output=Path(os.environ['RUNNER_TEMP'])/'app-format'
           output.mkdir(mode=0o700)
           tree=subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()
-          for path in paths:
-              subprocess.run(['xcrun','swift-format','format','--in-place','--configuration','.swift-format',path],check=True)
+          lint_exit=0
+          if Path('.swift-format').is_file():
+              for path in paths:
+                  subprocess.run(['xcrun','swift-format','format','--in-place','--configuration','.swift-format',path],check=True)
+              formatter=subprocess.check_output(['xcrun','swift-format','--version'],text=True).strip()
+          else:
+              assert Path('.swiftlint.yml').is_file()
+              environment=dict(os.environ,SCRIPT_INPUT_FILE_COUNT=str(len(paths)))
+              environment.update({f'SCRIPT_INPUT_FILE_{i}':str(Path(p).resolve()) for i,p in enumerate(paths)})
+              command=['swiftlint','lint','--config','.swiftlint.yml','--use-script-input-files','--force-exclude']
+              fix=subprocess.run(command+['--fix'],env=environment)
+              lint_exit=subprocess.run(command+['--strict'],env=environment).returncode
+              formatter='SwiftLint '+subprocess.check_output(['swiftlint','version'],text=True).strip()
           patch=subprocess.check_output(['git','diff','--binary','--','*.swift'])
           (output/'formatting.patch').write_bytes(patch)
           report={'source_sha':head,'source_tree':tree,'baseline':baseline,'paths':paths,
                   'patch_bytes':len(patch),'patch_sha256':hashlib.sha256(patch).hexdigest(),
-                  'formatter':subprocess.check_output(['xcrun','swift-format','--version'],text=True).strip(),
+                  'formatter':formatter,'lint_exit_code':lint_exit,
                   'product_tests_executed':0}
           (output/'result.json').write_text(json.dumps(report,indent=2)+'\n')
           PY
       - name: Require original source formatting
-        run: test ! -s "$RUNNER_TEMP/app-format/formatting.patch"
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          report=json.loads((Path(os.environ['RUNNER_TEMP'])/'app-format/result.json').read_text())
+          assert report['patch_bytes']==0 and report['lint_exit_code']==0
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
