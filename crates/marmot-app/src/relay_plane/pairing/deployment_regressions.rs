@@ -64,6 +64,17 @@ async fn witnessed_route(
     (endpoint, request_seen, event_seen, server)
 }
 
+async fn close_witness_socket(mut server: tokio::task::JoinHandle<()>) -> bool {
+    match tokio::time::timeout(Duration::from_secs(3), &mut server).await {
+        Ok(result) => result.is_ok(),
+        Err(_) => {
+            server.abort();
+            let _ = server.await;
+            false
+        }
+    }
+}
+
 #[tokio::test]
 async fn rejected_pairing_subscription_cannot_export_a_mailbox() {
     let (endpoint, closed_seen, _, server) = witnessed_route(RouteBehavior::RejectSubscription).await;
@@ -81,7 +92,7 @@ async fn rejected_pairing_subscription_cannot_export_a_mailbox() {
     let refused_before_export = matches!(&result, Ok(Err(PairingRelayError::Unavailable)));
     drop(result);
     plane.shutdown().await;
-    let socket_closed = matches!(tokio::time::timeout(Duration::from_secs(3), server).await, Ok(Ok(())));
+    let socket_closed = close_witness_socket(server).await;
     assert!(actual_closed && socket_closed, "real_closed_route_prerequisites_and_positive_cleanup");
     eprintln!("pairing_closed_export actual_req=true actual_closed=true sockets_closed=true");
     assert!(refused_before_export, "pairing_subscription_rejected_before_mailbox_export");
@@ -127,7 +138,7 @@ async fn healthy_pairing_ack_survives_another_accepted_route_without_ok() {
     drop(receiver_box);
     plane.shutdown().await;
     other_plane.shutdown().await;
-    let socket_closed = matches!(tokio::time::timeout(Duration::from_secs(3), server).await, Ok(Ok(())));
+    let socket_closed = close_witness_socket(server).await;
     relay.shutdown();
     let address = healthy.strip_prefix("ws://").unwrap().trim_end_matches('/');
     let relay_closed = tokio::time::timeout(Duration::from_secs(3), async {
