@@ -15,7 +15,13 @@ COHORT = os.environ.get("SAVEPOINT_COHORT", "experimental")
 ROOT = Path("savepoint-evidence")
 ROOT.mkdir()
 assert os.environ["RUST_MIN_STACK"] == "4194304"
-assert not subprocess.check_output(["git", "diff", BASE, "HEAD", "--", "crates", "Cargo.toml", "Cargo.lock"])
+fixture = "crates/cgka-engine/tests/record_write_atomicity.rs"
+original_fixture = subprocess.check_output(["git", "show", BASE + ":" + fixture])
+old_initialization = b"        retained_anchor_rewinds: RetainedAnchorRewindCounter::default(),\n        termination_fault: LeaveWriteFault::default(),"
+assert original_fixture.count(old_initialization) == 1
+adapted_fixture = original_fixture.replace(old_initialization, b"        retained_anchor_rewinds: RetainedAnchorRewindCounter::default(),\n        apply_snapshots: ApplySnapshotCounter::default(),\n        termination_fault: LeaveWriteFault::default(),")
+assert Path(fixture).read_bytes() == adapted_fixture, "only the upstream counter initializer may adapt this fixture"
+assert not subprocess.check_output(["git", "diff", BASE, "HEAD", "--", "crates", "Cargo.toml", "Cargo.lock", ":!" + fixture])
 FEATURES = "cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks"
 if COHORT == "experimental":
     FEATURES += ",cgka-engine/experimental-device-sync"
@@ -30,6 +36,7 @@ report = {
     "rustc_incremental_invocation": "not captured; environment only",
     "lock_sha256": hashlib.sha256(Path("Cargo.lock").read_bytes()).hexdigest(),
     "automatic_retries": 0, "test_threads": 1,
+    "test_only_adaptation": {"path": fixture, "before_sha256": hashlib.sha256(original_fixture).hexdigest(), "adapted_sha256": hashlib.sha256(adapted_fixture).hexdigest()},
 }
 
 def save():
