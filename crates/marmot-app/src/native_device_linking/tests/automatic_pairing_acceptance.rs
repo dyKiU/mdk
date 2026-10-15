@@ -666,6 +666,19 @@ async fn dropped_scanner_factory_cannot_export_a_response_before_host_adoption()
 
 #[tokio::test]
 async fn automatic_one_scan_exchange_keeps_both_human_comparisons_required() {
+    automatic_comparison_trial(Vec::new()).await;
+}
+
+#[tokio::test]
+#[ignore = "requires explicitly selected live public pairing relays"]
+async fn public_one_scan_exchange_keeps_both_human_comparisons_required() {
+    let urls = std::env::var("WN_PAIRING_TEST_RELAYS").expect("explicit test relay set required");
+    let relays: Vec<_> = urls.split(',').map(str::to_owned).collect();
+    assert!(!relays.is_empty() && relays.iter().all(|url| url.starts_with("wss://")));
+    automatic_comparison_trial(relays).await;
+}
+
+async fn automatic_comparison_trial(pairing_relays: Vec<String>) {
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();
     for displaying_device in [0, 1] {
@@ -675,7 +688,14 @@ async fn automatic_one_scan_exchange_keeps_both_human_comparisons_required() {
             AccountHome::open(dirs[index].path())
                 .import_account("test", &keys.secret_key().to_secret_hex())
                 .unwrap();
-            MarmotAppRuntime::new(MarmotApp::with_relay(dirs[index].path(), &url))
+            MarmotAppRuntime::new(MarmotApp::with_relay_and_config(
+                dirs[index].path(),
+                &url,
+                crate::MarmotAppConfig::default()
+                    .with_allow_loopback_relay_endpoints(true)
+                    .with_open_ranking_provider(None, Vec::new())
+                    .with_pairing_relay_urls(pairing_relays.clone()),
+            ))
         });
         for runtime in &runtimes {
             runtime.reconcile_accounts().await.unwrap();
@@ -735,6 +755,9 @@ async fn automatic_one_scan_exchange_keeps_both_human_comparisons_required() {
             runtime.shutdown_and_close().await.unwrap();
         }
     }
+    eprintln!(
+        "pairing_native_comparison display_directions=2 bilateral_explicit=true runtime_closes=4"
+    );
 }
 
 async fn wait_for_automatic_phase(
