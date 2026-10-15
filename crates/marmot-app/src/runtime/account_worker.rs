@@ -2458,7 +2458,9 @@ async fn run_app_runtime_account_worker(
             _ = async {
                 #[cfg(feature = "experimental-device-sync")]
                 {
-                    if linking_yield_to_receive {
+                    // Consume the offer on first poll, even if another ready
+                    // background arm wins and cancels this readiness future.
+                    if std::mem::take(&mut linking_yield_to_receive) {
                         tokio::task::yield_now().await;
                     }
                     linking_tick.tick().await;
