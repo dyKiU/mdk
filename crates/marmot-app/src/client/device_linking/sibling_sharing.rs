@@ -2106,10 +2106,10 @@ impl AppClient {
         in_flight: &mut usize,
         mode: SiblingAdvanceMode,
     ) -> Result<(), ClientLinkingError> {
-        if mode == SiblingAdvanceMode::Periodic {
-            if let Some(error) = entry.deferred_initial_error.take() {
-                return Err(error);
-            }
+        if mode == SiblingAdvanceMode::Periodic
+            && let Some(error) = entry.deferred_initial_error.take()
+        {
+            return Err(error);
         }
         if mode == SiblingAdvanceMode::Initial {
             // Only successful result owners from this bounded pass are eligible.
@@ -2492,10 +2492,10 @@ impl AppClient {
                     .sibling_diagnostics
                     .lock()
                     .expect("sibling completion test observation");
-                if observation.successful_consent_message.is_none() {
-                    if let Some(identity) = completion_consent_identity {
-                        observation.successful_consent_message = Some(identity);
-                    }
+                if observation.successful_consent_message.is_none()
+                    && let Some(identity) = completion_consent_identity
+                {
+                    observation.successful_consent_message = Some(identity);
                 }
                 if proof {
                     observation.successful_commit_proof = true;
