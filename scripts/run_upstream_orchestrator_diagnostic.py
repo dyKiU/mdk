@@ -52,6 +52,9 @@ def parse(raw):
               'panic_header_count': len(re.findall(r'panicked at', raw)),
               'panic_locations': [{'file': file, 'line': int(line), 'column': int(column)} for file, line, column in re.findall(r'panicked at (crates/[A-Za-z0-9_./-]+\.rs):(\d+):(\d+)', raw)],
               'relay_action_publication_timeout_observed': 'relay_action_publication_timeout' in raw}
+    known_errors = ['relay_action_publication_timeout', 'relay_action_publication_identity_mismatch', 'relay_action_publication_count_mismatch']
+    result['closed_error_categories'] = [name for name in known_errors if name in raw]
+    result['error_category_status'] = 'known-closed-category' if result['closed_error_categories'] else 'unknown-or-no-runtime-error'
     timeout = result['relay_action_publication_timeout_observed']
     result['capsule_evidence_status'] = ('complete-single-timeout-capsule' if len(records) == 1 else 'unknown-timeout-capsule-count') if timeout else ('not-applicable-no-timeout' if not records else 'unknown-capsule-without-timeout')
     result['capsule_evidence_complete'] = (timeout and len(records) == 1) or (not timeout and not records)
