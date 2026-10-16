@@ -8129,7 +8129,7 @@ mod tests {
         runtime.shutdown().await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn conversation_capture_retries_while_snapshot_work_owns_client_even_without_snapshot() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -8181,7 +8181,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn reads_bypass_deferred_work() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -8234,7 +8234,7 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn snapshot_work_preserves_catch_up_barrier_across_pending_and_channel() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -8319,7 +8319,8 @@ mod tests {
         assert!(pending.is_empty());
     }
 
-    #[tokio::test]
+    // Pauses the clock, which needs the current-thread runtime.
+    #[tokio::test(flavor = "current_thread")]
     #[cfg(feature = "test-policy-overrides")]
     async fn due_convergence_interleaves_with_a_backlog_of_worker_commands() {
         let dir = tempfile::tempdir().unwrap();
@@ -8481,7 +8482,7 @@ mod tests {
         runtime.shutdown_and_close().await.unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn recovery_warning_notifications_survive_projection_checkpoints() {
         let dir = tempfile::tempdir().unwrap();
         let account = AccountHome::open(dir.path())
@@ -8585,7 +8586,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn history_notice_changes_publish_once_per_transition() {
         use crate::client::history_notices::park_recovery_for_test;
         let dir = tempfile::tempdir().unwrap();
@@ -8671,7 +8672,7 @@ mod tests {
         assert!(client.history_notices().unwrap().is_empty());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn rejoin_decisions_answer_during_startup_hydration() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -8816,7 +8817,7 @@ mod tests {
         )
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn avatar_dispatch_shares_media_capacity_and_holds_it_through_publication() {
         let store = storage_sqlite::SqliteAccountStorage::in_memory().unwrap();
         for n in 0..5 {
@@ -8876,7 +8877,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn avatar_shutdown_cancels_io_and_leaves_resumable_intent() {
         let store = storage_sqlite::SqliteAccountStorage::in_memory().unwrap();
         let reference = store
@@ -8919,6 +8920,13 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+        // The aborted task may still be dropping its permit on another thread.
+        drop(
+            timeout(Duration::from_secs(2), permits.acquire_many(2))
+                .await
+                .expect("cancelled avatar I/O releases its permit")
+                .unwrap(),
+        );
         assert_eq!(permits.available_permits(), 2);
         assert!(completions.recv().await.is_none());
         assert_eq!(
@@ -8957,7 +8965,7 @@ mod tests {
         reserve_prepared_group_image_upload(&media_http, "upload-1").unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn media_http_capacity_stays_reserved_until_completion_is_consumed() {
         let (media_http, mut completions) = media_http_context(1);
         let permit = reserve_media_http(&media_http);
@@ -8982,7 +8990,8 @@ mod tests {
         let _permit = reserve_media_http(&media_http);
     }
 
-    #[tokio::test]
+    // Pauses the clock, which needs the current-thread runtime.
+    #[tokio::test(flavor = "current_thread")]
     async fn full_media_capacity_queues() {
         use image::ImageEncoder as _;
 
@@ -9277,7 +9286,7 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn prepared_group_image_upload_failure_is_durable_and_returned_as_error() {
         use image::ImageEncoder as _;
 
@@ -9335,7 +9344,7 @@ mod tests {
         assert_eq!(status.last_error_kind.as_deref(), Some("blob_store"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dropping_media_http_context_cancels_active_work_and_releases_capacity() {
         struct CancellationWitness(Option<oneshot::Sender<()>>);
 
@@ -9370,6 +9379,13 @@ mod tests {
             .await
             .expect("worker exit cancels HTTP future")
             .expect("cancellation witness is delivered");
+        // The aborted task may still be dropping its permit on another thread.
+        drop(
+            timeout(Duration::from_secs(1), permits.acquire())
+                .await
+                .expect("cancelled HTTP work releases its permit")
+                .unwrap(),
+        );
         assert_eq!(permits.available_permits(), 1);
     }
 
@@ -9445,7 +9461,7 @@ mod tests {
         assert!(!message.contains("private-relay.example"), "{message}");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pending_epoch_backfill_records_correlated_qualified_and_incomplete_attempts() {
         for qualified in [false, true] {
             let dir = tempfile::tempdir().unwrap();
@@ -9544,7 +9560,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pending_epoch_backfill_failure_is_reported_retained_and_coalesced() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -9672,7 +9688,7 @@ mod tests {
     /// The Phase-A workload: epoch and overflow join one owner reservation;
     /// a later receive seam cannot bypass the durable account cooldown.
     #[cfg(feature = "test-policy-overrides")]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn recovery_owner_coalesces_overflow_and_epoch_demand_across_seams() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -9801,7 +9817,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn incomplete_delivery_overflow_recovery_does_not_fail_catch_up() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -9846,7 +9862,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn catch_up_leaves_prearmed_backfill_to_the_owner() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -9911,7 +9927,7 @@ mod tests {
         drop(command_tx);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn catch_up_succeeds_with_an_unavailable_backfill_intent() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -9995,7 +10011,7 @@ mod tests {
         drop(command_tx);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn full_history_repair_consumes_prearmed_backfill_without_replaying_twice() {
         for qualified in [false, true] {
             let dir = tempfile::tempdir().unwrap();
@@ -10090,7 +10106,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn full_history_repair_resolves_overflow_after_prearmed_backfill() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -10140,7 +10156,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn explicit_full_history_repair_retains_incomplete_overflow_recovery() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -10200,7 +10216,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn full_history_repair_falls_back_when_every_pending_intent_defers() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -10253,7 +10269,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn full_history_repair_coalesces_new_demand_after_an_inflight_failure() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -10424,7 +10440,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn push_registration_retry_is_bounded_and_disarms_when_drained() {
         assert_eq!(
             push_registration_retry_delay(1),
@@ -10456,7 +10472,7 @@ mod tests {
         assert!(!scheduled.is_armed());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn receive_tail_schedules_pending_push_gossip_without_awaiting_publish() {
         let dir = tempfile::tempdir().unwrap();
         let account = AccountHome::open(dir.path())
@@ -10539,7 +10555,7 @@ mod tests {
         scheduled.disarm();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn runtime_group_subscription_retry_is_bounded_and_disarms_when_refreshed() {
         assert_eq!(
             runtime_group_subscription_retry_delay(1),
@@ -10617,7 +10633,7 @@ mod tests {
         assert_eq!(scheduled.take_ready(), None);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn scheduled_convergence_clamps_zero_delay_and_clears_retry_state() {
         let group_id = test_group_id(7);
         let mut scheduled = ScheduledConvergence::new(Duration::ZERO);
@@ -10634,7 +10650,7 @@ mod tests {
         assert_eq!(ready, Some(group_id));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn schedule_unsettled_groups_rearms_settlement_delay() {
         let group_id = test_group_id(9);
         let mut scheduled = ScheduledConvergence::new(Duration::from_millis(1_100));
@@ -10645,7 +10661,7 @@ mod tests {
         assert!(!scheduled.retry_attempts.contains_key(&group_id));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn schedule_after_pass_rearms_when_inputs_remain_pending() {
         let group_id = test_group_id(10);
         let mut scheduled = ScheduledConvergence::new(Duration::from_millis(1_100));
@@ -10658,7 +10674,7 @@ mod tests {
         assert_eq!(scheduled.unsettled_rearm_attempts.get(&group_id), Some(&1));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn schedule_after_pass_notes_success_when_inputs_are_settled() {
         let group_id = test_group_id(11);
         let mut scheduled = ScheduledConvergence::new(Duration::from_millis(1_100));
@@ -10673,7 +10689,7 @@ mod tests {
         assert!(scheduled.deadlines.is_empty());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pending_outbound_rearms_without_counting_toward_backoff() {
         let group_id = test_group_id(15);
         let mut scheduled = ScheduledConvergence::new(Duration::from_millis(1_100));
@@ -10762,7 +10778,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn collecting_tick_does_not_increment_rearm_counter() {
         let group_id = test_group_id(13);
         let mut scheduled = ScheduledConvergence::new(Duration::from_millis(1_100));
@@ -10782,7 +10798,7 @@ mod tests {
         assert!(scheduled.deadlines.contains_key(&group_id));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn post_cutoff_retained_input_arms_from_remaining_cutoff() {
         let group_id = test_group_id(14);
         let mut scheduled = ScheduledConvergence::new(Duration::from_millis(1_100));
@@ -10807,7 +10823,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn scheduling_one_group_never_postpones_an_earlier_group_cutoff() {
         let first = test_group_id(21);
         let noisy = test_group_id(22);
@@ -10825,7 +10841,7 @@ mod tests {
         assert!(scheduled.deadlines.contains_key(&noisy));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn rescheduling_same_group_never_postpones_its_frozen_cutoff() {
         let group_id = test_group_id(23);
         let mut scheduled = ScheduledConvergence::new(Duration::from_millis(1_100));
@@ -10838,7 +10854,7 @@ mod tests {
         assert_eq!(scheduled.deadlines[&group_id], frozen_cutoff);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn take_ready_preserves_other_overdue_groups_for_later_worker_turns() {
         let first = test_group_id(24);
         let second = test_group_id(25);
@@ -10885,7 +10901,7 @@ mod tests {
         assert_eq!(scheduled.deadlines.len(), 50);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn schedule_unsettled_groups_falls_back_to_retry_backoff_after_cap() {
         let group_id = test_group_id(12);
         let mut scheduled = ScheduledConvergence::new(Duration::from_millis(1_100));
@@ -10902,7 +10918,7 @@ mod tests {
         assert_eq!(scheduled.retry_attempts.get(&group_id), Some(&1));
     }
     #[cfg(feature = "test-policy-overrides")]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn full_history_repair_serves_snapshot_reads_and_stops_at_checkpoint() {
         for caller_cancels in [false, true] {
             let dir = tempfile::tempdir().unwrap();

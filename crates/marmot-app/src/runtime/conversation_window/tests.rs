@@ -6,7 +6,7 @@ use storage_sqlite::{SqliteAccountStorage, StoredAppEvent};
 use tokio::sync::{Notify, Semaphore};
 use tokio::time::timeout;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rejected_open_does_not_start_readiness_waits() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = MarmotAppRuntime::new(MarmotApp::with_relay(dir.path(), "wss://relay.example"));
@@ -252,8 +252,21 @@ async fn next(sub: &mut RuntimeConversationWindowSubscription) -> ConversationWi
         .unwrap()
         .unwrap()
 }
+/// The subscription keeps only the latest window, so an earlier refresh may
+/// be observed on its own; wait for the window that reflects the change.
+async fn next_where(
+    sub: &mut RuntimeConversationWindowSubscription,
+    reflects: impl Fn(&ConversationWindowSnapshot) -> bool,
+) -> ConversationWindowSnapshot {
+    loop {
+        let window = next(sub).await;
+        if reflects(&window) {
+            return window;
+        }
+    }
+}
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn open_combines_first_unread_draft_identity_and_permissions_without_marking_read() {
     let f = Fixture::new(12).await;
     f.store
@@ -309,7 +322,7 @@ async fn open_combines_first_unread_draft_identity_and_permissions_without_marki
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn receive_and_commands_are_independent_and_paging_retains_anchor_with_a_row_cap() {
     let f = Fixture::new(230).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 50).await;
@@ -359,7 +372,7 @@ async fn receive_and_commands_are_independent_and_paging_retains_anchor_with_a_r
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn commands_quoting_a_revision_replaced_only_by_new_content_apply_to_the_current_viewport() {
     let f = Fixture::new(20).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 5).await;
@@ -394,7 +407,7 @@ async fn commands_quoting_a_revision_replaced_only_by_new_content_apply_to_the_c
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn anchor_dropped_by_a_background_replacement_is_stale_for_an_older_revision() {
     let f = Fixture::new(20).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 5).await;
@@ -422,7 +435,7 @@ async fn anchor_dropped_by_a_background_replacement_is_stale_for_an_older_revisi
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_command_that_leaves_the_viewport_in_place_does_not_supersede_revisions() {
     let f = Fixture::new(20).await;
     let sub = f.open(ConversationOpenTarget::Latest, 5).await;
@@ -438,7 +451,7 @@ async fn a_command_that_leaves_the_viewport_in_place_does_not_supersede_revision
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn commands_quoting_an_unpublished_sequence_are_stale() {
     let f = Fixture::new(5).await;
     let sub = f.open(ConversationOpenTarget::Latest, 3).await;
@@ -451,7 +464,7 @@ async fn commands_quoting_an_unpublished_sequence_are_stale() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mutations_during_initial_capture_are_reconciled_after_delivery() {
     let f = Fixture::new(5).await;
     f.mode.store(3, Ordering::SeqCst);
@@ -492,7 +505,7 @@ async fn mutations_during_initial_capture_are_reconciled_after_delivery() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn quiet_busy_retries_keep_cancelled_command_position() {
     let f = Fixture::new(20).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 5).await;
@@ -529,7 +542,7 @@ async fn quiet_busy_retries_keep_cancelled_command_position() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn transient_command_failure_keeps_target_until_quiet_retry() {
     let f = Fixture::new(20).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 5).await;
@@ -553,7 +566,7 @@ async fn transient_command_failure_keeps_target_until_quiet_retry() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn viewport_move_kept_through_a_transient_failure_supersedes_revisions_once_published() {
     let f = Fixture::new(20).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 5).await;
@@ -588,7 +601,7 @@ async fn viewport_move_kept_through_a_transient_failure_supersedes_revisions_onc
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn viewport_moves_undone_before_publication_do_not_supersede_revisions() {
     let f = Fixture::new(20).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 5).await;
@@ -618,7 +631,7 @@ async fn viewport_moves_undone_before_publication_do_not_supersede_revisions() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn viewport_move_abandoned_after_its_target_expires_does_not_supersede_revisions() {
     let f = Fixture::new(20).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 5).await;
@@ -648,7 +661,7 @@ async fn viewport_move_abandoned_after_its_target_expires_does_not_supersede_rev
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn lag_recovers_newer_draft_and_missing_explicit_target_does_not_close_handle() {
     let f = Fixture::new(12).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 5).await;
@@ -685,7 +698,7 @@ async fn lag_recovers_newer_draft_and_missing_explicit_target_does_not_close_han
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reset_and_subscription_drop_close_surviving_command_handles() {
     let f = Fixture::new(5).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 3).await;
@@ -719,7 +732,7 @@ async fn reset_and_subscription_drop_close_surviving_command_handles() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn retained_anchor_recovers_after_expiry_and_profile_only_updates_refresh_header_dictionary()
 {
     let f = Fixture::new(15).await;
@@ -756,7 +769,7 @@ async fn retained_anchor_recovers_after_expiry_and_profile_only_updates_refresh_
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn draft_acceptance_cannot_erase_newer_edit_and_unrelated_signals_do_not_redraw() {
     let f = Fixture::new(6).await;
     f.draft("accepted draft");
@@ -778,7 +791,7 @@ async fn draft_acceptance_cannot_erase_newer_edit_and_unrelated_signals_do_not_r
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn production_worker_opens_and_shutdown_closes_window() {
     let f = Fixture::new(8).await;
     let worker = f
@@ -797,7 +810,7 @@ async fn production_worker_opens_and_shutdown_closes_window() {
     assert!(sub.recv().await.unwrap().is_none());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invitation_acceptance_archive_and_departure_refresh_capabilities_with_retained_history() {
     use crate::conversation_presentation::ConversationParticipation;
     let f = Fixture::new(9).await;
@@ -836,7 +849,7 @@ async fn invitation_acceptance_archive_and_departure_refresh_capabilities_with_r
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn eviction_and_lost_reset_are_terminal_even_if_same_store_can_reopen() {
     let f = Fixture::new(3).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 3).await;
@@ -865,7 +878,7 @@ async fn eviction_and_lost_reset_are_terminal_even_if_same_store_can_reopen() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn closed_session_storage_terminates_retry_and_missing_jump_recovers_original_viewport() {
     let f = Fixture::new(20).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 5).await;
@@ -906,7 +919,7 @@ async fn closed_session_storage_terminates_retry_and_missing_jump_recovers_origi
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn latest_follows_arrivals_but_history_paging_retains_the_viewport() {
     let f = Fixture::new(12).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 5).await;
@@ -959,7 +972,7 @@ async fn latest_follows_arrivals_but_history_paging_retains_the_viewport() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn provenance_only_change_is_not_suppressed_as_unchanged_content() {
     let f = Fixture::new(1).await;
     let sub = f.open(ConversationOpenTarget::Latest, 1).await;
@@ -1000,7 +1013,7 @@ async fn provenance_only_change_is_not_suppressed_as_unchanged_content() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn saturated_history_paging_continues_after_reporting_the_new_visible_anchor() {
     let f = Fixture::new(430).await;
     let sub = f.open(ConversationOpenTarget::Latest, 50).await;
@@ -1036,7 +1049,7 @@ async fn saturated_history_paging_continues_after_reporting_the_new_visible_anch
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn terminal_task_failure_after_transient_failure_is_reported_and_stops_retrying() {
     let f = Fixture::new(3).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 3).await;
@@ -1060,7 +1073,8 @@ async fn terminal_task_failure_after_transient_failure_is_reported_and_stops_ret
     f.close().await;
 }
 
-#[tokio::test]
+// Pauses the clock, which needs the current-thread runtime.
+#[tokio::test(flavor = "current_thread")]
 async fn production_reconnect_backoff_keeps_conversation_captures_retryable() {
     let f = Fixture::new(3).await;
     let worker = f
@@ -1144,7 +1158,7 @@ async fn production_reconnect_backoff_keeps_conversation_captures_retryable() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn conversation_viewer_reaction_updates_after_add_and_remove() {
     use cgka_traits::app_event::{MARMOT_APP_EVENT_KIND_DELETE, MARMOT_APP_EVENT_KIND_REACTION};
     let f = Fixture::new(1).await;
@@ -1198,7 +1212,7 @@ async fn conversation_viewer_reaction_updates_after_add_and_remove() {
 
 // The window must render retained local rows even when a live capture cannot
 // run. This is the public first-open boundary, not just a SQL paging test.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cold_open_returns_stored_history_while_authority_is_not_ready() {
     let f = Fixture::new(200).await;
     f.store
@@ -1268,7 +1282,7 @@ async fn cold_open_returns_stored_history_while_authority_is_not_ready() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cold_capture_does_not_force_group_hydration() {
     let f = Fixture::new(200).await;
     let worker = f
@@ -1305,7 +1319,7 @@ async fn cold_capture_does_not_force_group_hydration() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn send_checkpoints_are_query_scoped_coherent_and_released_on_close() {
     let f = Fixture::new(20).await;
     let worker = f
@@ -1430,7 +1444,7 @@ async fn send_checkpoints_are_query_scoped_coherent_and_released_on_close() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn checkpoint_older_than_drained_draft_invalidation_is_followed_by_a_fresh_read() {
     let f = Fixture::new(5).await;
     let initial = f.open(ConversationOpenTarget::Latest, 5).await.snapshot;
@@ -1518,7 +1532,7 @@ async fn checkpoint_older_than_drained_draft_invalidation_is_followed_by_a_fresh
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn busy_live_window_keeps_complete_snapshot_until_coherent_membership_update() {
     let f = Fixture::new(8).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 5).await;
@@ -1564,7 +1578,7 @@ async fn busy_live_window_keeps_complete_snapshot_until_coherent_membership_upda
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn busy_live_window_does_not_disable_composer() {
     let f = Fixture::new(8).await;
     let mut sub = f.open(ConversationOpenTarget::Latest, 5).await;
@@ -1595,7 +1609,7 @@ async fn busy_live_window_does_not_disable_composer() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn transient_worker_acquisition_failure_retries_without_closing_local_window() {
     let f = Fixture::new(8).await;
     let worker = f
@@ -1645,7 +1659,7 @@ async fn transient_worker_acquisition_failure_retries_without_closing_local_wind
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn closing_window_cannot_abandon_reconcile_worker_teardown() {
     let f = Fixture::new(8).await;
     // A missing requested worker forces reconciliation of the stale worker.
@@ -1728,7 +1742,7 @@ async fn closing_window_cannot_abandon_reconcile_worker_teardown() {
         .unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn live_window_waits_for_queue_capacity_without_a_display_retry_delay() {
     let f = Fixture::new(8).await;
     let sub = f.open(ConversationOpenTarget::Latest, 5).await;
@@ -1791,7 +1805,7 @@ async fn live_window_waits_for_queue_capacity_without_a_display_retry_delay() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn avatar_identity_sidecar_tracks_local_bytes_without_new_timeline_activity() {
     let f = Fixture::new(2).await;
     let member = "bb".repeat(32);
@@ -1821,16 +1835,17 @@ async fn avatar_identity_sidecar_tracks_local_bytes_without_new_timeline_activit
     for _ in 0..100 {
         let _ = f.app.presentation_signals.avatars.send("alice".into());
     }
-    let update = next(&mut sub).await;
-    assert_eq!(
-        update.presentation.identities[&member]
+    // The avatar request may publish its own refresh before the bytes land.
+    let update = next_where(&mut sub, |w| {
+        w.presentation.identities[&member]
             .avatar_asset
             .as_ref()
             .unwrap()
             .status
-            .availability,
-        storage_sqlite::AvatarAvailability::Ready
-    );
+            .availability
+            == storage_sqlite::AvatarAvailability::Ready
+    })
+    .await;
     assert_eq!(update.page.page(), sub.snapshot.page.page());
     let bytes = f
         .runtime
@@ -1839,19 +1854,19 @@ async fn avatar_identity_sidecar_tracks_local_bytes_without_new_timeline_activit
         .unwrap();
     assert_eq!(bytes[0].result.image, Some(image));
     f.runtime.clear_avatar_cache("alice").await.unwrap();
-    let removed = next(&mut sub).await;
-    assert!(
-        removed.presentation.identities[&member]
+    next_where(&mut sub, |w| {
+        w.presentation.identities[&member]
             .avatar_asset
             .as_ref()
             .unwrap()
             .reference
             .is_none()
-    );
+    })
+    .await;
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn closing_a_cold_window_accounts_for_unfinished_readiness() {
     let f = Fixture::new(1).await;
     f.mode.store(1, Ordering::SeqCst);
@@ -1894,7 +1909,7 @@ async fn closing_a_cold_window_accounts_for_unfinished_readiness() {
     f.close().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn authoritative_removed_conversation_finishes_send_readiness_as_unavailable() {
     let f = Fixture::new(1).await;
     f.app
@@ -2071,7 +2086,7 @@ fn return_to_latest_reuses_checkpoint_when_background_presentation_is_cancelled(
         });
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "workstation capture-cost diagnostic; not a device latency threshold"]
 async fn send_checkpoint_capture_cost() {
     let f = Fixture::new(200).await;
@@ -2130,7 +2145,7 @@ async fn send_checkpoint_capture_cost() {
 
 /// Progress uses current engine authority, repairs only keyed local read state,
 /// and refuses another store generation or a session whose authority is cold.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn publication_checkpoint_refreshes_epoch_and_dirty_rows_without_reviving_authority() {
     let f = Fixture::new(1).await;
     f.runtime
@@ -2390,6 +2405,15 @@ async fn assert_hot_checkpoints_do_not_postpone_refresh(prior_not_ready: bool) {
             tokio::task::yield_now().await;
         }
     });
+    // On a multi-thread runtime the refresh can land within a few checkpoints,
+    // so make the watch hot before observing rather than counting afterwards.
+    timeout(Duration::from_secs(2), async {
+        while produced.load(Ordering::SeqCst) <= 100 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the checkpoint watch is hot before the refresh is observed");
     let observed = timeout(Duration::from_millis(250), async {
         loop {
             changes.changed().await.unwrap();
@@ -2406,29 +2430,24 @@ async fn assert_hot_checkpoints_do_not_postpone_refresh(prior_not_ready: bool) {
         }
     })
     .await;
-    let produced_before_stop = produced.load(Ordering::SeqCst);
     stopping.store(true, Ordering::SeqCst);
     producer.await.unwrap();
     drop(commands);
     drop(changes);
     actor.await.unwrap();
     f.close().await;
-    assert!(
-        produced_before_stop > 100,
-        "the checkpoint watch stayed hot throughout the observation"
-    );
     let observed = observed
         .expect("a continuing checkpoint producer must not postpone a ready refresh until quiet");
     assert!(observed.presentation.header.epoch.is_some());
     assert!(observed.presentation.header.capabilities.can_send);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn hot_checkpoints_do_not_postpone_not_ready_retry() {
     assert_hot_checkpoints_do_not_postpone_refresh(true).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn hot_checkpoints_do_not_postpone_normal_refresh() {
     assert_hot_checkpoints_do_not_postpone_refresh(false).await;
 }
