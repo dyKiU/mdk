@@ -1135,47 +1135,25 @@ impl AppClient {
         scope: &PurposeAttemptScope,
     ) -> Result<(), ClientLinkingError> {
         self.check_private_invite_attempt_scope(scope)?;
-        let attempt =
-            self.linking_owner
-                .invite_attempt
-                .as_ref()
-                .ok_or(ClientLinkingError::Gate(
-                    cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
-                ))?;
-        let component = self
-            .runtime
-            .session()
-            .app_component(&attempt.group, crate::NOSTR_ROUTING_COMPONENT_ID)
-            .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?
-            .ok_or(ClientLinkingError::Gate(
-                cgka_traits::device_linking_key_package::LinkingWelcomeDenied::ContextMismatch,
-            ))?;
-        let route =
-            cgka_traits::app_components::decode_nostr_routing_v1(&component).map_err(|_| {
-                ClientLinkingError::Gate(
-                    cgka_traits::device_linking_key_package::LinkingWelcomeDenied::ContextMismatch,
-                )
-            })?;
         let account = self.runtime.session().self_id();
+        // The recipient has not joined the protected group yet. Its Welcome
+        // subscription follows the account inbox, not the group's MLS relays.
+        // Use the same validated account routing as inbox activation; Core
+        // still checks the original live approval and confirmed Add below.
+        let endpoints = self.routing.read().local_inbox_endpoints.clone();
         let publisher = PrivateWelcomePublisher {
             adapter: self.adapter.clone(),
             account: account.clone(),
             target: cgka_traits::TransportPublishTarget::Inbox {
                 recipient: account,
-                endpoints: route
-                    .relays
-                    .into_iter()
-                    .map(cgka_traits::TransportEndpoint)
-                    .collect(),
+                endpoints,
             },
         };
         let prepared = self
             .linking_owner
             .invite_attempt
             .as_mut()
-            .unwrap()
-            .prepared
-            .as_mut()
+            .and_then(|attempt| attempt.prepared.as_mut())
             .ok_or(ClientLinkingError::Gate(
                 cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
             ))?;
