@@ -2,7 +2,7 @@ use super::*;
 
 // A single-thread interleaving keeps SQL fault removal and observer snapshots ordered.
 #[tokio::test(flavor = "current_thread")]
-async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_before_harvest() {
+async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_before_disposition() {
     use cgka_traits::StorageProvider;
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();
@@ -222,6 +222,7 @@ async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_befo
         && failed.sql_failures > 0
         && failed.commit_at == 0
         && failed.harvest_at == 0
+        && failed.retirement_at == 0
         && failed.body_effects == 0
         && rolled_back == 0;
     injector
@@ -231,7 +232,7 @@ async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_befo
     let ordered_recovery = tokio::time::timeout(std::time::Duration::from_secs(15), async {
         loop {
             let state = probe.snapshot();
-            if state.commit_at > 0 && state.harvest_at > 0 {
+            if state.commit_at > 0 && (state.harvest_at > 0 || state.retirement_at > 0) {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
@@ -247,11 +248,14 @@ async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_befo
             |row| row.get(0),
         )
         .unwrap();
-    let commit_before_harvest = ordered_recovery
+    let commit_before_disposition = ordered_recovery
         && recovered.retained
         && committed == 1
-        && recovered.commit_at < recovered.harvest_at
-        && recovered.harvested_cancelled;
+        && [recovered.harvest_at, recovered.retirement_at]
+            .into_iter()
+            .filter(|ordinal| *ordinal > 0)
+            .min()
+            .is_some_and(|first_disposition| recovered.commit_at < first_disposition);
     release.0.notify_one();
     // The existing hold is BEFORE SDK publication. Its aborted release is not an ACK.
     // A separate actual post-EVENT/pre-OK gate is required for late-ACK coverage.
@@ -273,20 +277,23 @@ async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_befo
     let after_release = probe.snapshot();
     let no_old_body_effects = after_release.body_effects == 0;
     eprintln!(
-        "body-negative-control retained={retained} commit_before_harvest={commit_before_harvest} no_old_body_effects={no_old_body_effects} actor_progress={actor_progress} sql_failures={} associated_sql_failures={} barrier_observations={} commit_at={} harvest_at={} body_effects={}",
+        "body-negative-control retained={retained} commit_before_disposition={commit_before_disposition} no_old_body_effects={no_old_body_effects} actor_progress={actor_progress} sql_failures={} associated_sql_failures={} barrier_observations={} commit_at={} harvest_at={} retirement_at={} body_effects={} harvested_cancelled={} retired_task_finished={}",
         after_release.sql_failures,
         after_release.associated_sql_failures,
         after_release.barrier_observations,
         after_release.commit_at,
         after_release.harvest_at,
-        after_release.body_effects
+        after_release.retirement_at,
+        after_release.body_effects,
+        after_release.harvested_cancelled,
+        after_release.retired_task_finished
     );
     assert!(
         after_release.associated_sql_failures > 0,
         "actual SQL-trigger failure must belong to the held original nonce and owned publication slot"
     );
     assert!(
-        retained && commit_before_harvest && no_old_body_effects && actor_progress,
-        "authenticated negative SQL rollback must retain the same owned Body until negative commit precedes aborted-task harvest without old Body effects"
+        retained && commit_before_disposition && no_old_body_effects && actor_progress,
+        "authenticated negative SQL rollback must retain the same owned Body until negative commit precedes owned-task harvest or channel retirement without old Body effects"
     );
 }

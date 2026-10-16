@@ -15,8 +15,10 @@ pub(crate) struct Observation {
     pub(crate) aborted_task_finished: bool,
     pub(crate) commit_at: u64,
     pub(crate) harvest_at: u64,
+    pub(crate) retirement_at: u64,
     pub(crate) body_effects: u64,
     pub(crate) harvested_cancelled: bool,
+    pub(crate) retired_task_finished: bool,
 }
 struct Captured {
     original: Weak<State>,
@@ -391,5 +393,36 @@ pub(super) fn effects(root: &Path, entry: &AutomaticChannel) {
         captured.nonce == entry.channel.scope().nonce && captured.sequence == entry.next_body
     }) {
         progress.observed.body_effects += 1;
+    }
+}
+pub(super) fn retired(entry: &AutomaticChannel) {
+    // Called only after the original cancel and channel retirement have run.
+    // This is actual owner destruction, never an invented JoinHandle harvest.
+    let weak: Vec<_> = registry()
+        .lock()
+        .expect("negative registry")
+        .values()
+        .cloned()
+        .collect();
+    for probe in weak.into_iter().filter_map(|weak| weak.upgrade()) {
+        let mut progress = probe.progress.lock().expect("negative probe");
+        let same = progress.captured.as_ref().is_some_and(|captured| {
+            Weak::ptr_eq(&captured.original, &Arc::downgrade(&entry.original))
+                && captured.nonce == entry.channel.scope().nonce
+                && captured.sequence == entry.next_body
+                && entry.publication.as_ref().is_some_and(|publication| {
+                    publication.task.id() == captured.task && publication.body_context.is_some()
+                })
+        });
+        if same {
+            progress.ordinal += 1;
+            if progress.observed.retirement_at == 0 {
+                progress.observed.retirement_at = progress.ordinal;
+            }
+            progress.observed.retired_task_finished |= entry
+                .publication
+                .as_ref()
+                .is_some_and(|publication| publication.task.is_finished());
+        }
     }
 }

@@ -28,6 +28,10 @@ def main():
         else:ensure(normalize(stripped)==normalize(old),'original-product-tokens-or-strings-changed')
         counts[name]=len(blocks)
     text=Path(PRODUCT).read_text();ensure(text.count(ANCHOR)==1 and MUTANT not in text,'exact-force-renew-only-anchor')
+    destructor=text.index('impl Drop for AutomaticChannel {')
+    cancel=text.index('self.original.cancel();',destructor);retire=text.index('self.channel.retire();',cancel)
+    observed_retirement=text.index('body_negative_probe::retired(self);',retire)
+    ensure(destructor<cancel<retire<observed_retirement and text.count('body_negative_probe::retired(self);')==1,'actual-retirement-observed-after-existing-terminal-operations')
     gate_hooks=[block for block in re.findall(r'(?m)^[ \t]*// BODY_NEGATIVE_TEST_BEGIN\n(.*?)^[ \t]*// BODY_NEGATIVE_TEST_END\n',text,re.S|re.M) if 'gate.wait(' in block]
     expected='#[cfg(all(test, feature = "test-policy-overrides"))] if let Some(gate) = &negative_intent_gate { gate.wait(input_payload_digest).await; }'
     ensure(len(gate_hooks)==1 and normalize(gate_hooks[0])==normalize(expected),'one-cfg-only-original-argument-gate-wait')
