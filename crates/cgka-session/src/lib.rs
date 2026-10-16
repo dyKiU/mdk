@@ -534,6 +534,14 @@ impl AccountDeviceSession {
         Ok(key_package)
     }
 
+    /// Negative retirement of an abandoned first enrollment, never resumed consent.
+    #[cfg(feature = "experimental-device-sync")]
+    pub fn retire_abandoned_private_bootstrap(
+        &mut self,
+    ) -> Result<bool, cgka_engine::device_group_genesis::GenesisFactoryError> {
+        self.engine.retire_abandoned_private_bootstrap()
+    }
+
     /// Create a fresh self-only private group and its birth facts atomically.
     /// No transport work, verifier consent or enrollment grant is produced.
     #[cfg(feature = "experimental-device-sync")]

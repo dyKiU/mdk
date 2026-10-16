@@ -1,5 +1,7 @@
 //! Protected local creation provenance for an opt-in private experimental profile.
 //! Evidence can support fresh consent; it is never enrollment or history permission.
+mod recovery;
+
 use crate::Engine;
 use crate::device_group_snapshot::{CandidateDeviceGroupSnapshot, CandidateDeviceLeaf};
 use crate::provider::EngineOpenMlsProvider;

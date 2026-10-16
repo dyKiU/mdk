@@ -362,6 +362,12 @@ impl AppClient {
         if scope.account != request.account || scope.local_device == request.recipient {
             return Err(invalid());
         }
+        if target.is_none() {
+            self.runtime
+                .session_mut()
+                .retire_abandoned_private_bootstrap()
+                .map_err(ClientLinkingError::Genesis)?;
+        }
         let group = match target {
             Some(group) => group.clone(),
             None => self.first_setup_genesis()?,

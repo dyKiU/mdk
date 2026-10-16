@@ -701,3 +701,12 @@ protocol/domain, not reinterpretation of old signatures. All-leaf and original
 recipient `sharing_devices()` are authenticated observations only, never policy
 or admission. `private_enrollment_sharing_tests.rs` reuses genuine received B
 fixtures and real private carrier; portable A signatures are explicitly metadata.
+
+Initial-bootstrap recovery is negative only: require a Denied original settlement,
+no live admission, no retained sharing policy (including revoked), an exact fresh
+private successor matching that round, and genuine epoch-0 one-leaf → epoch-1
+two-leaf provenance. Retire the accepted/confirmed selection in that same SQL
+transaction; never delete MLS/chat state, reconstruct consent, retire Completed
+or larger rosters, or infer recovery eligibility from native/wire fields.
+Core controls use genuine MLS with injected policies; App interrupted enrollment
+acceptance supplies actual SDK, encrypted relay and restart coverage.

@@ -147,3 +147,9 @@ the named original Core action. Its signed broader terms are separate from the
 ordinary unmarked enrollment endorsement. Original recipient evidence reports
 verified sharing signers without granting a bilateral policy or join. Native
 approval and policy handoff must still preserve both actual originals.
+
+With `experimental-device-sync`, `retire_abandoned_private_bootstrap` delegates
+negative cleanup of an interrupted initial two-device enrollment to Core. It
+returns whether the obsolete selection was retired; it never resumes a verifier
+or grants chat access. Completed rosters and retained sharing approvals remain
+protected. App starts a fresh verification after fencing previous ownership.

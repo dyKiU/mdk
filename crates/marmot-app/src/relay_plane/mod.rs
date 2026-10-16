@@ -4141,7 +4141,7 @@ impl MarmotRelayPlaneAccountAdapter {
             feature = "experimental-device-sync",
             feature = "test-policy-overrides"
         ))]
-        private_confirmation_gate::hold(self, &request).await;
+        private_confirmation_gate::hold(self, &request).await?;
         self.publish_with_local_mirror(request, false).await
     }
 
