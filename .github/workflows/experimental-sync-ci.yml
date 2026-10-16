@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
+        options: [pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
         default: full
       completion_control_run_id:
         description: Prior successful controls plus both static cohorts for the exact current commit (required for mutations)
@@ -37,6 +37,54 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  pairing-recovery-components:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'pairing-recovery-components'
+    name: Pairing recovery component (${{ matrix.component }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [cgka-engine, cgka-session]
+    env:
+      COMPONENT: ${{ matrix.component }}
+      RUST_MIN_STACK: "16777216"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Record component source
+        run: |
+          echo "qualification-source: $(git rev-parse HEAD)"
+          echo "qualification-tree: $(git rev-parse HEAD^{tree})"
+          echo "qualification-component: $COMPONENT"
+      - name: Install pinned toolchain
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: experimental-sync-tests
+      - name: Run full affected component without retries
+        run: |
+          set -euo pipefail
+          args=(--locked -p "$COMPONENT" --features experimental-device-sync,test-policy-overrides,cgka-engine/test-crash-hooks)
+          cargo nextest list "${args[@]}" --message-format json > component-inventory.json
+          cargo nextest run "${args[@]}" --profile m5-bounded --test-threads 6 --retries 0 --no-fail-fast
+          cargo test "${args[@]}" --doc
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: pairing-recovery-${{ matrix.component }}
+          path: component-inventory.json
+          retention-days: 7
+          if-no-files-found: error
+
   automatic-body-preflight:
     if: github.event_name == 'workflow_dispatch' && startsWith(inputs.scope, 'automatic-body-')
     name: Genuine automatic Body source parser and format gate
