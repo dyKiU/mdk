@@ -1428,3 +1428,99 @@ async fn completed_automatic_transport_keeps_public_cleanup_ownership() {
         "completed_session_public_owner_retains_cleanup"
     );
 }
+
+#[tokio::test]
+async fn reopened_approved_pair_can_verify_another_installation() {
+    let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+    let url = relay.url().await.to_string();
+    let keys = nostr::prelude::Keys::generate();
+    let dirs: [tempfile::TempDir; 3] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
+    for dir in &dirs {
+        AccountHome::open(dir.path())
+            .import_account("test", &keys.secret_key().to_secret_hex())
+            .unwrap();
+    }
+    let open = || {
+        dirs.each_ref()
+            .map(|dir| MarmotAppRuntime::new(MarmotApp::with_relay(dir.path(), &url)))
+    };
+    let runtimes = open();
+    for runtime in &runtimes {
+        runtime.reconcile_accounts().await.unwrap();
+    }
+    let requester = runtimes[0]
+        .accounts()
+        .begin_device_linking_session("test")
+        .await
+        .unwrap();
+    let approver = runtimes[1]
+        .accounts()
+        .approve_automatic_device_linking_session(
+            "test",
+            requester.automatic_pairing_code().await.unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+    approver.automatic_pairing_code().await.unwrap();
+    compare_and_confirm_pair(&requester, &approver).await;
+    requester
+        .continue_automatic_linking(requester.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
+    approver
+        .continue_automatic_linking(approver.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
+    wait_for_automatic_phase(
+        &requester,
+        &approver,
+        DeviceLinkingPhase::EnrollmentComplete,
+    )
+    .await;
+    requester.cancel().await.unwrap();
+    approver.cancel().await.unwrap();
+    drop(requester);
+    drop(approver);
+    for runtime in runtimes {
+        runtime.shutdown_and_close().await.unwrap();
+    }
+    // Match installed clients: reopen their own encrypted stores, never copy state.
+    let runtimes = open();
+    for runtime in &runtimes {
+        runtime.reconcile_accounts().await.unwrap();
+    }
+    let targets = runtimes[1]
+        .accounts()
+        .device_linking_targets("test")
+        .await
+        .unwrap();
+    assert_eq!(
+        targets.len(),
+        1,
+        "completed pair must remain selectable after restart"
+    );
+    assert_eq!(targets[0].device_count, 2);
+    let requester = runtimes[2]
+        .accounts()
+        .begin_device_linking_session("test")
+        .await
+        .unwrap();
+    let approver = runtimes[1]
+        .accounts()
+        .approve_automatic_device_linking_session(
+            "test",
+            requester.automatic_pairing_code().await.unwrap(),
+            Some(targets[0].selector.clone()),
+        )
+        .await
+        .unwrap();
+    approver.automatic_pairing_code().await.unwrap();
+    // Fresh human comparison is required; retained policy does not approve a new device.
+    compare_and_confirm_pair(&requester, &approver).await;
+    requester.cancel().await.unwrap();
+    approver.cancel().await.unwrap();
+    for runtime in runtimes {
+        runtime.shutdown_and_close().await.unwrap();
+    }
+}

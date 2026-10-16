@@ -28,6 +28,14 @@ fn wire_error(error: WireError) -> DeviceLinkingError {
     }
 }
 fn relay_error(error: PairingRelayError) -> DeviceLinkingError {
+    diagnostics::report(
+        "relay_error",
+        match error {
+            PairingRelayError::Unavailable => "unavailable",
+            PairingRelayError::Expired => "expired",
+            PairingRelayError::Invalid => "invalid",
+        },
+    );
     match error {
         PairingRelayError::Expired => DeviceLinkingError::Closed,
         PairingRelayError::Invalid => DeviceLinkingError::InvalidPacket,
@@ -725,11 +733,15 @@ impl AccountManager {
         let bootstrap = Bootstrap::decode(&code, now).map_err(wire_error)?;
         let deadline =
             std::time::Instant::now() + std::time::Duration::from_secs(bootstrap.expires_at - now);
+        diagnostics::report("scanner_mailbox", "begin");
         let mut driver = Driver::open(self, Keys::generate(), &bootstrap, true, deadline).await?;
+        diagnostics::report("scanner_request", "begin");
         let request = driver.request().await?;
+        diagnostics::report("scanner_native_setup", "begin");
         let original = self
             .approve_device_linking_session(account_ref, request.to_vec(), target)
             .await?;
+        diagnostics::report("scanner_native_setup", "ready");
         // Commit the request only after the exact actor accepted its setup.
         let receipt = driver
             .receiver
