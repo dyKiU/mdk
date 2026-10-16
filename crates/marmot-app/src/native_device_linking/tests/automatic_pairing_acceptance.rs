@@ -1431,6 +1431,15 @@ async fn completed_automatic_transport_keeps_public_cleanup_ownership() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reopened_approved_pair_can_verify_another_installation() {
+    reopened_pair_can_verify_another_installation(1).await;
+}
+
+#[tokio::test]
+async fn reopened_joined_device_can_verify_another_installation() {
+    reopened_pair_can_verify_another_installation(0).await;
+}
+
+async fn reopened_pair_can_verify_another_installation(existing: usize) {
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();
     let keys = nostr::prelude::Keys::generate();
@@ -1490,7 +1499,7 @@ async fn reopened_approved_pair_can_verify_another_installation() {
     for runtime in &runtimes {
         runtime.reconcile_accounts().await.unwrap();
     }
-    let targets = runtimes[1]
+    let targets = runtimes[existing]
         .accounts()
         .device_linking_targets("test")
         .await
@@ -1506,7 +1515,7 @@ async fn reopened_approved_pair_can_verify_another_installation() {
         .begin_device_linking_session("test")
         .await
         .unwrap();
-    let approver = runtimes[1]
+    let approver = runtimes[existing]
         .accounts()
         .approve_automatic_device_linking_session(
             "test",
