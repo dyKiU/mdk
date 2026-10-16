@@ -8148,19 +8148,46 @@ async fn convergence_pass_freezes_at_absolute_cap_under_continuous_selection_inp
             .convergence_status,
         ConvergenceStatus::Syncing
     );
-    clock.advance_ms(1);
     assert_eq!(
-        carol
-            .converge_stored_openmls_messages(&group_id)
+        carol_storage
+            .convergence_pass(&group_id)
             .unwrap()
-            .convergence_status,
-        ConvergenceStatus::Settled
+            .unwrap()
+            .phase,
+        cgka_traits::ConvergencePassPhase::Collecting
     );
+    clock.advance_ms(1);
+    // The absolute cap freezes membership; replay may need several bounded
+    // slices. Force a yield so this assertion cannot depend on host speed.
+    #[cfg(feature = "test-policy-overrides")]
+    carol.set_replay_slice_probe_limit_for_tests(1);
+    let mut result = carol.converge_stored_openmls_messages(&group_id).unwrap();
+    #[cfg(feature = "test-policy-overrides")]
+    assert_eq!(result.convergence_status, ConvergenceStatus::Syncing);
     let frozen = carol_storage.convergence_pass(&group_id).unwrap().unwrap();
     assert_eq!(
         frozen.cutoff_cause,
         Some(cgka_traits::ConvergenceCutoffCause::AbsoluteDeadline)
     );
+    assert_eq!(frozen.generation, pass.generation);
+    assert_eq!(frozen.members, pass.members);
+    assert_eq!(frozen.cutoff_monotonic_ms(), 6_000);
+
+    // Keep the logical clock at the cap, before quiescence. Continuations must
+    // finish the same frozen batch without reopening its admission window.
+    for _ in 0..128 {
+        if result.convergence_status == ConvergenceStatus::Settled {
+            break;
+        }
+        assert_eq!(result.convergence_status, ConvergenceStatus::Syncing);
+        result = carol.converge_stored_openmls_messages(&group_id).unwrap();
+        let continued = carol_storage.convergence_pass(&group_id).unwrap().unwrap();
+        assert_eq!(continued.generation, frozen.generation);
+        assert_eq!(continued.members, frozen.members);
+        assert_eq!(continued.cutoff_cause, frozen.cutoff_cause);
+        assert_eq!(continued.frozen_at_wall_ms, frozen.frozen_at_wall_ms);
+    }
+    assert_eq!(result.convergence_status, ConvergenceStatus::Settled);
 }
 
 #[tokio::test]
