@@ -50,6 +50,7 @@ pub(crate) type RevocationBindingObservationForTest =
 
 pub(crate) struct AccountLinkingOwner {
     verifier: LinkingOwner,
+    enrollment_diagnostics: crate::device_linking::diagnostics::EnrollmentDiagnostics,
     pub(super) received_endorsement:
         Option<super::private_enrollment_proposal::OwnedReceivedEndorsement>,
     pub(super) cancelled_endorsements: Vec<([u8; 32], std::time::Instant)>,
@@ -135,6 +136,7 @@ impl AccountLinkingOwner {
             received_endorsement: None,
             cancelled_endorsements: Vec::new(),
             verifier: LinkingOwner::attach_after_restart_fence(storage, account, device),
+            enrollment_diagnostics: Default::default(),
             welcome: Arc::new(RuntimeWelcomeGate::new()),
             invite: Arc::new(RuntimeInviteGate::new()),
             invite_attempt: None,

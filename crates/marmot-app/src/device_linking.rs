@@ -24,6 +24,7 @@ use tracing::instrument::WithSubscriber;
 const ATTEMPT_LIFETIME: Duration = Duration::from_secs(600);
 const MAX_FRAME_BYTES: usize = 32768;
 const MAX_PENDING_FRAMES: usize = 64;
+pub(crate) mod diagnostics;
 pub(crate) mod network;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LinkError {

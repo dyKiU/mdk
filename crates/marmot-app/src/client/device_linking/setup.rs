@@ -122,6 +122,26 @@ impl AppClient {
         ),
         ClientLinkingError,
     > {
+        let (phase, decimals, observation) =
+            self.linking_native_observation_with_progress(scope)?;
+        self.linking_owner
+            .enrollment_diagnostics
+            .observe(observation);
+        Ok((phase, decimals))
+    }
+    fn linking_native_observation_with_progress(
+        &mut self,
+        scope: &PurposeAttemptScope,
+    ) -> Result<
+        (
+            crate::DeviceLinkingPhase,
+            Option<crate::DeviceLinkingDecimals>,
+            crate::device_linking::diagnostics::EnrollmentObservation,
+        ),
+        ClientLinkingError,
+    > {
+        use crate::device_linking::diagnostics::EnrollmentObservation;
+        use cgka_traits::private_roster_settlement::PrivateSettlementPhase;
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let observer = self.native_observation_original_for_test(scope);
         #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -157,28 +177,40 @@ impl AppClient {
                 .app
                 .account_storage(&self.state.label)
                 .map_err(|e| ClientLinkingError::Runtime(Box::new(e)))?;
-            if let Some(round) = storage
+            let round = storage
                 .private_roster_settlement_storage()
                 .ok_or_else(invalid)?
                 .read_round()
-                .map_err(|e| ClientLinkingError::Engine(e.into()))?
-                && {
-                    let valid = attempt.guard.validate(&round.anchor).is_ok();
-                    #[cfg(all(test, feature = "test-policy-overrides"))]
-                    if !valid {
-                        reason(Reason::GuardInvalid);
+                .map_err(|e| ClientLinkingError::Engine(e.into()))?;
+            let anchor_matches = round
+                .as_ref()
+                .is_some_and(|round| attempt.guard.validate(&round.anchor).is_ok());
+            let observation = match round.as_ref() {
+                None => EnrollmentObservation::RoundMissing,
+                Some(_) if !anchor_matches => EnrollmentObservation::AnchorMismatch,
+                Some(round) => match round.phase {
+                    PrivateSettlementPhase::Pending => EnrollmentObservation::SettlementPending,
+                    PrivateSettlementPhase::Denied => EnrollmentObservation::SettlementDenied,
+                    PrivateSettlementPhase::Completed => {
+                        EnrollmentObservation::CompletedRosterUnavailable
                     }
-                    valid
-                }
-                && {
-                    #[cfg(all(test, feature = "test-policy-overrides"))]
-                    reason(Reason::NoSettledRoster);
-                    self.runtime
-                        .session()
-                        .validated_settled_device_roster(&attempt.guard.group())
-                        .map_err(ClientLinkingError::Engine)?
-                        .is_some()
-                }
+                },
+            };
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if round.is_some() && !anchor_matches {
+                reason(Reason::GuardInvalid);
+            }
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if anchor_matches {
+                reason(Reason::NoSettledRoster);
+            }
+            if anchor_matches
+                && self
+                    .runtime
+                    .session()
+                    .validated_settled_device_roster(&attempt.guard.group())
+                    .map_err(ClientLinkingError::Engine)?
+                    .is_some()
             {
                 // A host can immediately close its original on this terminal
                 // observation. Complete the explicit durable approval handoff
@@ -195,19 +227,35 @@ impl AppClient {
                     return Ok((
                         crate::DeviceLinkingPhase::VerificationCompleteEnrollmentPending,
                         None,
+                        if self
+                            .linking_owner
+                            .sharing_approval
+                            .as_ref()
+                            .is_some_and(|choice| choice.primary_committed())
+                        {
+                            EnrollmentObservation::SiblingSharingPending
+                        } else {
+                            EnrollmentObservation::SharingCommitPending
+                        },
                     ));
                 }
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 reason(Reason::Complete);
-                return Ok((crate::DeviceLinkingPhase::EnrollmentComplete, None));
+                return Ok((
+                    crate::DeviceLinkingPhase::EnrollmentComplete,
+                    None,
+                    EnrollmentObservation::Complete,
+                ));
             }
             return Ok((
                 crate::DeviceLinkingPhase::VerificationCompleteEnrollmentPending,
                 None,
+                observation,
             ));
         }
         self.scoped_linking_verifier(scope)?
             .native_observation_for_scope(scope, std::time::Instant::now())
+            .map(|(phase, decimals)| (phase, decimals, EnrollmentObservation::Verifier))
             .map_err(ClientLinkingError::Owner)
     }
     pub(crate) async fn reserve_owned_linking_setup_request(

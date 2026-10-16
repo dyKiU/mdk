@@ -1,20 +1,8 @@
 //! Opt-in local diagnostics for experimental pairing; never format error payloads.
 use super::*;
+pub(super) use crate::device_linking::diagnostics::report;
 use cgka_engine::device_group_genesis::GenesisFactoryError;
 use cgka_traits::device_group_genesis::GenesisError;
-use std::io::Write;
-
-pub(super) fn report(stage: &'static str, cause: &'static str) {
-    if std::env::var_os("WN_PAIRING_DIAGNOSTICS").as_deref() != Some(std::ffi::OsStr::new("1")) {
-        return;
-    }
-    // No global tracing subscriber: hosts retain their existing logging configuration.
-    // This development-only switch writes fixed taxonomy codes to the local console.
-    let _ = writeln!(
-        std::io::stderr().lock(),
-        "target=marmot_app::device_linking method=pairing_diagnostic stage={stage} cause={cause}"
-    );
-}
 
 pub(super) fn client_kind(error: &ClientLinkingError) -> &'static str {
     match error {
