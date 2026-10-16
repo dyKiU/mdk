@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from upstream_completion_ci import ORIGINALS, compile_cases, environment, ensure, freeze, identity, parse_body
 
-COLUMNS = ['generation','kind_0_request_1_consent_2_proof','scheduled_ms','inner_ok_ms','inner_err_ms','queued_success_observed_ms','signal_executed_ms','fresh_harvest_ms','fresh_guard_deferred_ms','periodic_owned_error_or_closed_consumed_ms','task_finished_observed_ms','last_pending_visit_ms','last_visit_periodic','owned_error_or_closed_deferred_ms']
+COLUMNS = ['generation','kind_0_request_1_consent_2_proof','scheduled_ms','inner_ok_ms','inner_err_ms','queued_success_observed_ms','signal_executed_ms','fresh_harvest_ms','fresh_guard_deferred_ms','periodic_owned_error_or_closed_consumed_ms','task_finished_observed_ms','last_pending_visit_ms','last_visit_periodic','owned_error_or_closed_deferred_ms','task_first_poll_ms','adapter_future_entered_ms','adapter_returned_ok_ms']
 ENUMS = {'Owner','Collection','Runtime','Engine','Genesis','Gate','PrivateInvite','BeforeCoreWrap','AfterCoreWrap','BeforeRelayPublication','AfterRelayPublication','VerifierFallback','NoRound','GuardInvalid','NoSettledRoster','SharingPending','Complete'}
 
 def rust_value(raw):
@@ -48,14 +48,14 @@ def probe_value(raw):
         return isinstance(row,list) and len(row)==width and all(type(item) is int and 0 <= item < 2**63 for item in row)
     ensure(type(value['at_ms']) is int and 0 <= value['at_ms'] < 2**63 and type(value['overflow']) is int and 0 <= value['overflow'] < 2**63,'probe-scalars')
     ensure(type(value['scheduled']) is int and 0<=value['scheduled']<2**63,'probe-scheduled')
-    ensure(isinstance(value['rows'],list) and len(value['rows'])<=32 and all(integers(row,14) for row in value['rows']),'probe-rows')
+    ensure(isinstance(value['rows'],list) and len(value['rows'])<=32 and all(integers(row,17) for row in value['rows']),'probe-rows')
     ensure(isinstance(value['passes'],list) and len(value['passes'])==2 and all(integers(row,4) for row in value['passes']),'probe-passes')
     ensure(all(row[1] <= 2 and row[12] <= 1 for row in value['rows']),'probe-enums')
     ensure([row[0] for row in value['rows']]==list(range(1,len(value['rows'])+1)),'probe-generations')
     ensure(len(value['rows'])==min(value['scheduled'],32) and value['overflow']==max(value['scheduled']-32,0),'probe-missing-row-or-overflow')
     for row in value['rows']:
         ensure(0 < row[2] <= value['at_ms'],'probe-schedule-time')
-        ensure(all(stamp==0 or row[2] <= stamp <= value['at_ms'] for index,stamp in enumerate(row) if index in [3,4,5,6,7,8,9,10,11,13]),'probe-event-time')
+        ensure(all(stamp==0 or row[2] <= stamp <= value['at_ms'] for index,stamp in enumerate(row) if index in [3,4,5,6,7,8,9,10,11,13,14,15,16]),'probe-event-time')
         ensure(row[11] or row[12]==0,'probe-visit-source-without-visit')
     for entries,tails,stamp,mask in value['passes']:
         ensure(tails<=entries and mask<512,'probe-pass-count-or-mask')
@@ -144,6 +144,14 @@ def inventory_complete(result):
 def probe_confident(probe):
     if probe['overflow']: return False
     for row in probe['rows']:
+        # These hooks execute in the same spawned future. Missing timestamps
+        # remain unknown; a later observed milestone without its prerequisite
+        # cannot support a confident interpretation of that row.
+        if any(row[column] for column in [3,4,15,16]) and not row[14]: return False
+        if row[15] and row[14]>row[15]: return False
+        if row[16] and not (row[15] and row[15]<=row[16]): return False
+        if row[3] and not (row[16] and row[16]<=row[3]): return False
+        if row[4] and any(stamp and stamp>row[4] for stamp in row[14:17]): return False
         if (row[7] or row[11]) and not any(passes[0] for passes in probe['passes']): return False
         if row[3] and row[4]: return False
         if row[5] and not (row[3] and row[2] <= row[3] <= row[5]): return False
@@ -155,7 +163,7 @@ def probe_confident(probe):
         if row[7] and (row[9] or row[13]): return False
         if row[8] and not (row[3] and row[3]<=row[8] and (not row[7] or row[8]<=row[7])): return False
         if row[4] and (row[5] or row[6] or row[7] or row[8]): return False
-        if row[10] and any(stamp and stamp>row[10] for stamp in [row[3],row[4],row[5],row[6]]): return False
+        if row[10] and any(stamp and stamp>row[10] for stamp in [row[3],row[4],row[5],row[6],row[14],row[15],row[16]]): return False
         for column in [9,13]:
             if row[column] and any(stamp and stamp>row[column] for stamp in [row[3],row[4]]): return False
         if row[9] and row[13] and row[13]>row[9]: return False
@@ -163,7 +171,7 @@ def probe_confident(probe):
 
 def parser_preflight():
     ensure(rust_value('Some((true, Some(2), 2, 0))')==[True,2,2,0],'rust-parser-positive')
-    row=[1,1,1,2,0,3,4,5,0,0,0,4,1,0]
+    row=[1,1,1,2,0,3,4,5,0,0,0,4,1,0,1,1,2]
     probe={'rows':[row],'scheduled':1,'overflow':0,'passes':[[1,1,6,31],[0]*4],'at_ms':7}
     ensure(probe_value(json.dumps(probe))==probe,'probe-parser-positive')
     ensure(probe_confident(probe),'harvest-does-not-require-task-finished-observation')
@@ -221,12 +229,36 @@ def parser_preflight():
     for column in [8,10,6]:
         impossible=list(row); impossible[column]=1
         ensure(not probe_confident(dict(probe,rows=[impossible])),'probe-impossible-event-order'); negatives+=1
+    unpolled=[1,1,1]+[0]*14
+    awaiting=list(unpolled); awaiting[14]=2; awaiting[15]=3
+    early_error=list(unpolled); early_error[14]=2; early_error[4]=3
+    returned_error=list(early_error); returned_error[15]=2; returned_error[16]=3; returned_error[4]=4
+    for sample in [unpolled,awaiting,early_error,returned_error]:
+        value=dict(probe,rows=[sample])
+        ensure(probe_confident(probe_value(json.dumps(value))),'entry-milestone-partial-path-valid'); positives+=1
+    for column in [14,15,16]:
+        missing=list(row); missing[column]=0
+        ensure(not probe_confident(dict(probe,rows=[missing])),'entry-milestone-missing-prerequisite'); negatives+=1
+        future=list(row); future[column]=8
+        rejected=False
+        try: probe_value(json.dumps(dict(probe,rows=[future])))
+        except (ValueError,TypeError,IndexError): rejected=True
+        ensure(rejected,'entry-milestone-future-time'); negatives+=1
+    for first,entered,returned in [(2,1,2),(1,3,2),(1,1,3)]:
+        impossible=list(row); impossible[14:17]=[first,entered,returned]
+        ensure(not probe_confident(dict(probe,rows=[impossible])),'entry-milestone-impossible-order'); negatives+=1
+    old_width=list(row[:14])
+    rejected=False
+    try: probe_value(json.dumps(dict(probe,rows=[old_width])))
+    except (ValueError,TypeError,IndexError): rejected=True
+    ensure(rejected,'old-probe-width-not-current-schema'); negatives+=1
     return {'positive_controls':positives,'negative_controls':negatives,'actual_product_bodies':0}
 
 def main():
     out=Path('completion-diagnostic-evidence'); out.mkdir(exist_ok=True)
     report=environment(); report.update(qualification_passed=False,scope='one unchanged ordinary enrollment case; passive instrumentation overhead; no mutation qualification',columns=COLUMNS,pass_schema={'rows':['periodic','wake'],'columns':['entries','tails','last_observed_ms','last_observed_mask'],'mask_bits':['cheap_state_live','ready','handshake_published','policy_committed','proof_published','peer_committed','complete','publication_present','deferred_initial_error_present'],'mask_semantics':'Cached scheduling flags and cheap State.live only. No fresh original/context/guard validation; unlike original periodic-only channel_bits.'},time_schema='Per-State relative milliseconds plus one; zero means unknown. Never compare clocks across probes. queued_success is observed successful send; failed/closed queue status can remain unknown. signal_executed is sender invocation, not receiver observation; wake pass entry is recorded separately.')
     report['collection_limits']='Cached snapshots are read sequentially AFTER the timeout verdict; workers may advance during collection. States are not simultaneous, and per-State ages are relative to each snapshot, not the deadline or phase start. A post-timeout successful task does not alone establish completion before the deadline.'
+    report['task_milestone_semantics']='First poll is entry to the spawned future; adapter entry is the existing select branch future entering before its adapter call; adapter_returned_ok is after the select returned Ok and before the original live/ACK checks. Zero is unknown, never proof of failure or non-polling. Adapter entry without returned_ok does not distinguish pending transport, cancellation, or adapter error without a recorded inner outcome.'
     report['probe_schema']={'scheduled':'All per-State scheduling observations','rows':'First min(scheduled,32) contiguous local generations','overflow':'scheduled minus retained rows; nonzero invalidates collection confidence','at_ms':'Per-State snapshot age, not a shared clock'}
     def save(): (out/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     frozen=freeze(); report['source_before_sha256']=identity(frozen); save()

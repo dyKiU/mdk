@@ -4,7 +4,7 @@ use std::time::Instant;
 pub(crate) struct PublicationProbe {
     origin: Instant,
     next: u64,
-    rows: Vec<[u64; 14]>,
+    rows: Vec<[u64; 17]>,
     overflow: u64,
     passes: [[u64; 4]; 2],
 }
@@ -26,7 +26,7 @@ impl PublicationProbe {
     pub(crate) fn schedule(&mut self, kind: u64) -> u64 {
         self.next += 1;
         if self.rows.len() < 32 {
-            let mut row = [0; 14];
+            let mut row = [0; 17];
             row[0] = self.next;
             row[1] = kind;
             row[2] = self.time();

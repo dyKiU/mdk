@@ -2571,6 +2571,15 @@ impl AppClient {
         // COMPLETION_DIAGNOSTIC_END
         let (result_tx, result) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
+            // COMPLETION_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            state
+                .sibling_diagnostics
+                .lock()
+                .expect("completion diagnostic")
+                .publication_probe
+                .event(diagnostic_generation, 14);
+            // COMPLETION_DIAGNOSTIC_END
             let outcome = async {
             let revoked = state.revoked.notified();
             tokio::pin!(revoked);
@@ -2598,10 +2607,28 @@ impl AppClient {
                 () = &mut revoked => return Err(denied()),
                 () = tokio::time::sleep_until(state.deadline.into()) => return Err(denied()),
                 report = async {
+                    // COMPLETION_DIAGNOSTIC_BEGIN
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    state
+                        .sibling_diagnostics
+                        .lock()
+                        .expect("completion diagnostic")
+                        .publication_probe
+                        .event(diagnostic_generation, 15);
+                    // COMPLETION_DIAGNOSTIC_END
                     if consent { adapter.publish_sibling_consent(request).await }
                     else { adapter.publish_selected_chat(request).await }
                 } => report.map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?,
             };
+            // COMPLETION_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            state
+                .sibling_diagnostics
+                .lock()
+                .expect("completion diagnostic")
+                .publication_probe
+                .event(diagnostic_generation, 16);
+            // COMPLETION_DIAGNOSTIC_END
             if !original.live() || !state.live() || !report.met_required_acks() {
                 return Err(denied());
             }
