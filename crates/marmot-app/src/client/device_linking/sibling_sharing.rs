@@ -2262,7 +2262,9 @@ let completion_consent_identity = consent.then(||request.message.id.clone());
 #[cfg(all(test, feature = "test-policy-overrides"))]
 {
     let mut observation=state.sibling_diagnostics.lock().expect("sibling completion test observation");
-    if let Some(identity)=completion_consent_identity {observation.successful_consent_message=Some(identity);}
+    if observation.successful_consent_message.is_none() {
+        if let Some(identity)=completion_consent_identity {observation.successful_consent_message=Some(identity);}
+    }
     if proof {observation.successful_commit_proof=true;}
 }
 // COMPLETION_TEST_END
