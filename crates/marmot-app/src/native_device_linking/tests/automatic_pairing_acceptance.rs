@@ -1428,3 +1428,8 @@ async fn completed_automatic_transport_keeps_public_cleanup_ownership() {
         "completed_session_public_owner_retains_cleanup"
     );
 }
+
+// BODY_NEGATIVE_TEST_BEGIN
+#[path = "automatic_body_negative_acceptance.rs"]
+mod body_negative_acceptance;
+// BODY_NEGATIVE_TEST_END

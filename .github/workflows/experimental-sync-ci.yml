@@ -9,10 +9,14 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
+        options: [body-negative-control, body-negative-mutation, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
         default: full
       completion_control_run_id:
         description: Prior successful controls plus both static cohorts for the exact current commit (required for mutations)
+        type: string
+        default: ''
+      body_negative_control_run_id:
+        description: Exact-source successful Body negative control run required for its mutation
         type: string
         default: ''
       baseline_gap:
@@ -37,6 +41,64 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  body-negative-preflight:
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'body-negative-control' || inputs.scope == 'body-negative-mutation')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - run: |
+          python3 scripts/verify_upstream_body_negative_source.py
+          cargo fmt --all
+          git diff -- crates > "$RUNNER_TEMP/body-negative-format.patch"
+          git diff --exit-code -- crates
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: body-negative-preflight
+          path: |
+            body-negative-source.json
+            ${{ runner.temp }}/body-negative-format.patch
+          if-no-files-found: error
+  body-negative-runtime:
+    name: Genuine Body negative retention
+    needs: body-negative-preflight
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'body-negative-control' || inputs.scope == 'body-negative-mutation')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - env:
+          CARGO_INCREMENTAL: '1'
+          GH_TOKEN: ${{ github.token }}
+          BODY_NEGATIVE_MODE: ${{ inputs.scope == 'body-negative-mutation' && 'mutation' || 'control' }}
+          BODY_NEGATIVE_CONTROL_RUN: ${{ inputs.body_negative_control_run_id }}
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Scoped Body negative retention'
+          python3 scripts/verify_upstream_body_negative_source.py
+          python3 scripts/qualify_upstream_body_negative.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: body-negative-${{ inputs.scope == 'body-negative-mutation' && 'mutation' || 'control' }}
+          path: |
+            body-negative-source.json
+            body-negative-evidence/result.json
+          if-no-files-found: error
   automatic-body-preflight:
     if: github.event_name == 'workflow_dispatch' && startsWith(inputs.scope, 'automatic-body-')
     name: Genuine automatic Body source parser and format gate
