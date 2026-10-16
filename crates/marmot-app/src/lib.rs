@@ -8305,3 +8305,8 @@ pub use runtime::{
     AccountAttachmentCursor, AccountAttachmentEntry, AccountAttachmentPage,
     AccountAttachmentPageRead, AccountAttachmentQuery, AccountAttachmentVersion,
 };
+
+// MAINTENANCE_PHASE_MODULE_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+mod maintenance_phase_diagnostics;
+// MAINTENANCE_PHASE_MODULE_END

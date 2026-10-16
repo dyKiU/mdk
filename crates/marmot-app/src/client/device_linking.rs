@@ -1234,28 +1234,96 @@ impl AppClient {
         &mut self,
         now: std::time::Instant,
     ) -> Result<(), ClientLinkingError> {
+        // MAINTENANCE_PHASE_GROUP_0_BEGIN
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        crate::maintenance_phase_diagnostics::observe_phase(0, Box::pin(async {
         self.maintain_selected_chat_packages()
             .map_err(ClientLinkingError::Engine)?;
         self.maintain_selected_chat_pending()
             .await
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
+            Ok::<(), ClientLinkingError>(())
+        })).await?;
+        #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
+        {
+        self.maintain_selected_chat_packages()
+            .map_err(ClientLinkingError::Engine)?;
+        self.maintain_selected_chat_pending()
+            .await
+            .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
+        }
+        // MAINTENANCE_PHASE_GROUP_0_END
+        // MAINTENANCE_PHASE_GROUP_1_BEGIN
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        crate::maintenance_phase_diagnostics::observe_phase(1, Box::pin(async {
         self.maintain_device_leaf_revocation_pending()
             .await
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
+            Ok::<(), ClientLinkingError>(())
+        })).await?;
+        #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
+        {
+        self.maintain_device_leaf_revocation_pending()
+            .await
+            .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
+        }
+        // MAINTENANCE_PHASE_GROUP_1_END
+        // MAINTENANCE_PHASE_GROUP_2_BEGIN
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        crate::maintenance_phase_diagnostics::observe_phase(2, Box::pin(async {
         self.maintain_original_history().await.map_err(|_| {
             ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
                 "history original maintenance unavailable".into(),
             )))
         })?;
+            Ok::<(), ClientLinkingError>(())
+        })).await?;
+        #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
+        {
+        self.maintain_original_history().await.map_err(|_| {
+            ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
+                "history original maintenance unavailable".into(),
+            )))
+        })?;
+        }
+        // MAINTENANCE_PHASE_GROUP_2_END
+        // MAINTENANCE_PHASE_GROUP_3_BEGIN
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        crate::maintenance_phase_diagnostics::observe_phase(3, Box::pin(async {
         self.maintain_existing_pair_sharing().map_err(|_| {
             ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
                 "account sharing original maintenance unavailable".into(),
             )))
         })?;
         self.persist_completed_pair_sharing_approval()?;
+            Ok::<(), ClientLinkingError>(())
+        })).await?;
+        #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
+        {
+        self.maintain_existing_pair_sharing().map_err(|_| {
+            ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
+                "account sharing original maintenance unavailable".into(),
+            )))
+        })?;
+        self.persist_completed_pair_sharing_approval()?;
+        }
+        // MAINTENANCE_PHASE_GROUP_3_END
+        // MAINTENANCE_PHASE_GROUP_4_BEGIN
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        crate::maintenance_phase_diagnostics::observe_phase(4, Box::pin(async {
         self.maintain_sibling_sharing().await?;
+            Ok::<(), ClientLinkingError>(())
+        })).await?;
+        #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
+        {
+        self.maintain_sibling_sharing().await?;
+        }
+        // MAINTENANCE_PHASE_GROUP_4_END
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let observer = self.linking_owner.sharing_approval.clone();
+        // MAINTENANCE_PHASE_GROUP_5_BEGIN
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        crate::maintenance_phase_diagnostics::observe_phase(5, Box::pin(async {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if let Some(observer) = &observer {
             observer.record_observation_stage_for_test(
@@ -1274,6 +1342,33 @@ impl AppClient {
                 "automatic sharing maintenance unavailable".into(),
             )))
         })?;
+            Ok::<(), ClientLinkingError>(())
+        })).await?;
+        #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
+        {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Some(observer) = &observer {
+            observer.record_observation_stage_for_test(
+                sibling_sharing::NativeObservationStage::AutomaticEntered,
+            );
+        }
+        let automatic = self.maintain_automatic_account_sharing().await;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Some(observer) = &observer {
+            observer.record_observation_stage_for_test(
+                sibling_sharing::NativeObservationStage::AutomaticExited,
+            );
+        }
+        automatic.map_err(|_| {
+            ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
+                "automatic sharing maintenance unavailable".into(),
+            )))
+        })?;
+        }
+        // MAINTENANCE_PHASE_GROUP_5_END
+        // MAINTENANCE_PHASE_GROUP_6_BEGIN
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        crate::maintenance_phase_diagnostics::observe_phase(6, Box::pin(async {
         self.prune_native_enrollment_intent();
         self.maintain_received_enrollment_endorsement(now)?;
         let reservation_live = self
@@ -1350,6 +1445,88 @@ impl AppClient {
             // an expired verifier or approval from a durable terminal fact.
             self.retire_unjoined_device_linking().await?;
         }
+            Ok::<(), ClientLinkingError>(())
+        })).await?;
+        #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
+        {
+        self.prune_native_enrollment_intent();
+        self.maintain_received_enrollment_endorsement(now)?;
+        let reservation_live = self
+            .linking_owner
+            .verifier
+            .maintain(now)
+            .map_err(ClientLinkingError::Owner)?;
+        let approval_live = self
+            .linking_owner
+            .welcome
+            .maintain()
+            .map_err(ClientLinkingError::Gate)?;
+        if !approval_live {
+            self.clear_private_welcome_collection();
+        }
+        if approval_live && self.linking_owner.welcome_collection.has_complete() {
+            let scope = self
+                .linking_owner
+                .verifier
+                .unjoined_purpose_scope()
+                .map_err(ClientLinkingError::Owner)?
+                .ok_or(ClientLinkingError::Collection(CollectionError::Denied))?;
+            self.join_collected_private_device_welcome(&scope).await?;
+            self.refresh_group_routes()
+                .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
+            self.save_state_with_pending_local_group_deletion_frontier_clears()
+                .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
+        }
+        if self
+            .linking_owner
+            .invite_attempt
+            .as_ref()
+            .is_some_and(|attempt| now >= attempt.deadline)
+        {
+            // Housekeeping may revoke early but can never extend the original
+            // deadline or issue a positive dispatch permission.
+            self.linking_owner.received_enrollment_proposals.clear();
+            self.linking_owner.invite.cancel();
+        }
+        let invite_live = match self
+            .linking_owner
+            .invite_attempt
+            .as_mut()
+            .and_then(|attempt| attempt.prepared.as_mut())
+        {
+            Some(prepared) => match prepared.check_live_permission() {
+                Ok(()) => true,
+                Err(
+                    cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier
+                    | cgka_traits::device_linking_key_package::LinkingWelcomeDenied::Expired
+                    | cgka_traits::device_linking_key_package::LinkingWelcomeDenied::Cancelled,
+                ) => false,
+                Err(error) => return Err(ClientLinkingError::Gate(error)),
+            },
+            None => match self
+                .linking_owner
+                .invite_attempt
+                .as_mut()
+                .and_then(|attempt| attempt.proposal.as_mut())
+            {
+                Some(proposal) => proposal.binding_digest().is_ok(),
+                None => self
+                    .linking_owner
+                    .invite
+                    .maintain()
+                    .map_err(ClientLinkingError::Gate)?,
+            },
+        };
+        if !invite_live {
+            self.retire_owned_private_invite()?;
+        }
+        if !reservation_live && !approval_live && !invite_live {
+            // Retry cleanup after transient storage failure without restoring
+            // an expired verifier or approval from a durable terminal fact.
+            self.retire_unjoined_device_linking().await?;
+        }
+        }
+        // MAINTENANCE_PHASE_GROUP_6_END
         Ok(())
     }
 
