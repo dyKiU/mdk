@@ -338,6 +338,10 @@ def parser_preflight():
 def main():
     out=Path('completion-diagnostic-evidence'); out.mkdir(exist_ok=True)
     report=environment(); report.update(qualification_passed=False,scope='one unchanged ordinary enrollment case; passive instrumentation overhead; no mutation qualification',columns=COLUMNS,pass_schema={'rows':['periodic','wake'],'columns':['entries','tails','last_observed_ms','last_observed_mask'],'mask_bits':['cheap_state_live','ready','handshake_published','policy_committed','proof_published','peer_committed','complete','publication_present','deferred_initial_error_present'],'mask_semantics':'Cached scheduling flags and cheap State.live only. No fresh original/context/guard validation; unlike original periodic-only channel_bits.'},time_schema='Per-State relative milliseconds plus one; zero means unknown. Never compare clocks across probes. queued_success is observed successful send; failed/closed queue status can remain unknown. signal_executed is sender invocation, not receiver observation; wake pass entry is recorded separately.')
+    from upstream_worker_load import read_hz, collect as collect_load
+    report['thread_cpu_clock']=read_hz()
+    report.update(load_collection_complete=False,cpu_known=False,poll_window_confident=False)
+    report['worker_poll_semantics']='Same already-boxed worker future, exactly one poll with original Context/waker/output. Timing captured after poll returns before observer writes/lock; observer overhead still changes scheduling and is not removed. Fixed numeric slots aggregate all four runtimes, never account identities/roles. Whole completed-poll count/sum deltas can straddle boundaries; window max is from stable active-epoch polls, never a difference of cumulative maxima. Active/unwound/overflow/straddling observations make the poll window incomplete. One current-thread CPU counter includes all work on that same calling OS thread, excluding other threads and relay processes; no per-operation attribution or exact CPU ratio. Each CPU read precedes its wall/epoch snapshot by observer overhead; boundaries are not atomic. Exactly two ordinary boundary proc reads; non-Linux/missing/read/parse/HZ/nonmonotonic counters remain unknown.'
     report['collection_limits']='Cached snapshots are read sequentially AFTER the timeout verdict; workers may advance during collection. States are not simultaneous, and per-State ages are relative to each snapshot, not the deadline or phase start. A post-timeout successful task does not alone establish completion before the deadline.'
     report['task_milestone_semantics']='First poll is entry to the spawned future; adapter entry is the existing select branch future entering before its adapter call; adapter_returned_ok is after the select returned Ok and before the original live/ACK checks. Zero is unknown, never proof of failure or non-polling. Adapter entry without returned_ok does not distinguish pending transport, cancellation, or adapter error without a recorded inner outcome.'
     report['cost_semantics']={'columns':['entered','completed','inclusive_wall_ns','existing_source_channel_noops','overflow'],'scope':'Process-wide aggregate across all runtimes; fourth-completion start/end boundary snapshots. Inclusive wall durations, not CPU or exclusive cost. Completion duration deltas can include calls entered before start, and exclude unfinished calls at end; inspect both in-flight counts. No-op events are independently counted actual begin_sibling_source_channel early returns, not paired with begin_roster getter calls. No cross-State or exact-deadline timing claim. Timer stops before taking aggregation lock.'}
@@ -346,9 +350,15 @@ def main():
     def save(): (out/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     frozen=freeze(); report['source_before_sha256']=identity(frozen); save()
     try:
-        compilation,cases=compile_cases([ORIGINALS[0]]); report['compilation']=compilation; save()
+        cpu_parser='completion_load_cpu_stat_parser_refuses_unqualified_fields'
+        compilation,cases=compile_cases([ORIGINALS[0],cpu_parser]); report['compilation']=compilation; save()
         ensure(freeze()==frozen,'compile-input-drift')
-        ensure(compilation.get('compile_exit_code')==0 and compilation.get('compiler_error_count')==0 and compilation.get('compiled_fingerprints',{}).get('verified') and len(cases)==1,'compile-or-inventory-not-qualified')
+        ensure(compilation.get('compile_exit_code')==0 and compilation.get('compiler_error_count')==0 and compilation.get('compiled_fingerprints',{}).get('verified') and len(cases)==2,'compile-or-inventory-not-qualified')
+        from upstream_completion_ci import execute
+        parser_row=execute(cases[cpu_parser],cpu_parser); report['actual_rust_cpu_parser_control']=parser_row; save()
+        ensure(parser_row.get('body_exit_code')==0 and parser_row.get('passed')==1 and parser_row.get('failed')==0 and parser_row.get('ignored')==0 and parser_row.get('executed_nonignored')==1 and parser_row.get('all_panic_header_count')==0 and not parser_row.get('watchdog_triggered'),'actual-rust-cpu-parser-not-qualified')
+        parser_row['asserted_cases_from_frozen_test_source']={'positive':2,'negative':14}
+        ensure(freeze()==frozen and subprocess.run(['git','diff','--quiet','HEAD']).returncode==0,'parser-control-input-drift'); save()
         case=cases[ORIGINALS[0]]; start=time.monotonic(); row={'test':case['name'],'binary_sha256':case['binary_sha256']}
         try:
             body=subprocess.run([case['binary'],'--exact',case['name'],'--nocapture','--test-threads=1'],capture_output=True,text=True,timeout=300)
@@ -356,9 +366,16 @@ def main():
         except subprocess.TimeoutExpired as error:
             def text(value): return value.decode(errors='replace') if isinstance(value,bytes) else value or ''
             raw=text(error.stdout)+text(error.stderr); row.update(watchdog_triggered=True,actual_count_unknown=True)
-        row.update(body_seconds=time.monotonic()-start,**parse_body(raw,ORIGINALS[0])); row['observations']=observations(raw)
+        row.update(body_seconds=time.monotonic()-start)
+        report['body']=row; save()
+        row.update(parse_body(raw,ORIGINALS[0])); save()
+        row['observations']=observations(raw); save()
         from upstream_publication_sdk import collect
         row['sdk_correlation']=collect(raw,[entry['probe'] for entry in row['observations'].get('probe_dump_sequence',[])])
+        row['worker_load']=collect_load(raw,report['thread_cpu_clock']['hz'])
+        report['poll_window_confident']=row['worker_load']['poll_window_confident']
+        report['cpu_known']=row['worker_load']['cpu_known']
+        report['load_collection_complete']=report['poll_window_confident'] and report['cpu_known']
         row['failure_observations_available']=bool(row['observations']['sides'] or row['observations']['existing'])
         if row.get('watchdog_triggered'): row['actual_count_unknown']=True
         report['body']=row; report['diagnostic_collection_complete']=diagnostic_complete(row) and row['sdk_correlation']['snapshot_valid'] and (row.get('passed')==1 or row['sdk_correlation']['association_complete'])
