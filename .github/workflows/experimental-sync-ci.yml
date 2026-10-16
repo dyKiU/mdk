@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [public-proof-memo-format, public-proof-memo-controls, settlement-decode-format, settlement-decode-controls, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
+        options: [public-proof-memo-mutation-preflight, public-proof-memo-mutations, public-proof-memo-format, public-proof-memo-controls, settlement-decode-format, settlement-decode-controls, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
         default: full
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -33,6 +33,69 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  public-proof-memo-mutation-preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'public-proof-memo-mutation-preflight'
+    name: Five independent proof and decode mutation source preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Parse controller and verify unchanged qualified product plus exact anchors
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 -c 'import ast,pathlib; ast.parse(pathlib.Path("scripts/qualify_upstream_proof_memo_mutations.py").read_text())'
+          python3 scripts/qualify_upstream_proof_memo_mutations.py --preflight
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: proof-memo-mutation-source-preflight
+          path: |
+            proof-memo-mutation-evidence/result.json
+            public-proof-memo-source.json
+          if-no-files-found: error
+          retention-days: 14
+  public-proof-memo-mutations:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'public-proof-memo-mutations'
+    name: Independent exact proof and decode mutation (${{ matrix.case }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        case: [request-equality, signature-equality, proof-deoptimization, raw-byte-equality, post-drain-close]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+      - name: One baseline then one intended runtime counterfactual and exact restored control
+        env:
+          CARGO_INCREMENTAL: '1'
+          MUTATION_CASE: ${{ matrix.case }}
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Independent proof and decode runtime mutation'
+          python3 scripts/qualify_upstream_proof_memo_mutations.py "$MUTATION_CASE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: proof-memo-mutation-${{ matrix.case }}
+          path: |
+            proof-memo-mutation-evidence/result.json
+            public-proof-memo-source.json
+          if-no-files-found: error
+          retention-days: 14
   public-proof-memo-format:
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'public-proof-memo-format'
     name: Pure public proof memo source and formatting preflight
