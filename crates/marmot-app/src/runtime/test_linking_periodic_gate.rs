@@ -10,7 +10,7 @@ impl PeriodicGateGuard {
 impl Drop for PeriodicGateGuard {
     fn drop(&mut self) {
         {let mut map=self.map.lock().expect("periodic test gate");if map.get(&self.account).is_some_and(|gate|Arc::ptr_eq(gate,&self.gate)){map.remove(&self.account);}}
-        let _=self.gate.sender.send(false);
+        self.gate.sender.send_replace(false);
     }
 }
 impl MarmotAppRuntime {
