@@ -392,6 +392,22 @@ impl DeviceLinkingSession {
             .as_ref()
             .map(|choice| choice.observation_snapshot_for_test())
     }
+
+    // COMPLETION_TEST_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn completed_consent_progress_for_test(
+        &self,
+        identity: &cgka_traits::MessageId,
+        policies: &[cgka_traits::approved_account_sharing_policy::ApprovedAccountSharingPolicy],
+    ) -> Option<(bool, bool)> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()?
+            .completed_consent_progress_for_test(identity, policies)
+    }
+    // COMPLETION_TEST_END
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn sibling_child_diagnostics_for_test(
         &self,

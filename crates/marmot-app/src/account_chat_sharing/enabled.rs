@@ -35,6 +35,11 @@ pub(crate) enum SiblingPublicationStage {
 #[cfg(all(test, feature = "test-policy-overrides"))]
 #[derive(Default)]
 pub(crate) struct SiblingMaintenanceDiagnostics {
+    // COMPLETION_TEST_BEGIN
+    pub(crate) successful_consent_message: Option<cgka_traits::MessageId>,
+    pub(crate) successful_commit_proof: bool,
+    // COMPLETION_TEST_END
+
     // Original live, state live, ready, handshake published, local policy,
     // proof published, peer proof received, complete (low to high bits).
     pub(crate) channel_bits: usize,
@@ -213,6 +218,8 @@ pub(crate) struct AccountSharingOwner {
     pub(crate) next_original_lifetime_for_test: Option<Duration>,
     pub(crate) departure_cursor: Option<[u8; 32]>,
     pub(crate) automatic_handshake_slots: Arc<tokio::sync::Semaphore>,
+    pub(crate) automatic_body_slots: Arc<tokio::sync::Semaphore>,
+    pub(crate) automatic_body_after: Option<[u8; 32]>,
     pub(crate) automatic:
         BTreeMap<[u8; 32], crate::client::account_chat_sharing::automatic::AutomaticChannel>,
 }
@@ -229,6 +236,10 @@ impl Default for AccountSharingOwner {
             automatic_handshake_slots: Arc::new(tokio::sync::Semaphore::new(
                 crate::client::account_chat_sharing::automatic::MAX_AUTOMATIC_HANDSHAKES,
             )),
+            automatic_body_slots: Arc::new(tokio::sync::Semaphore::new(
+                crate::client::account_chat_sharing::automatic::MAX_AUTOMATIC_BODIES,
+            )),
+            automatic_body_after: None,
             automatic: BTreeMap::new(),
             departure_cursor: None,
         }

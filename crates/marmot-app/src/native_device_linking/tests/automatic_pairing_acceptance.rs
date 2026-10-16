@@ -2,6 +2,237 @@ use super::*;
 use crate::{MarmotApp, MarmotAppRuntime};
 use marmot_account::AccountHome;
 
+// AUTOMATIC_BODY_TEST_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+#[tokio::test]
+async fn held_automatic_catalog_body_keeps_fresh_account_commands_responsive() {
+    use cgka_traits::StorageProvider;
+    let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+    let url = relay.url().await.to_string();
+    let keys = nostr::prelude::Keys::generate();
+    let dirs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+    let apps = std::array::from_fn::<_, 2, _>(|index| {
+        AccountHome::open(dirs[index].path())
+            .import_account("test", &keys.secret_key().to_secret_hex())
+            .unwrap();
+        MarmotApp::with_relay(dirs[index].path(), &url)
+    });
+    let runtimes = apps.clone().map(MarmotAppRuntime::new);
+    for runtime in &runtimes {
+        runtime.reconcile_accounts().await.unwrap();
+    }
+    let managers = runtimes.each_ref().map(|runtime| runtime.accounts());
+    let old_chat = managers[0]
+        .create_group("test", "Body responsiveness baseline", &[], None)
+        .await
+        .unwrap();
+    let history = managers[0]
+        .send_message(
+            "test",
+            &old_chat,
+            b"Body responsiveness baseline history".to_vec(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(history.message_ids.len(), 1);
+    let recipient = managers[1]
+        .begin_device_linking_session("test")
+        .await
+        .unwrap();
+    let source = managers[0]
+        .approve_automatic_device_linking_session(
+            "test",
+            recipient.automatic_pairing_code().await.unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+    source.automatic_pairing_code().await.unwrap();
+    compare_and_confirm_pair(&source, &recipient).await;
+    recipient
+        .continue_automatic_linking(recipient.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
+    source
+        .continue_automatic_linking(source.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
+    wait_for_automatic_phase(&source, &recipient, DeviceLinkingPhase::EnrollmentComplete).await;
+    assert!(
+        apps.iter().all(|app| {
+            let policies = app
+                .account_storage("test")
+                .unwrap()
+                .approved_account_sharing_policy_storage()
+                .unwrap()
+                .approved_account_sharing_policies()
+                .unwrap();
+            policies.len() == 1 && !policies[0].revoked
+        }),
+        "actual bilateral completed policies are required"
+    );
+    let history_id = hex::decode(&history.message_ids[0]).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            let chats = managers[1]
+                .paired_chat_list_page("test", None, 128)
+                .await
+                .unwrap();
+            let messages = managers[1]
+                .paired_chat_message_page("test", old_chat.clone(), None, 128)
+                .await;
+            if chats
+                .chats
+                .iter()
+                .filter(|chat| chat.group_id == old_chat)
+                .count()
+                == 1
+                && messages.is_ok_and(|page| {
+                    page.messages
+                        .iter()
+                        .any(|message| message.event_id.as_slice() == history_id)
+                })
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("the real existing chat and history must be fully mirrored first");
+    source.cancel().await.unwrap();
+    recipient.cancel().await.unwrap();
+    eprintln!("automatic-body-control stage=bilateral-pair-and-history-ready");
+
+    let before = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        managers[0].device_linking_targets("test"),
+    )
+    .await
+    .expect("the source actor must respond within the same bound before the hold")
+    .expect("the pre-hold actor command must return actual targets");
+    assert!(
+        before.len() == 1 && before[0].device_count == 2,
+        "the pre-hold control must observe the real two-device roster"
+    );
+    eprintln!("automatic-body-control stage=prehold-control");
+
+    let (observed, release) = apps[0].relay_plane.hold_next_automatic_catalog_body_except(
+        cgka_traits::MemberId::new(keys.public_key().to_bytes().to_vec()),
+        old_chat.clone(),
+    );
+    struct BodyRelease(std::sync::Arc<tokio::sync::Notify>);
+    impl Drop for BodyRelease {
+        fn drop(&mut self) {
+            self.0.notify_one();
+        }
+    }
+    let release = BodyRelease(release);
+    let fresh_chat = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        managers[0].create_group("test", "Body responsiveness new chat", &[], None),
+    )
+    .await
+    .expect("the actual new-chat trigger must finish before its Catalog Body hold")
+    .unwrap();
+    let (held_group, held_message) =
+        tokio::time::timeout(std::time::Duration::from_secs(30), observed)
+            .await
+            .expect("a genuine new-chat Catalog Body must reach transport")
+            .expect("the genuine Catalog Body observer must remain alive");
+    assert!(
+        held_group == fresh_chat,
+        "held cached catalog receipt must belong to the actual new chat"
+    );
+    assert!(
+        held_message.id.as_slice().len() == 32 && !held_message.payload.is_empty(),
+        "the held body must be an actual prepared transport message"
+    );
+    eprintln!("automatic-body-control stage=actual-new-chat-catalog-body-held");
+
+    let peer = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        managers[1].device_linking_targets("test"),
+    )
+    .await
+    .expect("the independent peer actor must respond while the actual body is held")
+    .expect("the held-phase peer command must return actual targets");
+    assert!(
+        peer.len() == 1 && peer[0].device_count == 2,
+        "the peer progress control must observe the real two-device roster"
+    );
+    eprintln!("automatic-body-control stage=peer-progress-control");
+
+    let mut command = Box::pin(managers[0].device_linking_targets("test"));
+    let first = tokio::time::timeout(std::time::Duration::from_secs(1), command.as_mut()).await;
+    let responsive = first.is_ok();
+    let early = first.ok();
+    eprintln!("automatic-body-control stage=fresh-command-verdict-frozen responsive={responsive}");
+    release.0.notify_one();
+    eprintln!("automatic-body-control stage=actual-body-released");
+    let targets = match early {
+        Some(result) => result,
+        None => tokio::time::timeout(std::time::Duration::from_secs(15), command.as_mut())
+            .await
+            .expect("the same fresh actor command must finish after body release"),
+    }
+    .expect("the same fresh actor command must return real targets");
+    assert!(
+        targets.len() == 1 && targets[0].device_count == 2,
+        "the same command must observe the genuine two-device roster"
+    );
+    eprintln!("automatic-body-control stage=same-fresh-command-completed");
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            let page = managers[1]
+                .paired_chat_list_page("test", None, 128)
+                .await
+                .unwrap();
+            let count = page
+                .chats
+                .iter()
+                .filter(|chat| chat.group_id == fresh_chat)
+                .count();
+            assert!(
+                count <= 1,
+                "the actual new catalog effect must not be duplicated"
+            );
+            if count == 1 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("the released actual Catalog Body must discover the new chat exactly once");
+    let page = managers[1]
+        .paired_chat_list_page("test", None, 128)
+        .await
+        .unwrap();
+    assert!(
+        page.chats
+            .iter()
+            .filter(|chat| chat.group_id == fresh_chat)
+            .count()
+            == 1,
+        "the released actual catalog effect must remain unique"
+    );
+    eprintln!("automatic-body-control stage=actual-new-chat-delivered-once");
+    for (index, runtime) in runtimes.iter().enumerate() {
+        runtime.shutdown_and_close().await.unwrap();
+        assert!(
+            runtime.storage_is_closed(),
+            "the actual runtime must positively close storage"
+        );
+        eprintln!("automatic-body-control stage=positive-runtime-close index={index}");
+    }
+    assert!(
+        responsive,
+        "held automatic Catalog Body must not block a fresh account actor command"
+    );
+}
+// AUTOMATIC_BODY_TEST_END
+
 #[tokio::test]
 async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts() {
     four_device_enrollment(HeldPublication::None).await;
@@ -17,9 +248,21 @@ async fn automatic_sync_does_not_block_foreground_enrollment_completion() {
     four_device_enrollment(HeldPublication::Automatic).await;
 }
 
+// COMPLETION_TEST_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+#[tokio::test]
+async fn completed_sibling_consent_services_initial_progress_without_periodic_tick() {
+    four_device_enrollment(HeldPublication::CompletionWake).await;
+}
+// COMPLETION_TEST_END
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum HeldPublication {
     None,
+
+    // COMPLETION_TEST_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    CompletionWake,
+    // COMPLETION_TEST_END
     SiblingConsent,
     Automatic,
 }
@@ -128,9 +371,21 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         .await
         .unwrap();
     // No enrollment_packet/receive_enrollment_packet/finalize calls by the host.
-    eprintln!("automatic-enrollment-control stage=third-device-completion");
-    wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
-    eprintln!("automatic-enrollment-control stage=third-device-completed");
+    // COMPLETION_TEST_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    let roster_setup_only = held_publication == HeldPublication::CompletionWake;
+    #[cfg(not(feature = "test-policy-overrides"))]
+    let roster_setup_only = false;
+    // This separate schedule test establishes real membership, not prior
+    // B/C chat-sharing completion (the behavior under independent test).
+    if !roster_setup_only {
+        // COMPLETION_TEST_END
+        eprintln!("automatic-enrollment-control stage=third-device-completion");
+        wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
+        eprintln!("automatic-enrollment-control stage=third-device-completed");
+        // COMPLETION_TEST_BEGIN
+    }
+    // COMPLETION_TEST_END
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             if apps[..3].iter().all(|app| {
@@ -150,16 +405,25 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     })
     .await
     .expect("automatic transport must settle all three real device leaves");
-    assert!(apps[..3].iter().all(|app| {
-        app.account_storage("test")
-            .unwrap()
-            .approved_account_sharing_policy_storage()
-            .unwrap()
-            .approved_account_sharing_policies()
-            .unwrap()
-            .len()
-            == 2
-    }));
+    // COMPLETION_TEST_BEGIN
+    if roster_setup_only {
+        eprintln!("completion-wake-control stage=third-roster-ready");
+    }
+    if !roster_setup_only {
+        // COMPLETION_TEST_END
+        assert!(apps[..3].iter().all(|app| {
+            app.account_storage("test")
+                .unwrap()
+                .approved_account_sharing_policy_storage()
+                .unwrap()
+                .approved_account_sharing_policies()
+                .unwrap()
+                .len()
+                == 2
+        }));
+        // COMPLETION_TEST_BEGIN
+    }
+    // COMPLETION_TEST_END
     a.cancel().await.unwrap();
     c.cancel().await.unwrap();
     drop(approval);
@@ -173,6 +437,11 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         "background transport must not keep the dropped original live"
     );
     drop(background_borrow);
+    // COMPLETION_TEST_BEGIN
+    if roster_setup_only {
+        eprintln!("completion-wake-control stage=third-originals-retired");
+    }
+    // COMPLETION_TEST_END
     let targets = managers[0].device_linking_targets("test").await.unwrap();
     assert_eq!(targets[0].device_count, 3);
     let d = managers[3]
@@ -204,6 +473,21 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
                 keys.public_key().to_bytes().to_vec(),
             ))
     });
+
+    // COMPLETION_TEST_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    let held_consent = if held_publication == HeldPublication::CompletionWake {
+        Some(
+            apps[3]
+                .relay_plane
+                .hold_next_sibling_consent(cgka_traits::MemberId::new(
+                    keys.public_key().to_bytes().to_vec(),
+                )),
+        )
+    } else {
+        held_consent
+    };
+    // COMPLETION_TEST_END
     d.continue_automatic_linking(d.snapshot().await.unwrap().revision, true)
         .await
         .unwrap();
@@ -232,6 +516,111 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         approval.approve_and_share_chats(revision).await.unwrap();
         approvals.push(approval);
     }
+
+    // COMPLETION_TEST_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    let mut completion_wake_result = None;
+    #[cfg(feature = "test-policy-overrides")]
+    let held_consent = if held_publication == HeldPublication::CompletionWake {
+        // Real transport hold precedes the schedule gate; no fake consent or policy.
+        let (observed, release) = held_consent.expect("completion test consent hold installed");
+        struct ConsentHoldRelease(std::sync::Arc<tokio::sync::Notify>);
+        impl Drop for ConsentHoldRelease {
+            fn drop(&mut self) {
+                self.0.notify_one();
+            }
+        }
+        let release = ConsentHoldRelease(release);
+        // Primary private settlement is independent of the held sibling Consent.
+        // Keep every periodic arm ungated until its real four-leaf facts exist.
+        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                if apps.iter().all(|app| {
+                    let storage = app.account_storage("test").unwrap();
+                    let store = storage.private_roster_settlement_storage().unwrap();
+                    store.read_round().unwrap().is_some_and(|round| {
+                        round.phase == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed
+                            && round.anchor.successor.leaves.len() == 4
+                            && store.read_facts().unwrap().len() == 4
+                    })
+                }) {break;}
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        }).await.expect("four real primary settlement stores must be completed before the schedule gate");
+        eprintln!("completion-wake-control stage=primary-round-ready");
+        let held = tokio::time::timeout(std::time::Duration::from_secs(10), observed)
+            .await
+            .expect("actual sibling consent hold acquired")
+            .expect("actual sibling consent publication observed");
+        eprintln!("completion-wake-control stage=actual-consent-held");
+        let periodic = runtimes[3].hold_periodic_linking_for_test("test");
+        tokio::time::timeout(std::time::Duration::from_secs(10), periodic.observed())
+            .await
+            .expect("only recipient periodic arm must be gated");
+        eprintln!("completion-wake-control stage=periodic-arm-gated");
+        let mut success = false;
+        let mut foreground = false;
+        let mut durable_seen = false;
+        let mut proof_seen = false;
+        release.0.notify_one();
+        let progress = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            loop {
+                let policies = apps[3]
+                    .account_storage("test")
+                    .unwrap()
+                    .approved_account_sharing_policy_storage()
+                    .unwrap()
+                    .approved_account_sharing_policies()
+                    .unwrap();
+                if let Some((durable, proof)) =
+                    d.completed_consent_progress_for_test(&held.id, &policies)
+                {
+                    durable_seen |= durable;
+                    proof_seen |= proof;
+                    if !success {
+                        success = true;
+                        eprintln!("completion-wake-control stage=actual-consent-task-success");
+                    }
+                    if !foreground {
+                        a.snapshot()
+                            .await
+                            .expect("foreground sponsor snapshot remains serviceable");
+                        d.snapshot()
+                            .await
+                            .expect("foreground recipient snapshot remains serviceable");
+                        foreground = true;
+                        eprintln!("completion-wake-control stage=foreground-progress");
+                        // COMPLETION_ACTOR_CHECK_BEGIN
+                        let targets = managers[3]
+                            .device_linking_targets("test")
+                            .await
+                            .expect("fresh recipient worker command remains serviceable");
+                        assert!(
+                            targets.len() == 1 && targets[0].device_count == 4,
+                            "fresh recipient worker command must read the actual four-device roster"
+                        );
+                        eprintln!("completion-wake-control stage=fresh-actor-progress");
+                        // COMPLETION_ACTOR_CHECK_END
+                    }
+                    if durable && proof {
+                        break;
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .is_ok();
+        // Always release before normal completion, retirement and positive cleanup.
+        drop(periodic);
+        eprintln!("completion-wake-control stage=periodic-arm-released");
+        drop(release);
+        completion_wake_result = Some((success, foreground, progress, durable_seen, proof_seen));
+        None
+    } else {
+        held_consent
+    };
+    // COMPLETION_TEST_END
     if let Some((observed, release)) = held_consent {
         let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
             observed.await.expect("genuine sibling consent publication");
@@ -291,6 +680,12 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     )
     .await;
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
+    // COMPLETION_TEST_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    if completion_wake_result.is_some() {
+        eprintln!("completion-wake-control stage=normal-completion");
+    }
+    // COMPLETION_TEST_END
     drop(held_release);
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
@@ -319,6 +714,28 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     for runtime in runtimes {
         runtime.shutdown_and_close().await.unwrap();
     }
+    // COMPLETION_TEST_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    if let Some((success, foreground, progress, durable_seen, proof_seen)) = completion_wake_result
+    {
+        eprintln!("completion-wake-control stage=positive-cleanup-completed");
+        eprintln!(
+            "completion-wake-control result success={success} foreground={foreground} progress={progress} durable_policy_seen={durable_seen} proof_success_seen={proof_seen}"
+        );
+        assert!(
+            success,
+            "the held real consent task must successfully complete before the liveness oracle"
+        );
+        assert!(
+            foreground,
+            "foreground snapshots must complete while periodic maintenance is gated"
+        );
+        assert!(
+            progress,
+            "successful sibling consent must persist its real policy and publish its commit proof without a periodic tick"
+        );
+    }
+    // COMPLETION_TEST_END
 }
 
 #[tokio::test]

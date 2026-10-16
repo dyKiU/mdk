@@ -1,3 +1,11 @@
+// COMPLETION_TEST_BEGIN
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+mod test_linking_periodic_gate;
+// COMPLETION_TEST_END
 use zeroize::Zeroizing;
 
 use crate::RuntimePerformanceOperation as RuntimeOp;
@@ -431,6 +439,15 @@ impl Drop for SubmissionClassificationHold {
 
 #[derive(Clone)]
 pub struct RuntimeSharedServices {
+    // COMPLETION_TEST_BEGIN
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    linking_periodic_test_gates:
+        Arc<StdMutex<HashMap<String, Arc<test_linking_periodic_gate::PeriodicGate>>>>,
+    // COMPLETION_TEST_END
     /// Every production runtime points at the same process capacity. The
     /// indirection permits explicit isolation of capacity-sensitive fixtures.
     recovery_credits: Arc<StdMutex<Arc<account_worker::recovery_credits::RecoveryCreditPool>>>,
@@ -571,6 +588,14 @@ impl Default for RuntimeSharedServices {
             ordinary_drop_witness: Arc::new(StdMutex::new(None)),
             #[cfg(test)]
             ordinary_delivery_dropped: Arc::new(Notify::new()),
+            // COMPLETION_TEST_BEGIN
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            linking_periodic_test_gates: Arc::new(StdMutex::new(HashMap::new())),
+            // COMPLETION_TEST_END
             attachment_transfer: Arc::new(tokio::sync::Semaphore::new(1)),
             local_submission_wakeups: watch::channel(()).0,
             local_submission_queue: Arc::new(StdMutex::new(Default::default())),
@@ -737,6 +762,14 @@ impl RuntimeSharedServices {
             ordinary_drop_witness: Arc::new(StdMutex::new(None)),
             #[cfg(test)]
             ordinary_delivery_dropped: Arc::new(Notify::new()),
+            // COMPLETION_TEST_BEGIN
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
+            linking_periodic_test_gates: Arc::new(StdMutex::new(HashMap::new())),
+            // COMPLETION_TEST_END
             attachment_transfer: Arc::new(tokio::sync::Semaphore::new(1)),
             attachment_updates: watch::channel(()).0,
             local_submission_wakeups: watch::channel(()).0,

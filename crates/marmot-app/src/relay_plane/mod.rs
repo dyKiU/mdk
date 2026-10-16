@@ -144,6 +144,14 @@ struct MarmotRelayPlaneInner {
         feature = "test-policy-overrides"
     ))]
     selected_welcome_gate: std::sync::Mutex<Option<SelectedWelcomePublicationGate>>,
+    // AUTOMATIC_BODY_TEST_BEGIN
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    automatic_body_gate: std::sync::Mutex<Option<AutomaticBodyPublicationGate>>,
+    // AUTOMATIC_BODY_TEST_END
     #[cfg(all(
         test,
         feature = "experimental-device-sync",
@@ -194,6 +202,20 @@ struct SelectedWelcomePublicationGate {
     observed: tokio::sync::oneshot::Sender<cgka_traits::TransportMessage>,
     release: Arc<Notify>,
 }
+
+// AUTOMATIC_BODY_TEST_BEGIN
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+struct AutomaticBodyPublicationGate {
+    account: MemberId,
+    excluded_group: cgka_traits::GroupId,
+    observed: tokio::sync::oneshot::Sender<(cgka_traits::GroupId, cgka_traits::TransportMessage)>,
+    release: Arc<Notify>,
+}
+// AUTOMATIC_BODY_TEST_END
 
 #[cfg(all(
     test,
@@ -1439,6 +1461,37 @@ impl MarmotRelayPlane {
         self.hold_next_selected_publication(account, SelectedPublicationClass::Automatic)
     }
 
+    // AUTOMATIC_BODY_TEST_BEGIN
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn hold_next_automatic_catalog_body_except(
+        &self,
+        account: MemberId,
+        excluded_group: cgka_traits::GroupId,
+    ) -> (
+        tokio::sync::oneshot::Receiver<(cgka_traits::GroupId, cgka_traits::TransportMessage)>,
+        Arc<Notify>,
+    ) {
+        let (observed, receiver) = tokio::sync::oneshot::channel();
+        let release = Arc::new(Notify::new());
+        let mut gate = self.inner.automatic_body_gate.lock().unwrap();
+        assert!(
+            gate.is_none(),
+            "only one automatic body fixture may be held"
+        );
+        *gate = Some(AutomaticBodyPublicationGate {
+            account,
+            excluded_group,
+            observed,
+            release: release.clone(),
+        });
+        (receiver, release)
+    }
+    // AUTOMATIC_BODY_TEST_END
+
     #[cfg(all(
         test,
         feature = "experimental-device-sync",
@@ -1607,6 +1660,14 @@ impl MarmotRelayPlane {
                     feature = "test-policy-overrides"
                 ))]
                 selected_welcome_gate: std::sync::Mutex::new(None),
+                // AUTOMATIC_BODY_TEST_BEGIN
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
+                automatic_body_gate: std::sync::Mutex::new(None),
+                // AUTOMATIC_BODY_TEST_END
                 #[cfg(all(
                     test,
                     feature = "experimental-device-sync",
@@ -3986,6 +4047,36 @@ impl MarmotRelayPlaneAccountAdapter {
         self.publish_selected_chat(request).await
     }
 
+    // AUTOMATIC_BODY_TEST_BEGIN
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) async fn hold_automatic_catalog_body_for_test(
+        &self,
+        request: &TransportPublishRequest,
+        catalog_group: Option<&cgka_traits::GroupId>,
+    ) {
+        let Some(group) = catalog_group else {
+            return;
+        };
+        let gate = {
+            let mut held = self.relay_plane.inner.automatic_body_gate.lock().unwrap();
+            if held.as_ref().is_some_and(|gate| {
+                gate.account == request.account_id && &gate.excluded_group != group
+            }) {
+                held.take()
+            } else {
+                None
+            }
+        };
+        if let Some(gate) = gate {
+            let _ = gate.observed.send((group.clone(), request.message.clone()));
+            gate.release.notified().await;
+        }
+    }
+    // AUTOMATIC_BODY_TEST_END
     #[cfg(feature = "experimental-device-sync")]
     pub(crate) async fn publish_automatic_control(
         &self,

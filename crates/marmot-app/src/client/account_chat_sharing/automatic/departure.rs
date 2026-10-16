@@ -44,6 +44,28 @@ pub(super) struct DepartureProgress {
     cursor: Option<[u8; 32]>,
     last: Option<([u8; 32], [u8; 32], std::time::Instant)>,
 }
+#[derive(PartialEq, Eq)]
+pub(super) struct DeparturePublicationIdentity {
+    action_id: [u8; 32],
+    reply: Option<(DeliveryKind, bool, bool, bool)>,
+}
+impl DepartureProgress {
+    pub(super) fn publication_identity(&self) -> Option<DeparturePublicationIdentity> {
+        self.pending
+            .as_ref()
+            .map(|pending| DeparturePublicationIdentity {
+                action_id: pending.action_id,
+                reply: pending.reply.map(|(kind, status)| {
+                    (
+                        kind,
+                        status.complete,
+                        status.needs_administrator,
+                        status.awaiting_sources,
+                    )
+                }),
+            })
+    }
+}
 
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl DepartureProgress {
