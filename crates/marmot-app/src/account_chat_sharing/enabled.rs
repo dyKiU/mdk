@@ -35,10 +35,10 @@ pub(crate) enum SiblingPublicationStage {
 #[cfg(all(test, feature = "test-policy-overrides"))]
 #[derive(Default)]
 pub(crate) struct SiblingMaintenanceDiagnostics {
-// COMPLETION_TEST_BEGIN
-pub(crate) successful_consent_message: Option<cgka_traits::MessageId>,
-pub(crate) successful_commit_proof: bool,
-// COMPLETION_TEST_END
+    // COMPLETION_TEST_BEGIN
+    pub(crate) successful_consent_message: Option<cgka_traits::MessageId>,
+    pub(crate) successful_commit_proof: bool,
+    // COMPLETION_TEST_END
 
     // Original live, state live, ready, handshake published, local policy,
     // proof published, peer proof received, complete (low to high bits).
