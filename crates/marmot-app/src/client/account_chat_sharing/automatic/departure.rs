@@ -52,7 +52,9 @@ pub(super) struct DeparturePublicationIdentity {
 impl DepartureProgress {
     // BODY_NEGATIVE_TEST_BEGIN
     #[cfg(all(test, feature = "test-policy-overrides"))]
-    pub(super) fn pending_action_for_test(&self) -> Option<[u8; 32]> { self.pending.as_ref().map(|pending| pending.action_id) }
+    pub(super) fn pending_action_for_test(&self) -> Option<[u8; 32]> {
+        self.pending.as_ref().map(|pending| pending.action_id)
+    }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn complete_assembly_for_test(&self) -> bool {
         self.assembly.as_ref().is_some_and(|(_, assembly)| {
@@ -832,7 +834,11 @@ impl AppClient {
         // BODY_NEGATIVE_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if kind == AccountSharedBodyKind::DepartureIntent {
-            super::body_negative_probe::peer_intent_prepared(self.app.account_home().root(), entry, &row.intent);
+            super::body_negative_probe::peer_intent_prepared(
+                self.app.account_home().root(),
+                entry,
+                &row.intent,
+            );
         }
         // BODY_NEGATIVE_TEST_END
         #[cfg(all(test, feature = "test-policy-overrides"))]

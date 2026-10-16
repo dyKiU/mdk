@@ -1934,7 +1934,12 @@ impl AppClient {
         // AUTOMATIC_BODY_TEST_END
         // BODY_NEGATIVE_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let negative_intent_gate = body_negative_probe::peer_gate(self.app.account_home().root(), entry, kind, input_payload_digest);
+        let negative_intent_gate = body_negative_probe::peer_gate(
+            self.app.account_home().root(),
+            entry,
+            kind,
+            input_payload_digest,
+        );
         // BODY_NEGATIVE_TEST_END
         // Core has prepared actual consent under the live durable policy.
         // Bodies retain their original queue context until actor-side ACK harvest.
