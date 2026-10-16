@@ -140,7 +140,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         .await
         .unwrap();
     // No enrollment_packet/receive_enrollment_packet/finalize calls by the host.
-// COMPLETION_TEST_BEGIN
+    // COMPLETION_TEST_BEGIN
     #[cfg(feature = "test-policy-overrides")]
     let roster_setup_only = held_publication == HeldPublication::CompletionWake;
     #[cfg(not(feature = "test-policy-overrides"))]
@@ -148,13 +148,13 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     // This separate schedule test establishes real membership, not prior
     // B/C chat-sharing completion (the behavior under independent test).
     if !roster_setup_only {
-// COMPLETION_TEST_END
-    eprintln!("automatic-enrollment-control stage=third-device-completion");
-    wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
-    eprintln!("automatic-enrollment-control stage=third-device-completed");
-// COMPLETION_TEST_BEGIN
+        // COMPLETION_TEST_END
+        eprintln!("automatic-enrollment-control stage=third-device-completion");
+        wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
+        eprintln!("automatic-enrollment-control stage=third-device-completed");
+        // COMPLETION_TEST_BEGIN
     }
-// COMPLETION_TEST_END
+    // COMPLETION_TEST_END
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             if apps[..3].iter().all(|app| {
@@ -174,23 +174,25 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     })
     .await
     .expect("automatic transport must settle all three real device leaves");
-// COMPLETION_TEST_BEGIN
-    if roster_setup_only {eprintln!("completion-wake-control stage=third-roster-ready");}
-    if !roster_setup_only {
-// COMPLETION_TEST_END
-    assert!(apps[..3].iter().all(|app| {
-        app.account_storage("test")
-            .unwrap()
-            .approved_account_sharing_policy_storage()
-            .unwrap()
-            .approved_account_sharing_policies()
-            .unwrap()
-            .len()
-            == 2
-    }));
-// COMPLETION_TEST_BEGIN
+    // COMPLETION_TEST_BEGIN
+    if roster_setup_only {
+        eprintln!("completion-wake-control stage=third-roster-ready");
     }
-// COMPLETION_TEST_END
+    if !roster_setup_only {
+        // COMPLETION_TEST_END
+        assert!(apps[..3].iter().all(|app| {
+            app.account_storage("test")
+                .unwrap()
+                .approved_account_sharing_policy_storage()
+                .unwrap()
+                .approved_account_sharing_policies()
+                .unwrap()
+                .len()
+                == 2
+        }));
+        // COMPLETION_TEST_BEGIN
+    }
+    // COMPLETION_TEST_END
     a.cancel().await.unwrap();
     c.cancel().await.unwrap();
     drop(approval);
@@ -204,9 +206,11 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         "background transport must not keep the dropped original live"
     );
     drop(background_borrow);
-// COMPLETION_TEST_BEGIN
-    if roster_setup_only {eprintln!("completion-wake-control stage=third-originals-retired");}
-// COMPLETION_TEST_END
+    // COMPLETION_TEST_BEGIN
+    if roster_setup_only {
+        eprintln!("completion-wake-control stage=third-originals-retired");
+    }
+    // COMPLETION_TEST_END
     let targets = managers[0].device_linking_targets("test").await.unwrap();
     assert_eq!(targets[0].device_count, 3);
     let d = managers[3]
