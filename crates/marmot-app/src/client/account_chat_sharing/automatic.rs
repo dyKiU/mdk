@@ -3,6 +3,10 @@ use super::*;
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) mod consent_delivery_probe;
 mod departure;
+// BODY_NEGATIVE_TEST_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+mod body_negative_probe;
+// BODY_NEGATIVE_TEST_END
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) mod departure_replay_probe;
 #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -1338,6 +1342,10 @@ impl AppClient {
             .is_some_and(|publication| publication.body_context.is_some())
         {
             if let Err(error) = self.retry_automatic_departure(entry) {
+                // BODY_NEGATIVE_TEST_BEGIN
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                body_negative_probe::barrier(self.app.account_home().root(), entry);
+                // BODY_NEGATIVE_TEST_END
                 // Retain the owned slot as a barrier until this authenticated
                 // negative assembly commits. Renewal would discard its retry.
                 if let Some(publication) = entry.publication.as_ref() {
@@ -1459,6 +1467,10 @@ impl AppClient {
         &self,
         entry: &mut AutomaticChannel,
     ) -> Result<(), AccountSharingError> {
+        // BODY_NEGATIVE_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        body_negative_probe::effects(self.app.account_home().root(), entry);
+        // BODY_NEGATIVE_TEST_END
         entry.pending.pop_front();
         entry.next_body += 1;
         if entry.pending.is_empty()
@@ -1726,6 +1738,24 @@ impl AppClient {
         let report = if let Some(publication) = completed.as_mut() {
             let result = (&mut publication.task)
                 .await
+                // BODY_NEGATIVE_TEST_BEGIN
+                .inspect_err(|_error| {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    body_negative_probe::harvest(
+                        self.app.account_home().root(),
+                        publication.task.id(),
+                        _error.is_cancelled(),
+                    );
+                })
+                .inspect(|_| {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    body_negative_probe::harvest(
+                        self.app.account_home().root(),
+                        publication.task.id(),
+                        false,
+                    );
+                })
+                // BODY_NEGATIVE_TEST_END
                 .map_err(|_| AccountSharingError::RuntimeUnavailable)
                 .and_then(|result| result);
             match result {
@@ -1902,6 +1932,10 @@ impl AppClient {
             None
         };
         // AUTOMATIC_BODY_TEST_END
+        // BODY_NEGATIVE_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let negative_intent_gate = body_negative_probe::peer_gate(self.app.account_home().root(), entry, kind, input_payload_digest);
+        // BODY_NEGATIVE_TEST_END
         // Core has prepared actual consent under the live durable policy.
         // Bodies retain their original queue context until actor-side ACK harvest.
         if kind == AccountSharingControl::Consent {
@@ -1948,6 +1982,10 @@ impl AppClient {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 adapter.hold_automatic_catalog_body_for_test(&request, body_catalog_group.as_ref()).await;
             // AUTOMATIC_BODY_TEST_END
+            // BODY_NEGATIVE_TEST_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(gate) = &negative_intent_gate { gate.wait(input_payload_digest).await; }
+            // BODY_NEGATIVE_TEST_END
             adapter.publish_automatic_control(request)
             // AUTOMATIC_BODY_TEST_BEGIN
             .await
@@ -1971,6 +2009,10 @@ impl AppClient {
             body_context,
             task,
         });
+        // BODY_NEGATIVE_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        body_negative_probe::capture(self.app.account_home().root(), entry);
+        // BODY_NEGATIVE_TEST_END
         if let Some(id) = body_id {
             self.account_sharing_owner.automatic_body_after = Some(id);
         }

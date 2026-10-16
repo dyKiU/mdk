@@ -2133,3 +2133,7 @@ async fn another_installations_private_welcome_cannot_abort_an_approved_recipien
         runtime.shutdown_and_close().await.unwrap();
     }
 }
+// BODY_NEGATIVE_TEST_BEGIN
+#[path = "automatic_body_negative_acceptance.rs"]
+mod body_negative_acceptance;
+// BODY_NEGATIVE_TEST_END
