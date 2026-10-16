@@ -1434,7 +1434,7 @@ async fn reopened_approved_pair_can_verify_another_installation() {
     reopened_pair_can_verify_another_installation(1).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reopened_joined_device_can_verify_another_installation() {
     reopened_pair_can_verify_another_installation(0).await;
 }
@@ -1534,12 +1534,12 @@ async fn reopened_pair_can_verify_another_installation(existing: usize) {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn interrupted_first_enrollment_can_start_fresh_comparison() {
     interrupted_first_enrollment_retries(false).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn interrupted_first_enrollment_same_peer_completes_after_restart() {
     interrupted_first_enrollment_retries(true).await;
 }
