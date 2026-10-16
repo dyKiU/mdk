@@ -825,6 +825,12 @@ pub(crate) enum AccountWorkerCommand {
         group: GroupId,
         respond: oneshot::Sender<Result<(bool, bool, bool), AppError>>,
     },
+    // REBIND_TEST_BEGIN
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    SiblingCompletionSenderForTest {
+        respond: oneshot::Sender<Result<tokio::sync::watch::Sender<()>, AppError>>,
+    },
+    // REBIND_TEST_END
     #[cfg(test)]
     UnhydratedGroupCount {
         respond: oneshot::Sender<usize>,
@@ -5119,6 +5125,13 @@ fn account_worker_command_future<'a>(
                 true
             })
         }
+        // REBIND_TEST_BEGIN
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        AccountWorkerCommand::SiblingCompletionSenderForTest { respond } => Box::pin(async move {
+            let _ = respond.send(Ok(client.sibling_completion_sender_for_test()));
+            true
+        }),
+        // REBIND_TEST_END
         #[cfg(test)]
         AccountWorkerCommand::UnhydratedGroupCount { respond } => Box::pin(async move {
             let count = client.runtime.session().unhydrated_group_ids().len();

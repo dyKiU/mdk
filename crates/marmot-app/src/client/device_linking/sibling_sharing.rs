@@ -1427,6 +1427,12 @@ struct CommitProof {
     device: [u8; 32],
 }
 impl AppClient {
+    // REBIND_TEST_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn sibling_completion_sender_for_test(&self) -> tokio::sync::watch::Sender<()> {
+        self.linking_owner.sibling_publication_completions.clone()
+    }
+    // REBIND_TEST_END
     pub(crate) fn sibling_publication_completions(&self) -> tokio::sync::watch::Receiver<()> {
         self.linking_owner
             .sibling_publication_completions

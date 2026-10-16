@@ -24,6 +24,17 @@ async fn completed_sibling_consent_services_initial_progress_without_periodic_ti
     four_device_enrollment(HeldPublication::CompletionWake).await;
 }
 // COMPLETION_TEST_END
+// REBIND_TEST_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+#[tokio::test]
+async fn sibling_completion_service_rebinds_after_actual_client_replacement() {
+    four_device_enrollment(HeldPublication::CompletionRebind).await;
+}
+#[cfg(feature = "test-policy-overrides")]
+fn completion_wake_for_test(mode: HeldPublication) -> bool {
+    matches!(mode, HeldPublication::CompletionWake | HeldPublication::CompletionRebind)
+}
+// REBIND_TEST_END
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum HeldPublication {
     None,
@@ -31,6 +42,10 @@ enum HeldPublication {
     // COMPLETION_TEST_BEGIN
     #[cfg(feature = "test-policy-overrides")]
     CompletionWake,
+    // REBIND_TEST_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    CompletionRebind,
+    // REBIND_TEST_END
     // COMPLETION_TEST_END
     SiblingConsent,
     Automatic,
@@ -142,7 +157,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     // No enrollment_packet/receive_enrollment_packet/finalize calls by the host.
     // COMPLETION_TEST_BEGIN
     #[cfg(feature = "test-policy-overrides")]
-    let roster_setup_only = held_publication == HeldPublication::CompletionWake;
+    let roster_setup_only = completion_wake_for_test(held_publication);
     #[cfg(not(feature = "test-policy-overrides"))]
     let roster_setup_only = false;
     // This separate schedule test establishes real membership, not prior
@@ -211,6 +226,42 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         eprintln!("completion-wake-control stage=third-originals-retired");
     }
     // COMPLETION_TEST_END
+    // REBIND_TEST_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    let mut rebind_observations = None;
+    #[cfg(feature = "test-policy-overrides")]
+    if held_publication == HeldPublication::CompletionRebind {
+        // Cancel a real original before the old client is retired. No capability
+        // is retained: the sender below is only an account-local scheduling hint.
+        let old_setup = managers[3].begin_device_linking_session("test").await.unwrap();
+        old_setup.cancel().await.unwrap();
+        assert_eq!(old_setup.snapshot().await.unwrap().phase, DeviceLinkingPhase::Cancelled);
+        drop(old_setup);
+        eprintln!("completion-rebind-control stage=old-original-retired");
+        let old_sender = managers[3].sibling_completion_sender_for_test("test").await.unwrap();
+        apps[3].relay_plane.simulate_notification_consumer_exit_for_test();
+        let new_sender = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                match managers[3].sibling_completion_sender_for_test("test").await {
+                    Ok(sender) if !sender.same_channel(&old_sender) => break sender,
+                    Ok(_) | Err(crate::AppError::TransportClosed) => {},
+                    Err(_) => panic!("fresh client scheduling identity read failed"),
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        }).await.expect("actual notification recovery must replace the account client");
+        let fresh_owner = !new_sender.same_channel(&old_sender);
+        eprintln!("completion-rebind-control stage=actual-client-replaced");
+        // No new enrollment work exists yet. This tests consumer retirement at
+        // this checkpoint, not absence of protocol effects over a sleep window.
+        let old_receivers = old_sender.receiver_count();
+        let old_send_failed = old_sender.send(()).is_err();
+        rebind_observations = Some((fresh_owner, old_receivers, old_send_failed));
+        drop(new_sender);
+        drop(old_sender);
+        eprintln!("completion-rebind-control stage=old-signal-fired-before-fresh-enrollment");
+    }
+    // REBIND_TEST_END
     let targets = managers[0].device_linking_targets("test").await.unwrap();
     assert_eq!(targets[0].device_count, 3);
     let d = managers[3]
@@ -245,7 +296,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
 
     // COMPLETION_TEST_BEGIN
     #[cfg(feature = "test-policy-overrides")]
-    let held_consent = if held_publication == HeldPublication::CompletionWake {
+    let held_consent = if completion_wake_for_test(held_publication) {
         Some(
             apps[3]
                 .relay_plane
@@ -290,7 +341,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     #[cfg(feature = "test-policy-overrides")]
     let mut completion_wake_result = None;
     #[cfg(feature = "test-policy-overrides")]
-    let held_consent = if held_publication == HeldPublication::CompletionWake {
+    let held_consent = if completion_wake_for_test(held_publication) {
         // Real transport hold precedes the schedule gate; no fake consent or policy.
         let (observed, release) = held_consent.expect("completion test consent hold installed");
         struct ConsentHoldRelease(std::sync::Arc<tokio::sync::Notify>);
@@ -499,10 +550,21 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
             foreground,
             "foreground snapshots must complete while periodic maintenance is gated"
         );
+        // REBIND_TEST_BEGIN
+        if let Some((fresh_owner, old_receivers, old_send_failed)) = rebind_observations {
+            eprintln!("completion-rebind-control result fresh_owner={fresh_owner} old_receivers={old_receivers} old_send_failed={old_send_failed}");
+        }
+        // REBIND_TEST_END
         assert!(
             progress,
             "successful sibling consent must persist its real policy and publish its commit proof without a periodic tick"
         );
+        // REBIND_TEST_BEGIN
+        if let Some((fresh_owner, old_receivers, old_send_failed)) = rebind_observations {
+            assert!(fresh_owner && old_receivers == 0 && old_send_failed,
+                "replaced client scheduling hints must have no remaining old consumer");
+        }
+        // REBIND_TEST_END
     }
     // COMPLETION_TEST_END
 }

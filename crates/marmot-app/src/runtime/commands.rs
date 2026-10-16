@@ -31,6 +31,19 @@ use crate::{
 };
 
 impl AccountManager {
+    // REBIND_TEST_BEGIN
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    pub(crate) async fn sibling_completion_sender_for_test(
+        &self,
+        account_ref: &str,
+    ) -> Result<tokio::sync::watch::Sender<()>, AppError> {
+        let commands = self.worker_commands(account_ref).await?;
+        let (respond, response) = oneshot::channel();
+        commands.send(AccountWorkerCommand::SiblingCompletionSenderForTest { respond })
+            .await.map_err(|_| AppError::TransportClosed)?;
+        account_worker_response(response).await
+    }
+    // REBIND_TEST_END
     #[cfg(all(
         test,
         feature = "experimental-device-sync",
