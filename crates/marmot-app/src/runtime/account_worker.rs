@@ -8115,7 +8115,7 @@ mod tests {
         feature = "experimental-device-sync",
         feature = "test-policy-overrides"
     ))]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_abandoned_prepare_retires_its_exact_attempt() {
         use cgka_traits::StorageProvider;
 

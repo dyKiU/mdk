@@ -101,7 +101,7 @@ fn matches_scope(
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn release_before_wait_retains_notification() {
         let notify = Arc::new(Notify::new());
         let release = Release {

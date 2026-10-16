@@ -267,7 +267,7 @@ mod tests {
         (endpoint, server)
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pairing_mailbox_reports_rejected_subscription_without_waiting_for_expiry() {
         let (endpoint, server) = rejecting_relay().await;
         let plane = MarmotRelayPlane::full_history_with_loopback(true);
@@ -290,7 +290,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pairing_mailboxes_exchange_encrypted_packets_both_ways_on_real_relay() {
         let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
         exchange_encrypted_packets(
@@ -301,7 +301,7 @@ mod tests {
         .await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pairing_mailboxes_keep_healthy_route_when_another_rejects_or_is_offline() {
         let (rejected, server) = rejecting_relay().await;
         let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
@@ -319,7 +319,7 @@ mod tests {
         server.abort();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires explicitly selected live public relays"]
     async fn public_pairing_relays_exchange_encrypted_packets_both_ways() {
         let urls =
@@ -454,7 +454,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pairing_mailbox_rejects_unsafe_endpoints_before_subscribing() {
         let plane = MarmotRelayPlane::full_history();
         let result = plane

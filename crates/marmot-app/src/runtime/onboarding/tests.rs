@@ -251,7 +251,7 @@ async fn companion_notice_fixture(
     (directory, runtime, network, id, revision)
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn companion_sign_in_preserves_other_installation_without_publication() {
     let (_directory, runtime, network, id, revision) = companion_notice_fixture(false).await;
     let snapshot = runtime
@@ -286,7 +286,7 @@ async fn companion_sign_in_preserves_other_installation_without_publication() {
     runtime.shutdown_and_close().await.unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn companion_sign_in_unknown_discovery_stays_held_after_reopen() {
     let (directory, first, network, id, revision) = companion_notice_fixture(true).await;
     let snapshot = first
@@ -318,7 +318,7 @@ async fn companion_sign_in_unknown_discovery_stays_held_after_reopen() {
     reopened.shutdown_and_close().await.unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn companion_sign_in_rejects_stale_and_cancelled_notice_before_persisting_hold() {
     let (_directory, runtime, network, id, revision) = companion_notice_fixture(false).await;
     let manager = runtime.accounts();
@@ -353,7 +353,7 @@ async fn companion_sign_in_rejects_stale_and_cancelled_notice_before_persisting_
     runtime.shutdown_and_close().await.unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn companion_sign_in_cancelled_during_cleanup_keeps_hold_and_cannot_finish_stale_attempt() {
     let (directory, first, network, id, revision) = companion_notice_fixture(false).await;
     let manager = first.accounts();
@@ -412,7 +412,7 @@ async fn companion_sign_in_cancelled_during_cleanup_keeps_hold_and_cannot_finish
     reopened.shutdown_and_close().await.unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn companion_sign_in_confirmed_empty_discovery_retains_primary_publication() {
     let (_directory, runtime, network, _keys, id) = fixture().await;
     let manager = runtime.accounts();

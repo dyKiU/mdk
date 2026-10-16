@@ -1139,7 +1139,7 @@ mod tests {
             relay_a,
         }
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_managed_workers_complete_scoped_verification_without_native_grants() {
         let VerifiedWorkers {
             directories: _directories,
@@ -1167,7 +1167,7 @@ mod tests {
         runtime_a.shutdown().await;
         runtime_b.shutdown().await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_receives_private_welcome_through_relay_without_chat() {
         let VerifiedWorkers {
             directories: _directories,
@@ -1243,7 +1243,7 @@ mod tests {
         runtime_a.shutdown_and_close().await.unwrap();
         runtime_b.shutdown_and_close().await.unwrap();
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_abandoned_recipient_arm_reply_retires_exact_purpose() {
         let VerifiedWorkers {
             directories: _directories,
@@ -1288,7 +1288,7 @@ mod tests {
         runtime_b.shutdown_and_close().await.unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_ordinary_welcome_preserves_live_private_recipient_gate() {
         let VerifiedWorkers {
             directories: _directories,
@@ -1467,7 +1467,7 @@ mod tests {
         runtime_a.shutdown_and_close().await.unwrap();
         runtime_b.shutdown_and_close().await.unwrap();
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_sql_rollback_retains_exact_live_welcome_for_retry() {
         let VerifiedWorkers {
             directories: _directories,
@@ -1581,7 +1581,7 @@ mod tests {
         runtime_a.shutdown_and_close().await.unwrap();
         runtime_b.shutdown_and_close().await.unwrap();
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_prepares_real_private_invite_and_scoped_cancel_retires_it() {
         let VerifiedWorkers {
             directories: _directories,
@@ -1622,7 +1622,7 @@ mod tests {
         runtime_a.shutdown().await;
         runtime_b.shutdown().await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_expiry_retires_owned_preparation_without_restoring_consent() {
         let VerifiedWorkers {
             directories: _directories,
@@ -1651,7 +1651,7 @@ mod tests {
         runtime_a.shutdown().await;
         runtime_b.shutdown().await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_abandoned_private_invite_reply_cleans_exact_preparation() {
         let VerifiedWorkers {
             directories: _directories,
@@ -1704,7 +1704,7 @@ mod tests {
         runtime_a.shutdown().await;
         runtime_b.shutdown().await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_hidden_route_unknown_reopen_and_refresh_use_real_echo() {
         let VerifiedWorkers {
             directories,
@@ -1873,20 +1873,20 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_private_echo_below_advanced_cursor_is_acquired_autonomously() {
         private_echo_cursor_recovery(false, false, false).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_private_echo_below_cursor_recovers_without_negentropy() {
         private_echo_cursor_recovery(true, false, false).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_stalled_private_echo_keeps_actor_responsive_and_unknown() {
         private_echo_cursor_recovery(true, true, false).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_dispatching_echo_below_cursor_recovers_after_genuine_intent_restart() {
         private_echo_cursor_recovery(true, false, true).await;
     }
@@ -2329,7 +2329,7 @@ mod tests {
         writer.shutdown().await;
         relay.shutdown();
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_hidden_route_real_echo_confirms_without_chat() {
         let VerifiedWorkers {
             directories: _directories,
@@ -2473,7 +2473,7 @@ mod tests {
                 ))
         );
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_welcome_delivery_wrong_scope_preserves_live_original() {
         let (workers, fact) = confirmed_sender_fixture().await;
         let mut wrong = workers.b_scope.clone();
@@ -2513,7 +2513,7 @@ mod tests {
         workers.runtime_a.shutdown_and_close().await.unwrap();
         workers.runtime_b.shutdown_and_close().await.unwrap();
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_welcome_delivery_expiry_preserves_confirmed_membership() {
         let (workers, fact) = confirmed_sender_fixture().await;
         workers
@@ -2545,7 +2545,7 @@ mod tests {
         workers.runtime_a.shutdown_and_close().await.unwrap();
         workers.runtime_b.shutdown_and_close().await.unwrap();
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_welcome_delivery_stalled_cancel_releases_worker() {
         let (workers, fact) = confirmed_sender_fixture().await;
         workers.relay_b.block_next_publish();
@@ -2591,7 +2591,7 @@ mod tests {
         workers.runtime_a.shutdown_and_close().await.unwrap();
         workers.runtime_b.shutdown_and_close().await.unwrap();
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_welcome_delivery_reopen_cannot_restore_consent() {
         let (workers, fact) = confirmed_sender_fixture().await;
         workers.runtime_a.shutdown_and_close().await.unwrap();
@@ -2721,7 +2721,7 @@ mod tests {
         let group = fact.raw.binding.group_id.clone();
         (workers, relay, group)
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_live_relay_confirms_and_delivers_without_injection() {
         let (workers, relay, _) = joined_live_workers().await;
         workers.runtime_a.shutdown_and_close().await.unwrap();
@@ -2729,7 +2729,7 @@ mod tests {
         relay.shutdown();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_live_relay_settles_exact_roster_without_chat() {
         let (workers, relay, group) = joined_live_workers().await;
         let sender = workers.b.app.account_storage("test").unwrap();
@@ -2874,7 +2874,7 @@ mod tests {
             .expect("rejected setup must preserve the exact live reservation for cancellation");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_settled_approver_control_incomplete_round_denies_setup() {
         use cgka_traits::private_roster_settlement::PrivateSettlementPhase;
         let (workers, fact) = confirmed_sender_fixture().await;
@@ -2941,7 +2941,7 @@ mod tests {
         workers.runtime_b.shutdown_and_close().await.unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_settled_approver_control_forgotten_lineage_denies_setup() {
         let (workers, relay, group) = joined_live_workers().await;
         wait_completed_approver_predecessor(&workers, &group).await;
@@ -2969,7 +2969,7 @@ mod tests {
         relay.shutdown();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_settled_approver_control_ordinary_candidate_denies_setup() {
         let (workers, relay, group) = joined_live_workers().await;
         wait_completed_approver_predecessor(&workers, &group).await;
@@ -2993,7 +2993,7 @@ mod tests {
         relay.shutdown();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_settled_approver_control_modified_predecessor_preserves_exact_retry() {
         let (workers, relay, group) = joined_live_workers().await;
         wait_completed_approver_predecessor(&workers, &group).await;
@@ -3041,7 +3041,7 @@ mod tests {
         relay.shutdown();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_artifact_worker_authenticates_before_original_sdk() {
         use sha2::{Digest, Sha256};
         let (workers, relay, group) = joined_live_workers().await;
@@ -3245,76 +3245,76 @@ mod tests {
         relay.shutdown();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_singleton_preparation_refusal_preserves_exact_original_scope() {
         exercise_third_device_invite(ThirdDeviceCheck::RetainedScope).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_singleton_recipient_rejects_completed_multi_device_predecessor() {
         exercise_third_device_invite(ThirdDeviceCheck::Settlement).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_third_device_cannot_publish_without_existing_sibling_approval() {
         exercise_third_device_invite(ThirdDeviceCheck::UnapprovedPublication).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_artifact_bound_predecessor_prepares_exact_proposal_without_add() {
         exercise_third_device_invite(ThirdDeviceCheck::ArtifactPreparation).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_original_sdk_produces_received_proposal_without_add() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposal).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_original_sdk_received_proposal_requires_explicit_b_owner() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalEndorsement).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_original_sdk_collects_actual_b_encrypted_endorsement() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalCollection).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_original_sdk_endorsed_proposal_transfers_to_trusted_add() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalTrustedAdd).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_original_sdk_incomplete_handoff_retries_after_actual_b_receipt() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalTrustedAddRetry).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_original_sdk_endorsed_recipient_arms_exact_original_purpose() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalRecipientAdmission).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_original_sdk_endorsed_recipient_joins_with_atomic_retry() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalRecipientJoin).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_original_b_action_bridges_actual_c_add_atomically() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalExistingTransition).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_original_abc_actions_settle_actual_three_device_roster() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalAbcSettlement).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_b_endorsement_abandoned_reply_burns_original_action() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalDroppedReply).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_b_endorsement_encrypted_reopen_cannot_restore_action() {
         exercise_third_device_invite(ThirdDeviceCheck::LocalProposalReopen).await;
     }
@@ -4923,7 +4923,7 @@ mod tests {
         unreachable!("every explicit third-device test mode has its own admission boundary");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_confirmed_sender_delivers_exact_welcome_to_recipient() {
         let VerifiedWorkers {
             directories: _directories,
@@ -5071,7 +5071,7 @@ mod tests {
         runtime_a.shutdown_and_close().await.unwrap();
         runtime_b.shutdown_and_close().await.unwrap();
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_confirmed_echo_retains_original_delivery_lease_until_cancel() {
         let VerifiedWorkers {
             directories: _directories,
@@ -5175,7 +5175,7 @@ mod tests {
         runtime_a.shutdown_and_close().await.unwrap();
         runtime_b.shutdown_and_close().await.unwrap();
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_private_commit_uses_exact_frozen_nostr_without_welcome() {
         let VerifiedWorkers {
             directories: _directories,
@@ -5307,7 +5307,7 @@ mod tests {
         .unwrap();
         job
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_private_commit_exact_cancel_bypasses_saturation() {
         let VerifiedWorkers {
             directories: _directories,
@@ -5362,7 +5362,7 @@ mod tests {
         runtime_a.shutdown().await;
         runtime_b.shutdown().await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_private_commit_explicit_shutdown_interrupts_network() {
         let VerifiedWorkers {
             directories: _directories,
@@ -5393,7 +5393,7 @@ mod tests {
         runtime_a.shutdown().await;
         runtime_b.shutdown().await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_private_commit_deadline_actively_wakes_stalled_network() {
         let VerifiedWorkers {
             directories: _directories,
@@ -5445,7 +5445,7 @@ mod tests {
         runtime_a.shutdown().await;
         runtime_b.shutdown().await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_private_commit_abandoned_reply_preserves_unknown() {
         let VerifiedWorkers {
             directories: _directories,
@@ -5517,7 +5517,7 @@ mod tests {
         .unwrap();
         injector
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_private_commit_preintent_fault_retains_exact_live_retry() {
         let VerifiedWorkers {
             directories: _directories,
@@ -5564,7 +5564,7 @@ mod tests {
         runtime_a.shutdown().await;
         runtime_b.shutdown().await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_private_commit_unknown_fault_keeps_revoked_cleanup_retry() {
         let VerifiedWorkers {
             directories: _directories,
@@ -5614,7 +5614,7 @@ mod tests {
         runtime_a.shutdown().await;
         runtime_b.shutdown().await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_private_commit_queued_cancel_denies_before_first_poll() {
         let VerifiedWorkers {
             directories: _directories,
@@ -5655,7 +5655,7 @@ mod tests {
         runtime_a.shutdown().await;
         runtime_b.shutdown().await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_worker_private_commit_postintent_backend_failure_revokes_owned_permission()
      {
         let VerifiedWorkers {
@@ -5687,7 +5687,7 @@ mod tests {
         runtime_a.shutdown().await;
         runtime_b.shutdown().await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_settlement_cancel_sql_fault_revokes_original_delivery_permission() {
         use cgka_traits::private_roster_settlement::PrivateSettlementPhase;
         let (workers, fact) = confirmed_sender_fixture().await;
@@ -5768,7 +5768,7 @@ mod tests {
         workers.runtime_a.shutdown().await;
         workers.runtime_b.shutdown_and_close().await.unwrap();
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_settlement_reservation_cleanup_fault_does_not_allocate_inaccessible_scope()
      {
         use cgka_traits::private_roster_settlement::PrivateSettlementPhase;
@@ -5895,7 +5895,7 @@ mod tests {
         workers.runtime_b.shutdown_and_close().await.unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_settlement_original_gate_revocation_denies_actual_cached_publication() {
         use cgka_traits::private_roster_settlement::PrivateSettlementPhase;
         let (workers, fact) = confirmed_sender_fixture().await;
@@ -5973,61 +5973,61 @@ mod tests {
         workers.runtime_a.shutdown_and_close().await.unwrap();
         workers.runtime_b.shutdown_and_close().await.unwrap();
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_enrollment_actual_relay_notification_reaches_observer_metadata() {
         exercise_enrollment_relay_observation(false, false, None).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_enrollment_proposal_actual_artifact_and_context_reaches_intake() {
         exercise_enrollment_relay_observation(true, false, None).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_enrollment_received_proposal_validates_actual_context_and_artifact() {
         exercise_enrollment_relay_observation(true, true, None).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_received_proposal_rejects_unknown_context() {
         exercise_enrollment_relay_observation(true, true, Some("unknown_context")).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_received_proposal_rejects_unknown_leaf() {
         exercise_enrollment_relay_observation(true, true, Some("unknown_leaf")).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_received_proposal_rejects_noncanonical_context() {
         exercise_enrollment_relay_observation(true, true, Some("noncanonical_context")).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_received_proposal_rejects_noncanonical_base64() {
         exercise_enrollment_relay_observation(true, true, Some("noncanonical_base64")).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_received_proposal_rejects_foreign_account() {
         exercise_enrollment_relay_observation(true, true, Some("foreign_account")).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_received_proposal_rejects_substituted_package() {
         exercise_enrollment_relay_observation(true, true, Some("substituted_package")).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_b_endorsement_valid_selection_survives_wrong_carrier_batch() {
         exercise_enrollment_relay_observation(true, true, Some("mixed_batch")).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_b_endorsement_later_valid_arrival_remains_selectable() {
         exercise_enrollment_relay_observation(true, true, Some("late_batch")).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_received_proposal_rejects_artifact_signed_by_other_current_leaf() {
         exercise_enrollment_relay_observation(true, true, Some("wrong_artifact_carrier")).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_received_proposal_rejects_tampered_artifact() {
         exercise_enrollment_relay_observation(true, true, Some("tampered_artifact")).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_linking_received_proposal_v1_is_never_validation_input() {
         exercise_enrollment_relay_observation(false, true, Some("v1")).await;
     }

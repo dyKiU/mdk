@@ -82,7 +82,7 @@ async fn close_witness_socket(mut server: tokio::task::JoinHandle<()>) -> bool {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rejected_pairing_subscription_cannot_export_a_mailbox() {
     let (endpoint, closed_seen, _, server) =
         witnessed_route(RouteBehavior::RejectSubscription).await;
@@ -115,7 +115,7 @@ async fn rejected_pairing_subscription_cannot_export_a_mailbox() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn healthy_pairing_ack_survives_another_accepted_route_without_ok() {
     let (silent, ready_seen, event_seen, server) =
         witnessed_route(RouteBehavior::AcceptWithoutPublicationReceipt).await;

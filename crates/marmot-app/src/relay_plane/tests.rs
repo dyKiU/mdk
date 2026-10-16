@@ -6345,7 +6345,7 @@ async fn publish_allows_independent_account_registration() {
 // Authenticated Nostr carrier through the real production notification consumer;
 // injected source/relay scheduling only, no MLS/SDK permission claim.
 #[cfg(feature = "experimental-device-sync")]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn enrollment_acquisition_delayed_notification_worker_preserves_clock_and_fifo_eose() {
     use cgka_traits::{TransportAccountActivation, TransportAdapter};
     use nostr_sdk::prelude::{Kind, SubscriptionId, Tag};

@@ -38,7 +38,7 @@ async fn drain(
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn worker_setup_packets_complete_original_sdk_without_host_context() {
     let (_dirs, runtimes) = workers().await;
     let [a, c] = runtimes.each_ref().map(|r| r.accounts());
@@ -116,7 +116,7 @@ async fn worker_setup_packets_complete_original_sdk_without_host_context() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn worker_setup_rejects_wrong_scope_and_packet_without_losing_valid_retry() {
     let (_dirs, runtimes) = workers().await;
     let [a, c] = runtimes.each_ref().map(|r| r.accounts());
@@ -153,7 +153,7 @@ async fn worker_setup_rejects_wrong_scope_and_packet_without_losing_valid_retry(
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn worker_abandoned_setup_reply_retires_original_reservation() {
     let (_dirs, runtimes) = workers().await;
     let c = runtimes[1].accounts();
