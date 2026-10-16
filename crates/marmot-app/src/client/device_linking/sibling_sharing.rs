@@ -2511,6 +2511,7 @@ impl AppClient {
             outcome: None,
             task,
         });
+        tokio::task::yield_now().await;
         Ok(())
     }
     fn validate_sibling_parent(
