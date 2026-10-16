@@ -28,6 +28,7 @@ pub(super) struct SessionState {
     >,
     snapshot: Mutex<DeviceLinkingSnapshot>,
     updates: watch::Sender<DeviceLinkingSnapshot>,
+    observation_timeout_reported: AtomicBool,
     closed: AtomicBool,
     runtime: tokio::runtime::Handle,
     transport_cancel: tokio_util::sync::CancellationToken,
@@ -126,6 +127,12 @@ impl SessionState {
                     crate::AppError::AccountWorkerResponseTimedOut
                 ) =>
             {
+                if !self
+                    .observation_timeout_reported
+                    .swap(true, Ordering::Relaxed)
+                {
+                    diagnostics::report("native_observation", "account_worker_response_timed_out");
+                }
                 // A bounded observation wait grants no authority and does not
                 // revoke the original actor. Retain its last observation while
                 // publication is blocked; later polling rechecks the same owner.
@@ -137,6 +144,7 @@ impl SessionState {
                     .clone())
             }
             Err(error) => {
+                diagnostics::report("native_observation", diagnostics::client_kind(&error));
                 let phase = match &error {
                     ClientLinkingError::Owner(OwnerError::Verifier(LinkError::Expired)) => {
                         DeviceLinkingPhase::Expired
@@ -429,6 +437,7 @@ impl DeviceLinkingSession {
             operation: AsyncMutex::new(PacketProgress::default()),
             sharing_choice: Mutex::new(None),
             snapshot: Mutex::new(snapshot),
+            observation_timeout_reported: AtomicBool::new(false),
             updates,
             closed: AtomicBool::new(false),
             runtime: tokio::runtime::Handle::current(),

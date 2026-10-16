@@ -122,6 +122,26 @@ impl AppClient {
         ),
         ClientLinkingError,
     > {
+        let (phase, decimals, observation) =
+            self.linking_native_observation_with_progress(scope)?;
+        self.linking_owner
+            .enrollment_diagnostics
+            .observe(observation);
+        Ok((phase, decimals))
+    }
+    fn linking_native_observation_with_progress(
+        &mut self,
+        scope: &PurposeAttemptScope,
+    ) -> Result<
+        (
+            crate::DeviceLinkingPhase,
+            Option<crate::DeviceLinkingDecimals>,
+            crate::device_linking::diagnostics::EnrollmentObservation,
+        ),
+        ClientLinkingError,
+    > {
+        use crate::device_linking::diagnostics::EnrollmentObservation;
+        use cgka_traits::private_roster_settlement::PrivateSettlementPhase;
         if let Some(attempt) = self
             .linking_owner
             .settlement_attempt
@@ -143,12 +163,26 @@ impl AppClient {
                 .app
                 .account_storage(&self.state.label)
                 .map_err(|e| ClientLinkingError::Runtime(Box::new(e)))?;
-            if let Some(round) = storage
+            let round = storage
                 .private_roster_settlement_storage()
                 .ok_or_else(invalid)?
                 .read_round()
-                .map_err(|e| ClientLinkingError::Engine(e.into()))?
-                && attempt.guard.validate(&round.anchor).is_ok()
+                .map_err(|e| ClientLinkingError::Engine(e.into()))?;
+            let anchor_matches = round
+                .as_ref()
+                .is_some_and(|round| attempt.guard.validate(&round.anchor).is_ok());
+            let observation = match round.as_ref() {
+                None => EnrollmentObservation::RoundMissing,
+                Some(_) if !anchor_matches => EnrollmentObservation::AnchorMismatch,
+                Some(round) => match round.phase {
+                    PrivateSettlementPhase::Pending => EnrollmentObservation::SettlementPending,
+                    PrivateSettlementPhase::Denied => EnrollmentObservation::SettlementDenied,
+                    PrivateSettlementPhase::Completed => {
+                        EnrollmentObservation::CompletedRosterUnavailable
+                    }
+                },
+            };
+            if anchor_matches
                 && self
                     .runtime
                     .session()
@@ -169,17 +203,33 @@ impl AppClient {
                     return Ok((
                         crate::DeviceLinkingPhase::VerificationCompleteEnrollmentPending,
                         None,
+                        if self
+                            .linking_owner
+                            .sharing_approval
+                            .as_ref()
+                            .is_some_and(|choice| choice.primary_committed())
+                        {
+                            EnrollmentObservation::SiblingSharingPending
+                        } else {
+                            EnrollmentObservation::SharingCommitPending
+                        },
                     ));
                 }
-                return Ok((crate::DeviceLinkingPhase::EnrollmentComplete, None));
+                return Ok((
+                    crate::DeviceLinkingPhase::EnrollmentComplete,
+                    None,
+                    EnrollmentObservation::Complete,
+                ));
             }
             return Ok((
                 crate::DeviceLinkingPhase::VerificationCompleteEnrollmentPending,
                 None,
+                observation,
             ));
         }
         self.scoped_linking_verifier(scope)?
             .native_observation_for_scope(scope, std::time::Instant::now())
+            .map(|(phase, decimals)| (phase, decimals, EnrollmentObservation::Verifier))
             .map_err(ClientLinkingError::Owner)
     }
     pub(crate) async fn reserve_owned_linking_setup_request(
