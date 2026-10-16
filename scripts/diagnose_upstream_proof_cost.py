@@ -117,8 +117,8 @@ try:
     valid=True
     for row in rows:
         global_values=row['global']; records=[entry['counts'] for entry in row['engines']]
-        valid &= row['phase_cpu_ns'] is not None and row['phase_cpu_read_failures']==0 and row['engine_overflow']==0 and row['phase_conflicts']==0 and global_values[0]>0 and global_values[5:]==[0,0,0]
-        valid &= bool(records) and sum(value[0] for value in records)>0 and sum(value[2] for value in records)>0
+        valid &= row['phase_cpu_ns'] is not None and row['phase_cpu_ns']>0 and row['phase_cpu_read_failures']==0 and row['engine_overflow']==0 and row['phase_conflicts']==0 and global_values[0]>0 and global_values[3]>0 and global_values[5:]==[0,0,0]
+        valid &= bool(records) and sum(value[0] for value in records)>0 and sum(value[2] for value in records)>0 and sum(value[10] for value in records)>0
         valid &= all(value[0]==value[1]+value[2] and value[2]==value[8]+value[9] and value[12:15]==[0,0,0] for value in records)
         valid &= global_values[0]==global_values[1]+global_values[2] and global_values[0]>=sum(value[2] for value in records)
     report['cpu_usable']=bool(valid and report['inputs_pristine'] and report['compiled_fingerprints'].get('verified'))
