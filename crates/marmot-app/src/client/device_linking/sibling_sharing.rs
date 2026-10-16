@@ -1428,7 +1428,9 @@ struct CommitProof {
 }
 impl AppClient {
     pub(crate) fn sibling_publication_completions(&self) -> tokio::sync::watch::Receiver<()> {
-        self.linking_owner.sibling_publication_completions.subscribe()
+        self.linking_owner
+            .sibling_publication_completions
+            .subscribe()
     }
 
     /// A completion is a scheduling hint for already-owned channels, never an
@@ -1437,7 +1439,10 @@ impl AppClient {
         &mut self,
     ) -> Result<(), ClientLinkingError> {
         let mut channels = std::mem::take(&mut self.linking_owner.sibling_channels);
-        let mut in_flight = channels.iter().filter(|entry| entry.publication.is_some()).count();
+        let mut in_flight = channels
+            .iter()
+            .filter(|entry| entry.publication.is_some())
+            .count();
         let mut initial = Vec::with_capacity(MAX_SIBLING_PUBLICATIONS);
         let mut harvested_success = false;
         let mut failure = None;
@@ -1446,7 +1451,11 @@ impl AppClient {
             if entry.deferred_initial_error.is_some() {
                 continue;
             }
-            match self.harvest_sibling_publication(entry, &mut in_flight, SiblingAdvanceMode::Initial) {
+            match self.harvest_sibling_publication(
+                entry,
+                &mut in_flight,
+                SiblingAdvanceMode::Initial,
+            ) {
                 Ok(true) => {
                     harvested_success = true;
                     Self::complete_sibling_sharing(entry);
@@ -1471,9 +1480,11 @@ impl AppClient {
                 if starts_left == 0 || in_flight >= MAX_SIBLING_PUBLICATIONS {
                     break;
                 }
-                if entry.publication.is_none() && !entry.handshake_attempted
+                if entry.publication.is_none()
+                    && !entry.handshake_attempted
                     && entry.deferred_initial_error.is_none()
-                    && entry.original.live() && entry.state.live()
+                    && entry.original.live()
+                    && entry.state.live()
                 {
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     match Self::sibling_publication_held_for_test(entry) {
@@ -1502,9 +1513,14 @@ impl AppClient {
                 break;
             }
             starts_left -= 1;
-            if let Err(error) = self.advance_sibling_sharing(
-                &mut channels[index], &mut in_flight, SiblingAdvanceMode::Initial,
-            ).await {
+            if let Err(error) = self
+                .advance_sibling_sharing(
+                    &mut channels[index],
+                    &mut in_flight,
+                    SiblingAdvanceMode::Initial,
+                )
+                .await
+            {
                 // This includes policy persistence and Core wrapping failures.
                 // Preserve their exact error for the ordinary periodic turn;
                 // a different peer's success cannot turn them into hot retries.
@@ -1934,7 +1950,10 @@ impl AppClient {
                     .expect("sibling diagnostics")
                     .visits += 1;
             }
-            if let Err(error) = self.advance_sibling_sharing(entry, &mut in_flight, SiblingAdvanceMode::Periodic).await {
+            if let Err(error) = self
+                .advance_sibling_sharing(entry, &mut in_flight, SiblingAdvanceMode::Periodic)
+                .await
+            {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 {
                     use crate::account_chat_sharing::enabled::SiblingMaintenanceFailure as Failure;
@@ -2025,7 +2044,10 @@ impl AppClient {
                 .take()
                 .expect("finished sibling publication");
             *in_flight -= 1;
-            pending.outcome.take().expect("received sibling publication outcome")?;
+            pending
+                .outcome
+                .take()
+                .expect("received sibling publication outcome")?;
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if !pending.proof
                 && !entry.recipient
@@ -2049,17 +2071,24 @@ impl AppClient {
         Ok(false)
     }
 
-    fn validate_sibling_publication(&self, entry: &SiblingChannel) -> Result<(), ClientLinkingError> {
+    fn validate_sibling_publication(
+        &self,
+        entry: &SiblingChannel,
+    ) -> Result<(), ClientLinkingError> {
         if !entry.original.live() || !entry.state.live() {
             return Err(denied());
         }
         self.validate_sibling_parent(&entry.original)?;
-        self.runtime.session().validate_account_sharing_channel(&entry.channel)
+        self.runtime
+            .session()
+            .validate_account_sharing_channel(&entry.channel)
             .map_err(ClientLinkingError::Engine)
     }
 
     #[cfg(all(test, feature = "test-policy-overrides"))]
-    fn sibling_publication_held_for_test(entry: &SiblingChannel) -> Result<bool, ClientLinkingError> {
+    fn sibling_publication_held_for_test(
+        entry: &SiblingChannel,
+    ) -> Result<bool, ClientLinkingError> {
         entry.pre_auth_failure.as_ref().map_or(Ok(false), |probe| {
             probe.wait_for_projection_head_for_test(entry)
         })
@@ -2079,8 +2108,11 @@ impl AppClient {
         if mode == SiblingAdvanceMode::Initial {
             // Only successful result owners from this bounded pass are eligible.
             // Initial progress cannot restart a failed or peer-only publication.
-            if entry.publication.is_some() || entry.deferred_initial_error.is_some()
-                || !entry.handshake_published || !entry.ready {
+            if entry.publication.is_some()
+                || entry.deferred_initial_error.is_some()
+                || !entry.handshake_published
+                || !entry.ready
+            {
                 return Ok(());
             }
         } else if entry.publication.is_some() {
@@ -2132,7 +2164,8 @@ impl AppClient {
             entry.policy_committed = true;
         }
         if !entry.proof_published
-            || (mode == SiblingAdvanceMode::Periodic && !entry.peer_committed
+            || (mode == SiblingAdvanceMode::Periodic
+                && !entry.peer_committed
                 && entry
                     .proof_retry_at
                     .is_some_and(|next| Instant::now() >= next))
@@ -2472,7 +2505,12 @@ impl AppClient {
                 completion.send_replace(());
             }
         });
-        entry.publication = Some(SiblingPublication { proof, result, outcome: None, task });
+        entry.publication = Some(SiblingPublication {
+            proof,
+            result,
+            outcome: None,
+            task,
+        });
         Ok(())
     }
     fn validate_sibling_parent(

@@ -364,8 +364,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
                             .device_linking_targets("test")
                             .await
                             .expect("fresh recipient worker command remains serviceable");
-                        assert!(targets.len() == 1 && targets[0].device_count == 4,
-                            "fresh recipient worker command must read the actual four-device roster");
+                        assert!(
+                            targets.len() == 1 && targets[0].device_count == 4,
+                            "fresh recipient worker command must read the actual four-device roster"
+                        );
                         eprintln!("completion-wake-control stage=fresh-actor-progress");
                         // COMPLETION_ACTOR_CHECK_END
                     }
