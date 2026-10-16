@@ -60,6 +60,24 @@ def fingerprint(values):
 def exception_receipt(error):
     return {'class': type(error).__name__, 'reason': str(error) if isinstance(error, GateError) else 'controller-exception'}
 
+def parse_phase_sequence(raw):
+    return re.findall(r'automatic-enrollment-control stage=((?:third|fourth)-device-complet(?:ion|ed))', raw)
+
+def deoptimization_phase_valid(sequence):
+    return sequence == ['third-device-completion', 'third-device-completed', 'fourth-device-completion']
+
+def parser_preflight():
+    expected = ['third-device-completion', 'third-device-completed', 'fourth-device-completion']
+    raw = '\n'.join('automatic-enrollment-control stage=' + stage for stage in expected)
+    require(parse_phase_sequence(raw) == expected and deoptimization_phase_valid(parse_phase_sequence(raw)), 'phase-parser-positive-fixture-failed')
+    invalid = [[], expected[:1], expected[:2], expected[1:], expected[::-1],
+               expected + ['fourth-device-completed'], [expected[0], expected[2]],
+               [expected[0], expected[0], expected[1], expected[2]]]
+    for sequence in invalid:
+        raw = '\n'.join('automatic-enrollment-control stage=' + stage for stage in sequence)
+        require(not deoptimization_phase_valid(parse_phase_sequence(raw)), 'phase-parser-negative-fixture-accepted')
+    return {'positive_fixtures': 1, 'negative_fixtures': len(invalid), 'actual_product_bodies': 0}
+
 def assertion_line(path, marker):
     lines = baseline(path).decode().splitlines()
     hits = [index for index, line in enumerate(lines) if marker in line]
@@ -131,6 +149,7 @@ def normal_guard():
     require(tracked_hashes() == frozen, 'normal-guard-changed-inputs')
 
 if mode == '--preflight':
+    report['parser_preflight'] = parser_preflight()
     report['oracles'] = {case: {'test': spec[2], 'file': spec[3], 'line': assertion_line(spec[3], spec[4]),
                               'original_sha256': digest(baseline(spec[0])), 'mutant_sha256': digest(transform(case, baseline(spec[0])))} for case, spec in CASES.items()}
     normal_guard()
@@ -207,6 +226,7 @@ def run(label, expected):
         passed, failed, ignored = map(int, summaries[0])
         proof.update(passed=passed, failed=failed, ignored=ignored, executed_nonignored=passed+failed)
     proof['panic_locations'] = [{'file': file, 'line': int(line), 'column': int(column)} for file, line, column in re.findall(r'panicked at (crates/[A-Za-z0-9_./-]+\.rs):([0-9]+):([0-9]+)', raw)]
+    proof['phase_sequence'] = parse_phase_sequence(raw)
     proof['completion_markers'] = re.findall(r'automatic-enrollment-control stage=((?:third|fourth)-device-completion)', raw)
     proof['observed_completion_phase'] = proof['completion_markers'][-1].split('-',1)[0] if proof['completion_markers'] else None
     runtime_marker = 'automatic pairing did not reach required phase: expected=EnrollmentComplete' if mode == 'proof-deoptimization' else marker
@@ -216,7 +236,7 @@ def run(label, expected):
     check_inputs(expected)
     save()
     if label == 'mutant':
-        phase_valid = mode != 'proof-deoptimization' or proof['observed_completion_phase'] in ['third', 'fourth']
+        phase_valid = mode != 'proof-deoptimization' or (deoptimization_phase_valid(proof['phase_sequence']) and proof['observed_completion_phase'] == 'fourth')
         proof['runtime_mutation_killed'] = (proof.get('compile_exit_code') == 0 and proof.get('compiler_error_count') == 0 and result.returncode == 101
             and proof.get('passed') == 0 and proof.get('failed') == 1 and proof.get('ignored') == 0
             and proof['executed_nonignored'] == 1 and proof['sole_intended_panic']
