@@ -14,6 +14,11 @@ pub(crate) struct SendProgress {
     assembly: Option<Assembly>,
     pending: Option<([u8; 32], Option<std::time::Instant>)>,
 }
+impl SendProgress {
+    pub(in crate::client::account_chat_sharing::automatic) fn publication_identity(&self) -> Option<([u8; 32], Option<std::time::Instant>)> {
+        self.pending
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

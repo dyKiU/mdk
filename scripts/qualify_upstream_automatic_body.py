@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import time
-from upstream_completion_ci import compile_cases, ensure, environment, freeze, identity, parse_body
+from upstream_completion_ci import NEW, ORIGINALS, DEFAULT_FEATURES, FEATURES, compile_cases, ensure, environment, freeze, green as completion_green, headers, identity, parse_body
 from verify_upstream_completion_candidate_source import normalize
 
 BASE='ac3db2d82bdca105d249b7ddfba73734b4e153e9'
@@ -19,6 +19,14 @@ RUST=[FILE,'crates/marmot-app/src/client/account_chat_sharing/automatic.rs','cra
 SELF='scripts/qualify_upstream_automatic_body.py'
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 STAGES=['bilateral-pair-and-history-ready','prehold-control','actual-new-chat-catalog-body-held','peer-progress-control','fresh-command-verdict-frozen','actual-body-released','same-fresh-command-completed','actual-new-chat-delivered-once','positive-runtime-close','positive-runtime-close']
+FIXTURE_BASE='7d8c882c847ce620bfc1ad02a63bdacab83dbb8e'
+PRODUCT_BLOBS={
+    'crates/marmot-app/src/account_chat_sharing/enabled.rs':'e908d91ec8a3f1acd18ac5e56020c2589eb79894',
+    'crates/marmot-app/src/client/account_chat_sharing/automatic.rs':'df1edb25d4e9a25434b0eeefee82567bbdb9279b',
+    'crates/marmot-app/src/client/account_chat_sharing/automatic/records.rs':'9256eeeacab8833bf550232f007f5506cb85cd16',
+    'crates/marmot-app/src/client/account_chat_sharing/automatic/departure.rs':'6cd7146325a88c72ece215d5d40a5496ee3563ff',
+    'crates/marmot-app/src/client/account_chat_sharing/automatic/sends/transport.rs':'e9e39c4c4ba57ea5fbe18233cf6c978717aa06fb',
+}
 
 def expected_panic():
     lines=Path(FILE).read_text().splitlines()
@@ -53,6 +61,14 @@ def intended_red(row):
     locations=row.get('panic_locations',[])
     return row.get('body_exit_code')==101 and row.get('passed')==0 and row.get('failed')==1 and row.get('ignored')==0 and row.get('executed_nonignored')==1 and row.get('named_cases')==[NAME] and row.get('all_panic_header_count')==1 and len(locations)==1 and all(locations[0][key]==value for key,value in row['expected_panic'].items()) and row.get('named_assertion_observed') and row.get('all_prerequisites_and_two_positive_closes') and row.get('responsive_while_held') is False and not row.get('watchdog_triggered') and not row.get('actual_count_unknown')
 
+def body_green(row):
+    return row.get('body_exit_code')==0 and row.get('passed')==1 and row.get('failed')==0 and row.get('ignored')==0 and row.get('executed_nonignored')==1 and row.get('named_cases')==[NAME] and row.get('all_panic_header_count')==0 and row.get('all_prerequisites_and_two_positive_closes') and row.get('responsive_while_held') is True and not row.get('watchdog_triggered') and not row.get('actual_count_unknown')
+
+def body_component_green(report):
+    compilation=report.get('compilation',{}); bodies=report.get('bodies',[]); source=report.get('source_preflight',{})
+    reviewed=bool(report.get('source')) and source.get('source')==report.get('source') and source.get('fixture_baseline')==FIXTURE_BASE and source.get('reviewed_product_blobs')==PRODUCT_BLOBS and source.get('original_four_controls_and_body_fixture_unchanged') is True
+    return bool(reviewed and report.get('inputs_pristine') is True and report.get('source_before_sha256') and report.get('source_before_sha256')==report.get('source_after_sha256') and compilation.get('compile_exit_code')==0 and compilation.get('compiler_error_count')==0 and compilation.get('compiled_fingerprints',{}).get('verified') is True and bodies and body_green(bodies[0]))
+
 def parser_preflight():
     panic=expected_panic()
     events=['automatic-body-control stage='+stage+(' responsive=false' if index==4 else ' index='+str(index-8) if index in [8,9] else '') for index,stage in enumerate(STAGES)]
@@ -68,7 +84,25 @@ def parser_preflight():
         ensure(not intended_red(dict(parse(changed),body_exit_code=101)),'body-missing-prerequisite-negative'); negatives+=1
     for changed in [raw+'\nautomatic-body-control unknown',raw+'\n'+events[0],raw.replace('index=1','index=0'),raw.replace('responsive=false','responsive=true'),raw.replace(events[1]+'\n'+events[2],events[2]+'\n'+events[1])]:
         ensure(not intended_red(dict(parse(changed),body_exit_code=101)),'body-malformed-duplicate-or-reordered-negative'); negatives+=1
-    return {'positive_controls':1,'negative_controls':negatives,'actual_product_bodies':0}
+    passed='test '+NAME+' ... ok\n'+'\n'.join(events).replace('responsive=false','responsive=true')+'\ntest result: ok. 1 passed; 0 failed; 0 ignored;'
+    good=dict(parse(passed),body_exit_code=0)
+    ensure(body_green(good) and not intended_red(good),'body-green-parser-positive')
+    for change in [{'body_exit_code':101},{'ignored':1},{'executed_nonignored':0},{'all_panic_header_count':1},{'responsive_while_held':False},{'watchdog_triggered':True},{'actual_count_unknown':True},{'all_prerequisites_and_two_positive_closes':False}]:
+        ensure(not body_green(dict(good,**change)),'body-false-green-negative'); negatives+=1
+    source={'source':'parser-fixture','fixture_baseline':FIXTURE_BASE,'reviewed_product_blobs':PRODUCT_BLOBS,'original_four_controls_and_body_fixture_unchanged':True}
+    component={'source':'parser-fixture','source_preflight':source,'inputs_pristine':True,'source_before_sha256':'frozen','source_after_sha256':'frozen','compilation':{'compile_exit_code':0,'compiler_error_count':0,'compiled_fingerprints':{'verified':True}},'bodies':[good]}
+    ensure(body_component_green(component),'body-component-green-parser-positive')
+    for change in [{'inputs_pristine':False},{'source_after_sha256':'changed'},{'bodies':[]}]:
+        ensure(not body_component_green(dict(component,**change)),'body-component-drift-negative'); negatives+=1
+    for change in [{'compile_exit_code':101},{'compiler_error_count':1},{'compiled_fingerprints':{'verified':False}},{'compile_exit_code':None}]:
+        ensure(not body_component_green(dict(component,compilation=dict(component['compilation'],**change))),'body-component-compiler-or-fingerprint-negative'); negatives+=1
+    for change in [{},{'source':'other'},{'fixture_baseline':'other'},{'reviewed_product_blobs':{}},{'original_four_controls_and_body_fixture_unchanged':False}]:
+        changed=change if not change else dict(source,**change)
+        ensure(not body_component_green(dict(component,source_preflight=changed)),'body-component-missing-or-invalid-source-gate-negative'); negatives+=1
+    missing=dict(component); missing.pop('source'); missing['source_preflight']=dict(source); missing['source_preflight'].pop('source')
+    ensure(not body_component_green(missing),'body-component-both-source-identities-missing'); negatives+=1
+    ensure(not body_component_green(dict(component,source='',source_preflight=dict(source,source=''))),'body-component-empty-source-identities'); negatives+=1
+    return {'positive_controls':3,'negative_controls':negatives,'actual_product_bodies':0}
 
 def preflight():
     changed=subprocess.check_output(['git','diff','--name-only',BASE],text=True).splitlines()
@@ -83,6 +117,67 @@ def preflight():
     report={'source':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'baseline':BASE,'original_four_controls_and_product_tokens_exact_after_strip':True,'hook_blocks':counts,'parser_preflight':parser_preflight(),'actual_product_bodies':0,'qualification_passed':False}
     Path('automatic-body-source.json').write_text(json.dumps(report,indent=2)+'\n')
     return report
+
+def candidate_preflight():
+    changed=subprocess.check_output(['git','diff','--name-only',FIXTURE_BASE],text=True).splitlines()
+    ensure(set(changed)<=set(PRODUCT_BLOBS)|{SELF,WORKFLOW},'body-candidate-unreviewed-source-change')
+    for name,expected in PRODUCT_BLOBS.items():
+        ensure(subprocess.check_output(['git','hash-object',name],text=True).strip()==expected,'body-candidate-product-identity')
+    for name in [FILE,'crates/marmot-app/src/relay_plane/mod.rs']:
+        ensure(normalize(Path(name).read_text())==normalize(subprocess.check_output(['git','show',FIXTURE_BASE+':'+name],text=True)),'body-frozen-real-fixture-or-gate-drift')
+    ast.parse(Path(SELF).read_text(),filename=SELF)
+    report={'source':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'fixture_baseline':FIXTURE_BASE,'reviewed_product_blobs':PRODUCT_BLOBS,'original_four_controls_and_body_fixture_unchanged':True,'parser_preflight':parser_preflight(),'actual_product_bodies':0,'qualification_passed':False}
+    Path('automatic-body-source.json').write_text(json.dumps(report,indent=2)+'\n')
+    return report
+
+def run_candidate(mode,cohort):
+    out=Path('automatic-body-evidence'); out.mkdir(exist_ok=True)
+    report=environment(); report.update(mode=mode,scope='focused automatic Body repair; full SDK, native and original enrollment qualification remain separate',qualification_passed=False,body_control_passed=False,all_five_controls_passed=False)
+    report['required_followup_before_adoption']=['actual omission of Body detach with same intended runtime failure and exact restored control','authentic ACK/receipt clears pending source context before harvest; old result cannot advance a new front','fixed Body expiry with actual task outcome, renewal and permit release','actual held Body plus transient authenticated negative-assembly SQL failure retains original retry until genuine commit','real deletion/revocation/close while held and late ACK cannot advance effects','bounded separate Body/handshake capacity and ready-Body fairness']
+    def save(): (out/'result.json').write_text(json.dumps(report,indent=2)+'\n')
+    frozen=freeze(); report['source_before_sha256']=identity(frozen); save()
+    try:
+        report['source_preflight']=candidate_preflight(); save()
+        if mode=='static':
+            ensure(cohort in {'default','experimental'},'body-static-cohort')
+            command=['cargo','clippy','--locked','-p','marmot-app','--all-targets','--features',FEATURES if cohort=='experimental' else DEFAULT_FEATURES,'--','-D','warnings']
+            report.update(cohort=cohort,command=command,actual_runtime_bodies=0); save(); started=time.monotonic()
+            try: result=subprocess.run(command,capture_output=True,text=True,timeout=1800)
+            except subprocess.TimeoutExpired:
+                report.update(watchdog_triggered=True,seconds=time.monotonic()-started); raise
+            report.update(exit_code=result.returncode,seconds=time.monotonic()-started,**headers(result.stderr))
+            report['static_passed']=result.returncode==0 and report['compiler_error_count']==0
+        else:
+            suffixes=[CASE,NEW,*ORIGINALS]
+            compilation,cases=compile_cases(suffixes); report['compilation']=compilation; save()
+            ensure(freeze()==frozen,'body-controls-compile-input-drift')
+            ensure(compilation.get('compile_exit_code')==0 and compilation.get('compiler_error_count')==0 and compilation.get('compiled_fingerprints',{}).get('verified') and set(cases)==set(suffixes),'body-controls-compile-or-inventory')
+            report['bodies']=[]
+            for suffix in suffixes:
+                case=cases[suffix]; row={'test':case['name'],'suffix':suffix,'binary_sha256':case['binary_sha256']}; report['bodies'].append(row); save(); started=time.monotonic()
+                try:
+                    result=subprocess.run([case['binary'],'--exact',case['name'],'--nocapture','--test-threads=1'],capture_output=True,text=True,timeout=300)
+                    raw=result.stdout+result.stderr; row['body_exit_code']=result.returncode
+                except subprocess.TimeoutExpired as error:
+                    def text(value): return value.decode(errors='replace') if isinstance(value,bytes) else value or ''
+                    raw=text(error.stdout)+text(error.stderr); row.update(watchdog_triggered=True,actual_count_unknown=True)
+                row['body_seconds']=time.monotonic()-started; save()
+                try:
+                    row.update(parse(raw) if suffix==CASE else parse_body(raw,suffix))
+                    row['named_cases']=re.findall(r'(?m)^test ([A-Za-z_0-9:]+) \.\.\.',re.sub(r'\x1b\[[0-9;]*m','',raw))
+                    row['control_passed']=bool(body_green(row) if suffix==CASE else row['named_cases']==[case['name']] and completion_green(row))
+                except Exception as error: row['parser_exception']=type(error).__name__; row['control_passed']=False
+                save()
+            report['body_control_passed']=report['bodies'][0]['control_passed']
+            report['all_five_controls_passed']=all(row['control_passed'] for row in report['bodies'])
+            report['actual_executed_nonignored']=sum(row.get('executed_nonignored',0) for row in report['bodies'])
+            report['actual_counts_complete']=all(row.get('executed_nonignored')==1 and not row.get('actual_count_unknown') for row in report['bodies'])
+    except Exception as error: report['controller_exception']=type(error).__name__
+    finally:
+        report['inputs_pristine']=freeze()==frozen and subprocess.run(['git','diff','--quiet','HEAD']).returncode==0
+        report['source_after_sha256']=identity(freeze())
+        report['body_component_green']=body_component_green(report); save()
+    raise SystemExit(0 if report['inputs_pristine'] and (report.get('static_passed') if mode=='static' else report['all_five_controls_passed']) else 1)
 
 def run_red():
     out=Path('automatic-body-evidence'); out.mkdir(exist_ok=True)
@@ -114,6 +209,8 @@ def run_red():
     raise SystemExit(0 if report['intended_behavioral_red'] and report['inputs_pristine'] else 1)
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(); parser.add_argument('--mode',choices=['preflight','red'],required=True); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('--mode',choices=['preflight','red','green-preflight','controls','static'],required=True); parser.add_argument('--cohort',choices=['default','experimental']); args=parser.parse_args()
     if args.mode=='preflight': preflight()
-    else: run_red()
+    elif args.mode=='red': run_red()
+    elif args.mode=='green-preflight': candidate_preflight()
+    else: run_candidate(args.mode,args.cohort)
