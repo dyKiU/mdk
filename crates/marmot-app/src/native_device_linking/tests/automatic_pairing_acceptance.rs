@@ -1429,7 +1429,7 @@ async fn completed_automatic_transport_keeps_public_cleanup_ownership() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reopened_approved_pair_can_verify_another_installation() {
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();
