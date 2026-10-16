@@ -7341,14 +7341,13 @@ async fn concurrent_generated_identity_calls_converge_on_one_local_attempt() {
     runtime.shutdown().await;
 }
 
-// The account worker's setup KeyPackage path and the setup bootstrap both
-// publish missing relay lists (mdk#2359). On one thread the first to finish
-// records the projection the other checks; on two, both publish.
-#[tokio::test(flavor = "current_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn confirmed_generated_bootstrap_republishes_when_projection_is_missing() {
     let directory = tempfile::tempdir().unwrap();
     let relay = Arc::new(ScriptedPushRelayClient::default());
-    relay.block_next_publish();
+    // The worker's setup KeyPackage and the bootstrap batch publish
+    // concurrently. Hold both so the bootstrap never lands its projection.
+    relay.block_next_publishes(usize::MAX);
     let app = MarmotApp::with_relay(directory.path(), "wss://relay.example")
         .with_test_relay_client(relay.clone());
     let runtime = MarmotAppRuntime::new(app.clone());
@@ -7360,10 +7359,21 @@ async fn confirmed_generated_bootstrap_republishes_when_projection_is_missing() 
         })
         .await
         .unwrap();
-    relay.wait_for_blocked_publish().await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !relay
+            .attempted_events()
+            .iter()
+            .any(|event| event.kind == KIND_NIP65_RELAY_LIST)
+        {
+            relay.wait_for_blocked_publish().await;
+        }
+    })
+    .await
+    .expect("the bootstrap batch must reach the relay");
     runtime.shutdown().await;
     drop(runtime);
     drop(app);
+    relay.block_next_publishes(0);
 
     AccountHome::open(directory.path())
         .set_account_setup_phase(
@@ -7406,6 +7416,168 @@ async fn confirmed_generated_bootstrap_republishes_when_projection_is_missing() 
         "projection recovery should issue one idempotent bootstrap batch"
     );
     runtime.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn generated_setup_publishes_only_the_requested_relay_lists() {
+    // mdk#2359: the worker's setup KeyPackage lane published the app's relays
+    // as the account's lists alongside the setup bootstrap's chosen lists.
+    let directory = tempfile::tempdir().unwrap();
+    let relay = Arc::new(ScriptedPushRelayClient::default());
+    let app = MarmotApp::with_relay(directory.path(), "wss://app-default.example")
+        .with_test_relay_client(relay.clone());
+    let runtime = MarmotAppRuntime::new(app);
+    let chosen = TransportEndpoint("wss://chosen.example".into());
+    let local = runtime
+        .create_identity_local_ready(AccountSetupRequest {
+            default_relays: vec![chosen.clone()],
+            bootstrap_relays: vec![chosen.clone()],
+            inbox_relays: vec![chosen.clone()],
+            publish_initial_key_package: true,
+            ..AccountSetupRequest::default()
+        })
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if runtime
+                .account_setup_readiness(&local.account.label)
+                .unwrap()
+                == AccountSetupReadiness::NetworkReady
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("generated setup must reach network readiness");
+
+    let relay_lists = relay
+        .attempted_events()
+        .into_iter()
+        .filter(|event| [KIND_NIP65_RELAY_LIST, KIND_MARMOT_INBOX_RELAY_LIST].contains(&event.kind))
+        .collect::<Vec<_>>();
+    let mut kinds = relay_lists
+        .iter()
+        .map(|event| event.kind)
+        .collect::<Vec<_>>();
+    kinds.sort_unstable();
+    assert_eq!(
+        kinds,
+        vec![KIND_NIP65_RELAY_LIST, KIND_MARMOT_INBOX_RELAY_LIST],
+        "setup must publish each relay list once"
+    );
+    for event in &relay_lists {
+        let listed = event
+            .tags
+            .iter()
+            .filter(|tag| matches!(tag.first().map(String::as_str), Some("r" | "relay")))
+            .filter_map(|tag| tag.get(1).cloned())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            listed,
+            vec![chosen.0.clone()],
+            "kind {} must list only the requested relays",
+            event.kind
+        );
+    }
+    runtime.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn generated_setup_key_packages_stay_on_the_requested_relays() {
+    // mdk#2359: until the bootstrap projects its NIP-65 list, KeyPackage
+    // routing fell back to the app's relays.
+    let directory = tempfile::tempdir().unwrap();
+    let relay = Arc::new(ScriptedPushRelayClient::default());
+    // The bootstrap never lands, so its NIP-65 list is never projected.
+    relay.fail_publishes_of_kind(KIND_NIP65_RELAY_LIST);
+    let app = MarmotApp::with_relay(directory.path(), "wss://app-default.example")
+        .with_test_relay_client(relay.clone());
+    let runtime = MarmotAppRuntime::new(app.clone());
+    let chosen = TransportEndpoint("wss://chosen.example".into());
+    let local = runtime
+        .create_identity_local_ready(AccountSetupRequest {
+            default_relays: vec![chosen.clone()],
+            bootstrap_relays: vec![chosen.clone()],
+            inbox_relays: vec![chosen.clone()],
+            publish_initial_key_package: true,
+            ..AccountSetupRequest::default()
+        })
+        .await
+        .unwrap();
+    let label = local.account.label.clone();
+    // The worker's setup lane publishes the prepared initial KeyPackage.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while app
+            .account_storage(&label)
+            .unwrap()
+            .key_package_lifecycle()
+            .unwrap()
+            .is_none_or(|lifecycle| lifecycle.current_key_package.is_none())
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the setup lane must publish the initial KeyPackage");
+
+    // A republish routes from the projection, which still has no NIP-65.
+    runtime.publish_key_package(&label).await.unwrap();
+    assert!(
+        app.account_relay_list_status(&label)
+            .unwrap()
+            .nip65
+            .relays
+            .is_empty()
+    );
+    let key_package_routes = relay
+        .attempted_publish_routes
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(kind, _)| *kind == KIND_MARMOT_KEY_PACKAGE)
+        .map(|(_, route)| route.clone())
+        .collect::<Vec<_>>();
+    assert!(
+        key_package_routes.len() >= 2,
+        "the initial publication and the republish both reached the relay"
+    );
+    for route in key_package_routes {
+        assert_eq!(route, vec![chosen.clone()]);
+    }
+    runtime.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn key_package_routing_sees_lists_a_setup_projected_after_the_routing_read() {
+    // mdk#2359: routing read the projection before the setup journal, so a
+    // setup that completed in between left an empty outbox and the app's
+    // relays.
+    let directory = tempfile::tempdir().unwrap();
+    let home = AccountHome::open(directory.path());
+    let account = home.create_nostr_account_for_setup().unwrap();
+    let relay = Arc::new(ScriptedPushRelayClient::default());
+    let app = MarmotApp::with_relay(directory.path(), "wss://app-default.example")
+        .with_test_relay_client(relay);
+    let chosen = TransportEndpoint("wss://chosen.example".into());
+    let stale = app.account_relay_list_status(&account.label).unwrap();
+    assert!(stale.nip65.relays.is_empty());
+
+    app.publish_generated_account_bootstrap(
+        &account.label,
+        AccountRelayListBootstrap::new(vec![chosen.clone()], vec![chosen.clone()]),
+        &UserProfileMetadata::default(),
+    )
+    .await
+    .unwrap();
+    home.complete_account_setup(&account.label).unwrap();
+
+    assert_eq!(
+        app.key_package_endpoints(&account.label, &stale).unwrap(),
+        vec![chosen]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
