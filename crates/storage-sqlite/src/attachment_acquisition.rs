@@ -1127,6 +1127,8 @@ pub use partial::{
     STORAGE_PARKED_PREFIX_MAX_AGE_SECONDS,
 };
 
+mod checkpoint;
+pub use checkpoint::AttachmentCheckpoint;
 mod file_import;
 mod file_staging;
 mod media;
@@ -1138,7 +1140,7 @@ pub use access::RetainedAttachmentAsset;
 mod controls;
 pub use controls::{
     AttachmentDownloadPolicy, AttachmentTransferFrame, AttachmentTransferState,
-    AttachmentTransferStatus, STORAGE_READMIT_MARGIN_BYTES,
+    AttachmentTransferStatus, ReadmitAdmission, STORAGE_READMIT_MARGIN_BYTES,
 };
 
 mod outgoing;

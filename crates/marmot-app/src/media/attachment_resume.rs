@@ -1,6 +1,7 @@
 //! Durable ciphertext only. Native byte/progress access remains a separate contract.
 use super::AttachmentDownloadFailure;
-use crate::AppError;
+use crate::{AccountMediaStore, AppError};
+use media_store::{Admission, DiskPolicy};
 use sha2::{Digest, Sha256};
 use std::{
     future::Future,
@@ -16,6 +17,10 @@ use storage_sqlite::{
     AttachmentPartialIdentity, SqliteAccountStorage,
 };
 
+/// A checkpoint's metadata and the ciphertext prefix read back from its wire
+/// file, for the in-memory sink.
+pub(super) type RestoredPartial = (AttachmentPartial, Vec<u8>);
+
 pub(crate) const AUTOMATIC_TRANSFER_TIMEOUT: std::time::Duration =
     std::time::Duration::from_secs(120);
 pub(super) const BODY_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -26,7 +31,8 @@ pub(crate) struct AttachmentResume {
     pub storage: SqliteAccountStorage,
     pub job: AttachmentAcquisition,
     pub ciphertext_digest: [u8; 32],
-    pub budget: u64,
+    /// The account's media store, which holds this job's `.wire` checkpoint.
+    pub media: AccountMediaStore,
     pub directory: PathBuf,
     pub policy: storage_sqlite::AttachmentDownloadPolicy,
     pub automatic: bool,
@@ -43,10 +49,9 @@ fn retry(message: &str) -> AttachmentDownloadFailure {
 fn stop(message: &str) -> AttachmentDownloadFailure {
     AttachmentDownloadFailure::Stop(AppError::BlobStore(message.into()))
 }
-/// Publishing `bytes` needs `disk_reserve + 4 * bytes` free (SQLite row, WAL and
-/// private staging copies). Below that, the job parks as `StorageBlocked` with
-/// its checkpoints instead of re-fetching on a timer. The payload is the
-/// headroom beyond the reserve a retried attempt needs, in the worker's frame.
+/// Below the space a body needs, the job parks as `StorageBlocked` with its
+/// checkpoint instead of re-fetching on a timer. The payload is the headroom
+/// beyond the reserve a retried attempt needs, in the worker's frame.
 fn storage_blocked(headroom: u64) -> AttachmentDownloadFailure {
     AttachmentDownloadFailure::StorageBlocked { headroom }
 }
@@ -59,7 +64,69 @@ pub(crate) fn available_space(path: &std::path::Path) -> std::io::Result<u64> {
     if let Some(free) = test_free_space::lookup(path) {
         return Ok(free);
     }
-    fs4::available_space(path)
+    media_store::free_space(path)
+}
+
+/// Saves `bytes` at `offset` into the job's download checkpoint (mdk#2314
+/// step 2b). The media store owns the `.wire` file, the order of every step,
+/// cleanup when a step fails and serialization against other attempts; this
+/// only names the checkpoint. `false` means the attempt no longer owns a
+/// checkpoint at `offset`. Blocking.
+pub(crate) fn write_checkpoint(
+    storage: &SqliteAccountStorage,
+    media: &AccountMediaStore,
+    job: &AttachmentAcquisition,
+    identity: &AttachmentPartialIdentity,
+    offset: u64,
+    bytes: &[u8],
+) -> media_store::MediaResult<bool> {
+    let target = storage.attachment_checkpoint(job, identity.clone(), crate::unix_now_seconds);
+    media.checkpoint_append(&target, offset, bytes)
+}
+
+/// The job's checkpoint and its recorded prefix. The prefix buffer is
+/// reserved fallibly. A checkpoint whose file cannot resume is discarded by
+/// the store and reads as `None`. Blocking.
+pub(crate) fn read_checkpoint(
+    storage: &SqliteAccountStorage,
+    media: &AccountMediaStore,
+    job: &AttachmentAcquisition,
+    now: u64,
+    max: u64,
+    expected: Option<(&[u8; 32], &[u8; 32])>,
+) -> Result<Option<RestoredPartial>, AppError> {
+    let Some(part) = storage.load_attachment_partial(job, now, max, expected)? else {
+        return Ok(None);
+    };
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(usize::try_from(part.received).unwrap_or(usize::MAX))
+        .map_err(|_| AppError::BlobStore("attachment checkpoint buffer unavailable".into()))?;
+    let target = storage.attachment_checkpoint(job, part.identity.clone(), crate::unix_now_seconds);
+    match media
+        .checkpoint_restore(&target, &mut bytes)
+        .map_err(media_error)?
+    {
+        Some(received) if received == part.received => Ok(Some((part, bytes))),
+        _ => Ok(None),
+    }
+}
+
+/// Removes the job's checkpoint: the row, then its wire file. Candidate
+/// failures pass the expected identity; `None` clears whatever the job holds.
+/// Blocking.
+pub(crate) fn clear_checkpoint(
+    storage: &SqliteAccountStorage,
+    media: &AccountMediaStore,
+    job: &AttachmentAcquisition,
+    expected: Option<([u8; 32], [u8; 32])>,
+) -> Result<(), AppError> {
+    let target = storage.attachment_checkpoint_matching(job, expected, crate::unix_now_seconds);
+    media.checkpoint_clear(&target).map_err(media_error)
+}
+
+fn media_error(_: media_store::MediaError) -> AppError {
+    AppError::BlobStore("attachment checkpoint file unavailable".into())
 }
 
 /// Distinguish revocation from transport errors without nesting Result values.
@@ -156,15 +223,26 @@ impl AttachmentResume {
             .ok_or_else(|| stop("attachment length overflow"))?;
         self.progress(ciphertext_len, Some(ciphertext_len), false)
             .await?;
-        self.completed_body(plaintext_len, plaintext_len as u64)
+        let plaintext_len = plaintext_len as u64;
+        self.record_completed_body(file_sink_bytes(plaintext_len, 0), plaintext_len)
             .await
     }
 
-    /// `held` is the staging this attempt occupies at the receipt; the
-    /// in-memory sink stages nothing and passes zero.
+    /// The in-memory sink's receipt. Its checkpoint stops growing here, so
+    /// only the store file is still to be written.
     pub(crate) async fn completed_body(
         &self,
         plaintext_len: usize,
+    ) -> Result<(), AttachmentDownloadFailure> {
+        let len = plaintext_len as u64;
+        self.record_completed_body(DiskPolicy::download_need(len, len), 0)
+            .await
+    }
+
+    /// `held` is the staging this attempt occupies at the receipt.
+    async fn record_completed_body(
+        &self,
+        needed: u64,
         held: u64,
     ) -> Result<(), AttachmentDownloadFailure> {
         self.finishing.store(true, Ordering::Release);
@@ -173,7 +251,7 @@ impl AttachmentResume {
             // Park on disk pressure before recording a completed receipt, so a
             // blocked job never becomes an opted-in body with no retention.
             // Stable retention quota failures after this boundary remain terminal.
-            this.check_publication_capacity(plaintext_len as u64, 0, held)?;
+            this.check_capacity(needed, held)?;
             this.storage
                 .mark_attachment_body_completed(&this.job, crate::unix_now_seconds())
                 .map_err(|_| stop("attachment receipt failed"))
@@ -186,10 +264,43 @@ impl AttachmentResume {
         Ok(())
     }
 
-    /// Publishing `bytes` needs the durable policy's reserve plus four times
-    /// `bytes` free at the strictest point of the attempt. Both sinks apply
-    /// this as soon as a size is known, again as a body grows, and once more
-    /// before the completed-body receipt.
+    /// Admits `needed` more bytes on the account's volume under the
+    /// [`DiskPolicy`] built from the durable policy's reserve. A shortage
+    /// parks the job with `needed + held` as its headroom; `held` is the
+    /// staging this attempt already occupies, which the worker's free-space
+    /// measurement (taken once that staging is gone) does not see. Unknown
+    /// free space is a transient failure.
+    fn check_capacity(&self, needed: u64, held: u64) -> Result<(), AttachmentDownloadFailure> {
+        let disk = self.disk_policy()?;
+        let free =
+            available_space(&self.directory).map_err(|_| retry("free disk space unavailable"))?;
+        match disk.admit(free, needed) {
+            Admission::Admitted => Ok(()),
+            Admission::StorageFull { headroom } => {
+                Err(storage_blocked(headroom.saturating_add(held)))
+            }
+        }
+    }
+
+    /// The [`DiskPolicy`] every attempt-level disk check uses: the durable
+    /// policy's current reserve, not the snapshot taken when the job was
+    /// claimed, which a policy change since then has made stale.
+    fn disk_policy(&self) -> Result<DiskPolicy, AttachmentDownloadFailure> {
+        let policy = self
+            .storage
+            .attachment_download_policy(&self.policy)
+            .map_err(|_| retry("attachment publication policy unavailable"))?;
+        Ok(DiskPolicy {
+            reserve_bytes: policy.disk_reserve,
+        })
+    }
+
+    /// The file sink's publication check: until it writes into the wire file
+    /// directly, it still holds a staging copy and a decrypted copy beside the
+    /// checkpoint and the store file, so it needs four times `bytes` free at
+    /// the strictest point of the attempt. It applies this as soon as a size
+    /// is known, again as a body grows, and once more before the
+    /// completed-body receipt.
     ///
     /// `ahead` is the staging, checkpoint and decrypted-file growth this
     /// attempt will still consume before that point, so the check anticipates
@@ -209,17 +320,7 @@ impl AttachmentResume {
         ahead: u64,
         held: u64,
     ) -> Result<(), AttachmentDownloadFailure> {
-        let policy = self
-            .storage
-            .attachment_download_policy(&self.policy)
-            .map_err(|_| retry("attachment publication policy unavailable"))?;
-        let free =
-            available_space(&self.directory).map_err(|_| retry("free disk space unavailable"))?;
-        let needed = bytes.saturating_mul(4).saturating_add(ahead);
-        if free < policy.disk_reserve.saturating_add(needed) {
-            return Err(storage_blocked(needed.saturating_add(held)));
-        }
-        Ok(())
+        self.check_capacity(file_sink_bytes(bytes, ahead), held)
     }
 
     /// Check publication headroom without recording a completed-body receipt.
@@ -235,16 +336,25 @@ impl AttachmentResume {
             .map_err(|_| retry("attachment capacity task failed"))?
     }
 
-    /// Early in-memory capacity check: a definite shortage parks the job, but
-    /// an unobservable policy or free-space figure must not mask a later
-    /// cryptographic verdict. The completed-body receipt repeats the check
-    /// authoritatively. The in-memory sink stages nothing on disk.
+    /// Early in-memory capacity check: a body of `bytes` needs the reserve
+    /// plus twice `bytes` free, for its wire checkpoint and its store file,
+    /// less the `on_disk` checkpoint bytes free space already excludes. A
+    /// definite shortage parks the job, but an unobservable policy or
+    /// free-space figure must not mask a later cryptographic verdict. The
+    /// completed-body receipt repeats the check authoritatively.
     async fn early_publication_capacity(
         self: &Arc<Self>,
         bytes: u64,
-        ahead: u64,
+        on_disk: u64,
     ) -> Result<(), AttachmentDownloadFailure> {
-        match self.publication_capacity(bytes, ahead, 0).await {
+        let this = Arc::clone(self);
+        let checked = tokio::task::spawn_blocking(move || {
+            this.check_capacity(DiskPolicy::download_need(bytes, on_disk), 0)
+        })
+        .await
+        .map_err(|_| retry("attachment capacity task failed"))
+        .and_then(|checked| checked);
+        match checked {
             Err(blocked @ AttachmentDownloadFailure::StorageBlocked { .. }) => Err(blocked),
             _ => Ok(()),
         }
@@ -328,11 +438,13 @@ impl AttachmentResume {
         &self,
         url: &url::Url,
         max: u64,
-    ) -> Result<Option<AttachmentPartial>, AttachmentDownloadFailure> {
+    ) -> Result<Option<RestoredPartial>, AttachmentDownloadFailure> {
         let this = self.clone();
         let locator_digest = Sha256::digest(url.as_str().as_bytes()).into();
         tokio::task::spawn_blocking(move || {
-            this.storage.load_attachment_partial(
+            read_checkpoint(
+                &this.storage,
+                &this.media,
                 &this.job,
                 crate::unix_now_seconds(),
                 max,
@@ -355,11 +467,7 @@ impl AttachmentResume {
             )
         });
         tokio::task::spawn_blocking(move || {
-            this.storage.clear_attachment_partial(
-                &this.job,
-                crate::unix_now_seconds(),
-                identity.as_ref().map(|(c, l)| (c, l)),
-            )
+            clear_checkpoint(&this.storage, &this.media, &this.job, identity)
         })
         .await
         .map_err(|_| retry("partial checkpoint task failed"))?
@@ -374,27 +482,39 @@ impl AttachmentResume {
     ) -> Result<(), AttachmentDownloadFailure> {
         let this = self.clone();
         let saved = tokio::task::spawn_blocking(move || {
-            let free = available_space(&this.directory).unwrap_or(0);
-            if free
-                < this
-                    .policy
-                    .disk_reserve
-                    .saturating_add(4 * ATTACHMENT_CHECKPOINT_BYTES as u64)
-            {
-                return Ok(false);
+            // A checkpoint write keeps the reserve free, like every other
+            // write on the account's volume. A shortage parks the job with
+            // what its next attempt needs: the rest of the body beyond the
+            // saved `offset`, and its store file. Space that cannot be
+            // measured is a transient failure, not a full disk.
+            let disk = this.disk_policy()?;
+            let free = available_space(&this.directory)
+                .map_err(|_| retry("free disk space unavailable"))?;
+            let body = identity
+                .total
+                .saturating_sub(super::file_transfer::MEDIA_AEAD_TAG_BYTES);
+            let need = DiskPolicy::download_need(body, offset as u64);
+            if disk.admit(free, bytes.len() as u64) != Admission::Admitted {
+                return Err(storage_blocked(need));
             }
-            this.storage.checkpoint_attachment_partial(
+            // The volume or the database can still fill between the
+            // measurement and the write: the store reports that as
+            // `Capacity`, and it parks the same way.
+            write_checkpoint(
+                &this.storage,
+                &this.media,
                 &this.job,
                 &identity,
                 offset as u64,
                 &bytes,
-                crate::unix_now_seconds(),
-                this.budget,
             )
+            .map_err(|error| match error {
+                media_store::MediaError::Capacity => storage_blocked(need),
+                _ => retry("partial checkpoint write failed"),
+            })
         })
         .await
-        .map_err(|_| retry("partial checkpoint task failed"))?
-        .map_err(|_| retry("partial checkpoint write failed"))?;
+        .map_err(|_| retry("partial checkpoint task failed"))??;
         if !saved {
             return Err(retry("partial checkpoint no longer admitted"));
         }
@@ -436,23 +556,35 @@ impl AttachmentResume {
                     .saturating_add(saved),
                 0,
             )?;
+            let now = crate::unix_now_seconds();
+            let expected = (&this.ciphertext_digest, &locator_digest);
+            let Some(part) = this
+                .storage
+                .load_attachment_partial(&this.job, now, max, Some(expected))
+                .map_err(|_| retry("partial file checkpoint unavailable"))?
+            else {
+                return Ok(None);
+            };
             let mut file = super::file_transfer::PrivateMediaFile::create(&directory)?;
             let mut writer = file.writer()?;
-            let part = this
-                .storage
-                .load_attachment_partial_to_writer(
-                    &this.job,
-                    crate::unix_now_seconds(),
-                    max,
-                    (&this.ciphertext_digest, &locator_digest),
-                    &mut writer,
-                )
+            let target = this.storage.attachment_checkpoint(
+                &this.job,
+                part.identity.clone(),
+                crate::unix_now_seconds,
+            );
+            let restored = this
+                .media
+                .checkpoint_restore(&target, &mut writer)
                 .map_err(|_| retry("partial file checkpoint unavailable"))?;
-            if let Some((identity, received)) = part {
-                file.len = received;
-                Ok(Some((file, identity)))
-            } else {
-                Ok(None)
+            std::io::Write::flush(&mut writer)
+                .map_err(|_| retry("partial file checkpoint unavailable"))?;
+            drop(writer);
+            match restored {
+                Some(received) if received == part.received => {
+                    file.len = received;
+                    Ok(Some((file, part.identity)))
+                }
+                _ => Ok(None),
             }
         })
         .await
@@ -492,14 +624,14 @@ pub(super) fn valid_range(response: &reqwest::Response, part: &AttachmentPartial
     }
     let expected = format!(
         "bytes {}-{}/{}",
-        part.bytes.len(),
+        part.received,
         part.identity.total - 1,
         part.identity.total
     );
     raw == expected
         && response
             .content_length()
-            .is_none_or(|n| n == part.identity.total - part.bytes.len() as u64)
+            .is_none_or(|n| n == part.identity.total - part.received)
 }
 
 pub(super) async fn read_body(
@@ -508,7 +640,7 @@ pub(super) async fn read_body(
     max: u64,
     first_byte_deadline: tokio::time::Instant,
     context: &Arc<AttachmentResume>,
-    prefix: Option<AttachmentPartial>,
+    prefix: Option<RestoredPartial>,
 ) -> Result<Vec<u8>, AttachmentDownloadFailure> {
     if response
         .headers()
@@ -517,8 +649,8 @@ pub(super) async fn read_body(
     {
         return Err(stop("encoded response cannot be resumed"));
     }
-    let (mut bytes, identity) = if let Some(part) = prefix {
-        (part.bytes, Some(part.identity))
+    let (mut bytes, identity) = if let Some((part, bytes)) = prefix {
+        (bytes, Some(part.identity))
     } else {
         // A replacement checkpoint atomically replaces the old locator's prefix.
         // Preserve it if this fallback fails before saving any useful bytes.
@@ -545,16 +677,13 @@ pub(super) async fn read_body(
     }
     if let Some(total) = expected_total {
         // The size is known now: refuse before fetching a body the device
-        // cannot publish, counting the checkpoint bytes a validated body will
-        // still add, and reserve the buffer once so it never doubles. A
-        // peer-declared length must not abort the process on allocation.
-        let checkpoint_growth = identity
-            .as_ref()
-            .map_or(0, |_| total.saturating_sub(bytes.len() as u64));
+        // cannot checkpoint and publish, and reserve the buffer once so it
+        // never doubles. A peer-declared length must not abort the process on
+        // allocation.
         context
             .early_publication_capacity(
                 total.saturating_sub(super::file_transfer::MEDIA_AEAD_TAG_BYTES),
-                checkpoint_growth,
+                bytes.len() as u64,
             )
             .await?;
         bytes
@@ -636,7 +765,7 @@ pub(super) async fn read_body(
     if let Err(error) = context
         .early_publication_capacity(
             (bytes.len() as u64).saturating_sub(super::file_transfer::MEDIA_AEAD_TAG_BYTES),
-            0,
+            saved as u64,
         )
         .await
     {
@@ -652,6 +781,14 @@ pub(super) async fn read_body(
         .await?;
     Ok(bytes)
 }
+/// What the file sink needs free beyond the reserve to publish a body of
+/// `bytes`, with `ahead` still to stage or checkpoint first. It still holds a
+/// staging copy and a decrypted copy beside the checkpoint and the store
+/// file; mdk#2314 step 2b-2 moves it onto [`DiskPolicy::download_need`].
+fn file_sink_bytes(bytes: u64, ahead: u64) -> u64 {
+    bytes.saturating_mul(4).saturating_add(ahead)
+}
+
 /// Next buffer capacity for an undeclared-length body that needs `needed`
 /// bytes, growing from `capacity` under the admitted `limit`: doubling up to
 /// half the limit, then one step to the limit itself. Growth copies the old

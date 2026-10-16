@@ -113,6 +113,12 @@ pub trait MediaCatalog: Send + Sync {
     fn mark_lost(&self, id: FileId) -> CatalogResult<bool>;
     /// Rows in id order after `after`, for the sweep.
     fn page(&self, after: Option<FileId>, limit: usize) -> CatalogResult<Vec<(FileId, FileState)>>;
+    /// The recorded length of the download checkpoint that owns the wire
+    /// file `id`, or `None` when no row does. The row is written before its
+    /// `.wire` file exists and deleted before the file is, so the sweep
+    /// unlinks a wire file only when this is `None`, and trims a file longer
+    /// than the recorded length back to it.
+    fn wire_partial_received(&self, id: FileId) -> CatalogResult<Option<u64>>;
 }
 
 /// What one existence check found for a ready file.
@@ -185,4 +191,42 @@ pub trait PublishTarget {
         digest: &[u8; 32],
         present: Presence<'_>,
     ) -> CatalogResult<ReadyOutcome>;
+}
+
+/// A checkpoint that [`CheckpointTarget::begin`] started.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CheckpointStart {
+    /// The new checkpoint's wire file, not created yet.
+    pub wire: FileId,
+    /// The wire file of the checkpoint it replaced, if there was one. Its row
+    /// is already gone; the store unlinks the file.
+    pub replaced: Option<FileId>,
+}
+
+/// One download checkpoint's domain side: its row, under the fences of the
+/// attempt that owns it (store generation, attempt, lease, source). The store
+/// drives the file and the ordering through
+/// [`MediaStore::checkpoint_append`](crate::MediaStore::checkpoint_append) and
+/// its siblings; a target only reads and writes the row. Each method is **one
+/// transaction** and does no file I/O.
+///
+/// A target that is no longer the checkpoint's owner (a newer attempt, a
+/// cancelled job, a different identity) answers `None` or `false`; it never
+/// changes another owner's row.
+pub trait CheckpointTarget {
+    /// Names the checkpoint, so the store serializes operations on it.
+    /// Opaque; never logged.
+    fn key(&self) -> &[u8];
+    /// The checkpoint this target owns: its wire file and the bytes recorded
+    /// as durable in it.
+    fn current(&self) -> CatalogResult<Option<(FileId, u64)>>;
+    /// Starts a new checkpoint with nothing recorded, replacing any earlier
+    /// one, and commits it before its wire file exists.
+    fn begin(&self) -> CatalogResult<Option<CheckpointStart>>;
+    /// Records that `wire` durably holds the first `received` bytes. Only
+    /// growth of this target's own checkpoint is accepted.
+    fn record(&self, wire: FileId, received: u64) -> CatalogResult<bool>;
+    /// Deletes this target's checkpoint row and returns its wire file, which
+    /// the store unlinks after the commit.
+    fn clear(&self) -> CatalogResult<Option<FileId>>;
 }

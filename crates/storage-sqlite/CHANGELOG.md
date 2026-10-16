@@ -16,6 +16,27 @@
   `media_files` (per-file keys and states for the encrypted media store,
   mdk#2314) and `media_file_refs` (attachment slot to ready file), with triggers
   that delete a file's key with its last reference and on a store reset.
+- Migration 0112 advances account storage to schema 112 on first open. Older
+  binaries reject the upgraded database; downgrade is unsupported. It discards
+  existing download checkpoints (the next attempt starts its body over) and adds
+  `attachment_partial.wire_file_id` and `progress_floor`: checkpoint
+  ciphertext now lives in a media store `.wire` file and the row keeps only
+  its metadata (mdk#2314). Checkpoints no longer reserve retained budget
+  (`attachment_partial_usage.reserved_bytes` stays zero).
+- Download checkpoints are metadata only, written through the media store.
+  `attachment_checkpoint` and `attachment_checkpoint_matching` return an
+  `AttachmentCheckpoint`, the job's `media_store::CheckpointTarget`; save,
+  restore and clear a checkpoint with `MediaStore::checkpoint_append`,
+  `checkpoint_restore` and `checkpoint_clear`. `load_attachment_partial` returns
+  `AttachmentPartial { identity, received, wire_file }` instead of the bytes.
+  `clear_attachment_partial`, `checkpoint_attachment_partial`,
+  `load_attachment_partial_to_writer` and `attachment_acquisition_fits_budget`
+  are no longer public.
+- `readmit_storage_blocked_attachments` takes a `ReadmitAdmission` (the
+  recorded-checkpoint threshold the caller's admission rule implies) in place
+  of the transfer limit, so readmission and worker admission decide the same
+  way. It filters by it before limiting its page, so rows admission refuses
+  cannot hide later ones that pass.
 - `read_retained_attachment` returns an error for a body stored as a media file
   (mdk#2314). Use `retained_attachment_read`, which returns legacy database bytes or
   the media file id to read through the media store.
@@ -48,8 +69,9 @@
   a completed-body receipt that publication could not use, and advances a park
   streak (a permission-owned park does not). `readmit_storage_blocked_attachments`
   requeues up to 64 parked jobs whose target fits the supplied free space less
-  `STORAGE_READMIT_MARGIN_BYTES` once admission (`disk_reserve + 4 *
-  transfer_limit`) would pass, delays a repeated park by its streak, and skips
+  `STORAGE_READMIT_MARGIN_BYTES` once worker admission (`disk_reserve + 2 *
+  transfer_limit`, less the job's checkpoint and never less than one limit)
+  would pass, delays a repeated park by its streak, and skips
   automatic rows while automatic acquisition is disabled; its probe is
   read-only until a row fits. Explicit retry, readmission, completion and
   cancellation clear the parked marker; both explicit retry APIs refresh a

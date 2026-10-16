@@ -89,6 +89,39 @@ fn read(store: &SqliteAccountStorage, r: &AttachmentAssetRef) -> Vec<u8> {
         .unwrap()
         .to_vec()
 }
+/// The runtime's checkpoint flow without its wire file (mdk#2314 step 2b): a
+/// zero offset begins a new checkpoint, and each write records the new
+/// length once its bytes are durable in the wire file. `false` where the
+/// attempt is fenced or the write does not extend this checkpoint.
+fn checkpoint(
+    store: &SqliteAccountStorage,
+    job: &AttachmentAcquisition,
+    identity: &AttachmentPartialIdentity,
+    offset: u64,
+    bytes: &[u8],
+    now: u64,
+) -> StorageResult<bool> {
+    if offset == 0
+        && store
+            .begin_attachment_partial(job, identity, now)?
+            .is_none()
+    {
+        return Ok(false);
+    }
+    let Some(part) = store.load_attachment_partial(job, now, u64::MAX, None)? else {
+        return Ok(false);
+    };
+    if part.received != offset || part.identity != *identity {
+        return Ok(false);
+    }
+    store.record_attachment_partial(
+        job,
+        identity,
+        &part.wire_file,
+        offset + bytes.len() as u64,
+        now,
+    )
+}
 fn sql(store: &SqliteAccountStorage, s: &str) {
     store.lock().unwrap().execute_batch(s).unwrap();
 }
@@ -1045,6 +1078,21 @@ fn attachment_partial_storage_is_provisioned_without_network() {
     assert_eq!(count, 0);
 }
 
+/// Worker admission as the app hands it to readmission: room for a download
+/// of up to `limit` bytes less its recorded checkpoint, as one threshold.
+fn admission(reserve: u64, free: u64, limit: u64) -> ReadmitAdmission {
+    match free
+        .checked_sub(reserve)
+        .and_then(|available| media_store::DiskPolicy::checkpoint_needed(limit, available))
+    {
+        Some(needed) => ReadmitAdmission {
+            checkpointed_at_least: needed,
+            uncheckpointed: needed == 0,
+        },
+        None => ReadmitAdmission::NONE,
+    }
+}
+
 fn partial_identity(total: u64) -> AttachmentPartialIdentity {
     AttachmentPartialIdentity {
         ciphertext_digest: [1; 32],
@@ -1054,143 +1102,12 @@ fn partial_identity(total: u64) -> AttachmentPartialIdentity {
     }
 }
 
-#[test]
-fn file_partial_writer_preserves_large_reservations_and_discards_corrupt_prefixes() {
-    let store = SqliteAccountStorage::in_memory().unwrap();
-    seed(&store, "file-prefix");
-    let asset = request(&store, "file-prefix");
-    let job = store
-        .claim_attachment_acquisition(&asset, 12, 100)
-        .unwrap()
-        .unwrap();
-    let identity = partial_identity(758_000_016);
-    let first = vec![0x37; ATTACHMENT_CHECKPOINT_BYTES];
-    assert!(
-        store
-            .checkpoint_attachment_partial(&job, &identity, 0, &first, 12, 2 * 1024 * 1024 * 1024)
-            .unwrap()
-    );
-    assert_eq!(
-        store
-            .attachment_partial_total(
-                &job,
-                12,
-                (&identity.ciphertext_digest, &identity.locator_digest)
-            )
-            .unwrap(),
-        Some(identity.total)
-    );
-    assert_eq!(
-        store
-            .attachment_partial_total(&job, 12, (&identity.ciphertext_digest, &[0; 32]))
-            .unwrap(),
-        None
-    );
-    assert_eq!(
-        store
-            .attachment_partial_total(
-                &job,
-                100,
-                (&identity.ciphertext_digest, &identity.locator_digest)
-            )
-            .unwrap(),
-        None
-    );
-    // Legacy callers must not erase a checkpoint they cannot load into memory.
-    assert!(
-        store
-            .load_attachment_partial(&job, 12, MAX_RETAINED_FILE_ATTACHMENT_BYTES, None)
-            .unwrap()
-            .is_none()
-    );
-    struct BoundedWriter {
-        count: usize,
-        largest: usize,
-    }
-    impl std::io::Write for BoundedWriter {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            assert!(bytes.iter().all(|byte| *byte == 0x37));
-            self.count += bytes.len();
-            self.largest = self.largest.max(bytes.len());
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    let mut output = BoundedWriter {
-        count: 0,
-        largest: 0,
-    };
-    let restored = store
-        .load_attachment_partial_to_writer(
-            &job,
-            12,
-            MAX_RETAINED_FILE_ATTACHMENT_BYTES,
-            (&identity.ciphertext_digest, &identity.locator_digest),
-            &mut output,
-        )
-        .unwrap()
-        .unwrap();
-    assert_eq!(restored.0.total, 758_000_016);
-    assert_eq!(restored.1, ATTACHMENT_CHECKPOINT_BYTES as u64);
-    assert_eq!(output.count, ATTACHMENT_CHECKPOINT_BYTES);
-    assert!(output.largest <= ATTACHMENT_CHECKPOINT_BYTES);
-    sql(
-        &store,
-        "UPDATE attachment_partial_chunk SET digest=zeroblob(32);",
-    );
-    assert!(
-        store
-            .load_attachment_partial_to_writer(
-                &job,
-                12,
-                MAX_RETAINED_FILE_ATTACHMENT_BYTES,
-                (&identity.ciphertext_digest, &identity.locator_digest),
-                &mut std::io::sink()
-            )
-            .unwrap()
-            .is_none()
-    );
-    assert_eq!(partial_usage(&store), 0);
-    assert_eq!(
-        store
-            .lock()
-            .unwrap()
-            .query_row(
-                "SELECT reserved_bytes FROM attachment_partial_usage",
-                [],
-                |r| r.get::<_, i64>(0)
-            )
-            .unwrap(),
-        0
-    );
-    // Corruption recovery leaves a fresh attempt able to checkpoint again.
-    assert!(
-        store
-            .checkpoint_attachment_partial(&job, &identity, 0, &first, 12, 2 * 1024 * 1024 * 1024)
-            .unwrap()
-    );
-    store.cancel_attachment_acquisition(&asset).unwrap();
-    assert!(
-        store
-            .load_attachment_partial_to_writer(
-                &job,
-                13,
-                MAX_RETAINED_FILE_ATTACHMENT_BYTES,
-                (&identity.ciphertext_digest, &identity.locator_digest),
-                &mut std::io::sink()
-            )
-            .unwrap()
-            .is_none()
-    );
-}
 fn partial_usage(store: &SqliteAccountStorage) -> u64 {
     store
         .lock()
         .unwrap()
         .query_row(
-            "SELECT coalesce(sum(length(bytes)),0) FROM attachment_partial_chunk",
+            "SELECT coalesce(sum(received),0) FROM attachment_partial",
             [],
             |r| nonnegative(r, 0),
         )
@@ -1209,16 +1126,8 @@ fn attachment_partial_reopen_preserves_prefix_and_fences_old_attempts() {
         .unwrap()
         .unwrap();
     let identity = partial_identity(10);
-    assert!(
-        store
-            .checkpoint_attachment_partial(&old, &identity, 0, b"abc", 12, 100)
-            .unwrap()
-    );
-    assert!(
-        !store
-            .checkpoint_attachment_partial(&old, &identity, 2, b"x", 12, 100)
-            .unwrap()
-    );
+    assert!(checkpoint(&store, &old, &identity, 0, b"abc", 12).unwrap());
+    assert!(!checkpoint(&store, &old, &identity, 2, b"x", 12).unwrap());
     store.close().unwrap();
     let store = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     store.resume_attachment_acquisitions(13, 64).unwrap();
@@ -1226,141 +1135,117 @@ fn attachment_partial_reopen_preserves_prefix_and_fences_old_attempts() {
         .claim_attachment_acquisition(&asset, 13, 100)
         .unwrap()
         .unwrap();
+    assert!(!checkpoint(&store, &old, &identity, 3, b"old", 13).unwrap());
     assert!(
         !store
-            .checkpoint_attachment_partial(&old, &identity, 3, b"old", 13, 100)
+            .clear_attachment_partial(&old, 13, None)
             .unwrap()
-    );
-    assert!(!store.clear_attachment_partial(&old, 13, None).unwrap());
-    assert_eq!(
-        store
-            .load_attachment_partial(&job, 13, 10, None)
-            .unwrap()
-            .unwrap()
-            .bytes,
-        b"abc"
-    );
-    assert!(
-        store
-            .checkpoint_attachment_partial(&job, &identity, 3, b"def", 13, 100)
-            .unwrap()
+            .is_some()
     );
     assert_eq!(
         store
             .load_attachment_partial(&job, 13, 10, None)
             .unwrap()
             .unwrap()
-            .bytes,
-        b"abcdef"
+            .received,
+        3
+    );
+    assert!(checkpoint(&store, &job, &identity, 3, b"def", 13).unwrap());
+    assert_eq!(
+        store
+            .load_attachment_partial(&job, 13, 10, None)
+            .unwrap()
+            .unwrap()
+            .received,
+        6
     );
     store.remove_local_attachment(GROUP, "one", 0).unwrap();
     assert_eq!(partial_usage(&store), 0);
-    assert!(
-        !store
-            .checkpoint_attachment_partial(&job, &identity, 0, b"late", 13, 100)
+    assert!(!checkpoint(&store, &job, &identity, 0, b"late", 13).unwrap());
+}
+/// A checkpoint append the database has no room to record (`SQLITE_FULL`)
+/// reaches the media store as a full disk, which the app parks on, and the
+/// store cuts the appended bytes off again: the recorded length and the
+/// file both stay where they were.
+#[test]
+fn a_checkpoint_append_on_a_full_database_reports_capacity() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteAccountStorage::in_memory().unwrap();
+    let media = media_store::MediaStore::new(
+        dir.path().join(media_store::MEDIA_DIRECTORY),
+        crate::SqliteMediaCatalog::new(store.clone()),
+    );
+    seed(&store, "full");
+    let asset = request(&store, "full");
+    let job = store
+        .claim_attachment_acquisition(&asset, 12, 100)
+        .unwrap()
+        .unwrap();
+    let target = store.attachment_checkpoint(&job, partial_identity(10), || 12);
+    assert!(media.checkpoint_append(&target, 0, b"abc").unwrap());
+    // Recording the length needs more pages than the database may grow.
+    sql(
+        &store,
+        "CREATE TABLE filler(b BLOB);
+         CREATE TRIGGER fill_on_record AFTER UPDATE OF received ON attachment_partial
+         BEGIN INSERT INTO filler VALUES(zeroblob(1048576)); END;",
+    );
+    store.limit_database_pages_for_test(16).unwrap();
+    assert_eq!(
+        media.checkpoint_append(&target, 3, b"defg"),
+        Err(media_store::MediaError::Capacity)
+    );
+    store.limit_database_pages_for_test(1 << 30).unwrap();
+    let part = store
+        .load_attachment_partial(&job, 12, 10, None)
+        .unwrap()
+        .unwrap();
+    assert_eq!(part.received, 3);
+    assert_eq!(
+        std::fs::metadata(media.wire_path(&part.wire_file))
             .unwrap()
+            .len(),
+        3
     );
 }
+
 #[test]
-fn attachment_partial_quota_rollback_corruption_and_terminal_cleanup() {
+fn attachment_partial_record_rollback_and_terminal_cleanup() {
     let store = SqliteAccountStorage::in_memory().unwrap();
     seed(&store, "one");
-    seed(&store, "two");
     let a = request(&store, "one");
-    let b = request(&store, "two");
     let job = store
         .claim_attachment_acquisition(&a, 12, 100)
         .unwrap()
         .unwrap();
-    let other = store
-        .claim_attachment_acquisition(&b, 12, 100)
-        .unwrap()
-        .unwrap();
     let identity = partial_identity(10);
-    assert!(
-        store
-            .checkpoint_attachment_partial(&job, &identity, 0, b"abcdef", 12, 10)
-            .unwrap()
-    );
-    assert!(
-        !store
-            .checkpoint_attachment_partial(&other, &identity, 0, b"12345", 12, 10)
-            .unwrap()
-    );
-    assert_eq!(partial_usage(&store), 6);
-    store.lock().unwrap().execute_batch("CREATE TRIGGER refuse_checkpoint BEFORE INSERT ON attachment_partial_chunk BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
-    assert!(
-        store
-            .checkpoint_attachment_partial(&job, &identity, 6, b"xyz", 12, 100)
-            .is_err()
-    );
+    assert!(checkpoint(&store, &job, &identity, 0, b"abcdef", 12).unwrap());
+    // A record that fails leaves the recorded length where it was.
+    store.lock().unwrap().execute_batch("CREATE TRIGGER refuse_record BEFORE UPDATE OF received ON attachment_partial BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
+    assert!(checkpoint(&store, &job, &identity, 6, b"xyz", 12).is_err());
     assert_eq!(
         store
             .load_attachment_partial(&job, 12, 10, None)
             .unwrap()
             .unwrap()
-            .bytes,
-        b"abcdef"
+            .received,
+        6
     );
-    store.lock().unwrap().execute_batch("DROP TRIGGER refuse_checkpoint; UPDATE attachment_partial_chunk SET bytes=x'010203040506';").unwrap();
-    assert!(
-        store
-            .load_attachment_partial(&job, 12, 10, None)
-            .unwrap()
-            .is_none()
-    );
-    assert_eq!(partial_usage(&store), 0);
-    assert!(
-        store
-            .checkpoint_attachment_partial(&job, &identity, 0, b"abc", 12, 100)
-            .unwrap()
-    );
+    store
+        .lock()
+        .unwrap()
+        .execute_batch("DROP TRIGGER refuse_record;")
+        .unwrap();
+    // A terminal failure releases the checkpoint row (its wire file follows
+    // through the media sweep).
     store.fail_attachment_acquisition(&job, None).unwrap();
     assert_eq!(partial_usage(&store), 0);
-}
-#[test]
-fn attachment_partial_publication_accounts_other_partials_and_releases_own() {
-    let store = SqliteAccountStorage::in_memory().unwrap();
-    seed(&store, "one");
-    seed(&store, "two");
-    let a = request(&store, "one");
-    let b = request(&store, "two");
-    let job = store
-        .claim_attachment_acquisition(&a, 12, 100)
+    let rows: i64 = store
+        .lock()
         .unwrap()
+        .query_row("SELECT count(*) FROM attachment_partial", [], |r| r.get(0))
         .unwrap();
-    let other = store
-        .claim_attachment_acquisition(&b, 12, 100)
-        .unwrap()
-        .unwrap();
-    let identity = partial_identity(10);
-    store
-        .checkpoint_attachment_partial(&job, &identity, 0, b"123456", 12, 100)
-        .unwrap();
-    store
-        .checkpoint_attachment_partial(&other, &identity, 0, b"123456", 12, 100)
-        .unwrap();
-    assert_eq!(
-        store
-            .complete_attachment_acquisition(&job, BODY, 12, BODY.len() as u64 + 5)
-            .unwrap(),
-        AttachmentPublishResult::CapacityBlocked
-    );
-    assert_eq!(
-        store
-            .complete_attachment_acquisition(&job, BODY, 12, BODY.len() as u64 + 10)
-            .unwrap(),
-        AttachmentPublishResult::Published
-    );
-    assert_eq!(partial_usage(&store), 6);
-    assert_eq!(
-        store.retained_attachment_byte_count().unwrap(),
-        BODY.len() as u64
-    );
-    store
-        .invalidate_app_event_by_message_id(GROUP, "two", "branch_selection_withdrawn")
-        .unwrap();
-    assert_eq!(partial_usage(&store), 0);
+    assert_eq!(rows, 0);
 }
 #[test]
 fn attachment_partial_expiry_is_bounded_and_shrinking_limit_discards() {
@@ -1372,9 +1257,7 @@ fn attachment_partial_expiry_is_bounded_and_shrinking_limit_discards() {
             .claim_attachment_acquisition(&asset, 12, 100000)
             .unwrap()
             .unwrap();
-        store
-            .checkpoint_attachment_partial(&job, &partial_identity(10), 0, b"abc", 12, 100)
-            .unwrap();
+        checkpoint(&store, &job, &partial_identity(10), 0, b"abc", 12).unwrap();
     }
     assert_eq!(store.prune_attachment_partials(86412, 1).unwrap(), 1);
     assert_eq!(store.prune_attachment_partials(86412, 1).unwrap(), 1);
@@ -1385,9 +1268,7 @@ fn attachment_partial_expiry_is_bounded_and_shrinking_limit_discards() {
         .claim_attachment_acquisition(&asset, 12, 100)
         .unwrap()
         .unwrap();
-    store
-        .checkpoint_attachment_partial(&job, &partial_identity(10), 0, b"abc", 12, 100)
-        .unwrap();
+    checkpoint(&store, &job, &partial_identity(10), 0, b"abc", 12).unwrap();
     assert!(
         store
             .load_attachment_partial(&job, 12, 9, None)
@@ -1398,65 +1279,7 @@ fn attachment_partial_expiry_is_bounded_and_shrinking_limit_discards() {
 }
 
 #[test]
-fn attachment_partial_reservation_prevents_pressure_deadlock() {
-    let store = SqliteAccountStorage::in_memory().unwrap();
-    for name in ["a", "b", "new"] {
-        seed(&store, name);
-    }
-    let a = request(&store, "a");
-    let b = request(&store, "b");
-    let new = request(&store, "new");
-    let ja = store
-        .claim_attachment_acquisition(&a, 12, 100)
-        .unwrap()
-        .unwrap();
-    let jb = store
-        .claim_attachment_acquisition(&b, 12, 100)
-        .unwrap()
-        .unwrap();
-    let identity = partial_identity(10);
-    for job in [&ja, &jb] {
-        assert!(
-            store
-                .checkpoint_attachment_partial(job, &identity, 0, b"abc", 12, 20)
-                .unwrap()
-        );
-    }
-    assert_eq!(partial_usage(&store), 6);
-    assert!(
-        !store
-            .attachment_acquisition_fits_budget(&new, 20, 20)
-            .unwrap()
-    );
-    // A full reservation can resume even when the account budget is saturated,
-    // including when its size is smaller than the policy's maximum transfer.
-    assert!(
-        store
-            .attachment_acquisition_fits_budget(&a, 20, 20)
-            .unwrap()
-    );
-    assert!(
-        store
-            .checkpoint_attachment_partial(&ja, &identity, 3, b"defghij", 12, 20)
-            .unwrap()
-    );
-    // Deletion releases the reservation as well as the actual chunk bytes.
-    store.remove_local_attachment(GROUP, "a", 0).unwrap();
-    assert!(
-        store
-            .attachment_acquisition_fits_budget(&new, 10, 20)
-            .unwrap()
-    );
-    store.remove_local_attachment(GROUP, "b", 0).unwrap();
-    assert!(
-        store
-            .attachment_acquisition_fits_budget(&new, 20, 20)
-            .unwrap()
-    );
-}
-
-#[test]
-fn attachment_partial_locator_mismatch_does_not_read_or_discard_chunks() {
+fn attachment_partial_locator_mismatch_does_not_discard_the_checkpoint() {
     let store = SqliteAccountStorage::in_memory().unwrap();
     seed(&store, "one");
     let asset = request(&store, "one");
@@ -1465,15 +1288,7 @@ fn attachment_partial_locator_mismatch_does_not_read_or_discard_chunks() {
         .unwrap()
         .unwrap();
     let identity = partial_identity(10);
-    assert!(
-        store
-            .checkpoint_attachment_partial(&job, &identity, 0, b"abc", 12, 100)
-            .unwrap()
-    );
-    sql(
-        &store,
-        "UPDATE attachment_partial_chunk SET digest=zeroblob(32);",
-    );
+    assert!(checkpoint(&store, &job, &identity, 0, b"abc", 12).unwrap());
     assert!(
         store
             .load_attachment_partial(&job, 12, 10, Some((&[1; 32], &[3; 32])))
@@ -1483,18 +1298,16 @@ fn attachment_partial_locator_mismatch_does_not_read_or_discard_chunks() {
     assert_eq!(
         partial_usage(&store),
         3,
-        "mismatched locator must not scan even corrupt chunks"
+        "a mismatched locator must not discard the checkpoint"
     );
-    assert!(
+    assert_eq!(
         store
             .load_attachment_partial(&job, 12, 10, Some((&[1; 32], &[2; 32])))
             .unwrap()
-            .is_none()
-    );
-    assert_eq!(
-        partial_usage(&store),
-        0,
-        "matching locator verifies and discards corruption"
+            .unwrap()
+            .received,
+        3,
+        "the matching locator resumes it"
     );
 }
 
@@ -1508,16 +1321,13 @@ fn attachment_partial_cleanup_is_locator_ciphertext_and_attempt_scoped() {
         .unwrap()
         .unwrap();
     let identity = partial_identity(10);
-    assert!(
-        store
-            .checkpoint_attachment_partial(&old, &identity, 0, b"abc", 12, 100)
-            .unwrap()
-    );
+    assert!(checkpoint(&store, &old, &identity, 0, b"abc", 12).unwrap());
     for pair in [([1; 32], [3; 32]), ([4; 32], [2; 32])] {
         assert!(
             !store
                 .clear_attachment_partial(&old, 12, Some((&pair.0, &pair.1)))
                 .unwrap()
+                .is_some()
         );
         assert_eq!(partial_usage(&store), 3);
     }
@@ -1530,19 +1340,16 @@ fn attachment_partial_cleanup_is_locator_ciphertext_and_attempt_scoped() {
         !store
             .clear_attachment_partial(&old, 13, Some((&[1; 32], &[2; 32])))
             .unwrap()
+            .is_some()
     );
     assert_eq!(partial_usage(&store), 3);
     assert!(
         store
             .clear_attachment_partial(&current, 13, Some((&[1; 32], &[2; 32])))
             .unwrap()
+            .is_some()
     );
     assert_eq!(partial_usage(&store), 0);
-    assert!(
-        store
-            .attachment_acquisition_fits_budget(&asset, 100, 100)
-            .unwrap()
-    );
 }
 
 #[test]
@@ -1716,9 +1523,7 @@ fn cancellation_preserves_partial_until_expiry_and_never_removes_ready_bytes() {
         .claim_attachment_acquisition(&asset, 12, 100)
         .unwrap()
         .unwrap();
-    store
-        .checkpoint_attachment_partial(&job, &partial_identity(10), 0, b"abc", 12, 100)
-        .unwrap();
+    checkpoint(&store, &job, &partial_identity(10), 0, b"abc", 12).unwrap();
     assert_eq!(partial_usage(&store), 3);
     store.cancel_attachment_acquisition(&asset).unwrap();
     assert_eq!(partial_usage(&store), 3);
@@ -2129,9 +1934,7 @@ fn attachment_partial_forward_progress_resets_backoff_but_replay_does_not() {
         .unwrap()
         .unwrap();
     let identity = partial_identity(12);
-    store
-        .checkpoint_attachment_partial(&job, &identity, 0, b"abcd", 13, 100)
-        .unwrap();
+    checkpoint(&store, &job, &identity, 0, b"abcd", 13).unwrap();
     store
         .lock()
         .unwrap()
@@ -2140,9 +1943,7 @@ fn attachment_partial_forward_progress_resets_backoff_but_replay_does_not() {
             [&asset.token],
         )
         .unwrap();
-    store
-        .checkpoint_attachment_partial(&job, &identity, 0, b"abcd", 14, 100)
-        .unwrap();
+    checkpoint(&store, &job, &identity, 0, b"abcd", 14).unwrap();
     assert_eq!(
         store
             .attachment_acquisition_status(&asset)
@@ -2151,9 +1952,7 @@ fn attachment_partial_forward_progress_resets_backoff_but_replay_does_not() {
             .attempts,
         9
     );
-    store
-        .checkpoint_attachment_partial(&job, &identity, 4, b"ef", 15, 100)
-        .unwrap();
+    checkpoint(&store, &job, &identity, 4, b"ef", 15).unwrap();
     assert_eq!(
         store
             .attachment_acquisition_status(&asset)
@@ -2326,18 +2125,7 @@ fn automatic_network_budget_survives_progress_reopen_and_repeated_demand() {
             .unwrap()
             .unwrap();
         assert!(store.begin_attachment_network_attempt(&job, now).unwrap());
-        assert!(
-            store
-                .checkpoint_attachment_partial(
-                    &job,
-                    &partial_identity(100),
-                    attempt,
-                    b"x",
-                    now,
-                    10000
-                )
-                .unwrap()
-        );
+        assert!(checkpoint(&store, &job, &partial_identity(100), attempt, b"x", now).unwrap());
         assert_eq!(
             store
                 .attachment_acquisition_status(&reference)
@@ -2580,18 +2368,7 @@ fn automatic_permission_flaps_preserve_partial_and_do_not_spend_claim_budget() {
             .unwrap()
             .unwrap();
         assert!(store.begin_attachment_network_attempt(&job, now).unwrap());
-        assert!(
-            store
-                .checkpoint_attachment_partial(
-                    &job,
-                    &partial_identity(100),
-                    0,
-                    b"prefix",
-                    now,
-                    10000
-                )
-                .unwrap()
-        );
+        assert!(checkpoint(&store, &job, &partial_identity(100), 0, b"prefix", now).unwrap());
         store.pause_automatic_attachments(now + 1).unwrap();
         store.pause_automatic_attachments(now + 1).unwrap();
         assert!(
@@ -3059,7 +2836,13 @@ fn readmit(
     automatic: bool,
 ) -> usize {
     store
-        .readmit_storage_blocked_attachments(now, reserve, free, 1, automatic)
+        .readmit_storage_blocked_attachments(
+            now,
+            reserve,
+            free,
+            automatic,
+            admission(reserve, free, 1),
+        )
         .unwrap()
 }
 
@@ -3077,9 +2860,7 @@ fn storage_block_parks_until_space_or_retry_and_keeps_checkpoints() {
         .claim_attachment_acquisition(&asset, 12, 100)
         .unwrap()
         .unwrap();
-    store
-        .checkpoint_attachment_partial(&job, &partial_identity(10), 0, b"abc", 12, 100)
-        .unwrap();
+    checkpoint(&store, &job, &partial_identity(10), 0, b"abc", 12).unwrap();
     park(&store, &job, 8192, 12);
     assert!(
         !store.block_attachment_storage(&job, 8192, 12).unwrap(),
@@ -3180,9 +2961,7 @@ fn storage_block_parks_until_space_or_retry_and_keeps_checkpoints() {
         .claim_attachment_acquisition(&asset, 80, 100)
         .unwrap()
         .unwrap();
-    store
-        .checkpoint_attachment_partial(&job, &partial_identity(10), 3, b"de", 80, 100)
-        .unwrap();
+    checkpoint(&store, &job, &partial_identity(10), 3, b"de", 80).unwrap();
     assert_eq!(column(&store, &asset, "storage_park_count"), Some(0));
     park(&store, &job, 8192, 80);
     assert_eq!(readmit(&store, 81, 0, fits(8192), true), 1);
@@ -3262,8 +3041,8 @@ fn storage_block_parks_until_space_or_retry_and_keeps_checkpoints() {
 }
 
 /// Readmission never outruns admission: a parked row whose target fits is left
-/// parked while free space is still below the reserve plus four transfer
-/// limits, instead of being bounced back to a retry timer.
+/// parked while free space is still below the reserve plus two transfer
+/// limits (worker admission), instead of being bounced back to a retry timer.
 #[test]
 fn storage_readmission_waits_for_admission_capacity() {
     let store = SqliteAccountStorage::in_memory().unwrap();
@@ -3274,14 +3053,20 @@ fn storage_readmission_waits_for_admission_capacity() {
         .unwrap()
         .unwrap();
     park(&store, &job, 1024, 12);
-    let limit = 2 * 1024 * 1024;
+    let limit = 4 * 1024 * 1024;
     assert!(
-        fits(1024) < 4 * limit,
+        fits(1024) < 2 * limit,
         "the target fits before admission would"
     );
     assert_eq!(
         store
-            .readmit_storage_blocked_attachments(13, 1000, 1000 + 4 * limit - 1, limit, true)
+            .readmit_storage_blocked_attachments(
+                13,
+                1000,
+                1000 + 2 * limit - 1,
+                true,
+                admission(1000, 1000 + 2 * limit - 1, limit)
+            )
             .unwrap(),
         0
     );
@@ -3291,9 +3076,125 @@ fn storage_readmission_waits_for_admission_capacity() {
     );
     assert_eq!(
         store
-            .readmit_storage_blocked_attachments(13, 1000, 1000 + 4 * limit, limit, true)
+            .readmit_storage_blocked_attachments(
+                13,
+                1000,
+                1000 + 2 * limit,
+                true,
+                admission(1000, 1000 + 2 * limit, limit)
+            )
             .unwrap(),
         1
+    );
+}
+
+/// Readmission credits a parked row's checkpoint as worker admission does: a
+/// job whose saved bytes cover most of the limit is readmitted with free
+/// space below two transfer limits once its own discounted need fits, while a
+/// row without a checkpoint keeps waiting for the whole two limits.
+#[test]
+fn storage_readmission_credits_the_saved_checkpoint() {
+    let store = SqliteAccountStorage::in_memory().unwrap();
+    seed(&store, "saved");
+    let asset = request(&store, "saved");
+    let job = store
+        .claim_attachment_acquisition(&asset, 12, 100)
+        .unwrap()
+        .unwrap();
+    let limit = 8 * 1024 * 1024;
+    let saved = 6 * 1024 * 1024;
+    let identity = partial_identity(limit);
+    assert!(checkpoint(&store, &job, &identity, 0, &vec![7; saved as usize], 12).unwrap());
+    park(&store, &job, 1024, 12);
+    // Discounted admission: two limits less the checkpoint.
+    let needed = 2 * limit - saved;
+    assert!(needed < 2 * limit && fits(1024) < needed);
+    assert_eq!(
+        store
+            .readmit_storage_blocked_attachments(
+                13,
+                1000,
+                1000 + needed - 1,
+                true,
+                admission(1000, 1000 + needed - 1, limit)
+            )
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        store
+            .readmit_storage_blocked_attachments(
+                13,
+                1000,
+                1000 + needed,
+                true,
+                admission(1000, 1000 + needed, limit)
+            )
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        transfer(&store, "saved", true).state,
+        AttachmentTransferState::Queued
+    );
+}
+
+/// Admission filters parked rows before the page is limited: a full page of
+/// higher-priority jobs that admission refuses (no checkpoint, so they need
+/// two whole limits) cannot hide a lower-priority checkpointed job that fits.
+#[test]
+fn readmission_is_not_starved_by_a_page_admission_refuses() {
+    let store = SqliteAccountStorage::in_memory().unwrap();
+    let limit = 8 * 1024 * 1024;
+    let saved = 6 * 1024 * 1024;
+    let prioritize = |asset: &AttachmentAssetRef, priority: i64| {
+        store
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE attachment_acquisition SET priority_at=?2 WHERE token=?1",
+                params![asset.token, priority],
+            )
+            .unwrap();
+    };
+    for index in 0..ATTACHMENT_ACQUISITION_BATCH_LIMIT {
+        let message = format!("busy{index}");
+        seed(&store, &message);
+        let asset = request(&store, &message);
+        let job = store
+            .claim_attachment_acquisition(&asset, 12, 100)
+            .unwrap()
+            .unwrap();
+        park(&store, &job, 1024, 12);
+        prioritize(&asset, 100);
+    }
+    seed(&store, "saved");
+    let asset = request(&store, "saved");
+    let job = store
+        .claim_attachment_acquisition(&asset, 12, 100)
+        .unwrap()
+        .unwrap();
+    let identity = partial_identity(limit);
+    assert!(checkpoint(&store, &job, &identity, 0, &vec![7; saved as usize], 12).unwrap());
+    park(&store, &job, 1024, 12);
+    prioritize(&asset, 0);
+    // Room for the saved job's remaining checkpoint and store file only.
+    let free = 1000 + 2 * limit - saved;
+    let admission = admission(1000, free, limit);
+    assert!(!admission.admits(None) && admission.admits(Some(saved)));
+    assert_eq!(
+        store
+            .readmit_storage_blocked_attachments(13, 1000, free, true, admission)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        transfer(&store, "saved", true).state,
+        AttachmentTransferState::Queued
+    );
+    assert_eq!(
+        transfer(&store, "busy0", true).state,
+        AttachmentTransferState::StorageBlocked
     );
 }
 
@@ -3309,9 +3210,7 @@ fn cancelled_storage_park_releases_its_prefix_on_expiry() {
         .claim_attachment_acquisition(&asset, 12, 100)
         .unwrap()
         .unwrap();
-    store
-        .checkpoint_attachment_partial(&job, &partial_identity(10), 0, b"abc", 12, 100)
-        .unwrap();
+    checkpoint(&store, &job, &partial_identity(10), 0, b"abc", 12).unwrap();
     park(&store, &job, 8192, 12);
     store.cancel_attachment_acquisition(&asset).unwrap();
     assert_eq!(parked_headroom(&store, &asset), None);
@@ -3477,9 +3376,7 @@ fn retry_after_a_park_longer_than_a_day_keeps_the_prefix() {
             .claim_attachment_acquisition(&asset, 12, 100)
             .unwrap()
             .unwrap();
-        store
-            .checkpoint_attachment_partial(&job, &partial_identity(10), 0, b"abc", 12, 100)
-            .unwrap();
+        checkpoint(&store, &job, &partial_identity(10), 0, b"abc", 12).unwrap();
         park(&store, &job, 8192, 12);
         let later = 12 + 72 * 60 * 60;
         assert_eq!(
@@ -3513,14 +3410,14 @@ fn retry_after_a_park_longer_than_a_day_keeps_the_prefix() {
                 .load_attachment_partial(&job, later, 100, Some((&[1; 32], &[2; 32])))
                 .unwrap()
                 .unwrap()
-                .bytes,
-            b"abc"
+                .received,
+            3
         );
     }
 }
 
 /// A storage-parked prefix is kept for at most a week after its latest park:
-/// past that it is pruned and releases its quota reservation, while the row
+/// past that it is pruned, while the row
 /// stays parked and simply starts the body over when it is readmitted.
 #[test]
 fn storage_parked_prefixes_expire_after_the_maximum_parked_age() {
@@ -3531,9 +3428,7 @@ fn storage_parked_prefixes_expire_after_the_maximum_parked_age() {
         .claim_attachment_acquisition(&asset, 12, 100)
         .unwrap()
         .unwrap();
-    store
-        .checkpoint_attachment_partial(&job, &partial_identity(10), 0, b"abc", 12, 100)
-        .unwrap();
+    checkpoint(&store, &job, &partial_identity(10), 0, b"abc", 12).unwrap();
     park(&store, &job, 8192, 12);
     let reserved = |store: &SqliteAccountStorage| -> u64 {
         store
@@ -3546,13 +3441,14 @@ fn storage_parked_prefixes_expire_after_the_maximum_parked_age() {
             )
             .unwrap()
     };
-    assert_eq!(reserved(&store), 10);
+    // Wire checkpoints live outside SQLCipher and reserve no retained budget.
+    assert_eq!(reserved(&store), 0);
     let limit = 12 + STORAGE_PARKED_PREFIX_MAX_AGE_SECONDS;
     assert_eq!(store.prune_attachment_partials(limit - 1, 64).unwrap(), 0);
     assert_eq!(partial_usage(&store), 3);
     assert_eq!(store.prune_attachment_partials(limit, 64).unwrap(), 1);
     assert_eq!(partial_usage(&store), 0);
-    assert_eq!(reserved(&store), 0, "the quota reservation is released");
+    assert_eq!(reserved(&store), 0);
     assert_eq!(
         parked_headroom(&store, &asset),
         Some(8192),
@@ -3626,9 +3522,7 @@ fn storage_block_under_permission_pause_stays_permission_owned() {
         .claim_attachment_acquisition(&asset, 12, 100)
         .unwrap()
         .unwrap();
-    store
-        .checkpoint_attachment_partial(&job, &partial_identity(10), 0, b"abc", 12, 100)
-        .unwrap();
+    checkpoint(&store, &job, &partial_identity(10), 0, b"abc", 12).unwrap();
     store.pause_automatic_attachments(13).unwrap();
     park(&store, &job, 8192, 13);
     assert_eq!(
@@ -3680,18 +3574,14 @@ fn storage_parked_checkpoints_are_exempt_from_idle_expiry() {
         .claim_attachment_acquisition(&parked, 12, 100)
         .unwrap()
         .unwrap();
-    store
-        .checkpoint_attachment_partial(&job, &partial_identity(10), 0, b"abc", 12, 100)
-        .unwrap();
+    checkpoint(&store, &job, &partial_identity(10), 0, b"abc", 12).unwrap();
     park(&store, &job, 8192, 12);
     let idle = request(&store, "idle");
     let idle_job = store
         .claim_attachment_acquisition(&idle, 12, 100)
         .unwrap()
         .unwrap();
-    store
-        .checkpoint_attachment_partial(&idle_job, &partial_identity(10), 0, b"abcd", 12, 100)
-        .unwrap();
+    checkpoint(&store, &idle_job, &partial_identity(10), 0, b"abcd", 12).unwrap();
     assert_eq!(partial_usage(&store), 7);
     let far_future = 12 + 48 * 60 * 60;
     assert_eq!(store.prune_attachment_partials(far_future, 64).unwrap(), 1);
@@ -3712,7 +3602,7 @@ fn storage_parked_checkpoints_are_exempt_from_idle_expiry() {
         .load_attachment_partial(&job, far_future + 1, 100, Some((&[1; 32], &[2; 32])))
         .unwrap()
         .unwrap();
-    assert_eq!(restored.bytes, b"abc");
+    assert_eq!(restored.received, 3);
     store
         .fail_attachment_acquisition(&job, Some(far_future + 2))
         .unwrap();
@@ -3806,9 +3696,7 @@ fn storage_park_needs_no_new_page_after_a_full_publication() {
         .claim_attachment_acquisition(&asset, 12, 100)
         .unwrap()
         .unwrap();
-    store
-        .checkpoint_attachment_partial(&job, &partial_identity(10), 0, b"abc", 12, 100)
-        .unwrap();
+    checkpoint(&store, &job, &partial_identity(10), 0, b"abc", 12).unwrap();
     store.limit_database_pages_for_test(0).unwrap();
     assert!(matches!(
         store.complete_attachment_acquisition(&job, &body, 13, 1 << 40),
@@ -3854,7 +3742,7 @@ fn storage_readmission_probe_is_read_only_while_nothing_fits() {
     );
     assert!(
         store
-            .readmit_storage_blocked_attachments(13, 0, u64::MAX, 1, true)
+            .readmit_storage_blocked_attachments(13, 0, u64::MAX, true, admission(0, u64::MAX, 1))
             .is_err(),
         "a row that fits does write, so the guard is effective"
     );
