@@ -1741,11 +1741,19 @@ impl AppClient {
                 // BODY_NEGATIVE_TEST_BEGIN
                 .inspect_err(|_error| {
                     #[cfg(all(test, feature = "test-policy-overrides"))]
-                    body_negative_probe::harvest(self.app.account_home().root(), publication.task.id(), _error.is_cancelled());
+                    body_negative_probe::harvest(
+                        self.app.account_home().root(),
+                        publication.task.id(),
+                        _error.is_cancelled(),
+                    );
                 })
                 .inspect(|_| {
                     #[cfg(all(test, feature = "test-policy-overrides"))]
-                    body_negative_probe::harvest(self.app.account_home().root(), publication.task.id(), false);
+                    body_negative_probe::harvest(
+                        self.app.account_home().root(),
+                        publication.task.id(),
+                        false,
+                    );
                 })
                 // BODY_NEGATIVE_TEST_END
                 .map_err(|_| AccountSharingError::RuntimeUnavailable)

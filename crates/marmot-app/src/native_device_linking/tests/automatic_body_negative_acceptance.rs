@@ -101,34 +101,76 @@ async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_befo
     recipient.cancel().await.unwrap();
     eprintln!("automatic-body-control stage=bilateral-pair-and-history-ready");
 
-    let probe = crate::AppClient::test_capture_automatic_body_negative(apps[0].account_home().root(), &old_chat);
+    let probe = crate::AppClient::test_capture_automatic_body_negative(
+        apps[0].account_home().root(),
+        &old_chat,
+    );
     let (observed, release) = apps[0].relay_plane.hold_next_automatic_catalog_body_except(
-        cgka_traits::MemberId::new(keys.public_key().to_bytes().to_vec()), old_chat.clone());
+        cgka_traits::MemberId::new(keys.public_key().to_bytes().to_vec()),
+        old_chat.clone(),
+    );
     struct Release(std::sync::Arc<tokio::sync::Notify>);
-    impl Drop for Release { fn drop(&mut self) { self.0.notify_one(); } }
+    impl Drop for Release {
+        fn drop(&mut self) {
+            self.0.notify_one();
+        }
+    }
     let release = Release(release);
-    let fresh_chat = managers[0].create_group("test", "Negative assembly held new chat", &[], None).await.unwrap();
-    let (held_group, held_message) = tokio::time::timeout(std::time::Duration::from_secs(30), observed).await
-        .expect("real new-chat Body must reach the existing transport hold").unwrap();
-    assert!(held_group == fresh_chat, "actual held Catalog Body must belong to the fresh fixture chat");
+    let fresh_chat = managers[0]
+        .create_group("test", "Negative assembly held new chat", &[], None)
+        .await
+        .unwrap();
+    let (held_group, held_message) =
+        tokio::time::timeout(std::time::Duration::from_secs(30), observed)
+            .await
+            .expect("real new-chat Body must reach the existing transport hold")
+            .unwrap();
+    assert!(
+        held_group == fresh_chat,
+        "actual held Catalog Body must belong to the fresh fixture chat"
+    );
     assert!(!held_message.payload.is_empty());
     use sha2::Digest as _;
     let held_payload_digest: [u8; 32] = sha2::Sha256::digest(&held_message.payload).into();
-    assert!(probe.matches_held_catalog(&held_group, held_payload_digest), "captured owned slot must match the actual held Catalog Body group and prepared payload");
+    assert!(
+        probe.matches_held_catalog(&held_group, held_payload_digest),
+        "captured owned slot must match the actual held Catalog Body group and prepared payload"
+    );
     eprintln!("body-negative-control stage=actual-owned-body-held");
 
     let path = apps[0].account_storage_path("test");
     let signing = apps[0].account_home().load_signing_keys("test").unwrap();
-    let sql_key = apps[0].sqlcipher_key("test", &signing, &path, crate::sqlcipher::SqlcipherDatabaseKind::Session).unwrap();
+    let sql_key = apps[0]
+        .sqlcipher_key(
+            "test",
+            &signing,
+            &path,
+            crate::sqlcipher::SqlcipherDatabaseKind::Session,
+        )
+        .unwrap();
     let injector = rusqlite::Connection::open(&path).unwrap();
-    storage_sqlite::open_hardened_sqlcipher(&injector, &sql_key, storage_sqlite::SqlCipherHardening::cipher_only()).unwrap();
+    storage_sqlite::open_hardened_sqlcipher(
+        &injector,
+        &sql_key,
+        storage_sqlite::SqlCipherHardening::cipher_only(),
+    )
+    .unwrap();
     injector.execute_batch("CREATE TRIGGER reject_body_negative_cut BEFORE INSERT ON account_chat_departure_cuts BEGIN SELECT RAISE(ABORT,'isolated genuine negative cut rollback'); END;").unwrap();
-    let pending = runtimes[1].leave_account_chat("test", &old_chat).await.unwrap();
+    let pending = runtimes[1]
+        .leave_account_chat("test", &old_chat)
+        .await
+        .unwrap();
     assert_eq!(pending.status, crate::AccountChatDepartureStatus::Pending);
     assert!(pending.operation_id.is_some());
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
-        while probe.snapshot().sql_failures == 0 { tokio::time::sleep(std::time::Duration::from_millis(20)).await; }
-    }).await.expect("real complete authenticated peer negative must reach the actual encrypted SQL refusal");
+        while probe.snapshot().sql_failures == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect(
+        "real complete authenticated peer negative must reach the actual encrypted SQL refusal",
+    );
     eprintln!("body-negative-control stage=actual-authenticated-negative-sql-failure");
 
     // These are the behavior under test. Missing retention/commit/harvest is false,
@@ -136,38 +178,87 @@ async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_befo
     let barrier_seen = tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
             let state = probe.snapshot();
-            if state.barrier_observations > 0 && state.aborted_task_finished { break; }
+            if state.barrier_observations > 0 && state.aborted_task_finished {
+                break;
+            }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-    }).await.is_ok();
+    })
+    .await
+    .is_ok();
     let failed = probe.snapshot();
-    let rolled_back: i64 = injector.query_row("SELECT count(*) FROM account_chat_departures WHERE group_id=?1", rusqlite::params![old_chat.as_slice()], |row| row.get(0)).unwrap();
-    let retained = barrier_seen && failed.retained && failed.sql_failures > 0 && failed.commit_at == 0 && failed.harvest_at == 0 && failed.body_effects == 0 && rolled_back == 0;
-    injector.execute_batch("DROP TRIGGER reject_body_negative_cut;").unwrap();
+    let rolled_back: i64 = injector
+        .query_row(
+            "SELECT count(*) FROM account_chat_departures WHERE group_id=?1",
+            rusqlite::params![old_chat.as_slice()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let retained = barrier_seen
+        && failed.retained
+        && failed.sql_failures > 0
+        && failed.commit_at == 0
+        && failed.harvest_at == 0
+        && failed.body_effects == 0
+        && rolled_back == 0;
+    injector
+        .execute_batch("DROP TRIGGER reject_body_negative_cut;")
+        .unwrap();
     eprintln!("body-negative-control stage=persistent-sql-fault-removed");
     let ordered_recovery = tokio::time::timeout(std::time::Duration::from_secs(15), async {
         loop {
             let state = probe.snapshot();
-            if state.commit_at > 0 && state.harvest_at > 0 { break; }
+            if state.commit_at > 0 && state.harvest_at > 0 {
+                break;
+            }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-    }).await.is_ok();
+    })
+    .await
+    .is_ok();
     let recovered = probe.snapshot();
-    let committed: i64 = injector.query_row("SELECT count(*) FROM account_chat_departures WHERE group_id=?1", rusqlite::params![old_chat.as_slice()], |row| row.get(0)).unwrap();
-    let commit_before_harvest = ordered_recovery && recovered.retained && committed == 1 && recovered.commit_at < recovered.harvest_at && recovered.harvested_cancelled;
+    let committed: i64 = injector
+        .query_row(
+            "SELECT count(*) FROM account_chat_departures WHERE group_id=?1",
+            rusqlite::params![old_chat.as_slice()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let commit_before_harvest = ordered_recovery
+        && recovered.retained
+        && committed == 1
+        && recovered.commit_at < recovered.harvest_at
+        && recovered.harvested_cancelled;
     release.0.notify_one();
     // The existing hold is BEFORE SDK publication. Its aborted release is not an ACK.
     // A separate actual post-EVENT/pre-OK gate is required for late-ACK coverage.
-    let actor_progress = tokio::time::timeout(std::time::Duration::from_secs(5), managers[0].device_linking_targets("test")).await.is_ok_and(|result| result.is_ok());
+    let actor_progress = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        managers[0].device_linking_targets("test"),
+    )
+    .await
+    .is_ok_and(|result| result.is_ok());
     drop(injector);
     for (index, runtime) in runtimes.iter().enumerate() {
         runtime.shutdown_and_close().await.unwrap();
-        assert!(runtime.storage_is_closed(), "real fixture runtime must positively close");
+        assert!(
+            runtime.storage_is_closed(),
+            "real fixture runtime must positively close"
+        );
         eprintln!("body-negative-control stage=positive-runtime-close index={index}");
     }
     let after_release = probe.snapshot();
     let no_old_body_effects = after_release.body_effects == 0;
-    eprintln!("body-negative-control retained={retained} commit_before_harvest={commit_before_harvest} no_old_body_effects={no_old_body_effects} actor_progress={actor_progress} sql_failures={} barrier_observations={} commit_at={} harvest_at={} body_effects={}", after_release.sql_failures, after_release.barrier_observations, after_release.commit_at, after_release.harvest_at, after_release.body_effects);
-    assert!(retained && commit_before_harvest && no_old_body_effects && actor_progress,
-        "authenticated negative SQL rollback must retain the same owned Body until negative commit precedes aborted-task harvest without old Body effects");
+    eprintln!(
+        "body-negative-control retained={retained} commit_before_harvest={commit_before_harvest} no_old_body_effects={no_old_body_effects} actor_progress={actor_progress} sql_failures={} barrier_observations={} commit_at={} harvest_at={} body_effects={}",
+        after_release.sql_failures,
+        after_release.barrier_observations,
+        after_release.commit_at,
+        after_release.harvest_at,
+        after_release.body_effects
+    );
+    assert!(
+        retained && commit_before_harvest && no_old_body_effects && actor_progress,
+        "authenticated negative SQL rollback must retain the same owned Body until negative commit precedes aborted-task harvest without old Body effects"
+    );
 }
