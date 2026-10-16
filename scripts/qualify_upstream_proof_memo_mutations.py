@@ -155,9 +155,12 @@ def check_inputs(expected):
 def run(label, expected):
     check_inputs(expected)
     features = APP_FEATURES if package == 'marmot-app' else CORE_FEATURES
-    args = ['cargo', 'nextest', 'list', '--locked', '--lib', '-p', package,
-            '--features', features, '-E', 'test(' + suffix + ')', '--message-format', 'json']
-    proof = {'source_inputs_sha256': fingerprint(expected), 'package': package, 'features': features,
+    packages = ['marmot-app'] if package == 'marmot-app' else ['cgka-engine', 'storage-sqlite']
+    args = ['cargo', 'nextest', 'list', '--locked', '--lib', '--features', features]
+    for selected_package in packages:
+        args.extend(['-p', selected_package])
+    args.extend(['-E', 'test(' + suffix + ')', '--message-format', 'json'])
+    proof = {'source_inputs_sha256': fingerprint(expected), 'packages': packages, 'features': features,
              'compile_exit_code': None, 'executed_nonignored': 0, 'case_started': False}
     report['checks'][label] = proof
     save()
@@ -214,14 +217,14 @@ def run(label, expected):
     save()
     if label == 'mutant':
         phase_valid = mode != 'proof-deoptimization' or proof['observed_completion_phase'] in ['third', 'fourth']
-        proof['runtime_mutation_killed'] = (proof.get('compile_exit_code') == 0 and result.returncode == 101
+        proof['runtime_mutation_killed'] = (proof.get('compile_exit_code') == 0 and proof.get('compiler_error_count') == 0 and result.returncode == 101
             and proof.get('passed') == 0 and proof.get('failed') == 1 and proof.get('ignored') == 0
             and proof['executed_nonignored'] == 1 and proof['sole_intended_panic']
             and proof['intended_oracle_message_observed'] and phase_valid)
         proof['mutation_outcome'] = 'killed-at-intended-runtime-oracle' if proof['runtime_mutation_killed'] else 'survived' if result.returncode == 0 and proof.get('passed') == 1 and proof.get('failed') == 0 else 'invalid-unrelated-runtime-failure'
         save()
         return proof['runtime_mutation_killed']
-    return result.returncode == 0 and proof.get('passed') == 1 and proof.get('failed') == 0 and proof.get('ignored') == 0 and proof['executed_nonignored'] == 1 and not proof['panic_locations']
+    return proof.get('compiler_error_count') == 0 and result.returncode == 0 and proof.get('passed') == 1 and proof.get('failed') == 0 and proof.get('ignored') == 0 and proof['executed_nonignored'] == 1 and not proof['panic_locations']
 
 try:
     mutant = transform(mode, original)
