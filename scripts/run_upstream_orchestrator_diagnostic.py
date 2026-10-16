@@ -52,6 +52,9 @@ def parse(raw):
               'panic_header_count': len(re.findall(r'panicked at', raw)),
               'panic_locations': [{'file': file, 'line': int(line), 'column': int(column)} for file, line, column in re.findall(r'panicked at (crates/[A-Za-z0-9_./-]+\.rs):(\d+):(\d+)', raw)],
               'relay_action_publication_timeout_observed': 'relay_action_publication_timeout' in raw}
+    timeout = result['relay_action_publication_timeout_observed']
+    result['capsule_evidence_status'] = ('complete-single-timeout-capsule' if len(records) == 1 else 'unknown-timeout-capsule-count') if timeout else ('not-applicable-no-timeout' if not records else 'unknown-capsule-without-timeout')
+    result['capsule_evidence_complete'] = (timeout and len(records) == 1) or (not timeout and not records)
     if len(summaries) == 1:
         total, text = summaries[0]
         result['executed_nonignored'] = int(total)
@@ -93,8 +96,15 @@ def parser_preflight():
                     dict(runtime_pass, exit_code=100), dict(runtime_pass, failed=1),
                     dict(runtime_failure, compiler_error_count=1), dict(runtime_failure, summary_count=0)]
     ensure(not any(collected_runtime_outcome(row) for row in bad_outcomes), 'controller-invalid-outcome-accepted')
+    timeout_text = valid + '\nrelay_action_publication_timeout\n'
+    ensure(parse(timeout_text)['capsule_evidence_complete'], 'single-timeout-capsule-positive')
+    unknown_capsules = [timeout_text.replace(capsule + '\n', ''), timeout_text + '\n' + capsule,
+                        capsule + '\nSummary [1.0s] 1 test run: 1 failed, 17 skipped']
+    ensure(not any(parse(text)['capsule_evidence_complete'] for text in unknown_capsules), 'unknown-capsule-evidence-accepted')
+    ensure(collected_runtime_outcome(dict(parse(unknown_capsules[0]), exit_code=100, compiler_error_count=0)), 'actual-failure-independent-of-missing-capsule')
     return {'parser_positive': 2, 'parser_negative': len(negatives), 'controller_positive': 2,
-            'controller_negative': len(bad_outcomes), 'runtime_bodies': 0}
+            'controller_negative': len(bad_outcomes), 'capsule_evidence_positive': 1,
+            'capsule_evidence_negative': len(unknown_capsules), 'runtime_bodies': 0}
 
 
 def fingerprints(binary):
@@ -245,8 +255,9 @@ def main():
                 row['source_pristine_after'] = verify()['tracked_sha256'] == before and subprocess.run(['git', 'diff', '--quiet', 'HEAD']).returncode == 0
                 save()
         report['source_pristine_after'] = verify()['tracked_sha256'] == before
-        report['diagnostic_complete'] = len(report['cases']) == 2 and all(row.get('collection_complete') and row.get('source_pristine_after') for row in report['cases']) and report['source_pristine_after']
-        report['actual_tests_passed'] = report['diagnostic_complete'] and all(row.get('exit_code') == 0 for row in report['cases'])
+        report['body_collection_complete'] = len(report['cases']) == 2 and all(row.get('collection_complete') and row.get('source_pristine_after') for row in report['cases']) and report['source_pristine_after']
+        report['diagnostic_complete'] = report['body_collection_complete'] and all(row.get('capsule_evidence_complete') for row in report['cases'])
+        report['actual_tests_passed'] = report['body_collection_complete'] and all(row.get('exit_code') == 0 for row in report['cases'])
     except Exception as error:
         report['controller_exception'] = type(error).__name__
         report['diagnostic_complete'] = False
