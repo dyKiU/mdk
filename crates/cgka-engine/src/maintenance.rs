@@ -66,6 +66,7 @@ impl<S: StorageProvider> Engine<S> {
                         key_package_ref: previous.key_package_ref,
                         not_after: previous.not_after,
                         replaced_at: authored_created_at,
+                        consumed: previous.consumed_at.is_some(),
                     });
             }
             staged.pending_replacement = Some(PendingKeyPackageReplacement {
@@ -81,6 +82,7 @@ impl<S: StorageProvider> Engine<S> {
                 targets,
                 attempt_count: 0,
                 last_failure_code: None,
+                consumed_at: None,
             });
             staged.phase = MaintenancePhase::PendingPublication;
             storage

@@ -1759,9 +1759,17 @@ async fn republish_key_package_falls_back_when_current_ref_is_consumed() {
     assert_eq!(publications.len(), 2);
     assert_ne!(first, second);
     let after = runtime.key_package_maintenance_status().unwrap().unwrap();
-    assert_ne!(after.current_key_package_ref, Some(consumed_ref));
+    assert_ne!(after.current_key_package_ref, Some(consumed_ref.clone()));
     assert!(after.last_consumed_key_package_ref.is_none());
-    assert_eq!(after.retained_private_material.len(), 0);
+    let [retained] = after.retained_private_material.as_slice() else {
+        panic!("the consumed package is retained for its retention window");
+    };
+    assert_eq!(retained.key_package_ref, consumed_ref);
+    assert!(retained.consumed);
+    assert_eq!(
+        retained.delete_at().0,
+        retained.replaced_at.0 + cgka_traits::CONSUMED_KEY_PACKAGE_RETENTION_SECS
+    );
 }
 
 #[tokio::test]
@@ -2062,7 +2070,7 @@ async fn key_package_rotation_blocks_when_clock_rollback_exceeds_future_skew_all
 }
 
 #[tokio::test]
-async fn consumed_last_resort_private_material_survives_pending_replacement_then_deletes_on_ack() {
+async fn consumed_last_resort_private_material_outlives_replacement_for_retention_window() {
     let dir = tempfile::tempdir().unwrap();
     let alice_database = dir.path().join("alice.sqlite");
     let key = SqlCipherKey::new("marmot consumed kp lifecycle key").unwrap();
@@ -2084,6 +2092,7 @@ async fn consumed_last_resort_private_material_survives_pending_replacement_then
     let mut bob = session(dir.path().join("bob.sqlite"), &key, b"bob");
     let mut carol = session(dir.path().join("carol.sqlite"), &key, b"carol");
     let mut dave = session(dir.path().join("dave.sqlite"), &key, b"dave");
+    let mut erin = session(dir.path().join("erin.sqlite"), &key, b"erin");
     let bob_welcome =
         welcome_for_key_package(&mut bob, &alice_id, old_key_package.clone(), "bob invite").await;
     let carol_welcome = welcome_for_key_package(
@@ -2095,13 +2104,22 @@ async fn consumed_last_resort_private_material_survives_pending_replacement_then
     .await;
     let dave_welcome =
         welcome_for_key_package(&mut dave, &alice_id, old_key_package.clone(), "dave invite").await;
+    let erin_welcome =
+        welcome_for_key_package(&mut erin, &alice_id, old_key_package.clone(), "erin invite").await;
 
+    let now = unix_now();
+    let wall = Arc::new(TestWallClock::new(now));
     let replacement_publisher = FlakyKeyPackages::new(1);
     let mut runtime = AccountDeviceRuntime::new(
         session(alice_database, &key, b"alice"),
         RecordingAdapter::default(),
         initial_policy,
         replacement_publisher,
+    )
+    .with_maintenance_sources(
+        wall.clone(),
+        Arc::new(TestMonotonicClock::default()),
+        Arc::new(TestRandom::new(31)),
     );
     runtime.session_mut().ingest(bob_welcome).await.unwrap();
     runtime
@@ -2123,18 +2141,62 @@ async fn consumed_last_resort_private_material_survives_pending_replacement_then
         .expect("replacement acknowledgement must promote atomically");
     let lifecycle = runtime.key_package_maintenance_status().unwrap().unwrap();
     assert!(lifecycle.last_consumed_key_package_ref.is_none());
+    let retained = lifecycle
+        .retained_private_material
+        .iter()
+        .find(|material| material.key_package == old_key_package)
+        .expect("consumed material outlives its acknowledged replacement");
+    assert!(retained.consumed);
+    assert_eq!(
+        retained.delete_at().0,
+        now + cgka_traits::CONSUMED_KEY_PACKAGE_RETENTION_SECS
+    );
+
+    // An inviter that fetched the old publication before the replacement
+    // reached it can still be joined inside the retention window (mdk#2344).
+    wall.set(now + cgka_traits::CONSUMED_KEY_PACKAGE_RETENTION_SECS - 1);
+    assert_eq!(
+        runtime
+            .sweep_expired_key_package_private_material()
+            .unwrap(),
+        0
+    );
+    let late = runtime
+        .session_mut()
+        .ingest(dave_welcome)
+        .await
+        .expect("a late Welcome is processed inside the retention window");
+    assert!(matches!(
+        late.outcome,
+        cgka_traits::IngestOutcome::Processed
+    ));
+
+    // Once the window has passed the old init key is deleted, so another
+    // prebuilt Welcome cannot consume it.
+    wall.set(now + cgka_traits::CONSUMED_KEY_PACKAGE_RETENTION_SECS);
+    assert_eq!(
+        runtime
+            .sweep_expired_key_package_private_material()
+            .unwrap(),
+        1
+    );
+    let lifecycle = runtime.key_package_maintenance_status().unwrap().unwrap();
     assert!(
         lifecycle
             .retained_private_material
             .iter()
             .all(|material| material.key_package != old_key_package)
     );
-
-    // Once the replacement is acknowledged the old init key is gone, so a
-    // third prebuilt Welcome cannot consume it.
+    assert!(
+        !runtime
+            .durably_owned_key_packages()
+            .unwrap()
+            .contains(&old_key_package),
+        "the sweep deletes the private bundle, not only its lifecycle entry"
+    );
     let rejected = runtime
         .session_mut()
-        .ingest(dave_welcome)
+        .ingest(erin_welcome)
         .await
         .expect("missing private material is a classified rejection");
     assert!(matches!(
@@ -2143,6 +2205,261 @@ async fn consumed_last_resort_private_material_survives_pending_replacement_then
             category: cgka_traits::ingest::InputRejectionCategory::MissingWelcomeKeyPackage
         }
     ));
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+fn key_package_ref(key_package: &cgka_traits::engine::KeyPackage) -> Vec<u8> {
+    hex::decode(
+        cgka_engine::key_package::key_package_metadata(key_package)
+            .unwrap()
+            .key_package_ref_hex,
+    )
+    .unwrap()
+}
+
+fn retained_entry(
+    lifecycle: &cgka_traits::KeyPackageLifecycleState,
+    key_package: &cgka_traits::engine::KeyPackage,
+) -> cgka_traits::RetainedKeyPackagePrivateMaterial {
+    lifecycle
+        .retained_private_material
+        .iter()
+        .find(|material| &material.key_package == key_package)
+        .expect("replaced package is retained")
+        .clone()
+}
+
+#[tokio::test]
+async fn delayed_welcome_for_replaced_key_package_keeps_current_consumption() {
+    let dir = tempfile::tempdir().unwrap();
+    let key = SqlCipherKey::new("marmot kp delayed retained welcome key").unwrap();
+    let now = unix_now();
+    let wall = Arc::new(TestWallClock::new(now));
+    let mut runtime = AccountDeviceRuntime::new(
+        session(dir.path().join("alice.sqlite"), &key, b"alice"),
+        RecordingAdapter::default(),
+        StaticTransportRouting::new(vec![])
+            .key_package_endpoints(vec![TransportEndpoint("wss://keys.example".into())]),
+        RecordingKeyPackages::default(),
+    )
+    .with_maintenance_sources(
+        wall.clone(),
+        Arc::new(TestMonotonicClock::default()),
+        Arc::new(TestRandom::new(37)),
+    );
+    let alice_id = runtime.session().self_id();
+    let first = runtime.publish_fresh_key_package().await.unwrap();
+    let mut bob = session(dir.path().join("bob.sqlite"), &key, b"bob");
+    let late_welcome =
+        welcome_for_key_package(&mut bob, &alice_id, first.clone(), "late invite").await;
+    let second = runtime.publish_fresh_key_package().await.unwrap();
+    let mut carol = session(dir.path().join("carol.sqlite"), &key, b"carol");
+    let current_welcome =
+        welcome_for_key_package(&mut carol, &alice_id, second.clone(), "current invite").await;
+
+    // The current package is consumed first, then a Welcome built from the
+    // replaced one arrives, both before the next replacement is acknowledged.
+    for welcome in [current_welcome, late_welcome] {
+        let ingested = runtime.session_mut().ingest(welcome).await.unwrap();
+        assert!(matches!(
+            ingested.outcome,
+            cgka_traits::IngestOutcome::Processed
+        ));
+    }
+    let lifecycle = runtime.key_package_maintenance_status().unwrap().unwrap();
+    assert_eq!(
+        lifecycle.last_consumed_key_package_ref,
+        Some(key_package_ref(&second)),
+        "the delayed Welcome must not replace the current package's marker"
+    );
+    assert!(retained_entry(&lifecycle, &first).consumed);
+    assert!(runtime.key_package_network_maintenance_due().unwrap());
+
+    wall.set(now + 10);
+    runtime.publish_fresh_key_package().await.unwrap();
+    let lifecycle = runtime.key_package_maintenance_status().unwrap().unwrap();
+    let replaced = retained_entry(&lifecycle, &second);
+    assert!(replaced.consumed);
+    assert_eq!(
+        replaced.delete_at().0,
+        now + 10 + cgka_traits::CONSUMED_KEY_PACKAGE_RETENTION_SECS
+    );
+
+    wall.set(now + 10 + cgka_traits::CONSUMED_KEY_PACKAGE_RETENTION_SECS);
+    assert_eq!(
+        runtime
+            .sweep_expired_key_package_private_material()
+            .unwrap(),
+        2
+    );
+    let owned = runtime.durably_owned_key_packages().unwrap();
+    assert!(!owned.contains(&first));
+    assert!(!owned.contains(&second));
+}
+
+#[tokio::test]
+async fn publish_migrates_a_legacy_retained_consumption_marker_before_clearing_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let key = SqlCipherKey::new("marmot kp legacy marker key").unwrap();
+    let now = unix_now();
+    let mut runtime = AccountDeviceRuntime::new(
+        session(dir.path().join("alice.sqlite"), &key, b"alice"),
+        RecordingAdapter::default(),
+        StaticTransportRouting::new(vec![])
+            .key_package_endpoints(vec![TransportEndpoint("wss://keys.example".into())]),
+        RecordingKeyPackages::default(),
+    )
+    .with_maintenance_sources(
+        Arc::new(TestWallClock::new(now)),
+        Arc::new(TestMonotonicClock::default()),
+        Arc::new(TestRandom::new(41)),
+    );
+    let first = runtime.publish_fresh_key_package().await.unwrap();
+    let second = runtime.publish_fresh_key_package().await.unwrap();
+
+    // Before retained packages recorded their own consumption, a delayed
+    // Welcome for one left the shared marker naming it.
+    let mut lifecycle = runtime.key_package_maintenance_status().unwrap().unwrap();
+    lifecycle.last_consumed_key_package_ref = Some(key_package_ref(&first));
+    lifecycle.last_consumed_at = Some(Timestamp(now));
+    runtime
+        .session()
+        .put_key_package_lifecycle(&lifecycle)
+        .unwrap();
+
+    runtime.publish_fresh_key_package().await.unwrap();
+    let lifecycle = runtime.key_package_maintenance_status().unwrap().unwrap();
+    let migrated = retained_entry(&lifecycle, &first);
+    assert!(migrated.consumed);
+    assert_eq!(
+        migrated.delete_at().0,
+        migrated.replaced_at.0 + cgka_traits::CONSUMED_KEY_PACKAGE_RETENTION_SECS
+    );
+    assert!(!retained_entry(&lifecycle, &second).consumed);
+    assert!(lifecycle.last_consumed_key_package_ref.is_none());
+}
+
+#[tokio::test]
+async fn welcome_for_current_package_migrates_a_legacy_retained_marker_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let key = SqlCipherKey::new("marmot kp legacy marker ingest key").unwrap();
+    let now = unix_now();
+    let wall = Arc::new(TestWallClock::new(now));
+    let mut runtime = AccountDeviceRuntime::new(
+        session(dir.path().join("alice.sqlite"), &key, b"alice"),
+        RecordingAdapter::default(),
+        StaticTransportRouting::new(vec![])
+            .key_package_endpoints(vec![TransportEndpoint("wss://keys.example".into())]),
+        RecordingKeyPackages::default(),
+    )
+    .with_maintenance_sources(
+        wall.clone(),
+        Arc::new(TestMonotonicClock::default()),
+        Arc::new(TestRandom::new(43)),
+    );
+    let alice_id = runtime.session().self_id();
+    let first = runtime.publish_fresh_key_package().await.unwrap();
+    let second = runtime.publish_fresh_key_package().await.unwrap();
+    let mut lifecycle = runtime.key_package_maintenance_status().unwrap().unwrap();
+    lifecycle.last_consumed_key_package_ref = Some(key_package_ref(&first));
+    lifecycle.last_consumed_at = Some(Timestamp(now));
+    runtime
+        .session()
+        .put_key_package_lifecycle(&lifecycle)
+        .unwrap();
+
+    // A Welcome for the current package lands before any sweep or
+    // publication could migrate the old record's marker.
+    let mut bob = session(dir.path().join("bob.sqlite"), &key, b"bob");
+    let welcome = welcome_for_key_package(&mut bob, &alice_id, second.clone(), "current").await;
+    runtime.session_mut().ingest(welcome).await.unwrap();
+    let lifecycle = runtime.key_package_maintenance_status().unwrap().unwrap();
+    assert!(retained_entry(&lifecycle, &first).consumed);
+    assert_eq!(
+        lifecycle.last_consumed_key_package_ref,
+        Some(key_package_ref(&second))
+    );
+
+    let delete_at = retained_entry(&lifecycle, &first).delete_at();
+    wall.set(delete_at.0);
+    assert_eq!(
+        runtime
+            .sweep_expired_key_package_private_material()
+            .unwrap(),
+        1
+    );
+    assert!(
+        !runtime
+            .durably_owned_key_packages()
+            .unwrap()
+            .contains(&first)
+    );
+}
+
+#[tokio::test]
+async fn pending_replacement_consumed_before_acknowledgement_is_due_after_promotion() {
+    let dir = tempfile::tempdir().unwrap();
+    let alice_database = dir.path().join("alice.sqlite");
+    let key = SqlCipherKey::new("marmot kp consumed pending key").unwrap();
+    let policy = StaticTransportRouting::new(vec![])
+        .key_package_endpoints(vec![TransportEndpoint("wss://keys.example".into())]);
+    let mut initial = AccountDeviceRuntime::new(
+        session(alice_database.clone(), &key, b"alice"),
+        RecordingAdapter::default(),
+        policy.clone(),
+        RecordingKeyPackages::default(),
+    );
+    let first = initial.publish_fresh_key_package().await.unwrap();
+    let alice_id = initial.session().self_id();
+    drop(initial);
+
+    let mut runtime = AccountDeviceRuntime::new(
+        session(alice_database, &key, b"alice"),
+        RecordingAdapter::default(),
+        policy,
+        FlakyKeyPackages::new(1),
+    );
+    runtime
+        .publish_fresh_key_package()
+        .await
+        .expect_err("first replacement attempt is intentionally unacknowledged");
+    let pending = runtime
+        .key_package_maintenance_status()
+        .unwrap()
+        .unwrap()
+        .pending_replacement
+        .unwrap()
+        .key_package;
+
+    // The unacknowledged replacement may already be on a relay.
+    let mut bob = session(dir.path().join("bob.sqlite"), &key, b"bob");
+    let welcome = welcome_for_key_package(&mut bob, &alice_id, pending.clone(), "pending").await;
+    runtime.session_mut().ingest(welcome).await.unwrap();
+    let lifecycle = runtime.key_package_maintenance_status().unwrap().unwrap();
+    assert!(lifecycle.last_consumed_key_package_ref.is_none());
+    assert!(
+        lifecycle
+            .pending_replacement
+            .as_ref()
+            .unwrap()
+            .consumed_at
+            .is_some()
+    );
+
+    runtime.publish_fresh_key_package().await.unwrap();
+    let lifecycle = runtime.key_package_maintenance_status().unwrap().unwrap();
+    assert_eq!(
+        lifecycle.last_consumed_key_package_ref,
+        Some(key_package_ref(&pending))
+    );
+    assert!(!retained_entry(&lifecycle, &first).consumed);
+    assert!(runtime.key_package_network_maintenance_due().unwrap());
 }
 
 #[tokio::test]
