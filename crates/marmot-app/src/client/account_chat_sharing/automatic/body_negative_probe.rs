@@ -47,11 +47,16 @@ pub(super) struct IntentGate {
 }
 impl IntentGate {
     pub(super) async fn wait(&self, payload_digest: [u8; 32]) {
-        if self.prepared_payload_digest != payload_digest { return; }
+        if self.prepared_payload_digest != payload_digest {
+            return;
+        }
         let mut release = self.release.subscribe();
-        self.entered.store(true, std::sync::atomic::Ordering::Release);
+        self.entered
+            .store(true, std::sync::atomic::Ordering::Release);
         while !*release.borrow_and_update() {
-            if release.changed().await.is_err() { break; }
+            if release.changed().await.is_err() {
+                break;
+            }
         }
     }
 }
@@ -74,10 +79,20 @@ fn registry() -> &'static Mutex<BTreeMap<PathBuf, Weak<Probe>>> {
 }
 impl Probe {
     pub(crate) fn peer_intent_is_held(&self) -> bool {
-        self.progress.lock().expect("negative probe").intent_gate.as_ref().is_some_and(|gate| gate.entered.load(std::sync::atomic::Ordering::Acquire) && gate.release.receiver_count() > 0)
+        self.progress
+            .lock()
+            .expect("negative probe")
+            .intent_gate
+            .as_ref()
+            .is_some_and(|gate| {
+                gate.entered.load(std::sync::atomic::Ordering::Acquire)
+                    && gate.release.receiver_count() > 0
+            })
     }
     pub(crate) fn release_peer_intent(&self) {
-        if let Some(gate) = &self.progress.lock().expect("negative probe").intent_gate { gate.release.send_replace(true); }
+        if let Some(gate) = &self.progress.lock().expect("negative probe").intent_gate {
+            gate.release.send_replace(true);
+        }
     }
     pub(crate) fn snapshot(&self) -> Observation {
         self.progress
@@ -92,13 +107,21 @@ impl Probe {
         payload_digest: [u8; 32],
     ) -> bool {
         let progress = self.progress.lock().expect("negative probe");
-        progress.captured.as_ref().zip(progress.intent_gate.as_ref()).is_some_and(|(captured, gate)| {
-            &captured.catalog_group == group && captured.payload_digest == payload_digest
-                && captured.nonce == gate.binding.nonce && captured.account == gate.binding.account
-                && captured.protected_group == gate.binding.protected_group
-                && captured.local_device == gate.binding.peer_device && captured.peer_device == gate.binding.local_device
-                && gate.entered.load(std::sync::atomic::Ordering::Acquire) && gate.release.receiver_count() > 0
-        })
+        progress
+            .captured
+            .as_ref()
+            .zip(progress.intent_gate.as_ref())
+            .is_some_and(|(captured, gate)| {
+                &captured.catalog_group == group
+                    && captured.payload_digest == payload_digest
+                    && captured.nonce == gate.binding.nonce
+                    && captured.account == gate.binding.account
+                    && captured.protected_group == gate.binding.protected_group
+                    && captured.local_device == gate.binding.peer_device
+                    && captured.peer_device == gate.binding.local_device
+                    && gate.entered.load(std::sync::atomic::Ordering::Acquire)
+                    && gate.release.receiver_count() > 0
+            })
     }
     fn same(captured: &Captured, entry: &AutomaticChannel) -> bool {
         Weak::ptr_eq(&captured.original, &Arc::downgrade(&entry.original))
@@ -158,27 +181,75 @@ fn at(root: &Path) -> Option<Arc<Probe>> {
         .and_then(Weak::upgrade)
 }
 fn peer_at(root: &Path) -> Option<Arc<Probe>> {
-    let weak: Vec<_> = registry().lock().expect("negative registry").values().cloned().collect();
-    weak.into_iter().filter_map(|weak| weak.upgrade()).find(|probe| probe.peer_root == root)
+    let weak: Vec<_> = registry()
+        .lock()
+        .expect("negative registry")
+        .values()
+        .cloned()
+        .collect();
+    weak.into_iter()
+        .filter_map(|weak| weak.upgrade())
+        .find(|probe| probe.peer_root == root)
 }
-pub(super) fn peer_intent_prepared(root: &Path, entry: &AutomaticChannel, intent: &storage_sqlite::account_chat_departure::AccountChatDepartureIntent) {
-    let Some(probe) = peer_at(root) else { return; };
-    if intent.group != probe.old_chat { return; }
+pub(super) fn peer_intent_prepared(
+    root: &Path,
+    entry: &AutomaticChannel,
+    intent: &storage_sqlite::account_chat_departure::AccountChatDepartureIntent,
+) {
+    let Some(probe) = peer_at(root) else {
+        return;
+    };
+    if intent.group != probe.old_chat {
+        return;
+    }
     let mut progress = probe.progress.lock().expect("negative probe");
-    if progress.intent_gate.is_some() { return; }
-    progress.prepared_intent = Some(PreparedIntent { action: intent.action_id, nonce: entry.channel.scope().nonce, account: entry.policy.account, protected_group: entry.policy.protected_group.clone(), local_device: entry.policy.local_device, peer_device: entry.policy.peer_device });
+    if progress.intent_gate.is_some() {
+        return;
+    }
+    progress.prepared_intent = Some(PreparedIntent {
+        action: intent.action_id,
+        nonce: entry.channel.scope().nonce,
+        account: entry.policy.account,
+        protected_group: entry.policy.protected_group.clone(),
+        local_device: entry.policy.local_device,
+        peer_device: entry.policy.peer_device,
+    });
 }
-pub(super) fn peer_gate(root: &Path, entry: &AutomaticChannel, kind: AccountSharingControl, payload_digest: [u8; 32]) -> Option<Arc<IntentGate>> {
-    if !matches!(kind, AccountSharingControl::Body(_)) || !entry.pending.front().is_some_and(|body| body.kind == AccountSharedBodyKind::DepartureIntent) { return None; }
+pub(super) fn peer_gate(
+    root: &Path,
+    entry: &AutomaticChannel,
+    kind: AccountSharingControl,
+    payload_digest: [u8; 32],
+) -> Option<Arc<IntentGate>> {
+    if !matches!(kind, AccountSharingControl::Body(_))
+        || !entry
+            .pending
+            .front()
+            .is_some_and(|body| body.kind == AccountSharedBodyKind::DepartureIntent)
+    {
+        return None;
+    }
     let probe = peer_at(root)?;
     let mut progress = probe.progress.lock().expect("negative probe");
-    if progress.intent_gate.is_some() { return None; }
+    if progress.intent_gate.is_some() {
+        return None;
+    }
     let binding = progress.prepared_intent.as_ref()?;
-    if entry.departures.pending_action_for_test() != Some(binding.action) || binding.nonce != entry.channel.scope().nonce { return None; }
+    if entry.departures.pending_action_for_test() != Some(binding.action)
+        || binding.nonce != entry.channel.scope().nonce
+    {
+        return None;
+    }
     let binding = progress.prepared_intent.take()?;
     let (release, _) = tokio::sync::watch::channel(false);
-    let gate = Arc::new(IntentGate { binding, prepared_payload_digest: payload_digest, release, entered: std::sync::atomic::AtomicBool::new(false) });
-    progress.intent_gate = Some(gate.clone()); Some(gate)
+    let gate = Arc::new(IntentGate {
+        binding,
+        prepared_payload_digest: payload_digest,
+        release,
+        entered: std::sync::atomic::AtomicBool::new(false),
+    });
+    progress.intent_gate = Some(gate.clone());
+    Some(gate)
 }
 pub(super) fn capture(root: &Path, entry: &AutomaticChannel) {
     let Some(probe) = at(root) else {
@@ -240,7 +311,9 @@ pub(super) fn sql_failure(
     let associated = progress.captured.as_ref().is_some_and(|captured| {
         Weak::ptr_eq(&captured.original, &Arc::downgrade(&entry.original))
             && captured.nonce == entry.channel.scope().nonce
-            && entry.publication.as_ref().is_some_and(|publication| publication.task.id() == captured.task && publication.body_context.is_some())
+            && entry.publication.as_ref().is_some_and(|publication| {
+                publication.task.id() == captured.task && publication.body_context.is_some()
+            })
     });
     progress.observed.associated_sql_failures += u64::from(associated);
     let retained = progress

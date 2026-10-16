@@ -107,7 +107,11 @@ async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_befo
         &old_chat,
     );
     struct IntentRelease<F: Fn()>(F);
-    impl<F: Fn()> Drop for IntentRelease<F> { fn drop(&mut self) { (self.0)(); } }
+    impl<F: Fn()> Drop for IntentRelease<F> {
+        fn drop(&mut self) {
+            (self.0)();
+        }
+    }
     let peer_release_probe = probe.clone();
     let _intent_release = IntentRelease(move || peer_release_probe.release_peer_intent());
     let path = apps[0].account_storage_path("test");
@@ -136,8 +140,14 @@ async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_befo
     assert_eq!(pending.status, crate::AccountChatDepartureStatus::Pending);
     assert!(pending.operation_id.is_some());
     tokio::time::timeout(std::time::Duration::from_secs(30), async {
-        while !probe.peer_intent_is_held() { tokio::time::sleep(std::time::Duration::from_millis(20)).await; }
-    }).await.expect("real prepared peer DepartureIntent must be held inside its original publication select");
+        while !probe.peer_intent_is_held() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect(
+        "real prepared peer DepartureIntent must be held inside its original publication select",
+    );
     eprintln!("body-negative-control stage=actual-peer-intent-held");
     let (observed, release) = apps[0].relay_plane.hold_next_automatic_catalog_body_except(
         cgka_traits::MemberId::new(keys.public_key().to_bytes().to_vec()),
@@ -271,8 +281,10 @@ async fn authenticated_negative_sql_failure_retains_owned_body_until_commit_befo
         after_release.harvest_at,
         after_release.body_effects
     );
-    assert!(after_release.associated_sql_failures > 0,
-        "actual SQL-trigger failure must belong to the held original nonce and owned publication slot");
+    assert!(
+        after_release.associated_sql_failures > 0,
+        "actual SQL-trigger failure must belong to the held original nonce and owned publication slot"
+    );
     assert!(
         retained && commit_before_harvest && no_old_body_effects && actor_progress,
         "authenticated negative SQL rollback must retain the same owned Body until negative commit precedes aborted-task harvest without old Body effects"
