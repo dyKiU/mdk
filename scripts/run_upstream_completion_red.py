@@ -13,7 +13,7 @@ FEATURES='marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/
 SUFFIX='completed_sibling_consent_services_initial_progress_without_periodic_tick'
 FILE='crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
 MESSAGE='successful sibling consent must persist its real policy and publish its commit proof without a periodic tick'
-r={'source':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'product_baseline':'3dde689febbe364b70af35ff778e3d74a6bc5622','red_qualified':False,'qualification_passed':False,'original_completion_seconds':15,'gated_initial_progress_seconds':15,'stack_bytes':4194304,'automatic_retries':0,'features_requested':FEATURES}
+r={'source':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'product_baseline':'3dde689febbe364b70af35ff778e3d74a6bc5622','red_qualified':False,'qualification_passed':False,'setup_claim':'real first-three Completed private roster only; no third-device chat-sharing acceptance claim','original_completion_seconds':15,'gated_initial_progress_seconds':15,'stack_bytes':4194304,'automatic_retries':0,'features_requested':FEATURES}
 def save(): (OUT/'result.json').write_text(json.dumps(r,indent=2)+'\n')
 def ensure(ok,reason):
     if not ok: raise ValueError(reason)
@@ -49,7 +49,7 @@ r['source_after_sha256']=aggregate(freeze());r['inputs_pristine']=freeze()==froz
 try:
     outcomes=re.findall(r'completion-wake-control result success=(true|false) foreground=(true|false) progress=(true|false) durable_policy_seen=(true|false) proof_success_seen=(true|false)',raw);ensure(len(outcomes)==1,'one-closed-outcome')
     success,foreground,progress,durable,proof=[value=='true' for value in outcomes[0]];r['actual_prerequisites']={'held_consent_task_success':success,'foreground_snapshots':foreground,'durable_policy_and_genuine_proof_with_gate':progress,'durable_policy_seen':durable,'proof_success_seen':proof}
-    expected=['primary-round-ready','actual-consent-held','periodic-arm-gated','actual-consent-task-success','foreground-progress','periodic-arm-released','normal-completion','positive-cleanup-completed'];ensure(r['stages']==expected,'actual-stage-order')
+    expected=['third-roster-ready','third-originals-retired','primary-round-ready','actual-consent-held','periodic-arm-gated','actual-consent-task-success','foreground-progress','periodic-arm-released','normal-completion','positive-cleanup-completed'];ensure(r['stages']==expected,'actual-stage-order')
     ensure(r.get('executed_nonignored')==1 and r.get('passed')==0 and r.get('failed')==1 and r.get('ignored')==0 and body.returncode==101 and r['compiler_error_count']==0,'actual-runtime-red')
     ensure(success and foreground and not progress,'intended-liveness-failure')
     ensure(len(r['panic_locations'])==1 and all(r['panic_locations'][0][key]==value for key,value in r['expected_panic'].items()) and MESSAGE in raw,'sole-intended-runtime-assertion')

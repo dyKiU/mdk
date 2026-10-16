@@ -13,6 +13,10 @@ for name in FILES:
     old=subprocess.check_output(['git','show',BASE+':'+name],text=True)
     current=re.sub(r'(?m)^[ \t]*// COMPLETION_TEST_BEGIN\n.*?^[ \t]*// COMPLETION_TEST_END\n','',Path(name).read_text(),flags=re.S|re.M)
     assert normalize(current)==normalize(old), 'non-test source changed: '+name
+fixture=Path(FILES[3]).read_text()
+assert normalize('let roster_setup_only = held_publication == HeldPublication::CompletionWake;') in normalize(fixture)
+assert fixture.count('if !roster_setup_only {')==2
+assert fixture.count('if roster_setup_only {')==2
 allowed=set(FILES+[NEW,'scripts/verify_upstream_completion_red_source.py','scripts/run_upstream_completion_red.py','.github/workflows/experimental-sync-ci.yml'])
 assert set(subprocess.check_output(['git','diff','--name-only',BASE],text=True).splitlines())<=allowed
 for name in ['Cargo.lock','Cargo.toml','.cargo/config.toml','.config/nextest.toml']:
