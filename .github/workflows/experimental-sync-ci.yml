@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
+        options: [orchestrator-diagnostic-preflight, orchestrator-diagnostic, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
         default: full
       completion_control_run_id:
         description: Prior successful controls plus both static cohorts for the exact current commit (required for mutations)
@@ -842,3 +842,77 @@ jobs:
             recovered-coverage/required-followups.json
           retention-days: 7
           if-no-files-found: error
+
+  # ORCHESTRATOR_DIAGNOSTIC_JOBS_BEGIN
+  orchestrator-diagnostic-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["orchestrator-diagnostic-preflight","orchestrator-diagnostic"]'), inputs.scope)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pinned toolchain
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+      - name: Source and actual parser preflight, zero Rust compilation
+        run: |
+          python3 scripts/verify_upstream_orchestrator_diagnostic_source.py
+          python3 scripts/run_upstream_orchestrator_diagnostic.py --parser-preflight
+      - name: Canonical formatting
+        run: |
+          if ! cargo fmt --all -- --check > "$RUNNER_TEMP/format.log" 2>&1; then
+            cargo fmt --all
+            git diff -- crates > orchestrator-diagnostic/format.patch
+            exit 1
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: orchestrator-diagnostic-preflight
+          path: orchestrator-diagnostic
+          if-no-files-found: error
+          retention-days: 7
+
+  orchestrator-diagnostic-runtime:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'orchestrator-diagnostic'
+    needs: orchestrator-diagnostic-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pinned toolchain
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: orchestrator-two-case-experimental
+          cache-on-failure: 'true'
+      - name: One broader workspace build, two unchanged cases sequentially
+        env:
+          CARGO_INCREMENTAL: '0'
+        run: python3 scripts/run_upstream_orchestrator_diagnostic.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: orchestrator-two-case-diagnostic
+          path: orchestrator-diagnostic
+          if-no-files-found: error
+          retention-days: 7
