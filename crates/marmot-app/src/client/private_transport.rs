@@ -53,10 +53,10 @@ impl AppClient {
 
     /// Refresh only protected selected crypto metadata, with no full group sweep.
     pub(super) fn refresh_private_transport_route(&mut self) -> Result<bool, AppError> {
-        let evidence = self
+        let evidence = ingest_phase_sync!(7, self
             .runtime
             .session()
-            .private_transport_evidence(crate::NOSTR_ROUTING_COMPONENT_ID)
+            .private_transport_evidence(crate::NOSTR_ROUTING_COMPONENT_ID))
             .map_err(cgka_session::SessionError::from)?;
         if evidence.is_none()
             && let Some(previous) = &self.linking_owner.hidden_transport_group

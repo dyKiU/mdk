@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
+        options: [ingest-phase-diagnostic,automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
         default: full
       completion_control_run_id:
         description: Prior successful controls plus both static cohorts for the exact current commit (required for mutations)
@@ -970,3 +970,59 @@ jobs:
             recovered-coverage/required-followups.json
           retention-days: 7
           if-no-files-found: error
+
+  ingest-phase-preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'ingest-phase-diagnostic'
+    name: Passive ingest attribution source parser and format gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - run: |
+          python3 scripts/run_upstream_ingest_phase.py --mode preflight
+          cargo fmt --all
+          git diff -- crates > "$RUNNER_TEMP/ingest-phase-format.patch"
+          git diff --exit-code -- crates
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: ingest-phase-preflight
+          path: |
+            ingest-phase-evidence/result.json
+            ${{ runner.temp }}/ingest-phase-format.patch
+          if-no-files-found: error
+          retention-days: 14
+  ingest-phase-runtime:
+    needs: ingest-phase-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'ingest-phase-diagnostic'
+    name: One unchanged ordinary enrollment with passive ingest attribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Passive ingest attribution'
+          python3 scripts/run_upstream_ingest_phase.py --mode run
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: ingest-phase-runtime
+          path: ingest-phase-evidence/result.json
+          if-no-files-found: error
+          retention-days: 14

@@ -1975,7 +1975,7 @@ impl AppClient {
         for (event, event_progress) in effects.events.iter().zip(&mut progress.events) {
             #[cfg(feature = "experimental-device-sync")]
             if !event_progress.completed {
-                self.observe_account_sharing_control(event).map_err(|_| {
+                ingest_phase_sync!(3, self.observe_account_sharing_control(event)).map_err(|_| {
                     AppError::InvalidAppMessagePayload(
                         "private account sharing control unavailable".into(),
                     )
@@ -3010,7 +3010,7 @@ impl AppClient {
         let mut summary = SyncSummary::default();
         let message_id = delivery.message.id.clone();
         let event_id = hex::encode(message_id.as_slice());
-        let receipts = self.transport_receipts().map_err(|error| {
+        let receipts = ingest_phase_sync!(10, self.transport_receipts()).map_err(|error| {
             (
                 SyncSummary::default(),
                 false,
@@ -3065,7 +3065,7 @@ impl AppClient {
         // fail, matching the catch-up checkpoint below.
         if routes_dirty {
             let sealed = promote.then(|| self.seal_transport_cursor());
-            if let Err(error) = self.save_state_with_pending_local_group_deletion_frontier_clears()
+            if let Err(error) = ingest_phase_sync!(9, self.save_state_with_pending_local_group_deletion_frontier_clears())
             {
                 if let Some(sealed) = sealed {
                     self.abandon_transport_cursor(sealed);
@@ -3085,7 +3085,7 @@ impl AppClient {
                 );
             }
         }
-        let refresh = match self.refresh_group_routes() {
+        let refresh = match ingest_phase_sync!(8, self.refresh_group_routes()) {
             Ok(refresh) => refresh,
             Err(error) => {
                 return Err((
@@ -3105,7 +3105,7 @@ impl AppClient {
         if !routes_dirty || refresh.state_pruned {
             // With dirty routes the first save already persisted it.
             let sealed = (promote && !routes_dirty).then(|| self.seal_transport_cursor());
-            if let Err(error) = self.save_state_with_pending_local_group_deletion_frontier_clears()
+            if let Err(error) = ingest_phase_sync!(9, self.save_state_with_pending_local_group_deletion_frontier_clears())
             {
                 if let Some(sealed) = sealed {
                     self.abandon_transport_cursor(sealed);
@@ -3762,24 +3762,24 @@ impl AppClient {
         };
         #[cfg(feature = "experimental-device-sync")]
         let ingest = if let Some(deadline) = acquisition_deadline {
-            client
+            ingest_phase_future!(1, client
                 .runtime
                 .ingest_private_enrollment_delivery_with_observer_until(
                     delivery, deadline, observer,
-                )
+                ))
                 .await
         } else {
-            client
+            ingest_phase_future!(1, client
                 .runtime
-                .ingest_delivery_with_observer(delivery, observer)
+                .ingest_delivery_with_observer(delivery, observer))
                 .await
         };
         #[cfg(not(feature = "experimental-device-sync"))]
         let ingest = {
             let _ = acquisition_deadline;
-            client
+            ingest_phase_future!(1, client
                 .runtime
-                .ingest_delivery_with_observer(delivery, observer)
+                .ingest_delivery_with_observer(delivery, observer))
                 .await
         };
         #[cfg(all(
@@ -3876,8 +3876,8 @@ impl AppClient {
             // incoming Welcome's group. This scan reads bounded metadata only.
             client.reconcile_rejoin_offer_changes(before)?;
         }
-        let source_released = client
-            .transport_receipts()?
+        let source_released = ingest_phase_sync!(10, client
+            .transport_receipts())?
             .was_released(&source_message_id_hex);
         let publish_error = fail_if_publish_failed(&effects.effects).err();
         let must_stay_fetchable = effects.left_object_unpersisted || source_released;
@@ -3998,7 +3998,7 @@ impl AppClient {
             .filter(|event_id| !client.pending_application_event_acks.contains(event_id))
             .collect::<Vec<_>>();
         client.prepend_pending_applied_summary(summary);
-        let routes_dirty = match client.retry_applied_effect_projections(summary).await {
+        let routes_dirty = match ingest_phase_future!(2, client.retry_applied_effect_projections(summary)).await {
             Ok(routes_dirty) => routes_dirty,
             Err(error) => {
                 for event_id in new_application_event_ack_candidates {
@@ -6645,7 +6645,7 @@ impl AppClient {
         for (event, event_progress) in effects.events.iter().zip(&mut progress.events) {
             #[cfg(feature = "experimental-device-sync")]
             if !event_progress.completed {
-                self.observe_account_sharing_control(event).map_err(|_| {
+                ingest_phase_sync!(3, self.observe_account_sharing_control(event)).map_err(|_| {
                     AppError::InvalidAppMessagePayload(
                         "private account sharing control unavailable".into(),
                     )

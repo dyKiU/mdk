@@ -87,6 +87,30 @@ pub use product_analytics::*;
 mod audit_log;
 pub mod audit_otlp_sender;
 mod chat_presentation;
+// INGEST_ATTRIBUTION_MACRO_BEGIN
+macro_rules! ingest_phase_future {
+    ($phase:literal, $future:expr $(,)?) => {{
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        { crate::maintenance_phase_diagnostics::observe_phase($phase, Box::pin($future)) }
+        #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
+        { $future }
+    }};
+}
+macro_rules! ingest_phase_sync {
+    ($phase:literal, $expression:expr $(,)?) => {{
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        {
+            let diagnostic = crate::maintenance_phase_diagnostics::SyncObservation::begin($phase);
+            let diagnostic_result = $expression;
+            diagnostic.finish();
+            diagnostic_result
+        }
+        #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
+        { $expression }
+    }};
+}
+// INGEST_ATTRIBUTION_MACRO_END
+
 mod client;
 mod config;
 pub mod conversation_presentation;
@@ -8317,3 +8341,8 @@ pub use runtime::{
     AccountAttachmentCursor, AccountAttachmentEntry, AccountAttachmentPage,
     AccountAttachmentPageRead, AccountAttachmentQuery, AccountAttachmentVersion,
 };
+
+// INGEST_ATTRIBUTION_MODULE_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+mod maintenance_phase_diagnostics;
+// INGEST_ATTRIBUTION_MODULE_END

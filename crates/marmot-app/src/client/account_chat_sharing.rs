@@ -134,7 +134,7 @@ impl AppClient {
                 sha2::Sha256::digest(wire).into(),
             );
         }
-        let received = self.authenticate_sharing_control_intake(group_id, source, wire);
+        let received = ingest_phase_sync!(4, self.authenticate_sharing_control_intake(group_id, source, wire));
         #[cfg(all(test, feature = "test-policy-overrides"))]
         automatic::consent_delivery_probe::authenticated(
             self.app.account_home().root(),
@@ -205,7 +205,7 @@ impl AppClient {
         received: &cgka_engine::account_chat_sharing::ReceivedAccountSharingControl,
         wire: &[u8],
     ) -> Result<(), AccountSharingError> {
-        let sibling = self.observe_sibling_sharing_control(received, wire);
+        let sibling = ingest_phase_sync!(5, self.observe_sibling_sharing_control(received, wire));
         #[cfg(all(test, feature = "test-policy-overrides"))]
         self.test_trace_catalog_stage(
             "sibling_dispatch",
@@ -219,7 +219,7 @@ impl AppClient {
         if sibling? {
             return Ok(());
         }
-        let automatic = self.observe_automatic_sharing_control(received, wire);
+        let automatic = ingest_phase_sync!(6, self.observe_automatic_sharing_control(received, wire));
         #[cfg(all(test, feature = "test-policy-overrides"))]
         self.test_trace_catalog_stage(
             "automatic_dispatch_result",

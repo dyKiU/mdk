@@ -671,6 +671,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     } else {
         None
     };
+    // MAINTENANCE_PHASE_BOUNDARY_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    crate::maintenance_phase_diagnostics::boundary(true);
+    // MAINTENANCE_PHASE_BOUNDARY_END
     eprintln!("automatic-enrollment-control stage=fourth-device-completion");
     wait_for_automatic_phase_with_approvals(
         &a,
@@ -1222,6 +1226,10 @@ async fn wait_for_automatic_phase_with_approvals(
         }
     })
     .await
+    // MAINTENANCE_PHASE_VERDICT_BEGIN
+    .inspect(|_| { #[cfg(feature = "test-policy-overrides")] crate::maintenance_phase_diagnostics::boundary(false); })
+    .inspect_err(|_| { #[cfg(feature = "test-policy-overrides")] crate::maintenance_phase_diagnostics::boundary(false); })
+    // MAINTENANCE_PHASE_VERDICT_END
     .unwrap_or_else(|_| {
         #[cfg(feature = "test-policy-overrides")]
         for (side, original) in [("left", a), ("right", b)] {
