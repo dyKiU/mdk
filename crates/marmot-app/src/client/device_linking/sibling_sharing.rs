@@ -404,6 +404,23 @@ impl OriginalEnrollmentSharingChoice {
         (probe.counts, probe.elapsed_ms, probe.reason)
     }
 
+
+// COMPLETION_TEST_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) fn completed_consent_progress_for_test(&self,identity:&cgka_traits::MessageId,policies:&[cgka_traits::approved_account_sharing_policy::ApprovedAccountSharingPolicy])->Option<(bool,bool)> {
+    use cgka_traits::approved_account_sharing_policy::{ApprovedAccountSharingPolicy,ACCOUNT_SHARING_POLICY_VERSION,ACCOUNT_SHARING_CAPABILITIES};
+    for state in self.children.lock().expect("sibling children").iter() {
+        let proof={let observation=state.sibling_diagnostics.lock().expect("sibling completion test observation");
+            if observation.successful_consent_message.as_ref()!=Some(identity){continue;}
+            observation.successful_commit_proof};
+        let scope=state.scope.lock().expect("sibling scope").clone()?;
+        let expected=ApprovedAccountSharingPolicy{account:scope.protected.account.as_slice().try_into().ok()?,local_device:scope.recipient.as_slice().try_into().ok()?,peer_device:scope.source.as_slice().try_into().ok()?,protected_group:scope.protected.group_id.clone(),approval_id:scope.approval_id,version:ACCOUNT_SHARING_POLICY_VERSION,capabilities:ACCOUNT_SHARING_CAPABILITIES,created_at:state.created_at,approved_protected_epoch:scope.protected.epoch.0,revoked:false};
+        return Some((policies.iter().any(|policy|policy==&expected),proof));
+    }
+    None
+}
+
+// COMPLETION_TEST_END
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn child_diagnostics_for_test(
         &self,
@@ -2192,6 +2209,11 @@ impl AppClient {
         let mut shutdown = self.history_owner.runtime_shutdown.clone();
         let proof = body.is_some();
         let consent = entry.recipient && !proof;
+
+// COMPLETION_TEST_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+let completion_consent_identity = consent.then(||request.message.id.clone());
+// COMPLETION_TEST_END
         let task = tokio::spawn(async move {
             let revoked = state.revoked.notified();
             tokio::pin!(revoked);
@@ -2235,6 +2257,15 @@ impl AppClient {
                     .expect("sibling diagnostics")
                     .publication_stage = Some(Stage::AfterRelayPublication);
             }
+
+// COMPLETION_TEST_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+{
+    let mut observation=state.sibling_diagnostics.lock().expect("sibling completion test observation");
+    if let Some(identity)=completion_consent_identity {observation.successful_consent_message=Some(identity);}
+    if proof {observation.successful_commit_proof=true;}
+}
+// COMPLETION_TEST_END
             Ok(())
         });
         entry.publication = Some(SiblingPublication { proof, task });

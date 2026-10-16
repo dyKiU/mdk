@@ -3011,7 +3011,14 @@ async fn run_app_runtime_account_worker(
             // original deadline is also checked by every verifier/join access.
             _ = async {
                 #[cfg(feature = "experimental-device-sync")]
-                { linking_tick.tick().await; }
+                {
+
+// COMPLETION_TEST_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+shared.wait_periodic_linking_for_test(&account_label).await;
+// COMPLETION_TEST_END
+linking_tick.tick().await;
+                }
                 #[cfg(not(feature = "experimental-device-sync"))]
                 std::future::pending::<()>().await;
             }, if cfg!(feature = "experimental-device-sync") => {

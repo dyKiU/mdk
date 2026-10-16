@@ -17,9 +17,22 @@ async fn automatic_sync_does_not_block_foreground_enrollment_completion() {
     four_device_enrollment(HeldPublication::Automatic).await;
 }
 
+
+// COMPLETION_TEST_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+#[tokio::test]
+async fn completed_sibling_consent_services_initial_progress_without_periodic_tick() {
+    four_device_enrollment(HeldPublication::CompletionWake).await;
+}
+// COMPLETION_TEST_END
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum HeldPublication {
     None,
+
+// COMPLETION_TEST_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+CompletionWake,
+// COMPLETION_TEST_END
     SiblingConsent,
     Automatic,
 }
@@ -204,6 +217,13 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
                 keys.public_key().to_bytes().to_vec(),
             ))
     });
+
+// COMPLETION_TEST_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+let held_consent = if held_publication==HeldPublication::CompletionWake {
+    Some(apps[3].relay_plane.hold_next_sibling_consent(cgka_traits::MemberId::new(keys.public_key().to_bytes().to_vec())))
+}else{held_consent};
+// COMPLETION_TEST_END
     d.continue_automatic_linking(d.snapshot().await.unwrap().revision, true)
         .await
         .unwrap();
@@ -232,6 +252,51 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         approval.approve_and_share_chats(revision).await.unwrap();
         approvals.push(approval);
     }
+
+// COMPLETION_TEST_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+let mut completion_wake_result=None;
+#[cfg(feature = "test-policy-overrides")]
+let held_consent=if held_publication==HeldPublication::CompletionWake {
+    // Real transport hold precedes the schedule gate; no fake consent or policy.
+    let (observed,release)=held_consent.expect("completion test consent hold installed");
+    struct ConsentHoldRelease(std::sync::Arc<tokio::sync::Notify>);
+    impl Drop for ConsentHoldRelease {fn drop(&mut self){self.0.notify_one();}}
+    let release=ConsentHoldRelease(release);
+    let held=tokio::time::timeout(std::time::Duration::from_secs(10),observed).await.expect("actual sibling consent hold acquired").expect("actual sibling consent publication observed");
+    eprintln!("completion-wake-control stage=actual-consent-held");
+    let periodic=runtimes[3].hold_periodic_linking_for_test("test");
+    tokio::time::timeout(std::time::Duration::from_secs(10),periodic.observed()).await.expect("only recipient periodic arm must be gated");
+    eprintln!("completion-wake-control stage=periodic-arm-gated");
+    let mut success=false;
+    let mut foreground=false;
+    let mut durable_seen=false;
+    let mut proof_seen=false;
+    release.0.notify_one();
+    let progress=tokio::time::timeout(std::time::Duration::from_secs(15),async {
+        loop {
+            let policies=apps[3].account_storage("test").unwrap().approved_account_sharing_policy_storage().unwrap().approved_account_sharing_policies().unwrap();
+            if let Some((durable,proof))=d.completed_consent_progress_for_test(&held.id,&policies) {
+                durable_seen |= durable; proof_seen |= proof;
+                if !success {success=true;eprintln!("completion-wake-control stage=actual-consent-task-success");}
+                if !foreground {
+                    a.snapshot().await.expect("foreground sponsor snapshot remains serviceable");
+                    d.snapshot().await.expect("foreground recipient snapshot remains serviceable");
+                    foreground=true;eprintln!("completion-wake-control stage=foreground-progress");
+                }
+                if durable && proof {break;}
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    }).await.is_ok();
+    // Always release before normal completion, retirement and positive cleanup.
+    drop(periodic);
+    eprintln!("completion-wake-control stage=periodic-arm-released");
+    drop(release);
+    completion_wake_result=Some((success,foreground,progress,durable_seen,proof_seen));
+    None
+}else{held_consent};
+// COMPLETION_TEST_END
     if let Some((observed, release)) = held_consent {
         let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
             observed.await.expect("genuine sibling consent publication");
@@ -291,6 +356,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     )
     .await;
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
+// COMPLETION_TEST_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+if completion_wake_result.is_some(){eprintln!("completion-wake-control stage=normal-completion");}
+// COMPLETION_TEST_END
     drop(held_release);
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
@@ -319,6 +388,16 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     for runtime in runtimes {
         runtime.shutdown_and_close().await.unwrap();
     }
+// COMPLETION_TEST_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+if let Some((success,foreground,progress,durable_seen,proof_seen))=completion_wake_result {
+    eprintln!("completion-wake-control stage=positive-cleanup-completed");
+    eprintln!("completion-wake-control result success={success} foreground={foreground} progress={progress} durable_policy_seen={durable_seen} proof_success_seen={proof_seen}");
+    assert!(success,"the held real consent task must successfully complete before the liveness oracle");
+    assert!(foreground,"foreground snapshots must complete while periodic maintenance is gated");
+    assert!(progress,"successful sibling consent must persist its real policy and publish its commit proof without a periodic tick");
+}
+// COMPLETION_TEST_END
 }
 
 #[tokio::test]
