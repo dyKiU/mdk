@@ -1,7 +1,8 @@
 //! Test-only bounded observations; never protocol inputs.
 use std::time::Instant;
 
-pub(crate) static BEGIN_ROSTER: cgka_engine::account_chat_sharing::sharing_cost_diagnostic::WallCounter =
+pub(crate) static BEGIN_ROSTER:
+    cgka_engine::account_chat_sharing::sharing_cost_diagnostic::WallCounter =
     cgka_engine::account_chat_sharing::sharing_cost_diagnostic::WallCounter::new();
 static COST_WINDOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub(crate) fn cost_boundary(start: bool) {
@@ -11,11 +12,14 @@ pub(crate) fn cost_boundary(start: bool) {
     } else if !COST_WINDOW.swap(false, Ordering::SeqCst) {
         return;
     }
-    eprintln!("completion-cost {}", serde_json::json!({
-        "boundary": if start { "start" } else { "end" },
-        "second_roster": cgka_engine::account_chat_sharing::sharing_cost_diagnostic::SECOND_ROSTER.snapshot(),
-        "begin_roster": BEGIN_ROSTER.snapshot(),
-    }));
+    eprintln!(
+        "completion-cost {}",
+        serde_json::json!({
+            "boundary": if start { "start" } else { "end" },
+            "second_roster": cgka_engine::account_chat_sharing::sharing_cost_diagnostic::SECOND_ROSTER.snapshot(),
+            "begin_roster": BEGIN_ROSTER.snapshot(),
+        })
+    );
 }
 
 pub(crate) struct PublicationProbe {

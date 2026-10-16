@@ -30,36 +30,63 @@ pub mod sharing_cost_diagnostic {
     use std::{sync::Mutex, time::Instant};
     pub struct WallCounter(Mutex<[u64; 5]>);
     impl Default for WallCounter {
-        fn default() -> Self { Self::new() }
+        fn default() -> Self {
+            Self::new()
+        }
     }
     impl WallCounter {
-        pub const fn new() -> Self { Self(Mutex::new([0; 5])) }
+        pub const fn new() -> Self {
+            Self(Mutex::new([0; 5]))
+        }
         fn add(values: &mut [u64; 5], index: usize, amount: u64) {
             match values[index].checked_add(amount) {
                 Some(value) if value <= i64::MAX as u64 => values[index] = value,
-                _ => { values[index] = i64::MAX as u64; values[4] = 1; }
+                _ => {
+                    values[index] = i64::MAX as u64;
+                    values[4] = 1;
+                }
             }
         }
         pub fn start(&'static self) -> WallTimer {
-            Self::add(&mut self.0.lock().unwrap_or_else(|error| error.into_inner()), 0, 1);
-            WallTimer { counter: self, start: Instant::now() }
+            Self::add(
+                &mut self.0.lock().unwrap_or_else(|error| error.into_inner()),
+                0,
+                1,
+            );
+            WallTimer {
+                counter: self,
+                start: Instant::now(),
+            }
         }
         pub fn no_op(&self) {
-            Self::add(&mut self.0.lock().unwrap_or_else(|error| error.into_inner()), 3, 1);
+            Self::add(
+                &mut self.0.lock().unwrap_or_else(|error| error.into_inner()),
+                3,
+                1,
+            );
         }
         pub fn snapshot(&self) -> [u64; 5] {
             *self.0.lock().unwrap_or_else(|error| error.into_inner())
         }
     }
-    pub struct WallTimer { counter: &'static WallCounter, start: Instant }
+    pub struct WallTimer {
+        counter: &'static WallCounter,
+        start: Instant,
+    }
     impl Drop for WallTimer {
         fn drop(&mut self) {
             let elapsed = self.start.elapsed().as_nanos();
-            let mut values = self.counter.0.lock().unwrap_or_else(|error| error.into_inner());
+            let mut values = self
+                .counter
+                .0
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
             WallCounter::add(&mut values, 1, 1);
             if let Ok(elapsed) = u64::try_from(elapsed) {
                 WallCounter::add(&mut values, 2, elapsed);
-            } else { values[4] = 1; }
+            } else {
+                values[4] = 1;
+            }
         }
     }
     pub static SECOND_ROSTER: WallCounter = WallCounter::new();
