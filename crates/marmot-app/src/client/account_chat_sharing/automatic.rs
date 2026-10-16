@@ -1807,10 +1807,18 @@ impl AppClient {
         // AUTOMATIC_BODY_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let body_catalog_group = if matches!(kind, AccountSharingControl::Body(_))
-            && entry.pending.front().is_some_and(|body| body.kind == AccountSharedBodyKind::Catalog)
+            && entry
+                .pending
+                .front()
+                .is_some_and(|body| body.kind == AccountSharedBodyKind::Catalog)
         {
-            entry.pending_catalog.as_ref().map(|pending| pending.receipt.group.clone())
-        } else { None };
+            entry
+                .pending_catalog
+                .as_ref()
+                .map(|pending| pending.receipt.group.clone())
+        } else {
+            None
+        };
         // AUTOMATIC_BODY_TEST_END
         let _publication = tokio::select! {biased;()=stopping=>return Err(AccountSharingError::Closed),()=&mut revoked=>return Err(AccountSharingError::Closed),()=tokio::time::sleep_until(publication_deadline.into())=>{entry.renew=true;return Err(AccountSharingError::Closed)},report=
         // AUTOMATIC_BODY_TEST_BEGIN

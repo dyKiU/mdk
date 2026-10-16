@@ -145,7 +145,11 @@ struct MarmotRelayPlaneInner {
     ))]
     selected_welcome_gate: std::sync::Mutex<Option<SelectedWelcomePublicationGate>>,
     // AUTOMATIC_BODY_TEST_BEGIN
-    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     automatic_body_gate: std::sync::Mutex<Option<AutomaticBodyPublicationGate>>,
     // AUTOMATIC_BODY_TEST_END
     #[cfg(all(
@@ -200,7 +204,11 @@ struct SelectedWelcomePublicationGate {
 }
 
 // AUTOMATIC_BODY_TEST_BEGIN
-#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 struct AutomaticBodyPublicationGate {
     account: MemberId,
     excluded_group: cgka_traits::GroupId,
@@ -1454,17 +1462,32 @@ impl MarmotRelayPlane {
     }
 
     // AUTOMATIC_BODY_TEST_BEGIN
-    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     pub(crate) fn hold_next_automatic_catalog_body_except(
         &self,
         account: MemberId,
         excluded_group: cgka_traits::GroupId,
-    ) -> (tokio::sync::oneshot::Receiver<(cgka_traits::GroupId, cgka_traits::TransportMessage)>, Arc<Notify>) {
+    ) -> (
+        tokio::sync::oneshot::Receiver<(cgka_traits::GroupId, cgka_traits::TransportMessage)>,
+        Arc<Notify>,
+    ) {
         let (observed, receiver) = tokio::sync::oneshot::channel();
         let release = Arc::new(Notify::new());
         let mut gate = self.inner.automatic_body_gate.lock().unwrap();
-        assert!(gate.is_none(), "only one automatic body fixture may be held");
-        *gate = Some(AutomaticBodyPublicationGate { account, excluded_group, observed, release: release.clone() });
+        assert!(
+            gate.is_none(),
+            "only one automatic body fixture may be held"
+        );
+        *gate = Some(AutomaticBodyPublicationGate {
+            account,
+            excluded_group,
+            observed,
+            release: release.clone(),
+        });
         (receiver, release)
     }
     // AUTOMATIC_BODY_TEST_END
@@ -1638,7 +1661,11 @@ impl MarmotRelayPlane {
                 ))]
                 selected_welcome_gate: std::sync::Mutex::new(None),
                 // AUTOMATIC_BODY_TEST_BEGIN
-                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                #[cfg(all(
+                    test,
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
                 automatic_body_gate: std::sync::Mutex::new(None),
                 // AUTOMATIC_BODY_TEST_END
                 #[cfg(all(
@@ -4021,18 +4048,28 @@ impl MarmotRelayPlaneAccountAdapter {
     }
 
     // AUTOMATIC_BODY_TEST_BEGIN
-    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     pub(crate) async fn hold_automatic_catalog_body_for_test(
         &self,
         request: &TransportPublishRequest,
         catalog_group: Option<&cgka_traits::GroupId>,
     ) {
-        let Some(group) = catalog_group else { return; };
+        let Some(group) = catalog_group else {
+            return;
+        };
         let gate = {
             let mut held = self.relay_plane.inner.automatic_body_gate.lock().unwrap();
-            if held.as_ref().is_some_and(|gate| gate.account == request.account_id && &gate.excluded_group != group) {
+            if held.as_ref().is_some_and(|gate| {
+                gate.account == request.account_id && &gate.excluded_group != group
+            }) {
                 held.take()
-            } else { None }
+            } else {
+                None
+            }
         };
         if let Some(gate) = gate {
             let _ = gate.observed.send((group.clone(), request.message.clone()));
