@@ -1804,7 +1804,26 @@ impl AppClient {
             });
             return Ok(false);
         }
-        let _publication = tokio::select! {biased;()=stopping=>return Err(AccountSharingError::Closed),()=&mut revoked=>return Err(AccountSharingError::Closed),()=tokio::time::sleep_until(publication_deadline.into())=>{entry.renew=true;return Err(AccountSharingError::Closed)},report=self.adapter.publish_automatic_control(request)=>{let report=report.map_err(|_|AccountSharingError::RuntimeUnavailable)?;if !report.met_required_acks(){return Err(AccountSharingError::NotReady)} report}};
+        // AUTOMATIC_BODY_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let body_catalog_group = if matches!(kind, AccountSharingControl::Body(_))
+            && entry.pending.front().is_some_and(|body| body.kind == AccountSharedBodyKind::Catalog)
+        {
+            entry.pending_catalog.as_ref().map(|pending| pending.receipt.group.clone())
+        } else { None };
+        // AUTOMATIC_BODY_TEST_END
+        let _publication = tokio::select! {biased;()=stopping=>return Err(AccountSharingError::Closed),()=&mut revoked=>return Err(AccountSharingError::Closed),()=tokio::time::sleep_until(publication_deadline.into())=>{entry.renew=true;return Err(AccountSharingError::Closed)},report=
+        // AUTOMATIC_BODY_TEST_BEGIN
+        async {
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.adapter.hold_automatic_catalog_body_for_test(&request, body_catalog_group.as_ref()).await;
+        // AUTOMATIC_BODY_TEST_END
+        self.adapter.publish_automatic_control(request)
+        // AUTOMATIC_BODY_TEST_BEGIN
+        .await
+        }
+        // AUTOMATIC_BODY_TEST_END
+        =>{let report=report.map_err(|_|AccountSharingError::RuntimeUnavailable)?;if !report.met_required_acks(){return Err(AccountSharingError::NotReady)} report}};
         self.finish_automatic_publication(
             entry,
             kind,
