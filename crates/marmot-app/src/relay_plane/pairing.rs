@@ -69,11 +69,31 @@ impl MarmotRelayPlane {
             .min(tokio::time::Instant::now() + DIRECTORY_RELAY_CONNECT_WAIT);
         let connections = futures::future::join_all(mailbox.relays.iter().map(|relay| async {
             let connected = timeout_at(connect_deadline, async {
-                mailbox.client.add_relay(relay.clone()).await?;
-                mailbox.client.connect_relay(relay.clone()).await
+                mailbox.client.add_relay(relay.clone()).await.ok()?;
+                let relay = mailbox.client.relay(relay.clone()).await.ok()??;
+                // connect() only queues work. Observe before requesting it so a
+                // fast connection (or a retiring previous task) cannot lose the
+                // wakeup. Do not submit a REQ against a disconnected relay's
+                // health gate, or consume its EOSE budget while still dialing.
+                let mut updates = relay.notifications_with_gaps();
+                relay.connect();
+                loop {
+                    let status = relay.status();
+                    if status.is_connected() {
+                        return Some(());
+                    }
+                    if matches!(
+                        status,
+                        nostr_sdk::prelude::RelayStatus::Banned
+                            | nostr_sdk::prelude::RelayStatus::Shutdown
+                    ) {
+                        return None;
+                    }
+                    updates.next().await?;
+                }
             })
             .await;
-            matches!(connected, Ok(Ok(_))).then(|| relay.clone())
+            matches!(connected, Ok(Some(()))).then(|| relay.clone())
         }))
         .await;
         mailbox.relays = connections.into_iter().flatten().collect();
@@ -233,6 +253,65 @@ mod tests {
     use super::*;
     use crate::device_linking::network::{Bootstrap, Channel, Message, MessageKind};
     use nostr::prelude::Keys;
+
+    #[tokio::test]
+    async fn pairing_mailbox_retry_waits_for_connection_before_subscription_readiness() {
+        use futures::SinkExt;
+        use tokio_tungstenite::{accept_async, tungstenite::Message};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = TransportEndpoint(format!("ws://{}", listener.local_addr().unwrap()));
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            // Connection and subscription each fit their own five-second budget,
+            // but a queued connect is not yet a usable WebSocket connection.
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            let mut socket = accept_async(stream).await.unwrap();
+            while let Some(Ok(message)) = socket.next().await {
+                let Message::Text(text) = message else {
+                    continue;
+                };
+                let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if request[0] == "REQ" {
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    if socket
+                        .send(Message::Text(
+                            serde_json::json!(["EOSE", request[1]]).to_string().into(),
+                        ))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            }
+        });
+        let plane = MarmotRelayPlane::full_history_with_loopback(true);
+        // An expired caller must not poison the shared connection for a fresh
+        // attempt, or leave its subscription in front of the fresh request.
+        let first = plane
+            .pairing_mailbox(
+                vec![endpoint.clone()],
+                Keys::generate().public_key(),
+                Instant::now() + Duration::from_millis(100),
+            )
+            .await;
+        assert!(first.is_err());
+        let retry = plane
+            .pairing_mailbox(
+                vec![endpoint],
+                Keys::generate().public_key(),
+                Instant::now() + Duration::from_secs(15),
+            )
+            .await;
+        assert!(
+            retry.is_ok(),
+            "fresh attempt must wait for a live connection and its own EOSE"
+        );
+        drop(retry);
+        plane.shutdown().await;
+        server.abort();
+    }
 
     async fn rejecting_relay() -> (TransportEndpoint, tokio::task::JoinHandle<()>) {
         use futures::SinkExt;
