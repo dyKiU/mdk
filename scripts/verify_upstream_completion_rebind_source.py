@@ -7,7 +7,7 @@ import re
 import subprocess
 from upstream_completion_ci import ensure,parser_preflight
 from verify_upstream_completion_candidate_source import normalize
-BASE='80e0eef22d5c19a6edf1ea2f63b43799c43d7bde'
+BASE='ac3db2d82bdca105d249b7ddfba73734b4e153e9'
 RUST=['crates/marmot-app/src/client/device_linking/sibling_sharing.rs','crates/marmot-app/src/runtime/account_worker.rs','crates/marmot-app/src/runtime/commands.rs','crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs']
 HELPERS=['scripts/verify_upstream_completion_rebind_source.py','scripts/qualify_upstream_completion_rebind.py','.github/workflows/experimental-sync-ci.yml']
 def main():

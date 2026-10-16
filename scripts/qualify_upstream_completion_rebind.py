@@ -9,7 +9,7 @@ import re
 import subprocess
 import tempfile
 from upstream_completion_ci import NEW,compile_cases,parse_body,environment,freeze,identity,digest,ensure,green,intended_red
-BASE='80e0eef22d5c19a6edf1ea2f63b43799c43d7bde'
+BASE='ac3db2d82bdca105d249b7ddfba73734b4e153e9'
 TEST='sibling_completion_service_rebinds_after_actual_client_replacement'
 WORKER='crates/marmot-app/src/runtime/account_worker.rs'
 STAGES=['old-original-retired','actual-client-replaced','old-signal-fired-before-fresh-enrollment']
