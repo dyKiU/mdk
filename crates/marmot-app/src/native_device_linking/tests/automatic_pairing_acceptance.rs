@@ -1375,15 +1375,20 @@ async fn reopened_pair_can_verify_another_installation(existing: usize) {
 
 #[tokio::test]
 async fn interrupted_first_enrollment_can_start_fresh_comparison() {
-    interrupted_first_enrollment_retries(false).await;
+    interrupted_first_enrollment_retries(false, false).await;
 }
 
 #[tokio::test]
 async fn interrupted_first_enrollment_same_peer_completes_after_restart() {
-    interrupted_first_enrollment_retries(true).await;
+    interrupted_first_enrollment_retries(true, false).await;
 }
 
-async fn interrupted_first_enrollment_retries(same_peer: bool) {
+#[tokio::test]
+async fn interrupted_first_enrollment_same_roles_completes_after_restart() {
+    interrupted_first_enrollment_retries(true, true).await;
+}
+
+async fn interrupted_first_enrollment_retries(same_peer: bool, same_roles: bool) {
     use cgka_traits::private_roster_settlement::PrivateSettlementPhase;
     use cgka_traits::{MemberId, StorageProvider};
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
@@ -1491,12 +1496,20 @@ async fn interrupted_first_enrollment_retries(same_peer: bool) {
             .unwrap()
             .is_empty()
     );
-    let fresh = runtimes[if same_peer { 1 } else { 2 }]
+    let display_index = if same_roles {
+        0
+    } else if same_peer {
+        1
+    } else {
+        2
+    };
+    let scanner_index = if same_roles { 1 } else { 0 };
+    let fresh = runtimes[display_index]
         .accounts()
         .begin_device_linking_session("test")
         .await
         .unwrap();
-    let retry = runtimes[0]
+    let retry = runtimes[scanner_index]
         .accounts()
         .approve_automatic_device_linking_session(
             "test",
