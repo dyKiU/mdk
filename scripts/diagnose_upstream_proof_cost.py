@@ -34,6 +34,8 @@ def feature_metadata(binary):
     result={'root_binary_sha256':digest(binary.read_bytes()),'root_fingerprint_found':root.is_file(),'nodes':{},'unresolved':[],'verified':False}
     if not root.is_file(): return result
     wanted={'marmot_app','cgka_engine','storage_sqlite','cgka_session','marmot_account'}
+    selected_expected={}
+    result['coverage_required']=sorted(wanted)
     def read(path,name):
         data=json.loads(path.read_text()); features=data.get('features',[])
         if isinstance(features,str): features=json.loads(features)
@@ -41,8 +43,11 @@ def feature_metadata(binary):
         rustflags=data.get('rustflags',[])
         result['nodes'][name]={'features':features,'fingerprint_json_sha256':digest(path.read_bytes()),'profile':data.get('profile'),'compile_kind':data.get('compile_kind'),'rustflags':[] if rustflags==[] else None,'rustflags_sha256':digest(json.dumps(rustflags,sort_keys=True).encode())}
         for dep in data.get('deps',[]):
-            if len(dep)!=4 or dep[1] not in wanted or dep[1] in result['nodes']: continue
+            if len(dep)!=4 or dep[1] not in wanted: continue
             depname=dep[1]; expected=dep[3]
+            if depname in result['nodes']:
+                if selected_expected.get(depname)!=expected: result['unresolved'].append(depname+'-multiple-units')
+                continue
             if type(expected) is not int: result['unresolved'].append(depname); continue
             candidates=[]
             for candidate in directory.glob(depname.replace('_','-')+'-*/lib-'+depname+'.json'):
@@ -53,11 +58,14 @@ def feature_metadata(binary):
                 raw=bytes.fromhex(value)
                 if expected in [int.from_bytes(raw,'little'),int.from_bytes(raw,'big')]: candidates.append(candidate)
             if len(candidates)==1:
+                selected_expected[depname]=expected
                 read(candidates[0],depname)
+                result['nodes'][depname]['expected_dependency_fingerprint_u64']=expected
+                result['nodes'][depname]['companion_fingerprint_sha256']=digest(candidates[0].with_suffix('').read_bytes())
             else: result['unresolved'].append(depname)
     read(root,'marmot_app')
     result['unresolved']=sorted(set(result['unresolved']))
-    required={'marmot_app','cgka_engine','storage_sqlite'}
+    required=wanted
     result['verified']=(required<=set(result['nodes']) and not result['unresolved'] and all(node['rustflags']==[] for node in result['nodes'].values()) and {'experimental-device-sync','test-policy-overrides'}<=set(result['nodes']['cgka_engine']['features']) and 'experimental-device-sync' in result['nodes']['storage_sqlite']['features'])
     return result
 save()

@@ -155,6 +155,9 @@ pub mod history_transfer;
 pub mod selected_chat_consent;
 
 // PROOF_DIAGNOSTIC_MODULE_BEGIN
-#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 pub mod proof_memo_diagnostics;
 // PROOF_DIAGNOSTIC_MODULE_END

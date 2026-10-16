@@ -10,7 +10,8 @@ FILES=['crates/cgka-engine/src/lib.rs','crates/cgka-engine/src/account_identity_
 MODULE='crates/cgka-engine/src/proof_memo_diagnostics.rs'
 def normalize(value):
     # Keep quoted contents exact while permitting canonical Rust line wrapping.
-    return re.sub(r'"(?:\\.|[^"\\])*"|\s+',lambda match:match[0] if match[0].startswith('"') else '',value).replace(',)',')')
+    chunks=re.split(r'("(?:\\.|[^"\\])*")',value)
+    return ''.join(chunk if index%2 else re.sub(r'\s+','',chunk).replace(',)',')') for index,chunk in enumerate(chunks))
 def strip(value):
     value=re.sub(r'\{\s*// PROOF_DIAGNOSTIC_LOCK_BEGIN.*?// PROOF_DIAGNOSTIC_LOCK_END\s*result\s*\}', 'self.entries.lock()',value,flags=re.S)
     value=re.sub(r'(?m)^[ \t]*// PROOF_DIAGNOSTIC_(?:MODULE_|FIELD_)?BEGIN\n.*?^[ \t]*// PROOF_DIAGNOSTIC_(?:MODULE_|FIELD_)?END\n', '',value,flags=re.S|re.M)
