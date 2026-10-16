@@ -51,10 +51,19 @@ pub(super) struct DeparturePublicationIdentity {
 }
 impl DepartureProgress {
     pub(super) fn publication_identity(&self) -> Option<DeparturePublicationIdentity> {
-        self.pending.as_ref().map(|pending| DeparturePublicationIdentity {
-            action_id: pending.action_id,
-            reply: pending.reply.map(|(kind, status)| (kind, status.complete, status.needs_administrator, status.awaiting_sources)),
-        })
+        self.pending
+            .as_ref()
+            .map(|pending| DeparturePublicationIdentity {
+                action_id: pending.action_id,
+                reply: pending.reply.map(|(kind, status)| {
+                    (
+                        kind,
+                        status.complete,
+                        status.needs_administrator,
+                        status.awaiting_sources,
+                    )
+                }),
+            })
     }
 }
 

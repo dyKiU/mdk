@@ -83,7 +83,11 @@ struct BodyPublicationContext {
     sequence: u64,
     kind: AccountSharedBodyKind,
     bytes_digest: [u8; 32],
-    catalog: Option<(CatalogReceipt, MirroredChatState, Option<std::time::Instant>)>,
+    catalog: Option<(
+        CatalogReceipt,
+        MirroredChatState,
+        Option<std::time::Instant>,
+    )>,
     records: Option<records::RecordPublicationIdentity>,
     sends: Option<([u8; 32], Option<std::time::Instant>)>,
     departure: Option<departure::DeparturePublicationIdentity>,
@@ -129,7 +133,10 @@ impl AutomaticChannel {
             sequence: self.next_body,
             kind: body.kind,
             bytes_digest: Sha256::digest(&body.bytes).into(),
-            catalog: self.pending_catalog.as_ref().map(|pending| (pending.receipt.clone(), pending.state, pending.published_at)),
+            catalog: self
+                .pending_catalog
+                .as_ref()
+                .map(|pending| (pending.receipt.clone(), pending.state, pending.published_at)),
             records: self.records.publication_identity(),
             sends: self.sends.publication_identity(),
             departure: self.departures.publication_identity(),
@@ -1315,17 +1322,27 @@ impl AppClient {
         entry: &mut AutomaticChannel,
     ) -> Result<(), AccountSharingError> {
         if let Err(error) = self.automatic_policy_current(&entry.policy) {
-            if entry.publication.as_ref().is_some_and(|publication| publication.body_context.is_some()) {
+            if entry
+                .publication
+                .as_ref()
+                .is_some_and(|publication| publication.body_context.is_some())
+            {
                 entry.publication.take();
                 entry.renew = true;
             }
             return Err(error);
         }
-        if entry.publication.as_ref().is_some_and(|publication| publication.body_context.is_some()) {
+        if entry
+            .publication
+            .as_ref()
+            .is_some_and(|publication| publication.body_context.is_some())
+        {
             if let Err(error) = self.retry_automatic_departure(entry) {
                 // Retain the owned slot as a barrier until this authenticated
                 // negative assembly commits. Renewal would discard its retry.
-                if let Some(publication) = entry.publication.as_ref() { publication.task.abort(); }
+                if let Some(publication) = entry.publication.as_ref() {
+                    publication.task.abort();
+                }
                 return Err(error);
             }
             if self.harvest_automatic_publication(entry).await? {
@@ -1438,7 +1455,10 @@ impl AppClient {
         }
         Ok(true)
     }
-    fn finish_automatic_body_effects(&self, entry: &mut AutomaticChannel) -> Result<(), AccountSharingError> {
+    fn finish_automatic_body_effects(
+        &self,
+        entry: &mut AutomaticChannel,
+    ) -> Result<(), AccountSharingError> {
         entry.pending.pop_front();
         entry.next_body += 1;
         if entry.pending.is_empty()
@@ -1694,28 +1714,46 @@ impl AppClient {
         &self,
         entry: &mut AutomaticChannel,
     ) -> Result<bool, AccountSharingError> {
-        let Some(publication) = entry.publication.as_ref() else { return Ok(false); };
+        let Some(publication) = entry.publication.as_ref() else {
+            return Ok(false);
+        };
         let body = publication.body_context.is_some();
-        let mut completed = if publication.task.is_finished() { entry.publication.take() } else { None };
+        let mut completed = if publication.task.is_finished() {
+            entry.publication.take()
+        } else {
+            None
+        };
         let report = if let Some(publication) = completed.as_mut() {
-            let result = (&mut publication.task).await
+            let result = (&mut publication.task)
+                .await
                 .map_err(|_| AccountSharingError::RuntimeUnavailable)
                 .and_then(|result| result);
             match result {
                 Ok(report) => Some(report),
                 Err(error) => {
-                    if body && (std::time::Instant::now() >= publication.deadline
-                        || publication.body_context != entry.body_publication_context()
-                        || entry.renew || !entry.original.live())
-                    { entry.renew = true; }
+                    if body
+                        && (std::time::Instant::now() >= publication.deadline
+                            || publication.body_context != entry.body_publication_context()
+                            || entry.renew
+                            || !entry.original.live())
+                    {
+                        entry.renew = true;
+                    }
                     return Err(error);
                 }
             }
-        } else { None };
+        } else {
+            None
+        };
         if body {
-            let publication = completed.as_ref().or(entry.publication.as_ref()).expect("owned automatic publication");
+            let publication = completed
+                .as_ref()
+                .or(entry.publication.as_ref())
+                .expect("owned automatic publication");
             let context_matches = publication.body_context == entry.body_publication_context();
-            if !context_matches || entry.renew || !entry.original.live()
+            if !context_matches
+                || entry.renew
+                || !entry.original.live()
                 || std::time::Instant::now() >= publication.deadline
             {
                 entry.publication.take();
@@ -1724,11 +1762,15 @@ impl AppClient {
             }
             let fresh = (|| {
                 self.automatic_policy_current(&entry.policy)?;
-                self.runtime.session().validate_account_sharing_channel(&entry.channel)
+                self.runtime
+                    .session()
+                    .validate_account_sharing_channel(&entry.channel)
                     .map_err(|_| AccountSharingError::Closed)?;
                 if !self.automatic_catalog_publication_current(entry)?
                     || !self.automatic_record_publication_current(entry)?
-                { return Err(AccountSharingError::Closed); }
+                {
+                    return Err(AccountSharingError::Closed);
+                }
                 Ok(())
             })();
             if let Err(error) = fresh {
@@ -1737,12 +1779,19 @@ impl AppClient {
                 return Err(error);
             }
         }
-        let Some(publication) = completed else { return Ok(false); };
+        let Some(publication) = completed else {
+            return Ok(false);
+        };
         let finished = self.finish_automatic_publication(
-            entry, publication.kind, publication.deadline, publication.payload_digest,
+            entry,
+            publication.kind,
+            publication.deadline,
+            publication.payload_digest,
             report.expect("successful completed automatic publication"),
         );
-        if body && finished.is_err() { entry.renew = true; }
+        if body && finished.is_err() {
+            entry.renew = true;
+        }
         finished?;
         Ok(true)
     }
@@ -1758,8 +1807,14 @@ impl AppClient {
             return self.harvest_automatic_publication(entry).await;
         }
         let body_context = if matches!(kind, AccountSharingControl::Body(_)) {
-            Some(entry.body_publication_context().ok_or(AccountSharingError::NotReady)?)
-        } else { None };
+            Some(
+                entry
+                    .body_publication_context()
+                    .ok_or(AccountSharingError::NotReady)?,
+            )
+        } else {
+            None
+        };
         let slots = if matches!(
             kind,
             AccountSharingControl::Request | AccountSharingControl::Consent
@@ -1849,8 +1904,14 @@ impl AppClient {
         // AUTOMATIC_BODY_TEST_END
         // Core has prepared actual consent under the live durable policy.
         // Bodies retain their original queue context until actor-side ACK harvest.
-        if kind == AccountSharingControl::Consent { entry.ready = true; }
-        let body_id = if body_context.is_some() { Some(Self::automatic_policy_id(&entry.policy)?) } else { None };
+        if kind == AccountSharingControl::Consent {
+            entry.ready = true;
+        }
+        let body_id = if body_context.is_some() {
+            Some(Self::automatic_policy_id(&entry.policy)?)
+        } else {
+            None
+        };
         let original = entry.original.clone();
         let adapter = self.adapter.clone();
         let mut shutdown = self.history_owner.runtime_shutdown.clone();
@@ -1861,33 +1922,45 @@ impl AppClient {
             revoked.as_mut().enable();
             let stopping = async {
                 if let Some(watch) = shutdown.as_mut() {
-                    if *watch.borrow() { return; }
-                    while watch.changed().await.is_ok() {
-                        if *watch.borrow() { return; }
+                    if *watch.borrow() {
+                        return;
                     }
-                } else { std::future::pending::<()>().await }
+                    while watch.changed().await.is_ok() {
+                        if *watch.borrow() {
+                            return;
+                        }
+                    }
+                } else {
+                    std::future::pending::<()>().await
+                }
             };
             tokio::pin!(stopping);
-            if !original.live() { return Err(AccountSharingError::Closed); }
+            if !original.live() {
+                return Err(AccountSharingError::Closed);
+            }
             let report = tokio::select! { biased;
-                () = &mut stopping => return Err(AccountSharingError::Closed),
-                () = &mut revoked => return Err(AccountSharingError::Closed),
-                () = tokio::time::sleep_until(publication_deadline.into()) => return Err(AccountSharingError::Closed),
-                report =
-        // AUTOMATIC_BODY_TEST_BEGIN
-        async {
-            #[cfg(all(test, feature = "test-policy-overrides"))]
-            adapter.hold_automatic_catalog_body_for_test(&request, body_catalog_group.as_ref()).await;
-        // AUTOMATIC_BODY_TEST_END
-        adapter.publish_automatic_control(request)
-        // AUTOMATIC_BODY_TEST_BEGIN
-        .await
-        }
-        // AUTOMATIC_BODY_TEST_END
-                => report.map_err(|_| AccountSharingError::RuntimeUnavailable)?,
-            };
-            if !original.live() { return Err(AccountSharingError::Closed); }
-            if !report.met_required_acks() { return Err(AccountSharingError::NotReady); }
+                    () = &mut stopping => return Err(AccountSharingError::Closed),
+                    () = &mut revoked => return Err(AccountSharingError::Closed),
+                    () = tokio::time::sleep_until(publication_deadline.into()) => return Err(AccountSharingError::Closed),
+                    report =
+            // AUTOMATIC_BODY_TEST_BEGIN
+            async {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                adapter.hold_automatic_catalog_body_for_test(&request, body_catalog_group.as_ref()).await;
+            // AUTOMATIC_BODY_TEST_END
+            adapter.publish_automatic_control(request)
+            // AUTOMATIC_BODY_TEST_BEGIN
+            .await
+            }
+            // AUTOMATIC_BODY_TEST_END
+                    => report.map_err(|_| AccountSharingError::RuntimeUnavailable)?,
+                };
+            if !original.live() {
+                return Err(AccountSharingError::Closed);
+            }
+            if !report.met_required_acks() {
+                return Err(AccountSharingError::NotReady);
+            }
             Ok(report)
         };
         let task = tokio::spawn(publication_future);
@@ -1898,7 +1971,9 @@ impl AppClient {
             body_context,
             task,
         });
-        if let Some(id) = body_id { self.account_sharing_owner.automatic_body_after = Some(id); }
+        if let Some(id) = body_id {
+            self.account_sharing_owner.automatic_body_after = Some(id);
+        }
         Ok(false)
     }
     fn finish_automatic_publication(

@@ -22,10 +22,10 @@ STAGES=['bilateral-pair-and-history-ready','prehold-control','actual-new-chat-ca
 FIXTURE_BASE='7d8c882c847ce620bfc1ad02a63bdacab83dbb8e'
 PRODUCT_BLOBS={
     'crates/marmot-app/src/account_chat_sharing/enabled.rs':'e908d91ec8a3f1acd18ac5e56020c2589eb79894',
-    'crates/marmot-app/src/client/account_chat_sharing/automatic.rs':'df1edb25d4e9a25434b0eeefee82567bbdb9279b',
-    'crates/marmot-app/src/client/account_chat_sharing/automatic/records.rs':'9256eeeacab8833bf550232f007f5506cb85cd16',
-    'crates/marmot-app/src/client/account_chat_sharing/automatic/departure.rs':'6cd7146325a88c72ece215d5d40a5496ee3563ff',
-    'crates/marmot-app/src/client/account_chat_sharing/automatic/sends/transport.rs':'e9e39c4c4ba57ea5fbe18233cf6c978717aa06fb',
+    'crates/marmot-app/src/client/account_chat_sharing/automatic.rs':'d1590c0f33bcc860f49de6967b4fd1e02a7ab4da',
+    'crates/marmot-app/src/client/account_chat_sharing/automatic/records.rs':'4c485d797fea52325be0bc274d35133983a41d4e',
+    'crates/marmot-app/src/client/account_chat_sharing/automatic/departure.rs':'df827332237e1a85350b9e431e003ca2909cbfb7',
+    'crates/marmot-app/src/client/account_chat_sharing/automatic/sends/transport.rs':'9448dbc72f987b5b83f62f4aaa790678cbba8c6c',
 }
 
 def expected_panic():

@@ -32,15 +32,17 @@ pub(super) struct RecordSourceCursor {
 }
 impl RecordProgress {
     pub(super) fn publication_identity(&self) -> Option<RecordPublicationIdentity> {
-        self.pending.as_ref().map(|pending| RecordPublicationIdentity {
-            group: pending.group.clone(),
-            batch_digest: pending.batch.batch_digest,
-            first_sequence: pending.batch.first_sequence,
-            last_sequence: pending.batch.last_sequence,
-            record_count: pending.batch.record_count,
-            peer_generation: pending.peer_generation,
-            published_at: pending.published_at,
-        })
+        self.pending
+            .as_ref()
+            .map(|pending| RecordPublicationIdentity {
+                group: pending.group.clone(),
+                batch_digest: pending.batch.batch_digest,
+                first_sequence: pending.batch.first_sequence,
+                last_sequence: pending.batch.last_sequence,
+                record_count: pending.batch.record_count,
+                peer_generation: pending.peer_generation,
+                published_at: pending.published_at,
+            })
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn test_progress(&self) -> String {
