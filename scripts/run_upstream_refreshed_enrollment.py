@@ -55,8 +55,9 @@ def run(mode, cohort):
     report = ci.environment()
     report.update(mode=mode, runtime_cohort='experimental' if mode=='controls' else cohort, scope='exact refreshed upstream five unchanged controls plus affected statics; no final full/native/SDK qualification', qualification_passed=False, all_five_controls_passed=False, actual_runtime_bodies=0)
     def save(): (OUT/'result.json').write_text(json.dumps(report, indent=2)+'\n')
-    frozen = ci.freeze(); report['source_before_sha256'] = ci.identity(frozen); save()
+    frozen = None; report.update(inputs_pristine=False, source_before_sha256=None, source_after_sha256=None); save()
     try:
+        frozen=ci.freeze(); report['source_before_sha256']=ci.identity(frozen); save()
         report['source_preflight'] = preflight(); save()
         if mode == 'static':
             ci.ensure(cohort in ['default', 'experimental'], 'static-cohort')
@@ -77,7 +78,7 @@ def run(mode, cohort):
             for suffix in [POLICY,*SUFFIXES]:
                 ci.ensure(ci.freeze()==frozen, 'before-body-source-drift')
                 before_guard=source_guard()
-                case=cases[suffix]; row={'suffix':suffix, 'test':case['name'], 'binary_sha256':case['binary_sha256'], 'source_before_sha256':ci.identity(ci.freeze()), 'source_guard_before':before_guard}; 
+                case=cases[suffix]; row={'suffix':suffix, 'test':case['name'], 'binary_sha256':case['binary_sha256'], 'source_before_sha256':ci.identity(ci.freeze()), 'source_guard_before':before_guard}
                 if suffix==POLICY: report['policy_control']=row
                 else: report['bodies'].append(row)
                 save(); started=time.monotonic()
