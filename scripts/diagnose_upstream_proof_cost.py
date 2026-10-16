@@ -118,14 +118,28 @@ try:
     report['cost_rows']=parse_cost(raw)
     report['partition_rows']=parse_partitions(raw)
     report['publication_records']=parse_publications(raw)
-    report['publication_schema']={'kind':['request','consent','proof'],'outcome':['not-exited','success','error','abort-or-unwind'],'row_fields':['generation','kind','scheduled_us','first_poll_us','body_exit_us','outcome','visits','last_visit_us','last_joinhandle_is_finished','successful_harvest_us','unharvested_body_exit_age_us'],'time_origin':'same diagnostic monotonic clock as phase_start_us','body_exit_is_not_joinhandle_finished':True,'snapshot_order':'recipient child list then existing source list as existing failure helper reads them'}
+    report['publication_schema']={'kind':['request','consent','proof'],'outcome':['not-exited','success','error','abort-or-unwind'],'row_fields':['generation','kind','scheduled_us','first_poll_us','body_exit_us','outcome','visits','last_visit_us','last_joinhandle_is_finished','successful_harvest_us','body_exit_age_without_successful_harvest_us'],'time_origin':'same diagnostic monotonic clock as phase_start_us','body_exit_is_not_joinhandle_finished':True,'snapshot_order':'left child list, right child list, then existing source list as existing failure helper reads them','scope_limits':['only outcome1 success with no successful harvest supports completion-service delay','error and JoinError collection can return before successful-harvest hook','start0/outcome0 may mean queued or aborted before first poll','outcome3 means abort-or-unwind without classification']}
     report['protocol_observations']=parse_existing(raw,phase)
     ensure(report['executed_nonignored']==1 and report['ignored']==0,'actual-body-count')
     expected=['third','fourth'] if 'fourth-device-completion' in report['phase_markers'] else ['third'] if 'third-device-completion' in report['phase_markers'] else []
     rows=report['cost_rows']; ensure([row['phase'] for row in rows]==expected and bool(expected),'phase-observer-coverage')
     if report.get('failed')==1: ensure(report['protocol_observations']['failure_snapshots_observed'],'failed-body-observer-missing')
     ensure([row['phase'] for row in report['partition_rows']]==expected,'partition-phase-coverage')
-    if report.get('failed')==1: ensure(bool(report['publication_records']),'publication-records-missing')
+    if report.get('failed')==1:
+        expected_records=[]
+        protocol=report['protocol_observations']
+        ensure(set(protocol['sides'])=={'left','right'},'publication-side-coverage')
+        for side in ['left','right']:
+            record=protocol['sides'][side]
+            ensure(isinstance(record.get('children'),list),'unknown-child-state-count')
+            expected_records += [{'role':record['role'],'child_index':index} for index in range(len(record['children']))]
+        for source in protocol['existing_sources']:
+            ensure(source['channel'] is not None,'unknown-existing-state')
+            expected_records.append({'role':source['role'],'existing_index':source['index']})
+        publications=report['publication_records']
+        ensure(len(publications)==len(expected_records) and bool(publications),'publication-record-count')
+        ensure(len({row['state_ordinal'] for row in publications})==len(publications),'duplicate-publication-state')
+        report['publication_role_associations']=[dict(role,state_ordinal=row['state_ordinal']) for role,row in zip(expected_records,publications)]
     ensure(all(row['overflow']==0 for row in report['publication_records']),'publication-record-overflow')
     report['diagnostic_complete']=True
     valid=True
