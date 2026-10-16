@@ -49,7 +49,7 @@ r['source_after_sha256']=aggregate(freeze());r['inputs_pristine']=freeze()==froz
 try:
     outcomes=re.findall(r'completion-wake-control result success=(true|false) foreground=(true|false) progress=(true|false) durable_policy_seen=(true|false) proof_success_seen=(true|false)',raw);ensure(len(outcomes)==1,'one-closed-outcome')
     success,foreground,progress,durable,proof=[value=='true' for value in outcomes[0]];r['actual_prerequisites']={'held_consent_task_success':success,'foreground_snapshots':foreground,'durable_policy_and_genuine_proof_with_gate':progress,'durable_policy_seen':durable,'proof_success_seen':proof}
-    expected=['actual-consent-held','periodic-arm-gated','actual-consent-task-success','foreground-progress','periodic-arm-released','normal-completion','positive-cleanup-completed'];ensure(r['stages']==expected,'actual-stage-order')
+    expected=['primary-round-ready','actual-consent-held','periodic-arm-gated','actual-consent-task-success','foreground-progress','periodic-arm-released','normal-completion','positive-cleanup-completed'];ensure(r['stages']==expected,'actual-stage-order')
     ensure(r.get('executed_nonignored')==1 and r.get('passed')==0 and r.get('failed')==1 and r.get('ignored')==0 and body.returncode==101 and r['compiler_error_count']==0,'actual-runtime-red')
     ensure(success and foreground and not progress,'intended-liveness-failure')
     ensure(len(r['panic_locations'])==1 and all(r['panic_locations'][0][key]==value for key,value in r['expected_panic'].items()) and MESSAGE in raw,'sole-intended-runtime-assertion')

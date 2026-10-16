@@ -274,6 +274,23 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
             }
         }
         let release = ConsentHoldRelease(release);
+        // Primary private settlement is independent of the held sibling Consent.
+        // Keep every periodic arm ungated until its real four-leaf facts exist.
+        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                if apps.iter().all(|app| {
+                    let storage = app.account_storage("test").unwrap();
+                    let store = storage.private_roster_settlement_storage().unwrap();
+                    store.read_round().unwrap().is_some_and(|round| {
+                        round.phase == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed
+                            && round.anchor.successor.leaves.len() == 4
+                            && store.read_facts().unwrap().len() == 4
+                    })
+                }) {break;}
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        }).await.expect("four real primary settlement stores must be completed before the schedule gate");
+        eprintln!("completion-wake-control stage=primary-round-ready");
         let held = tokio::time::timeout(std::time::Duration::from_secs(10), observed)
             .await
             .expect("actual sibling consent hold acquired")
