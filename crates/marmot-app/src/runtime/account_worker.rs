@@ -1086,18 +1086,42 @@ pub(crate) fn spawn_app_runtime_account_worker(
 // MAINTENANCE_SUBTREE_MACRO_BEGIN
 macro_rules! maintenance_phase_future {
     ($phase:literal, $future:expr $(,)?) => {{
-        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-        { crate::maintenance_phase_diagnostics::observe_phase($phase, Box::pin($future)) }
-        #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
-        { $future }
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        {
+            crate::maintenance_phase_diagnostics::observe_phase($phase, Box::pin($future))
+        }
+        #[cfg(not(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        )))]
+        {
+            $future
+        }
     }};
 }
 macro_rules! maintenance_phase_sync {
     ($phase:literal, $expression:expr $(,)?) => {{
-        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-        { crate::maintenance_phase_diagnostics::observe_sync($phase, || $expression) }
-        #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
-        { $expression }
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        {
+            crate::maintenance_phase_diagnostics::observe_sync($phase, || $expression)
+        }
+        #[cfg(not(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        )))]
+        {
+            $expression
+        }
     }};
 }
 // MAINTENANCE_SUBTREE_MACRO_END
@@ -1719,13 +1743,16 @@ async fn run_app_runtime_account_worker(
                 &account_label,
                 &summary,
             );
-            maintenance_phase_future!(15, start_post_join_history_after_visibility(
-                &mut client,
-                &summary,
-                &events,
-                &account_id_hex,
-                &account_label,
-            ))
+            maintenance_phase_future!(
+                15,
+                start_post_join_history_after_visibility(
+                    &mut client,
+                    &summary,
+                    &events,
+                    &account_id_hex,
+                    &account_label,
+                )
+            )
             .await;
             schedule_pending_convergence_groups(&mut scheduled_convergence, &mut client);
             if sync_summary_triggers_audit_tracker_update(&summary) {
@@ -1743,13 +1770,16 @@ async fn run_app_runtime_account_worker(
                 &shared,
                 "startup_sync",
             );
-            maintenance_phase_future!(15, start_post_join_history_after_visibility(
-                &mut client,
-                &failure.partial_summary,
-                &events,
-                &account_id_hex,
-                &account_label,
-            ))
+            maintenance_phase_future!(
+                15,
+                start_post_join_history_after_visibility(
+                    &mut client,
+                    &failure.partial_summary,
+                    &events,
+                    &account_id_hex,
+                    &account_label,
+                )
+            )
             .await;
             // A failed initial catch-up surfaces as an account error but must not
             // fail worker readiness — readiness was already signalled above.
@@ -1775,13 +1805,16 @@ async fn run_app_runtime_account_worker(
                         &account_label,
                         &summary,
                     );
-                    maintenance_phase_future!(15, start_post_join_history_after_visibility(
-                        &mut client,
-                        &summary,
-                        &events,
-                        &account_id_hex,
-                        &account_label,
-                    ))
+                    maintenance_phase_future!(
+                        15,
+                        start_post_join_history_after_visibility(
+                            &mut client,
+                            &summary,
+                            &events,
+                            &account_id_hex,
+                            &account_label,
+                        )
+                    )
                     .await;
                 }
                 Err(drain_error) => {
@@ -1835,19 +1868,22 @@ async fn run_app_runtime_account_worker(
             .expect("selected pending command exists");
         match command {
             AccountWorkerCommand::CatchUp { respond } => {
-                maintenance_phase_future!(12, handle_account_worker_catch_up(
-                    &mut client,
-                    respond,
-                    &mut commands,
-                    &mut pending,
-                    AccountWorkerCatchUpContext {
-                        app: &app,
-                        events: &events,
-                        account_id_hex: &account_id_hex,
-                        account_label: &account_label,
-                        shared: &shared,
-                    },
-                ))
+                maintenance_phase_future!(
+                    12,
+                    handle_account_worker_catch_up(
+                        &mut client,
+                        respond,
+                        &mut commands,
+                        &mut pending,
+                        AccountWorkerCatchUpContext {
+                            app: &app,
+                            events: &events,
+                            account_id_hex: &account_id_hex,
+                            account_label: &account_label,
+                            shared: &shared,
+                        },
+                    )
+                )
                 .await;
             }
             AccountWorkerCommand::PublishSetupKeyPackage { respond }
@@ -1863,23 +1899,26 @@ async fn run_app_runtime_account_worker(
                 );
             }
             command => {
-                maintenance_phase_future!(9, handle_account_worker_command(
-                    &mut client,
-                    command,
-                    AccountWorkerCommandContext {
-                        commands: &mut commands,
-                        pending: &mut pending,
-                        app: &app,
-                        events: &events,
-                        account_id_hex: &account_id_hex,
-                        account_label: &account_label,
-                        shared: &shared,
-                        media_http: &media_http,
-                        scheduled_convergence: &mut scheduled_convergence,
-                        #[cfg(feature = "experimental-device-sync")]
-                        publication_control: &publication_control,
-                    },
-                ))
+                maintenance_phase_future!(
+                    9,
+                    handle_account_worker_command(
+                        &mut client,
+                        command,
+                        AccountWorkerCommandContext {
+                            commands: &mut commands,
+                            pending: &mut pending,
+                            app: &app,
+                            events: &events,
+                            account_id_hex: &account_id_hex,
+                            account_label: &account_label,
+                            shared: &shared,
+                            media_http: &media_http,
+                            scheduled_convergence: &mut scheduled_convergence,
+                            #[cfg(feature = "experimental-device-sync")]
+                            publication_control: &publication_control,
+                        },
+                    )
+                )
                 .await;
             }
         }
@@ -1983,9 +2022,11 @@ async fn run_app_runtime_account_worker(
         {
             let turn = match job.admission.as_mut() {
                 Some(admission) => {
-                    maintenance_phase_future!(11, client
-                        .admit_comparison_turn(&job.grant, &mut job.execution, admission))
-                        .await
+                    maintenance_phase_future!(
+                        11,
+                        client.admit_comparison_turn(&job.grant, &mut job.execution, admission)
+                    )
+                    .await
                 }
                 None => Ok(true),
             };
@@ -2002,9 +2043,11 @@ async fn run_app_runtime_account_worker(
                     )),
                     _ if job.abandoned => client.abandon_comparison_grant(job.grant, job.execution),
                     _ => {
-                        maintenance_phase_future!(11, client
-                            .finish_comparison_grant(job.grant, job.execution, job.admission))
-                            .await
+                        maintenance_phase_future!(
+                            11,
+                            client.finish_comparison_grant(job.grant, job.execution, job.admission)
+                        )
+                        .await
                     }
                 };
                 drop(job.credit);
@@ -2029,15 +2072,18 @@ async fn run_app_runtime_account_worker(
                 );
                 match job.origin {
                     ComparisonRecoveryOrigin::PeriodicMaintenance => {
-                        maintenance_phase_future!(13, finish_periodic_maintenance_after_recovery(
-                            &mut client,
-                            &events,
-                            &account_id_hex,
-                            &account_label,
-                            &shared,
-                            &product_backlog,
-                            &mut scheduled_convergence,
-                        ))
+                        maintenance_phase_future!(
+                            13,
+                            finish_periodic_maintenance_after_recovery(
+                                &mut client,
+                                &events,
+                                &account_id_hex,
+                                &account_label,
+                                &shared,
+                                &product_backlog,
+                                &mut scheduled_convergence,
+                            )
+                        )
                         .await;
                     }
                     ComparisonRecoveryOrigin::PostConvergence {
@@ -2051,19 +2097,22 @@ async fn run_app_runtime_account_worker(
                         audit_tracker_update,
                         retry_push_registration,
                     } => {
-                        maintenance_phase_future!(14, finish_receive_after_recovery(
-                            &mut client,
-                            ReceiveTailContext {
-                                events: &events,
-                                account_id_hex: &account_id_hex,
-                                account_label: &account_label,
-                                shared: &shared,
-                                scheduled_push_retry: &mut scheduled_push_retry,
-                                command_tx: &command_tx,
-                            },
-                            audit_tracker_update,
-                            retry_push_registration,
-                        ))
+                        maintenance_phase_future!(
+                            14,
+                            finish_receive_after_recovery(
+                                &mut client,
+                                ReceiveTailContext {
+                                    events: &events,
+                                    account_id_hex: &account_id_hex,
+                                    account_label: &account_label,
+                                    shared: &shared,
+                                    scheduled_push_retry: &mut scheduled_push_retry,
+                                    command_tx: &command_tx,
+                                },
+                                audit_tracker_update,
+                                retry_push_registration,
+                            )
+                        )
                         .await;
                     }
                 }

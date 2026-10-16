@@ -293,7 +293,11 @@ pub(crate) fn boundary(start: bool) {
 pub(crate) fn observe_sync<R>(phase: usize, action: impl FnOnce() -> R) -> R {
     use std::sync::atomic::Ordering;
     ACTIVE_PHASES[phase].fetch_add(1, Ordering::SeqCst);
-    let mut observation = PhaseObservation { phase, epoch: POLL_EPOCH.load(Ordering::SeqCst), returned: false };
+    let mut observation = PhaseObservation {
+        phase,
+        epoch: POLL_EPOCH.load(Ordering::SeqCst),
+        returned: false,
+    };
     let start = Instant::now();
     let result = action();
     let elapsed = start.elapsed().as_nanos().try_into().ok();
