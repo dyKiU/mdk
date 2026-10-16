@@ -234,9 +234,10 @@ fn maintenance_phase_cpu_stat_parser_refuses_unqualified_fields() {
 
 // Phase0 selected packages + pending;1 revocation;2 original history;
 //3 existing pair + approval persistence;4 siblings;5 automatic;6 housekeeping.
-static PHASE_POLLS: std::sync::Mutex<[[u64; 9]; 7]> = std::sync::Mutex::new([[0; 9]; 7]);
-static ACTIVE_PHASES: [std::sync::atomic::AtomicU64; 7] =
-    [const { std::sync::atomic::AtomicU64::new(0) }; 7];
+//7..16 observe existing worker future subtrees; nested measurements are inclusive/nonadditive.
+static PHASE_POLLS: std::sync::Mutex<[[u64; 9]; 18]> = std::sync::Mutex::new([[0; 9]; 18]);
+static ACTIVE_PHASES: [std::sync::atomic::AtomicU64; 18] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 18];
 struct PhaseObservation {
     phase: usize,
     epoch: u64,
@@ -286,4 +287,17 @@ pub(crate) fn boundary(start: bool) {
     }
     let value = load_boundary(start);
     eprintln!("maintenance-phase {value}");
+}
+
+// Phase17 counts immediate synchronous invocations, not future polls.
+pub(crate) fn observe_sync<R>(phase: usize, action: impl FnOnce() -> R) -> R {
+    use std::sync::atomic::Ordering;
+    ACTIVE_PHASES[phase].fetch_add(1, Ordering::SeqCst);
+    let mut observation = PhaseObservation { phase, epoch: POLL_EPOCH.load(Ordering::SeqCst), returned: false };
+    let start = Instant::now();
+    let result = action();
+    let elapsed = start.elapsed().as_nanos().try_into().ok();
+    observation.returned = true;
+    record_phase(phase, observation.epoch, elapsed);
+    result
 }

@@ -1083,6 +1083,25 @@ pub(crate) fn spawn_app_runtime_account_worker(
     // MAINTENANCE_PHASE_WORKER_END
 }
 
+// MAINTENANCE_SUBTREE_MACRO_BEGIN
+macro_rules! maintenance_phase_future {
+    ($phase:literal, $future:expr $(,)?) => {{
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        { crate::maintenance_phase_diagnostics::observe_phase($phase, Box::pin($future)) }
+        #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
+        { $future }
+    }};
+}
+macro_rules! maintenance_phase_sync {
+    ($phase:literal, $expression:expr $(,)?) => {{
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        { crate::maintenance_phase_diagnostics::observe_sync($phase, || $expression) }
+        #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
+        { $expression }
+    }};
+}
+// MAINTENANCE_SUBTREE_MACRO_END
+
 async fn run_app_runtime_account_worker(
     runtime: AccountWorkerRuntime,
     command_tx: mpsc::Sender<AccountWorkerCommand>,
@@ -1516,10 +1535,10 @@ async fn run_app_runtime_account_worker(
                                                 publish_client_pending_projection_updates(
                                                     &mut client, &events, &account_id_hex, &account_label,
                                                 );
-                                                start_post_join_history_after_visibility(
+                                                maintenance_phase_future!(15, start_post_join_history_after_visibility(
                                                     &mut client, &summary, &events,
                                                     &account_id_hex, &account_label,
-                                                ).await;
+                                                )).await;
                                                 scheduled_runtime_group_subscription_refresh.observe_pending(
                                                     client.has_pending_runtime_group_subscription_refresh(),
                                                     &command_tx,
@@ -1527,7 +1546,7 @@ async fn run_app_runtime_account_worker(
                                                 schedule_pending_convergence_groups(
                                                     &mut scheduled_convergence, &mut client,
                                                 );
-                                                finish_receive_after_recovery(
+                                                maintenance_phase_future!(14, finish_receive_after_recovery(
                                                     &mut client,
                                                     ReceiveTailContext {
                                                         events: &events,
@@ -1539,7 +1558,7 @@ async fn run_app_runtime_account_worker(
                                                     },
                                                     sync_summary_triggers_audit_tracker_update(&summary),
                                                     !summary.joined_groups.is_empty(),
-                                                ).await;
+                                                )).await;
                                             }
                                             Err(failure) => {
                                                 receive_observation.finish(TelemetryOutcome::Failure);
@@ -1700,13 +1719,13 @@ async fn run_app_runtime_account_worker(
                 &account_label,
                 &summary,
             );
-            start_post_join_history_after_visibility(
+            maintenance_phase_future!(15, start_post_join_history_after_visibility(
                 &mut client,
                 &summary,
                 &events,
                 &account_id_hex,
                 &account_label,
-            )
+            ))
             .await;
             schedule_pending_convergence_groups(&mut scheduled_convergence, &mut client);
             if sync_summary_triggers_audit_tracker_update(&summary) {
@@ -1724,13 +1743,13 @@ async fn run_app_runtime_account_worker(
                 &shared,
                 "startup_sync",
             );
-            start_post_join_history_after_visibility(
+            maintenance_phase_future!(15, start_post_join_history_after_visibility(
                 &mut client,
                 &failure.partial_summary,
                 &events,
                 &account_id_hex,
                 &account_label,
-            )
+            ))
             .await;
             // A failed initial catch-up surfaces as an account error but must not
             // fail worker readiness — readiness was already signalled above.
@@ -1756,13 +1775,13 @@ async fn run_app_runtime_account_worker(
                         &account_label,
                         &summary,
                     );
-                    start_post_join_history_after_visibility(
+                    maintenance_phase_future!(15, start_post_join_history_after_visibility(
                         &mut client,
                         &summary,
                         &events,
                         &account_id_hex,
                         &account_label,
-                    )
+                    ))
                     .await;
                 }
                 Err(drain_error) => {
@@ -1816,7 +1835,7 @@ async fn run_app_runtime_account_worker(
             .expect("selected pending command exists");
         match command {
             AccountWorkerCommand::CatchUp { respond } => {
-                handle_account_worker_catch_up(
+                maintenance_phase_future!(12, handle_account_worker_catch_up(
                     &mut client,
                     respond,
                     &mut commands,
@@ -1828,7 +1847,7 @@ async fn run_app_runtime_account_worker(
                         account_label: &account_label,
                         shared: &shared,
                     },
-                )
+                ))
                 .await;
             }
             AccountWorkerCommand::PublishSetupKeyPackage { respond }
@@ -1844,7 +1863,7 @@ async fn run_app_runtime_account_worker(
                 );
             }
             command => {
-                handle_account_worker_command(
+                maintenance_phase_future!(9, handle_account_worker_command(
                     &mut client,
                     command,
                     AccountWorkerCommandContext {
@@ -1860,7 +1879,7 @@ async fn run_app_runtime_account_worker(
                         #[cfg(feature = "experimental-device-sync")]
                         publication_control: &publication_control,
                     },
-                )
+                ))
                 .await;
             }
         }
@@ -1964,8 +1983,8 @@ async fn run_app_runtime_account_worker(
         {
             let turn = match job.admission.as_mut() {
                 Some(admission) => {
-                    client
-                        .admit_comparison_turn(&job.grant, &mut job.execution, admission)
+                    maintenance_phase_future!(11, client
+                        .admit_comparison_turn(&job.grant, &mut job.execution, admission))
                         .await
                 }
                 None => Ok(true),
@@ -1983,8 +2002,8 @@ async fn run_app_runtime_account_worker(
                     )),
                     _ if job.abandoned => client.abandon_comparison_grant(job.grant, job.execution),
                     _ => {
-                        client
-                            .finish_comparison_grant(job.grant, job.execution, job.admission)
+                        maintenance_phase_future!(11, client
+                            .finish_comparison_grant(job.grant, job.execution, job.admission))
                             .await
                     }
                 };
@@ -2010,7 +2029,7 @@ async fn run_app_runtime_account_worker(
                 );
                 match job.origin {
                     ComparisonRecoveryOrigin::PeriodicMaintenance => {
-                        finish_periodic_maintenance_after_recovery(
+                        maintenance_phase_future!(13, finish_periodic_maintenance_after_recovery(
                             &mut client,
                             &events,
                             &account_id_hex,
@@ -2018,7 +2037,7 @@ async fn run_app_runtime_account_worker(
                             &shared,
                             &product_backlog,
                             &mut scheduled_convergence,
-                        )
+                        ))
                         .await;
                     }
                     ComparisonRecoveryOrigin::PostConvergence {
@@ -2032,7 +2051,7 @@ async fn run_app_runtime_account_worker(
                         audit_tracker_update,
                         retry_push_registration,
                     } => {
-                        finish_receive_after_recovery(
+                        maintenance_phase_future!(14, finish_receive_after_recovery(
                             &mut client,
                             ReceiveTailContext {
                                 events: &events,
@@ -2044,7 +2063,7 @@ async fn run_app_runtime_account_worker(
                             },
                             audit_tracker_update,
                             retry_push_registration,
-                        )
+                        ))
                         .await;
                     }
                 }
@@ -2092,7 +2111,7 @@ async fn run_app_runtime_account_worker(
                         {
                             let task = private_echo_recovery.take().expect("completed private recovery exists");
                             let failed = match completed {
-                                Ok(Ok(result)) => client.admit_private_echo_recovery(&task.plan, result).await.is_err(),
+                                Ok(Ok(result)) => maintenance_phase_future!(11, client.admit_private_echo_recovery(&task.plan, result)).await.is_err(),
                                 Ok(Err(_)) | Err(_) => true,
                             };
                             if failed {
@@ -2121,8 +2140,8 @@ async fn run_app_runtime_account_worker(
                                 // The task owned this permit until its future really
                                 // ended; keep it through owner admission/checkpoint.
                                 job.credit = Some(credit);
-                                match client
-                                    .accept_comparison_network(&job.grant, &mut job.execution, network)
+                                match maintenance_phase_future!(11, client
+                                    .accept_comparison_network(&job.grant, &mut job.execution, network))
                                     .await
                                 {
                                     Ok(admission) => job.admission = admission,
@@ -2157,8 +2176,8 @@ async fn run_app_runtime_account_worker(
                             .expect("completed Welcome recovery task must still be owned");
                         match recovered {
                             Ok(completed) => {
-                                client
-                                    .finish_pending_welcome_delivery_recovery_best_effort(completed)
+                                maintenance_phase_future!(11, client
+                                    .finish_pending_welcome_delivery_recovery_best_effort(completed))
                                     .await;
                             }
                             Err(error) => {
@@ -2232,7 +2251,7 @@ async fn run_app_runtime_account_worker(
                                     command.may_change_push_registration_work();
                                 match command {
                                     AccountWorkerCommand::CatchUp { respond } => {
-                                        handle_account_worker_catch_up(
+                                        maintenance_phase_future!(12, handle_account_worker_catch_up(
                                             &mut client,
                                             respond,
                                             &mut commands,
@@ -2244,7 +2263,7 @@ async fn run_app_runtime_account_worker(
                                                 account_label: &account_label,
                                                 shared: &shared,
                                             },
-                                        )
+                                        ))
                                         .await;
                                     }
                                     AccountWorkerCommand::PublishSetupKeyPackage { respond }
@@ -2255,7 +2274,7 @@ async fn run_app_runtime_account_worker(
                                         );
                                     }
                                     command => {
-                                        handle_account_worker_command(
+                                        maintenance_phase_future!(9, handle_account_worker_command(
                                             &mut client,
                                             command,
                                             AccountWorkerCommandContext {
@@ -2271,7 +2290,7 @@ async fn run_app_runtime_account_worker(
                                 #[cfg(feature = "experimental-device-sync")]
                                 publication_control: &publication_control,
                                             },
-                                        )
+                                        ))
                                         .await;
                                     }
                                 }
@@ -2355,9 +2374,9 @@ async fn run_app_runtime_account_worker(
                                         let on_publication = Arc::new(move |update| {
                                             progress_sink.publish(update);
                                         });
-                                        let result = client.advance_convergence_with_projection_progress_and_yield(
+                                        let result = maintenance_phase_future!(10, client.advance_convergence_with_projection_progress_and_yield(
                                             &group_id, Some(on_publication), secondary_retry_yield,
-                                        ).await;
+                                        )).await;
                                         record_runtime_publication(
                                             &client,
                                             marmot_forensics::v5::RuntimePublicationCategory::ProjectionUpdate,
@@ -2413,11 +2432,11 @@ async fn run_app_runtime_account_worker(
                                                 let backfill_result = if comparison_recovery.is_some() || private_echo_busy {
                                                     Ok(EpochBackfillRunOutcome::Deferred)
                                                 } else {
-                                                    match start_pending_recovery_job(
+                                                    match maintenance_phase_future!(11, start_pending_recovery_job(
                                                         &mut client,
                                                         &shared,
                                                         EpochBackfillExecutionSeam::Maintenance,
-                                                    ).await {
+                                                    )).await {
                                                         PendingRecoveryJob::Started {
                                                             grant, execution, network,
                                                         } => {
@@ -2514,7 +2533,7 @@ async fn run_app_runtime_account_worker(
                         match result {
                             Err(_) => sibling_completions_open = false,
                             Ok(()) if !lifecycle.is_stopping() => {
-                                if client.service_sibling_publication_completions().await.is_err() {
+                                if maintenance_phase_future!(7, client.service_sibling_publication_completions()).await.is_err() {
                                     tracing::debug!(target: "marmot_app::device_linking", method = "worker_sibling_completion", "sibling publication completion deferred");
                                 }
                             }
@@ -2588,7 +2607,7 @@ async fn run_app_runtime_account_worker(
                             Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(delivery)) => {
                                 #[cfg(feature = "experimental-device-sync")]
                                 client.begin_selected_recipient_ingest();
-                                let result = client.ingest_observed_received_delivery(&delivery).await;
+                                let result = maintenance_phase_future!(8, client.ingest_observed_received_delivery(&delivery)).await;
                                 #[cfg(feature = "experimental-device-sync")]
                                 if delivery.message.payload.len() <= 512 * 1024
                                     && let Some(error) = result.as_ref().err()
@@ -2646,13 +2665,13 @@ async fn run_app_runtime_account_worker(
                                         true,
                                     );
                                 }
-                                start_post_join_history_after_visibility(
+                                maintenance_phase_future!(15, start_post_join_history_after_visibility(
                                     &mut client,
                                     &summary,
                                     &events,
                                     &account_id_hex,
                                     &account_label,
-                                )
+                                ))
                                 .await;
                                 scheduled_runtime_group_subscription_refresh.observe_pending(
                                     client.has_pending_runtime_group_subscription_refresh(),
@@ -2675,9 +2694,9 @@ async fn run_app_runtime_account_worker(
                                 let backfill_result = if comparison_recovery.is_some() || private_echo_busy {
                                     PendingRecoveryJob::Settled(Ok(EpochBackfillRunOutcome::Deferred))
                                 } else {
-                                    start_pending_recovery_job(
+                                    maintenance_phase_future!(11, start_pending_recovery_job(
                                         &mut client, &shared, EpochBackfillExecutionSeam::Receive,
-                                    ).await
+                                    )).await
                                 };
                                 match backfill_result {
                                     PendingRecoveryJob::Started {
@@ -2711,7 +2730,7 @@ async fn run_app_runtime_account_worker(
                                     }
                                 }
                                 }
-                                finish_receive_after_recovery(
+                                maintenance_phase_future!(14, finish_receive_after_recovery(
                                     &mut client,
                                     ReceiveTailContext {
                                         events: &events,
@@ -2722,7 +2741,7 @@ async fn run_app_runtime_account_worker(
                                         command_tx: &command_tx,
                                     },
                                     audit_tracker_update, retry_push_registration,
-                                ).await;
+                                )).await;
                             }
                             Err(err) => {
                                 publish_app_runtime_account_error(
@@ -2948,13 +2967,13 @@ async fn run_app_runtime_account_worker(
                                                         &account_label,
                                                         &summary,
                                                     );
-                                                    start_post_join_history_after_visibility(
+                                                    maintenance_phase_future!(15, start_post_join_history_after_visibility(
                                                         &mut reopened,
                                                         &summary,
                                                         &events,
                                                         &account_id_hex,
                                                         &account_label,
-                                                    )
+                                                    ))
                                                     .await;
                                                 }
                                                 Err(error) => {
@@ -3090,40 +3109,40 @@ async fn run_app_runtime_account_worker(
                                     "device linking cleanup deferred"
                                 );
                             }
-                            match client.pending_native_private_publication() {
+                            match maintenance_phase_sync!(17, client.pending_native_private_publication()) {
                                 Ok(Some((scope, kind))) => {
                                     let kind = match kind {
                                         crate::client::device_linking::native_enrollment::NativeInvitePublication::Proposal => super::private_commit::PublicationKind::Proposal,
                                         crate::client::device_linking::native_enrollment::NativeInvitePublication::Commit => super::private_commit::PublicationKind::Commit,
                                         crate::client::device_linking::native_enrollment::NativeInvitePublication::Welcomes => super::private_commit::PublicationKind::Welcomes,
                                     };
-                                    super::private_commit::publish(&mut client, scope, kind, None,
-                                        &mut commands, &mut pending, &publication_control, &shared, &app, &account_label).await;
+                                    maintenance_phase_future!(16, super::private_commit::publish(&mut client, scope, kind, None,
+                                        &mut commands, &mut pending, &publication_control, &shared, &app, &account_label)).await;
                                 }
                                 Ok(None) => {},
                                 Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_native_enrollment_tick", "native enrollment publication deferred"),
                             }
-                            match client.pending_revoked_settlement() {
-                                Ok(Some(binding)) => super::private_commit::publish_revoked_settlement(
+                            match maintenance_phase_sync!(17, client.pending_revoked_settlement()) {
+                                Ok(Some(binding)) => maintenance_phase_future!(16, super::private_commit::publish_revoked_settlement(
                                     &mut client, binding, None, &mut commands, &mut pending, &publication_control, &shared, &app, &account_label,
-                                ).await,
+                                )).await,
                                 Ok(None) => {},
                                 Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_revoked_settlement_tick", "private confirmation selection deferred"),
                             }
-                            match client.pending_existing_private_settlement() {
-                                Ok(Some(binding)) => super::private_commit::publish_existing_settlement(
+                            match maintenance_phase_sync!(17, client.pending_existing_private_settlement()) {
+                                Ok(Some(binding)) => maintenance_phase_future!(16, super::private_commit::publish_existing_settlement(
                                     &mut client, binding, None, &mut commands, &mut pending, &publication_control, &shared, &app, &account_label,
-                                ).await,
+                                )).await,
                                 Ok(None) => {},
                                 Err(_) => tracing::debug!(target: "marmot_app::device_linking", method = "worker_existing_settlement_tick", "private confirmation selection deferred"),
                             }
-                            match client.pending_private_settlement() {
+                            match maintenance_phase_sync!(17, client.pending_private_settlement()) {
                                 Ok(Some(scope)) => {
-                                    super::private_commit::publish(
+                                    maintenance_phase_future!(16, super::private_commit::publish(
                                         &mut client, scope, super::private_commit::PublicationKind::Settlement,
                                         None, &mut commands, &mut pending, &publication_control, &shared, &app,
                                         &account_label,
-                                    ).await;
+                                    )).await;
                                 }
                                 Ok(None) => {}
                                 // Keep only the original deadline/continuation for a
@@ -3138,7 +3157,7 @@ async fn run_app_runtime_account_worker(
                         if !lifecycle.is_stopping() && comparison_recovery.is_none() && private_echo_recovery.is_none()
                             && let Some(credit) = recovery_credits::try_acquire_recovery_credit(&shared.recovery_credit_pool())
                         {
-                            match client.start_private_echo_recovery(credit) {
+                            match maintenance_phase_sync!(17, client.start_private_echo_recovery(credit)) {
                                 Ok(task) => private_echo_recovery = task,
                                 Err(error) => tracing::debug!(target: "marmot_app::device_linking", method = "private_echo_selection", error_kind = error.kind(), "private acquisition selection deferred"),
                             }
@@ -3177,7 +3196,7 @@ async fn run_app_runtime_account_worker(
                                 crate::ProductFamily::Maintenance, "catch_up", crate::ProductUnit::Attempt,
                             );
                             let catch_up = timeout(
-                                Duration::from_secs(15), client.sync_automatically_with_partial_progress(),
+                                Duration::from_secs(15), maintenance_phase_future!(12, client.sync_automatically_with_partial_progress()),
                             ).await;
                             let outcome = match &catch_up {
                                 Ok(Ok(_)) => KeyPackageMaintenanceCatchUpOutcome::Completed,
@@ -3195,13 +3214,13 @@ async fn run_app_runtime_account_worker(
                                         &account_label,
                                         &summary,
                                     );
-                                    start_post_join_history_after_visibility(
+                                    maintenance_phase_future!(15, start_post_join_history_after_visibility(
                                         &mut client,
                                         &summary,
                                         &events,
                                         &account_id_hex,
                                         &account_label,
-                                    )
+                                    ))
                                     .await;
                                     publish_client_pending_projection_updates(
                                         &mut client,
@@ -3223,13 +3242,13 @@ async fn run_app_runtime_account_worker(
                                         &shared,
                                         "key_package_maintenance_catch_up",
                                     );
-                                    start_post_join_history_after_visibility(
+                                    maintenance_phase_future!(15, start_post_join_history_after_visibility(
                                         &mut client,
                                         &failure.partial_summary,
                                         &events,
                                         &account_id_hex,
                                         &account_label,
-                                    )
+                                    ))
                                     .await;
                                     publish_app_runtime_account_error(
                                         &events,
@@ -3261,7 +3280,7 @@ async fn run_app_runtime_account_worker(
                         let next_recovery = if private_echo_busy {
                             PendingRecoveryJob::Settled(Ok(EpochBackfillRunOutcome::Deferred))
                         } else {
-                            start_pending_recovery_job(&mut client, &shared, EpochBackfillExecutionSeam::Maintenance).await
+                            maintenance_phase_future!(11, start_pending_recovery_job(&mut client, &shared, EpochBackfillExecutionSeam::Maintenance)).await
                         };
                         let backfill_result = match next_recovery {
                             PendingRecoveryJob::Started {
@@ -3293,7 +3312,7 @@ async fn run_app_runtime_account_worker(
                                 shared: &shared,
                             },
                         );
-                        finish_periodic_maintenance_after_recovery(
+                        maintenance_phase_future!(13, finish_periodic_maintenance_after_recovery(
                             &mut client,
                             &events,
                             &account_id_hex,
@@ -3301,7 +3320,7 @@ async fn run_app_runtime_account_worker(
                             &shared,
                             &product_backlog,
                             &mut scheduled_convergence,
-                        )
+                        ))
                         .await;
 
                         phase.finish(TelemetryOutcome::Success);

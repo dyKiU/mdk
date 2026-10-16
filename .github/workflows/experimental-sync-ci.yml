@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [maintenance-phase-diagnostic, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
+        options: [worker-subtree-diagnostic, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
         default: full
       completion_control_run_id:
         description: Prior successful controls plus both static cohorts for the exact current commit (required for mutations)
@@ -972,8 +972,8 @@ jobs:
           if-no-files-found: error
 
   maintenance-phase-preflight:
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'maintenance-phase-diagnostic'
-    name: Passive maintenance phase source parser and format gate
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'worker-subtree-diagnostic'
+    name: Passive worker subtree source parser and format gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
@@ -997,8 +997,8 @@ jobs:
           retention-days: 14
   maintenance-phase-runtime:
     needs: maintenance-phase-preflight
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'maintenance-phase-diagnostic'
-    name: One unchanged ordinary enrollment with passive phase polls
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'worker-subtree-diagnostic'
+    name: One unchanged ordinary enrollment with passive worker subtrees
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
