@@ -297,7 +297,14 @@ impl SyncObservation {
     pub(crate) fn begin(phase: usize) -> Self {
         use std::sync::atomic::Ordering;
         ACTIVE_PHASES[phase].fetch_add(1, Ordering::SeqCst);
-        Self { observation: PhaseObservation { phase, epoch: POLL_EPOCH.load(Ordering::SeqCst), returned: false }, started: Instant::now() }
+        Self {
+            observation: PhaseObservation {
+                phase,
+                epoch: POLL_EPOCH.load(Ordering::SeqCst),
+                returned: false,
+            },
+            started: Instant::now(),
+        }
     }
     pub(crate) fn finish(mut self) {
         let elapsed = self.started.elapsed().as_nanos().try_into().ok();

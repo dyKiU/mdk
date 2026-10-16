@@ -134,7 +134,10 @@ impl AppClient {
                 sha2::Sha256::digest(wire).into(),
             );
         }
-        let received = ingest_phase_sync!(4, self.authenticate_sharing_control_intake(group_id, source, wire));
+        let received = ingest_phase_sync!(
+            4,
+            self.authenticate_sharing_control_intake(group_id, source, wire)
+        );
         #[cfg(all(test, feature = "test-policy-overrides"))]
         automatic::consent_delivery_probe::authenticated(
             self.app.account_home().root(),
@@ -219,7 +222,8 @@ impl AppClient {
         if sibling? {
             return Ok(());
         }
-        let automatic = ingest_phase_sync!(6, self.observe_automatic_sharing_control(received, wire));
+        let automatic =
+            ingest_phase_sync!(6, self.observe_automatic_sharing_control(received, wire));
         #[cfg(all(test, feature = "test-policy-overrides"))]
         self.test_trace_catalog_stage(
             "automatic_dispatch_result",
