@@ -415,10 +415,13 @@ impl<S: StorageProvider> Engine<S> {
         Ok(())
     }
     fn sharing_verify(&self, wire: &[u8]) -> Result<Frame, EngineError> {
-// PROOF_DIAGNOSTIC_BEGIN
-#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-let _cost_sharing = crate::proof_memo_diagnostics::CostSpan::begin(9);
-// PROOF_DIAGNOSTIC_END
+        // PROOF_DIAGNOSTIC_BEGIN
+        #[cfg(all(
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        let _cost_sharing = crate::proof_memo_diagnostics::CostSpan::begin(9);
+        // PROOF_DIAGNOSTIC_END
 
         let mut frame = decode(wire)?;
         if frame.protocol != PROTOCOL
@@ -465,10 +468,13 @@ let _cost_sharing = crate::proof_memo_diagnostics::CostSpan::begin(9);
             return Err(refused());
         }
 
-// PROOF_DIAGNOSTIC_BEGIN
-#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-let _cost_signature = crate::proof_memo_diagnostics::CostSpan::begin(10);
-// PROOF_DIAGNOSTIC_END
+        // PROOF_DIAGNOSTIC_BEGIN
+        #[cfg(all(
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        let _cost_signature = crate::proof_memo_diagnostics::CostSpan::begin(10);
+        // PROOF_DIAGNOSTIC_END
         let signature = std::mem::take(&mut frame.signature);
         self.crypto
             .verify_signature(

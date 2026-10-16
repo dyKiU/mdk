@@ -11,7 +11,7 @@ MODULE='crates/cgka-engine/src/proof_memo_diagnostics.rs'
 def normalize(value):
     # Keep quoted contents exact while permitting canonical Rust line wrapping.
     chunks=re.split(r'("(?:\\.|[^"\\])*")',value)
-    return ''.join(chunk if index%2 else re.sub(r'\s+','',chunk).replace(',)',')') for index,chunk in enumerate(chunks))
+    return ''.join(chunk if index%2 else re.sub(r'\s+','',chunk).replace(',)',')').replace(',}','}') for index,chunk in enumerate(chunks))
 def strip(value):
     value=re.sub(r'\{\s*// PROOF_DIAGNOSTIC_RETURN_BEGIN.*?// PROOF_DIAGNOSTIC_RETURN_END\s*(return Err\(denied\(\)\))\s*;?\s*\}', r'\1',value,flags=re.S)
     value=re.sub(r'\{\s*// PROOF_DIAGNOSTIC_ERROR_BEGIN.*?// PROOF_DIAGNOSTIC_ERROR_END\s*(ClientLinkingError::Runtime\(Box::new\(error.into\(\)\)\))\s*\}', r'\1',value,flags=re.S)

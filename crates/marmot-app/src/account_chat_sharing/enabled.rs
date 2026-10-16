@@ -35,7 +35,6 @@ pub(crate) enum SiblingPublicationStage {
 #[cfg(all(test, feature = "test-policy-overrides"))]
 #[derive(Default)]
 pub(crate) struct SiblingMaintenanceDiagnostics {
-
     // Original live, state live, ready, handshake published, local policy,
     // proof published, peer proof received, complete (low to high bits).
     pub(crate) channel_bits: usize,
@@ -56,7 +55,6 @@ pub(crate) type SiblingMaintenanceSnapshot = (
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl SiblingMaintenanceDiagnostics {
     pub(crate) fn snapshot(&self) -> SiblingMaintenanceSnapshot {
-
         (
             self.channel_bits,
             self.visits,
@@ -67,10 +65,10 @@ impl SiblingMaintenanceDiagnostics {
     }
 }
 pub(crate) struct State {
-// PROOF_DIAGNOSTIC_FIELD_BEGIN
-#[cfg(all(test, feature = "test-policy-overrides"))]
-pub(crate) publication_probe: cgka_engine::proof_memo_diagnostics::PublicationProbe,
-// PROOF_DIAGNOSTIC_FIELD_END
+    // PROOF_DIAGNOSTIC_FIELD_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) publication_probe: cgka_engine::proof_memo_diagnostics::PublicationProbe,
+    // PROOF_DIAGNOSTIC_FIELD_END
     owner: Weak<AtomicBool>,
     pub(crate) deadline: Instant,
     pub(crate) approval_id: [u8; 32],
@@ -118,11 +116,10 @@ impl State {
             cancelled: AtomicBool::new(false),
             revoked: tokio::sync::Notify::new(),
             aliases: AtomicUsize::new(0),
-// PROOF_DIAGNOSTIC_FIELD_BEGIN
-#[cfg(all(test, feature = "test-policy-overrides"))]
-publication_probe: Default::default(),
-// PROOF_DIAGNOSTIC_FIELD_END
-
+            // PROOF_DIAGNOSTIC_FIELD_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            publication_probe: Default::default(),
+            // PROOF_DIAGNOSTIC_FIELD_END
             #[cfg(all(test, feature = "test-policy-overrides"))]
             sibling_diagnostics: Mutex::new(SiblingMaintenanceDiagnostics::default()),
         })

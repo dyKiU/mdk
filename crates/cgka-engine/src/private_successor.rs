@@ -30,10 +30,13 @@ impl<S: StorageProvider> Engine<S> {
         &self,
         group: &GroupId,
     ) -> Result<Option<ValidatedPrivateSuccessor>, EngineError> {
-// PROOF_DIAGNOSTIC_BEGIN
-#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-let _cost_successor = crate::proof_memo_diagnostics::CostSpan::begin(1);
-// PROOF_DIAGNOSTIC_END
+        // PROOF_DIAGNOSTIC_BEGIN
+        #[cfg(all(
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        let _cost_successor = crate::proof_memo_diagnostics::CostSpan::begin(1);
+        // PROOF_DIAGNOSTIC_END
 
         self.ensure_group_live(group)?;
         self.storage.with_read_snapshot(|storage| {

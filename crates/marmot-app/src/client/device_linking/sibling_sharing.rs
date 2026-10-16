@@ -413,9 +413,9 @@ impl OriginalEnrollmentSharingChoice {
             .expect("sibling children")
             .iter()
             .map(|state| {
-// PROOF_DIAGNOSTIC_BEGIN
-state.publication_probe.dump();
-// PROOF_DIAGNOSTIC_END
+                // PROOF_DIAGNOSTIC_BEGIN
+                state.publication_probe.dump();
+                // PROOF_DIAGNOSTIC_END
                 state
                     .sibling_diagnostics
                     .lock()
@@ -1331,10 +1331,10 @@ impl TrustedAccountSharingLease for SiblingLease {
 // Network waits never borrow the account worker or create another original.
 // Dropping the exact channel cancels its one in-flight publication.
 struct SiblingPublication {
-// PROOF_DIAGNOSTIC_FIELD_BEGIN
+    // PROOF_DIAGNOSTIC_FIELD_BEGIN
     #[cfg(all(test, feature = "test-policy-overrides"))]
     diagnostic_generation: usize,
-// PROOF_DIAGNOSTIC_FIELD_END
+    // PROOF_DIAGNOSTIC_FIELD_END
     proof: bool,
     task: tokio::task::JoinHandle<Result<(), ClientLinkingError>>,
 }
@@ -1861,10 +1861,13 @@ impl AppClient {
         in_flight: &mut usize,
     ) -> Result<(), ClientLinkingError> {
         if let Some(pending) = entry.publication.as_ref() {
-// PROOF_DIAGNOSTIC_BEGIN
-#[cfg(all(test, feature = "test-policy-overrides"))]
-entry.state.publication_probe.visit(pending.diagnostic_generation,pending.task.is_finished());
-// PROOF_DIAGNOSTIC_END
+            // PROOF_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            entry
+                .state
+                .publication_probe
+                .visit(pending.diagnostic_generation, pending.task.is_finished());
+            // PROOF_DIAGNOSTIC_END
             if !pending.task.is_finished() {
                 return Ok(());
             }
@@ -1874,10 +1877,13 @@ entry.state.publication_probe.visit(pending.diagnostic_generation,pending.task.i
                 .expect("finished sibling publication");
             *in_flight -= 1;
             (&mut pending.task).await.map_err(|_| denied())??;
-// PROOF_DIAGNOSTIC_BEGIN
-#[cfg(all(test, feature = "test-policy-overrides"))]
-entry.state.publication_probe.harvest(pending.diagnostic_generation);
-// PROOF_DIAGNOSTIC_END
+            // PROOF_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            entry
+                .state
+                .publication_probe
+                .harvest(pending.diagnostic_generation);
+            // PROOF_DIAGNOSTIC_END
             #[cfg(all(test, feature = "test-policy-overrides"))]
             if !pending.proof
                 && !entry.recipient
@@ -2207,15 +2213,21 @@ entry.state.publication_probe.harvest(pending.diagnostic_generation);
         let mut shutdown = self.history_owner.runtime_shutdown.clone();
         let proof = body.is_some();
         let consent = entry.recipient && !proof;
-// PROOF_DIAGNOSTIC_BEGIN
-#[cfg(all(test, feature = "test-policy-overrides"))]
-let diagnostic_generation = state.publication_probe.schedule(if proof {2}else if consent {1}else{0});
-// PROOF_DIAGNOSTIC_END
+        // PROOF_DIAGNOSTIC_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let diagnostic_generation = state.publication_probe.schedule(if proof {
+            2
+        } else if consent {
+            1
+        } else {
+            0
+        });
+        // PROOF_DIAGNOSTIC_END
         let task = tokio::spawn(async move {
-// PROOF_DIAGNOSTIC_BEGIN
-#[cfg(all(test, feature = "test-policy-overrides"))]
-let mut diagnostic_task = state.publication_probe.task(diagnostic_generation);
-// PROOF_DIAGNOSTIC_END
+            // PROOF_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            let mut diagnostic_task = state.publication_probe.task(diagnostic_generation);
+            // PROOF_DIAGNOSTIC_END
             let revoked = state.revoked.notified();
             tokio::pin!(revoked);
             revoked.as_mut().enable();
@@ -2236,64 +2248,64 @@ let mut diagnostic_task = state.publication_probe.task(diagnostic_generation);
             tokio::pin!(stopping);
             if !original.live() || !state.live() {
                 {
-// PROOF_DIAGNOSTIC_RETURN_BEGIN
-// PROOF_DIAGNOSTIC_BEGIN
-#[cfg(all(test, feature = "test-policy-overrides"))]
-diagnostic_task.finish(false);
-// PROOF_DIAGNOSTIC_END
-// PROOF_DIAGNOSTIC_RETURN_END
-return Err(denied())
-};
+                    // PROOF_DIAGNOSTIC_RETURN_BEGIN
+                    // PROOF_DIAGNOSTIC_BEGIN
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    diagnostic_task.finish(false);
+                    // PROOF_DIAGNOSTIC_END
+                    // PROOF_DIAGNOSTIC_RETURN_END
+                    return Err(denied());
+                };
             }
             let report = tokio::select! { biased;
-                () = &mut stopping => {
-// PROOF_DIAGNOSTIC_RETURN_BEGIN
-// PROOF_DIAGNOSTIC_BEGIN
-#[cfg(all(test, feature = "test-policy-overrides"))]
-diagnostic_task.finish(false);
-// PROOF_DIAGNOSTIC_END
-// PROOF_DIAGNOSTIC_RETURN_END
-return Err(denied())
-},
-                () = &mut revoked => {
-// PROOF_DIAGNOSTIC_RETURN_BEGIN
-// PROOF_DIAGNOSTIC_BEGIN
-#[cfg(all(test, feature = "test-policy-overrides"))]
-diagnostic_task.finish(false);
-// PROOF_DIAGNOSTIC_END
-// PROOF_DIAGNOSTIC_RETURN_END
-return Err(denied())
-},
-                () = tokio::time::sleep_until(state.deadline.into()) => {
-// PROOF_DIAGNOSTIC_RETURN_BEGIN
-// PROOF_DIAGNOSTIC_BEGIN
-#[cfg(all(test, feature = "test-policy-overrides"))]
-diagnostic_task.finish(false);
-// PROOF_DIAGNOSTIC_END
-// PROOF_DIAGNOSTIC_RETURN_END
-return Err(denied())
-},
-                report = async {
-                    if consent { adapter.publish_sibling_consent(request).await }
-                    else { adapter.publish_selected_chat(request).await }
-                } => report.map_err(|error| {
-// PROOF_DIAGNOSTIC_ERROR_BEGIN
-#[cfg(all(test, feature = "test-policy-overrides"))]
-diagnostic_task.finish(false);
-// PROOF_DIAGNOSTIC_ERROR_END
-ClientLinkingError::Runtime(Box::new(error.into()))
-})?,
-            };
+                            () = &mut stopping => {
+            // PROOF_DIAGNOSTIC_RETURN_BEGIN
+            // PROOF_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            diagnostic_task.finish(false);
+            // PROOF_DIAGNOSTIC_END
+            // PROOF_DIAGNOSTIC_RETURN_END
+            return Err(denied())
+            },
+                            () = &mut revoked => {
+            // PROOF_DIAGNOSTIC_RETURN_BEGIN
+            // PROOF_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            diagnostic_task.finish(false);
+            // PROOF_DIAGNOSTIC_END
+            // PROOF_DIAGNOSTIC_RETURN_END
+            return Err(denied())
+            },
+                            () = tokio::time::sleep_until(state.deadline.into()) => {
+            // PROOF_DIAGNOSTIC_RETURN_BEGIN
+            // PROOF_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            diagnostic_task.finish(false);
+            // PROOF_DIAGNOSTIC_END
+            // PROOF_DIAGNOSTIC_RETURN_END
+            return Err(denied())
+            },
+                            report = async {
+                                if consent { adapter.publish_sibling_consent(request).await }
+                                else { adapter.publish_selected_chat(request).await }
+                            } => report.map_err(|error| {
+            // PROOF_DIAGNOSTIC_ERROR_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            diagnostic_task.finish(false);
+            // PROOF_DIAGNOSTIC_ERROR_END
+            ClientLinkingError::Runtime(Box::new(error.into()))
+            })?,
+                        };
             if !original.live() || !state.live() || !report.met_required_acks() {
                 {
-// PROOF_DIAGNOSTIC_RETURN_BEGIN
-// PROOF_DIAGNOSTIC_BEGIN
-#[cfg(all(test, feature = "test-policy-overrides"))]
-diagnostic_task.finish(false);
-// PROOF_DIAGNOSTIC_END
-// PROOF_DIAGNOSTIC_RETURN_END
-return Err(denied())
-};
+                    // PROOF_DIAGNOSTIC_RETURN_BEGIN
+                    // PROOF_DIAGNOSTIC_BEGIN
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    diagnostic_task.finish(false);
+                    // PROOF_DIAGNOSTIC_END
+                    // PROOF_DIAGNOSTIC_RETURN_END
+                    return Err(denied());
+                };
             }
             #[cfg(all(test, feature = "test-policy-overrides"))]
             {
@@ -2304,18 +2316,20 @@ return Err(denied())
                     .expect("sibling diagnostics")
                     .publication_stage = Some(Stage::AfterRelayPublication);
             }
-// PROOF_DIAGNOSTIC_BEGIN
-#[cfg(all(test, feature = "test-policy-overrides"))]
-diagnostic_task.finish(true);
-// PROOF_DIAGNOSTIC_END
+            // PROOF_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            diagnostic_task.finish(true);
+            // PROOF_DIAGNOSTIC_END
             Ok(())
         });
         entry.publication = Some(SiblingPublication {
-// PROOF_DIAGNOSTIC_FIELD_BEGIN
-#[cfg(all(test, feature = "test-policy-overrides"))]
-diagnostic_generation,
-// PROOF_DIAGNOSTIC_FIELD_END
- proof, task });
+            // PROOF_DIAGNOSTIC_FIELD_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            diagnostic_generation,
+            // PROOF_DIAGNOSTIC_FIELD_END
+            proof,
+            task,
+        });
         Ok(())
     }
     fn validate_sibling_parent(

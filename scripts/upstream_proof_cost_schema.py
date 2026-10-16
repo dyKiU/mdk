@@ -141,7 +141,7 @@ def preflight():
         try: parse_partitions('proof-partition-diagnostic '+json.dumps(bad))
         except SchemaError: checks+=1
         else: raise SchemaError('bad-partition-accepted')
-    for bad in [dict(publication,rows=[[0]*10]),dict(publication,capacity=33),dict(publication,rows=[[0,1,1,2,3,1,1,4,0,5,0]])]:
+    for bad in [dict(publication,rows=[[0]*10]),dict(publication,capacity=33),dict(publication,snapshot_us=2),dict(publication,rows=[[0,1,1,2,3,1,1,4,1,0,6]]),dict(publication,rows=[[0,1,1,2,3,1,1,4,0,5,0]])]:
         try: parse_publications('proof-publication-diagnostic '+json.dumps(bad))
         except SchemaError: checks+=1
         else: raise SchemaError('bad-publication-accepted')
@@ -169,7 +169,14 @@ def parse_publications(raw):
         require(isinstance(row['rows'],list) and len(row['rows'])<=32)
         for index,values in enumerate(row['rows']):
             require(numbers(values,11) and values[0]==index and values[1]<=2 and values[5]<=3 and values[8]<=1)
-            require(values[9]==0 or values[8]==1)
+            _,kind,scheduled,started,exited,outcome,visits,last_visit,finished,harvested,age=values
+            require(scheduled<=row['snapshot_us'] and last_visit<=row['snapshot_us'])
+            require(started==0 or scheduled<=started<=row['snapshot_us'])
+            require(exited==0 or started>0 and started<=exited<=row['snapshot_us'])
+            require((outcome==0)==(exited==0))
+            require(harvested==0 or exited>0 and exited<=harvested<=row['snapshot_us'] and outcome==1 and finished==1)
+            require(age==(row['snapshot_us']-exited if exited>0 and harvested==0 else 0))
+            require(visits==0 and last_visit==0 and finished==0 or visits>0 and last_visit>0)
         require(len(result)<128)
         result.append(row)
     return result
