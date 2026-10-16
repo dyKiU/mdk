@@ -69,10 +69,19 @@ impl AppClient {
             .guard
             .validate(&round.anchor)
             .map_err(ClientLinkingError::Engine)?;
-        if self
+        if
+        // COMPLETION_DIAGNOSTIC_BEGIN
+        {
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let _measurement = crate::account_chat_sharing::enabled::completion_diagnostics::BEGIN_ROSTER.start();
+        // COMPLETION_DIAGNOSTIC_END
+        self
             .runtime
             .session()
             .validated_settled_device_roster(&action.group)
+        // COMPLETION_DIAGNOSTIC_BEGIN
+        }
+        // COMPLETION_DIAGNOSTIC_END
             .map_err(ClientLinkingError::Engine)?
             .is_none()
         {

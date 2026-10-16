@@ -440,6 +440,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     } else {
         None
     };
+    // COMPLETION_DIAGNOSTIC_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    crate::account_chat_sharing::enabled::completion_diagnostics::cost_boundary(true);
+    // COMPLETION_DIAGNOSTIC_END
     eprintln!("automatic-enrollment-control stage=fourth-device-completion");
     wait_for_automatic_phase_with_approvals(
         &a,
@@ -448,6 +452,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         &approvals,
     )
     .await;
+    // COMPLETION_DIAGNOSTIC_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    crate::account_chat_sharing::enabled::completion_diagnostics::cost_boundary(false);
+    // COMPLETION_DIAGNOSTIC_END
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
     // COMPLETION_TEST_BEGIN
     #[cfg(feature = "test-policy-overrides")]
@@ -992,6 +1000,10 @@ async fn wait_for_automatic_phase_with_approvals(
     })
     .await
     .unwrap_or_else(|_| {
+        // COMPLETION_DIAGNOSTIC_BEGIN
+        #[cfg(feature = "test-policy-overrides")]
+        crate::account_chat_sharing::enabled::completion_diagnostics::cost_boundary(false);
+        // COMPLETION_DIAGNOSTIC_END
         #[cfg(feature = "test-policy-overrides")]
         for (side, original) in [("left", a), ("right", b)] {
             eprintln!(

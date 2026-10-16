@@ -454,6 +454,17 @@ impl OriginalEnrollmentSharingChoice {
             .expect("sibling children")
             .iter()
             .map(|state| {
+                // COMPLETION_DIAGNOSTIC_BEGIN
+                eprintln!(
+                    "completion-diag child={}",
+                    state
+                        .sibling_diagnostics
+                        .lock()
+                        .expect("completion diagnostic")
+                        .publication_probe
+                        .snapshot()
+                );
+                // COMPLETION_DIAGNOSTIC_END
                 state
                     .sibling_diagnostics
                     .lock()
@@ -1369,6 +1380,10 @@ impl TrustedAccountSharingLease for SiblingLease {
 // Network waits never borrow the account worker or create another original.
 // Dropping the exact channel cancels its one in-flight publication.
 struct SiblingPublication {
+    // COMPLETION_DIAGNOSTIC_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    diagnostic_generation: u64,
+    // COMPLETION_DIAGNOSTIC_END
     proof: bool,
     result: tokio::sync::oneshot::Receiver<Result<(), ClientLinkingError>>,
     outcome: Option<Result<(), ClientLinkingError>>,
@@ -1438,6 +1453,10 @@ impl AppClient {
     pub(crate) async fn service_sibling_publication_completions(
         &mut self,
     ) -> Result<(), ClientLinkingError> {
+        // COMPLETION_DIAGNOSTIC_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        Self::record_sibling_pass_for_test(&self.linking_owner.sibling_channels, true, true);
+        // COMPLETION_DIAGNOSTIC_END
         let mut channels = std::mem::take(&mut self.linking_owner.sibling_channels);
         let mut in_flight = channels
             .iter()
@@ -1531,6 +1550,10 @@ impl AppClient {
                 }
             }
         }
+        // COMPLETION_DIAGNOSTIC_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        Self::record_sibling_pass_for_test(&channels, true, false);
+        // COMPLETION_DIAGNOSTIC_END
         self.linking_owner.sibling_channels = channels;
         failure.map_or(Ok(()), Err)
     }
@@ -1548,6 +1571,10 @@ impl AppClient {
                 && entry.state.approval_id == approval_id
                 && entry.channel.scope().recipient.as_slice() == recipient
         }) {
+            // COMPLETION_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            crate::account_chat_sharing::enabled::completion_diagnostics::BEGIN_ROSTER.no_op();
+            // COMPLETION_DIAGNOSTIC_END
             return Ok(());
         }
         if !original.live() || self.linking_owner.sibling_channels.len() >= 128 {
@@ -1934,6 +1961,10 @@ impl AppClient {
             .sibling_channels
             .retain(|entry| entry.original.live() && entry.state.live());
         self.begin_completed_sibling_sharing()?;
+        // COMPLETION_DIAGNOSTIC_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        Self::record_sibling_pass_for_test(&self.linking_owner.sibling_channels, false, true);
+        // COMPLETION_DIAGNOSTIC_END
         let mut channels = std::mem::take(&mut self.linking_owner.sibling_channels);
         let mut in_flight = channels
             .iter()
@@ -2011,6 +2042,10 @@ impl AppClient {
                     .channel_bits = mask;
             }
         }
+        // COMPLETION_DIAGNOSTIC_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        Self::record_sibling_pass_for_test(&channels, false, false);
+        // COMPLETION_DIAGNOSTIC_END
         self.linking_owner.sibling_channels = channels;
         failure.map_or(Ok(()), Err)
     }
@@ -2021,6 +2056,20 @@ impl AppClient {
         mode: SiblingAdvanceMode,
     ) -> Result<bool, ClientLinkingError> {
         if let Some(pending) = entry.publication.as_mut() {
+            // COMPLETION_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            entry
+                .state
+                .sibling_diagnostics
+                .lock()
+                .expect("completion diagnostic")
+                .publication_probe
+                .visit(
+                    pending.diagnostic_generation,
+                    pending.task.is_finished(),
+                    mode == SiblingAdvanceMode::Periodic,
+                );
+            // COMPLETION_DIAGNOSTIC_END
             if pending.outcome.is_none() {
                 pending.outcome = Some(match pending.result.try_recv() {
                     Ok(result) => result,
@@ -2028,6 +2077,12 @@ impl AppClient {
                     Err(tokio::sync::oneshot::error::TryRecvError::Closed) => Err(denied()),
                 });
             }
+            // COMPLETION_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            let diagnostic_generation = pending.diagnostic_generation;
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            let diagnostic_owned_error = pending.outcome.as_ref().is_some_and(Result::is_err);
+            // COMPLETION_DIAGNOSTIC_END
             if mode == SiblingAdvanceMode::Initial {
                 // Another peer's success must not consume a failure early and
                 // let the next periodic turn retry it sooner. A failed fresh
@@ -2036,6 +2091,19 @@ impl AppClient {
                 if pending.outcome.as_ref().is_some_and(Result::is_err)
                     || self.validate_sibling_publication(entry).is_err()
                 {
+                    // COMPLETION_DIAGNOSTIC_BEGIN
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    entry
+                        .state
+                        .sibling_diagnostics
+                        .lock()
+                        .expect("completion diagnostic")
+                        .publication_probe
+                        .event(
+                            diagnostic_generation,
+                            if diagnostic_owned_error { 13 } else { 8 },
+                        );
+                    // COMPLETION_DIAGNOSTIC_END
                     return Ok(false);
                 }
             }
@@ -2044,6 +2112,18 @@ impl AppClient {
                 .take()
                 .expect("finished sibling publication");
             *in_flight -= 1;
+            // COMPLETION_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if pending.outcome.as_ref().is_some_and(Result::is_err) {
+                entry
+                    .state
+                    .sibling_diagnostics
+                    .lock()
+                    .expect("completion diagnostic")
+                    .publication_probe
+                    .event(pending.diagnostic_generation, 9);
+            }
+            // COMPLETION_DIAGNOSTIC_END
             pending
                 .outcome
                 .take()
@@ -2066,10 +2146,55 @@ impl AppClient {
                 entry.handshake_published = true;
                 entry.handshake_retry_at = retry_at;
             }
+            // COMPLETION_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            entry
+                .state
+                .sibling_diagnostics
+                .lock()
+                .expect("completion diagnostic")
+                .publication_probe
+                .event(pending.diagnostic_generation, 7);
+            // COMPLETION_DIAGNOSTIC_END
             return Ok(true);
         }
         Ok(false)
     }
+
+    // COMPLETION_DIAGNOSTIC_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    fn record_sibling_pass_for_test(channels: &[SiblingChannel], wake: bool, at_entry: bool) {
+        for entry in channels.iter().take(128) {
+            let bits = [
+                entry.state.live(),
+                entry.ready,
+                entry.handshake_published,
+                entry.policy_committed,
+                entry.proof_published,
+                entry.peer_committed,
+                entry
+                    .state
+                    .progress
+                    .lock()
+                    .expect("sharing progress")
+                    .complete,
+                entry.publication.is_some(),
+                entry.deferred_initial_error.is_some(),
+            ];
+            let mask = bits
+                .into_iter()
+                .enumerate()
+                .fold(0, |mask, (i, value)| mask | (u64::from(value) << i));
+            entry
+                .state
+                .sibling_diagnostics
+                .lock()
+                .expect("completion diagnostic")
+                .publication_probe
+                .pass(wake, at_entry, mask);
+        }
+    }
+    // COMPLETION_DIAGNOSTIC_END
 
     fn validate_sibling_publication(
         &self,
@@ -2433,8 +2558,32 @@ impl AppClient {
         let completion_consent_identity = consent.then(|| request.message.id.clone());
         // COMPLETION_TEST_END
         let completion = self.linking_owner.sibling_publication_completions.clone();
+        // COMPLETION_DIAGNOSTIC_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let diagnostic_generation = state
+            .sibling_diagnostics
+            .lock()
+            .expect("completion diagnostic")
+            .publication_probe
+            .schedule(if proof {
+                2
+            } else if consent {
+                1
+            } else {
+                0
+            });
+        // COMPLETION_DIAGNOSTIC_END
         let (result_tx, result) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
+            // COMPLETION_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            state
+                .sibling_diagnostics
+                .lock()
+                .expect("completion diagnostic")
+                .publication_probe
+                .event(diagnostic_generation, 14);
+            // COMPLETION_DIAGNOSTIC_END
             let outcome = async {
             let revoked = state.revoked.notified();
             tokio::pin!(revoked);
@@ -2462,10 +2611,28 @@ impl AppClient {
                 () = &mut revoked => return Err(denied()),
                 () = tokio::time::sleep_until(state.deadline.into()) => return Err(denied()),
                 report = async {
+                    // COMPLETION_DIAGNOSTIC_BEGIN
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    state
+                        .sibling_diagnostics
+                        .lock()
+                        .expect("completion diagnostic")
+                        .publication_probe
+                        .event(diagnostic_generation, 15);
+                    // COMPLETION_DIAGNOSTIC_END
                     if consent { adapter.publish_sibling_consent(request).await }
                     else { adapter.publish_selected_chat(request).await }
                 } => report.map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?,
             };
+            // COMPLETION_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            state
+                .sibling_diagnostics
+                .lock()
+                .expect("completion diagnostic")
+                .publication_probe
+                .event(diagnostic_generation, 16);
+            // COMPLETION_DIAGNOSTIC_END
             if !original.live() || !state.live() || !report.met_required_acks() {
                 return Err(denied());
             }
@@ -2498,14 +2665,45 @@ impl AppClient {
             // COMPLETION_TEST_END
             Ok(())
             }.await;
+            // COMPLETION_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            state
+                .sibling_diagnostics
+                .lock()
+                .expect("completion diagnostic")
+                .publication_probe
+                .event(diagnostic_generation, if outcome.is_ok() { 3 } else { 4 });
+            // COMPLETION_DIAGNOSTIC_END
             let success = outcome.is_ok();
             // Queue the actual result before signalling; a JoinHandle may not
             // yet be marked finished when the account worker receives a wake.
             if result_tx.send(outcome).is_ok() && success {
+                // COMPLETION_DIAGNOSTIC_BEGIN
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                state
+                    .sibling_diagnostics
+                    .lock()
+                    .expect("completion diagnostic")
+                    .publication_probe
+                    .event(diagnostic_generation, 5);
+                // COMPLETION_DIAGNOSTIC_END
                 completion.send_replace(());
+                // COMPLETION_DIAGNOSTIC_BEGIN
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                state
+                    .sibling_diagnostics
+                    .lock()
+                    .expect("completion diagnostic")
+                    .publication_probe
+                    .event(diagnostic_generation, 6);
+                // COMPLETION_DIAGNOSTIC_END
             }
         });
         entry.publication = Some(SiblingPublication {
+            // COMPLETION_DIAGNOSTIC_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            diagnostic_generation,
+            // COMPLETION_DIAGNOSTIC_END
             proof,
             result,
             outcome: None,

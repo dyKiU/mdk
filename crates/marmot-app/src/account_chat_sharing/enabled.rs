@@ -13,6 +13,11 @@ use std::{
     time::{Duration, Instant},
 };
 pub(crate) const MAX_OWNERS: usize = 128;
+// COMPLETION_DIAGNOSTIC_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[path = "completion_diagnostics.rs"]
+pub(crate) mod completion_diagnostics;
+// COMPLETION_DIAGNOSTIC_END
 #[cfg(all(test, feature = "test-policy-overrides"))]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum SiblingMaintenanceFailure {
@@ -35,6 +40,9 @@ pub(crate) enum SiblingPublicationStage {
 #[cfg(all(test, feature = "test-policy-overrides"))]
 #[derive(Default)]
 pub(crate) struct SiblingMaintenanceDiagnostics {
+    // COMPLETION_DIAGNOSTIC_BEGIN
+    pub(crate) publication_probe: completion_diagnostics::PublicationProbe,
+    // COMPLETION_DIAGNOSTIC_END
     // COMPLETION_TEST_BEGIN
     pub(crate) successful_consent_message: Option<cgka_traits::MessageId>,
     pub(crate) successful_commit_proof: bool,
