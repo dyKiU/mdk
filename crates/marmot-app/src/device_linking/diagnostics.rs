@@ -40,13 +40,58 @@ impl EnrollmentObservation {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum EnrollmentDelivery {
+    CommitPending,
+    CommitConfirmed,
+    WelcomePublishStarted,
+    WelcomePublishAccepted,
+    WelcomePublishFailed,
+    WelcomeAuthenticated,
+    WelcomeBuffered,
+    WelcomeJoined,
+    WelcomeRejected,
+}
+
+impl EnrollmentDelivery {
+    fn code(self) -> &'static str {
+        match self {
+            Self::CommitPending => "commit_pending",
+            Self::CommitConfirmed => "commit_confirmed",
+            Self::WelcomePublishStarted => "welcome_publish_started",
+            Self::WelcomePublishAccepted => "welcome_publish_accepted",
+            Self::WelcomePublishFailed => "welcome_publish_failed",
+            Self::WelcomeAuthenticated => "welcome_authenticated",
+            Self::WelcomeBuffered => "welcome_buffered",
+            Self::WelcomeJoined => "welcome_joined",
+            Self::WelcomeRejected => "welcome_rejected",
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct EnrollmentDiagnostics {
     last: Option<EnrollmentObservation>,
     transitions: u8,
+    delivery_seen: u16,
 }
 
 impl EnrollmentDiagnostics {
+    fn delivery_change(&mut self, observation: EnrollmentDelivery) -> Option<&'static str> {
+        let bit = 1_u16 << observation as u8;
+        if self.delivery_seen & bit != 0 {
+            return None;
+        }
+        self.delivery_seen |= bit;
+        Some(observation.code())
+    }
+
+    pub(crate) fn delivery(&mut self, observation: EnrollmentDelivery) {
+        if let Some(code) = self.delivery_change(observation) {
+            report("enrollment_delivery", code);
+        }
+    }
+
     fn change(&mut self, observation: EnrollmentObservation) -> Option<&'static str> {
         if self.last == Some(observation) || self.transitions >= 64 {
             return None;
@@ -66,6 +111,31 @@ impl EnrollmentDiagnostics {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enrollment_delivery_reports_each_fixed_code_only_once() {
+        let mut diagnostics = EnrollmentDiagnostics::default();
+        let observations = [
+            EnrollmentDelivery::CommitPending,
+            EnrollmentDelivery::CommitConfirmed,
+            EnrollmentDelivery::WelcomePublishStarted,
+            EnrollmentDelivery::WelcomePublishAccepted,
+            EnrollmentDelivery::WelcomePublishFailed,
+            EnrollmentDelivery::WelcomeAuthenticated,
+            EnrollmentDelivery::WelcomeBuffered,
+            EnrollmentDelivery::WelcomeJoined,
+            EnrollmentDelivery::WelcomeRejected,
+        ];
+        for observation in observations {
+            let code = diagnostics.delivery_change(observation).unwrap();
+            assert!(code.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'));
+        }
+        for _ in 0..100 {
+            for observation in observations {
+                assert!(diagnostics.delivery_change(observation).is_none());
+            }
+        }
+    }
 
     #[test]
     fn enrollment_diagnostics_distinguish_waits_and_bound_transitions() {
