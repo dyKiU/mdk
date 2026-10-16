@@ -359,6 +359,15 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
                             .expect("foreground recipient snapshot remains serviceable");
                         foreground = true;
                         eprintln!("completion-wake-control stage=foreground-progress");
+                        // COMPLETION_ACTOR_CHECK_BEGIN
+                        let targets = managers[3]
+                            .device_linking_targets("test")
+                            .await
+                            .expect("fresh recipient worker command remains serviceable");
+                        assert!(targets.len() == 1 && targets[0].device_count == 4,
+                            "fresh recipient worker command must read the actual four-device roster");
+                        eprintln!("completion-wake-control stage=fresh-actor-progress");
+                        // COMPLETION_ACTOR_CHECK_END
                     }
                     if durable && proof {
                         break;

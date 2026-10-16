@@ -1897,6 +1897,10 @@ async fn run_app_runtime_account_worker(
     let mut comparison_recovery: Option<ComparisonRecoveryJob> = None;
     #[cfg(feature = "experimental-device-sync")]
     let mut private_echo_recovery: Option<crate::client::private_echo::PrivateEchoTask> = None;
+    #[cfg(feature = "experimental-device-sync")]
+    let mut sibling_completions = client.sibling_publication_completions();
+    #[cfg(feature = "experimental-device-sync")]
+    let mut sibling_completions_open = true;
     // One original envelope, never serialized/reconstructed or clock-renewed.
     let mut enrollment_capacity_retry: Option<
         Box<transport_nostr_adapter::ObservedTransportDelivery>,
@@ -2469,6 +2473,30 @@ async fn run_app_runtime_account_worker(
                             phase.finish(TelemetryOutcome::Success);
                         }
                     }
+                    result = async {
+                        #[cfg(feature = "experimental-device-sync")]
+                        { sibling_completions.changed().await }
+                        #[cfg(not(feature = "experimental-device-sync"))]
+                        std::future::pending::<Result<(), tokio::sync::watch::error::RecvError>>().await
+                    }, if {
+                        #[cfg(feature = "experimental-device-sync")]
+                        { sibling_completions_open }
+                        #[cfg(not(feature = "experimental-device-sync"))]
+                        { false }
+                    } => {
+                        #[cfg(feature = "experimental-device-sync")]
+                        match result {
+                            Err(_) => sibling_completions_open = false,
+                            Ok(()) if !lifecycle.is_stopping() => {
+                                if client.service_sibling_publication_completions().await.is_err() {
+                                    tracing::debug!(target: "marmot_app::device_linking", method = "worker_sibling_completion", "sibling publication completion deferred");
+                                }
+                            }
+                            Ok(()) => {}
+                        }
+                        #[cfg(not(feature = "experimental-device-sync"))]
+                        let _ = result;
+                    }
                     received = async {
                         #[cfg(feature = "experimental-device-sync")]
                         if let Some((_, _, retry_at)) = selected_welcome_retry.as_ref() {
@@ -2938,6 +2966,11 @@ async fn run_app_runtime_account_worker(
                                         }
                                     }
                                 };
+                                #[cfg(feature = "experimental-device-sync")]
+                                {
+                                    sibling_completions = client.sibling_publication_completions();
+                                    sibling_completions_open = true;
+                                }
                                 schedule_pending_convergence_groups(
                                     &mut scheduled_convergence,
                                     &mut client,

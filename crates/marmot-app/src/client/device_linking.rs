@@ -75,6 +75,7 @@ pub(crate) struct AccountLinkingOwner {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) revocation_retry_custody: RevocationRetryCustodyForTest,
     sibling_channels: Vec<sibling_sharing::SiblingChannel>,
+    sibling_publication_completions: tokio::sync::watch::Sender<()>,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) sibling_pre_auth_probe: Option<(
         std::sync::Weak<super::private_enrollment_proposal::OriginalSiblingSharingApproval>,
@@ -151,6 +152,7 @@ impl AccountLinkingOwner {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             revocation_retry_custody: Arc::default(),
             sibling_channels: Vec::new(),
+            sibling_publication_completions: tokio::sync::watch::channel(()).0,
             #[cfg(all(test, feature = "test-policy-overrides"))]
             sibling_pre_auth_probe: None,
             hidden_transport_group: None,
