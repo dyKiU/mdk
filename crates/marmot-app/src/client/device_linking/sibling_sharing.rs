@@ -2573,6 +2573,15 @@ impl AppClient {
                 0
             });
         // COMPLETION_DIAGNOSTIC_END
+        // COMPLETION_DIAGNOSTIC_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        {
+            let (token, registration) = transport_nostr_adapter::publication_diagnostics::register_app_message(
+                request.message.id.as_slice(), if proof { 2 } else if consent { 1 } else { 0 }, entry.recipient,
+            );
+            state.sibling_diagnostics.lock().expect("completion diagnostic").publication_probe.sdk_token(diagnostic_generation, token, registration);
+        }
+        // COMPLETION_DIAGNOSTIC_END
         let (result_tx, result) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
             // COMPLETION_DIAGNOSTIC_BEGIN

@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from upstream_completion_ci import ORIGINALS, compile_cases, environment, ensure, freeze, identity, parse_body
 
-COLUMNS = ['generation','kind_0_request_1_consent_2_proof','scheduled_ms','inner_ok_ms','inner_err_ms','queued_success_observed_ms','signal_executed_ms','fresh_harvest_ms','fresh_guard_deferred_ms','periodic_owned_error_or_closed_consumed_ms','task_finished_observed_ms','last_pending_visit_ms','last_visit_periodic','owned_error_or_closed_deferred_ms','task_first_poll_ms','adapter_future_entered_ms','adapter_returned_ok_ms']
+COLUMNS = ['generation','kind_0_request_1_consent_2_proof','scheduled_ms','inner_ok_ms','inner_err_ms','queued_success_observed_ms','signal_executed_ms','fresh_harvest_ms','fresh_guard_deferred_ms','periodic_owned_error_or_closed_consumed_ms','task_finished_observed_ms','last_pending_visit_ms','last_visit_periodic','owned_error_or_closed_deferred_ms','task_first_poll_ms','adapter_future_entered_ms','adapter_returned_ok_ms','logical_message_token','logical_message_registration']
 ENUMS = {'Owner','Collection','Runtime','Engine','Genesis','Gate','PrivateInvite','BeforeCoreWrap','AfterCoreWrap','BeforeRelayPublication','AfterRelayPublication','VerifierFallback','NoRound','GuardInvalid','NoSettledRoster','SharingPending','Complete'}
 
 def rust_value(raw):
@@ -48,7 +48,7 @@ def probe_value(raw):
         return isinstance(row,list) and len(row)==width and all(type(item) is int and 0 <= item < 2**63 for item in row)
     ensure(type(value['at_ms']) is int and 0 <= value['at_ms'] < 2**63 and type(value['overflow']) is int and 0 <= value['overflow'] < 2**63,'probe-scalars')
     ensure(type(value['scheduled']) is int and 0<=value['scheduled']<2**63,'probe-scheduled')
-    ensure(isinstance(value['rows'],list) and len(value['rows'])<=32 and all(integers(row,17) for row in value['rows']),'probe-rows')
+    ensure(isinstance(value['rows'],list) and len(value['rows'])<=32 and all(integers(row,19) for row in value['rows']),'probe-rows')
     ensure(isinstance(value['passes'],list) and len(value['passes'])==2 and all(integers(row,4) for row in value['passes']),'probe-passes')
     ensure(all(row[1] <= 2 and row[12] <= 1 for row in value['rows']),'probe-enums')
     ensure([row[0] for row in value['rows']]==list(range(1,len(value['rows'])+1)),'probe-generations')
@@ -217,7 +217,7 @@ def probe_confident(probe):
 
 def parser_preflight():
     ensure(rust_value('Some((true, Some(2), 2, 0))')==[True,2,2,0],'rust-parser-positive')
-    row=[1,1,1,2,0,3,4,5,0,0,0,4,1,0,1,1,2]
+    row=[1,1,1,2,0,3,4,5,0,0,0,4,1,0,1,1,2,0,0]
     probe={'rows':[row],'scheduled':1,'overflow':0,'passes':[[1,1,6,31],[0]*4],'at_ms':7}
     ensure(probe_value(json.dumps(probe))==probe,'probe-parser-positive')
     ensure(probe_confident(probe),'harvest-does-not-require-task-finished-observation')
@@ -277,7 +277,7 @@ def parser_preflight():
     for column in [8,10,6]:
         impossible=list(row); impossible[column]=1
         ensure(not probe_confident(dict(probe,rows=[impossible])),'probe-impossible-event-order'); negatives+=1
-    unpolled=[1,1,1]+[0]*14
+    unpolled=[1,1,1]+[0]*16
     awaiting=list(unpolled); awaiting[14]=2; awaiting[15]=3
     early_error=list(unpolled); early_error[14]=2; early_error[4]=3
     returned_error=list(early_error); returned_error[15]=2; returned_error[16]=3; returned_error[4]=4
@@ -342,6 +342,7 @@ def main():
     report['task_milestone_semantics']='First poll is entry to the spawned future; adapter entry is the existing select branch future entering before its adapter call; adapter_returned_ok is after the select returned Ok and before the original live/ACK checks. Zero is unknown, never proof of failure or non-polling. Adapter entry without returned_ok does not distinguish pending transport, cancellation, or adapter error without a recorded inner outcome.'
     report['cost_semantics']={'columns':['entered','completed','inclusive_wall_ns','existing_source_channel_noops','overflow'],'scope':'Process-wide aggregate across all runtimes; fourth-completion start/end boundary snapshots. Inclusive wall durations, not CPU or exclusive cost. Completion duration deltas can include calls entered before start, and exclude unfinished calls at end; inspect both in-flight counts. No-op events are independently counted actual begin_sibling_source_channel early returns, not paired with begin_roster getter calls. No cross-State or exact-deadline timing claim. Timer stops before taking aggregation lock.'}
     report['probe_schema']={'scheduled':'All per-State scheduling observations','rows':'First min(scheduled,32) contiguous local generations','overflow':'scheduled minus retained rows; nonzero invalidates collection confidence','at_ms':'Per-State snapshot age, not a shared clock'}
+    report['sdk_semantics']={'clock':'One process-local monotonic millisecond origin; at_ms is captured after the frozen cost-end verdict and before later App probes/RPCs. Never subtract App per-State ages from SDK times.', 'tokens':'Immutable exact logical-message ID tokens. App registration ordinal greater than snapshot count is post-snapshot unknown. Multiple registrations retain one token and are explicitly ambiguous per-generation, never rebound to a later owner.', 'association_fields':'association_complete aliases logical_message_association_complete only; inspect per_generation_association_unique before any attempt-specific inference. Actual PASS has no failure-probe dumps, so generation association remains unknown.', 'unknown_columns':['message_capacity','operation_capacity','invalid_registration','unregistered_sdk_operation','invalid_stage_or_operation','unmapped_batch'], 'stage_columns':['first_ms','last_ms','count'], 'limits':'Repeated/parallel stages are aggregates, not matched wait intervals or CPU attribution. Missing stage/operation is unknown. No raw event/account/relay identities exported; SDK subscriber remains off.'}
     def save(): (out/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     frozen=freeze(); report['source_before_sha256']=identity(frozen); save()
     try:
@@ -356,9 +357,11 @@ def main():
             def text(value): return value.decode(errors='replace') if isinstance(value,bytes) else value or ''
             raw=text(error.stdout)+text(error.stderr); row.update(watchdog_triggered=True,actual_count_unknown=True)
         row.update(body_seconds=time.monotonic()-start,**parse_body(raw,ORIGINALS[0])); row['observations']=observations(raw)
+        from upstream_publication_sdk import collect
+        row['sdk_correlation']=collect(raw,[entry['probe'] for entry in row['observations'].get('probe_dump_sequence',[])])
         row['failure_observations_available']=bool(row['observations']['sides'] or row['observations']['existing'])
         if row.get('watchdog_triggered'): row['actual_count_unknown']=True
-        report['body']=row; report['diagnostic_collection_complete']=diagnostic_complete(row)
+        report['body']=row; report['diagnostic_collection_complete']=diagnostic_complete(row) and row['sdk_correlation']['snapshot_valid'] and (row.get('passed')==1 or row['sdk_correlation']['association_complete'])
     except Exception as error: report['controller_exception']=type(error).__name__
     finally:
         report['inputs_pristine']=freeze()==frozen and subprocess.run(['git','diff','--quiet','HEAD']).returncode==0

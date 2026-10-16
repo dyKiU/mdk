@@ -20,12 +20,15 @@ pub(crate) fn cost_boundary(start: bool) {
             "begin_roster": BEGIN_ROSTER.snapshot(),
         })
     );
+    if !start {
+        eprintln!("completion-sdk {}", transport_nostr_adapter::publication_diagnostics::snapshot());
+    }
 }
 
 pub(crate) struct PublicationProbe {
     origin: Instant,
     next: u64,
-    rows: Vec<[u64; 17]>,
+    rows: Vec<[u64; 19]>,
     overflow: u64,
     passes: [[u64; 4]; 2],
 }
@@ -47,7 +50,7 @@ impl PublicationProbe {
     pub(crate) fn schedule(&mut self, kind: u64) -> u64 {
         self.next += 1;
         if self.rows.len() < 32 {
-            let mut row = [0; 17];
+            let mut row = [0; 19];
             row[0] = self.next;
             row[1] = kind;
             row[2] = self.time();
@@ -64,6 +67,9 @@ impl PublicationProbe {
                 row[column] = time;
             }
         }
+    }
+    pub(crate) fn sdk_token(&mut self, generation: u64, token: u64, registration: u64) {
+        if let Some(row) = self.rows.iter_mut().find(|row| row[0] == generation) { row[17] = token; row[18] = registration; }
     }
     pub(crate) fn visit(&mut self, generation: u64, finished: bool, periodic: bool) {
         let time = self.time();

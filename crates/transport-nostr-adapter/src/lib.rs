@@ -10,6 +10,10 @@
 //! the adapter testable while preserving the production boundary where a
 //! `nostr-sdk` client can plug in.
 
+// SDK_CORRELATION_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+pub mod publication_diagnostics;
+// SDK_CORRELATION_END
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};

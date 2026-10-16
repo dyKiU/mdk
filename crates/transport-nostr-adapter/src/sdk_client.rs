@@ -745,6 +745,10 @@ impl SubscriptionFloors {
 /// `nostr-sdk` backed implementation of [`NostrRelayClient`].
 #[derive(Clone)]
 pub struct NostrSdkRelayClient {
+    // SDK_CORRELATION_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    publication_operation_ordinal: u64,
+    // SDK_CORRELATION_END
     #[cfg(feature = "test-policy-overrides")]
     publication_diagnostic_ordinal: u64,
     client: Client,
@@ -994,6 +998,9 @@ struct PreparedPublish {
 impl NostrSdkRelayClient {
     #[cfg(feature = "test-policy-overrides")]
     fn diagnose_publish_stage(&self, stage: &'static str) {
+        // SDK_CORRELATION_BEGIN
+        crate::publication_diagnostics::record_stage(self.publication_operation_ordinal, stage);
+        // SDK_CORRELATION_END
         tracing::warn!(
             target: "transport_nostr_adapter::sdk_client::test_publication",
             method = "diagnose_publish_stage",
@@ -1005,6 +1012,10 @@ impl NostrSdkRelayClient {
 
     pub fn new(client: Client) -> Self {
         Self {
+            // SDK_CORRELATION_BEGIN
+            #[cfg(feature = "test-policy-overrides")]
+            publication_operation_ordinal: 0,
+            // SDK_CORRELATION_END
             #[cfg(feature = "test-policy-overrides")]
             publication_diagnostic_ordinal: {
                 static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -4310,6 +4321,12 @@ impl NostrRelayClient for NostrSdkRelayClient {
         &self,
         requests: &[NostrEventPublishRequest],
     ) -> NostrPublishBatch {
+        // SDK_CORRELATION_BEGIN
+        #[cfg(feature = "test-policy-overrides")]
+        let diagnostic_operation = if requests.len() == 1 {
+            crate::publication_diagnostics::begin_sdk_operation(&requests[0].event.id, requests[0].endpoints.len())
+        } else { crate::publication_diagnostics::record_unmapped_batch(); 0 };
+        // SDK_CORRELATION_END
         let batch_started_at = std::time::Instant::now();
         if self.validate_publish_context().await.is_err() {
             return NostrPublishBatch {
@@ -4360,7 +4377,26 @@ impl NostrRelayClient for NostrSdkRelayClient {
         );
         if prepared.len() == 1 {
             let outcome = match prepared.pop().expect("one prepared publish") {
-                Ok(request) => vec![self.publish_prepared_single(request).await],
+                // SDK_CORRELATION_SINGLE_BEGIN
+                Ok(request) => {
+                    #[cfg(feature = "test-policy-overrides")]
+                    let diagnostic_publisher = {
+                        let mut publisher = self.clone();
+                        publisher.publication_operation_ordinal = diagnostic_operation;
+                        publisher
+                    };
+                    #[cfg(feature = "test-policy-overrides")]
+                    let publisher = &diagnostic_publisher;
+                    #[cfg(not(feature = "test-policy-overrides"))]
+                    let publisher = self;
+                    #[cfg(feature = "test-policy-overrides")]
+                    crate::publication_diagnostics::record_stage(diagnostic_operation, "prepared-single");
+                    let outcome = publisher.publish_prepared_single(request).await;
+                    #[cfg(feature = "test-policy-overrides")]
+                    crate::publication_diagnostics::record_stage(diagnostic_operation, "operation-returned");
+                    vec![outcome]
+                },
+                // SDK_CORRELATION_SINGLE_END
                 Err(error) => vec![Err(error)],
             };
             return NostrPublishBatch {
