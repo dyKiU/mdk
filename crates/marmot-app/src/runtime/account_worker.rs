@@ -1048,27 +1048,39 @@ pub(crate) fn spawn_app_runtime_account_worker(
     // Pin the large worker future before moving it into Tokio's spawn frame.
     // Reopening an account can otherwise exhaust a bounded caller stack.
     // WORKER_DIAGNOSTIC_SPAWN_BEGIN
-    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     {
-        tokio::spawn(crate::account_chat_sharing::enabled::completion_diagnostics::observe_worker(Box::pin(run_app_runtime_account_worker(
+        tokio::spawn(
+            crate::account_chat_sharing::enabled::completion_diagnostics::observe_worker(Box::pin(
+                run_app_runtime_account_worker(
+                    runtime,
+                    command_tx,
+                    commands,
+                    ready,
+                    startup_progress,
+                    shutdown,
+                ),
+            )),
+        )
+    }
+    #[cfg(not(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    )))]
+    {
+        tokio::spawn(Box::pin(run_app_runtime_account_worker(
             runtime,
             command_tx,
             commands,
             ready,
             startup_progress,
             shutdown,
-        ))))
-    }
-    #[cfg(not(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides")))]
-    {
-    tokio::spawn(Box::pin(run_app_runtime_account_worker(
-        runtime,
-        command_tx,
-        commands,
-        ready,
-        startup_progress,
-        shutdown,
-    )))
+        )))
     }
     // WORKER_DIAGNOSTIC_SPAWN_END
 }
