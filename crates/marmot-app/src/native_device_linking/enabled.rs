@@ -11,6 +11,7 @@ use std::sync::{
 };
 use tokio::sync::{Mutex as AsyncMutex, Notify, watch};
 mod automatic;
+mod diagnostics;
 
 pub(super) struct SessionState {
     manager: AccountManager,
@@ -51,6 +52,7 @@ pub(super) struct SubscriptionState {
     wake: Notify,
 }
 fn map_error(error: ClientLinkingError) -> DeviceLinkingError {
+    diagnostics::report("native_error", diagnostics::client_kind(&error));
     match error {
         ClientLinkingError::Owner(OwnerError::Verifier(error)) => match error {
             LinkError::InvalidFrame
@@ -984,9 +986,16 @@ impl AccountManager {
         &self,
         account_ref: &str,
     ) -> Result<Vec<DeviceLinkingTarget>, DeviceLinkingError> {
-        self.native_device_linking_targets(account_ref)
+        diagnostics::report("targets_read", "begin");
+        let result = self
+            .native_device_linking_targets(account_ref)
             .await
-            .map_err(map_error)
+            .map_err(map_error);
+        diagnostics::report(
+            "targets_read",
+            if result.is_ok() { "ready" } else { "failed" },
+        );
+        result
     }
     pub async fn pending_device_linking_approvals(
         &self,
