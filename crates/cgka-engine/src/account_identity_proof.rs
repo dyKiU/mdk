@@ -474,6 +474,10 @@ fn verify_proof_signature(
     request: &AccountIdentityProofRequest,
     signature_bytes: &[u8; SCHNORR_SIGNATURE_LEN],
 ) -> Result<(), EngineError> {
+// PROOF_DIAGNOSTIC_BEGIN
+    #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    let mut proof_diagnostic = crate::proof_memo_diagnostics::cold_verifier_span();
+// PROOF_DIAGNOSTIC_END
     let signature = Signature::from_slice(signature_bytes).map_err(|_| {
         EngineError::InvalidAccountIdentityProof(
             "proof signature is not a Nostr Schnorr signature".into(),
@@ -487,6 +491,10 @@ fn verify_proof_signature(
             "proof signature does not verify for credential identity".into(),
         )
     })?;
+// PROOF_DIAGNOSTIC_BEGIN
+    #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    proof_diagnostic.success();
+// PROOF_DIAGNOSTIC_END
     Ok(())
 }
 

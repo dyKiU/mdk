@@ -128,9 +128,18 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         .await
         .unwrap();
     // No enrollment_packet/receive_enrollment_packet/finalize calls by the host.
+// PROOF_DIAGNOSTIC_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    let mut third_cost_guard = cgka_engine::proof_memo_diagnostics::PhaseGuard::begin(1);
+// PROOF_DIAGNOSTIC_END
     eprintln!("automatic-enrollment-control stage=third-device-completion");
     wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
     eprintln!("automatic-enrollment-control stage=third-device-completed");
+// PROOF_DIAGNOSTIC_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    { third_cost_guard.completed(); drop(third_cost_guard); }
+// PROOF_DIAGNOSTIC_END
+
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             if apps[..3].iter().all(|app| {
@@ -282,6 +291,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     } else {
         None
     };
+// PROOF_DIAGNOSTIC_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    let mut fourth_cost_guard = cgka_engine::proof_memo_diagnostics::PhaseGuard::begin(2);
+// PROOF_DIAGNOSTIC_END
     eprintln!("automatic-enrollment-control stage=fourth-device-completion");
     wait_for_automatic_phase_with_approvals(
         &a,
@@ -291,6 +304,11 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     )
     .await;
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
+// PROOF_DIAGNOSTIC_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    { fourth_cost_guard.completed(); drop(fourth_cost_guard); }
+// PROOF_DIAGNOSTIC_END
+
     drop(held_release);
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
