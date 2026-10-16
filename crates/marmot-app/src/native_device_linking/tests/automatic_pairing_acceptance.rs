@@ -24,6 +24,59 @@ async fn completed_sibling_consent_services_initial_progress_without_periodic_ti
     four_device_enrollment(HeldPublication::CompletionWake).await;
 }
 // COMPLETION_TEST_END
+// CADENCE_TEST_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+#[tokio::test]
+async fn another_sibling_success_preserves_failed_consent_periodic_retry_cadence() {
+    four_device_enrollment(HeldPublication::ConsentFailureCadence).await;
+}
+#[cfg(feature = "test-policy-overrides")]
+fn cadence_roster_setup_for_test(mode: HeldPublication) -> bool {
+    matches!(mode, HeldPublication::CompletionWake | HeldPublication::ConsentFailureCadence)
+}
+#[cfg(feature = "test-policy-overrides")]
+#[derive(Default)]
+struct ConsentRejectPolicyForTest {
+    target: std::sync::Mutex<Option<cgka_traits::MessageId>>,
+    wire_rejections: std::sync::atomic::AtomicUsize,
+}
+#[cfg(feature = "test-policy-overrides")]
+impl std::fmt::Debug for ConsentRejectPolicyForTest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("ConsentRejectPolicyForTest") }
+}
+#[cfg(feature = "test-policy-overrides")]
+impl nostr_relay_builder::prelude::WritePolicy for ConsentRejectPolicyForTest {
+    fn admit_event<'a>(&'a self, event: &'a nostr_relay_builder::prelude::Event, _: &'a std::net::SocketAddr)
+        -> nostr_relay_builder::prelude::BoxedFuture<'a, nostr_relay_builder::prelude::PolicyResult> {
+        Box::pin(async move {
+            let reject = self.target.lock().expect("cadence relay target").as_ref().is_some_and(|target| target.as_bytes() == event.id.as_bytes());
+            if reject {
+                self.wire_rejections.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                nostr_relay_builder::prelude::PolicyResult::Reject("blocked: controlled consent rejection".into())
+            } else { nostr_relay_builder::prelude::PolicyResult::Accept }
+        })
+    }
+}
+#[cfg(feature = "test-policy-overrides")]
+enum ConsentCadenceRelayForTest {
+    Ordinary(nostr_relay_builder::MockRelay),
+    Rejection(nostr_relay_builder::LocalRelay),
+}
+#[cfg(feature = "test-policy-overrides")]
+impl ConsentCadenceRelayForTest {
+    async fn run(mode: HeldPublication) -> (Self, Option<std::sync::Arc<ConsentRejectPolicyForTest>>) {
+        if mode == HeldPublication::ConsentFailureCadence {
+            let policy = std::sync::Arc::new(ConsentRejectPolicyForTest::default());
+            let relay = nostr_relay_builder::LocalRelay::new(nostr_relay_builder::RelayBuilder::default().write_policy(policy.clone()));
+            relay.run().await.unwrap();
+            (Self::Rejection(relay), Some(policy))
+        } else { (Self::Ordinary(nostr_relay_builder::MockRelay::run().await.unwrap()), None) }
+    }
+    async fn url(&self) -> String {
+        match self { Self::Ordinary(relay) => relay.url().await.to_string(), Self::Rejection(relay) => relay.url().await.to_string() }
+    }
+}
+// CADENCE_TEST_END
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum HeldPublication {
     None,
@@ -31,6 +84,10 @@ enum HeldPublication {
     // COMPLETION_TEST_BEGIN
     #[cfg(feature = "test-policy-overrides")]
     CompletionWake,
+    // CADENCE_TEST_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    ConsentFailureCadence,
+    // CADENCE_TEST_END
     // COMPLETION_TEST_END
     SiblingConsent,
     Automatic,
@@ -40,8 +97,13 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     #[cfg(feature = "test-policy-overrides")]
     install_publication_diagnostic_subscriber();
     use cgka_traits::StorageProvider;
+    // CADENCE_RELAY_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    let (relay, cadence_policy) = ConsentCadenceRelayForTest::run(held_publication).await;
+    #[cfg(not(feature = "test-policy-overrides"))]
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();
+    // CADENCE_RELAY_END
     let keys = nostr::prelude::Keys::generate();
     let dirs: [tempfile::TempDir; 4] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
     let apps = std::array::from_fn::<_, 4, _>(|index| {
@@ -142,7 +204,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     // No enrollment_packet/receive_enrollment_packet/finalize calls by the host.
     // COMPLETION_TEST_BEGIN
     #[cfg(feature = "test-policy-overrides")]
-    let roster_setup_only = held_publication == HeldPublication::CompletionWake;
+    let roster_setup_only = cadence_roster_setup_for_test(held_publication);
     #[cfg(not(feature = "test-policy-overrides"))]
     let roster_setup_only = false;
     // This separate schedule test establishes real membership, not prior
@@ -257,6 +319,14 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         held_consent
     };
     // COMPLETION_TEST_END
+    // CADENCE_TEST_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    let cadence_holds = if held_publication == HeldPublication::ConsentFailureCadence {
+        Some(apps[3].relay_plane.hold_two_sibling_consents_for_test(cgka_traits::MemberId::new(keys.public_key().to_bytes().to_vec())))
+    } else { None };
+    #[cfg(feature = "test-policy-overrides")]
+    let mut cadence_result = None;
+    // CADENCE_TEST_END
     d.continue_automatic_linking(d.snapshot().await.unwrap().revision, true)
         .await
         .unwrap();
@@ -286,6 +356,75 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         approvals.push(approval);
     }
 
+    // CADENCE_TEST_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    if let Some([(failed_observed, failed_release), (successful_observed, successful_release)]) = cadence_holds {
+        struct ReleaseConsents([std::sync::Arc<tokio::sync::Notify>; 2]);
+        impl Drop for ReleaseConsents { fn drop(&mut self) { for release in &self.0 { release.notify_one(); } } }
+        let releases = ReleaseConsents([failed_release, successful_release]);
+        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                if apps.iter().all(|app| {
+                    let storage = app.account_storage("test").unwrap();
+                    let store = storage.private_roster_settlement_storage().unwrap();
+                    store.read_round().unwrap().is_some_and(|round| round.phase == cgka_traits::private_roster_settlement::PrivateSettlementPhase::Completed && round.anchor.successor.leaves.len() == 4 && store.read_facts().unwrap().len() == 4)
+                }) { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        }).await.expect("cadence requires four real completed primary stores");
+        eprintln!("completion-cadence-control stage=primary-round-ready");
+        let failed = tokio::time::timeout(std::time::Duration::from_secs(10), failed_observed).await.expect("first actual consent held").expect("first actual consent observed");
+        let successful = tokio::time::timeout(std::time::Duration::from_secs(10), successful_observed).await.expect("second actual consent held").expect("second actual consent observed");
+        assert!(failed.id != successful.id, "cadence must hold two distinct genuine consents");
+        eprintln!("completion-cadence-control stage=two-real-consents-held");
+        let periodic = runtimes[3].hold_periodic_linking_for_test("test");
+        tokio::time::timeout(std::time::Duration::from_secs(10), periodic.observed()).await.expect("cadence recipient periodic arm gated");
+        eprintln!("completion-cadence-control stage=periodic-arm-gated");
+        let policy = cadence_policy.as_ref().expect("real rejection policy installed");
+        *policy.target.lock().expect("cadence relay target") = Some(failed.id.clone());
+        releases.0[0].notify_one();
+        tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            loop {
+                if d.consent_cadence_for_test(&failed.id).is_some_and(|counts| counts[1] == 1) { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        }).await.expect("first real relay rejection must queue its actual owned task error");
+        assert!(policy.wire_rejections.load(std::sync::atomic::Ordering::Acquire) > 0, "actual relay must reject the frozen event");
+        *policy.target.lock().expect("cadence relay target") = None;
+        eprintln!("completion-cadence-control stage=actual-error-queued");
+        releases.0[1].notify_one();
+        tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            loop {
+                if d.consent_cadence_for_test(&successful.id).is_some_and(|counts| counts[2] >= 1)
+                    && d.consent_cadence_for_test(&failed.id).is_some_and(|counts| counts[3] + counts[4] > 0) { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        }).await.expect("another real consent success must cause an actual completion pass");
+        let targets = managers[3].device_linking_targets("test").await.unwrap();
+        assert!(targets.len() == 1 && targets[0].device_count == 4, "cadence foreground command reads real four-device roster");
+        eprintln!("completion-cadence-control stage=other-real-success-serviced");
+        eprintln!("completion-cadence-control stage=fresh-actor-progress");
+        let before = d.consent_cadence_for_test(&failed.id).unwrap();
+        let first_turn = tokio::time::timeout(std::time::Duration::from_secs(10), periodic.one_selected_turn_for_test()).await.expect("first actual periodic turn completes");
+        let first = d.consent_cadence_for_test(&failed.id).unwrap();
+        eprintln!("completion-cadence-control stage=first-periodic-turn-completed");
+        let second_turn = tokio::time::timeout(std::time::Duration::from_secs(10), periodic.one_selected_turn_for_test()).await.expect("second actual periodic turn completes");
+        let second = d.consent_cadence_for_test(&failed.id).unwrap();
+        eprintln!("completion-cadence-control stage=second-periodic-turn-completed");
+        tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            loop {
+                if d.consent_cadence_for_test(&failed.id).is_some_and(|counts| counts[2] >= 1) { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        }).await.expect("actual later retry must receive successful required relay acknowledgements");
+        let acknowledged = d.consent_cadence_for_test(&failed.id).unwrap();
+        eprintln!("completion-cadence-control stage=actual-later-retry-ack");
+        cadence_result = Some((before, first, second, acknowledged, first_turn, second_turn, policy.wire_rejections.load(std::sync::atomic::Ordering::Acquire)));
+        drop(periodic);
+        drop(releases);
+        eprintln!("completion-cadence-control stage=periodic-arm-released");
+    }
+    // CADENCE_TEST_END
     // COMPLETION_TEST_BEGIN
     #[cfg(feature = "test-policy-overrides")]
     let mut completion_wake_result = None;
@@ -505,6 +644,17 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         );
     }
     // COMPLETION_TEST_END
+    // CADENCE_TEST_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    if let Some((before, first, second, acknowledged, first_turn, second_turn, wire_rejections)) = cadence_result {
+        eprintln!("completion-cadence-control stage=normal-completion-and-positive-cleanup");
+        eprintln!("completion-cadence-control result before={before:?} first={first:?} second={second:?} acknowledged={acknowledged:?} turns={first_turn}/{second_turn} wire_rejections={wire_rejections}");
+        assert!(before[0] == 1 && before[1] == 1 && first_turn == 1 && second_turn == 2 && second[0] >= 2 && acknowledged[2] >= 1,
+            "real failed consent and actual selected periodic retry prerequisites must hold");
+        assert!(before[3] > 0 && before[4] == 0 && first[0] == 1 && first[5] == 1 && second[0] == 2,
+            "another sibling success must not consume a failed consent before its periodic turn");
+    }
+    // CADENCE_TEST_END
 }
 
 #[tokio::test]

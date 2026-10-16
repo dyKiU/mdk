@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
+        options: [consent-cadence-preflight, consent-cadence-controls, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
         default: full
       completion_control_run_id:
         description: Prior successful controls plus both static cohorts for the exact current commit (required for mutations)
@@ -37,6 +37,100 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  consent-cadence-preflight:
+    if: github.event_name == 'workflow_dispatch' && startsWith(inputs.scope, 'consent-cadence-')
+    name: Real transport-error cadence source parser and format preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - run: |
+          python3 scripts/verify_upstream_consent_cadence_source.py
+          cargo fmt --all
+          git diff -- crates > "$RUNNER_TEMP/consent-cadence-format.patch"
+          git diff --exit-code -- crates
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: consent-cadence-source-preflight
+          path: |
+            consent-cadence-source.json
+            ${{ runner.temp }}/consent-cadence-format.patch
+          if-no-files-found: error
+          retention-days: 14
+  consent-cadence-controls:
+    needs: consent-cadence-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'consent-cadence-controls'
+    name: One real failed Consent periodic retry ordering control
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Focused completion controls'
+          python3 scripts/verify_upstream_consent_cadence_source.py
+          python3 scripts/qualify_upstream_consent_cadence.py --mode controls
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: consent-cadence-controls
+          path: |
+            consent-cadence-evidence/result.json
+            consent-cadence-source.json
+          if-no-files-found: error
+          retention-days: 14
+  consent-cadence-static:
+    needs: consent-cadence-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'consent-cadence-controls'
+    name: Consent cadence App static (${{ matrix.cohort }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [default, experimental]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - env:
+          CARGO_INCREMENTAL: '1'
+          COMPLETION_STATIC_COHORT: ${{ matrix.cohort }}
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Focused completion static'
+          python3 scripts/verify_upstream_consent_cadence_source.py
+          python3 scripts/qualify_upstream_completion.py --mode static --cohort "$COMPLETION_STATIC_COHORT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: consent-cadence-static-${{ matrix.cohort }}
+          path: |
+            completion-candidate-evidence/result.json
+            consent-cadence-source.json
+          if-no-files-found: error
+          retention-days: 14
   completion-candidate-preflight:
     if: github.event_name == 'workflow_dispatch' && startsWith(inputs.scope, 'completion-candidate-')
     name: Reviewed completion candidate source parser and format preflight

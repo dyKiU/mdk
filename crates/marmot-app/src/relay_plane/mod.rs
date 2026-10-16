@@ -144,6 +144,10 @@ struct MarmotRelayPlaneInner {
         feature = "test-policy-overrides"
     ))]
     selected_welcome_gate: std::sync::Mutex<Option<SelectedWelcomePublicationGate>>,
+    // CADENCE_TEST_BEGIN
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    sibling_cadence_gates: std::sync::Mutex<std::collections::VecDeque<SelectedWelcomePublicationGate>>,
+    // CADENCE_TEST_END
     #[cfg(all(
         test,
         feature = "experimental-device-sync",
@@ -1409,6 +1413,20 @@ impl MarmotRelayPlane {
         self.hold_next_selected_publication(account, SelectedPublicationClass::Group)
     }
 
+    // CADENCE_TEST_BEGIN
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    pub(crate) fn hold_two_sibling_consents_for_test(&self, account: MemberId) -> [(tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>, Arc<Notify>); 2] {
+        assert!(self.inner.selected_welcome_gate.lock().unwrap().is_none(), "no other publication gate");
+        let mut gates = self.inner.sibling_cadence_gates.lock().unwrap();
+        assert!(gates.is_empty(), "one bounded two-consent gate");
+        std::array::from_fn(|_| {
+            let (observed, receiver) = tokio::sync::oneshot::channel();
+            let release = Arc::new(Notify::new());
+            gates.push_back(SelectedWelcomePublicationGate { account: account.clone(), class: SelectedPublicationClass::SiblingConsent, observed, release: release.clone() });
+            (receiver, release)
+        })
+    }
+    // CADENCE_TEST_END
     #[cfg(all(
         test,
         feature = "experimental-device-sync",
@@ -1607,6 +1625,10 @@ impl MarmotRelayPlane {
                     feature = "test-policy-overrides"
                 ))]
                 selected_welcome_gate: std::sync::Mutex::new(None),
+                // CADENCE_TEST_BEGIN
+                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                sibling_cadence_gates: std::sync::Mutex::new(std::collections::VecDeque::new()),
+                // CADENCE_TEST_END
                 #[cfg(all(
                     test,
                     feature = "experimental-device-sync",
@@ -3965,6 +3987,19 @@ impl MarmotRelayPlaneAccountAdapter {
         &self,
         request: TransportPublishRequest,
     ) -> Result<TransportPublishReport, TransportAdapterError> {
+        // CADENCE_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        {
+            let gate = {
+                let mut gates = self.relay_plane.inner.sibling_cadence_gates.lock().unwrap();
+                if gates.front().is_some_and(|gate| gate.account == request.account_id) { gates.pop_front() } else { None }
+            };
+            if let Some(gate) = gate {
+                let _ = gate.observed.send(request.message.clone());
+                gate.release.notified().await;
+            }
+        }
+        // CADENCE_TEST_END
         #[cfg(all(test, feature = "test-policy-overrides"))]
         {
             let gate = {

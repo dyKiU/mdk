@@ -408,6 +408,12 @@ impl DeviceLinkingSession {
             .completed_consent_progress_for_test(identity, policies)
     }
     // COMPLETION_TEST_END
+    // CADENCE_TEST_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn consent_cadence_for_test(&self, identity: &cgka_traits::MessageId) -> Option<[usize; 6]> {
+        self.inner.sharing_choice.lock().expect("sharing choice").as_ref()?.consent_cadence_for_test(identity)
+    }
+    // CADENCE_TEST_END
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn sibling_child_diagnostics_for_test(
         &self,

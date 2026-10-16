@@ -3055,6 +3055,10 @@ async fn run_app_runtime_account_worker(
                         #[cfg(not(feature = "experimental-device-sync"))]
                         std::future::pending::<()>().await;
                     }, if cfg!(feature = "experimental-device-sync") => {
+                        // CADENCE_TEST_BEGIN
+                        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                        let cadence_turn = shared.selected_periodic_turn_for_test(&account_label);
+                        // CADENCE_TEST_END
                         #[cfg(feature = "experimental-device-sync")]
                         if !lifecycle.is_stopping() {
                             if client.maintain_device_linking(Instant::now()).await.is_err() {
@@ -3117,6 +3121,10 @@ async fn run_app_runtime_account_worker(
                                 Err(error) => tracing::debug!(target: "marmot_app::device_linking", method = "private_echo_selection", error_kind = error.kind(), "private acquisition selection deferred"),
                             }
                         }
+                        // CADENCE_TEST_BEGIN
+                        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                        if let Some(turn) = cadence_turn { turn.complete(); }
+                        // CADENCE_TEST_END
                     }
                     _ = maintenance_tick.tick() => {
                         local_submission_due = true;

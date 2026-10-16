@@ -445,6 +445,16 @@ impl OriginalEnrollmentSharingChoice {
     }
 
     // COMPLETION_TEST_END
+    // CADENCE_TEST_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn consent_cadence_for_test(&self, identity: &cgka_traits::MessageId) -> Option<[usize; 6]> {
+        for state in self.children.lock().expect("sibling children").iter() {
+            let probe = state.consent_cadence_for_test.lock().expect("consent cadence observation");
+            if probe.first_message.as_ref() == Some(identity) { return Some(probe.counts); }
+        }
+        None
+    }
+    // CADENCE_TEST_END
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn child_diagnostics_for_test(
         &self,
@@ -1366,6 +1376,32 @@ impl TrustedAccountSharingLease for SiblingLease {
     }
 }
 
+// CADENCE_TEST_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Default)]
+pub(crate) struct ConsentCadenceProbeForTest {
+    first_message: Option<cgka_traits::MessageId>,
+    // Owned task scheduling, queued Err, queued Ok, Initial-retained Err,
+    // Initial-consumed Err, Periodic-consumed Err. Never wire-attempt counts.
+    counts: [usize; 6],
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+struct ObservedCadenceResultSenderForTest {
+    inner: tokio::sync::oneshot::Sender<Result<(), ClientLinkingError>>,
+    probe: Option<Arc<Mutex<ConsentCadenceProbeForTest>>>,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+impl ObservedCadenceResultSenderForTest {
+    fn send(self, outcome: Result<(), ClientLinkingError>) -> Result<(), Result<(), ClientLinkingError>> {
+        let success = outcome.is_ok();
+        let queued = self.inner.send(outcome);
+        if queued.is_ok() && let Some(probe) = self.probe {
+            probe.lock().expect("consent cadence observation").counts[if success { 2 } else { 1 }] += 1;
+        }
+        queued
+    }
+}
+// CADENCE_TEST_END
 // Network waits never borrow the account worker or create another original.
 // Dropping the exact channel cancels its one in-flight publication.
 struct SiblingPublication {
@@ -2036,9 +2072,21 @@ impl AppClient {
                 if pending.outcome.as_ref().is_some_and(Result::is_err)
                     || self.validate_sibling_publication(entry).is_err()
                 {
+                    // CADENCE_TEST_BEGIN
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    if entry.recipient && entry.publication.as_ref().is_some_and(|pending| pending.outcome.as_ref().is_some_and(Result::is_err)) {
+                        entry.state.consent_cadence_for_test.lock().expect("consent cadence observation").counts[3] += 1;
+                    }
+                    // CADENCE_TEST_END
                     return Ok(false);
                 }
             }
+            // CADENCE_TEST_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if entry.recipient && entry.publication.as_ref().is_some_and(|pending| pending.outcome.as_ref().is_some_and(Result::is_err)) {
+                entry.state.consent_cadence_for_test.lock().expect("consent cadence observation").counts[if mode == SiblingAdvanceMode::Initial { 4 } else { 5 }] += 1;
+            }
+            // CADENCE_TEST_END
             let mut pending = entry
                 .publication
                 .take()
@@ -2434,6 +2482,18 @@ impl AppClient {
         // COMPLETION_TEST_END
         let completion = self.linking_owner.sibling_publication_completions.clone();
         let (result_tx, result) = tokio::sync::oneshot::channel();
+        // CADENCE_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let result_tx = {
+            let probe = consent.then(|| entry.state.consent_cadence_for_test.clone());
+            if let Some(probe) = &probe {
+                let mut observed = probe.lock().expect("consent cadence observation");
+                observed.counts[0] += 1;
+                if observed.first_message.is_none() { observed.first_message = completion_consent_identity.clone(); }
+            }
+            ObservedCadenceResultSenderForTest { inner: result_tx, probe }
+        };
+        // CADENCE_TEST_END
         let task = tokio::spawn(async move {
             let outcome = async {
             let revoked = state.revoked.notified();

@@ -83,6 +83,10 @@ pub(crate) struct State {
     aliases: AtomicUsize,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) sibling_diagnostics: Mutex<SiblingMaintenanceDiagnostics>,
+    // CADENCE_TEST_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) consent_cadence_for_test: Arc<Mutex<crate::client::device_linking::sibling_sharing::ConsentCadenceProbeForTest>>,
+    // CADENCE_TEST_END
 }
 #[derive(Default)]
 pub(crate) struct Progress {
@@ -119,6 +123,10 @@ impl State {
             aliases: AtomicUsize::new(0),
             #[cfg(all(test, feature = "test-policy-overrides"))]
             sibling_diagnostics: Mutex::new(SiblingMaintenanceDiagnostics::default()),
+            // CADENCE_TEST_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            consent_cadence_for_test: Arc::new(Mutex::new(Default::default())),
+            // CADENCE_TEST_END
         })
     }
     pub(crate) fn live(&self) -> bool {
