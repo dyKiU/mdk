@@ -50,6 +50,12 @@ pub(super) struct DeparturePublicationIdentity {
     reply: Option<(DeliveryKind, bool, bool, bool)>,
 }
 impl DepartureProgress {
+    // BODY_NEGATIVE_TEST_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn complete_assembly_for_test(&self) -> bool {
+        self.assembly.as_ref().is_some_and(|(_, assembly)| !assembly.fragments.is_empty() && assembly.fragments.iter().all(Option::is_some))
+    }
+    // BODY_NEGATIVE_TEST_END
     pub(super) fn publication_identity(&self) -> Option<DeparturePublicationIdentity> {
         self.pending
             .as_ref()
@@ -552,7 +558,17 @@ impl AppClient {
                             )
                         },
                     )
+                    // BODY_NEGATIVE_TEST_BEGIN
+                    .inspect_err(|_error| {
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        super::body_negative_probe::sql_failure(self.app.account_home().root(), entry, &intent.group, _error);
+                    })
+                    // BODY_NEGATIVE_TEST_END
                     .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
+                // BODY_NEGATIVE_TEST_BEGIN
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                super::body_negative_probe::commit(self.app.account_home().root(), entry, &intent.group);
+                // BODY_NEGATIVE_TEST_END
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 if !inserted {
                     super::duplicate_departure_probe::observe_duplicate(
