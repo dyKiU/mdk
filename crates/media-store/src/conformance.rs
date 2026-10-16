@@ -166,6 +166,7 @@ pub fn run_all<H: Harness>(make: &dyn Fn() -> H) {
     a_crash_between_append_and_record_is_cut_off(make());
     a_missing_or_short_wire_file_discards_the_checkpoint(make());
     wire_checkpoints_live_exactly_as_long_as_their_rows(make());
+    a_checkpoint_reader_reads_the_recorded_bytes_and_outlives_its_row(make());
 }
 
 pub fn publish_reads_back_and_reuses_identical_content<H: Harness>(harness: H) {
@@ -664,4 +665,94 @@ pub fn wire_checkpoints_live_exactly_as_long_as_their_rows<H: Harness>(harness: 
     harness.end_checkpoint(0);
     assert_eq!(sweep_all(&store), (0, 1, 0));
     assert!(!store.wire_path(&id).exists());
+}
+
+/// A checkpoint reader reads exactly the recorded bytes, from the start and
+/// again after a rewind. It keeps the file it opened: the sweep leaves it
+/// alone and the row's deletion does not cut the read short. A fenced
+/// attempt or a missing row gets no reader, a short file is discarded, and
+/// reads stop at close.
+pub fn a_checkpoint_reader_reads_the_recorded_bytes_and_outlives_its_row<H: Harness>(harness: H) {
+    use std::io::Read;
+    let store = store(&harness);
+    assert!(
+        store
+            .checkpoint_reader(harness.checkpoint(0).as_ref())
+            .unwrap()
+            .is_none()
+    );
+    let target = harness.checkpoint(0);
+    assert!(
+        store
+            .checkpoint_append(target.as_ref(), 0, b"recorded")
+            .unwrap()
+    );
+    let (id, _) = checkpoint_wire(&harness, 0).unwrap();
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(store.wire_path(&id))
+        .unwrap()
+        .write_all(b"-unrecorded")
+        .unwrap();
+    let mut reader = store.checkpoint_reader(target.as_ref()).unwrap().unwrap();
+    assert_eq!(reader.len(), 8);
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, b"recorded");
+    // The domain deletes the row (completion); the open reader still reads.
+    harness.end_checkpoint(0);
+    assert_eq!(
+        sweep_all(&store),
+        (0, 0, 0),
+        "the sweep leaves an open reader alone"
+    );
+    reader.rewind().unwrap();
+    bytes.clear();
+    reader.read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, b"recorded");
+    reader.finish().unwrap();
+    assert!(
+        !store.wire_path(&id).exists(),
+        "finishing unlinks a file whose row is gone"
+    );
+
+    // While the row remains, finishing keeps the file for its attempt.
+    let kept = harness.checkpoint(3);
+    assert!(store.checkpoint_append(kept.as_ref(), 0, b"kept").unwrap());
+    let (kept_id, _) = checkpoint_wire(&harness, 3).unwrap();
+    let reader = store.checkpoint_reader(kept.as_ref()).unwrap().unwrap();
+    reader.finish().unwrap();
+    assert_eq!(wire_len(&store, &kept_id), Some(4));
+
+    // A fenced attempt gets no reader; a short file is discarded.
+    let stale = harness.checkpoint(1);
+    assert!(
+        store
+            .checkpoint_append(stale.as_ref(), 0, b"abcdef")
+            .unwrap()
+    );
+    harness.supersede_checkpoint(1);
+    assert!(store.checkpoint_reader(stale.as_ref()).unwrap().is_none());
+    let current = harness.checkpoint(1);
+    let (id, _) = checkpoint_wire(&harness, 1).unwrap();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(store.wire_path(&id))
+        .unwrap()
+        .set_len(2)
+        .unwrap();
+    assert!(store.checkpoint_reader(current.as_ref()).unwrap().is_none());
+    assert_eq!(checkpoint_wire(&harness, 1), None);
+
+    // Reads stop once the store closes.
+    let target = harness.checkpoint(2);
+    assert!(
+        store
+            .checkpoint_append(target.as_ref(), 0, b"closing")
+            .unwrap()
+    );
+    let mut reader = store.checkpoint_reader(target.as_ref()).unwrap().unwrap();
+    store.close();
+    let mut byte = [0; 1];
+    assert!(reader.read(&mut byte).is_err());
 }

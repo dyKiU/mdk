@@ -692,24 +692,32 @@ pub(super) fn complete_acquired_stored(
     let digest = job.plaintext_digest()?;
     let clock = crate::unix_now_seconds;
     let target = storage.attachment_publication(job, &clock);
-    // A retried file attempt stages the body again before publishing it, so it
-    // needs five bodies. A retried in-memory attempt needs its store file and
-    // the rest of its checkpoint, which stays on disk. The decrypted file
-    // stays held until the headroom is measured below.
-    let (published, len, required, held, _staged) = match body {
-        crate::client::AcquiredMediaBody::File(file) => {
-            let mut reader = file.reader()?;
-            let published = media.publish(
-                &target,
-                Category::Retained,
-                &mut reader,
-                file.len,
-                digest,
-                now,
-                cancelled,
-            );
-            let len = file.len;
-            (published, len, len.saturating_mul(5), len, Some(file))
+    // A retried attempt of either sink needs its store file and whatever of
+    // its ciphertext is not checkpointed: the checkpoint stays on disk, a
+    // file body's staging does not. That staging is held until the headroom
+    // is measured below.
+    let saved = storage
+        .attachment_checkpoint_recorded(&job.reference)
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+    let (published, len, held, staged) = match body {
+        crate::client::AcquiredMediaBody::File(mut file) => {
+            let len = file.plaintext_len;
+            let published = match file.plaintext_reader() {
+                Ok(mut reader) => media.publish(
+                    &target,
+                    Category::Retained,
+                    &mut reader,
+                    len,
+                    digest,
+                    now,
+                    cancelled,
+                ),
+                Err(_) => Err(MediaError::Io(std::io::ErrorKind::InvalidData)),
+            };
+            let held = file.ciphertext.staged_bytes();
+            (published, len, held, Some(file))
         }
         crate::client::AcquiredMediaBody::Memory(result) => {
             let plaintext = zeroize::Zeroizing::new(result.plaintext);
@@ -723,13 +731,7 @@ pub(super) fn complete_acquired_stored(
                 now,
                 cancelled,
             );
-            let saved = storage
-                .attachment_checkpoint_recorded(&job.reference)
-                .ok()
-                .flatten()
-                .unwrap_or(0);
-            let required = media_store::DiskPolicy::download_need(len, saved);
-            (published, len, required, 0, None)
+            (published, len, 0, None)
         }
         crate::client::AcquiredMediaBody::Retained => return Ok(()),
     };
@@ -741,6 +743,7 @@ pub(super) fn complete_acquired_stored(
         }
         // The disk (or database) is full: park, never retry on a timer.
         Err(MediaError::Capacity) => {
+            let required = media_store::DiskPolicy::download_need(len, saved);
             let headroom = full_disk_headroom(directory, &policy, len, required, held);
             storage.block_attachment_storage(job, headroom, now)?;
         }
@@ -749,6 +752,11 @@ pub(super) fn complete_acquired_stored(
         Err(_) => {
             storage.fail_attachment_acquisition(job, Some(retry_at(storage, job, now)))?;
         }
+    }
+    // Only now, with the job's outcome recorded: a published job's wire file
+    // goes (its row went with the publication), staging is deleted.
+    if let Some(file) = staged {
+        file.ciphertext.finish();
     }
     Ok(())
 }

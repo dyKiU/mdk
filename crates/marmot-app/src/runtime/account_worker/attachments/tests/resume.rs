@@ -93,12 +93,35 @@ fn resume_context(
     }
 }
 
-/// The media store holding the account's wire checkpoints in these tests.
+/// A media store over the account's own `media/` directory, where the app's
+/// store (which publishes and sweeps) finds the same wire checkpoints.
 fn test_media(store: &SqliteAccountStorage, dir: &std::path::Path) -> crate::AccountMediaStore {
     media_store::MediaStore::new(
-        dir.join(media_store::MEDIA_DIRECTORY),
+        AccountHome::open(dir)
+            .account_dir("alice")
+            .join(media_store::MEDIA_DIRECTORY),
         storage_sqlite::SqliteMediaCatalog::new(store.clone()),
     )
+}
+
+/// `.wire` checkpoint files in the account's media directory.
+fn wire_files(dir: &std::path::Path) -> usize {
+    let root = AccountHome::open(dir)
+        .account_dir("alice")
+        .join(media_store::MEDIA_DIRECTORY);
+    std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|shard| shard.path().is_dir())
+        .flat_map(|shard| {
+            std::fs::read_dir(shard.path())
+                .into_iter()
+                .flatten()
+                .flatten()
+        })
+        .filter(|entry| entry.file_name().to_string_lossy().ends_with(".wire"))
+        .count()
 }
 
 /// Saves `bytes` as a new checkpoint at offset zero, at the time `clock`
@@ -196,15 +219,18 @@ async fn file_attachment_resume_survives_irregular_chunks_and_publishes_authenti
     };
     assert!(fetch().await.is_err());
     let prefix = context
-        .load_file(
+        .load_wire(
             &url::Url::parse(url).unwrap(),
             crate::MAX_FILE_MEDIA_CIPHERTEXT_BYTES,
-            staging.clone(),
+            Arc::default(),
         )
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(prefix.0.len, (ATTACHMENT_CHECKPOINT_BYTES + 123) as u64);
+    // The interrupted tail is checkpointed too, in the wire file; nothing
+    // is staged.
+    assert_eq!(prefix.received, (ATTACHMENT_CHECKPOINT_BYTES + 123) as u64);
+    assert_eq!(std::fs::read_dir(&staging).map_or(0, |d| d.count()), 0);
     assert!(
         read_retained(
             &store,
@@ -221,6 +247,14 @@ async fn file_attachment_resume_survives_irregular_chunks_and_publishes_authenti
     drop(prefix);
     let downloaded = fetch().await.unwrap();
     assert_eq!(downloaded.len, plain.len() as u64 + 16);
+    assert!(
+        matches!(
+            downloaded.source,
+            crate::media::file_transfer::CiphertextSource::Wire(_)
+        ),
+        "a validated body stays in its wire file"
+    );
+    assert_eq!(wire_files(dir.path()), 1);
     let plain_hash = Sha256::digest(&plain).into();
     let version = crate::EncryptedMediaVersion::V2;
     let key = crate::media::derive_media_file_key(
@@ -237,24 +271,15 @@ async fn file_attachment_resume_survives_irregular_chunks_and_publishes_authenti
         &reference.media_type,
         &reference.file_name,
     );
-    let file = crate::media::file_transfer::decrypt_file(
-        &downloaded,
-        &staging,
-        &key,
-        &[3; 12],
-        &aad,
-        plain_hash,
-        &crate::MediaFileTransferControl::default(),
-    )
-    .unwrap();
+    let file = crate::media::file_transfer::DownloadedFileBody::new(downloaded, key, [3; 12], aad);
     // A final ciphertext update precedes decryption on a slow transfer. The
     // production completion seam must not move that progress backwards.
     context
-        .progress(downloaded.len, Some(downloaded.len), false)
+        .progress(file.ciphertext.len, Some(file.ciphertext.len), false)
         .await
         .unwrap();
     context
-        .completed_file_body(file.len as usize)
+        .completed_file_body(file.plaintext_len, file.ciphertext.staged_bytes())
         .await
         .unwrap();
     complete_acquired(
@@ -286,6 +311,10 @@ async fn file_attachment_resume_survives_irregular_chunks_and_publishes_authenti
         .as_slice(),
         &plain[..100]
     );
+    // Publication decrypted from the wire file and then removed it; no
+    // plaintext or ciphertext copy was ever staged.
+    assert_eq!(wire_files(dir.path()), 0);
+    assert_eq!(std::fs::read_dir(&staging).map_or(0, |d| d.count()), 0);
     server.await.unwrap();
 }
 
@@ -519,11 +548,7 @@ async fn check_resume_failure(failure: ResumeFailure) {
     }
     assert!(
         context
-            .load_file(
-                &url,
-                crate::MAX_FILE_MEDIA_CIPHERTEXT_BYTES,
-                staging.clone()
-            )
+            .load_wire(&url, crate::MAX_FILE_MEDIA_CIPHERTEXT_BYTES, Arc::default(),)
             .await
             .unwrap()
             .is_none()
@@ -673,10 +698,10 @@ async fn file_attachment_corrupt_ciphertext_is_terminal_and_never_readable() {
     assert!(matches!(result, Err(AttachmentDownloadFailure::Stop(_))));
     assert!(
         context
-            .load_file(
+            .load_wire(
                 &url::Url::parse(&reference.locators[0].value).unwrap(),
                 crate::MAX_FILE_MEDIA_CIPHERTEXT_BYTES,
-                dir.path().join("media-staging")
+                Arc::default(),
             )
             .await
             .unwrap()
@@ -689,9 +714,7 @@ async fn file_attachment_corrupt_ciphertext_is_terminal_and_never_readable() {
             .is_none()
     );
     assert_eq!(
-        std::fs::read_dir(dir.path().join("media-staging"))
-            .unwrap()
-            .count(),
+        std::fs::read_dir(dir.path().join("media-staging")).map_or(0, |d| d.count()),
         0
     );
     server.await.unwrap();

@@ -31,13 +31,15 @@
 - Download checkpoints keep their ciphertext in append-only `.wire` files in
   the account's `media/` directory instead of SQLCipher rows (mdk#2314).
   Checkpoints saved by an older build are discarded on upgrade.
-- Download admission and in-memory downloads need the configured disk reserve
-  plus twice the body (its checkpoint and its stored file) instead of four
-  times. Large explicit downloads streamed to a file still need four times
-  until they checkpoint straight into the wire file. A checkpoint write the
-  disk cannot take, or a full disk while publishing an in-memory body, parks
-  the job as `StorageBlocked` for what its retry still writes, never on a
-  retry timer.
+- Downloads need the configured disk reserve plus twice the body (its
+  ciphertext and its stored file) instead of four times; bytes already
+  checkpointed count once. Large explicit downloads streamed to a file write
+  their ciphertext straight into the `.wire` checkpoint (or, without a strong
+  validator, one private staging file) and publication decrypts it straight
+  into the encrypted store file, so no plaintext copy is written to disk. A
+  checkpoint write the disk cannot take, or a full disk while publishing a
+  body, parks the job as `StorageBlocked` for what its retry still writes,
+  never on a retry timer.
 - Publication, hashing and encryption of downloaded bodies run on the blocking
   pool for in-memory bodies too, never on the account worker.
 - Hosts must exclude the account directory, including `media/`, from cloud and
@@ -86,10 +88,11 @@
   paged backwards before its end-of-stored-events counts, so older events in
   the replay window are no longer skipped (#2263).
 - An explicit attachment download the device lacks room to publish no longer
-  retries forever. The publication reserve (disk reserve plus four times the
-  plaintext) is checked as soon as a response declares the size, as a body
-  grows, and before the completed-body receipt, counting the staging,
-  checkpoint and decrypted-file bytes the attempt itself still has to write.
+  retries forever. The download's disk need (disk reserve plus twice the body:
+  its ciphertext and its stored file, less what is already checkpointed) is
+  checked as soon as a response declares the size, as a body grows, and
+  before the completed-body receipt, counting only the bytes the attempt
+  itself still has to write.
   A shortage, or a database that reports it is full while publishing, parks
   the job as `AttachmentTransferState::StorageBlocked` with its ciphertext
   checkpoint instead of scheduling a timer, recording the free space it needs
@@ -101,11 +104,9 @@
   tail; without one both start over. A full database records at least the free
   space seen at the refusal plus the body and withdraws the completed-body
   receipt. If even the park write fails, the error is returned and the lease
-  recovers the job. Parked checkpoints keep their quota reservation for at
-  most seven days after the latest park. Explicit bodies between the transfer
-  limit and 512 MiB now take the file sink and need the reserve plus five
-  bodies free (six with a strong validator) instead of about four, because
-  their staging and checkpoint copies are counted (#2239).
+  recovers the job. Parked checkpoints are kept for at most seven days after
+  the latest park. Explicit bodies between the transfer limit and 512 MiB take
+  the file sink, which follows the same rule (#2239).
 - Receiving an attachment no longer holds several copies of it in native
   memory. The body buffer is reserved once from the declared length (an
   undeclared length grows geometrically to half the transfer limit and then

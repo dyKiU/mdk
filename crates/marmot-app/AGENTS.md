@@ -63,7 +63,10 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
   `DiskPolicy::download_need` (worker admission, readmission and the attempt's checks share `capacity`);
   keep Range validation, protected partials and complete-body authentication separate from native progress/access.
   `media/file_transfer.rs` owns file-backed upload preparation: private owner-only snapshots under the account's
-  `media-staging/`, streaming EVP ChaCha20-Poly1305 that reproduces the in-memory wire bytes, and the
+  `media-staging/`, streaming EVP ChaCha20-Poly1305 that reproduces the in-memory wire bytes, the download side's
+  `DownloadedFileBody` (ciphertext in the job's `.wire` checkpoint, held open by the store's `CheckpointReader`, or
+  one staging file without a validator; authenticated into a discard sink before the receipt and decrypted by
+  `DecryptingReader` straight into the store publish; never write a plaintext file for a download), and the
   `MediaFileTransferControl` cancellation/progress handle. Prepare every snapshot before the first PUT, keep chunks
   at 64 KiB, and stage retention through `stage_attachment_upload_files` (never a whole-file `Vec`).
 - Downloaded attachment bodies are retained in the account's encrypted media store (`media-store` crate,

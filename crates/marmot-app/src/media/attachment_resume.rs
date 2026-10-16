@@ -21,6 +21,35 @@ use storage_sqlite::{
 /// file, for the in-memory sink.
 pub(super) type RestoredPartial = (AttachmentPartial, Vec<u8>);
 
+/// The file sink's restored checkpoint: its identity, the bytes its wire file
+/// records, and their running hash.
+pub(crate) struct WirePrefix {
+    pub(crate) identity: AttachmentPartialIdentity,
+    pub(crate) received: u64,
+    pub(crate) hash: Sha256,
+}
+
+/// Hashes a restored checkpoint as the store writes it out, stopping when
+/// the transfer is cancelled.
+struct HashingSink<'a> {
+    hash: Sha256,
+    control: &'a super::file_transfer::MediaFileTransferControl,
+}
+
+impl std::io::Write for HashingSink<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.control.is_cancelled() {
+            return Err(std::io::Error::other("media transfer cancelled"));
+        }
+        self.hash.update(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 pub(crate) const AUTOMATIC_TRANSFER_TIMEOUT: std::time::Duration =
     std::time::Duration::from_secs(120);
 pub(super) const BODY_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -212,20 +241,25 @@ impl AttachmentResume {
         }
         Ok(())
     }
-    /// Final progress keeps ciphertext units; only the receipt uses plaintext length.
-    /// The decrypted file is this attempt's own staging at the receipt.
+    /// Final progress keeps ciphertext units; only the receipt uses plaintext
+    /// length. The ciphertext is on disk now (its wire checkpoint, or `held`
+    /// bytes of staging for a body without a validator), so only the store
+    /// file is still to be written.
     pub(crate) async fn completed_file_body(
         &self,
-        plaintext_len: usize,
+        plaintext_len: u64,
+        held: u64,
     ) -> Result<(), AttachmentDownloadFailure> {
-        let ciphertext_len = (plaintext_len as u64)
+        let ciphertext_len = plaintext_len
             .checked_add(super::file_transfer::MEDIA_AEAD_TAG_BYTES)
             .ok_or_else(|| stop("attachment length overflow"))?;
         self.progress(ciphertext_len, Some(ciphertext_len), false)
             .await?;
-        let plaintext_len = plaintext_len as u64;
-        self.record_completed_body(file_sink_bytes(plaintext_len, 0), plaintext_len)
-            .await
+        self.record_completed_body(
+            DiskPolicy::download_need(plaintext_len, plaintext_len),
+            held,
+        )
+        .await
     }
 
     /// The in-memory sink's receipt. Its checkpoint stops growing here, so
@@ -295,43 +329,39 @@ impl AttachmentResume {
         })
     }
 
-    /// The file sink's publication check: until it writes into the wire file
-    /// directly, it still holds a staging copy and a decrypted copy beside the
-    /// checkpoint and the store file, so it needs four times `bytes` free at
-    /// the strictest point of the attempt. It applies this as soon as a size
-    /// is known, again as a body grows, and once more before the
-    /// completed-body receipt.
+    /// A download of a `bytes`-byte body needs the reserve plus
+    /// [`DiskPolicy::download_need`] free: its ciphertext (wire checkpoint or
+    /// staging) and its store file, less the `on_disk` ciphertext bytes free
+    /// space already excludes. Both sinks apply this as soon as a size is
+    /// known, again as a body grows, and once more before the completed-body
+    /// receipt.
     ///
-    /// `ahead` is the staging, checkpoint and decrypted-file growth this
-    /// attempt will still consume before that point, so the check anticipates
-    /// it instead of fetching a body it must then park. `held` is the staging
-    /// this attempt already occupies, which the worker's free-space
-    /// measurement (taken once that staging is gone) does not see. A shortage
-    /// parks the job with the headroom a retried attempt needs beyond the
-    /// reserve: `4 * bytes + ahead + held`. Readmission requires that headroom
-    /// in the worker's frame plus a margin wider than the sub-MiB tail a
-    /// checkpointed body still re-requests, so the first check a readmitted
-    /// attempt reaches passes. Each park records the need its own check
-    /// proved; saved progress may lower a later one, since the next attempt
-    /// then has less left to write. Unknown free space is a transient failure.
-    fn check_publication_capacity(
+    /// `held` is the staging this attempt occupies, which the worker's
+    /// free-space measurement (taken once that staging is gone) does not see;
+    /// a wire checkpoint stays, so it is never held. A shortage parks the job
+    /// with the need plus `held` as its headroom. Readmission requires that
+    /// headroom in the worker's frame plus a margin wider than the sub-MiB
+    /// tail a checkpointed body still re-requests, so the first check a
+    /// readmitted attempt reaches passes. Unknown free space is a transient
+    /// failure.
+    fn check_download_capacity(
         &self,
         bytes: u64,
-        ahead: u64,
+        on_disk: u64,
         held: u64,
     ) -> Result<(), AttachmentDownloadFailure> {
-        self.check_capacity(file_sink_bytes(bytes, ahead), held)
+        self.check_capacity(DiskPolicy::download_need(bytes, on_disk), held)
     }
 
     /// Check publication headroom without recording a completed-body receipt.
     pub(crate) async fn publication_capacity(
         self: &Arc<Self>,
         bytes: u64,
-        ahead: u64,
+        on_disk: u64,
         held: u64,
     ) -> Result<(), AttachmentDownloadFailure> {
         let this = Arc::clone(self);
-        tokio::task::spawn_blocking(move || this.check_publication_capacity(bytes, ahead, held))
+        tokio::task::spawn_blocking(move || this.check_download_capacity(bytes, on_disk, held))
             .await
             .map_err(|_| retry("attachment capacity task failed"))?
     }
@@ -347,14 +377,7 @@ impl AttachmentResume {
         bytes: u64,
         on_disk: u64,
     ) -> Result<(), AttachmentDownloadFailure> {
-        let this = Arc::clone(self);
-        let checked = tokio::task::spawn_blocking(move || {
-            this.check_capacity(DiskPolicy::download_need(bytes, on_disk), 0)
-        })
-        .await
-        .map_err(|_| retry("attachment capacity task failed"))
-        .and_then(|checked| checked);
-        match checked {
+        match self.publication_capacity(bytes, on_disk, 0).await {
             Err(blocked @ AttachmentDownloadFailure::StorageBlocked { .. }) => Err(blocked),
             _ => Ok(()),
         }
@@ -521,74 +544,77 @@ impl AttachmentResume {
         Ok(())
     }
 
-    pub(crate) async fn load_file(
+    /// The file sink's checkpoint for `url`, hashed as the store reads it
+    /// out: nothing is copied, so restoring a prefix needs no disk space. A
+    /// checkpoint whose file cannot resume reads as `None`.
+    pub(crate) async fn load_wire(
         &self,
         url: &url::Url,
         max: u64,
-        directory: std::path::PathBuf,
-    ) -> Result<
-        Option<(
-            super::file_transfer::PrivateMediaFile,
-            AttachmentPartialIdentity,
-        )>,
-        AttachmentDownloadFailure,
-    > {
+        control: Arc<super::file_transfer::MediaFileTransferControl>,
+    ) -> Result<Option<WirePrefix>, AttachmentDownloadFailure> {
         let this = self.clone();
         let locator_digest: [u8; 32] = Sha256::digest(url.as_str().as_bytes()).into();
         tokio::task::spawn_blocking(move || {
-            let (total, saved) = this
-                .storage
-                .attachment_partial_extent(
-                    &this.job,
-                    crate::unix_now_seconds(),
-                    (&this.ciphertext_digest, &locator_digest),
-                )
-                .map_err(|_| retry("partial checkpoint metadata unavailable"))?
-                .unwrap_or((0, 0));
-            // Restoring stages the saved prefix again, and the download then
-            // grows both the staging file and the checkpoint from there to the
-            // total: the same frame as the header and mid-transfer checks.
-            this.check_publication_capacity(
-                total,
-                total
-                    .saturating_sub(saved)
-                    .saturating_mul(2)
-                    .saturating_add(saved),
-                0,
-            )?;
-            let now = crate::unix_now_seconds();
             let expected = (&this.ciphertext_digest, &locator_digest);
             let Some(part) = this
                 .storage
-                .load_attachment_partial(&this.job, now, max, Some(expected))
+                .load_attachment_partial(&this.job, crate::unix_now_seconds(), max, Some(expected))
                 .map_err(|_| retry("partial file checkpoint unavailable"))?
             else {
                 return Ok(None);
             };
-            let mut file = super::file_transfer::PrivateMediaFile::create(&directory)?;
-            let mut writer = file.writer()?;
             let target = this.storage.attachment_checkpoint(
                 &this.job,
                 part.identity.clone(),
                 crate::unix_now_seconds,
             );
-            let restored = this
-                .media
-                .checkpoint_restore(&target, &mut writer)
-                .map_err(|_| retry("partial file checkpoint unavailable"))?;
-            std::io::Write::flush(&mut writer)
-                .map_err(|_| retry("partial file checkpoint unavailable"))?;
-            drop(writer);
-            match restored {
-                Some(received) if received == part.received => {
-                    file.len = received;
-                    Ok(Some((file, part.identity)))
-                }
+            let mut sink = HashingSink {
+                hash: Sha256::new(),
+                control: &control,
+            };
+            let restored = this.media.checkpoint_restore(&target, &mut sink);
+            control.check()?;
+            match restored.map_err(|_| retry("partial file checkpoint unavailable"))? {
+                Some(received) if received == part.received => Ok(Some(WirePrefix {
+                    identity: part.identity,
+                    received,
+                    hash: sink.hash,
+                })),
                 _ => Ok(None),
             }
         })
         .await
         .map_err(|_| retry("partial file checkpoint task failed"))?
+    }
+
+    /// Opens this attempt's finished `len`-byte checkpoint for `url`, to
+    /// verify and publish it in place. The reader keeps the file open past
+    /// the attempt, so publication does not depend on the row it removes.
+    pub(crate) async fn completed_wire(
+        &self,
+        url: &url::Url,
+        len: u64,
+    ) -> Result<
+        media_store::CheckpointReader<storage_sqlite::SqliteMediaCatalog>,
+        AttachmentDownloadFailure,
+    > {
+        let this = self.clone();
+        let locator_digest: [u8; 32] = Sha256::digest(url.as_str().as_bytes()).into();
+        tokio::task::spawn_blocking(move || {
+            let target = this.storage.attachment_checkpoint_matching(
+                &this.job,
+                Some((this.ciphertext_digest, locator_digest)),
+                crate::unix_now_seconds,
+            );
+            this.media
+                .checkpoint_reader(&target)
+                .map_err(|_| retry("file checkpoint unavailable"))?
+                .filter(|reader| reader.len() == len)
+                .ok_or_else(|| retry("file checkpoint incomplete"))
+        })
+        .await
+        .map_err(|_| retry("file checkpoint task failed"))?
     }
 }
 
@@ -781,14 +807,6 @@ pub(super) async fn read_body(
         .await?;
     Ok(bytes)
 }
-/// What the file sink needs free beyond the reserve to publish a body of
-/// `bytes`, with `ahead` still to stage or checkpoint first. It still holds a
-/// staging copy and a decrypted copy beside the checkpoint and the store
-/// file; mdk#2314 step 2b-2 moves it onto [`DiskPolicy::download_need`].
-fn file_sink_bytes(bytes: u64, ahead: u64) -> u64 {
-    bytes.saturating_mul(4).saturating_add(ahead)
-}
-
 /// Next buffer capacity for an undeclared-length body that needs `needed`
 /// bytes, growing from `capacity` under the admitted `limit`: doubling up to
 /// half the limit, then one step to the limit itself. Growth copies the old

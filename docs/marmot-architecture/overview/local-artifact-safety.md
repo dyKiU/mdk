@@ -116,7 +116,9 @@ account database stays the authority: each file's random key and state live in i
   sequence: the `attachment_partial` row commits before the file exists and is deleted before the file is unlinked,
   each append is synced before the row records it, and an append that fails or is refused is cut off at once. A crash
   can leave at most one append unrecorded; reopening and the sweep cut it off. The sweep unlinks wire files whose row
-  is gone.
+  is gone. A finished download is authenticated in place and decrypted straight into the store's encrypted pending
+  file, so a downloaded body never exists as a plaintext file. A body served without a strong validator cannot
+  checkpoint and stages its ciphertext in one private `media-staging/` file instead.
 - **Terminal close covers media.** Once the account database closes, or the store's own close latch is tripped, media
   reads (including open readers), writes and sweeps fail with `Closed`. The store joins the runtime's close path; it
   never adds a second one.

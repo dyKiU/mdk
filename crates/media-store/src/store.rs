@@ -573,8 +573,7 @@ impl<C: MediaCatalog> MediaStore<C> {
 
     /// A download checkpoint's wire file. Never log it.
     pub fn wire_path(&self, id: &FileId) -> PathBuf {
-        self.shard_dir(id.0[0])
-            .join(format!("{}{WIRE_SUFFIX}", hex::encode(id.0)))
+        wire_path(&self.inner.root, id)
     }
 
     /// Appends `bytes` at `offset` to `target`'s checkpoint and records the
@@ -659,6 +658,36 @@ impl<C: MediaCatalog> MediaStore<C> {
             return Ok(None);
         };
         wire.copy_to(out).map(Some)
+    }
+
+    /// Opens `target`'s recorded checkpoint for reading from the start, for
+    /// verifying and publishing a finished download after its attempt stopped
+    /// writing it. The checkpoint lock is held only while the row is resolved
+    /// and the file opened; a file that cannot resume is discarded, as by
+    /// [`Self::checkpoint_restore`]. The reader keeps the file open and in
+    /// flight, so the sweep leaves it alone and a later unlink (a clear, a
+    /// replacing checkpoint, the domain deleting the row) does not cut it
+    /// short. It reads exactly the recorded bytes, and stops once the store
+    /// or its catalog closes.
+    pub fn checkpoint_reader(
+        &self,
+        target: &dyn CheckpointTarget,
+    ) -> MediaResult<Option<CheckpointReader<C>>> {
+        self.inner.ensure_open()?;
+        let _held = self.lock_checkpoint(target.key());
+        let Some((id, received)) = target.current()? else {
+            return Ok(None);
+        };
+        let Some(mut wire) = self.open_wire(&id, received)? else {
+            if let Some(cleared) = target.clear()? {
+                self.remove_wire(&cleared);
+            }
+            return Ok(None);
+        };
+        wire.file
+            .seek(io::SeekFrom::Start(0))
+            .map_err(|e| io_error(&e))?;
+        Ok(Some(CheckpointReader { wire, position: 0 }))
     }
 
     /// Deletes `target`'s checkpoint: the row, then its wire file. The sweep
@@ -1031,6 +1060,82 @@ impl<C: MediaCatalog> WireFile<C> {
             ));
         }
         Ok(copied)
+    }
+}
+
+/// Where the wire file of checkpoint `id` lives under the store `root`.
+fn wire_path(root: &Path, id: &FileId) -> PathBuf {
+    root.join(format!("{:02x}", id.0[0]))
+        .join(format!("{}{WIRE_SUFFIX}", hex::encode(id.0)))
+}
+
+/// A finished checkpoint's recorded bytes, from
+/// [`MediaStore::checkpoint_reader`]. Never reads past the recorded length;
+/// reads fail once the store or its catalog closes.
+pub struct CheckpointReader<C> {
+    wire: WireFile<C>,
+    position: u64,
+}
+
+impl<C: MediaCatalog> CheckpointReader<C> {
+    /// The recorded length.
+    pub fn len(&self) -> u64 {
+        self.wire.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.wire.len == 0
+    }
+
+    /// Done reading: closes the file and unlinks it if its checkpoint row
+    /// is gone (the domain deleted it, as a published download's is), so a
+    /// finished body's ciphertext does not wait for the sweep. A file whose
+    /// row remains is kept for the attempt that owns it.
+    pub fn finish(self) -> MediaResult<()> {
+        let inner = self.wire.inner.clone();
+        let id = self.wire.id;
+        drop(self);
+        inner.ensure_open()?;
+        // Like the sweep: decide under the in-flight lock, so a handle that
+        // opens this file meanwhile keeps it.
+        let in_flight = lock(&inner.in_flight);
+        if !in_flight.contains(&id) && inner.catalog.wire_partial_received(id)?.is_none() {
+            remove_if_present(&wire_path(&inner.root, &id)).map_err(|e| io_error(&e))?;
+        }
+        Ok(())
+    }
+
+    /// Starts reading from the first byte again.
+    pub fn rewind(&mut self) -> MediaResult<()> {
+        self.wire.inner.ensure_open()?;
+        self.wire
+            .file
+            .seek(io::SeekFrom::Start(0))
+            .map_err(|e| io_error(&e))?;
+        self.position = 0;
+        Ok(())
+    }
+}
+
+impl<C: MediaCatalog> Read for CheckpointReader<C> {
+    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        if self.wire.inner.is_closed() {
+            return Err(io::Error::other("media store is closed"));
+        }
+        let left = self.wire.len.saturating_sub(self.position);
+        let want = out.len().min(usize::try_from(left).unwrap_or(usize::MAX));
+        if want == 0 {
+            return Ok(0);
+        }
+        let read = self.wire.file.read(&mut out[..want])?;
+        if read == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "wire checkpoint shorter than recorded",
+            ));
+        }
+        self.position += read as u64;
+        Ok(read)
     }
 }
 

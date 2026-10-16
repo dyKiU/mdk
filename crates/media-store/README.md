@@ -25,7 +25,8 @@ database, which this crate reaches through a catalog trait implemented by `stora
   the catalog's checkpoint row commits before the file exists and is deleted before the file is, each append is
   synced before the row records it, a refused or failed append is cut off at once, and operations on one checkpoint
   serialize. An append is at most `CHECKPOINT_APPEND_MAX` bytes, so a crash can leave at most that much unrecorded;
-  reopening and the sweep cut it off.
+  reopening and the sweep cut it off. A finished checkpoint is read in place through `checkpoint_reader`, which keeps
+  its file open (the sweep and an unlink leave it alone) until `finish` unlinks a file whose row is gone.
 - **Disk admission** (`DiskPolicy`): the caller supplies the reserve from its configuration; the crate only measures
   free space (`free_space`) and compares. `DiskPolicy::download_need` is the one rule for what a download still
   writes: the rest of its wire file and its store file, less what is already checkpointed, never less than the store

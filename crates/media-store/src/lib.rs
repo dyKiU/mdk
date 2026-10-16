@@ -30,8 +30,8 @@ pub use disk::{Admission, DiskPolicy, free_space};
 pub use error::{MediaError, MediaResult};
 pub use format::FileKey;
 pub use store::{
-    CHECKPOINT_APPEND_MAX, MEDIA_DIRECTORY, MediaReader, MediaStore, PublishOutcome, SweepReport,
-    sync_file,
+    CHECKPOINT_APPEND_MAX, CheckpointReader, MEDIA_DIRECTORY, MediaReader, MediaStore,
+    PublishOutcome, SweepReport, sync_file,
 };
 
 #[cfg(test)]
