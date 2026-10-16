@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 from upstream_completion_ci import BASE,FEATURES,DEFAULT_FEATURES,NEW,ORIGINALS,environment,freeze,identity,digest,ensure,compile_cases,execute,green,intended_red,headers
-from upstream_completion_mutations import SPECS,verify_anchors
+from upstream_completion_mutations import SPECS,verify_anchors,anchor
 p=argparse.ArgumentParser();p.add_argument('--mode',choices=['controls','signal','wiring','static'],required=True);p.add_argument('--cohort',choices=['default','experimental']);args=p.parse_args()
 os.umask(0o077)
 OUT=Path('completion-candidate-evidence');OUT.mkdir(exist_ok=True)
@@ -50,8 +50,8 @@ try:
     verify_anchors()
     baseline_ok=run_phase('baseline',[NEW]);r['baseline_passed']=baseline_ok;save()
     ensure(baseline_ok,'baseline-not-green')
-    spec=SPECS[args.mode];source_path=Path(spec['path']);original=source_path.read_bytes();text=original.decode();ensure(text.count(spec['before'])==1,'unique-reviewed-anchor')
-    mutant=text.replace(spec['before'],spec['after'],1).encode();expected=dict(frozen);expected[spec['path']]=digest(mutant)
+    spec=SPECS[args.mode];source_path=Path(spec['path']);original=source_path.read_bytes();text=original.decode();before=anchor(text,spec)
+    mutant=text.replace(before,spec['after'],1).encode();expected=dict(frozen);expected[spec['path']]=digest(mutant)
     r['mutation']={'path':spec['path'],'before_sha256':digest(original),'expected_mutant_sha256':digest(mutant),'allowed_changed_paths':[spec['path']]};save()
     source_path.write_bytes(mutant);ensure(freeze()==expected,'exact-mutant-inputs')
     run_phase('mutant',[NEW],expected)

@@ -7,7 +7,7 @@ import re
 import subprocess
 from upstream_completion_ci import BASE,FILE,ensure,parser_preflight
 # Only these reviewed App files may contain the completion-service repair.
-PRODUCT=['crates/marmot-app/src/client/mod.rs','crates/marmot-app/src/client/device_linking/sibling_sharing.rs','crates/marmot-app/src/runtime/account_worker.rs']
+PRODUCT=['crates/marmot-app/src/client/device_linking.rs','crates/marmot-app/src/client/device_linking/sibling_sharing.rs','crates/marmot-app/src/runtime/account_worker.rs']
 HELPERS=['scripts/upstream_completion_ci.py','scripts/verify_upstream_completion_candidate_source.py','scripts/qualify_upstream_completion.py','scripts/upstream_completion_mutations.py','scripts/verify_upstream_completion_green_run.py','.github/workflows/experimental-sync-ci.yml']
 def normalize(value):
     return ''.join(chunk if index%2 else re.sub(r'\s+','',chunk).replace(',)',')').replace(',}','}') for index,chunk in enumerate(re.split(r'("(?:\\.|[^"\\])*")',value)))
