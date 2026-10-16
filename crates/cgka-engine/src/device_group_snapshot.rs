@@ -68,6 +68,11 @@ impl<S: StorageProvider> Engine<S> {
         &self,
         group_id: &GroupId,
     ) -> Result<Option<CandidateDeviceGroupSnapshot>, EngineError> {
+// PROOF_DIAGNOSTIC_BEGIN
+#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let _cost_candidate = crate::proof_memo_diagnostics::CostSpan::begin(2);
+// PROOF_DIAGNOSTIC_END
+
         self.ensure_group_live(group_id)?;
         let Some(EpochState::Stable { epoch }) = self.epoch_manager.state(group_id) else {
             return Ok(None);

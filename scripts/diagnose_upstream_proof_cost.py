@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 import time
-from upstream_proof_cost_schema import SchemaError, parse_cost, parse_existing
+from upstream_proof_cost_schema import SchemaError, parse_cost, parse_existing, parse_partitions, parse_publications
 BASE='21b5cbbf0f806580e75147e6e02e27dc3149031b'
 FEATURES='marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks'
 SUFFIX='third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts'
@@ -116,11 +116,17 @@ report['source_after_sha256']=fingerprint(hashes()); report['inputs_pristine']=h
 save()
 try:
     report['cost_rows']=parse_cost(raw)
+    report['partition_rows']=parse_partitions(raw)
+    report['publication_records']=parse_publications(raw)
+    report['publication_schema']={'kind':['request','consent','proof'],'outcome':['not-exited','success','error','abort-or-unwind'],'row_fields':['generation','kind','scheduled_us','first_poll_us','body_exit_us','outcome','visits','last_visit_us','last_joinhandle_is_finished','successful_harvest_us','unharvested_body_exit_age_us'],'time_origin':'same diagnostic monotonic clock as phase_start_us','body_exit_is_not_joinhandle_finished':True,'snapshot_order':'recipient child list then existing source list as existing failure helper reads them'}
     report['protocol_observations']=parse_existing(raw,phase)
     ensure(report['executed_nonignored']==1 and report['ignored']==0,'actual-body-count')
     expected=['third','fourth'] if 'fourth-device-completion' in report['phase_markers'] else ['third'] if 'third-device-completion' in report['phase_markers'] else []
     rows=report['cost_rows']; ensure([row['phase'] for row in rows]==expected and bool(expected),'phase-observer-coverage')
     if report.get('failed')==1: ensure(report['protocol_observations']['failure_snapshots_observed'],'failed-body-observer-missing')
+    ensure([row['phase'] for row in report['partition_rows']]==expected,'partition-phase-coverage')
+    if report.get('failed')==1: ensure(bool(report['publication_records']),'publication-records-missing')
+    ensure(all(row['overflow']==0 for row in report['publication_records']),'publication-record-overflow')
     report['diagnostic_complete']=True
     valid=True
     for row in rows:
@@ -129,6 +135,7 @@ try:
         valid &= bool(records) and sum(value[0] for value in records)>0 and sum(value[2] for value in records)>0 and sum(value[10] for value in records)>0
         valid &= all(value[0]==value[1]+value[2] and value[2]==value[8]+value[9] and value[12:15]==[0,0,0] for value in records)
         valid &= global_values[0]==global_values[1]+global_values[2] and global_values[0]>=sum(value[2] for value in records)
+    valid &= all(all(values[0]>0 and values[3:]==[0,0,0] for values in row['rows']) for row in report['partition_rows'])
     report['cpu_usable']=bool(valid and report['inputs_pristine'] and report['compiled_fingerprints'].get('verified'))
 except Exception as error:
     report['parser_or_diagnostic_exception']=type(error).__name__; report['diagnostic_complete']=False; report['cpu_usable']=False

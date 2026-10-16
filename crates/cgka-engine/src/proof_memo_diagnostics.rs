@@ -222,6 +222,7 @@ pub(crate) fn cold_verifier_span() -> Span {
 }
 /// Drops on original assertion unwind; no new polling or service calls.
 pub struct PhaseGuard {
+    start_us: u64,
     phase: usize,
     timing: Timing,
     completed: bool,
@@ -235,6 +236,7 @@ impl PhaseGuard {
         Self {
             phase,
             timing: Timing::start(phase),
+            start_us: elapsed_us(),
             completed: false,
         }
     }
@@ -250,7 +252,69 @@ impl Drop for PhaseGuard {
             let dropped = entry.dropped_ms.load(Ordering::Relaxed);
             serde_json::json!({"ordinal":ordinal, "created_ms_since_first_registration":entry.created_ms.load(Ordering::Relaxed), "dropped_ms_since_first_registration":if dropped == u64::MAX { None } else { Some(dropped) }, "alive_at_snapshot":dropped == u64::MAX, "counts":entry.counts[self.phase].iter().map(|value| value.load(Ordering::Relaxed)).collect::<Vec<_>>(), "outside_counts":entry.counts[0].iter().map(|value| value.load(Ordering::Relaxed)).collect::<Vec<_>>()})
         }).collect();
-        let output = serde_json::json!({"phase":if self.phase == 1 {"third"} else {"fourth"}, "completion_success_marker":self.completed, "panicking":std::thread::panicking(), "phase_cpu_ns":cpu, "phase_wall_ns":wall, "phase_cpu_read_failures":read_failures, "observer_cpu_reads":READS[self.phase].load(Ordering::Relaxed), "engine_capacity":CAPACITY, "engine_overflow":OVERFLOW.load(Ordering::Relaxed), "phase_conflicts":CONFLICTS.load(Ordering::Relaxed), "counter_names":NAMES, "global_names":GLOBAL_NAMES, "global":GLOBAL[self.phase].iter().map(|value| value.load(Ordering::Relaxed)).collect::<Vec<_>>(), "engines":rows, "cpu_resolution":"unknown; zero deltas may be quantized", "cpu_scope":"scheduled current thread shared across actors; synchronous verifier spans inclusive and nested", "observer_overhead":"relaxed atomics and two schedstat reads per timed span; no per-call registry mutex, allocation or logging"});
+        let output = serde_json::json!({"phase":if self.phase == 1 {"third"} else {"fourth"}, "completion_success_marker":self.completed, "panicking":std::thread::panicking(), "phase_cpu_ns":cpu, "phase_start_us":self.start_us,"phase_wall_ns":wall, "phase_cpu_read_failures":read_failures, "observer_cpu_reads":READS[self.phase].load(Ordering::Relaxed), "engine_capacity":CAPACITY, "engine_overflow":OVERFLOW.load(Ordering::Relaxed), "phase_conflicts":CONFLICTS.load(Ordering::Relaxed), "counter_names":NAMES, "global_names":GLOBAL_NAMES, "global":GLOBAL[self.phase].iter().map(|value| value.load(Ordering::Relaxed)).collect::<Vec<_>>(), "engines":rows, "cpu_resolution":"unknown; zero deltas may be quantized", "cpu_scope":"scheduled current thread shared across actors; synchronous verifier spans inclusive and nested", "observer_overhead":"relaxed atomics and two schedstat reads per timed span; no per-call registry mutex, allocation or logging"});
         eprintln!("proof-memo-cost-diagnostic {output}");
+        let costs=serde_json::json!({"phase":if self.phase==1 {"third"}else{"fourth"},"names":COST_NAMES,"counters":["calls","cpu_ns","wall_ns","unknown_cpu","read_failures","active"],"rows":COSTS[self.phase].iter().map(|row|row.iter().map(|v|v.load(Ordering::Relaxed)).collect::<Vec<_>>()).collect::<Vec<_>>()});
+        eprintln!("proof-partition-diagnostic {costs}");
     }
 }
+
+/// Temporary fixed synchronous buckets. All nested durations are nonadditive.
+const COST_NAMES: [&str; 11] = ["roster", "successor", "candidate", "fresh-mls-load", "completed", "round-read", "facts-read", "tree-origin", "leaf-loop", "sharing", "sharing-signature-encoding"];
+static COSTS: LazyLock<[[[AtomicU64; 6]; 11]; 3]> = LazyLock::new(|| std::array::from_fn(|_| std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0)))));
+pub struct CostSpan { phase: usize, bucket: usize, timing: Option<Timing> }
+impl CostSpan {
+    pub fn begin(bucket: usize) -> Self {
+        let phase = PHASE.load(Ordering::Acquire);
+        if phase != 0 { COSTS[phase][bucket][0].fetch_add(1, Ordering::Relaxed); COSTS[phase][bucket][5].fetch_add(1, Ordering::Relaxed); }
+        Self {phase,bucket,timing:(phase != 0).then(|| Timing::start(phase))}
+    }
+}
+impl Drop for CostSpan {
+    fn drop(&mut self) {
+        if let Some(timing)=&self.timing {
+            let (cpu,wall,failed)=timing.finish();
+            let row=&COSTS[self.phase][self.bucket];
+            row[1].fetch_add(cpu.unwrap_or(0),Ordering::Relaxed);
+            row[2].fetch_add(wall,Ordering::Relaxed);
+            row[3].fetch_add(u64::from(cpu.is_none()),Ordering::Relaxed);
+            row[4].fetch_add(failed,Ordering::Relaxed);
+            row[5].fetch_sub(1,Ordering::Relaxed);
+            if PHASE.load(Ordering::Acquire)!=self.phase {CONFLICTS.fetch_add(1,Ordering::Relaxed);}
+        }
+    }
+}
+/// Numeric-only bounded publication generations; never stores event/owner identity.
+#[derive(Clone, Copy, Default)]
+struct TaskRecord { kind:u64, scheduled:u64, started:u64, exited:u64, outcome:u64, visits:u64, last_visit:u64, finished:u64, harvested:u64 }
+static PUBLICATION_NEXT: AtomicU64=AtomicU64::new(0);
+pub struct PublicationProbe { ordinal:u64, inner:std::sync::Mutex<PublicationRecords> }
+struct PublicationRecords { count:usize, overflow:u64, rows:[TaskRecord;32] }
+impl Default for PublicationProbe {
+    fn default()->Self {Self {ordinal:PUBLICATION_NEXT.fetch_add(1,Ordering::Relaxed),inner:std::sync::Mutex::new(PublicationRecords{count:0,overflow:0,rows:[TaskRecord::default();32]})}}
+}
+fn elapsed_us()->u64 {ORIGIN.elapsed().as_micros() as u64}
+impl PublicationProbe {
+    pub fn schedule(&self,kind:u64)->usize {
+        let mut inner=self.inner.lock().expect("numeric publication observer");
+        if inner.count==32 {inner.overflow+=1; return 32;}
+        let index=inner.count; inner.count+=1;
+        inner.rows[index]=TaskRecord{kind,scheduled:elapsed_us(),..TaskRecord::default()}; index
+    }
+    fn update(&self,index:usize,operation:impl FnOnce(&mut TaskRecord)) {if index<32 {operation(&mut self.inner.lock().expect("numeric publication observer").rows[index]);}}
+    pub fn task(&self,index:usize)->PublicationTask<'_> {self.update(index,|row|row.started=elapsed_us());PublicationTask {probe:self,index,finished:false}}
+    pub fn visit(&self,index:usize,finished:bool) {self.update(index,|row|{row.visits+=1;row.last_visit=elapsed_us();row.finished=u64::from(finished);});}
+    pub fn harvest(&self,index:usize) {self.update(index,|row|row.harvested=elapsed_us());}
+    pub fn dump(&self) {
+        let inner=self.inner.lock().expect("numeric publication observer");
+        let now=elapsed_us();
+        let rows:Vec<_>=inner.rows[..inner.count].iter().enumerate().map(|(generation,row)|[generation as u64,row.kind,row.scheduled,row.started,row.exited,row.outcome,row.visits,row.last_visit,row.finished,row.harvested,if row.exited>0 && row.harvested==0 {now.saturating_sub(row.exited)}else{0}]).collect();
+        let output=serde_json::json!({"state_ordinal":self.ordinal,"snapshot_us":now,"capacity":32,"overflow":inner.overflow,"rows":rows});
+        eprintln!("proof-publication-diagnostic {output}");
+    }
+}
+pub struct PublicationTask<'a> {probe:&'a PublicationProbe,index:usize,finished:bool}
+impl PublicationTask<'_> {
+    pub fn finish(&mut self,success:bool) {self.probe.update(self.index,|row|{row.exited=elapsed_us();row.outcome=if success{1}else{2};});self.finished=true;}
+}
+impl Drop for PublicationTask<'_> {fn drop(&mut self){if !self.finished {self.probe.update(self.index,|row|{row.exited=elapsed_us();row.outcome=3;});}}}

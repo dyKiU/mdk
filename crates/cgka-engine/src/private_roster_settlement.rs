@@ -153,11 +153,21 @@ impl<S: StorageProvider> Engine<S> {
         &self,
         group: &GroupId,
     ) -> Result<Option<ValidatedSettledDeviceRoster>, EngineError> {
+// PROOF_DIAGNOSTIC_BEGIN
+#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let _cost_roster = crate::proof_memo_diagnostics::CostSpan::begin(0);
+// PROOF_DIAGNOSTIC_END
+
         self.ensure_group_live(group)?;
         self.storage.with_read_snapshot(|storage| {
             let Some(evidence) = self.validated_private_successor(group)? else {
                 return Ok(None);
             };
+
+// PROOF_DIAGNOSTIC_BEGIN
+#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let cost_mls = crate::proof_memo_diagnostics::CostSpan::begin(3);
+// PROOF_DIAGNOSTIC_END
             let Some(actual) = openmls::group::MlsGroup::load(
                 storage.mls_storage(),
                 &openmls::group::GroupId::from_slice(group.as_slice()),
@@ -166,6 +176,11 @@ impl<S: StorageProvider> Engine<S> {
             else {
                 return Ok(None);
             };
+
+// PROOF_DIAGNOSTIC_BEGIN
+#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+drop(cost_mls);
+// PROOF_DIAGNOSTIC_END
             let verify = |request: &crate::account_identity_proof::AccountIdentityProofRequest,
                           signature: &[u8; 64]| {
                 self.private_proof_signatures.verify(request, signature)
@@ -752,12 +767,27 @@ fn completed_round_for_predecessor_tree_with_verifier<S: StorageProvider>(
     actual: &openmls::group::MlsGroup,
     verifier: Option<&crate::account_identity_proof::ProofVerifier<'_>>,
 ) -> Result<Option<PrivateSettlementState>, EngineError> {
+
+// PROOF_DIAGNOSTIC_BEGIN
+#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let _cost_completed = crate::proof_memo_diagnostics::CostSpan::begin(4);
+// PROOF_DIAGNOSTIC_END
     let Some(store) = storage.private_roster_settlement_storage() else {
         return Ok(None);
     };
+
+// PROOF_DIAGNOSTIC_BEGIN
+#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let cost_round = crate::proof_memo_diagnostics::CostSpan::begin(5);
+// PROOF_DIAGNOSTIC_END
     let Some(state) = store.read_round()? else {
         return Ok(None);
     };
+
+// PROOF_DIAGNOSTIC_BEGIN
+#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+drop(cost_round);
+// PROOF_DIAGNOSTIC_END
     if state.phase != PrivateSettlementPhase::Completed
         || state.anchor.group_id != *group
         || state.round_nonce.is_none()
@@ -774,7 +804,17 @@ fn completed_round_for_predecessor_tree_with_verifier<S: StorageProvider>(
     {
         return Ok(None);
     }
+
+// PROOF_DIAGNOSTIC_BEGIN
+#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let cost_facts = crate::proof_memo_diagnostics::CostSpan::begin(6);
+// PROOF_DIAGNOSTIC_END
     let facts = store.read_facts()?;
+// PROOF_DIAGNOSTIC_BEGIN
+#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+drop(cost_facts);
+// PROOF_DIAGNOSTIC_END
+
     if facts.len() != state.anchor.successor.leaves.len()
         || !state.anchor.successor.leaves.iter().all(|leaf| {
             facts.iter().any(|fact| {
@@ -786,10 +826,25 @@ fn completed_round_for_predecessor_tree_with_verifier<S: StorageProvider>(
     {
         return Ok(None);
     }
+
+// PROOF_DIAGNOSTIC_BEGIN
+#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let cost_tree = crate::proof_memo_diagnostics::CostSpan::begin(7);
+// PROOF_DIAGNOSTIC_END
     if !crate::private_successor::anchor_matches_actual_tree(storage, group, actual, &state.anchor)?
     {
         return Ok(None);
     }
+
+// PROOF_DIAGNOSTIC_BEGIN
+#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+drop(cost_tree);
+// PROOF_DIAGNOSTIC_END
+
+// PROOF_DIAGNOSTIC_BEGIN
+#[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+let _cost_leaves = crate::proof_memo_diagnostics::CostSpan::begin(8);
+// PROOF_DIAGNOSTIC_END
     let account = cgka_traits::MemberId::new(state.anchor.account.to_vec());
     for leaf in actual.export_ratchet_tree().leaves() {
         if crate::account_identity_proof::validate_leaf_account_identity_proof_for_member_with_verifier(

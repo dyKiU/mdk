@@ -42,6 +42,9 @@ impl OriginalSiblingSharingApproval {
     pub(crate) fn channel_diagnostics_for_test(
         &self,
     ) -> crate::account_chat_sharing::enabled::SiblingMaintenanceSnapshot {
+// PROOF_DIAGNOSTIC_BEGIN
+self.state.publication_probe.dump();
+// PROOF_DIAGNOSTIC_END
         self.state
             .sibling_diagnostics
             .lock()

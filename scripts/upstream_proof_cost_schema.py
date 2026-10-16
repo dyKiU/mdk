@@ -6,6 +6,7 @@ REASONS = {'VerifierFallback','NoRound','GuardInvalid','NoSettledRoster','Sharin
 FAILURES = {'Owner','Collection','Runtime','Engine','Genesis','Gate','PrivateInvite'}
 STAGES = {'BeforeCoreWrap','AfterCoreWrap','BeforeRelayPublication','AfterRelayPublication'}
 COUNTERS = ['attempts','hits','cold_calls','bypass','lookup_poison','insert_poison','insertions','evictions','verifier_ok','verifier_error','cpu_ns','wall_ns','unknown_cpu','cpu_read_failures','active','entries_peak']
+PARTITIONS=['roster','successor','candidate','fresh-mls-load','completed','round-read','facts-read','tree-origin','leaf-loop','sharing','sharing-signature-encoding']
 GLOBAL = ['calls','ok','error','cpu_ns','wall_ns','unknown_cpu','cpu_read_failures','active']
 class SchemaError(ValueError): pass
 def require(ok):
@@ -81,14 +82,14 @@ def parse_existing(raw,phase):
 
 def parse_cost(raw):
     rows=[]
-    expected_keys={'phase','completion_success_marker','panicking','phase_cpu_ns','phase_wall_ns','phase_cpu_read_failures','observer_cpu_reads','engine_capacity','engine_overflow','phase_conflicts','counter_names','global_names','global','engines','cpu_resolution','cpu_scope','observer_overhead'}
+    expected_keys={'phase','completion_success_marker','panicking','phase_cpu_ns','phase_start_us','phase_wall_ns','phase_cpu_read_failures','observer_cpu_reads','engine_capacity','engine_overflow','phase_conflicts','counter_names','global_names','global','engines','cpu_resolution','cpu_scope','observer_overhead'}
     for line in raw.splitlines():
         if not line.startswith('proof-memo-cost-diagnostic '): continue
         require(len(line)<=65536)
         row=json.loads(line.split(' ',1)[1]); require(set(row)==expected_keys)
         require(row['phase'] in ['third','fourth'] and all(old['phase']!=row['phase'] for old in rows))
         require(type(row['completion_success_marker']) is bool and type(row['panicking']) is bool)
-        require(optional(row['phase_cpu_ns'],number) and all(number(row[key]) for key in ['phase_wall_ns','phase_cpu_read_failures','observer_cpu_reads','engine_capacity','engine_overflow','phase_conflicts']))
+        require(optional(row['phase_cpu_ns'],number) and all(number(row[key]) for key in ['phase_start_us','phase_wall_ns','phase_cpu_read_failures','observer_cpu_reads','engine_capacity','engine_overflow','phase_conflicts']))
         require(row['engine_capacity']==16 and row['counter_names']==COUNTERS and row['global_names']==GLOBAL and numbers(row['global'],8))
         require(isinstance(row['engines'],list) and len(row['engines'])<=16)
         require(row['cpu_resolution']=='unknown; zero deltas may be quantized')
@@ -115,7 +116,7 @@ def preflight():
         else:
             # A known syntactic shape with unknown enum must still be rejected.
             raise SchemaError('negative-parser-fixture-accepted')
-    sample={'phase':'third','completion_success_marker':True,'panicking':False,'phase_cpu_ns':1,'phase_wall_ns':1,'phase_cpu_read_failures':0,'observer_cpu_reads':2,'engine_capacity':16,'engine_overflow':0,'phase_conflicts':0,'counter_names':COUNTERS,'global_names':GLOBAL,'global':[1,1,0,1,1,0,0,0],'engines':[{'ordinal':0,'created_ms_since_first_registration':0,'dropped_ms_since_first_registration':None,'alive_at_snapshot':True,'counts':[1,0,1,0,0,0,1,0,1,0,1,1,0,0,0,1],'outside_counts':[0]*16}],'cpu_resolution':'unknown; zero deltas may be quantized','cpu_scope':'scheduled current thread shared across actors; synchronous verifier spans inclusive and nested','observer_overhead':'relaxed atomics and two schedstat reads per timed span; no per-call registry mutex, allocation or logging'}
+    sample={'phase':'third','completion_success_marker':True,'panicking':False,'phase_cpu_ns':1,'phase_start_us':1,'phase_wall_ns':1,'phase_cpu_read_failures':0,'observer_cpu_reads':2,'engine_capacity':16,'engine_overflow':0,'phase_conflicts':0,'counter_names':COUNTERS,'global_names':GLOBAL,'global':[1,1,0,1,1,0,0,0],'engines':[{'ordinal':0,'created_ms_since_first_registration':0,'dropped_ms_since_first_registration':None,'alive_at_snapshot':True,'counts':[1,0,1,0,0,0,1,0,1,0,1,1,0,0,0,1],'outside_counts':[0]*16}],'cpu_resolution':'unknown; zero deltas may be quantized','cpu_scope':'scheduled current thread shared across actors; synchronous verifier spans inclusive and nested','observer_overhead':'relaxed atomics and two schedstat reads per timed span; no per-call registry mutex, allocation or logging'}
     require(len(parse_cost('proof-memo-cost-diagnostic '+json.dumps(sample)))==1); checks+=1
     malformed=dict(sample,counter_names=COUNTERS+['unknown'])
     try: parse_cost('proof-memo-cost-diagnostic '+json.dumps(malformed))
@@ -132,4 +133,43 @@ def preflight():
         try: parse_existing('\n'.join(malformed),'fourth')
         except SchemaError: checks+=1
         else: raise SchemaError('malformed-existing-fixture-accepted')
+    partition={'phase':'third','names':PARTITIONS,'counters':['calls','cpu_ns','wall_ns','unknown_cpu','read_failures','active'],'rows':[[1,1,1,0,0,0] for _ in PARTITIONS]}
+    require(parse_partitions('proof-partition-diagnostic '+json.dumps(partition))==[partition]); checks+=1
+    publication={'state_ordinal':0,'snapshot_us':10,'capacity':32,'overflow':0,'rows':[[0,1,1,2,3,1,1,4,1,5,0]]}
+    require(parse_publications('proof-publication-diagnostic '+json.dumps(publication))==[publication]); checks+=1
+    for bad in [dict(partition,names=PARTITIONS+['unknown']),dict(partition,rows=[[1]]),dict(partition,phase='private')]:
+        try: parse_partitions('proof-partition-diagnostic '+json.dumps(bad))
+        except SchemaError: checks+=1
+        else: raise SchemaError('bad-partition-accepted')
+    for bad in [dict(publication,rows=[[0]*10]),dict(publication,capacity=33),dict(publication,rows=[[0,1,1,2,3,1,1,4,0,5,0]])]:
+        try: parse_publications('proof-publication-diagnostic '+json.dumps(bad))
+        except SchemaError: checks+=1
+        else: raise SchemaError('bad-publication-accepted')
     return {'fixed_schema_positive_and_negative_checks':checks,'actual_product_bodies':0}
+
+def parse_partitions(raw):
+    result=[]
+    for line in raw.splitlines():
+        if not line.startswith('proof-partition-diagnostic '): continue
+        require(len(line)<=16384)
+        row=json.loads(line.split(' ',1)[1]); require(set(row)=={'phase','names','counters','rows'})
+        require(row['phase'] in ['third','fourth'] and all(old['phase']!=row['phase'] for old in result))
+        require(row['names']==PARTITIONS and row['counters']==['calls','cpu_ns','wall_ns','unknown_cpu','read_failures','active'])
+        require(isinstance(row['rows'],list) and len(row['rows'])==11 and all(numbers(values,6) for values in row['rows']))
+        result.append(row)
+    return result
+
+def parse_publications(raw):
+    result=[]
+    for line in raw.splitlines():
+        if not line.startswith('proof-publication-diagnostic '): continue
+        require(len(line)<=16384)
+        row=json.loads(line.split(' ',1)[1]); require(set(row)=={'state_ordinal','snapshot_us','capacity','overflow','rows'})
+        require(all(number(row[key]) for key in ['state_ordinal','snapshot_us','capacity','overflow']) and row['capacity']==32)
+        require(isinstance(row['rows'],list) and len(row['rows'])<=32)
+        for index,values in enumerate(row['rows']):
+            require(numbers(values,11) and values[0]==index and values[1]<=2 and values[5]<=3 and values[8]<=1)
+            require(values[9]==0 or values[8]==1)
+        require(len(result)<128)
+        result.append(row)
+    return result
