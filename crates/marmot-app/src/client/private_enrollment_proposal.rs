@@ -43,7 +43,15 @@ impl OriginalSiblingSharingApproval {
         &self,
     ) -> crate::account_chat_sharing::enabled::SiblingMaintenanceSnapshot {
         // COMPLETION_DIAGNOSTIC_BEGIN
-        eprintln!("completion-diag existing={}", self.state.sibling_diagnostics.lock().expect("completion diagnostic").publication_probe.snapshot());
+        eprintln!(
+            "completion-diag existing={}",
+            self.state
+                .sibling_diagnostics
+                .lock()
+                .expect("completion diagnostic")
+                .publication_probe
+                .snapshot()
+        );
         // COMPLETION_DIAGNOSTIC_END
         self.state
             .sibling_diagnostics
