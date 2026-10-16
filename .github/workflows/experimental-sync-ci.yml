@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
+        options: [completion-diagnostic, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions]
         default: full
       completion_control_run_id:
         description: Prior successful controls plus both static cohorts for the exact current commit (required for mutations)
@@ -37,6 +37,64 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  completion-diagnostic-preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'completion-diagnostic'
+    name: Passive completion diagnostic source parser and format gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - run: |
+          python3 scripts/verify_upstream_completion_diagnostic_source.py
+          cargo fmt --all
+          git diff -- crates > "$RUNNER_TEMP/completion-diagnostic-format.patch"
+          git diff --exit-code -- crates
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: completion-diagnostic-preflight
+          path: |
+            completion-diagnostic-source.json
+            ${{ runner.temp }}/completion-diagnostic-format.patch
+          if-no-files-found: error
+          retention-days: 14
+  completion-diagnostic-runtime:
+    needs: completion-diagnostic-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'completion-diagnostic'
+    name: One unchanged ordinary completion diagnostic
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Passive ordinary completion diagnostic'
+          python3 scripts/verify_upstream_completion_diagnostic_source.py
+          python3 scripts/run_upstream_completion_diagnostic.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: completion-diagnostic-runtime
+          path: |
+            completion-diagnostic-source.json
+            completion-diagnostic-evidence/result.json
+          if-no-files-found: error
+          retention-days: 14
   completion-candidate-preflight:
     if: github.event_name == 'workflow_dispatch' && startsWith(inputs.scope, 'completion-candidate-')
     name: Reviewed completion candidate source parser and format preflight
