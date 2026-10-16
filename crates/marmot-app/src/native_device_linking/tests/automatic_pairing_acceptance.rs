@@ -2,6 +2,70 @@ use super::*;
 use crate::{MarmotApp, MarmotAppRuntime};
 use marmot_account::AccountHome;
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn automatic_enrollment_reaches_a_separate_account_inbox_relay() {
+    let group_relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+    let inbox_relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+    let group_url = group_relay.url().await.to_string();
+    let inbox_url = inbox_relay.url().await.to_string();
+    let keys = nostr::prelude::Keys::generate();
+    let dirs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+    let apps = dirs.each_ref().map(|dir| {
+        AccountHome::open(dir.path())
+            .import_account("test", &keys.secret_key().to_secret_hex())
+            .unwrap();
+        MarmotApp::with_relay(dir.path(), &group_url)
+    });
+    for app in &apps {
+        let lists = app
+            .set_account_inbox_relays(
+                "test",
+                vec![cgka_traits::TransportEndpoint(inbox_url.clone())],
+                vec![cgka_traits::TransportEndpoint(group_url.clone())],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            app.account_inbox_endpoints("test", &lists),
+            vec![cgka_traits::TransportEndpoint(inbox_url.clone())]
+        );
+        assert_ne!(inbox_url, group_url);
+    }
+    let runtimes = apps.map(MarmotAppRuntime::new);
+    for runtime in &runtimes {
+        runtime.reconcile_accounts().await.unwrap();
+    }
+    let display = runtimes[0]
+        .accounts()
+        .begin_device_linking_session("test")
+        .await
+        .unwrap();
+    let scanner = runtimes[1]
+        .accounts()
+        .approve_automatic_device_linking_session(
+            "test",
+            display.automatic_pairing_code().await.unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+    scanner.automatic_pairing_code().await.unwrap();
+    compare_and_confirm_pair(&display, &scanner).await;
+    for session in [&display, &scanner] {
+        session
+            .continue_automatic_linking(session.snapshot().await.unwrap().revision, true)
+            .await
+            .unwrap();
+    }
+    wait_for_automatic_phase(&display, &scanner, DeviceLinkingPhase::EnrollmentComplete).await;
+    display.cancel().await.unwrap();
+    scanner.cancel().await.unwrap();
+    for runtime in &runtimes {
+        runtime.shutdown_and_close().await.unwrap();
+    }
+}
+
+
 // AUTOMATIC_BODY_TEST_BEGIN
 #[cfg(feature = "test-policy-overrides")]
 #[tokio::test]
