@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 import time
-from upstream_proof_cost_schema import SchemaError, parse_cost, parse_existing, parse_partitions, parse_publications
+from upstream_proof_cost_schema import SchemaError, parse_cost, parse_existing, parse_partitions, parse_publications, associate_publications
 BASE='21b5cbbf0f806580e75147e6e02e27dc3149031b'
 FEATURES='marmot-app/otlp-export,marmot-app/product-analytics-export,marmot-app/test-policy-overrides,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks'
 SUFFIX='third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts'
@@ -126,20 +126,7 @@ try:
     if report.get('failed')==1: ensure(report['protocol_observations']['failure_snapshots_observed'],'failed-body-observer-missing')
     ensure([row['phase'] for row in report['partition_rows']]==expected,'partition-phase-coverage')
     if report.get('failed')==1:
-        expected_records=[]
-        protocol=report['protocol_observations']
-        ensure(set(protocol['sides'])=={'left','right'},'publication-side-coverage')
-        for side in ['left','right']:
-            record=protocol['sides'][side]
-            ensure(isinstance(record.get('children'),list),'unknown-child-state-count')
-            expected_records += [{'role':record['role'],'child_index':index} for index in range(len(record['children']))]
-        for source in protocol['existing_sources']:
-            ensure(source['channel'] is not None,'unknown-existing-state')
-            expected_records.append({'role':source['role'],'existing_index':source['index']})
-        publications=report['publication_records']
-        ensure(len(publications)==len(expected_records) and bool(publications),'publication-record-count')
-        ensure(len({row['state_ordinal'] for row in publications})==len(publications),'duplicate-publication-state')
-        report['publication_role_associations']=[dict(role,state_ordinal=row['state_ordinal']) for role,row in zip(expected_records,publications)]
+        report['publication_role_associations']=associate_publications(report['publication_records'],report['protocol_observations'])
     ensure(all(row['overflow']==0 for row in report['publication_records']),'publication-record-overflow')
     report['diagnostic_complete']=True
     valid=True

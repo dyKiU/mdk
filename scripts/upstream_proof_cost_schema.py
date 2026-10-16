@@ -145,6 +145,17 @@ def preflight():
         try: parse_publications('proof-publication-diagnostic '+json.dumps(bad))
         except SchemaError: checks+=1
         else: raise SchemaError('bad-publication-accepted')
+    protocol=parse_existing('\n'.join(lines),'fourth')
+    records=[dict(publication,state_ordinal=index) for index in range(3)]
+    require(len(associate_publications(records,protocol))==3); checks+=1
+    for bad in [records[:-1],records+[dict(publication,state_ordinal=4)],[records[0],records[0],records[2]]]:
+        try: associate_publications(bad,protocol)
+        except SchemaError: checks+=1
+        else: raise SchemaError('incomplete-state-inventory-accepted')
+    unknown=json.loads(json.dumps(protocol)); unknown['sides']['right']['children']=None
+    try: associate_publications(records,unknown)
+    except SchemaError: checks+=1
+    else: raise SchemaError('unknown-state-count-accepted')
     return {'fixed_schema_positive_and_negative_checks':checks,'actual_product_bodies':0}
 
 def parse_partitions(raw):
@@ -180,3 +191,17 @@ def parse_publications(raw):
         require(len(result)<128)
         result.append(row)
     return result
+
+def associate_publications(publications,protocol):
+    expected=[]
+    require(set(protocol['sides'])=={'left','right'})
+    for side in ['left','right']:
+        record=protocol['sides'][side]
+        require(isinstance(record.get('children'),list))
+        expected += [{'role':record['role'],'child_index':index} for index in range(len(record['children']))]
+    for source in protocol['existing_sources']:
+        require(source['channel'] is not None)
+        expected.append({'role':source['role'],'existing_index':source['index']})
+    require(len(publications)==len(expected) and bool(publications))
+    require(len({row['state_ordinal'] for row in publications})==len(publications))
+    return [dict(role,state_ordinal=row['state_ordinal']) for role,row in zip(expected,publications)]
