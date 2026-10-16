@@ -4324,8 +4324,14 @@ impl NostrRelayClient for NostrSdkRelayClient {
         // SDK_CORRELATION_BEGIN
         #[cfg(feature = "test-policy-overrides")]
         let diagnostic_operation = if requests.len() == 1 {
-            crate::publication_diagnostics::begin_sdk_operation(&requests[0].event.id, requests[0].endpoints.len())
-        } else { crate::publication_diagnostics::record_unmapped_batch(); 0 };
+            crate::publication_diagnostics::begin_sdk_operation(
+                &requests[0].event.id,
+                requests[0].endpoints.len(),
+            )
+        } else {
+            crate::publication_diagnostics::record_unmapped_batch();
+            0
+        };
         // SDK_CORRELATION_END
         let batch_started_at = std::time::Instant::now();
         if self.validate_publish_context().await.is_err() {
@@ -4390,12 +4396,18 @@ impl NostrRelayClient for NostrSdkRelayClient {
                     #[cfg(not(feature = "test-policy-overrides"))]
                     let publisher = self;
                     #[cfg(feature = "test-policy-overrides")]
-                    crate::publication_diagnostics::record_stage(diagnostic_operation, "prepared-single");
+                    crate::publication_diagnostics::record_stage(
+                        diagnostic_operation,
+                        "prepared-single",
+                    );
                     let outcome = publisher.publish_prepared_single(request).await;
                     #[cfg(feature = "test-policy-overrides")]
-                    crate::publication_diagnostics::record_stage(diagnostic_operation, "operation-returned");
+                    crate::publication_diagnostics::record_stage(
+                        diagnostic_operation,
+                        "operation-returned",
+                    );
                     vec![outcome]
-                },
+                }
                 // SDK_CORRELATION_SINGLE_END
                 Err(error) => vec![Err(error)],
             };

@@ -21,7 +21,10 @@ pub(crate) fn cost_boundary(start: bool) {
         })
     );
     if !start {
-        eprintln!("completion-sdk {}", transport_nostr_adapter::publication_diagnostics::snapshot());
+        eprintln!(
+            "completion-sdk {}",
+            transport_nostr_adapter::publication_diagnostics::snapshot()
+        );
     }
 }
 
@@ -69,7 +72,10 @@ impl PublicationProbe {
         }
     }
     pub(crate) fn sdk_token(&mut self, generation: u64, token: u64, registration: u64) {
-        if let Some(row) = self.rows.iter_mut().find(|row| row[0] == generation) { row[17] = token; row[18] = registration; }
+        if let Some(row) = self.rows.iter_mut().find(|row| row[0] == generation) {
+            row[17] = token;
+            row[18] = registration;
+        }
     }
     pub(crate) fn visit(&mut self, generation: u64, finished: bool, periodic: bool) {
         let time = self.time();
