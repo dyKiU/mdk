@@ -1309,3 +1309,171 @@ async fn reopened_pair_can_verify_another_installation(existing: usize) {
         runtime.shutdown_and_close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn interrupted_first_enrollment_can_start_fresh_comparison() {
+    interrupted_first_enrollment_retries(false).await;
+}
+
+#[tokio::test]
+async fn interrupted_first_enrollment_same_peer_completes_after_restart() {
+    interrupted_first_enrollment_retries(true).await;
+}
+
+async fn interrupted_first_enrollment_retries(same_peer: bool) {
+    use cgka_traits::private_roster_settlement::PrivateSettlementPhase;
+    use cgka_traits::{MemberId, StorageProvider};
+    let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+    let url = relay.url().await.to_string();
+    let keys = nostr::prelude::Keys::generate();
+    let dirs: [tempfile::TempDir; 3] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
+    let apps = dirs.each_ref().map(|dir| {
+        AccountHome::open(dir.path())
+            .import_account("test", &keys.secret_key().to_secret_hex())
+            .unwrap();
+        MarmotApp::with_relay(dir.path(), &url)
+    });
+    let runtimes = apps.clone().map(MarmotAppRuntime::new);
+    for runtime in &runtimes {
+        runtime.reconcile_accounts().await.unwrap();
+    }
+    let requester = runtimes[0]
+        .accounts()
+        .begin_device_linking_session("test")
+        .await
+        .unwrap();
+    let approver = runtimes[1]
+        .accounts()
+        .approve_automatic_device_linking_session(
+            "test",
+            requester.automatic_pairing_code().await.unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+    approver.automatic_pairing_code().await.unwrap();
+    compare_and_confirm_pair(&requester, &approver).await;
+    let group = apps[1]
+        .account_storage("test")
+        .unwrap()
+        .device_group_genesis_storage()
+        .unwrap()
+        .genesis_selection()
+        .unwrap()
+        .unwrap()
+        .fact
+        .birth
+        .group_id;
+    let (held, release) = apps[1].relay_plane.reject_private_confirmations(
+        MemberId::new(keys.public_key().to_bytes().to_vec()),
+        group.clone(),
+    );
+    requester
+        .continue_automatic_linking(requester.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
+    approver
+        .continue_automatic_linking(approver.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(30), held)
+        .await
+        .expect("actual coordinator confirmation must reach publication rejection")
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            let storage = apps[0].account_storage("test").unwrap();
+            if storage
+                .accepted_device_group_anchor_storage()
+                .unwrap()
+                .accepted_anchor()
+                .unwrap()
+                .is_some()
+                && storage
+                    .private_roster_settlement_storage()
+                    .unwrap()
+                    .read_round()
+                    .unwrap()
+                    .is_some_and(|round| round.phase == PrivateSettlementPhase::Pending)
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("recipient must actually join while first settlement remains pending");
+    requester.cancel().await.unwrap();
+    runtimes[0].shutdown_and_close().await.unwrap();
+    drop(release);
+    approver.cancel().await.unwrap();
+    for runtime in &runtimes[1..] {
+        runtime.shutdown_and_close().await.unwrap();
+    }
+    drop(requester);
+    drop(approver);
+    drop(runtimes);
+    drop(apps);
+    let runtimes = dirs
+        .each_ref()
+        .map(|dir| MarmotAppRuntime::new(MarmotApp::with_relay(dir.path(), &url)));
+    for runtime in &runtimes {
+        runtime.reconcile_accounts().await.unwrap();
+    }
+    assert!(
+        runtimes[0]
+            .accounts()
+            .device_linking_targets("test")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let fresh = runtimes[if same_peer { 1 } else { 2 }]
+        .accounts()
+        .begin_device_linking_session("test")
+        .await
+        .unwrap();
+    let retry = runtimes[0]
+        .accounts()
+        .approve_automatic_device_linking_session(
+            "test",
+            fresh.automatic_pairing_code().await.unwrap(),
+            None,
+        )
+        .await;
+    if let Ok(response) = &retry {
+        response.automatic_pairing_code().await.unwrap();
+        compare_and_confirm_pair(&fresh, response).await;
+        if same_peer {
+            fresh
+                .continue_automatic_linking(fresh.snapshot().await.unwrap().revision, true)
+                .await
+                .unwrap();
+            response
+                .continue_automatic_linking(response.snapshot().await.unwrap().revision, true)
+                .await
+                .unwrap();
+            wait_for_automatic_phase(&fresh, response, DeviceLinkingPhase::EnrollmentComplete)
+                .await;
+            for runtime in &runtimes[..2] {
+                let targets = runtime
+                    .accounts()
+                    .device_linking_targets("test")
+                    .await
+                    .unwrap();
+                assert_eq!(targets.len(), 1);
+                assert_eq!(targets[0].device_count, 2);
+            }
+        }
+        response.cancel().await.unwrap();
+    }
+    fresh.cancel().await.unwrap();
+    for runtime in runtimes {
+        runtime.shutdown_and_close().await.unwrap();
+    }
+    assert!(
+        retry.is_ok(),
+        "fresh comparison after interrupted first enrollment: {:?}",
+        retry.err()
+    );
+}

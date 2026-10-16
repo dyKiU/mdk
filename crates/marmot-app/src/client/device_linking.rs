@@ -1193,13 +1193,21 @@ impl AppClient {
         &mut self,
     ) -> Result<PreparedDeviceLinking, ClientLinkingError> {
         let result = match self.reserve_device_linking() {
-            Ok(scope) => self
-                .runtime
-                .session_mut()
-                .resolve_linking_key_package(&scope)
+            Ok(scope) => {
+                async {
+                    self.runtime
+                        .session_mut()
+                        .retire_abandoned_private_bootstrap()
+                        .map_err(ClientLinkingError::Genesis)?;
+                    self.runtime
+                        .session_mut()
+                        .resolve_linking_key_package(&scope)
+                        .await
+                        .map(|package| PreparedDeviceLinking { scope, package })
+                        .map_err(ClientLinkingError::Engine)
+                }
                 .await
-                .map(|package| PreparedDeviceLinking { scope, package })
-                .map_err(ClientLinkingError::Engine),
+            }
             Err(error) => Err(ClientLinkingError::Owner(error)),
         };
         if result.is_err() {

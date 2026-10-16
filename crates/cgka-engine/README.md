@@ -247,6 +247,15 @@ With `experimental-device-sync`, `create_private_device_group_genesis` creates a
 
 After normal reopen hydration, `validated_private_device_group_genesis` can return fresh opaque evidence only for the protected birth matching actual local identity and the original authenticated tree/profile/epoch. This evidence never arms a verifier, grants enrollment, proves settled membership, or permits history. Birth metadata stays immutable; actual unexpected adopted transitions and deletion permanently deny active use, including after crypto A-to-B-to-A rewind. Explicit retirement permits a fresh checked local selection generation. Accepted recipient successor provenance is a separate store and is never fabricated as locally created genesis.
 
+An interrupted first enrollment can leave an accepted two-device tree without a
+completed settlement. `retire_abandoned_private_bootstrap` permits a fresh attempt
+only after the original round is denied, with no live settlement owner or retained
+sharing policy (including revoked policies). It revalidates the actual epoch-1
+private tree and its original one-leaf predecessor in the same transaction that
+denies the obsolete accepted/confirmed selection. Completed or larger rosters
+are not retired. MLS state and chat data remain stored; a subsequent attempt
+still requires new number comparison and explicit approvals.
+
 ### Terminal chat classification
 
 With `experimental-device-sync`, historical private-group fences remain authoritative

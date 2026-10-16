@@ -4,7 +4,8 @@ use cgka_traits::GroupId;
 pub(super) struct Gate {
     account: MemberId,
     group: GroupId,
-    observed: tokio::sync::oneshot::Sender<cgka_traits::TransportMessage>,
+    observed: Option<tokio::sync::oneshot::Sender<cgka_traits::TransportMessage>>,
+    reject: bool,
     release: Arc<Notify>,
 }
 pub(crate) struct Release {
@@ -37,6 +38,28 @@ impl MarmotRelayPlane {
         tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
         Release,
     ) {
+        self.intercept_private_confirmation(account, group, false)
+    }
+    /// Reject actual confirmation sends while allowing the worker to deliver Welcome.
+    pub(crate) fn reject_private_confirmations(
+        &self,
+        account: MemberId,
+        group: GroupId,
+    ) -> (
+        tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
+        Release,
+    ) {
+        self.intercept_private_confirmation(account, group, true)
+    }
+    fn intercept_private_confirmation(
+        &self,
+        account: MemberId,
+        group: GroupId,
+        reject: bool,
+    ) -> (
+        tokio::sync::oneshot::Receiver<cgka_traits::TransportMessage>,
+        Release,
+    ) {
         let (observed, receiver) = tokio::sync::oneshot::channel();
         let release = Arc::new(Notify::new());
         let mut slot = self.inner.private_confirmation_gate.lock().unwrap();
@@ -47,7 +70,8 @@ impl MarmotRelayPlane {
         *slot = Some(Gate {
             account,
             group,
-            observed,
+            observed: Some(observed),
+            reject,
             release: release.clone(),
         });
         (
@@ -62,7 +86,7 @@ impl MarmotRelayPlane {
 pub(super) async fn hold(
     adapter: &MarmotRelayPlaneAccountAdapter,
     request: &TransportPublishRequest,
-) {
+) -> Result<(), TransportAdapterError> {
     let gate = {
         let mut slot = adapter
             .relay_plane
@@ -78,15 +102,26 @@ pub(super) async fn hold(
                 &request.target,
             )
         }) {
+            if slot.as_ref().unwrap().reject {
+                if let Some(observed) = slot.as_mut().unwrap().observed.take() {
+                    let _ = observed.send(request.message.clone());
+                }
+                return Err(TransportAdapterError::Publish(
+                    "injected private confirmation rejection".into(),
+                ));
+            }
             slot.take()
         } else {
             None
         }
     };
     if let Some(gate) = gate {
-        let _ = gate.observed.send(request.message.clone());
+        if let Some(observed) = gate.observed {
+            let _ = observed.send(request.message.clone());
+        }
         gate.release.notified().await;
     }
+    Ok(())
 }
 
 fn matches_scope(
