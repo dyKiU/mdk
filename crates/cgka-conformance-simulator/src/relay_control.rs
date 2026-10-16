@@ -295,6 +295,24 @@ impl RelayControl {
                 });
             }
             if Instant::now() >= deadline {
+                let events = action_events.get(action_id).into_iter().flatten();
+                let (welcomes, group_messages) = events.fold((0usize, 0usize), |counts, event| {
+                    (
+                        counts.0 + usize::from(event.event.kind == Kind::GiftWrap),
+                        counts.1 + usize::from(event.event.kind == Kind::MlsGroupMessage),
+                    )
+                });
+                eprintln!(
+                    "relay-action-publication-timeout expected={} retained={} unique={} gift_wrap={} mls_group={} expected_ids={} matched_ids={} missing_ids={}",
+                    expected_publications,
+                    recorded,
+                    observed_event_ids.len(),
+                    welcomes,
+                    group_messages,
+                    expected_event_ids.len(),
+                    expected_event_ids.intersection(&observed_event_ids).count(),
+                    expected_event_ids.difference(&observed_event_ids).count(),
+                );
                 return Err(RelayControlError {
                     code: "relay_action_publication_timeout",
                     message: "the action's expected retained relay publications were not admitted before the deadline",
