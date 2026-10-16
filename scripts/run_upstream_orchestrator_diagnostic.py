@@ -61,6 +61,14 @@ def parse(raw):
     return result
 
 
+def collected_runtime_outcome(row):
+    # cargo-nextest exit 100 is TEST_RUN_FAILED; 101 is BUILD_FAILED.
+    if row.get('summary_count') != 1 or row.get('executed_nonignored') != 1 or row.get('compiler_error_count') != 0:
+        return False
+    return ((row.get('exit_code') == 0 and row.get('passed') == 1 and row.get('failed') == 0)
+            or (row.get('exit_code') == 100 and row.get('passed') == 0 and row.get('failed') == 1))
+
+
 def parser_preflight():
     capsule = PREFIX + 'expected=2 retained=1 unique=1 gift_wrap=0 mls_group=1 expected_ids=2 matched_ids=1 missing_ids=1'
     valid = capsule + '\nSummary [1.0s] 1 test run: 0 passed, 1 failed, 17 skipped\n'
@@ -76,7 +84,17 @@ def parser_preflight():
         except ValueError:
             continue
         raise ValueError('parser-negative-accepted')
-    return {'positive': 2, 'negative': len(negatives), 'runtime_bodies': 0}
+    runtime_failure = dict(parse(valid), exit_code=100, compiler_error_count=0)
+    runtime_pass = dict(parse('Summary [1.0s] 1 test run: 1 passed, 17 skipped'), exit_code=0, compiler_error_count=0)
+    ensure(collected_runtime_outcome(runtime_failure), 'controller-runtime-exit-100-positive')
+    ensure(collected_runtime_outcome(runtime_pass), 'controller-runtime-exit-0-positive')
+    bad_outcomes = [dict(runtime_failure, exit_code=101), dict(runtime_failure, exit_code=0),
+                    dict(runtime_failure, executed_nonignored=0, failed=0), dict(runtime_failure, passed=1),
+                    dict(runtime_pass, exit_code=100), dict(runtime_pass, failed=1),
+                    dict(runtime_failure, compiler_error_count=1), dict(runtime_failure, summary_count=0)]
+    ensure(not any(collected_runtime_outcome(row) for row in bad_outcomes), 'controller-invalid-outcome-accepted')
+    return {'parser_positive': 2, 'parser_negative': len(negatives), 'controller_positive': 2,
+            'controller_negative': len(bad_outcomes), 'runtime_bodies': 0}
 
 
 def fingerprints(binary):
@@ -218,7 +236,8 @@ def main():
                 row.update(exit_code=body.returncode, wall_seconds=time.monotonic() - started)
                 save()  # Preserve the actual exit even if parsing fails.
                 row.update(parse(body.stdout + body.stderr))
-                row['collection_complete'] = row.get('executed_nonignored') == 1 and row.get('passed', 0) + row.get('failed', 0) == 1 and body.returncode in [0, 101]
+                row['compiler_error_count'] = len(re.findall(r'^error\[E\d+\]:|^error: (?:could not compile|aborting due to)', body.stdout + body.stderr, re.M))
+                row['collection_complete'] = collected_runtime_outcome(row)
             except Exception as error:
                 row['controller_exception'] = type(error).__name__
                 row['collection_complete'] = False
@@ -227,12 +246,14 @@ def main():
                 save()
         report['source_pristine_after'] = verify()['tracked_sha256'] == before
         report['diagnostic_complete'] = len(report['cases']) == 2 and all(row.get('collection_complete') and row.get('source_pristine_after') for row in report['cases']) and report['source_pristine_after']
+        report['actual_tests_passed'] = report['diagnostic_complete'] and all(row.get('exit_code') == 0 for row in report['cases'])
     except Exception as error:
         report['controller_exception'] = type(error).__name__
         report['diagnostic_complete'] = False
     finally:
         save()
     ensure(report['diagnostic_complete'], 'diagnostic-collection-incomplete')
+    ensure(report.get('actual_tests_passed'), 'actual-orchestrator-test-failure')
 
 
 if __name__ == '__main__':
