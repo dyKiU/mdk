@@ -179,6 +179,10 @@ impl Drop for AutomaticChannel {
     fn drop(&mut self) {
         self.original.cancel();
         self.channel.retire();
+        // BODY_NEGATIVE_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        body_negative_probe::retired(self);
+        // BODY_NEGATIVE_TEST_END
     }
 }
 // Test-only compatibility encoding keeps the actual eligibility, digest and
