@@ -11,8 +11,12 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
+        options: [storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
         default: all
+      storage_controls_run_id:
+        description: Successful eight-control run on this exact helper SHA (mutations only)
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -22,7 +26,7 @@ env:
 
 jobs:
   cohort-preflight:
-    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings'
+    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings' && inputs.case != 'storage-ownership-mutations'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -47,7 +51,7 @@ jobs:
           retention-days: 7
   mutation:
     needs: cohort-preflight
-    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings'
+    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings' && inputs.case != 'storage-ownership-mutations'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -96,7 +100,7 @@ jobs:
           retention-days: 7
 
   storage-ownership-preflight:
-    if: github.event_name == 'workflow_dispatch' && (inputs.case == 'storage-ownership-green' || inputs.case == 'storage-ownership-crossings') && (startsWith(github.ref_name, 'ci/upstream-storage-ownership-green-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-'))
+    if: github.event_name == 'workflow_dispatch' && (inputs.case == 'storage-ownership-green' || inputs.case == 'storage-ownership-crossings' || inputs.case == 'storage-ownership-mutations') && (startsWith(github.ref_name, 'ci/upstream-storage-ownership-green-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-'))
     name: SQLite ownership source, parser and formatting preflight
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -213,6 +217,60 @@ jobs:
         if: always()
         with:
           name: storage-ownership-boundary-${{ matrix.cohort }}-${{ github.sha }}
+          path: storage-boundary-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+
+  storage-ownership-mutations:
+    needs: storage-ownership-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'storage-ownership-mutations' && needs.storage-ownership-preflight.result == 'success' && (startsWith(github.ref_name, 'ci/upstream-storage-ownership-green-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-'))
+    name: SQLite ownership necessity (${{ matrix.cohort }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        cohort: [default, experimental]
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install repository toolchain
+        run: |
+          set -euo pipefail
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: storage-ownership-boundary-${{ matrix.cohort }}
+          cache-on-failure: true
+      - name: Four exact counterfactual chains after same-SHA eight-control qualification
+        env:
+          CARGO_INCREMENTAL: '1'
+          GH_TOKEN: ${{ github.token }}
+          CONTROLS_RUN_ID: ${{ inputs.storage_controls_run_id }}
+        run: |
+          set -euo pipefail
+          python3 scripts/qualification_build_preflight.py --label 'SQLite ownership necessity mutations' --output "$RUNNER_TEMP/storage-boundary-capacity.json"
+          python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}' --ownership-adaptation --mutations --controls-run-id "$CONTROLS_RUN_ID"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: storage-ownership-mutations-${{ matrix.cohort }}-${{ github.sha }}
           path: storage-boundary-evidence/result.json
           if-no-files-found: error
           retention-days: 7

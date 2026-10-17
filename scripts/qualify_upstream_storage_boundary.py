@@ -2,6 +2,7 @@
 """Run only the incoming SQLite ownership assertions; failures never qualify."""
 import argparse
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ import selectors
 import signal
 import subprocess
 import time
+import zipfile
 
 from upstream_extraction_cohort import frozen_inputs, workflow_identity
 
@@ -52,7 +54,7 @@ def git(*args):
     return subprocess.check_output(['git', *args], text=True).strip()
 
 
-def capture(command, timeout, limit=16 * 1024 * 1024):
+def capture(command, timeout, limit=16 * 1024 * 1024, binary=False):
     """Bound raw output in memory, never publish SQL/payload-bearing panic text."""
     started = time.monotonic()
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
@@ -71,7 +73,8 @@ def capture(command, timeout, limit=16 * 1024 * 1024):
                     ensure(size <= limit, 'bounded-command-output-limit')
                     chunks.append(data)
         code = process.wait(timeout=10)
-        return code, b''.join(chunks).decode('utf-8', errors='replace'), round(time.monotonic() - started, 3)
+        output = b''.join(chunks)
+        return code, output if binary else output.decode('utf-8', errors='replace'), round(time.monotonic() - started, 3)
     finally:
         if process.poll() is None:
             os.killpg(process.pid, signal.SIGKILL)
@@ -487,6 +490,268 @@ def source_guard(baseline, ownership_adaptation):
             'ownership_adaptation': adaptation, 'overlay_paths': sorted(changed), 'historical_results_reused': False}
 
 
+def mutation_specs(source):
+    """Single reviewed counterfactuals; no test, migration or allowance mutation."""
+    return {
+        'protocol-root': (BOUNDARY_TEST,
+                          '        "accepted_welcome"\n        | "accepted_device_group_anchor"',
+                          '        "accepted_device_group_anchor"'),
+        'private-path': (BOUNDARY_TEST,
+                         'return private_root_side(name)\n                .or_else(|| root.get(name).copied())',
+                         'return root.get(name).copied()'),
+        'unknown-root': (ADDED_TEST,
+                         '.ok_or("unclassified production storage file"),',
+                         '.ok_or("unclassified production storage file").or(Ok(None)),'),
+        'lexical-alias': (ADDED_TEST, '    let rel = normalized.as_str();', '    let rel = rel;'),
+    }
+
+
+def source_line(source, anchor):
+    ensure(source.count(anchor) == 1, 'unique-reviewed-runtime-oracle-location')
+    return source[:source.index(anchor)].count('\n') + 1
+
+
+def mutation_killed(label, output, code, source, frozen):
+    name = mutation_specs(source)[label][0]
+    row = parse_body(output, code, name)
+    anchors = {
+        'protocol-root': '    classified_side(rel).unwrap_or_else',
+        'private-path': '    panic!("{message}");',
+        'unknown-root': '        assert_eq!(\n            classified_side(unregistered),',
+        'lexical-alias': '    assert!(\n        histories.iter().all(|file| file.side.is_none()),',
+    }
+    location = source_line(source, anchors[label])
+    panics = row['safe_panic_locations']
+    exact = (row['actual_counts_complete'] and row['passed'] == 0 and row['failed'] == 1
+             and code == 101 and row['compiler_error_count'] == 0 and row['panic_count'] == 1
+             and len(panics) == 1 and panics[0]['selected_test']
+             and panics[0]['known_source_location'] and panics[0]['line'] == location)
+    header = (r"^thread '" + re.escape(name) + r"'(?: \(\d+\))? panicked at "
+              + re.escape(BOUNDARY[1]) + ':' + str(location) + r':\d+:\n')
+    match = re.search(header, output, re.M)
+    if not exact or match is None:
+        return False
+    payload = output[match.end():]
+    if label == 'protocol-root':
+        return payload.startswith('unclassified production storage file: accepted_welcome.rs\n')
+    if label == 'private-path':
+        crossing = parse_crossing_diagnostic(output, code, crossing_context(frozen), location)
+        return (crossing.get('status') == 'complete' and crossing['new'] == []
+                and crossing['stale'] == ['path device_linking.rs crate::private_device_invite'])
+    if label == 'unknown-root':
+        return payload.startswith('assertion `left == right` failed: a new production root must declare its ownership before shipping\n'
+                                  '  left: Ok(None)\n right: Err("unclassified production storage file")\n')
+    return payload.startswith('declared migration aliases are schema history, never Base-owned SQL\n')
+
+
+def mutation_parser_preflight(frozen):
+    source = Path(BOUNDARY[1]).read_text()
+    positive, negative = 0, 0
+    payloads = {
+        'protocol-root': 'unclassified production storage file: accepted_welcome.rs',
+        'private-path': '1 listed crossing(s) no longer occur. Delete them from src/cross/allow-list.txt:\npath device_linking.rs crate::private_device_invite',
+        'unknown-root': 'assertion `left == right` failed: a new production root must declare its ownership before shipping\n  left: Ok(None)\n right: Err("unclassified production storage file")',
+        'lexical-alias': 'declared migration aliases are schema history, never Base-owned SQL',
+    }
+    anchors = {'protocol-root': '    classified_side(rel).unwrap_or_else',
+               'private-path': '    panic!("{message}");',
+               'unknown-root': '        assert_eq!(\n            classified_side(unregistered),',
+               'lexical-alias': '    assert!(\n        histories.iter().all(|file| file.side.is_none()),'}
+    for label, (name, old, new) in mutation_specs(source).items():
+        ensure(source.count(old) == 1 and old != new, 'unique-reviewed-mutant-anchor')
+        line = source_line(source, anchors[label])
+        raw = ('running 1 test\ntest ' + name + " ... \nthread '" + name
+               + "' panicked at " + BOUNDARY[1] + ':' + str(line) + ':5:\n'
+               + payloads[label] + '\n\nFAILED\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.1s\n')
+        ensure(mutation_killed(label, raw, 101, source, frozen), 'mutation-parser-positive-owned-runtime-kill')
+        positive += 1
+        for bad, status in [(raw, 0), (raw.replace('1 failed', '0 failed'), 101),
+                            (raw.replace('0 ignored', '1 ignored'), 101),
+                            (raw.replace("thread '" + name, "thread 'foreign"), 101),
+                            (raw.replace(':' + str(line) + ':5:', ':' + str(line + 1) + ':5:'), 101),
+                            (raw.replace(payloads[label], 'unrelated generic panic'), 101),
+                            (raw + "\nthread 'other' panicked at foreign.rs:1:1:\n", 101),
+                            ('error[E0001]: compiler failure\n', 101), (raw + raw, 101)]:
+            ensure(not mutation_killed(label, bad, status, source, frozen), 'mutation-parser-rejects-unintended-or-incomplete-kill')
+            negative += 1
+    return {'positive': positive, 'negative': negative, 'actual_runtime_bodies': 0}
+
+
+def github_metadata(endpoint, archive=False):
+    ensure(os.environ.get('GH_TOKEN') and not os.environ.get('GH_HOST'), 'explicit-github-actions-read-token-required')
+    code, output, _ = capture(['gh', 'api', '--hostname', 'github.com', endpoint], 120,
+                              limit=4 * 1024 * 1024, binary=archive)
+    ensure(code == 0, 'bounded-github-evidence-request-succeeded')
+    return output if archive else json.loads(output)
+
+
+def prior_controls(run_id, report):
+    """Fresh exact-HEAD controls are a prerequisite, not historical GREEN reuse."""
+    ensure(isinstance(run_id, str) and re.fullmatch('[1-9][0-9]{0,15}', run_id), 'explicit-controls-run-id-required')
+    prefix = 'repos/dyKiU/mdk/actions/'
+    run = github_metadata(prefix + 'runs/' + run_id)
+    ensure(run.get('head_sha') == report['source'] and run.get('event') == 'workflow_dispatch'
+           and run.get('status') == 'completed' and run.get('conclusion') == 'success'
+           and run.get('path') == WORKFLOW
+           and run.get('head_repository', {}).get('full_name') == 'dyKiU/mdk', 'same-head-successful-owned-controls-run')
+    listing = github_metadata(prefix + 'runs/' + run_id + '/artifacts?per_page=100')
+    artifacts = listing.get('artifacts')
+    ensure(isinstance(artifacts, list) and listing.get('total_count') == len(artifacts) <= 100, 'complete-bounded-artifact-inventory')
+    receipts = {}
+    for cohort in ['default', 'experimental', 'preflight']:
+        name = ('storage-ownership-preflight-' if cohort == 'preflight' else 'storage-ownership-boundary-' + cohort + '-') + report['source']
+        selected = [item for item in artifacts if item.get('name') == name]
+        ensure(len(selected) == 1 and selected[0].get('expired') is False, 'one-unexpired-owned-controls-artifact')
+        item = selected[0]
+        ensure(type(item.get('id')) is int and type(item.get('size_in_bytes')) is int
+               and 0 < item['size_in_bytes'] <= 4 * 1024 * 1024, 'bounded-controls-artifact')
+        data = github_metadata(prefix + 'artifacts/' + str(item['id']) + '/zip', archive=True)
+        checksum = digest(data)
+        ensure(item.get('digest') == 'sha256:' + checksum, 'controls-archive-digest-exact-api-provenance')
+        with zipfile.ZipFile(io.BytesIO(data)) as bundle:
+            files = bundle.infolist()
+            ensure(len(files) <= 16 and all(not info.flag_bits & 1 and info.file_size <= 512 * 1024 for info in files), 'bounded-unencrypted-controls-archive-members')
+            results = [info for info in files if info.filename in {'result.json', 'storage-boundary-evidence/result.json'}]
+            ensure(len(results) == 1, 'one-controls-result-member')
+            result_bytes = bundle.read(results[0])
+            row = json.loads(result_bytes)
+            if cohort == 'preflight':
+                patches = [info for info in files if info.filename == 'formatting/formatting.patch']
+                ensure(len(patches) == 1 and patches[0].file_size == 0 and bundle.read(patches[0]) == b'', 'controls-formatter-patch-empty')
+        ensure(row.get('source') == report['source'] and row.get('inputs_pristine') is True
+               and row.get('input_manifest_sha256') == report['input_manifest_sha256']
+               and row.get('reviewed_cohort_baseline') == report['reviewed_cohort_baseline']
+               and row.get('ownership_adaptation', {}).get('original_three_test_bodies_exact') is True
+               and row.get('toolchain') == report['toolchain'] and row.get('environment') == report['environment']
+               and not row.get('controller_failure_type'), 'controls-exact-source-input-toolchain-and-environment')
+        if cohort == 'preflight':
+            ensure(row.get('preflight_passed') is True and row.get('actual_executed_nonignored') == 0, 'controls-preflight-required')
+        else:
+            bodies = row.get('bodies', {})
+            ensure(row.get('cohort') == cohort and row.get('compile_only') is False
+                   and row.get('crossing_diagnostics_only') is False and not row.get('mutations_only')
+                   and row.get('boundary_controls_passed') is True and row.get('actual_counts_complete') is True
+                   and row.get('actual_executed_nonignored') == 4 and sorted(bodies) == sorted(TESTS + [ADDED_TEST])
+                   and row.get('inventory', {}).get('selected_nonignored') == 4
+                   and row.get('inventory', {}).get('selected_ignored') == 0, 'four-complete-nonignored-owned-controls-per-cohort')
+            compilation = row.get('compilation', {})
+            ensure(compilation.get('exit_code') == 0 and compilation.get('compiler_error_count') == 0
+                   and compilation.get('selected_test_artifact_count') == 1
+                   and compilation.get('compiled_features') == ([] if cohort == 'default' else ['experimental-device-sync'])
+                   and re.fullmatch('[0-9a-f]{64}', compilation.get('compiler_artifact_feature_manifest_sha256', '')) is not None
+                   and re.fullmatch('[0-9a-f]{64}', compilation.get('binary_sha256', '')) is not None, 'controls-compiled-feature-cohort-and-binary')
+            for body in bodies.values():
+                ensure(body.get('actual_counts_complete') is True and body.get('passed_gate') is True
+                       and body.get('passed') == 1 and body.get('failed') == body.get('ignored') == 0
+                       and body.get('panic_count') == body.get('compiler_error_count') == 0
+                       and body.get('executed_nonignored') == 1 and body.get('binary_sha256') == compilation['binary_sha256'], 'each-prior-control-actually-passed')
+        receipts[cohort] = {'artifact_id': item['id'], 'artifact_sha256': checksum,
+                            'result_sha256': digest(result_bytes),
+                            'actual_executed_nonignored': row['actual_executed_nonignored']}
+    return {'run_id': int(run_id), 'source': report['source'], 'actual_controls': 8, 'receipts': receipts}
+
+
+def compile_mutation_phase(cohort, expected, phase, save):
+    ensure(frozen_inputs() == expected, 'phase-inputs-exact-before-compilation')
+    command = ['cargo', 'test', '--locked', '-p', 'storage-sqlite', '--lib', '--no-run', '--message-format=json']
+    features = [] if cohort == 'default' else ['experimental-device-sync']
+    if features:
+        command += ['--features', features[0]]
+    code, raw, seconds = capture(command, 1800)
+    events = [json.loads(line) for line in raw.splitlines() if line.startswith('{')]
+    errors = sum(value.get('reason') == 'compiler-message' and value.get('message', {}).get('level') == 'error' for value in events)
+    artifacts = [value for value in events if value.get('reason') == 'compiler-artifact']
+    selected = [value for value in artifacts if value['target']['name'] == 'storage_sqlite' and value['target']['kind'] == ['lib'] and value['profile']['test'] and value.get('executable')]
+    phase['compilation'] = {'exit_code': code, 'compiler_error_count': errors, 'wall_seconds': seconds,
+                            'succeeded': False,
+                            'selected_test_artifact_count': len(selected), 'command': command}
+    save()
+    ensure(code == errors == 0 and len(selected) == 1 and sorted(selected[0]['features']) == features, 'mutation-phase-must-compile-in-exact-feature-cohort')
+    binary = Path(selected[0]['executable'])
+    fingerprints = sorted([{'package': value['package_id'], 'target': value['target']['name'],
+                            'kind': value['target']['kind'], 'features': sorted(value['features']), 'profile': value['profile']}
+                           for value in artifacts], key=lambda value: json.dumps(value, sort_keys=True))
+    phase['compilation'].update(succeeded=True, compiled_features=features, binary_sha256=digest(binary.read_bytes()),
+                                compiler_artifact_feature_manifest_sha256=digest(json.dumps(fingerprints, sort_keys=True).encode()))
+    ensure(frozen_inputs() == expected, 'phase-inputs-exact-after-compilation')
+    return binary
+
+
+def run_mutations(args, report, frozen, save):
+    report['prior_controls'] = prior_controls(args.controls_run_id, report)
+    target = Path(BOUNDARY[1])
+    original, mode = target.read_bytes(), target.stat().st_mode
+    source = original.decode()
+    report['mutation_chains'] = {}
+    try:
+        for label, (name, old, new) in mutation_specs(source).items():
+            ensure(source.count(old) == 1, 'single-exact-reviewed-mutant-source-anchor')
+            chain = {'selected_test': name, 'phases': {}, 'passed': False}
+            report['mutation_chains'][label] = chain
+            for phase_name in ['baseline', 'mutant', 'restored']:
+                body = source.replace(old, new, 1).encode() if phase_name == 'mutant' else original
+                target.write_bytes(body)
+                target.chmod(mode)
+                expected = {key: dict(value) for key, value in frozen.items()}
+                expected[BOUNDARY[1]]['sha256'] = digest(body)
+                phase = {'source_manifest_sha256': digest(json.dumps(expected, sort_keys=True, separators=(',', ':')).encode()),
+                         'boundary_sha256': digest(body), 'actual_counts_complete': False,
+                         'intended_runtime_kill': False, 'runtime_started': False,
+                         'runtime_completed': False, 'executed_nonignored': None}
+                chain['phases'][phase_name] = phase
+                save()
+                binary = compile_mutation_phase(args.cohort, expected, phase, save)
+                binary_hash = phase['compilation']['binary_sha256']
+                code, listed, _ = capture([str(binary), name, '--exact', '--list', '--format', 'terse'], 60)
+                listed_lines = [line for line in listed.splitlines() if line]
+                ensure(code == 0 and listed_lines.count(name + ': test') == 1
+                       and all(line in {name + ': test', '1 test, 0 benchmarks'} for line in listed_lines), 'mutation-phase-one-exact-test-inventory')
+                code, ignored, _ = capture([str(binary), name, '--exact', '--ignored', '--list', '--format', 'terse'], 60)
+                ensure(code == 0 and ignored.strip() in {'', '0 tests, 0 benchmarks'}, 'mutation-phase-never-ignored')
+                ensure(frozen_inputs() == expected and digest(binary.read_bytes()) == binary_hash, 'phase-source-and-binary-exact-before-runtime')
+                phase['runtime_started'] = True
+                save()
+                code, raw, seconds = capture([str(binary), name, '--exact', '--nocapture', '--test-threads=1'], 300)
+                phase.update(parse_body(raw, code, name))
+                phase.update(runtime_completed=True, wall_seconds=seconds, binary_sha256=binary_hash)
+                phase['intended_runtime_kill'] = mutation_killed(label, raw, code, body.decode(), expected) if phase_name == 'mutant' else False
+                save()
+                ensure(frozen_inputs() == expected and digest(binary.read_bytes()) == binary_hash, 'phase-source-and-binary-exact-after-runtime')
+            phases = chain['phases']
+            first, mutant, last = (phases[name]['compilation'] for name in ['baseline', 'mutant', 'restored'])
+            ensure(first['binary_sha256'] == last['binary_sha256']
+                   and first['compiler_artifact_feature_manifest_sha256'] == last['compiler_artifact_feature_manifest_sha256']
+                   and first['compiled_features'] == last['compiled_features'], 'baseline-restored-binary-and-features-identical')
+            ensure(mutant['binary_sha256'] != first['binary_sha256'], 'counterfactual-must-change-compiled-binary')
+            ensure(first['compiler_artifact_feature_manifest_sha256'] == mutant['compiler_artifact_feature_manifest_sha256']
+                   and first['compiled_features'] == mutant['compiled_features'], 'mutant-feature-and-profile-manifest-exact-controls')
+            chain['binary_and_cohort_proof'] = {
+                'mutant_binary_differs_from_baseline': True,
+                'baseline_and_restored_binaries_identical': True,
+                'all_three_feature_and_profile_manifests_identical': True,
+            }
+            chain['passed'] = (phases['baseline']['passed_gate'] and phases['mutant']['intended_runtime_kill']
+                               and phases['restored']['passed_gate'])
+            save()
+            ensure(chain['passed'], 'required-intended-runtime-mutation-kill-and-passing-controls')
+        report['necessity_mutations_passed'] = True
+        return 0
+    finally:
+        target.write_bytes(original)
+        target.chmod(mode)
+        phases = [phase for chain in report['mutation_chains'].values() for phase in chain['phases'].values()]
+        report['actual_counts_complete'] = len(phases) == 12 and all(phase.get('actual_counts_complete') for phase in phases)
+        observed = [phase['executed_nonignored'] for phase in phases if phase.get('actual_counts_complete')]
+        report['observed_completed_phase_executions'] = sum(observed)
+        report['actual_executed_nonignored'] = sum(observed) if len(observed) == len(phases) else None
+        report['mutation_phase_count'] = len(phases)
+        report['source_and_modes_restored'] = frozen_inputs() == frozen
+        if not report['source_and_modes_restored']:
+            report['necessity_mutations_passed'] = False
+        save()
+        ensure(report['source_and_modes_restored'], 'exact-source-and-mode-restoration-required')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cohort', choices=['default', 'experimental'], required=True)
@@ -495,10 +760,13 @@ def main():
     parser.add_argument('--compile-only', action='store_true')
     parser.add_argument('--ownership-adaptation', action='store_true')
     parser.add_argument('--crossing-diagnostics', action='store_true')
+    parser.add_argument('--mutations', action='store_true')
+    parser.add_argument('--controls-run-id')
     args = parser.parse_args()
     os.umask(0o077)
     OUT.mkdir(exist_ok=True)
     report = {'cohort': args.cohort, 'compile_only': args.compile_only, 'crossing_diagnostics_only': args.crossing_diagnostics,
+              'mutations_only': args.mutations, 'necessity_mutations_passed': False,
               'qualification_passed': False, 'boundary_controls_passed': False,
               'actual_counts_complete': False, 'actual_executed_nonignored': 0, 'bodies': {}}
     frozen = frozen_inputs()
@@ -510,14 +778,19 @@ def main():
         report['parser_fixtures'] = parser_preflight()
         report['compiler_parser_fixtures'] = diagnostic_parser_preflight()
         report['crossing_parser_fixtures'] = crossing_parser_preflight()
+        if args.ownership_adaptation:
+            report['mutation_parser_fixtures'] = mutation_parser_preflight(frozen)
         ensure(not args.compile_only or args.cohort == 'default', 'diagnostic-scope-default-only')
         ensure(not args.crossing_diagnostics or (args.cohort == 'default' and args.ownership_adaptation and not args.compile_only), 'crossing-diagnostic-default-owned-runtime-only')
+        ensure(not args.mutations or (args.ownership_adaptation and not args.compile_only and not args.crossing_diagnostics and not args.preflight), 'isolated-owned-mutation-runtime-only')
         report['toolchain'] = {name: subprocess.check_output([name, '--version'], text=True).strip() for name in ['cargo', 'rustc']}
         report['environment'] = {key: os.environ.get(key) for key in ['CARGO_INCREMENTAL', 'CARGO_BUILD_JOBS', 'CARGO_PROFILE_DEV_DEBUG', 'CARGO_PROFILE_TEST_DEBUG', 'RUST_MIN_STACK']}
         save()
         if args.preflight:
             report['preflight_passed'] = True
             return 0
+        if args.mutations:
+            return run_mutations(args, report, frozen, save)
         selected_tests = sorted(TESTS + ([ADDED_TEST] if args.ownership_adaptation else []))
         if args.crossing_diagnostics:
             selected_tests = [BOUNDARY_TEST]
