@@ -131,7 +131,7 @@ def parser_preflight():
     raw = 'ordinary-recipient-intake role=recipient seq=0 counts=' + empty + ' first=' + empty + ' last=' + empty + ' unknown=false\n'
     ensure(diagnostics(raw)['traces'][0]['unknown'] is False, 'known-empty-typed-trace-positive')
     ensure(diagnostics(raw.replace('unknown=false', 'unknown=true'))['traces'][0]['unknown'] is True, 'poison-or-contention-remains-unknown-not-zero')
-    negatives = [raw + raw, raw.replace('recipient', 'PRIVATE_ACCOUNT', 1), raw.replace('seq=0', 'seq=1000000001'),
+    negatives = [raw + raw, raw.replace('role=recipient', 'role=PRIVATE_ACCOUNT', 1), raw.replace('seq=0', 'seq=1000000001'),
                  raw.replace('seq=0', 'seq="PRIVATE_ACCOUNT"'), raw.replace('unknown=false', 'unknown=maybe'),
                  raw.replace('[0, ', '[', 1), raw.replace('unknown=false', 'unknown=false extra=PRIVATE_ACCOUNT'),
                  raw.replace('first=[0', 'first=[1', 1)]
