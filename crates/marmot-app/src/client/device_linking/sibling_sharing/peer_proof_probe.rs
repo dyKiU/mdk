@@ -52,7 +52,12 @@ pub(crate) fn arm(owner: &Arc<OriginalEnrollmentSharingChoice>) -> Guard {
     let mut gates = registry().lock().expect("peer proof gates");
     gates.retain(|gate| gate.strong_count() != 0);
     assert!(gates.len() < 4, "bounded test publication holds");
-    assert!(!gates.iter().filter_map(Weak::upgrade).any(|old| old.owner.ptr_eq(&gate.owner)));
+    assert!(
+        !gates
+            .iter()
+            .filter_map(Weak::upgrade)
+            .any(|old| old.owner.ptr_eq(&gate.owner))
+    );
     gates.push(Arc::downgrade(&gate));
     Guard(gate)
 }
@@ -65,8 +70,7 @@ pub(super) async fn hold(original: &Arc<SiblingOriginal>, nonce: [u8; 32]) {
     let gate = {
         let gates = registry().lock().expect("peer proof gates");
         gates.iter().filter_map(Weak::upgrade).find(|gate| {
-            gate.owner.ptr_eq(&Arc::downgrade(choice))
-                && !gate.fired.swap(true, Ordering::AcqRel)
+            gate.owner.ptr_eq(&Arc::downgrade(choice)) && !gate.fired.swap(true, Ordering::AcqRel)
         })
     };
     if let Some(gate) = gate {
@@ -87,18 +91,38 @@ impl AppClient {
             return None;
         }
         let scope = entry.channel.scope();
-        let durable = self.app.account_storage(&self.state.label).ok()?
+        let durable = self
+            .app
+            .account_storage(&self.state.label)
+            .ok()?
             .approved_account_sharing_policy_storage()?
-            .approved_account_sharing_policies().ok()?
-            .iter().any(|policy| policy.local_device.as_slice() == scope.source.as_slice()
-                && policy.peer_device.as_slice() == scope.recipient.as_slice()
-                && policy.protected_group == scope.protected.group_id
-                && policy.approval_id == scope.approval_id && !policy.revoked);
+            .approved_account_sharing_policies()
+            .ok()?
+            .iter()
+            .any(|policy| {
+                policy.local_device.as_slice() == scope.source.as_slice()
+                    && policy.peer_device.as_slice() == scope.recipient.as_slice()
+                    && policy.protected_group == scope.protected.group_id
+                    && policy.approval_id == scope.approval_id
+                    && !policy.revoked
+            });
         Some(Snapshot {
             nonce: entry.channel.scope().nonce,
-            flags: [entry.original.live(), entry.state.live(), entry.policy_committed,
-                entry.proof_published, entry.peer_committed, entry.publication.is_some(),
-                entry.state.progress.lock().expect("sharing progress").complete, durable],
+            flags: [
+                entry.original.live(),
+                entry.state.live(),
+                entry.policy_committed,
+                entry.proof_published,
+                entry.peer_committed,
+                entry.publication.is_some(),
+                entry
+                    .state
+                    .progress
+                    .lock()
+                    .expect("sharing progress")
+                    .complete,
+                durable,
+            ],
         })
     }
 }

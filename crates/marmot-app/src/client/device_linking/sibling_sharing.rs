@@ -2436,10 +2436,10 @@ impl AppClient {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let completion_consent_identity = consent.then(|| request.message.id.clone());
         // COMPLETION_TEST_END
-// PEER_PROOF_TEST_BEGIN
+        // PEER_PROOF_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let peer_proof_nonce = entry.channel.scope().nonce;
-// PEER_PROOF_TEST_END
+        // PEER_PROOF_TEST_END
         let completion = self.linking_owner.sibling_publication_completions.clone();
         let (result_tx, result) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
