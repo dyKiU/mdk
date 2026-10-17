@@ -5,6 +5,10 @@ pub(crate) mod peer_proof_probe;
 // PEER_PROOF_TEST_END
 #[cfg(test)]
 mod tests;
+// BROAD_TRACE_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) mod broad_trace;
+// BROAD_TRACE_END
 use super::*;
 use crate::account_chat_sharing::enabled::State;
 use crate::device_linking::settlement::SettlementGuard;
@@ -383,6 +387,10 @@ struct ChoiceProgress {
 impl OriginalEnrollmentSharingChoice {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn record_observation_stage_for_test(&self, stage: NativeObservationStage) {
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        broad_trace::choice(self, match stage { NativeObservationStage::DispatchStarted => 25, NativeObservationStage::WorkerStarted => 26, NativeObservationStage::WorkerReturned => 27, NativeObservationStage::FacadeReturned => 28, NativeObservationStage::AutomaticEntered => 43, NativeObservationStage::AutomaticExited => 44 }, 0);
+        // BROAD_TRACE_END
         let mut probe = self
             .native_observation_probe
             .lock()
@@ -393,6 +401,10 @@ impl OriginalEnrollmentSharingChoice {
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn record_observation_reason_for_test(&self, reason: NativeObservationReason) {
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        broad_trace::choice(self, 42, match reason { NativeObservationReason::VerifierFallback => 0, NativeObservationReason::NoRound => 1, NativeObservationReason::GuardInvalid => 2, NativeObservationReason::NoSettledRoster => 3, NativeObservationReason::SharingPending => 4, NativeObservationReason::Complete => 5 });
+        // BROAD_TRACE_END
         let mut probe = self
             .native_observation_probe
             .lock()
@@ -468,6 +480,10 @@ impl OriginalEnrollmentSharingChoice {
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn completion_aggregates_for_test(&self) -> (bool, Option<usize>, usize, usize) {
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        broad_trace::choice(self, 33, 0);
+        // BROAD_TRACE_END
         let progress = self.progress.lock().expect("sharing choice");
         let children = self.children.lock().expect("sibling children");
         (
@@ -684,6 +700,10 @@ impl OriginalEnrollmentSharingChoice {
             self.deadline,
         );
         children.push(state.clone());
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        broad_trace::child(self, &state);
+        // BROAD_TRACE_END
         if !self.live() {
             state.cancel();
             return Err(denied());
@@ -2306,6 +2326,10 @@ impl AppClient {
             let mut progress = entry.state.progress.lock().expect("sibling progress");
             if !progress.complete {
                 progress.complete = true;
+                // BROAD_TRACE_BEGIN
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                broad_trace::channel(&entry.state, 30, 1);
+                // BROAD_TRACE_END
                 progress.revision += 1;
             }
         }

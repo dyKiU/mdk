@@ -1240,25 +1240,65 @@ impl AppClient {
         now: std::time::Instant,
         service_siblings: bool,
     ) -> Result<(), ClientLinkingError> {
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(1);
+        // BROAD_TRACE_END
         self.maintain_selected_chat_packages()
             .map_err(ClientLinkingError::Engine)?;
         self.maintain_selected_chat_pending()
             .await
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(2);
+        // BROAD_TRACE_END
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(3);
+        // BROAD_TRACE_END
         self.maintain_device_leaf_revocation_pending()
             .await
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(4);
+        // BROAD_TRACE_END
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(5);
+        // BROAD_TRACE_END
         self.maintain_original_history().await.map_err(|_| {
             ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
                 "history original maintenance unavailable".into(),
             )))
         })?;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(6);
+        // BROAD_TRACE_END
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(7);
+        // BROAD_TRACE_END
         self.maintain_existing_pair_sharing().map_err(|_| {
             ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
                 "account sharing original maintenance unavailable".into(),
             )))
         })?;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(8);
+        // BROAD_TRACE_END
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(9);
+        // BROAD_TRACE_END
         self.persist_completed_pair_sharing_approval()?;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(10);
+        // BROAD_TRACE_END
         if service_siblings {
             self.maintain_sibling_sharing().await?;
         }
@@ -1270,6 +1310,10 @@ impl AppClient {
                 sibling_sharing::NativeObservationStage::AutomaticEntered,
             );
         }
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(11);
+        // BROAD_TRACE_END
         let automatic = self.maintain_automatic_account_sharing().await;
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if let Some(observer) = &observer {
@@ -1277,11 +1321,19 @@ impl AppClient {
                 sibling_sharing::NativeObservationStage::AutomaticExited,
             );
         }
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(12);
+        // BROAD_TRACE_END
         automatic.map_err(|_| {
             ClientLinkingError::Runtime(Box::new(crate::AppError::InvalidAppMessagePayload(
                 "automatic sharing maintenance unavailable".into(),
             )))
         })?;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(13);
+        // BROAD_TRACE_END
         self.prune_native_enrollment_intent();
         self.maintain_received_enrollment_endorsement(now)?;
         let reservation_live = self
@@ -1358,6 +1410,10 @@ impl AppClient {
             // an expired verifier or approval from a durable terminal fact.
             self.retire_unjoined_device_linking().await?;
         }
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(14);
+        // BROAD_TRACE_END
         Ok(())
     }
 

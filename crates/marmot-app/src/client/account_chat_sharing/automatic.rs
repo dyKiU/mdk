@@ -1244,9 +1244,17 @@ impl AppClient {
             .filter(|policy| self.automatic_policy_current(policy).is_ok())
             .cloned()
             .collect();
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(15);
+        // BROAD_TRACE_END
         self.maintain_local_account_chat_departures(&current)
             .await?;
 
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(16);
+        // BROAD_TRACE_END
         for policy in policies {
             let id = Self::automatic_policy_id(&policy)?;
             if self.automatic_policy_current(&policy).is_err() {
@@ -1319,7 +1327,15 @@ impl AppClient {
             };
             #[cfg(all(test, feature = "test-policy-overrides"))]
             self.test_trace_automatic_progress("tick_before", &entry, "observed");
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.broad_trace_for_test(17);
+            // BROAD_TRACE_END
             let result = self.automatic_sharing_tick(&mut entry).await;
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.broad_trace_for_test(18);
+            // BROAD_TRACE_END
             #[cfg(all(test, feature = "test-policy-overrides"))]
             self.test_trace_automatic_progress(
                 "tick_after",
@@ -1404,7 +1420,15 @@ impl AppClient {
             self.prepare_automatic_departure(entry)?;
         }
         if entry.pending.is_empty() {
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.broad_trace_for_test(21);
+            // BROAD_TRACE_END
             self.prepare_automatic_sends(entry).await?;
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            self.broad_trace_for_test(22);
+            // BROAD_TRACE_END
         }
         if entry.pending.is_empty()
             && entry.pending_catalog.is_none()
@@ -1909,12 +1933,20 @@ impl AppClient {
             Err(tokio::sync::TryAcquireError::Closed) => return Err(AccountSharingError::Closed),
         };
         self.automatic_policy_current(&entry.policy)?;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(19);
+        // BROAD_TRACE_END
         let message = self
             .runtime
             .session_mut()
             .wrap_account_sharing_control(&mut entry.channel, kind)
             .await
             .map_err(|_| AccountSharingError::NotReady)?;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        self.broad_trace_for_test(20);
+        // BROAD_TRACE_END
         let input_payload_digest: [u8; 32] = Sha256::digest(&message.payload).into();
         let evidence = self
             .runtime

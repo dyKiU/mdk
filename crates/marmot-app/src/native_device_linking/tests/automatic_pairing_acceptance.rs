@@ -422,11 +422,19 @@ async fn held_automatic_catalog_body_keeps_fresh_account_commands_responsive() {
 
 #[tokio::test]
 async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts() {
+    // BROAD_TRACE_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    let _broad_trace = crate::client::device_linking::sibling_sharing::broad_trace::Dump::begin();
+    // BROAD_TRACE_END
     four_device_enrollment(HeldPublication::None).await;
 }
 
 #[tokio::test]
 async fn blocked_sibling_consent_does_not_starve_another_approved_peer() {
+    // BROAD_TRACE_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    let _broad_trace = crate::client::device_linking::sibling_sharing::broad_trace::Dump::begin();
+    // BROAD_TRACE_END
     four_device_enrollment(HeldPublication::SiblingConsent).await;
 }
 
@@ -809,6 +817,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     };
     // COMPLETION_TEST_END
     if let Some((observed, release)) = held_consent {
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        crate::client::device_linking::sibling_sharing::broad_trace::global(47);
+        // BROAD_TRACE_END
         let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
             observed.await.expect("genuine sibling consent publication");
             eprintln!(
@@ -831,6 +843,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
             }
         })
         .await;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        crate::client::device_linking::sibling_sharing::broad_trace::global(48);
+        // BROAD_TRACE_END
         release.notify_one();
         assert!(
             result.is_ok(),
@@ -1424,11 +1440,31 @@ async fn wait_for_automatic_phase_with_approvals(
     phase: DeviceLinkingPhase,
     approvals: &[DeviceLinkingApproval],
 ) {
+    // BROAD_TRACE_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    crate::client::device_linking::sibling_sharing::broad_trace::global(45);
+    // BROAD_TRACE_END
     let mut observed = None;
     tokio::time::timeout(std::time::Duration::from_secs(15), async {
         loop {
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            crate::client::device_linking::sibling_sharing::broad_trace::global(36);
+            // BROAD_TRACE_END
             let ap = a.snapshot().await.unwrap().phase;
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            crate::client::device_linking::sibling_sharing::broad_trace::global(37);
+            // BROAD_TRACE_END
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            crate::client::device_linking::sibling_sharing::broad_trace::global(38);
+            // BROAD_TRACE_END
             let bp = b.snapshot().await.unwrap().phase;
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            crate::client::device_linking::sibling_sharing::broad_trace::global(39);
+            // BROAD_TRACE_END
             observed = Some((ap, bp));
             assert!(
                 !matches!(
@@ -1451,7 +1487,15 @@ async fn wait_for_automatic_phase_with_approvals(
             if ap == phase && bp == phase {
                 break;
             }
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            crate::client::device_linking::sibling_sharing::broad_trace::global(34);
+            // BROAD_TRACE_END
             tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            crate::client::device_linking::sibling_sharing::broad_trace::global(35);
+            // BROAD_TRACE_END
         }
     })
     .await
@@ -1488,6 +1532,10 @@ async fn wait_for_automatic_phase_with_approvals(
         let _ = approvals;
         panic!("automatic pairing did not reach required phase: expected={phase:?} observed={observed:?}")
     });
+    // BROAD_TRACE_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    crate::client::device_linking::sibling_sharing::broad_trace::global(46);
+    // BROAD_TRACE_END
 }
 
 #[tokio::test]

@@ -42,6 +42,10 @@ impl OriginalSiblingSharingApproval {
     pub(crate) fn channel_diagnostics_for_test(
         &self,
     ) -> crate::account_chat_sharing::enabled::SiblingMaintenanceSnapshot {
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        crate::client::device_linking::sibling_sharing::broad_trace::channel(&self.state, 32, 0);
+        // BROAD_TRACE_END
         self.state
             .sibling_diagnostics
             .lock()
