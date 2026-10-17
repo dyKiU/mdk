@@ -23,6 +23,8 @@ async fn admitted_recipient_starts_first_consent_without_periodic_tick() {
     // nonce, normal enrollment and explicit public cancellation.
     let mut facts = [false; 7];
     let mut primary_ready = false;
+    let mut request_held = false;
+    let mut exact_request_identity = false;
     let attempt = std::panic::AssertUnwindSafe(async {
         for runtime in &runtimes {
             runtime.reconcile_accounts().await.unwrap();
@@ -85,35 +87,29 @@ async fn admitted_recipient_starts_first_consent_without_periodic_tick() {
         let proof_gate = tokio::time::timeout(Duration::from_secs(15), async {
             loop {
                 c.snapshot().await.unwrap();
-                if c.sibling_completion_aggregates_for_test() == Some((true, Some(1), 0, 0)) {
-                    primary_ready = true;
-                    if let Some(gate) = c.arm_late_peer_proof_for_test() {
-                        break gate;
-                    }
+                if let Some(gate) = c.arm_late_peer_proof_for_test() {
+                    break gate;
                 }
                 tokio::time::sleep(Duration::from_millis(25)).await;
             }
         })
         .await
         .expect("actual recipient original before B approval");
-        let admission = proof_gate.arm_recipient_admission_for_test();
-        let periodic = runtimes[2].hold_periodic_linking_for_test("test");
-        tokio::time::timeout(Duration::from_secs(10), periodic.observed())
-            .await
-            .expect("recipient periodic gate reached before sibling approval");
-        facts[0] = true;
-        let (mut consent_observed, consent_release) = apps[2]
-            .relay_plane
-            .hold_next_sibling_consent(cgka_traits::MemberId::new(
-                keys.public_key().to_bytes().to_vec(),
-            ));
-        struct ConsentRelease(Arc<tokio::sync::Notify>);
-        impl Drop for ConsentRelease {
+        struct PublicationRelease(Arc<tokio::sync::Notify>);
+        impl Drop for PublicationRelease {
             fn drop(&mut self) {
                 self.0.notify_one();
             }
         }
-        let consent_release = ConsentRelease(consent_release);
+        // This transport hold is not a receipt. Its identity must later match
+        // the actual Request retained on B's original Core channel, or this
+        // fixture is unqualified (automatic Group traffic can also use this gate).
+        let (request_observed, request_release) = apps[1]
+            .relay_plane
+            .hold_next_selected_commit(cgka_traits::MemberId::new(
+                keys.public_key().to_bytes().to_vec(),
+            ));
+        let request_release = PublicationRelease(request_release);
         let approval = tokio::time::timeout(Duration::from_secs(20), async {
             loop {
                 if let Some(approval) = managers[1]
@@ -132,12 +128,69 @@ async fn admitted_recipient_starts_first_consent_without_periodic_tick() {
         let revision = approval.snapshot().await.unwrap().revision;
         approval.review_metadata(revision).await.unwrap();
         approval.approve_and_share_chats(revision).await.unwrap();
+        let original = approval
+            .sharing_original_for_test()
+            .expect("actual B sharing original");
+        let owner = Arc::downgrade(&original);
+        let held_request = tokio::time::timeout(Duration::from_secs(15), request_observed)
+            .await
+            .expect("actual B Group publication held after endorsement")
+            .expect("actual held Group publication");
+        request_held = held_request.id.as_slice().len() == 32 && !held_request.payload.is_empty();
+        let request = tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                if let Some(row) = managers[1]
+                    .peer_proof_snapshot_for_test("test", owner.clone())
+                    .await
+                    .unwrap()
+                    && row.request_message_id.as_ref() == Some(&held_request.id)
+                    && row.flags[0]
+                    && row.flags[1]
+                    && row.flags[5]
+                    && row.consent_ordering == [false, false]
+                {
+                    break row;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("held Group publication is the exact original sibling Request");
+        exact_request_identity = true;
+        // Endorsement is now genuine and the exact Request has not reached C.
+        // Primary commitment depends on B endorsement, so establish it here.
+        tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                c.snapshot().await.unwrap();
+                if c.sibling_completion_aggregates_for_test() == Some((true, Some(1), 0, 0)) {
+                    primary_ready = true;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("actual primary commit with one expected sibling and no admitted child");
+        let admission = proof_gate.arm_recipient_admission_for_test();
+        let periodic = runtimes[2].hold_periodic_linking_for_test("test");
+        tokio::time::timeout(Duration::from_secs(10), periodic.observed())
+            .await
+            .expect("recipient periodic gate reached while the actual Request is held");
+        facts[0] = true;
+        let (mut consent_observed, consent_release) = apps[2]
+            .relay_plane
+            .hold_next_sibling_consent(cgka_traits::MemberId::new(
+                keys.public_key().to_bytes().to_vec(),
+            ));
+        let consent_release = PublicationRelease(consent_release);
+        drop(request_release);
         // No snapshot/maintenance RPC on C while gated: the observation is
         // emitted only after actual protected Request intake and Core approval.
         let child = tokio::time::timeout(Duration::from_secs(15), admission.observed())
             .await
             .expect("actual fresh recipient child admitted while periodic work is gated");
-        facts[1] = child.flags == [true, true, true, true, false, false];
+        facts[1] = child.flags == [true, true, true, true, false, false]
+            && child.nonce == request.nonce;
         // Preserve the receiver if the intended first-publication verdict is
         // negative. Cleanup and ordinary positive progress must still execute.
         let first = tokio::time::timeout(Duration::from_secs(15), &mut consent_observed)
@@ -166,6 +219,8 @@ async fn admitted_recipient_starts_first_consent_without_periodic_tick() {
         a.cancel().await.unwrap();
         c.cancel().await.unwrap();
         approval.cancel().await.unwrap();
+        drop(approval);
+        drop(original);
         facts[6] = true;
     })
     .catch_unwind()
@@ -185,7 +240,9 @@ async fn admitted_recipient_starts_first_consent_without_periodic_tick() {
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
     let relay_closed = owned_loopback_listener_is_closed(address).await;
     eprintln!(
-        "recipient-sibling-admission primary_ready={} periodic_observed={} fresh_admitted={} first_consent_before_gate={} actual_consent_held={} exact_proof_nonce={} enrollment_complete={} public_cancelled={} runtime_closes={} planes_shutdown={} relay_closed={} attempt_completed={}",
+        "recipient-sibling-admission request_held={} exact_request_identity={} primary_ready={} periodic_observed={} fresh_admitted={} first_consent_before_gate={} actual_consent_held={} exact_proof_nonce={} enrollment_complete={} public_cancelled={} runtime_closes={} planes_shutdown={} relay_closed={} attempt_completed={}",
+        request_held,
+        exact_request_identity,
         primary_ready,
         facts[0],
         facts[1],
@@ -200,7 +257,9 @@ async fn admitted_recipient_starts_first_consent_without_periodic_tick() {
         attempt.is_ok()
     );
     assert!(
-        primary_ready
+        request_held
+            && exact_request_identity
+            && primary_ready
             && facts.into_iter().all(|value| value)
             && runtime_closes == 3
             && planes_shutdown == 3

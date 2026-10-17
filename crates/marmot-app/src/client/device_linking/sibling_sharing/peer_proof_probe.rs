@@ -7,6 +7,9 @@ type Existing = crate::client::private_enrollment_proposal::OriginalSiblingShari
 
 pub(crate) struct Snapshot {
     pub(crate) nonce: [u8; 32],
+    // RECIPIENT_ADMISSION_TEST_BEGIN
+    pub(crate) request_message_id: Option<cgka_traits::MessageId>,
+    // RECIPIENT_ADMISSION_TEST_END
     // Original live, state live, policy, own proof harvested, peer proof,
     // publication present, complete, exact durable policy. These are fresh actor-owned values.
     pub(crate) flags: [bool; 8],
@@ -111,6 +114,11 @@ impl AppClient {
                     && !policy.revoked
             });
         Some(Snapshot {
+            // RECIPIENT_ADMISSION_TEST_BEGIN
+            request_message_id: entry.channel.outbound_transport_message_id_for_test(
+                cgka_engine::account_chat_sharing::AccountSharingControl::Request,
+            ),
+            // RECIPIENT_ADMISSION_TEST_END
             // LATE_CONSENT_TEST_BEGIN
             consent_ordering: [entry.ready, entry.handshake_published],
             // LATE_CONSENT_TEST_END

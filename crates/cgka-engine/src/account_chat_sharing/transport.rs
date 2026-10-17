@@ -13,6 +13,20 @@ pub(super) struct FrozenSharingControl {
     control_wire_digest: [u8; 32],
 }
 impl OwnedAccountSharingChannel {
+    // RECIPIENT_ADMISSION_TEST_BEGIN
+    /// Pure test observation of the actual already-wrapped transport identity.
+    #[cfg(feature = "test-policy-overrides")]
+    pub fn outbound_transport_message_id_for_test(
+        &self,
+        kind: AccountSharingControl,
+    ) -> Option<cgka_traits::MessageId> {
+        self.outbound
+            .iter()
+            .find(|entry| entry.kind == kind)
+            .and_then(|entry| entry.wrapped.as_ref())
+            .map(|message| message.id.clone())
+    }
+    // RECIPIENT_ADMISSION_TEST_END
     /// Test observation of already-frozen MLS bytes, never permission evidence.
     #[cfg(feature = "test-policy-overrides")]
     pub fn outbound_content_id_for_test(

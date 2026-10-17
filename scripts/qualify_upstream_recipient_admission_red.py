@@ -17,10 +17,11 @@ FILE = 'crates/marmot-app/src/native_device_linking/tests/recipient_sibling_admi
 PROBE = 'crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe.rs'
 REGISTER = 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
 PRODUCT = 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs'
+CORE = 'crates/cgka-engine/src/account_chat_sharing/transport.rs'
 CASE = 'admitted_recipient_starts_first_consent_without_periodic_tick'
 TEST = 'native_device_linking::automatic_pairing_acceptance::recipient_sibling_admission_acceptance::' + CASE
 MESSAGE = 'admitted_recipient_must_start_first_consent_without_periodic_tick'
-FIELDS = ['primary_ready', 'periodic_observed', 'fresh_admitted', 'first_consent_before_gate',
+FIELDS = ['request_held', 'exact_request_identity', 'primary_ready', 'periodic_observed', 'fresh_admitted', 'first_consent_before_gate',
           'actual_consent_held', 'exact_proof_nonce', 'enrollment_complete', 'public_cancelled']
 MARKER = 'recipient-sibling-admission ' + ' '.join(name + '=(true|false)' for name in FIELDS)
 MARKER += r' runtime_closes=([0-9]{1,2}) planes_shutdown=([0-9]{1,2}) relay_closed=(true|false) attempt_completed=(true|false)'
@@ -120,12 +121,12 @@ def source_guard():
         ensure(row['git_mode'] == expected and (row['symlink'] or row['actual_executable'] == (expected == '100755'))
                and row['symlink'] == (expected == '120000'), 'whole-tracked-layout-preserved')
     changed = set(subprocess.check_output(['git', 'diff', '--name-only', '--no-renames', BASE, 'HEAD'], text=True).splitlines())
-    ensure(changed == {SELF, WORKFLOW, FILE, PROBE, REGISTER, PRODUCT},
+    ensure(changed == {SELF, WORKFLOW, FILE, PROBE, REGISTER, PRODUCT, CORE},
            'only-exact-reviewed-recipient-test-and-metadata')
     pattern = rb'(?m)^[ \t]*// RECIPIENT_ADMISSION_TEST_BEGIN\n.*?^[ \t]*// RECIPIENT_ADMISSION_TEST_END\n'
-    for name in [PROBE, REGISTER, PRODUCT]:
+    for name, count in [(PROBE, 3), (REGISTER, 1), (PRODUCT, 1), (CORE, 1)]:
         data = Path(name).read_bytes()
-        ensure(data.count(b'RECIPIENT_ADMISSION_TEST_BEGIN') == data.count(b'RECIPIENT_ADMISSION_TEST_END') == 1,
+        ensure(data.count(b'RECIPIENT_ADMISSION_TEST_BEGIN') == data.count(b'RECIPIENT_ADMISSION_TEST_END') == count,
                'one-passive-test-block-per-path')
         ensure(re.sub(pattern, b'', data, flags=re.S) == subprocess.check_output(['git', 'show', BASE + ':' + name]),
                'all-existing-product-probe-and-fixture-bytes-preserved')
