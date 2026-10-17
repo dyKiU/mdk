@@ -21,6 +21,7 @@ const MAX_TRANSPORT_HINT_BYTES: usize = 256;
 pub(crate) enum CollectionError {
     Denied,
     InvalidTransport,
+    UnrelatedContext,
     Conflict,
     LimitExceeded,
     Storage,
@@ -94,7 +95,13 @@ impl PrivateWelcomeCollection {
         // its own live lease and authenticate the actual full tree before joining.
         lease
             .check_transport_context(context)
-            .map_err(|_| CollectionError::Denied)
+            .map_err(|error| match error {
+                // Authentication identifies an inbox statement, not its intended
+                // installation. Refuse this input without revoking another live
+                // attempt. Absent, expired or cancelled leases remain hard failures.
+                LinkingWelcomeDenied::ContextMismatch => CollectionError::UnrelatedContext,
+                _ => CollectionError::Denied,
+            })
     }
 
     pub(crate) async fn observe(

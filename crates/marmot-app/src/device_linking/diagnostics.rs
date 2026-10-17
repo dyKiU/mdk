@@ -51,6 +51,7 @@ pub(crate) enum EnrollmentDelivery {
     WelcomeBuffered,
     WelcomeJoined,
     WelcomeRejected,
+    WelcomeUnrelated,
 }
 
 impl EnrollmentDelivery {
@@ -65,6 +66,7 @@ impl EnrollmentDelivery {
             Self::WelcomeBuffered => "welcome_buffered",
             Self::WelcomeJoined => "welcome_joined",
             Self::WelcomeRejected => "welcome_rejected",
+            Self::WelcomeUnrelated => "welcome_unrelated",
         }
     }
 }
@@ -125,6 +127,7 @@ mod tests {
             EnrollmentDelivery::WelcomeBuffered,
             EnrollmentDelivery::WelcomeJoined,
             EnrollmentDelivery::WelcomeRejected,
+            EnrollmentDelivery::WelcomeUnrelated,
         ];
         for observation in observations {
             let code = diagnostics.delivery_change(observation).unwrap();
