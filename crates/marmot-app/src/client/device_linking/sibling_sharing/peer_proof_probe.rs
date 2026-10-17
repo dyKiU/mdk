@@ -133,3 +133,67 @@ impl AppClient {
         })
     }
 }
+// RECIPIENT_ADMISSION_TEST_BEGIN
+/// Passive observation of Core-approved recipient channel admission only.
+pub(crate) mod recipient_admission {
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    pub(crate) struct Admission {
+        pub(crate) nonce: [u8; 32],
+        // Original live, child live, recipient, ready, handshake ACK harvested,
+        // publication present: copied synchronously immediately after admission.
+        pub(crate) flags: [bool; 6],
+    }
+    struct Probe {
+        owner: Weak<OriginalEnrollmentSharingChoice>,
+        admitted: Mutex<Option<Admission>>,
+        observed: Notify,
+    }
+    pub(crate) struct AdmissionGuard(Arc<Probe>);
+    impl AdmissionGuard {
+        pub(crate) async fn observed(&self) -> Admission {
+            self.0.observed.notified().await;
+            self.0.admitted.lock().expect("recipient admission").expect("actual admitted child")
+        }
+    }
+    fn registry() -> &'static Mutex<Vec<Weak<Probe>>> {
+        static REGISTRY: OnceLock<Mutex<Vec<Weak<Probe>>>> = OnceLock::new();
+        REGISTRY.get_or_init(Default::default)
+    }
+    impl Guard {
+        pub(crate) fn arm_recipient_admission_for_test(&self) -> AdmissionGuard {
+            let probe = Arc::new(Probe {
+                owner: self.0.owner.clone(),
+                admitted: Mutex::new(None),
+                observed: Notify::new(),
+            });
+            let mut probes = registry().lock().expect("recipient admission probes");
+            probes.retain(|probe| probe.strong_count() != 0);
+            assert!(probes.len() < 4, "bounded recipient admission probes");
+            assert!(!probes.iter().filter_map(Weak::upgrade).any(|old| old.owner.ptr_eq(&probe.owner)));
+            probes.push(Arc::downgrade(&probe));
+            AdmissionGuard(probe)
+        }
+    }
+    pub(in super::super) fn admitted(entry: &SiblingChannel) {
+        let SiblingOriginal::Recipient { choice, .. } = entry.original.as_ref() else {
+            return;
+        };
+        let probes = registry().lock().expect("recipient admission probes");
+        for probe in probes.iter().filter_map(Weak::upgrade) {
+            if !probe.owner.ptr_eq(&Arc::downgrade(choice)) {
+                continue;
+            }
+            let mut admitted = probe.admitted.lock().expect("recipient admission");
+            if admitted.is_none() {
+                *admitted = Some(Admission {
+                    nonce: entry.channel.scope().nonce,
+                    flags: [entry.original.live(), entry.state.live(), entry.recipient, entry.ready, entry.handshake_published, entry.publication.is_some()],
+                });
+                probe.observed.notify_one();
+            }
+        }
+    }
+}
+// RECIPIENT_ADMISSION_TEST_END
