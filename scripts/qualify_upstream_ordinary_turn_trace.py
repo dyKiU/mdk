@@ -53,9 +53,10 @@ TURN_POINT = option(r'\((' + TURN_STAGES + '), ' + option(TURN_INDEX) + ', ' + N
 TURN_RETURN = option(r'\((' + TURN_STAGES + '), ' + NUMBER + r'\)')
 TURN_DUE = option(sequence(BOOLEAN, 3, r'\[', r'\]'))
 TURN_LINE = r'ordinary-sibling-turn side=(left|right) trace=(\(' + ', '.join([TURN_COUNTS, TURN_TIMES, TURN_POINT, TURN_RETURN, TURN_DUE, BOOLEAN, NUMBER]) + r'\))'
+TIMER_LINE = r'ordinary-sibling-timer side=(left|right) timer=(\(' + ', '.join([array(3), sequence(option(NUMBER), 3, r'\[', r'\]'), option(r'\(' + BOOLEAN + ', ' + NUMBER + r'\)'), option(BOOLEAN)]) + r'\))'
 SIBLING = 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs'
 PROBE = 'crates/marmot-app/src/client/device_linking/sibling_sharing/turn_probe.rs'
-HOOKS = {SIBLING: 13, 'crates/marmot-app/src/client/device_linking/sibling_sharing/tests.rs': 1, 'crates/marmot-app/src/runtime/account_worker.rs': 2,
+HOOKS = {SIBLING: 13, 'crates/marmot-app/src/client/device_linking/sibling_sharing/tests.rs': 1, 'crates/marmot-app/src/runtime/account_worker.rs': 3,
          'crates/marmot-app/src/native_device_linking/enabled.rs': 1,
          'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': 1}
 
@@ -110,9 +111,18 @@ def diagnostics(raw):
         ensure(match is not None and len(line) <= 4096 and match[1] not in {row['side'] for row in turn_rows}, 'closed-unique-turn-trace')
         ensure(all(int(value) <= 1_000_000_000 for value in re.findall(r'[0-9]+', match[2])), 'bounded-turn-trace-integers')
         turn_rows.append({'side': match[1], 'closed_tuple': match[2]})
+    timer_rows = []
+    for line in raw.splitlines():
+        if not line.startswith('ordinary-sibling-timer '): continue
+        match = re.fullmatch(TIMER_LINE, line)
+        ensure(match is not None and len(line) <= 1024 and match[1] not in {row['side'] for row in timer_rows}, 'closed-unique-timer-trace')
+        ensure(all(int(value) <= 1_000_000_000 for value in re.findall(r'[0-9]+', match[2])), 'bounded-timer-trace-integers')
+        timer_rows.append({'side': match[1], 'closed_tuple': match[2]})
     return {'aggregates': rows, 'stages': stages, 'phase_failures': phase_rows, 'missing_diagnostics': not rows,
             'turn_traces': turn_rows, 'missing_turn_trace': not turn_rows,
-            'missing_recipient_turn_trace': not any(row['side'] == 'right' for row in turn_rows)}
+            'missing_recipient_turn_trace': not any(row['side'] == 'right' for row in turn_rows),
+            'timer_traces': timer_rows, 'missing_timer_trace': not timer_rows,
+            'missing_recipient_timer_trace': not any(row['side'] == 'right' for row in timer_rows)}
 
 
 def parser_controls():
@@ -143,7 +153,19 @@ def parser_controls():
         except ValueError: continue
         raise ValueError('adversarial-turn-trace-accepted')
     ensure(diagnostics('unrelated')['missing_recipient_turn_trace'] is True, 'missing-turn-trace-not-zero')
-    return {'positive_controls': len(positives) + 1, 'negative_controls': len(negatives) + len(trace_variants), 'passed': True}
+    timer = 'ordinary-sibling-timer side=right timer=([3, 2, 1], [Some(12), Some(11), Some(12)], Some((true, 2)), Some(false))'
+    timer_missing = 'ordinary-sibling-timer side=left timer=([0, 0, 0], [None, None, None], None, None)'
+    for value in [timer, timer_missing]:
+        ensure(len(diagnostics(value)['timer_traces']) == 1, 'closed-timer-trace-positive')
+    timer_variants = [timer.replace('right', 'secret'), timer.replace('true', 'secret'), timer.replace('Some(false)', 'Some(1)'),
+                      timer.replace('12)', '1000000001)'), timer.replace('[3, 2, 1]', '[3, 2]'), timer + '\n' + timer,
+                      timer + ' private', timer.replace('Some(11)', 'Some(-1)'), timer.replace('Some(11)', '"private"')]
+    for changed in timer_variants:
+        try: diagnostics(changed)
+        except ValueError: continue
+        raise ValueError('adversarial-timer-trace-accepted')
+    ensure(diagnostics('unrelated')['missing_recipient_timer_trace'] is True, 'missing-timer-trace-not-zero')
+    return {'positive_controls': len(positives) + 3, 'negative_controls': len(negatives) + len(trace_variants) + len(timer_variants), 'passed': True}
 
 
 def source_guard():
@@ -241,6 +263,14 @@ def main(preflight):
             'failure_interpretation': 'BeginStart without BeginDone plus Return means exited before successful begin; no typed error is invented',
             'timing_interpretation': 'inclusive stage duration, not exclusive CPU cost',
             'worker_events': 'loop and preselect only; no explicit timer-latch or selection hook inside the unchanged select macro'}
+        report['timer_trace_schema'] = {
+            'counts_and_last_times_order': ['actual_tick_poll', 'pending', 'ready'],
+            'times': 'optional bounded milliseconds since exact original capture',
+            'scheduled_vs_observed': 'optional (observed_at_or_after_scheduled, absolute_delta_ms) for last actual Ready',
+            'stopping': 'optional lifecycle.is_stopping sampled before select',
+            'delegation': 'one original tick future poll per adapter poll; exact Ready Instant returned; no reset or wake',
+            'scope': 'timer readiness only; no explicit latch/service/gate instrumentation',
+        }
         report['diagnostic_environment'] = {'WN_ORDINARY_SIBLING_TURN_TRACE': os.environ.get('WN_ORDINARY_SIBLING_TURN_TRACE')}
         report['parser_controls'] = parser_controls()
         report['source_before_sha256'] = identity(original)

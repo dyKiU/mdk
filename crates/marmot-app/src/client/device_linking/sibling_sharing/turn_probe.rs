@@ -30,6 +30,14 @@ pub(crate) type Snapshot = (
     bool,
     u64,
 );
+pub(crate) type TimerSnapshot = ([u64; 3], [Option<u64>; 3], Option<(bool, u64)>, Option<bool>);
+#[derive(Default)]
+struct TimerProgress {
+    counts: [u64; 3],
+    times: [Option<u64>; 3],
+    scheduled_vs_observed: Option<(bool, u64)>,
+    stopping: Option<bool>,
+}
 struct Progress {
     counts: [u64; 14],
     times: [Option<u64>; 14],
@@ -41,6 +49,7 @@ struct Progress {
 pub(crate) struct Probe {
     origin: Instant,
     progress: Mutex<Progress>,
+    timer: Mutex<TimerProgress>,
 }
 impl Probe {
     pub(crate) fn enabled() -> Option<Arc<Self>> {
@@ -49,6 +58,7 @@ impl Probe {
         .then(|| {
             Arc::new(Self {
                 origin: Instant::now(),
+                timer: Mutex::default(),
                 progress: Mutex::new(Progress {
                     counts: [0; 14],
                     times: [None; 14],
@@ -72,6 +82,15 @@ impl Probe {
         if !matches!(stage, Stage::ChildAdded) {
             row.point = Some((stage, index.filter(|value| *value < 128), now));
         }
+    }
+    pub(crate) fn timer_snapshot(&self) -> TimerSnapshot {
+        let row = self.timer.lock().expect("ordinary sibling timer trace");
+        (
+            row.counts,
+            row.times,
+            row.scheduled_vs_observed,
+            row.stopping,
+        )
     }
     pub(crate) fn snapshot(&self) -> Snapshot {
         let row = self.progress.lock().expect("ordinary sibling turn trace");
@@ -191,5 +210,62 @@ impl Drop for Advance {
         {
             trace.probe.mark(Stage::AdvanceEnd, Some(self.index));
         }
+    }
+}
+
+// This adapter preserves the real Interval and delegates each poll exactly once.
+// Its optional Trace owns only a Weak original and the numeric probe.
+pub(crate) struct ObservedInterval {
+    inner: tokio::time::Interval,
+    trace: Option<Trace>,
+}
+impl ObservedInterval {
+    pub(crate) fn new(inner: tokio::time::Interval) -> Self {
+        Self { inner, trace: None }
+    }
+    pub(crate) fn observe(&mut self, trace: Option<Trace>, stopping: bool) {
+        self.trace = trace;
+        if let Some(trace) = &self.trace
+            && trace.matches()
+        {
+            trace
+                .probe
+                .timer
+                .lock()
+                .expect("ordinary sibling timer trace")
+                .stopping = Some(stopping);
+        }
+    }
+    pub(crate) async fn tick(&mut self) -> tokio::time::Instant {
+        let trace = self.trace.clone();
+        let tick = self.inner.tick();
+        let mut tick = std::pin::pin!(tick);
+        std::future::poll_fn(|cx| {
+            let result = std::future::Future::poll(tick.as_mut(), cx);
+            if let Some(trace) = &trace
+                && trace.matches()
+            {
+                let elapsed = Probe::milliseconds(trace.probe.origin.elapsed());
+                let mut row = trace.probe.timer.lock().expect("ordinary sibling timer trace");
+                row.counts[0] = row.counts[0].saturating_add(1).min(LIMIT);
+                row.times[0] = Some(elapsed);
+                let slot = if let std::task::Poll::Ready(scheduled) = &result {
+                    let now = tokio::time::Instant::now();
+                    let (late, difference) = if let Some(lag) = now.checked_duration_since(*scheduled) {
+                        (true, lag)
+                    } else {
+                        (false, scheduled.duration_since(now))
+                    };
+                    row.scheduled_vs_observed = Some((late, Probe::milliseconds(difference)));
+                    2
+                } else {
+                    1
+                };
+                row.counts[slot] = row.counts[slot].saturating_add(1).min(LIMIT);
+                row.times[slot] = Some(elapsed);
+            }
+            result
+        })
+        .await
     }
 }

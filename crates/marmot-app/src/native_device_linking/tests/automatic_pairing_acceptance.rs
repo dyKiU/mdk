@@ -1462,6 +1462,9 @@ async fn wait_for_automatic_phase_with_approvals(
             if let Some(trace) = original.sibling_turn_trace_for_test() {
                 eprintln!("ordinary-sibling-turn side={side} trace={trace:?}");
             }
+            if let Some(timer) = original.sibling_turn_timer_for_test() {
+                eprintln!("ordinary-sibling-timer side={side} timer={timer:?}");
+            }
 // ORDINARY_TURN_TEST_END
             eprintln!(
                 "automatic-enrollment-control side={side} primary/expected/children/completed={:?} intake={:?} rejections={:?} context_rejections={:?} projection={:?}",

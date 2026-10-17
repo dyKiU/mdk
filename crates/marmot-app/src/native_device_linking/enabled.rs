@@ -444,6 +444,17 @@ impl DeviceLinkingSession {
             .as_ref()?
             .turn_trace_for_test()
     }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn sibling_turn_timer_for_test(
+        &self,
+    ) -> Option<crate::client::device_linking::sibling_sharing::turn_probe::TimerSnapshot> {
+        self.inner
+            .sharing_choice
+            .lock()
+            .expect("sharing choice")
+            .as_ref()?
+            .turn_timer_for_test()
+    }
     // ORDINARY_TURN_TEST_END
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn sibling_completion_aggregates_for_test(

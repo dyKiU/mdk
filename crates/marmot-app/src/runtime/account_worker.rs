@@ -1877,6 +1877,15 @@ async fn run_app_runtime_account_worker(
     let mut sibling_tick = interval(Duration::from_secs(1));
     #[cfg(feature = "experimental-device-sync")]
     sibling_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    // ORDINARY_TURN_TEST_BEGIN
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    let mut sibling_tick =
+        crate::client::device_linking::sibling_sharing::turn_probe::ObservedInterval::new(sibling_tick);
+    // ORDINARY_TURN_TEST_END
     let mut legacy_message_promotion = LegacyMessagePromotionSchedule::new();
     let mut presentation_maintenance = super::presentation::PresentationMaintenance::default();
     let mut presentation_wakeups = app.presentation_signals.subscribe_work();
@@ -2090,12 +2099,18 @@ async fn run_app_runtime_account_worker(
             feature = "experimental-device-sync",
             feature = "test-policy-overrides"
         ))]
-        crate::client::device_linking::sibling_sharing::turn_probe::before_select(
-            &client,
-            sibling_maintenance_due,
-            sibling_maintenance_yielded,
-            sibling_service_turn,
-        );
+        {
+            sibling_tick.observe(
+                crate::client::device_linking::sibling_sharing::turn_probe::current(&client),
+                lifecycle.is_stopping(),
+            );
+            crate::client::device_linking::sibling_sharing::turn_probe::before_select(
+                &client,
+                sibling_maintenance_due,
+                sibling_maintenance_yielded,
+                sibling_service_turn,
+            );
+        }
         // ORDINARY_TURN_TEST_END
         tokio::select! {
                     biased;

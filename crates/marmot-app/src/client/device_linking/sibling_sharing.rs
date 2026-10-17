@@ -663,6 +663,10 @@ impl OriginalEnrollmentSharingChoice {
     pub(crate) fn turn_trace_for_test(&self) -> Option<turn_probe::Snapshot> {
         self.turn_probe.as_ref().map(|probe| probe.snapshot())
     }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn turn_timer_for_test(&self) -> Option<turn_probe::TimerSnapshot> {
+        self.turn_probe.as_ref().map(|probe| probe.timer_snapshot())
+    }
     // ORDINARY_TURN_TEST_END
     pub(crate) fn complete(&self) -> bool {
         let progress = self.progress.lock().expect("sharing choice");
