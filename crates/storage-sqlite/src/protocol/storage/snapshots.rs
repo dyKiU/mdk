@@ -530,6 +530,7 @@ mod tests {
                         message_id: message.id,
                         sender: MemberId::new(vec![7; 32]),
                         epoch: EpochId(1),
+                        source_leaf: None,
                         payload: b"authenticated chat".to_vec(),
                         retention: None,
                         encrypted_media_secret: None,
