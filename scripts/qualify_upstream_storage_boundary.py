@@ -105,6 +105,62 @@ def parse_body(output, code, name):
     return row
 
 
+def safe_compiler_diagnostic(value, known_sources):
+    """Closed compiler metadata only; messages, snippets and external paths stay private."""
+    message = value.get('message')
+    if not isinstance(message, dict) or message.get('level') != 'error':
+        return None
+    raw_code = message.get('code')
+    code = raw_code.get('code') if isinstance(raw_code, dict) else None
+    code_state = 'known' if isinstance(code, str) and re.fullmatch(r'E[0-9]{4}', code) else ('absent' if raw_code is None else 'unknown')
+    row = {'code': code if code_state == 'known' else 'generic', 'code_state': code_state,
+           'primary_locations': [], 'unknown_primary_location_count': 0,
+           'locations_complete': False, 'locations_truncated': False}
+    spans = message.get('spans')
+    if not isinstance(spans, list):
+        row['unknown_primary_location_count'] = 1
+        return row
+    primary = [span for span in spans if isinstance(span, dict) and span.get('is_primary') is True]
+    row['unknown_primary_location_count'] += sum(not isinstance(span, dict) or type(span.get('is_primary')) is not bool for span in spans)
+    row['locations_truncated'] = len(primary) > 8
+    for span in primary[:8]:
+        name = span.get('file_name')
+        line, column = span.get('line_start'), span.get('column_start')
+        if (isinstance(name, str) and name in known_sources and name.endswith('.rs')
+                and type(line) is int and 0 < line <= 2147483647
+                and type(column) is int and 0 < column <= 2147483647):
+            row['primary_locations'].append({'file': name, 'line': line, 'column': column})
+        else:
+            row['unknown_primary_location_count'] += 1
+    row['locations_complete'] = bool(primary) and row['unknown_primary_location_count'] == 0 and not row['locations_truncated']
+    return row
+
+
+def diagnostic_parser_preflight():
+    name = BOUNDARY[1]
+    span = {'file_name': name, 'line_start': 42, 'column_start': 5, 'is_primary': True,
+            'text': [{'text': 'PRIVATE_RAW_MESSAGE_ACCOUNT_SQL'}]}
+    def event(code, spans):
+        return {'reason': 'compiler-message', 'message': {'level': 'error', 'code': code,
+                'message': 'PRIVATE_RAW_MESSAGE_ACCOUNT_SQL', 'rendered': 'PRIVATE_RAW_MESSAGE_ACCOUNT_SQL', 'spans': spans}}
+    known = safe_compiler_diagnostic(event({'code': 'E0277'}, [span]), {name})
+    ensure(known['code'] == 'E0277' and known['locations_complete']
+           and known['primary_locations'] == [{'file': name, 'line': 42, 'column': 5}], 'compiler-parser-known-code-and-primary')
+    ensure(safe_compiler_diagnostic(event(None, []), {name})['code_state'] == 'absent', 'compiler-parser-generic-error')
+    invalid = [dict(span, file_name='/private/account/SECRET.rs'), dict(span, file_name='../SECRET.rs'),
+               dict(span, file_name='PRIVATE_RAW_MESSAGE_ACCOUNT_SQL'), dict(span, line_start=True),
+               dict(span, line_start=-1), dict(span, column_start='5'), dict(span, is_primary='true'),
+               'PRIVATE_RAW_MESSAGE_ACCOUNT_SQL']
+    for bad in invalid:
+        row = safe_compiler_diagnostic(event({'code': 'PRIVATE_RAW_MESSAGE_ACCOUNT_SQL'}, [bad]), {name})
+        ensure(not row['locations_complete'] and not row['primary_locations'] and row['code_state'] == 'unknown'
+               and 'PRIVATE_RAW_MESSAGE_ACCOUNT_SQL' not in json.dumps(row), 'compiler-parser-rejects-untrusted-metadata')
+    row = safe_compiler_diagnostic(event({'code': 'E0277'}, [span] * 9), {name})
+    ensure(row['locations_truncated'] and not row['locations_complete'] and len(row['primary_locations']) == 8, 'compiler-parser-bounded-spans')
+    ensure(safe_compiler_diagnostic({'message': {'level': 'warning'}}, {name}) is None, 'compiler-parser-no-warning-as-error')
+    return {'positive': 2, 'negative': len(invalid) + 2, 'actual_runtime_bodies': 0}
+
+
 def parser_preflight():
     name = TESTS[0]
     raw = 'running 1 test\ntest ' + name + ' ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.1s\n'
@@ -150,10 +206,11 @@ def main():
     parser.add_argument('--cohort', choices=['default', 'experimental'], required=True)
     parser.add_argument('--cohort-baseline', default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'))
     parser.add_argument('--preflight', action='store_true')
+    parser.add_argument('--compile-only', action='store_true')
     args = parser.parse_args()
     os.umask(0o077)
     OUT.mkdir(exist_ok=True)
-    report = {'cohort': args.cohort, 'qualification_passed': False, 'boundary_controls_passed': False,
+    report = {'cohort': args.cohort, 'compile_only': args.compile_only, 'qualification_passed': False, 'boundary_controls_passed': False,
               'actual_counts_complete': False, 'actual_executed_nonignored': 0, 'bodies': {}}
     frozen = frozen_inputs()
     report['input_manifest_sha256'] = digest(json.dumps(frozen, sort_keys=True, separators=(',', ':')).encode())
@@ -162,6 +219,8 @@ def main():
     try:
         report.update(source_guard(args.cohort_baseline))
         report['parser_fixtures'] = parser_preflight()
+        report['compiler_parser_fixtures'] = diagnostic_parser_preflight()
+        ensure(not args.compile_only or args.cohort == 'default', 'diagnostic-scope-default-only')
         report['toolchain'] = {name: subprocess.check_output([name, '--version'], text=True).strip() for name in ['cargo', 'rustc']}
         report['environment'] = {key: os.environ.get(key) for key in ['CARGO_INCREMENTAL', 'CARGO_BUILD_JOBS', 'CARGO_PROFILE_DEV_DEBUG', 'CARGO_PROFILE_TEST_DEBUG', 'RUST_MIN_STACK']}
         save()
@@ -175,18 +234,21 @@ def main():
             expected_features = ['experimental-device-sync']
         report['compile_command'] = command
         code, raw, seconds = capture(command, 1800)
-        artifacts, errors = [], 0
+        artifacts, errors, diagnostics = [], 0, []
         for line in raw.splitlines():
             if not line.startswith('{'):
                 continue
             value = json.loads(line)
             if value.get('reason') == 'compiler-message' and value.get('message', {}).get('level') == 'error':
                 errors += 1
+                if len(diagnostics) < 16:
+                    diagnostics.append(safe_compiler_diagnostic(value, frozen))
             if value.get('reason') == 'compiler-artifact':
                 artifacts.append(value)
         selected = [value for value in artifacts if value['target']['name'] == 'storage_sqlite' and value['target']['kind'] == ['lib'] and value['profile']['test'] and value.get('executable')]
         report['compilation'] = {'exit_code': code, 'compiler_error_count': errors, 'wall_seconds': seconds,
-                                 'selected_test_artifact_count': len(selected), 'compiled_features': None}
+                                 'selected_test_artifact_count': len(selected), 'compiled_features': None,
+                                 'safe_compiler_diagnostics': diagnostics, 'diagnostics_truncated': errors > 16}
         save()
         ensure(code == 0 and errors == 0 and len(selected) == 1, 'actual-storage-lib-compilation-required')
         artifact = selected[0]
@@ -199,6 +261,10 @@ def main():
                                for value in artifacts], key=lambda value: json.dumps(value, sort_keys=True))
         report['compilation']['compiler_artifact_feature_manifest_sha256'] = digest(json.dumps(fingerprints, sort_keys=True).encode())
         ensure(frozen_inputs() == frozen, 'inputs-exact-after-compilation')
+        if args.compile_only:
+            report['compile_only_completed'] = True
+            report['compile_only_is_not_runtime_green'] = True
+            return 0
         code, inventory, _ = capture([str(binary), 'base::boundary_tests::', '--list', '--format', 'terse'], 60)
         names = sorted(re.findall(r'^(base::boundary_tests::[A-Za-z_]+): test$', inventory, re.M))
         inventory_lines = [line for line in inventory.splitlines() if line]
