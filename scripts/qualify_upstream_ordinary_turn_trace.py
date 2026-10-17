@@ -55,7 +55,7 @@ TURN_DUE = option(sequence(BOOLEAN, 3, r'\[', r'\]'))
 TURN_LINE = r'ordinary-sibling-turn side=(left|right) trace=(\(' + ', '.join([TURN_COUNTS, TURN_TIMES, TURN_POINT, TURN_RETURN, TURN_DUE, BOOLEAN, NUMBER]) + r'\))'
 SIBLING = 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs'
 PROBE = 'crates/marmot-app/src/client/device_linking/sibling_sharing/turn_probe.rs'
-HOOKS = {SIBLING: 13, 'crates/marmot-app/src/runtime/account_worker.rs': 2,
+HOOKS = {SIBLING: 13, 'crates/marmot-app/src/client/device_linking/sibling_sharing/tests.rs': 1, 'crates/marmot-app/src/runtime/account_worker.rs': 2,
          'crates/marmot-app/src/native_device_linking/enabled.rs': 1,
          'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': 1}
 
