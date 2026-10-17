@@ -96,6 +96,7 @@ pub(crate) enum MessageKind {
     SetupResponse,
     Verification,
     Enrollment,
+    RecipientReady,
     Receipt,
 }
 
