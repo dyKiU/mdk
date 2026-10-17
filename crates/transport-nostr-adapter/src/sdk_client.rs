@@ -1015,7 +1015,10 @@ pub async fn dispatch_sdk_notification(
         #[cfg(feature = "experimental-device-sync")]
         None,
         classify_closed,
-        #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        #[cfg(all(
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
         None,
     )
     .await
@@ -1027,7 +1030,10 @@ async fn dispatch_sdk_notification_inner(
     account_id: Option<&MemberId>,
     #[cfg(feature = "experimental-device-sync")] capture: Option<crate::CapturedLiveRelayEvent>,
     classify_closed: &(dyn Fn(&str) -> crate::SubscriptionRefusal + Sync),
-    #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     observe: Option<&(dyn Fn(&str, usize) + Sync)>,
 ) -> bool {
     match notification {
@@ -1036,9 +1042,15 @@ async fn dispatch_sdk_notification_inner(
             subscription_id,
             event,
         } => {
-            #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            #[cfg(all(
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
             let observed_id = event.id.to_string();
-            #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            #[cfg(all(
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
             if let Some(observe) = observe {
                 observe(&observed_id, 0);
             }
@@ -1061,15 +1073,24 @@ async fn dispatch_sdk_notification_inner(
                 let result = adapter
                     .handle_captured_live_relay_event(account_id, relay_event, capture)
                     .await;
-                #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                #[cfg(all(
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
                 if let Some(observe) = observe {
-                    observe(&observed_id, match result {
-                        Ok(0) => 2,
-                        Ok(_) => 3,
-                        Err(_) => 4,
-                    });
+                    observe(
+                        &observed_id,
+                        match result {
+                            Ok(0) => 2,
+                            Ok(_) => 3,
+                            Err(_) => 4,
+                        },
+                    );
                 }
-                #[cfg(all(feature = "experimental-device-sync", not(feature = "test-policy-overrides")))]
+                #[cfg(all(
+                    feature = "experimental-device-sync",
+                    not(feature = "test-policy-overrides")
+                ))]
                 let _ = result;
                 #[cfg(not(feature = "experimental-device-sync"))]
                 let _ = if let Some(account_id) = account_id {
@@ -1088,7 +1109,10 @@ async fn dispatch_sdk_notification_inner(
                     subscription_id,
                     event,
                 } => {
-                    #[cfg(all(feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                    #[cfg(all(
+                        feature = "experimental-device-sync",
+                        feature = "test-policy-overrides"
+                    ))]
                     if let Some(observe) = observe {
                         observe(&event.id.to_string(), 1);
                     }
@@ -1158,8 +1182,7 @@ impl NostrSdkRelayClient {
         account_id: Option<&MemberId>,
         capture: Option<crate::CapturedLiveRelayEvent>,
         classify_closed: &(dyn Fn(&str) -> crate::SubscriptionRefusal + Sync),
-        #[cfg(feature = "test-policy-overrides")]
-        observe: Option<&(dyn Fn(&str, usize) + Sync)>,
+        #[cfg(feature = "test-policy-overrides")] observe: Option<&(dyn Fn(&str, usize) + Sync)>,
     ) -> bool {
         dispatch_sdk_notification_inner(
             notification,

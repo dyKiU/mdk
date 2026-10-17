@@ -3724,7 +3724,10 @@ async fn handle_relay_notification_captured(
         classify_closed,
         #[cfg(all(feature = "test-policy-overrides", any(test, feature = "test-support")))]
         Some(&observe),
-        #[cfg(all(feature = "test-policy-overrides", not(any(test, feature = "test-support"))))]
+        #[cfg(all(
+            feature = "test-policy-overrides",
+            not(any(test, feature = "test-support"))
+        ))]
         None,
     )
     .await;
