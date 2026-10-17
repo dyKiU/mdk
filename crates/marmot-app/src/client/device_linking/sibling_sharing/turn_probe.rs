@@ -243,7 +243,11 @@ pub(crate) struct ObservedInterval {
 }
 impl ObservedInterval {
     pub(crate) fn new(inner: tokio::time::Interval) -> Self {
-        Self { inner, trace: None, next_deadline_not_after: None }
+        Self {
+            inner,
+            trace: None,
+            next_deadline_not_after: None,
+        }
     }
     pub(crate) fn observe(&mut self, trace: Option<Trace>, stopping: bool) {
         self.trace = trace;
@@ -269,7 +273,8 @@ impl ObservedInterval {
             let result = std::future::Future::poll(tick.as_mut(), cx);
             let after = tokio::task::coop::has_budget_remaining();
             let observed = tokio::time::Instant::now();
-            let overdue = (*deadline_bound).and_then(|bound| observed.checked_duration_since(bound));
+            let overdue =
+                (*deadline_bound).and_then(|bound| observed.checked_duration_since(bound));
             if result.is_ready() {
                 // Delay never rearms later than observation + period. This
                 // observation does not register, reset, or otherwise drive it.
@@ -286,15 +291,19 @@ impl ObservedInterval {
                     .expect("ordinary sibling timer trace");
                 row.last_budget = Some([before, after]);
                 if let Some(previous) = row.last_poll {
-                    row.maximum_poll_gap_ms = row.maximum_poll_gap_ms.max(Probe::milliseconds(observed.duration_since(previous)));
+                    row.maximum_poll_gap_ms = row
+                        .maximum_poll_gap_ms
+                        .max(Probe::milliseconds(observed.duration_since(previous)));
                 }
                 row.last_poll = Some(observed);
                 if result.is_pending() {
                     row.last_pending_overdue = (*deadline_bound).map(|_| overdue.is_some());
                     if let Some(lateness) = overdue {
                         let category = usize::from(before);
-                        row.overdue_pending[category] = row.overdue_pending[category].saturating_add(1).min(LIMIT);
-                        row.maximum_overdue_ms[category] = row.maximum_overdue_ms[category].max(Probe::milliseconds(lateness));
+                        row.overdue_pending[category] =
+                            row.overdue_pending[category].saturating_add(1).min(LIMIT);
+                        row.maximum_overdue_ms[category] =
+                            row.maximum_overdue_ms[category].max(Probe::milliseconds(lateness));
                     }
                 }
                 row.counts[0] = row.counts[0].saturating_add(1).min(LIMIT);
