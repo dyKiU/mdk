@@ -142,7 +142,7 @@ def main():
         case = cases[CASE]
         started = time.monotonic()
         try:
-            result = subprocess.run([case['binary'], '--exact', TEST, '--nocapture', '--test-threads=1], capture_output=True, text=True, timeout=300)
+            result = subprocess.run([case['binary'], '--exact', TEST, '--nocapture', '--test-threads=1'], capture_output=True, text=True, timeout=300)
             report['runtime'] = parse(result.stdout + result.stderr, result.returncode)
         except subprocess.TimeoutExpired:
             report['runtime'] = {'watchdog_triggered': True, 'actual_count_unknown': True}
