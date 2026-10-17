@@ -3574,7 +3574,9 @@ impl AppClient {
                 }
                 return Ok(DeliveryIngest {
                     routes_dirty: joined,
-                    must_stay_fetchable: !joined,
+                    // Only a matching incomplete batch needs its queue pin.
+                    // Unrelated authenticated input has no positive join receipt.
+                    must_stay_fetchable: matches!(admission, PrivateWelcomeIngress::Buffered),
                     refused_group: None,
                 });
             }

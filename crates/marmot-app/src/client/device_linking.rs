@@ -1560,6 +1560,8 @@ fn actual_recipient_purpose(
 pub(crate) enum PrivateWelcomeIngress {
     Buffered,
     Joined,
+    // Negative inbox routing only: no collection, join or membership receipt.
+    Unrelated,
 }
 
 impl AppClient {
@@ -1606,6 +1608,9 @@ impl AppClient {
             Ok(Some(_)) => Some(EnrollmentDelivery::WelcomeJoined),
             Ok(None) => Some(EnrollmentDelivery::WelcomeBuffered),
             Err(ClientLinkingError::Collection(CollectionError::InvalidTransport)) => None,
+            Err(ClientLinkingError::Collection(CollectionError::UnrelatedContext)) => {
+                Some(EnrollmentDelivery::WelcomeUnrelated)
+            }
             Err(_) => Some(EnrollmentDelivery::WelcomeRejected),
         };
         if let Some(observation) = observation {
@@ -1616,6 +1621,12 @@ impl AppClient {
         match result {
             Ok(Some(_)) => Ok(Some(PrivateWelcomeIngress::Joined)),
             Ok(None) => Ok(Some(PrivateWelcomeIngress::Buffered)),
+            // The authenticated account inbox is shared by installations. A
+            // context outside this actual live lease cannot be joined, delegated
+            // to ordinary admission, or allowed to tear down the account owner.
+            Err(ClientLinkingError::Collection(CollectionError::UnrelatedContext)) => {
+                Ok(Some(PrivateWelcomeIngress::Unrelated))
+            }
             // The configured private observer rejects ordinary Welcomes. This
             // explicit fallback grants nothing: ordinary Engine ingest still
             // authenticates its own kind/profile and purpose policy. No valid

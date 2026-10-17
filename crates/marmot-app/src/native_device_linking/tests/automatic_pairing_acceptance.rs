@@ -1434,7 +1434,21 @@ async fn interrupted_first_enrollment_same_roles_completes_after_restart() {
     interrupted_first_enrollment_retries(true, true).await;
 }
 
+#[tokio::test]
+async fn interrupted_enrollment_before_recipient_join_retries_after_restart() {
+    interrupted_first_enrollment_retries_with_unjoined_recipient(true, true, true).await;
+}
+
 async fn interrupted_first_enrollment_retries(same_peer: bool, same_roles: bool) {
+    interrupted_first_enrollment_retries_with_unjoined_recipient(same_peer, same_roles, false)
+        .await;
+}
+
+async fn interrupted_first_enrollment_retries_with_unjoined_recipient(
+    same_peer: bool,
+    same_roles: bool,
+    before_recipient_join: bool,
+) {
     use cgka_traits::private_roster_settlement::PrivateSettlementPhase;
     use cgka_traits::{MemberId, StorageProvider};
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
@@ -1478,45 +1492,109 @@ async fn interrupted_first_enrollment_retries(same_peer: bool, same_roles: bool)
         .fact
         .birth
         .group_id;
-    let (held, release) = apps[1].relay_plane.reject_private_confirmations(
-        MemberId::new(keys.public_key().to_bytes().to_vec()),
-        group.clone(),
-    );
-    requester
-        .continue_automatic_linking(requester.snapshot().await.unwrap().revision, true)
+    let release = if before_recipient_join {
+        // Reproduce the older installed flow: explicit approver action publishes
+        // its real Welcome before the recipient arms its own admission. Retain
+        // that transport on the relay across cancellation and a fresh setup.
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                let revision = approver.snapshot().await.unwrap().revision;
+                match approver.continue_linking_and_share_chats(revision).await {
+                    Ok(()) => break,
+                    Err(DeviceLinkingError::NotReady | DeviceLinkingError::StaleRevision) => {
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    }
+                    Err(error) => panic!("actual approver publication failed: {error:?}"),
+                }
+            }
+        })
         .await
-        .unwrap();
-    approver
-        .continue_automatic_linking(approver.snapshot().await.unwrap().revision, true)
+        .expect("actual approved Add/Welcome must publish");
+        let account_id = MemberId::new(keys.public_key().to_bytes().to_vec());
+        tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            loop {
+                let fact = apps[1]
+                    .account_storage("test")
+                    .unwrap()
+                    .private_device_invite_storage()
+                    .unwrap()
+                    .private_invite()
+                    .unwrap();
+                let mut cached = false;
+                if let Some(transport) = fact.and_then(|fact| fact.transport) {
+                    for message in transport.welcomes {
+                        cached |= apps[0]
+                            .relay_plane
+                            .account_sdk_event_observation_for_test(
+                                &account_id,
+                                std::str::from_utf8(&message.payload).unwrap(),
+                            )
+                            .await
+                            .is_some_and(|state| state[0]);
+                    }
+                }
+                if cached {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
         .await
-        .unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(30), held)
-        .await
-        .expect("actual coordinator confirmation must reach publication rejection")
-        .unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(30), async {
-        loop {
-            let storage = apps[0].account_storage("test").unwrap();
-            if storage
+        .expect("the first Welcome must actually reach the unarmed recipient SDK");
+        assert!(
+            apps[0]
+                .account_storage("test")
+                .unwrap()
                 .accepted_device_group_anchor_storage()
                 .unwrap()
                 .accepted_anchor()
                 .unwrap()
-                .is_some()
-                && storage
-                    .private_roster_settlement_storage()
+                .is_none(),
+            "the first recipient must not have joined"
+        );
+        None
+    } else {
+        let (held, release) = apps[1].relay_plane.reject_private_confirmations(
+            MemberId::new(keys.public_key().to_bytes().to_vec()),
+            group.clone(),
+        );
+        requester
+            .continue_automatic_linking(requester.snapshot().await.unwrap().revision, true)
+            .await
+            .unwrap();
+        approver
+            .continue_automatic_linking(approver.snapshot().await.unwrap().revision, true)
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(30), held)
+            .await
+            .expect("actual coordinator confirmation must reach publication rejection")
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                let storage = apps[0].account_storage("test").unwrap();
+                if storage
+                    .accepted_device_group_anchor_storage()
                     .unwrap()
-                    .read_round()
+                    .accepted_anchor()
                     .unwrap()
-                    .is_some_and(|round| round.phase == PrivateSettlementPhase::Pending)
-            {
-                break;
+                    .is_some()
+                    && storage
+                        .private_roster_settlement_storage()
+                        .unwrap()
+                        .read_round()
+                        .unwrap()
+                        .is_some_and(|round| round.phase == PrivateSettlementPhase::Pending)
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("recipient must actually join while first settlement remains pending");
+        })
+        .await
+        .expect("recipient must actually join while first settlement remains pending");
+        Some(release)
+    };
     requester.cancel().await.unwrap();
     runtimes[0].shutdown_and_close().await.unwrap();
     drop(release);
@@ -1598,4 +1676,111 @@ async fn interrupted_first_enrollment_retries(same_peer: bool, same_roles: bool)
         "fresh comparison after interrupted first enrollment: {:?}",
         retry.err()
     );
+}
+
+#[tokio::test]
+async fn another_installations_private_welcome_cannot_abort_an_approved_recipient() {
+    use cgka_traits::StorageProvider;
+    let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+    let url = relay.url().await.to_string();
+    let keys = nostr::prelude::Keys::generate();
+    let dirs: [tempfile::TempDir; 4] = std::array::from_fn(|_| tempfile::tempdir().unwrap());
+    let apps = dirs.each_ref().map(|dir| {
+        AccountHome::open(dir.path())
+            .import_account("test", &keys.secret_key().to_secret_hex())
+            .unwrap();
+        MarmotApp::with_relay(dir.path(), &url)
+    });
+    let runtimes = apps.clone().map(MarmotAppRuntime::new);
+    for runtime in &runtimes {
+        runtime.reconcile_accounts().await.unwrap();
+    }
+    let mut pairs = Vec::new();
+    for (recipient, source) in [(0, 1), (2, 3)] {
+        let display = runtimes[recipient]
+            .accounts()
+            .begin_device_linking_session("test")
+            .await
+            .unwrap();
+        let scanner = runtimes[source]
+            .accounts()
+            .approve_automatic_device_linking_session(
+                "test",
+                display.automatic_pairing_code().await.unwrap(),
+                None,
+            )
+            .await
+            .unwrap();
+        scanner.automatic_pairing_code().await.unwrap();
+        compare_and_confirm_pair(&display, &scanner).await;
+        pairs.push((display, scanner));
+    }
+    // Synchronously arm the first recipient's genuine explicit native action.
+    // Its source has not approved, so it cannot publish the matching Welcome.
+    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        loop {
+            let revision = pairs[0].0.snapshot().await.unwrap().revision;
+            match pairs[0].0.continue_linking_and_share_chats(revision).await {
+                Ok(()) => break,
+                Err(DeviceLinkingError::NotReady | DeviceLinkingError::StaleRevision) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                Err(error) => panic!("original recipient could not arm: {error:?}"),
+            }
+        }
+    })
+    .await
+    .unwrap();
+    // A different, independently approved pair shares the same account inbox,
+    // but its authenticated Welcome must not revoke this recipient's owner.
+    for session in [&pairs[1].0, &pairs[1].1] {
+        session
+            .continue_automatic_linking(session.snapshot().await.unwrap().revision, true)
+            .await
+            .unwrap();
+    }
+    wait_for_automatic_phase(
+        &pairs[1].0,
+        &pairs[1].1,
+        DeviceLinkingPhase::EnrollmentComplete,
+    )
+    .await;
+    let current = pairs[0]
+        .0
+        .snapshot()
+        .await
+        .expect("unrelated authenticated Welcome must preserve the actual owner");
+    assert_eq!(
+        current.phase,
+        DeviceLinkingPhase::VerificationCompleteEnrollmentPending
+    );
+    assert!(
+        apps[0]
+            .account_storage("test")
+            .unwrap()
+            .accepted_device_group_anchor_storage()
+            .unwrap()
+            .accepted_anchor()
+            .unwrap()
+            .is_none(),
+        "foreign Welcome cannot join another recipient"
+    );
+    pairs[0]
+        .1
+        .continue_automatic_linking(pairs[0].1.snapshot().await.unwrap().revision, true)
+        .await
+        .unwrap();
+    wait_for_automatic_phase(
+        &pairs[0].0,
+        &pairs[0].1,
+        DeviceLinkingPhase::EnrollmentComplete,
+    )
+    .await;
+    for (display, scanner) in &pairs {
+        display.cancel().await.unwrap();
+        scanner.cancel().await.unwrap();
+    }
+    for runtime in &runtimes {
+        runtime.shutdown_and_close().await.unwrap();
+    }
 }

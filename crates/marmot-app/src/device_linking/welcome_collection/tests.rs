@@ -190,7 +190,7 @@ async fn bounded_recipient_collection_checks_sdk_bindings_before_buffering() {
             collection
                 .observe(&gate, &purpose, &peeler, wrong_messages[0].clone())
                 .await,
-            Err(CollectionError::Denied)
+            Err(CollectionError::UnrelatedContext)
         );
     }
     for message in &messages[1..] {
