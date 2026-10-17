@@ -333,20 +333,10 @@ impl AppClient {
             .filter(|row| row.scope == *prepared.scope())
             .map(|row| row.phase);
         let kind = match phase {
-            Some(PrivateInvitePhase::Wrapped) => {
-                self.linking_owner.enrollment_diagnostics.delivery(
-                    crate::device_linking::diagnostics::EnrollmentDelivery::CommitPending,
-                );
-                NativeInvitePublication::Commit
-            }
+            Some(PrivateInvitePhase::Wrapped) => NativeInvitePublication::Commit,
             // Only actual authenticated echo installs Confirmed. Reading this
             // phase chooses scheduling; dispatch still requires original lease.
-            Some(PrivateInvitePhase::Confirmed) => {
-                self.linking_owner.enrollment_diagnostics.delivery(
-                    crate::device_linking::diagnostics::EnrollmentDelivery::CommitConfirmed,
-                );
-                NativeInvitePublication::Welcomes
-            }
+            Some(PrivateInvitePhase::Confirmed) => NativeInvitePublication::Welcomes,
             _ => return Ok(None),
         };
         self.linking_owner

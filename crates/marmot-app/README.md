@@ -999,15 +999,3 @@ hidden receive route while current transport evidence is unavailable. Core
 validates the original retry owner; route metadata never creates consent or a
 new subscription after reopen. Normal route retirement resumes without that
 original.
-
-
-### Local experimental pairing diagnostics
-
-For a development build with `experimental-device-sync`, launching the process
-with `WN_PAIRING_DIAGNOSTICS=1` enables local console records for pairing setup
-stages and fixed native error categories. It is off by default and changes no
-protocol, permission or public error behavior. Records identify target loading,
-relay mailbox/request processing and native setup; associated error details,
-account identifiers, groups, comparison numbers, packet bytes and key material
-are never formatted. This helps distinguish runtime/worker, protected-state and
-transport failures that share the public `RuntimeUnavailable` category.

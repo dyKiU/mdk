@@ -11,7 +11,6 @@ use std::sync::{
 };
 use tokio::sync::{Mutex as AsyncMutex, Notify, watch};
 mod automatic;
-mod diagnostics;
 
 pub(super) struct SessionState {
     manager: AccountManager,
@@ -28,7 +27,6 @@ pub(super) struct SessionState {
     >,
     snapshot: Mutex<DeviceLinkingSnapshot>,
     updates: watch::Sender<DeviceLinkingSnapshot>,
-    observation_timeout_reported: AtomicBool,
     closed: AtomicBool,
     runtime: tokio::runtime::Handle,
     transport_cancel: tokio_util::sync::CancellationToken,
@@ -55,7 +53,6 @@ pub(super) struct SubscriptionState {
     wake: Notify,
 }
 fn map_error(error: ClientLinkingError) -> DeviceLinkingError {
-    diagnostics::report("native_error", diagnostics::client_kind(&error));
     match error {
         ClientLinkingError::Owner(OwnerError::Verifier(error)) => match error {
             LinkError::InvalidFrame
@@ -143,12 +140,6 @@ impl SessionState {
                     crate::AppError::AccountWorkerResponseTimedOut
                 ) =>
             {
-                if !self
-                    .observation_timeout_reported
-                    .swap(true, Ordering::Relaxed)
-                {
-                    diagnostics::report("native_observation", "account_worker_response_timed_out");
-                }
                 // A bounded observation wait grants no authority and does not
                 // revoke the original actor. Retain its last observation while
                 // publication is blocked; later polling rechecks the same owner.
@@ -160,7 +151,6 @@ impl SessionState {
                     .clone())
             }
             Err(error) => {
-                diagnostics::report("native_observation", diagnostics::client_kind(&error));
                 let phase = match &error {
                     ClientLinkingError::Owner(OwnerError::Verifier(LinkError::Expired)) => {
                         DeviceLinkingPhase::Expired
@@ -485,7 +475,6 @@ impl DeviceLinkingSession {
             operation: AsyncMutex::new(PacketProgress::default()),
             sharing_choice: Mutex::new(None),
             snapshot: Mutex::new(snapshot),
-            observation_timeout_reported: AtomicBool::new(false),
             updates,
             closed: AtomicBool::new(false),
             runtime: tokio::runtime::Handle::current(),
@@ -1045,16 +1034,9 @@ impl AccountManager {
         &self,
         account_ref: &str,
     ) -> Result<Vec<DeviceLinkingTarget>, DeviceLinkingError> {
-        diagnostics::report("targets_read", "begin");
-        let result = self
-            .native_device_linking_targets(account_ref)
+        self.native_device_linking_targets(account_ref)
             .await
-            .map_err(map_error);
-        diagnostics::report(
-            "targets_read",
-            if result.is_ok() { "ready" } else { "failed" },
-        );
-        result
+            .map_err(map_error)
     }
     pub async fn pending_device_linking_approvals(
         &self,

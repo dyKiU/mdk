@@ -50,7 +50,6 @@ pub(crate) type RevocationBindingObservationForTest =
 
 pub(crate) struct AccountLinkingOwner {
     verifier: LinkingOwner,
-    enrollment_diagnostics: crate::device_linking::diagnostics::EnrollmentDiagnostics,
     pub(super) received_endorsement:
         Option<super::private_enrollment_proposal::OwnedReceivedEndorsement>,
     pub(super) cancelled_endorsements: Vec<([u8; 32], std::time::Instant)>,
@@ -136,7 +135,6 @@ impl AccountLinkingOwner {
             received_endorsement: None,
             cancelled_endorsements: Vec::new(),
             verifier: LinkingOwner::attach_after_restart_fence(storage, account, device),
-            enrollment_diagnostics: Default::default(),
             welcome: Arc::new(RuntimeWelcomeGate::new()),
             invite: Arc::new(RuntimeInviteGate::new()),
             invite_attempt: None,
@@ -1177,23 +1175,12 @@ impl AppClient {
             .ok_or(ClientLinkingError::Gate(
                 cgka_traits::device_linking_key_package::LinkingWelcomeDenied::NoLiveVerifier,
             ))?;
-        use crate::device_linking::diagnostics::EnrollmentDelivery;
-        self.linking_owner
-            .enrollment_diagnostics
-            .delivery(EnrollmentDelivery::WelcomePublishStarted);
         let result = self
             .runtime
             .session_mut()
             .dispatch_confirmed_private_welcomes(prepared, &publisher)
             .await
             .map_err(ClientLinkingError::PrivateInvite);
-        self.linking_owner
-            .enrollment_diagnostics
-            .delivery(if result.is_ok() {
-                EnrollmentDelivery::WelcomePublishAccepted
-            } else {
-                EnrollmentDelivery::WelcomePublishFailed
-            });
         if result.is_ok() {
             self.native_welcomes_published(scope);
         }
@@ -1470,15 +1457,11 @@ impl AppClient {
             actual_recipient_purpose(&storage, scope).map_err(ClientLinkingError::Collection)?;
         let gate = self.linking_owner.welcome.clone();
         let session = self.runtime.session();
-        let diagnostics = &mut self.linking_owner.enrollment_diagnostics;
         let observation = async {
             let observed = session
                 .observe_private_linking_welcome(&message)
                 .await
                 .map_err(|_| CollectionError::InvalidTransport)?;
-            diagnostics.delivery(
-                crate::device_linking::diagnostics::EnrollmentDelivery::WelcomeAuthenticated,
-            );
             // Read actual durable purpose after authentication, before buffering.
             // Storage failure preserves retry but admits no stale chunk.
             if actual_recipient_purpose(&storage, scope)? != purpose {
@@ -1636,21 +1619,6 @@ impl AppClient {
         let result = self
             .collect_private_device_welcome(&purpose.scope, message.clone())
             .await;
-        use crate::device_linking::diagnostics::EnrollmentDelivery;
-        let observation = match &result {
-            Ok(Some(_)) => Some(EnrollmentDelivery::WelcomeJoined),
-            Ok(None) => Some(EnrollmentDelivery::WelcomeBuffered),
-            Err(ClientLinkingError::Collection(CollectionError::InvalidTransport)) => None,
-            Err(ClientLinkingError::Collection(CollectionError::UnrelatedContext)) => {
-                Some(EnrollmentDelivery::WelcomeUnrelated)
-            }
-            Err(_) => Some(EnrollmentDelivery::WelcomeRejected),
-        };
-        if let Some(observation) = observation {
-            self.linking_owner
-                .enrollment_diagnostics
-                .delivery(observation);
-        }
         match result {
             Ok(Some(_)) => Ok(Some(PrivateWelcomeIngress::Joined)),
             Ok(None) => Ok(Some(PrivateWelcomeIngress::Buffered)),
