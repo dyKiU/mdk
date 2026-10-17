@@ -16,7 +16,7 @@ from qualify_upstream_composed_enrollment import diagnostics
 BASE = '4dc7ed5101b2be35bd273ff67ea10bdc684cd617'
 ROOT = 'crates/marmot-app/src/'
 HOOKS = {
-    ROOT + 'client/device_linking/sibling_sharing.rs': 6,
+    ROOT + 'client/device_linking/sibling_sharing.rs': 27,
     ROOT + 'client/device_linking.rs': 14,
     ROOT + 'client/account_chat_sharing/automatic.rs': 8,
     ROOT + 'native_device_linking/enabled.rs': 2,
@@ -26,7 +26,7 @@ HOOKS = {
 MODULE = ROOT + 'client/device_linking/sibling_sharing/broad_trace.rs'
 SELF = 'scripts/diagnose_upstream_broad_maintenance.py'
 WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
-REF = 'refs/heads/ci/upstream-broad-maintenance-diagnostic-20261018'
+REF = 'refs/heads/ci/upstream-sibling-pipeline-diagnostic-20261018'
 OUT = Path('broad-maintenance-evidence')
 BEGIN = '  # BROAD_MAINTENANCE_JOBS_BEGIN\n'
 END = '  # BROAD_MAINTENANCE_JOBS_END\n'
@@ -47,6 +47,16 @@ STAGES = {
     41: 'WindowEndAtCaseReturnOrUnwind', 42: 'ObservationReason', 43: 'ExistingAutomaticProbeEnter',
     44: 'ExistingAutomaticProbeExit', 45: 'PhaseWaitEnter', 46: 'PhaseWaitExit',
     47: 'HeldConsentWaitEnter', 48: 'HeldConsentWaitExit', 49: 'FreshNativeResponseIsComplete',
+    50: 'SourceCoreBeginEnter', 51: 'SourceCoreBeginSucceeded', 52: 'SourceChannelAdmitted',
+    53: 'SiblingPublicationEnterKind', 54: 'SiblingFirstParentValidationSucceeded',
+    56: 'SiblingCoreWrapEnter', 57: 'SiblingCoreWrapSucceeded',
+    58: 'SiblingFinalValidationEnter', 59: 'SiblingFinalValidationSucceeded',
+    60: 'SiblingSpawnPrepared', 61: 'SiblingTaskEntered', 62: 'SiblingAdapterEntered',
+    63: 'SiblingAdapterReturnedMetAck', 64: 'SiblingTaskOutcomeSuccess',
+    65: 'SiblingResultHarvestedKind', 66: 'RecipientNonPrimaryRequestObserved',
+    67: 'RecipientRequestAuthenticateEnter', 68: 'RecipientRequestAuthenticateSucceeded',
+    69: 'RecipientCoreApproveEnter', 70: 'RecipientCoreApproveSucceeded',
+    71: 'RecipientAdmissionWakeSent',
 }
 STRIP = re.compile(rb'(?m)^[ \t]*// BROAD_TRACE_BEGIN\n.*?^[ \t]*// BROAD_TRACE_END\n', re.S)
 
@@ -141,12 +151,20 @@ def timeline(raw, name):
                 ensure(key > 0 and keys[key - 1] == 1 and value <= 1, 'closed-fresh-native-response')
             elif stage == 42:
                 ensure(key > 0 and keys[key - 1] == 1 and value <= 5, 'closed-observation-reason')
+            elif stage in {53, 65}:
+                ensure(key > 0 and keys[key - 1] == 2 and value <= 3, 'closed-owned-publication-kind')
+            elif stage in {63, 64}:
+                ensure(key > 0 and keys[key - 1] == 2 and value <= 1, 'closed-actual-publication-outcome')
             else:
                 ensure(value == 0, 'no-unreviewed-event-values')
                 if stage in {25, 26, 27, 28, 29, 33, 43, 44}:
                     ensure(key > 0 and keys[key - 1] == 1, 'original-choice-observation-key')
                 elif stage == 32:
                     ensure(key > 0 and keys[key - 1] == 2, 'existing-original-state-key')
+                elif stage in {50, 51, 52, 54, 56, 57, 58, 59, 60, 61, 62, 69, 70}:
+                    ensure(key > 0 and keys[key - 1] == 2, 'original-channel-pipeline-key')
+                elif stage in {66, 67, 68, 71}:
+                    ensure(key > 0 and keys[key - 1] == 1, 'original-recipient-pipeline-key')
                 elif stage in {34, 35, 36, 37, 38, 39, 40, 41, 45, 46, 47, 48}:
                     ensure(key == 0, 'unattributed-test-helper-key')
             events.append([stamp, key, stage, value])
@@ -172,6 +190,9 @@ def parser_controls():
     ensure(timeline('test ' + name + ' ... ' + valid, name)['known'], 'libtest-prefix-positive')
     unknown = 'broad-trace unavailable'
     ensure(timeline(unknown, name)['known'] is False, 'contention-is-explicit-unknown')
+    ensure(timeline(valid.replace('[2, 2, 30, 1]', '[2, 2, 53, 3]'), name)['known'], 'closed-publication-kind-positive')
+    ensure(timeline(valid.replace('[2, 2, 30, 1]', '[2, 2, 63, 1]'), name)['known'], 'closed-publication-ack-positive')
+    ensure(timeline(valid.replace('[1, 1, 31, 2]', '[1, 1, 66, 0]'), name)['known'], 'closed-recipient-intake-positive')
     negatives = [valid + '\nbroad-trace private=secret', valid + '\n' + valid,
                  valid.replace('keys=2', 'keys=65'), valid.replace('events=4', 'events=3'),
                  valid.replace('key=2 kind=2', 'key=1 kind=2'), valid.replace('[1, 1, 31, 2]', '[1, 2, 31, 1]'),
@@ -185,14 +206,18 @@ def parser_controls():
                  valid.replace('[2, 2, 30, 1]', '[2, 1, 49, 2]'),
                  valid.replace('[3, 0, 41, 0]', '[3, 1, 41, 0]'),
                  valid.replace('events=4', 'events=5').replace('[2, 2, 30, 1]', '[2, 2, 30, 1]\nbroad-trace event=[2, 2, 30, 1]'),
-                 valid.replace('events=4', 'events=5').replace('[1, 1, 31, 2]', '[1, 1, 31, 2]\nbroad-trace event=[1, 1, 31, 2]')]
+                 valid.replace('events=4', 'events=5').replace('[1, 1, 31, 2]', '[1, 1, 31, 2]\nbroad-trace event=[1, 1, 31, 2]'),
+                 valid.replace('[2, 2, 30, 1]', '[2, 2, 53, 4]'),
+                 valid.replace('[2, 2, 30, 1]', '[2, 2, 63, 2]'),
+                 valid.replace('[2, 2, 30, 1]', '[2, 1, 69, 0]'),
+                 valid.replace('[1, 1, 31, 2]', '[1, 2, 66, 0]')]
     for raw in negatives:
         try:
             timeline(raw, name)
         except ValueError:
             continue
         raise ValueError('unsafe-or-incomplete-timeline-accepted')
-    return {'positive': 3, 'negative': len(negatives), 'executed_remotely': True}
+    return {'positive': 6, 'negative': len(negatives), 'executed_remotely': True}
 
 
 def main(options):
@@ -200,6 +225,9 @@ def main(options):
     report = {'qualification_passed': False, 'product_green_claim': False, 'native_closes': 'unknown-original-fixtures',
               'historical_runtime_evidence_reused': False, 'actual_counts_complete': False,
               'trace_scope': 'fourth-device-handoff-through-case-return-or-unwind',
+              'diagnostic_extension': 'owned-sibling-publication-and-recipient-intake-pipeline',
+              'publication_kind_legend': {'0': 'SourceRequest', '1': 'RecipientConsent',
+                                          '2': 'SourceProof', '3': 'RecipientProof'},
               'setup_prefix_intentionally_omitted': True, 'event_capacity_unchanged': 8192, 'cases': {}}
     def save():
         (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')

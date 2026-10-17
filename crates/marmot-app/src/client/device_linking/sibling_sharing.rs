@@ -1623,6 +1623,10 @@ impl AppClient {
             SiblingOriginal::Existing { original, .. } => original.state.clone(),
             _ => State::new_until(&self.account_sharing_owner.lifetime, approval_id, deadline),
         };
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        broad_trace::channel(&state, 50, 0);
+        // BROAD_TRACE_END
         let channel = self
             .runtime
             .session()
@@ -1635,6 +1639,10 @@ impl AppClient {
                 }),
             )
             .map_err(ClientLinkingError::Engine)?;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        broad_trace::channel(&state, 51, 0);
+        // BROAD_TRACE_END
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let pre_auth_failure = match original.as_ref() {
             SiblingOriginal::Existing {
@@ -1678,6 +1686,12 @@ impl AppClient {
             #[cfg(all(test, feature = "test-policy-overrides"))]
             pre_auth_failure,
         });
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Some(entry) = self.linking_owner.sibling_channels.last() {
+            broad_trace::channel(&entry.state, 52, 0);
+        }
+        // BROAD_TRACE_END
         Ok(())
     }
     pub(crate) fn observe_sibling_sharing_control(
@@ -1702,6 +1716,10 @@ impl AppClient {
             if received.source.as_slice() == choice.context.approver {
                 return Ok(false);
             }
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            broad_trace::choice(&choice, 66, 0);
+            // BROAD_TRACE_END
             #[cfg(all(test, feature = "test-policy-overrides"))]
             {
                 let mut observations = choice
@@ -1782,11 +1800,19 @@ impl AppClient {
             if let Some(probe) = &routing_probe {
                 probe.local_auth_attempts.fetch_add(1, Ordering::AcqRel);
             }
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            broad_trace::choice(&choice, 67, 0);
+            // BROAD_TRACE_END
             let request = self
                 .runtime
                 .session()
                 .authenticate_account_sharing_request(wire)
                 .map_err(|_| Error::NotReady)?;
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            broad_trace::choice(&choice, 68, 0);
+            // BROAD_TRACE_END
             let scope = request.scope();
             // A request without the original enrollment identity belongs to a different flow.
             if scope.approval_id != choice.context.digest().map_err(|_| Error::NotReady)? {
@@ -1830,6 +1856,10 @@ impl AppClient {
                 peer,
             });
             let state = choice.child().map_err(|_| Error::Closed)?;
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            broad_trace::channel(&state, 69, 0);
+            // BROAD_TRACE_END
             let channel = self
                 .runtime
                 .session()
@@ -1853,6 +1883,10 @@ impl AppClient {
                     return Err(error);
                 }
             };
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            broad_trace::channel(&state, 70, 0);
+            // BROAD_TRACE_END
             self.linking_owner.sibling_channels.push(SiblingChannel {
                 original,
                 state,
@@ -1888,6 +1922,10 @@ impl AppClient {
             self.linking_owner
                 .sibling_publication_completions
                 .send_replace(());
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            broad_trace::choice(&choice, 71, 0);
+            // BROAD_TRACE_END
             return Ok(true);
         }
         let Some(index) = self
@@ -2181,6 +2219,14 @@ impl AppClient {
             if mode == SiblingAdvanceMode::Periodic {
                 self.validate_sibling_publication(entry)?;
             }
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            broad_trace::channel(
+                &entry.state,
+                65,
+                u64::from(entry.recipient) + 2 * u64::from(pending.proof),
+            );
+            // BROAD_TRACE_END
             let retry_at = Some(Instant::now() + std::time::Duration::from_secs(1));
             if pending.proof {
                 entry.proof_published = true;
@@ -2425,10 +2471,22 @@ impl AppClient {
         body: Option<&[u8]>,
     ) -> Result<(), ClientLinkingError> {
         use cgka_engine::account_chat_sharing::{AccountSharedBodyKind, AccountSharingControl};
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        broad_trace::channel(
+            &entry.state,
+            53,
+            u64::from(entry.recipient) + 2 * u64::from(body.is_some()),
+        );
+        // BROAD_TRACE_END
         if !entry.original.live() || !entry.state.live() {
             return Err(denied());
         }
         self.validate_sibling_parent(&entry.original)?;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        broad_trace::channel(&entry.state, 54, 0);
+        // BROAD_TRACE_END
         let kind = if let Some(body) = body {
             self.runtime
                 .session()
@@ -2478,12 +2536,20 @@ impl AppClient {
                 .expect("sibling diagnostics")
                 .publication_stage = Some(Stage::BeforeCoreWrap);
         }
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        broad_trace::channel(&entry.state, 56, 0);
+        // BROAD_TRACE_END
         let message = tokio::select! { biased;
             () = &mut stopping => return Err(denied()),
             () = &mut revoked_wrap => return Err(denied()),
             () = tokio::time::sleep_until(state.deadline.into()) => return Err(denied()),
             message = self.runtime.session_mut().wrap_account_sharing_control(&mut entry.channel, kind) => message.map_err(ClientLinkingError::Engine)?,
         };
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        broad_trace::channel(&entry.state, 57, 0);
+        // BROAD_TRACE_END
         #[cfg(all(test, feature = "test-policy-overrides"))]
         {
             use crate::account_chat_sharing::enabled::SiblingPublicationStage as Stage;
@@ -2552,6 +2618,10 @@ impl AppClient {
         if !entry.original.live() || !entry.state.live() || entry.publication.is_some() {
             return Err(denied());
         }
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        broad_trace::channel(&entry.state, 58, 0);
+        // BROAD_TRACE_END
         self.validate_sibling_parent(&entry.original)?;
         #[cfg(all(test, feature = "test-policy-overrides"))]
         {
@@ -2567,6 +2637,10 @@ impl AppClient {
             .session()
             .validate_account_sharing_channel(&entry.channel)
             .map_err(ClientLinkingError::Engine)?;
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        broad_trace::channel(&entry.state, 59, 0);
+        // BROAD_TRACE_END
         let adapter = self.adapter.clone();
         let original = entry.original.clone();
         let state = entry.state.clone();
@@ -2594,7 +2668,15 @@ impl AppClient {
         // PEER_PROOF_TEST_END
         let completion = self.linking_owner.sibling_publication_completions.clone();
         let (result_tx, result) = tokio::sync::oneshot::channel();
+        // BROAD_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        broad_trace::channel(&entry.state, 60, 0);
+        // BROAD_TRACE_END
         let task = tokio::spawn(async move {
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            broad_trace::channel(&state, 61, 0);
+            // BROAD_TRACE_END
             let outcome = async {
             let revoked = state.revoked.notified();
             tokio::pin!(revoked);
@@ -2632,10 +2714,18 @@ impl AppClient {
                         peer_proof_probe::recipient_admission::hold_request(&original, peer_proof_nonce, &request).await;
                     }
 // RECIPIENT_ADMISSION_TEST_END
+                    // BROAD_TRACE_BEGIN
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    broad_trace::channel(&state, 62, 0);
+                    // BROAD_TRACE_END
                     if consent { adapter.publish_sibling_consent(request).await }
                     else { adapter.publish_selected_chat(request).await }
                 } => report.map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?,
             };
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            broad_trace::channel(&state, 63, u64::from(report.met_required_acks()));
+            // BROAD_TRACE_END
             if !original.live() || !state.live() || !report.met_required_acks() {
                 return Err(denied());
             }
@@ -2668,6 +2758,10 @@ impl AppClient {
             // COMPLETION_TEST_END
             Ok(())
             }.await;
+            // BROAD_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            broad_trace::channel(&state, 64, u64::from(outcome.is_ok()));
+            // BROAD_TRACE_END
             let success = outcome.is_ok();
             // Queue the actual result before signalling; a JoinHandle may not
             // yet be marked finished when the account worker receives a wake.
