@@ -1,18 +1,25 @@
 //! Actual public cancellation and explicitly injected post-auth validation rejection.
 use super::*;
+use crate::client::device_linking::sibling_sharing::peer_proof_probe::negative;
 use futures::FutureExt;
 use std::sync::Arc;
 use std::time::Duration;
-use crate::client::device_linking::sibling_sharing::peer_proof_probe::negative;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Scenario { PublicCancel, InjectedValidation }
+enum Scenario {
+    PublicCancel,
+    InjectedValidation,
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn late_peer_proof_public_cancel_cannot_complete_original() { run(Scenario::PublicCancel).await; }
+async fn late_peer_proof_public_cancel_cannot_complete_original() {
+    run(Scenario::PublicCancel).await;
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn late_peer_proof_injected_validation_rejection_retains_and_recovers() { run(Scenario::InjectedValidation).await; }
+async fn late_peer_proof_injected_validation_rejection_retains_and_recovers() {
+    run(Scenario::InjectedValidation).await;
+}
 
 async fn run(scenario: Scenario) {
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
@@ -154,11 +161,19 @@ async fn run(scenario: Scenario) {
             .await
             .unwrap()
             .unwrap();
-        facts[3] = before.nonce == nonce && before.pending_controls == 0
+        facts[3] = before.nonce == nonce
+            && before.pending_controls == 0
             && before.flags == [true, true, true, true, false, false, false, true];
         let deadline = before.deadline;
-        let digest = proof_gate.prepared_digest(nonce).expect("actual held Core-sealed proof digest");
-        let probe = negative::arm(&original, nonce, digest, scenario == Scenario::InjectedValidation);
+        let digest = proof_gate
+            .prepared_digest(nonce)
+            .expect("actual held Core-sealed proof digest");
+        let probe = negative::arm(
+            &original,
+            nonce,
+            digest,
+            scenario == Scenario::InjectedValidation,
+        );
         if scenario == Scenario::PublicCancel {
             approval.cancel().await.unwrap();
             let status = original.status_for_test();
@@ -168,31 +183,50 @@ async fn run(scenario: Scenario) {
             // B actor and its live gate denied it, while periodic removal is held.
             let after = tokio::time::timeout(Duration::from_secs(15), async {
                 loop {
-                    let row = managers[1].peer_proof_snapshot_for_test("test", owner.clone()).await.unwrap();
+                    let row = managers[1]
+                        .peer_proof_snapshot_for_test("test", owner.clone())
+                        .await
+                        .unwrap();
                     let counts = probe.counts();
                     if counts[4] == 1 && counts[5] == 1 {
                         break row.expect("matched closed original remains while periodic is held");
                     }
                     tokio::time::sleep(Duration::from_millis(25)).await;
                 }
-            }).await.unwrap();
+            })
+            .await
+            .unwrap();
             facts[5] = !after.flags[0] && !after.flags[6];
-            facts[7] = after.nonce == nonce && after.deadline == deadline && after.pending_controls == 0;
+            facts[7] =
+                after.nonce == nonce && after.deadline == deadline && after.pending_controls == 0;
         } else {
             proof_gate.release();
             let blocked = tokio::time::timeout(Duration::from_secs(15), async {
                 loop {
-                    if let Some(row) = managers[1].peer_proof_snapshot_for_test("test", owner.clone()).await.unwrap()
-                        && row.nonce == nonce && row.flags[4] && probe.counts()[1] > 0 {
+                    if let Some(row) = managers[1]
+                        .peer_proof_snapshot_for_test("test", owner.clone())
+                        .await
+                        .unwrap()
+                        && row.nonce == nonce
+                        && row.flags[4]
+                        && probe.counts()[1] > 0
+                    {
                         break row;
                     }
                     tokio::time::sleep(Duration::from_millis(25)).await;
                 }
-            }).await.unwrap();
+            })
+            .await
+            .unwrap();
             // Freeze the negative verdict while the real proof is retained and
             // periodic completion is still gated. No input or committed flag is fabricated.
-            facts[4] = !blocked.flags[6] && blocked.flags[0] && blocked.flags[1]
-                && blocked.flags[2] && blocked.flags[3] && blocked.flags[4] && blocked.flags[7];
+            facts[4] = !blocked.flags[6]
+                && blocked.flags[0]
+                && blocked.flags[1]
+                && blocked.flags[2]
+                && blocked.flags[3]
+                && blocked.flags[4]
+                && blocked.flags[7];
             facts[7] = blocked.deadline == deadline && blocked.pending_controls == 0;
             probe.clear();
         }
@@ -201,45 +235,118 @@ async fn run(scenario: Scenario) {
         if scenario == Scenario::InjectedValidation {
             let recovered = tokio::time::timeout(Duration::from_secs(15), async {
                 loop {
-                    if let Some(row) = managers[1].peer_proof_snapshot_for_test("test", owner.clone()).await.unwrap()
-                        && row.nonce == nonce && row.flags[6] { break row; }
+                    if let Some(row) = managers[1]
+                        .peer_proof_snapshot_for_test("test", owner.clone())
+                        .await
+                        .unwrap()
+                        && row.nonce == nonce
+                        && row.flags[6]
+                    {
+                        break row;
+                    }
                     tokio::time::sleep(Duration::from_millis(25)).await;
                 }
-            }).await.unwrap();
-            facts[5] = recovered.flags[0] && recovered.flags[1] && recovered.flags[2]
-                && recovered.flags[3] && recovered.flags[4] && recovered.flags[7];
+            })
+            .await
+            .unwrap();
+            facts[5] = recovered.flags[0]
+                && recovered.flags[1]
+                && recovered.flags[2]
+                && recovered.flags[3]
+                && recovered.flags[4]
+                && recovered.flags[7];
             facts[7] &= recovered.deadline == deadline && recovered.pending_controls == 0;
         }
         wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
         facts[8] = true;
         // Recheck the exact old actor after actual peer publication and normal enrollment.
-        let final_row = managers[1].peer_proof_snapshot_for_test("test", owner.clone()).await.unwrap();
+        let final_row = managers[1]
+            .peer_proof_snapshot_for_test("test", owner.clone())
+            .await
+            .unwrap();
         let counts = probe.counts();
         observations = counts;
-        facts[6] = counts[2] == 0 && if scenario == Scenario::InjectedValidation {
-            counts[0] == 1 && counts[1] > 0 && counts[3] == 1 && counts[4] == 0 && counts[5] == 0 && final_row.as_ref().is_some_and(|row| row.pending_controls == 0)
-        } else {
-            counts[0] == 0 && counts[1] == 0 && counts[3] == 0 && counts[4] == 1 && counts[5] == 1
-                && !original.status_for_test().0 && !original.status_for_test().1
-        };
-        a.cancel().await.unwrap(); c.cancel().await.unwrap();
-        if scenario == Scenario::InjectedValidation { approval.cancel().await.unwrap(); }
-        drop(approval); drop(original);
+        facts[6] = counts[2] == 0
+            && if scenario == Scenario::InjectedValidation {
+                counts[0] == 1
+                    && counts[1] > 0
+                    && counts[3] == 1
+                    && counts[4] == 0
+                    && counts[5] == 0
+                    && final_row
+                        .as_ref()
+                        .is_some_and(|row| row.pending_controls == 0)
+            } else {
+                counts[0] == 0
+                    && counts[1] == 0
+                    && counts[3] == 0
+                    && counts[4] == 1
+                    && counts[5] == 1
+                    && !original.status_for_test().0
+                    && !original.status_for_test().1
+            };
+        a.cancel().await.unwrap();
+        c.cancel().await.unwrap();
+        if scenario == Scenario::InjectedValidation {
+            approval.cancel().await.unwrap();
+        }
+        drop(approval);
+        drop(original);
         facts[9] = true;
-    }).catch_unwind().await;
+    })
+    .catch_unwind()
+    .await;
     let mut runtime_closes = 0;
-    for runtime in runtimes { if runtime.shutdown_and_close().await.is_ok() { runtime_closes += 1; } }
+    for runtime in runtimes {
+        if runtime.shutdown_and_close().await.is_ok() {
+            runtime_closes += 1;
+        }
+    }
     let mut planes_shutdown = 0;
-    for app in &apps { app.relay_plane.shutdown().await; planes_shutdown += 1; }
+    for app in &apps {
+        app.relay_plane.shutdown().await;
+        planes_shutdown += 1;
+    }
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
     let relay_closed = owned_loopback_listener_is_closed(address).await;
-    let mode = if scenario == Scenario::PublicCancel { "public-cancel" } else { "injected-validation" };
-    eprintln!("late-peer-negative mode={} held={} own_harvested={} periodic_observed={} fresh_before={} negative_preserved={} recovered_or_retired={} no_replay={} ownership_preserved={} enrollment_complete={} public_cancelled={} accepted={} validation_rejections={} own_publications={} open_attempts={} routed_after_cancel={} closed_denials={} runtime_closes={} planes_shutdown={} relay_closed={} attempt_completed={}",
-        mode,facts[0],facts[1],facts[2],facts[3],facts[4],facts[5],facts[6],facts[7],facts[8],facts[9],
-        observations[0],observations[1],observations[2],observations[3],observations[4],observations[5],runtime_closes,planes_shutdown,relay_closed,attempt.is_ok());
-    assert!(facts.into_iter().all(|value| value) && runtime_closes == 3 && planes_shutdown == 3
-        && relay_closed && attempt.is_ok(), "late_peer_proof_negative_guard_and_positive_cleanup");
+    let mode = if scenario == Scenario::PublicCancel {
+        "public-cancel"
+    } else {
+        "injected-validation"
+    };
+    eprintln!(
+        "late-peer-negative mode={} held={} own_harvested={} periodic_observed={} fresh_before={} negative_preserved={} recovered_or_retired={} no_replay={} ownership_preserved={} enrollment_complete={} public_cancelled={} accepted={} validation_rejections={} own_publications={} open_attempts={} routed_after_cancel={} closed_denials={} runtime_closes={} planes_shutdown={} relay_closed={} attempt_completed={}",
+        mode,
+        facts[0],
+        facts[1],
+        facts[2],
+        facts[3],
+        facts[4],
+        facts[5],
+        facts[6],
+        facts[7],
+        facts[8],
+        facts[9],
+        observations[0],
+        observations[1],
+        observations[2],
+        observations[3],
+        observations[4],
+        observations[5],
+        runtime_closes,
+        planes_shutdown,
+        relay_closed,
+        attempt.is_ok()
+    );
+    assert!(
+        facts.into_iter().all(|value| value)
+            && runtime_closes == 3
+            && planes_shutdown == 3
+            && relay_closed
+            && attempt.is_ok(),
+        "late_peer_proof_negative_guard_and_positive_cleanup"
+    );
 }
 
 // Only the owned MockRelay's loopback listener is probed, never an external endpoint.
@@ -247,7 +354,10 @@ async fn run(scenario: Scenario) {
 async fn owned_loopback_listener_is_closed(address: &str) -> bool {
     tokio::time::timeout(Duration::from_secs(3), async {
         while let Ok(socket) = tokio::net::TcpStream::connect(address).await {
-            drop(socket); tokio::task::yield_now().await;
+            drop(socket);
+            tokio::task::yield_now().await;
         }
-    }).await.is_ok()
+    })
+    .await
+    .is_ok()
 }
