@@ -37,6 +37,49 @@ def oracle_line():
     return source[:location].count('\n') + 1
 
 
+
+def cleanup_diagnostics(raw):
+    number = r'(?:0|[1-9][0-9]{0,18})'
+    def array(length):
+        return r'\[' + ', '.join([number] * length) + r'\]'
+    matrix = r'\[' + ', '.join([array(14)] * 8) + r'\]'
+    pattern = (r'body-late-ack-cleanup runtime1=(true|false) runtime2=(true|false) relay_planes=(' + number
+               + r') connections=(' + number + r') closed_connections=(' + number
+               + r') invalid=(true|false) task_outcome=([0-5]) child_outcomes=('
+               + array(4) + r') io_categories=(' + matrix + r')')
+    lines = [line for line in raw.splitlines() if line.startswith('body-late-ack-cleanup ')]
+    if len(lines) != 1 or len(lines[0]) > 8192:
+        return {'valid': False, 'line_count': min(len(lines), 2)}
+    match = re.fullmatch(pattern, lines[0])
+    if match is None:
+        return {'valid': False, 'line_count': 1}
+    return {'valid': True, 'runtime1_closed': match[1] == 'true',
+            'runtime2_closed': match[2] == 'true', 'relay_planes_completed': int(match[3]),
+            'connections': int(match[4]), 'closed_connections': int(match[5]),
+            'invalid': match[6] == 'true', 'task_outcome': int(match[7]),
+            'child_outcomes': json.loads(match[8]), 'io_categories': json.loads(match[9])}
+
+
+def cleanup_parser_controls():
+    matrix = [[0] * 14 for _ in range(8)]
+    matrix[2][6] = 1  # Frontend write / BrokenPipe remains failed cleanup.
+    sample = ('body-late-ack-cleanup runtime1=true runtime2=true relay_planes=2 connections=2 '
+              'closed_connections=1 invalid=false task_outcome=1 child_outcomes=[1, 1, 0, 0] io_categories='
+              + json.dumps(matrix))
+    parsed = cleanup_diagnostics(sample)
+    ensure(parsed.get('valid') and parsed['io_categories'][2][6] == 1
+           and parsed['task_outcome'] == 1 and parsed['closed_connections'] == 1, 'closed-cleanup-parser')
+    negatives = [sample + ' private', sample.replace('task_outcome=1', 'task_outcome=6'),
+                 sample.replace('runtime1=true', 'runtime1=secret'), sample.replace('relay_planes=2', 'relay_planes=-2'),
+                 sample.replace('connections=2', 'connections=12345678901234567890'),
+                 sample.replace('child_outcomes=[1, 1, 0, 0]', 'child_outcomes=[1, 1, 0]'),
+                 sample + '\n' + sample, sample.replace('io_categories=[[0', 'io_categories=[["secret"'),
+                 sample.replace('io_categories=[[0', 'io_categories=[[true')]
+    for value in negatives:
+        ensure(cleanup_diagnostics(value).get('valid') is False, 'reject-private-or-malformed-cleanup')
+    return {'positive': 1, 'negative': len(negatives), 'runtime_bodies': 0}
+
+
 def parse(raw, case, exit_code):
     row = parse_body(raw, case)
     row.update(body_exit_code=exit_code, compiler_error_count=headers(raw)['compiler_error_count'])
@@ -48,6 +91,7 @@ def parse(raw, case, exit_code):
         row['observed'] = dict(zip(['hold_receipt', 'prerequisites', 'cleanup', 'followup'], [value == 'true' for value in values[:4]]))
         row['observed'].update(dict(zip(['old_body_effects', 'sdk_success', 'successful_harvest', 'context_rejected', 'future_dropped', 'retired'], map(int, values[4:]))))
     row['named_oracle_count'] = raw.count(MESSAGE)
+    row['cleanup_diagnostics'] = cleanup_diagnostics(raw)
     return row
 
 
@@ -113,7 +157,7 @@ def parser_controls():
     raw += 'test result: FAILED. 0 passed; 1 failed; 0 ignored;\n'
     ensure(killed(parse(raw, CASES[0], 101)), 'positive-actual-log-red-parser')
     ensure(not killed(parse(raw + record, CASES[0], 101)), 'duplicate-log-witness-denied')
-    return {'positive': 3, 'negative': count + 1, 'runtime_bodies': 0}
+    return {'positive': 3, 'negative': count + 1, 'runtime_bodies': 0, 'cleanup_diagnostics': cleanup_parser_controls()}
 
 
 def source_guard():
@@ -159,6 +203,12 @@ def main():
     OUT.mkdir(exist_ok=False)
     report = environment()
     report.update(baseline_test_source=BASE, reviewed_product_baseline=BASE, scope='Actual backend ACK of final Catalog after real recipient import/receipt changes original context; Linux SDK witness, not Apple native acceptance', source_guard=guard, phases={}, qualification_passed=False)
+    report['cleanup_schema'] = {
+        'io_operations': ['frontend_read', 'backend_read', 'frontend_write', 'backend_write', 'frontend_close', 'backend_close', 'frontend_handshake', 'backend_connect'],
+        'io_categories': ['success', 'eof', 'close_frame', 'connection_closed', 'already_closed', 'io_reset', 'io_broken_pipe', 'io_unexpected_eof', 'io_other', 'protocol_reset_without_close', 'protocol_send_after_closing', 'protocol_received_after_closing', 'protocol_other', 'other'],
+        'child_outcomes': ['success', 'returned_error', 'cancelled_join', 'panicked_join'],
+        'task_outcomes': ['success', 'child_server_error', 'join_failure', 'timeout_abort', 'missing_task', 'invalid_or_incomplete_socket_counts'],
+    }
     frozen = freeze(); original_layout = layout(); original = Path(PRODUCT).read_bytes()
     report['source_before'] = identity(frozen)
     def save(): (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')

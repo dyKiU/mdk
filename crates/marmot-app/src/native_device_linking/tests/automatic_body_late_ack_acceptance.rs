@@ -227,17 +227,32 @@ async fn late_ack_trial(hold_receipt: bool) {
     .is_ok_and(|result| result.is_ok());
     let pre_close = probe.observed();
     let mut closes = 0;
-    for runtime in &runtimes {
-        if runtime.shutdown_and_close().await.is_ok() {
+    let mut runtime_closes = [false; 2];
+    for (index, runtime) in runtimes.iter().enumerate() {
+        runtime_closes[index] = runtime.shutdown_and_close().await.is_ok();
+        if runtime_closes[index] {
             closes += 1;
         }
     }
+    let mut relay_plane_closes = 0;
     for app in &apps {
         app.relay_plane.shutdown().await;
+        relay_plane_closes += 1;
     }
     let proxy_close = proxy.close().await;
     let after = probe.observed();
     let cleanup = closes == 2 && proxy_close.is_ok();
+    let (close_observed, task_outcome) = match &proxy_close {
+        Ok(observed) => (*observed, 0),
+        Err(failure) => (failure.observed, failure.task_outcome),
+    };
+    eprintln!(
+        "body-late-ack-cleanup runtime1={} runtime2={} relay_planes={} connections={} closed_connections={} invalid={} task_outcome={} child_outcomes={:?} io_categories={:?}",
+        runtime_closes[0], runtime_closes[1], relay_plane_closes,
+        close_observed.connections, close_observed.closed_connections,
+        close_observed.invalid, task_outcome, close_observed.child_outcomes,
+        close_observed.io_categories,
+    );
     let prerequisites = held_ack
         && before.wire_events > 0
         && before.actual_ok_sent == 0
