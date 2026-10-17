@@ -213,7 +213,7 @@ fn inspect(state: &Arc<Mutex<State>>, message: &Message, upstream: bool) -> Resu
         && kind == Some("OK")
         && fields.get(1).and_then(serde_json::Value::as_str) == Some(selected);
     if matches_event {
-        let event: nostr::Event =
+        let event: nostr::prelude::Event =
             serde_json::from_value(fields[if upstream { 2 } else { 1 }].clone()).map_err(|_| ())?;
         if event.verify().is_err() {
             state.observed.invalid = true;

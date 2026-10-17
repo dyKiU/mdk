@@ -177,7 +177,7 @@ async fn late_ack_trial(hold_receipt: bool) {
     // completed the harvest turn before effects are inspected or shutdown begins.
     let actor_progress = tokio::time::timeout(
         std::time::Duration::from_secs(3),
-        managers[0].active_account_state("test"),
+        managers[0].device_linking_targets("test"),
     )
     .await
     .is_ok_and(|result| result.is_ok());
