@@ -174,7 +174,7 @@ def main():
         ensure(digest(Path(case['binary']).read_bytes()) == row['compiled_binary_sha256'], 'selected-compiled-binary-identity')
         started = time.monotonic()
         try:
-            result = subprocess.run([case['binary'], '--exact', historical.TEST, '--nocapture', '--test-threads=1], capture_output=True, text=True, timeout=300)
+            result = subprocess.run([case['binary'], '--exact', historical.TEST, '--nocapture', '--test-threads=1'], capture_output=True, text=True, timeout=300)
             row['body'] = historical.parse(result.stdout + result.stderr, result.returncode)
         except subprocess.TimeoutExpired: row['body'] = {'watchdog_triggered': True, 'actual_count_unknown': True}
         row['body']['seconds'] = time.monotonic() - started
