@@ -254,7 +254,7 @@ mod tests {
     use crate::device_linking::network::{Bootstrap, Channel, Message, MessageKind};
     use nostr::prelude::Keys;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pairing_mailbox_retry_waits_for_connection_before_subscription_readiness() {
         use futures::SinkExt;
         use tokio_tungstenite::{accept_async, tungstenite::Message};

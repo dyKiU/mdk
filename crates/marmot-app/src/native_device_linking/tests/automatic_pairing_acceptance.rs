@@ -7,7 +7,7 @@ async fn cancelled_setup_can_reverse_roles_and_complete_enrollment() {
     cancelled_setup_role_reversal(false).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelled_setup_can_reverse_roles_after_restart_and_complete_enrollment() {
     cancelled_setup_role_reversal(true).await;
 }
@@ -1087,7 +1087,7 @@ async fn automatic_pairing_requires_explicit_enrollment_and_shares_existing_and_
     automatic_pairing_with_recipient_approval_delay(false).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_pairing_delayed_recipient_approval_does_not_lose_welcome() {
     automatic_pairing_with_recipient_approval_delay(true).await;
 }
@@ -1778,12 +1778,12 @@ async fn interrupted_first_enrollment_same_peer_completes_after_restart() {
     interrupted_first_enrollment_retries(true, false).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn interrupted_first_enrollment_same_roles_completes_after_restart() {
     interrupted_first_enrollment_retries(true, true).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn interrupted_enrollment_before_recipient_join_retries_after_restart() {
     interrupted_first_enrollment_retries_with_unjoined_recipient(true, true, true).await;
 }
@@ -2027,7 +2027,7 @@ async fn interrupted_first_enrollment_retries_with_unjoined_recipient(
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn another_installations_private_welcome_cannot_abort_an_approved_recipient() {
     use cgka_traits::StorageProvider;
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
