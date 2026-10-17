@@ -23,7 +23,7 @@ PREFIX = 'native_device_linking::automatic_pairing_acceptance::late_peer_proof_n
 FIELDS = ['held', 'own_harvested', 'periodic_observed', 'fresh_before', 'negative_preserved',
           'recovered_or_retired', 'no_replay', 'ownership_preserved', 'enrollment_complete', 'public_cancelled']
 MARKER = 'late-peer-negative mode=(public-cancel|injected-validation) ' + ' '.join(name + '=(true|false)' for name in FIELDS)
-MARKER += r' accepted=([0-9]+) validation_rejections=([0-9]+) own_publications=([0-9]+) open_attempts=([0-9]+) runtime_closes=([0-9]+) planes_shutdown=([0-9]+) relay_closed=(true|false) attempt_completed=(true|false)'
+MARKER += r' accepted=([0-9]+) validation_rejections=([0-9]+) own_publications=([0-9]+) open_attempts=([0-9]+) routed_after_cancel=([0-9]+) closed_denials=([0-9]+) runtime_closes=([0-9]+) planes_shutdown=([0-9]+) relay_closed=(true|false) attempt_completed=(true|false)'
 MESSAGE = 'late_peer_proof_negative_guard_and_positive_cleanup'
 MUTANT_OLD = '''                            Err(_) => {
                                 tracing::debug!(
@@ -32,7 +32,7 @@ MUTANT_NEW = '''                            Err(_) => {
                                 Self::complete_sibling_sharing(&entry);
                                 tracing::debug!(
 '''
-HOOKS = {PRODUCT: 4, 'crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe.rs': 3,
+HOOKS = {PRODUCT: 7, 'crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe.rs': 6,
          'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': 1}
 NEW = {FILE, SELF, 'crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/negative.rs'}
 OUT = Path('peer-proof-negative-evidence')
@@ -57,8 +57,8 @@ def parse(raw, mode, exit_code):
         values = values[0]
         row['mode'] = values[0]
         row['facts'] = dict(zip(FIELDS, [value == 'true' for value in values[1:11]]))
-        row.update(dict(zip(['accepted', 'validation_rejections', 'own_publications', 'open_attempts', 'runtime_closes', 'planes_shutdown'], map(int, values[11:17]))))
-        row.update(relay_closed=values[17] == 'true', attempt_completed=values[18] == 'true')
+        row.update(dict(zip(['accepted', 'validation_rejections', 'own_publications', 'open_attempts', 'routed_after_cancel', 'closed_denials', 'runtime_closes', 'planes_shutdown'], map(int, values[11:19]))))
+        row.update(relay_closed=values[19] == 'true', attempt_completed=values[20] == 'true')
     row['intended_assertion_observed'] = MESSAGE in raw
     return row
 
@@ -69,8 +69,8 @@ def prerequisites(row, mode):
             and row.get('relay_closed') is True and row.get('attempt_completed') is True
             and row.get('own_publications') == 0
             and all(row.get('facts', {}).get(name) is True for name in FIELDS if name != 'negative_preserved')
-            and ((mode == 'public-cancel' and row.get('accepted') == row.get('validation_rejections') == row.get('open_attempts') == 0)
-                 or (mode == 'injected-validation' and row.get('accepted') == row.get('open_attempts') == 1 and type(row.get('validation_rejections')) is int and row['validation_rejections'] > 0)))
+            and ((mode == 'public-cancel' and row.get('routed_after_cancel') == row.get('closed_denials') == 1 and row.get('accepted') == row.get('validation_rejections') == row.get('open_attempts') == 0)
+                 or (mode == 'injected-validation' and row.get('routed_after_cancel') == row.get('closed_denials') == 0 and row.get('accepted') == row.get('open_attempts') == 1 and type(row.get('validation_rejections')) is int and row['validation_rejections'] > 0)))
 
 
 def green(row, mode):
@@ -96,10 +96,13 @@ def parser_preflight():
         marker = 'late-peer-negative mode=' + mode + ' ' + ' '.join(name + '=true' for name in FIELDS)
         marker += ' accepted=' + ('1' if mode == 'injected-validation' else '0')
         marker += ' validation_rejections=' + ('1' if mode == 'injected-validation' else '0')
-        marker += ' own_publications=0 open_attempts=' + ('1' if mode == 'injected-validation' else '0') + ' runtime_closes=3 planes_shutdown=3 relay_closed=true attempt_completed=true'
+        marker += ' own_publications=0 open_attempts=' + ('1' if mode == 'injected-validation' else '0') + ' routed_after_cancel=' + ('0' if mode == 'injected-validation' else '1') + ' closed_denials=' + ('0' if mode == 'injected-validation' else '1') + ' runtime_closes=3 planes_shutdown=3 relay_closed=true attempt_completed=true'
         raw = 'running 1 test\ntest ' + PREFIX + CASES[mode] + ' ... ' + marker + '\ntest result: ok. 1 passed; 0 failed; 0 ignored;\n'
         for text in [raw, raw.replace(' ... ' + marker, ' ... \n' + marker)]: ensure(green(parse(text, mode, 0), mode), 'green-parser'); positive += 1
         variants = [raw + marker + '\n', raw.replace(PREFIX + CASES[mode], 'foreign::test'), raw.replace('runtime_closes=3', 'runtime_closes=2'), raw.replace('planes_shutdown=3', 'planes_shutdown=2'), raw.replace('own_publications=0', 'own_publications=1'), raw.replace('open_attempts=' + ('1' if mode == 'injected-validation' else '0'), 'open_attempts=2'), raw.replace('relay_closed=true', 'relay_closed=false'), raw.replace('1 passed', '0 passed')]
+        for name in ['routed_after_cancel', 'closed_denials']:
+            expected = '0' if mode == 'injected-validation' else '1'
+            variants += [raw.replace(' ' + name + '=' + expected, ''), raw.replace(name + '=' + expected, name + '=2'), raw.replace(name + '=' + expected, name + '=' + ('1' if expected == '0' else '0')), raw.replace(' ' + name + '=' + expected, ' ' + name + '=' + expected + ' ' + name + '=' + expected)]
         variants += [raw.replace(name + '=true', name + '=false') for name in FIELDS]
         for value in variants: ensure(not green(parse(value, mode, 0), mode), 'adversarial-green-parser'); negative += 1
         if mode == 'injected-validation':
@@ -107,6 +110,8 @@ def parser_preflight():
             red = raw.replace('negative_preserved=true', 'negative_preserved=false').replace('test result: ok. 1 passed; 0 failed;', "thread '" + PREFIX + CASES[mode] + "' panicked at " + FILE + ':' + str(own['line']) + ':5:\n' + MESSAGE + '\ntest result: FAILED. 0 passed; 1 failed;')
             ensure(killed(parse(red, mode, 101)), 'sole-own-guard-assertion-red-parser'); positive += 1
             variants = [red.replace('negative_preserved=false', 'negative_preserved=true'), red + marker + '\n', red.replace('accepted=1', 'accepted=2'), red.replace('validation_rejections=1', 'validation_rejections=0'), red.replace(FILE + ':' + str(own['line']), FILE + ':1'), red + '\nthread extra panicked at crates/other.rs:1:1:\n', 'error: compile failure\n']
+            for name in ['routed_after_cancel', 'closed_denials']:
+                variants += [red.replace(' ' + name + '=0', ''), red.replace(name + '=0', name + '=1')]
             variants += [red.replace(name + '=true', name + '=false') for name in FIELDS if name != 'negative_preserved']
             for value in variants: ensure(not killed(parse(value, mode, 101)), 'adversarial-red-parser'); negative += 1
     return {'positive': positive, 'negative': negative, 'actual_runtime_bodies': 0}

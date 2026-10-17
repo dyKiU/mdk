@@ -23,12 +23,21 @@ pub(crate) struct ProofGate {
     owner: Weak<OriginalEnrollmentSharingChoice>,
     fired: AtomicBool,
     nonce: Mutex<Option<[u8; 32]>>,
+// PEER_NEGATIVE_TEST_BEGIN
+    prepared: Mutex<Vec<([u8; 32], [u8; 32])>>,
+// PEER_NEGATIVE_TEST_END
     observed: Notify,
     release: Notify,
 }
 
 pub(crate) struct Guard(Arc<ProofGate>);
 impl Guard {
+// PEER_NEGATIVE_TEST_BEGIN
+    pub(crate) fn prepared_digest(&self, nonce: [u8; 32]) -> Option<[u8; 32]> {
+        self.0.prepared.lock().expect("prepared peer proof").iter()
+            .find(|row| row.0 == nonce).map(|row| row.1)
+    }
+// PEER_NEGATIVE_TEST_END
     pub(crate) async fn observed(&self) -> Option<[u8; 32]> {
         self.0.observed.notified().await;
         *self.0.nonce.lock().expect("peer proof nonce")
@@ -53,6 +62,9 @@ pub(crate) fn arm(owner: &Arc<OriginalEnrollmentSharingChoice>) -> Guard {
         owner: Arc::downgrade(owner),
         fired: AtomicBool::new(false),
         nonce: Mutex::new(None),
+// PEER_NEGATIVE_TEST_BEGIN
+        prepared: Mutex::new(Vec::new()),
+// PEER_NEGATIVE_TEST_END
         observed: Notify::new(),
         release: Notify::new(),
     });

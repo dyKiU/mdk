@@ -1821,8 +1821,16 @@ impl AppClient {
             return Ok(false);
         };
         let mut entry = self.linking_owner.sibling_channels.remove(index);
+// PEER_NEGATIVE_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        peer_proof_probe::negative::routed(&entry, received, wire);
+// PEER_NEGATIVE_TEST_END
         let result = (|| {
             if !entry.original.live() || !entry.state.live() {
+// PEER_NEGATIVE_TEST_BEGIN
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                peer_proof_probe::negative::closed(&entry, received, wire);
+// PEER_NEGATIVE_TEST_END
                 return Err(Error::Closed);
             }
             match received.control {
@@ -2466,6 +2474,13 @@ impl AppClient {
         let state = entry.state.clone();
         let mut shutdown = self.history_owner.runtime_shutdown.clone();
         let proof = body.is_some();
+// PEER_NEGATIVE_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if proof {
+            peer_proof_probe::negative::prepared(&entry.original, entry.channel.scope().nonce,
+                entry.channel.outbound_control_wire_digest_for_test(kind));
+        }
+// PEER_NEGATIVE_TEST_END
         let consent = entry.recipient && !proof;
 
         // COMPLETION_TEST_BEGIN
