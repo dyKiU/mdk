@@ -60,6 +60,15 @@ pub(crate) struct MlsGroupCache {
 }
 
 impl MlsGroupCache {
+    #[cfg(all(test, feature = "experimental-device-sync"))]
+    pub(crate) fn observation_for_test(&self, group_id: &GroupId) -> (u64, bool, bool) {
+        (
+            self.hits.load(std::sync::atomic::Ordering::Relaxed),
+            self.entries.lock().unwrap().contains_key(group_id),
+            self.taken.lock().unwrap().contains_key(group_id),
+        )
+    }
+
     pub(crate) fn forget_group(&self, group_id: &GroupId) {
         self.entries
             .lock()
