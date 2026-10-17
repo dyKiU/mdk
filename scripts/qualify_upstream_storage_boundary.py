@@ -215,15 +215,39 @@ def crossing_context(frozen):
     if 'CREATE TRIGGER {name} AFTER INSERT ON {table}' in sources['private_migration_ledger.rs']:
         triggers.update('cgka_experimental_device_sync_activate_' + table for table in tables)
     references = set(re.findall(r'REFERENCES\s+([a-z][a-z0-9_]*)\b', joined))
-    return {'sources': sources, 'tables': tables, 'triggers': triggers, 'references': references}
+    listed_bytes = Path(BOUNDARY[3]).read_bytes()
+    ensure(digest(listed_bytes) == frozen[BOUNDARY[3]]['sha256'], 'diagnostic-allow-list-exact-frozen-input')
+    listed = {' '.join(line.split()) for line in listed_bytes.decode().splitlines()
+              if line.strip() and not line.strip().startswith('#')}
+    return {'sources': sources, 'tables': tables, 'triggers': triggers, 'references': references, 'listed': listed}
 
 
-def known_crossing(line, context):
+def known_crossing(line, context, section='new'):
     parts = line.split(' ')
-    if len(parts) != 3 or ' '.join(parts) != line:
+    if len(parts) != 3 or ' '.join(parts) != line or len(line) > 512:
         return False
     kind, origin, target = parts
     identifier = r'[A-Za-z_][A-Za-z0-9_]*'
+    if section == 'stale':
+        # A stale row is, by definition, no longer found in current source or
+        # schema. Its authority for privacy-safe export is the exact frozen
+        # allow-list, not a fabricated current reference. This grants no allowance.
+        if line not in context['listed']:
+            return False
+        if kind == 'fk':
+            return origin in context['tables'] and target in context['tables']
+        if kind == 'trigger':
+            return origin in context['tables'] and re.fullmatch(identifier, target) is not None
+        if (kind not in {'sql', 'path', 'method'} or origin not in context['sources']
+                or not re.fullmatch(r'[A-Za-z0-9_/-]+\.rs', origin) or '..' in origin):
+            return False
+        if kind == 'sql':
+            return target in context['tables']
+        if kind == 'method':
+            return re.fullmatch(identifier, target) is not None
+        return re.fullmatch(r'crate(?:::' + identifier + r'){1,3}', target) is not None
+    if section != 'new':
+        return False
     if kind == 'fk':
         return origin in context['tables'] and target in context['tables'] and target in context['references']
     if kind == 'trigger':
@@ -282,7 +306,7 @@ def parse_crossing_diagnostic(output, code, context, panic_line):
             if declared[section] > 64:
                 return rejected('section-bound-exceeded')
             continue
-        if section is None or not known_crossing(line, context):
+        if section is None or not known_crossing(line, context, section):
             return rejected('unknown-structural-crossing')
         if line in seen:
             return rejected('duplicate-crossing-row')
@@ -312,7 +336,8 @@ def parse_crossing_diagnostic(output, code, context, panic_line):
 def crossing_parser_preflight():
     context = {'sources': {'lib.rs': 'mod owner;', 'owner.rs': 'fn actual() {} impl X { fn f() { self.actual(); } }',
                            'reader.rs': 'use crate::owner; SELECT app_table;'},
-               'tables': {'app_table', 'protocol_table'}, 'triggers': {'known_trigger'}, 'references': {'protocol_table'}}
+               'tables': {'app_table', 'protocol_table'}, 'triggers': {'known_trigger'}, 'references': {'protocol_table'},
+               'listed': {'path reader.rs crate::owner', 'method owner.rs retired_method'}}
     new = '1 crossing(s) between the protocol and app sides are not on src/cross/allow-list.txt. Move them into cross/, or list them:'
     stale = '1 listed crossing(s) no longer occur. Delete them from src/cross/allow-list.txt:'
     start = "running 1 test\ntest " + BOUNDARY_TEST + " ... \nthread '" + BOUNDARY_TEST + "' panicked at crates/storage-sqlite/src/base/boundary_tests.rs:90:5:\n"
@@ -321,6 +346,13 @@ def crossing_parser_preflight():
     ensure(parse_crossing_diagnostic(raw, 101, context, 90)['status'] == 'complete', 'crossing-parser-known-owned-sections')
     for line in ['method owner.rs actual', 'fk app_table protocol_table', 'trigger app_table known_trigger']:
         ensure(parse_crossing_diagnostic(start + new + '\n' + line + end, 101, context, 90)['status'] == 'complete', 'crossing-parser-known-source-schema-kinds')
+    no_reference = dict(context, sources={**context['sources'], 'reader.rs': 'SELECT app_table;'})
+    ensure(parse_crossing_diagnostic(start + stale + '\npath reader.rs crate::owner' + end, 101, no_reference, 90)['status'] == 'complete', 'crossing-parser-stale-row-exact-listed-without-current-reference')
+    ensure(parse_crossing_diagnostic(start + stale + '\nmethod owner.rs retired_method' + end, 101, context, 90)['status'] == 'complete', 'crossing-parser-stale-method-exact-listed-without-definition')
+    ensure(parse_crossing_diagnostic(start + new + '\npath reader.rs crate::owner' + end, 101, no_reference, 90)['status'] == 'rejected', 'crossing-parser-new-still-requires-current-reference')
+    ensure(parse_crossing_diagnostic(start + stale + '\nmethod owner.rs actual' + end, 101, context, 90)['status'] == 'rejected', 'crossing-parser-stale-requires-exact-listed-line')
+    invalid_list = dict(context, listed={'sql ../private/account.rs app_table'})
+    ensure(parse_crossing_diagnostic(start + stale + '\nsql ../private/account.rs app_table' + end, 101, invalid_list, 90)['status'] == 'rejected', 'crossing-parser-list-membership-cannot-bypass-path-bounds')
     negatives = [raw.replace('reader.rs', '../private/account.rs'), raw.replace('app_table', 'PRIVATE_ACCOUNT_SQL'),
                  raw.replace('crate::owner', 'crate::PRIVATE_ACCOUNT_SQL'), raw.replace('1 crossing(s)', '2 crossing(s)'),
                  raw.replace('1 crossing(s)', '65 crossing(s)'), raw.replace(stale, new), raw + '\n' + new,
@@ -335,7 +367,7 @@ def crossing_parser_preflight():
     for bad in negatives:
         row = parse_crossing_diagnostic(bad, 101, context, 90)
         ensure(row['status'] == 'rejected' and 'PRIVATE_ACCOUNT_SQL' not in json.dumps(row), 'crossing-parser-rejects-untrusted-incomplete-or-duplicate-metadata')
-    return {'positive': 4, 'negative': len(negatives), 'actual_runtime_bodies': 0}
+    return {'positive': 6, 'negative': len(negatives) + 3, 'actual_runtime_bodies': 0}
 
 
 def source_guard(baseline, ownership_adaptation):
