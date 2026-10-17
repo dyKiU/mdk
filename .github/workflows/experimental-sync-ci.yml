@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [recipient-admission-candidate-preflight, recipient-admission-candidate-green, recipient-admission-candidate-mutations, recipient-admission-preflight, recipient-admission-red, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [recipient-intake-preflight, recipient-intake-diagnostic, recipient-admission-candidate-preflight, recipient-admission-candidate-green, recipient-admission-candidate-mutations, recipient-admission-preflight, recipient-admission-red, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
@@ -50,6 +50,78 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  # RECIPIENT_INTAKE_DIAGNOSTIC_BEGIN
+  recipient-intake-preflight:
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'recipient-intake-preflight' || inputs.scope == 'recipient-intake-diagnostic')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_BUILD_JOBS: '2'
+      UPSTREAM_RECIPIENT_INTAKE_BASELINE: ${{ inputs.extraction_cohort_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Whole reviewed source and closed diagnostic parser fixtures
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/diagnose_upstream_recipient_intake.py --preflight
+      - name: Exact remote formatting patch before compilation
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          cargo fmt --all
+          git diff --binary -- crates > "$RUNNER_TEMP/recipient-intake-formatting.patch"
+          git diff --exit-code -- crates
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: recipient-intake-preflight-${{ github.sha }}
+          path: |
+            recipient-intake-diagnostic-evidence/result.json
+            ${{ runner.temp }}/recipient-intake-formatting.patch
+          if-no-files-found: error
+          retention-days: 7
+  recipient-intake-diagnostic:
+    needs: recipient-intake-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'recipient-intake-diagnostic'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: '2'
+      UPSTREAM_RECIPIENT_INTAKE_BASELINE: ${{ inputs.extraction_cohort_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: One unchanged original ordinary case with passive intake observations
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Passive recipient intake ordinary diagnostic' --output "$RUNNER_TEMP/recipient-intake-capacity.json"
+          python3 scripts/diagnose_upstream_recipient_intake.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: recipient-intake-diagnostic-${{ github.sha }}
+          path: |
+            recipient-intake-diagnostic-evidence/result.json
+            ${{ runner.temp }}/recipient-intake-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  # RECIPIENT_INTAKE_DIAGNOSTIC_END
   # RECIPIENT_ADMISSION_CANDIDATE_JOBS_BEGIN
   recipient-admission-candidate-preflight:
     if: github.event_name == 'workflow_dispatch' && startsWith(inputs.scope, 'recipient-admission-candidate-')

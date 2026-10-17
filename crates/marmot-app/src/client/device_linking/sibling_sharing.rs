@@ -1,4 +1,8 @@
 //! Bilateral sibling handoff retained by the actual enrollment originals.
+// INTAKE_TRACE_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+mod intake_trace;
+// INTAKE_TRACE_END
 // PEER_PROOF_TEST_BEGIN
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(crate) mod peer_proof_probe;
@@ -468,6 +472,9 @@ impl OriginalEnrollmentSharingChoice {
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn completion_aggregates_for_test(&self) -> (bool, Option<usize>, usize, usize) {
+        // INTAKE_TRACE_BEGIN
+        intake_trace::emit(self);
+        // INTAKE_TRACE_END
         let progress = self.progress.lock().expect("sharing choice");
         let children = self.children.lock().expect("sibling children");
         (
@@ -636,6 +643,10 @@ impl OriginalEnrollmentSharingChoice {
             return false;
         }
         pending.push(item);
+        // INTAKE_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        intake_trace::retained(self);
+        // INTAKE_TRACE_END
         #[cfg(all(test, feature = "test-policy-overrides"))]
         self.recipient_diagnostics[1].fetch_add(1, Ordering::AcqRel);
         true
@@ -1145,6 +1156,10 @@ impl AppClient {
         else {
             return;
         };
+        // INTAKE_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        intake_trace::record(&choice, intake_trace::Event::RetryEntry);
+        // INTAKE_TRACE_END
         let pending = std::mem::take(
             &mut *choice
                 .pending_controls
@@ -1155,6 +1170,10 @@ impl AppClient {
             if !choice.live() {
                 break;
             }
+            // INTAKE_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            intake_trace::record(&choice, intake_trace::Event::RetryAttempt);
+            // INTAKE_TRACE_END
             #[cfg(all(test, feature = "test-policy-overrides"))]
             choice.recipient_diagnostics[2].fetch_add(1, Ordering::AcqRel);
             let retained = match self.authenticate_sharing_control_intake(
@@ -1163,8 +1182,18 @@ impl AppClient {
                 &item.wire,
             ) {
                 Ok(received) => {
+                    // INTAKE_TRACE_BEGIN
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    intake_trace::record(&choice, intake_trace::Event::RetryAuthenticated);
+                    // INTAKE_TRACE_END
                     let result =
                         self.dispatch_authenticated_account_sharing_control(&received, &item.wire);
+                    // INTAKE_TRACE_BEGIN
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    intake_trace::record(&choice, if result.is_ok() {
+                        intake_trace::Event::RetryDispatched
+                    } else { intake_trace::Event::RetryDispatchFailed });
+                    // INTAKE_TRACE_END
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     if result.is_err() {
                         choice.recipient_diagnostics[5].fetch_add(1, Ordering::AcqRel);
@@ -1172,6 +1201,10 @@ impl AppClient {
                     result.is_err()
                 }
                 Err(_) => {
+                    // INTAKE_TRACE_BEGIN
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    intake_trace::record(&choice, intake_trace::Event::RetryAuthenticationFailed);
+                    // INTAKE_TRACE_END
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     choice.recipient_diagnostics[3].fetch_add(1, Ordering::AcqRel);
                     true
@@ -1238,6 +1271,10 @@ impl AppClient {
             })
             .map_err(|error| ClientLinkingError::Engine(error.into()))?;
         *original.legacy_capture.lock().expect("legacy capture") = Some(capture);
+        // INTAKE_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        intake_trace::register(&original);
+        // INTAKE_TRACE_END
         self.linking_owner.sharing_approval = Some(original.clone());
         Ok(original)
     }
@@ -1248,6 +1285,10 @@ impl AppClient {
                 .lock()
                 .expect("sharing choice")
                 .primary_committed = true;
+            // INTAKE_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            intake_trace::record(choice, intake_trace::Event::PrimaryCommitted);
+            // INTAKE_TRACE_END
         }
     }
     pub(super) fn capture_recipient_sharing_devices(
@@ -1289,6 +1330,10 @@ impl AppClient {
             return Err(denied());
         }
         progress.expected = Some(expected);
+        // INTAKE_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        intake_trace::record(choice, intake_trace::Event::ExpectedCaptured);
+        // INTAKE_TRACE_END
         Ok(())
     }
 }
@@ -1443,6 +1488,12 @@ impl AppClient {
     pub(crate) async fn service_sibling_publication_completions(
         &mut self,
     ) -> Result<(), ClientLinkingError> {
+        // INTAKE_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Some(choice) = &self.linking_owner.sharing_approval {
+            intake_trace::record(choice, intake_trace::Event::CompletionEntered);
+        }
+        // INTAKE_TRACE_END
         let mut channels = std::mem::take(&mut self.linking_owner.sibling_channels);
         let mut in_flight = channels
             .iter()
@@ -1520,6 +1571,10 @@ impl AppClient {
                 match self.start_sibling_publication(entry, None).await {
                     Ok(()) => in_flight += 1,
                     Err(error) => {
+                        // INTAKE_TRACE_BEGIN
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        intake_trace::deferred(&entry.original, &error);
+                        // INTAKE_TRACE_END
                         entry.deferred_initial_error = Some(error);
                     }
                 }
@@ -1556,6 +1611,12 @@ impl AppClient {
             }
         }
         self.linking_owner.sibling_channels = channels;
+        // INTAKE_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Some(choice) = &self.linking_owner.sharing_approval {
+            intake_trace::record(choice, intake_trace::Event::CompletionReturned);
+        }
+        // INTAKE_TRACE_END
         failure.map_or(Ok(()), Err)
     }
 
@@ -1841,11 +1902,19 @@ impl AppClient {
                     .expect("just admitted recipient channel"),
             );
             // RECIPIENT_ADMISSION_TEST_END
+            // INTAKE_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            intake_trace::record(&choice, intake_trace::Event::RequestAdmitted);
+            // INTAKE_TRACE_END
             // Core approved this exact owned channel. Wake its first Consent;
             // the completion service still freshly validates before publishing.
             self.linking_owner
                 .sibling_publication_completions
                 .send_replace(());
+            // INTAKE_TRACE_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            intake_trace::record(&choice, intake_trace::Event::WakeSent);
+            // INTAKE_TRACE_END
             return Ok(true);
         }
         let Some(index) = self
@@ -2351,6 +2420,12 @@ impl AppClient {
         entry: &mut SiblingChannel,
         body: Option<&[u8]>,
     ) -> Result<(), ClientLinkingError> {
+        // INTAKE_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if entry.recipient && body.is_none() {
+            intake_trace::original(&entry.original, intake_trace::Event::ConsentAttempted);
+        }
+        // INTAKE_TRACE_END
         use cgka_engine::account_chat_sharing::{AccountSharedBodyKind, AccountSharingControl};
         if !entry.original.live() || !entry.state.live() {
             return Err(denied());
@@ -2598,6 +2673,12 @@ impl AppClient {
             outcome: None,
             task,
         });
+        // INTAKE_TRACE_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if entry.recipient && !proof {
+            intake_trace::original(&entry.original, intake_trace::Event::ConsentStarted);
+        }
+        // INTAKE_TRACE_END
         Ok(())
     }
     fn validate_sibling_parent(
