@@ -11,7 +11,7 @@ import qualify_upstream_639_merge as previous
 import qualify_upstream_storage_boundary as storage
 from upstream_extraction_cohort import frozen_inputs, workflow_identity
 
-BASE = '87cca0da29d40b5ad699770c03a2184575738736'
+BASE = 'd8c280f08095cbe1c87978c59938c94d375b760e'
 UPSTREAM = 'f413e52c489d3500e18be60075524d3254c49b4a'
 SELF = 'scripts/qualify_upstream_f413_api.py'
 WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
@@ -21,6 +21,12 @@ BEGIN = '  # F413_API_JOBS_BEGIN\n'
 END = '  # F413_API_JOBS_END\n'
 OPTIONS = 'options: [f413-api-preflight, f413-api-controls, '
 BOUNDARY = sorted(storage.TESTS + [storage.ADDED_TEST])
+PAGING = ['app::account_projection::tests::' + name for name in [
+    'app_messages_page_covers_old_history_and_same_second_ties',
+    'app_messages_page_retains_raw_tombstones_and_filters_before_limit',
+    'app_messages_page_resumes_after_encrypted_reopen_and_terminal_close',
+    'app_messages_page_rejects_unbounded_and_invalid_inputs',
+]]
 PAIRED = ['app::timeline::tests::' + name for name in [
     'paired_ordinary_timeline_preserves_materialization_blocks_and_event_order',
     'paired_ordinary_timeline_hides_expired_payload_and_reply_before_sweep',
@@ -145,7 +151,7 @@ def runtime(cohort, report, frozen, save):
     report['runtime'] = phase
     binary = compile_storage(cohort, frozen, phase, save)
     sha = phase['compilation']['binary_sha256']
-    selected = BOUNDARY + (PAIRED if cohort == 'experimental' else [])
+    selected = BOUNDARY + PAGING + (PAIRED if cohort == 'experimental' else [])
     phase['expected_names'] = selected
     phase['paired_cases_cfg_disabled'] = PAIRED if cohort == 'default' else []
     for name in (PAIRED if cohort == 'default' else []):
