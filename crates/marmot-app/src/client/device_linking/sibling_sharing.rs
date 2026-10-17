@@ -1490,38 +1490,37 @@ impl AppClient {
             }
         }
         let mut starts_left = MAX_SIBLING_PUBLICATIONS;
-        if harvested_success {
-            // First shots retain the existing channel order and precede a
-            // successful peer's proof. The flag records attempts only; periodic
-            // retry selection and its deadlines do not consult it.
-            for entry in &mut channels {
-                if starts_left == 0 || in_flight >= MAX_SIBLING_PUBLICATIONS {
-                    break;
-                }
-                if entry.publication.is_none()
-                    && !entry.handshake_attempted
-                    && entry.deferred_initial_error.is_none()
-                    && entry.original.live()
-                    && entry.state.live()
-                {
-                    #[cfg(all(test, feature = "test-policy-overrides"))]
-                    match Self::sibling_publication_held_for_test(entry) {
-                        Ok(true) => continue,
-                        Ok(false) => {}
-                        Err(error) => {
-                            starts_left -= 1;
-                            entry.handshake_attempted = true;
-                            entry.deferred_initial_error = Some(error);
-                            continue;
-                        }
+        // An admitted recipient owns a fresh first Consent attempt. Source
+        // first shots still require a successful harvest. Attempts are consumed
+        // before awaiting; periodic retries keep their existing rules.
+        for entry in &mut channels {
+            if starts_left == 0 || in_flight >= MAX_SIBLING_PUBLICATIONS {
+                break;
+            }
+            if (harvested_success || entry.recipient)
+                && entry.publication.is_none()
+                && !entry.handshake_attempted
+                && entry.deferred_initial_error.is_none()
+                && entry.original.live()
+                && entry.state.live()
+            {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                match Self::sibling_publication_held_for_test(entry) {
+                    Ok(true) => continue,
+                    Ok(false) => {}
+                    Err(error) => {
+                        starts_left -= 1;
+                        entry.handshake_attempted = true;
+                        entry.deferred_initial_error = Some(error);
+                        continue;
                     }
-                    starts_left -= 1;
-                    entry.handshake_attempted = true;
-                    match self.start_sibling_publication(entry, None).await {
-                        Ok(()) => in_flight += 1,
-                        Err(error) => {
-                            entry.deferred_initial_error = Some(error);
-                        }
+                }
+                starts_left -= 1;
+                entry.handshake_attempted = true;
+                match self.start_sibling_publication(entry, None).await {
+                    Ok(()) => in_flight += 1,
+                    Err(error) => {
+                        entry.deferred_initial_error = Some(error);
                     }
                 }
             }
@@ -1842,6 +1841,11 @@ impl AppClient {
                     .expect("just admitted recipient channel"),
             );
             // RECIPIENT_ADMISSION_TEST_END
+            // Core approved this exact owned channel. Wake its first Consent;
+            // the completion service still freshly validates before publishing.
+            self.linking_owner
+                .sibling_publication_completions
+                .send_replace(());
             return Ok(true);
         }
         let Some(index) = self
