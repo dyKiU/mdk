@@ -2849,9 +2849,7 @@ impl AppClient {
                 transport_nostr::AccountDeliveryReceive::Delivery(delivery) => delivery,
                 transport_nostr::AccountDeliveryReceive::Overflow(overflow) => {
                     self.observe_delivery_overflow(overflow)?;
-                    return Ok(transport_nostr::AccountDeliveryReceive::Overflow(
-                        overflow,
-                    ));
+                    return Ok(transport_nostr::AccountDeliveryReceive::Overflow(overflow));
                 }
             };
             let event_id = hex::encode(delivery.message.id.as_slice());
@@ -2861,9 +2859,7 @@ impl AppClient {
                 self.settle_spilled_delivery();
                 continue;
             }
-            return Ok(transport_nostr::AccountDeliveryReceive::Delivery(
-                delivery,
-            ));
+            return Ok(transport_nostr::AccountDeliveryReceive::Delivery(delivery));
         }
     }
 
@@ -7148,8 +7144,7 @@ mod live_cursor_checkpoint_tests {
                 .await
                 .expect("a delivery is ready")
                 .unwrap();
-                let transport_nostr::AccountDeliveryReceive::Delivery(delivery) = received
-                else {
+                let transport_nostr::AccountDeliveryReceive::Delivery(delivery) = received else {
                     panic!("a live delivery must not produce a control record");
                 };
                 let result = fixture
@@ -9965,8 +9960,8 @@ mod retired_loss_observation_tests {
     use std::sync::Arc;
 
     use crate::client::history_notices::park_recovery_for_test;
-    use transport_nostr::AccountDeliveryOverflow;
     use crate::tests::{ScriptedPushRelayClient, client_on_app_relay_plane};
+    use transport_nostr::AccountDeliveryOverflow;
 
     /// A dismissal cannot release the plane while that generation still has
     /// work in flight, such as a queued control record. The later observation
