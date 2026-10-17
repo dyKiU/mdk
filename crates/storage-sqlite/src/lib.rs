@@ -31,6 +31,15 @@ mod device_linking;
 pub use device_linking::{DeviceLinkingBinding, DeviceLinkingError, DeviceLinkingOutcome};
 #[cfg(feature = "experimental-device-sync")]
 mod synchronized_history;
+pub use app::local_submissions::LocalSubmission;
+pub use app::media_catalog::{SlotPublication, SqliteMediaCatalog, media_storage_error};
+pub use app::transport::delivery_spill::{
+    DeliverySpillDisposition, DeliverySpillLimits, SpilledDelivery, SpilledDeliveryBatch,
+    SpilledDeliveryDeferral,
+};
+pub use app::transport::moderation_reports::{
+    ModerationReportOutboxEntry, ModerationReportOutboxOutcome,
+};
 #[cfg(feature = "experimental-device-sync")]
 pub use synchronized_history::{
     HistoryArchiveFragmentDisposition, HistoryArchiveFragmentReceipt,
@@ -41,15 +50,6 @@ pub use synchronized_history::{
     ProvenancedSynchronizedHistoryRecord, SynchronizedHistoryArchive, SynchronizedHistoryBinding,
     SynchronizedHistoryError, SynchronizedHistoryImportProgress, SynchronizedHistoryManifest,
     SynchronizedHistoryRecord, synchronized_history_chunk_digest,
-};
-pub use app::local_submissions::LocalSubmission;
-pub use app::media_catalog::{SlotPublication, SqliteMediaCatalog, media_storage_error};
-pub use app::transport::delivery_spill::{
-    DeliverySpillDisposition, DeliverySpillLimits, SpilledDelivery, SpilledDeliveryBatch,
-    SpilledDeliveryDeferral,
-};
-pub use app::transport::moderation_reports::{
-    ModerationReportOutboxEntry, ModerationReportOutboxOutcome,
 };
 mod shared;
 pub use app::transport::user_blocks::{

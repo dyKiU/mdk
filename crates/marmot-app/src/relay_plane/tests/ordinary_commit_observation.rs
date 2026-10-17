@@ -1,11 +1,11 @@
 //! Read-only, one-publication fixture observation before actual relay delivery.
 use super::*;
-use cgka_traits::{MemberId, MessageId, TransportPublishRequest};
-use std::sync::Arc;
 use cgka_traits::storage::{MessageStorage, OutboundFanoutStorage};
 use cgka_traits::{FanoutPendingKind, GroupId, message::StoredMessagePayload};
+use cgka_traits::{MemberId, MessageId, TransportPublishRequest};
 use openmls::prelude::{ContentType, MlsMessageBodyIn, MlsMessageIn, ProtocolMessage};
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 use tls_codec::Deserialize;
 
 pub(crate) type Snapshot = (
@@ -44,30 +44,29 @@ impl Observation {
     }
 }
 pub(crate) fn observe_next_ordinary_commit(
-        plane: &MarmotRelayPlane,
-        account: MemberId,
-        group: GroupId,
-        source_epoch: u64,
-        recipient_leaf: u32,
-        storage: storage_sqlite::SqliteAccountStorage,
-    ) -> Observation {
-        let watch = Arc::new(Watch {
-            account,
-            group,
-            source_epoch,
-            recipient_leaf,
-            storage,
-            result: std::sync::Mutex::new(Ok(None)),
-            stages: std::sync::Mutex::new([0; 8]),
-        });
-        let callback_watch = watch.clone();
-        let registration = plane.observe_publications_for_test(Arc::new(move |request| {
-            observe(&callback_watch, request)
-        }));
-        Observation {
-            _registration: registration,
-            watch,
-        }
+    plane: &MarmotRelayPlane,
+    account: MemberId,
+    group: GroupId,
+    source_epoch: u64,
+    recipient_leaf: u32,
+    storage: storage_sqlite::SqliteAccountStorage,
+) -> Observation {
+    let watch = Arc::new(Watch {
+        account,
+        group,
+        source_epoch,
+        recipient_leaf,
+        storage,
+        result: std::sync::Mutex::new(Ok(None)),
+        stages: std::sync::Mutex::new([0; 8]),
+    });
+    let callback_watch = watch.clone();
+    let registration = plane
+        .observe_publications_for_test(Arc::new(move |request| observe(&callback_watch, request)));
+    Observation {
+        _registration: registration,
+        watch,
+    }
 }
 
 fn observe(watch: &Arc<Watch>, request: &TransportPublishRequest) -> bool {

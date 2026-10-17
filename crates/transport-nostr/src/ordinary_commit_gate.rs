@@ -3,7 +3,8 @@ use super::*;
 use cgka_traits::storage::OutboundFanoutStorage;
 use cgka_traits::{FanoutPendingKind, GroupId};
 
-type FanoutPredicate = dyn Fn(&TransportPublishRequest) -> Result<bool, TransportAdapterError> + Send + Sync;
+type FanoutPredicate =
+    dyn Fn(&TransportPublishRequest) -> Result<bool, TransportAdapterError> + Send + Sync;
 
 pub(super) struct Gate {
     account: MemberId,

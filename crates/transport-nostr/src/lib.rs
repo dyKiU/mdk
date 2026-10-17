@@ -52,7 +52,11 @@ mod ordinary_commit_gate;
 ))]
 #[path = "ordinary_commit_observation.rs"]
 mod ordinary_commit_observation;
-#[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 #[doc(hidden)]
 pub use ordinary_commit_observation::PublicationObservationGuard;
 #[cfg(feature = "experimental-device-sync")]

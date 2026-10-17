@@ -17,8 +17,14 @@ pub struct PublicationObservationGuard {
 impl Drop for PublicationObservationGuard {
     fn drop(&mut self) {
         if let Some(plane) = self.plane.upgrade() {
-            let mut slot = plane.ordinary_commit_observation.lock().unwrap_or_else(|e| e.into_inner());
-            if slot.as_ref().is_some_and(|current| Arc::ptr_eq(current, &self.watch)) {
+            let mut slot = plane
+                .ordinary_commit_observation
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if slot
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, &self.watch))
+            {
                 slot.take();
             }
         }
@@ -34,21 +40,46 @@ impl MarmotRelayPlane {
         callback: Arc<PublicationObserver>,
     ) -> PublicationObservationGuard {
         let watch = Arc::new(Watch { callback });
-        let mut slot = self.inner.ordinary_commit_observation.lock().unwrap_or_else(|e| e.into_inner());
-        assert!(slot.is_none(), "only one publication observation may be armed");
+        let mut slot = self
+            .inner
+            .ordinary_commit_observation
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        assert!(
+            slot.is_none(),
+            "only one publication observation may be armed"
+        );
         *slot = Some(watch.clone());
-        PublicationObservationGuard { plane: Arc::downgrade(&self.inner), watch }
+        PublicationObservationGuard {
+            plane: Arc::downgrade(&self.inner),
+            watch,
+        }
     }
 }
 
 pub(super) fn observe(adapter: &MarmotRelayPlaneAccountAdapter, request: &TransportPublishRequest) {
-    let watch = adapter.relay_plane.inner.ordinary_commit_observation.lock()
-        .unwrap_or_else(|e| e.into_inner()).as_ref().cloned();
+    let watch = adapter
+        .relay_plane
+        .inner
+        .ordinary_commit_observation
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .cloned();
     let Some(watch) = watch else { return };
-    if !(watch.callback)(request) { return; }
-    let mut slot = adapter.relay_plane.inner.ordinary_commit_observation.lock()
+    if !(watch.callback)(request) {
+        return;
+    }
+    let mut slot = adapter
+        .relay_plane
+        .inner
+        .ordinary_commit_observation
+        .lock()
         .unwrap_or_else(|e| e.into_inner());
-    if slot.as_ref().is_some_and(|current| Arc::ptr_eq(current, &watch)) {
+    if slot
+        .as_ref()
+        .is_some_and(|current| Arc::ptr_eq(current, &watch))
+    {
         slot.take();
     }
 }

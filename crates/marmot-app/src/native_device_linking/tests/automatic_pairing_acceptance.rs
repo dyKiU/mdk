@@ -189,7 +189,6 @@ async fn automatic_enrollment_reaches_a_separate_account_inbox_relay() {
     }
 }
 
-
 // AUTOMATIC_BODY_TEST_BEGIN
 #[cfg(feature = "test-policy-overrides")]
 #[tokio::test]

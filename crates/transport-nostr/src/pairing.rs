@@ -262,16 +262,31 @@ mod tests {
         let plane = MarmotRelayPlane::full_history_with_loopback(true);
         let keys = Keys::generate();
         let kind = Kind::Custom(20000);
-        let mut mailbox = plane.pairing_mailbox(
-            kind, vec![endpoint.clone()], keys.public_key(), Instant::now() + Duration::from_secs(15),
-        ).await.unwrap();
+        let mut mailbox = plane
+            .pairing_mailbox(
+                kind,
+                vec![endpoint.clone()],
+                keys.public_key(),
+                Instant::now() + Duration::from_secs(15),
+            )
+            .await
+            .unwrap();
         let other_kind = EventBuilder::new(Kind::Custom(20001), "fixed fixture")
-            .finalize(&keys).unwrap();
-        assert_eq!(mailbox.publish(&other_kind).await, Err(PairingRelayError::Invalid));
+            .finalize(&keys)
+            .unwrap();
+        assert_eq!(
+            mailbox.publish(&other_kind).await,
+            Err(PairingRelayError::Invalid)
+        );
         drop(mailbox);
-        let expired = plane.pairing_mailbox(
-            kind, vec![endpoint], keys.public_key(), Instant::now() - Duration::from_millis(1),
-        ).await;
+        let expired = plane
+            .pairing_mailbox(
+                kind,
+                vec![endpoint],
+                keys.public_key(),
+                Instant::now() - Duration::from_millis(1),
+            )
+            .await;
         assert!(matches!(expired, Err(PairingRelayError::Expired)));
         plane.shutdown().await;
     }

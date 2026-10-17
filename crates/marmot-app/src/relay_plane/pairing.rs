@@ -1,19 +1,19 @@
 //! App-owned encrypted pairing protocol fixtures over the generic relay mailbox.
-pub(crate) use transport_nostr::pairing::{PairingMailbox, PairingRelayError};
 #[cfg(test)]
 use super::*;
 #[cfg(test)]
 use crate::device_linking::network::EVENT_KIND;
 #[cfg(test)]
-use nostr_sdk::prelude::Timestamp as NostrTimestamp;
-#[cfg(test)]
-use nostr::prelude::Event;
-#[cfg(test)]
-use std::time::{Duration, Instant};
-#[cfg(test)]
 use cgka_traits::TransportEndpoint;
 #[cfg(test)]
 use futures::StreamExt;
+#[cfg(test)]
+use nostr::prelude::Event;
+#[cfg(test)]
+use nostr_sdk::prelude::Timestamp as NostrTimestamp;
+#[cfg(test)]
+use std::time::{Duration, Instant};
+pub(crate) use transport_nostr::pairing::{PairingMailbox, PairingRelayError};
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,7 +121,7 @@ mod tests {
         let result = tokio::time::timeout(Duration::from_secs(3), async {
             let mut mailbox = plane
                 .pairing_mailbox(
-                EVENT_KIND,
+                    EVENT_KIND,
                     vec![endpoint],
                     Keys::generate().public_key(),
                     Instant::now() + Duration::from_secs(30),
