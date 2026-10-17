@@ -174,6 +174,20 @@ def composed_controller_identity():
     return digest(original)
 
 
+def manifest_domains_match(domains, layout_manifest, content_manifest):
+    return (isinstance(layout_manifest, str) and isinstance(content_manifest, str)
+            and re.fullmatch('[0-9a-f]{64}', layout_manifest) is not None
+            and re.fullmatch('[0-9a-f]{64}', content_manifest) is not None
+            and domains == {'directed_and_static_content_and_layout_sha256': layout_manifest,
+                            'automatic_body_content_only_sha256': content_manifest})
+
+
+def manifest_domains():
+    from upstream_completion_ci import freeze as content_freeze
+    return {'directed_and_static_content_and_layout_sha256': identity(freeze()),
+            'automatic_body_content_only_sha256': identity(content_freeze())}
+
+
 def source_guard(cohort_baseline=None):
     if not cohort_baseline:
         return historical_source_guard()
@@ -210,7 +224,8 @@ def source_guard(cohort_baseline=None):
             'original_complete_controller_sha256': composed_controller_identity(),
             'historical_identity_reused': False, 'historical_runtime_evidence_reused': False,
             'historical_stripped_source_comparison_reused': False,
-            'five_control_receipt_parser': five_control_parser_preflight(), 'qualification_passed': False}
+            'five_control_receipt_parser': five_control_parser_preflight(),
+            'manifest_domains': manifest_domains(), 'qualification_passed': False}
 
 
 def five_controls_pass(report, source, manifest, current, directed_features):
@@ -301,16 +316,17 @@ def five_control_parser_preflight():
         rows.append(row)
     good = {'mode': 'controls', 'all_five_controls_passed': True, 'body_control_passed': True,
             'inputs_pristine': True, 'actual_counts_complete': True, 'actual_executed_nonignored': 5,
-            'source': 'fixture', 'source_before_sha256': 'manifest', 'source_after_sha256': 'manifest',
+            'source': 'fixture', 'source_before_sha256': 'content-manifest', 'source_after_sha256': 'content-manifest',
             'toolchain': current['toolchain'], 'environment': current['environment'], 'cohort_baseline': '1' * 40,
             'source_preflight': {'reviewed_extraction_cohort': cohort}, 'compilation': compilation, 'bodies': rows}
-    ensure(five_controls_pass(good, 'fixture', 'manifest', current, directed), 'positive-five-named-control-receipt-parser')
+    ensure(five_controls_pass(good, 'fixture', 'content-manifest', current, directed), 'positive-five-named-control-receipt-parser')
     variants = [dict(good, bodies=[]), dict(good, bodies=rows[:4]), dict(good, bodies=list(reversed(rows))),
                 dict(good, actual_executed_nonignored=0), dict(good, actual_executed_nonignored=True),
                 dict(good, inputs_pristine=False), dict(good, source_after_sha256='changed'),
                 dict(good, all_five_controls_passed=False), dict(good, toolchain='other'),
                 dict(good, source='other'), dict(good, cohort_baseline='2' * 40),
-                dict(good, source_preflight={}), dict(good, environment={})]
+                dict(good, source_preflight={}), dict(good, environment={}),
+                dict(good, source_before_sha256='layout-manifest', source_after_sha256='layout-manifest')]
     for index in range(5):
         for change in [{'executed_nonignored': 0}, {'passed': 0}, {'passed': True}, {'failed': 1}, {'ignored': 1},
                        {'control_passed': False}, {'named_cases': []}, {'suffix': 'foreign'},
@@ -322,8 +338,18 @@ def five_control_parser_preflight():
     changed['compilation']['compiled_fingerprints']['nodes']['marmot_app']['profile'] = 'other-profile'
     variants.append(changed)
     for report in variants:
-        ensure(not five_controls_pass(report, 'fixture', 'manifest', current, directed), 'partial-vacuous-or-drifted-five-control-receipt-rejected')
-    return {'positive_receipt_fixture': 1, 'rejected_receipt_fixtures': len(variants), 'actual_runtime_bodies': 0}
+        ensure(not five_controls_pass(report, 'fixture', 'content-manifest', current, directed), 'partial-vacuous-or-drifted-five-control-receipt-rejected')
+    domains = {'directed_and_static_content_and_layout_sha256': '1' * 64,
+               'automatic_body_content_only_sha256': '2' * 64}
+    ensure(manifest_domains_match(domains, '1' * 64, '2' * 64), 'positive-distinct-manifest-domains')
+    domain_variants = [{}, dict(domains, automatic_body_content_only_sha256='3' * 64),
+                       dict(domains, directed_and_static_content_and_layout_sha256='3' * 64),
+                       {'directed_and_static_content_and_layout_sha256': '2' * 64,
+                        'automatic_body_content_only_sha256': '1' * 64}]
+    for changed in domain_variants:
+        ensure(not manifest_domains_match(changed, '1' * 64, '2' * 64), 'cross-domain-or-changed-manifest-rejected')
+    return {'positive_receipt_fixture': 1, 'rejected_receipt_fixtures': len(variants),
+            'positive_manifest_domain_fixture': 1, 'rejected_manifest_domain_fixtures': len(domain_variants), 'actual_runtime_bodies': 0}
 
 
 def previous_green(run_id, source, manifest, current):
@@ -331,6 +357,11 @@ def previous_green(run_id, source, manifest, current):
     proof = historical_previous_green(run_id, source, manifest, current)
     if not current.get('source_preflight', {}).get('reviewed_extraction_cohort'):
         return proof
+    domains = manifest_domains()
+    content_manifest = domains['automatic_body_content_only_sha256']
+    ensure(manifest_domains_match(current.get('source_preflight', {}).get('manifest_domains'), manifest, content_manifest)
+           and manifest_domains_match(domains, manifest, content_manifest), 'exact-independent-layout-and-content-manifest-domains')
+    proof['manifest_domains'] = domains
     repo = os.environ['GITHUB_REPOSITORY']
     def api(path): return subprocess.check_output(['gh', 'api', 'repos/' + repo + '/' + path], timeout=60)
     artifacts = json.loads(api('actions/runs/' + run_id + '/artifacts?per_page=100'))['artifacts']
@@ -350,7 +381,7 @@ def previous_green(run_id, source, manifest, current):
         files = [entry for entry in entries if Path(entry.filename).name == 'result.json']
         ensure(len(files) == 1 and 0 < files[0].file_size < 1000000, 'one-nonempty-five-control-result')
         report = json.loads(archive.read(files[0]))
-    ensure(five_controls_pass(report, source, manifest, current, proof['compiled_feature_identity']),
+    ensure(five_controls_pass(report, source, content_manifest, current, proof['compiled_feature_identity']),
            'actual-five-unchanged-controls-names-counts-profile-and-frozen-cohort-required')
     proof['five_controls'] = {'artifact_id': artifact['id'], 'digest': artifact['digest'],
                               'actual_executed_nonignored': 5, 'download_digest_verified': True}
