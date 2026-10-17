@@ -13,7 +13,7 @@ use nostr_sdk::prelude::Timestamp as NostrTimestamp;
 use std::time::{Duration, Instant};
 #[cfg(test)]
 use transport_nostr::MarmotRelayPlane;
-use transport_nostr::pairing::PairingRelayError;
+use transport_nostr::pairing::{PairingMailbox, PairingRelayError};
 #[cfg(test)]
 mod tests {
     use super::*;
