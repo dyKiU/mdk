@@ -93,3 +93,5 @@ sql private_roster_settlement.rs account_state
 sql selected_chat_key_package.rs account_state
 sql approved_account_sharing_policy.rs cgka_account_device_signers
 sql mirrored_chat_presentation.rs cgka_groups
+method account_chat_legacy_acceptance.rs approved_account_sharing_policy_storage
+sql synchronized_history/request_observation.rs cgka_account_device_signers

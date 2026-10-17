@@ -77,6 +77,17 @@ The new allow-list lines record existing checks rather than remove them:
   alone for that signer check.
 - `mirrored_chat_presentation` reads `cgka_groups` to exclude mirrors of groups
   already present as local MLS groups.
+- `account_chat_legacy_acceptance` calls the policy capability implemented by
+  the Protocol aggregate provider to read App-owned approval metadata. The
+  checkpoint remains App-owned: it rejects revoked or mismatched approvals,
+  requires explicitly accepted source changes and retains the original-owner
+  callbacks before and after its transaction. The allowance records the
+  existing provider seam, not a grant of consent or a second implementation.
+- `synchronized_history/request_observation` reads the Protocol signer binding
+  inside the observation transaction. It requires the configured App account
+  and the actual signer account/device to match before recording an immutable,
+  bounded request identity. This is a negative replay fence; the observation
+  never restores an owner, keys, consent or a deadline.
 
 The ten private `with_transaction` call sites and the four private group-delete
 triggers are Protocol-to-Protocol after semantic classification; listing them
