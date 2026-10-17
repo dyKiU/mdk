@@ -7,5 +7,8 @@ pub use transport_nostr::*;
 ))]
 #[path = "tests/ordinary_commit_observation.rs"]
 pub(crate) mod ordinary_commit_observation;
-#[cfg(feature = "experimental-device-sync")]
-pub(crate) mod pairing;
+// The live mailbox comes from transport-nostr; encrypted protocol fixtures
+// belong to App and must not shadow that transport module.
+#[cfg(all(test, feature = "experimental-device-sync"))]
+#[path = "pairing.rs"]
+mod pairing_protocol_tests;

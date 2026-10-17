@@ -635,9 +635,8 @@ mod yield_handoff_tests {
     use std::task::Poll;
     use std::time::Duration;
 
-    use crate::relay_plane::{
-        ACCOUNT_DELIVERY_SPILL_LIMITS, AccountDeliveryReceive, MarmotRelayPlane,
-    };
+    use super::ACCOUNT_DELIVERY_SPILL_LIMITS;
+    use crate::relay_plane::{AccountDeliveryReceive, MarmotRelayPlane};
     use crate::tests::{
         ScriptedPushRelayClient, every_subscription, remember_test_member_inbox, scripted_eose_pump,
     };
