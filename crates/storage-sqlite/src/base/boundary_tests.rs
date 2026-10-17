@@ -105,6 +105,29 @@ fn side_of(rel: &str) -> Option<Side> {
 /// Retained root paths have explicit owners, just like the upstream folders.
 /// New production roots must be reviewed rather than silently escaping the scan.
 fn classified_side(rel: &str) -> Result<Option<Side>, &'static str> {
+    // #[path] children keep lexical `base/../` components in walk_file. Resolve
+    // only those components, without following symlinks or changing source files.
+    let mut components = Vec::new();
+    for component in rel.split('/') {
+        match component {
+            "" => return Err("unclassified production storage file"),
+            "." => {}
+            ".." => {
+                if components.pop().is_none() {
+                    return Err("unclassified production storage file");
+                }
+            }
+            value if value.contains(':') || value.contains('\\') => {
+                return Err("unclassified production storage file");
+            }
+            value => components.push(value),
+        }
+    }
+    let normalized = components.join("/");
+    if normalized.is_empty() {
+        return Err("unclassified production storage file");
+    }
+    let rel = normalized.as_str();
     if rel.starts_with("base/migrations/") || rel.starts_with("private_migrations/") {
         // Both frozen migration lineages are schema history. The fresh database
         // and immutable private-ledger tests cover their resulting schema.
@@ -717,10 +740,40 @@ fn cfg_predicates_skip_only_test_builds() {
 
 #[test]
 fn unknown_production_roots_cannot_escape_boundary_scan() {
+    let files = production_files();
+    let histories: Vec<_> = files
+        .iter()
+        .filter(|file| file.rel.starts_with("base/../private_migrations/"))
+        .collect();
+    assert_eq!(
+        histories.len(),
+        19,
+        "exercise every declared private history alias"
+    );
+    assert!(
+        histories.iter().all(|file| file.side.is_none()),
+        "declared migration aliases are schema history, never Base-owned SQL"
+    );
+    let ledgers: Vec<_> = files
+        .iter()
+        .filter(|file| file.rel == "base/../private_migration_ledger.rs")
+        .collect();
+    assert_eq!(ledgers.len(), 1, "exercise the actual private ledger alias");
+    assert_eq!(ledgers[0].side, Some(Side::Base));
     for unregistered in [
         "future_account_storage.rs",
         "future_extension/new_store.rs",
         "private_unregistered_owner.rs",
+        "base/../private_unregistered_owner.rs",
+        "private_migrations/../private_unregistered_owner.rs",
+        "../app/account_projection.rs",
+        "base/../../app/account_projection.rs",
+        "/app/account_projection.rs",
+        "C:/app/account_projection.rs",
+        "base\\..\\private_migrations\\0009_private_group_chat_exclusion.rs",
+        "base/..",
+        ".",
+        "",
     ] {
         assert_eq!(
             classified_side(unregistered),
