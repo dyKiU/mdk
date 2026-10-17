@@ -228,7 +228,7 @@ pub(super) async fn verify(
                     Ok(group.own_leaf_index().u32())
                 }).unwrap();
                 let source_account = cgka_traits::MemberId::new(hex::decode(reopened_app.account_home().account("test").unwrap().account_id_hex).unwrap());
-                administrator_publication_observation = Some(crate::relay_plane::ordinary_commit_observation::observe_next_ordinary_commit(&reopened.relay_plane_for_test(),
+                administrator_publication_observation = Some(crate::relay_plane::ordinary_commit_observation::observe_next_ordinary_commit(reopened.relay_plane_for_test(),
                     source_account, peer.group.clone(), epoch_before.0, own_leaf,
                     reopened_app.account_storage("test").unwrap(),
                 ));
