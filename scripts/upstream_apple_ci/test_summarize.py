@@ -23,6 +23,24 @@ class InventoryTests(unittest.TestCase):
         row = test_inventory(self.tree({'nodeType': 'Test Case', 'testIdentifier': 'Module/Suite/testOne()', 'status': 'Passed'}), self.counts())
         self.assertEqual(row['status'], 'complete')
 
+    def test_source_parameter_labels_without_runtime_values(self):
+        for identifier in ['Suite/generatedAccountReadinessWithAndWithoutAttention(useAttention:)',
+                           'Module/Suite/testBoth(first:second:)', 'Suite/testUnderscore(_:other_label:)']:
+            row = test_inventory(self.tree(self.case(identifier=identifier)), self.counts())
+            self.assertEqual(row['status'], 'complete')
+        for identifier in ['Suite/test(value: true)', 'Suite/test(true)', 'Suite/test(42)',
+                           'Suite/test("secret")', 'Suite/test(label:42)', 'Suite/test(label: value:)']:
+            row = test_inventory(self.tree(self.case(identifier=identifier)), self.counts())
+            self.assertEqual(row['status'], 'schema_unknown')
+            self.assertIsNone(row['enumerated_counts'])
+
+    def test_summary_total_must_match_typed_component_counts(self):
+        counts = self.counts(); counts['totalTestCount'] = 2
+        self.assertIsNone(summary_counts(counts))
+        row = test_inventory(self.tree(self.case()), counts)
+        self.assertEqual(row['status'], 'schema_unknown')
+        self.assertIsNone(row['summary_counts'])
+
     def test_failures_remain_failures(self):
         row = test_inventory(self.tree(self.case(status='Failed')), self.counts(passed=0, failed=1))
         self.assertEqual(row['enumerated_counts']['failedTests'], 1)
