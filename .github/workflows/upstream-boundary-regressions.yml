@@ -103,14 +103,21 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
+      - name: Exercise adversarial qualification identity cases
+        run: python3 scripts/test_upstream_extraction_cohort.py
+      - name: Record exact reviewed source cohort before formatting
+        run: |
+          mkdir -p formatting
+          python3 scripts/upstream_extraction_cohort.py > formatting/source-cohort.json
       - name: Generate patch with the exact repository formatter, without compiling
         run: |
           set -euo pipefail
           toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
           rustup toolchain install "$toolchain" --profile minimal --component rustfmt
           rustup default "$toolchain"
-          mkdir formatting
+          mkdir -p formatting
           git rev-parse HEAD > formatting/source-sha.txt
           git rev-parse HEAD^{tree} > formatting/source-tree.txt
           cargo fmt --all
