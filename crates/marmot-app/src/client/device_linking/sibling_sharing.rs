@@ -2539,6 +2539,12 @@ impl AppClient {
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     if proof { peer_proof_probe::hold(&original, peer_proof_nonce).await; }
 // PEER_PROOF_TEST_END
+// RECIPIENT_ADMISSION_TEST_BEGIN
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    if kind == AccountSharingControl::Request {
+                        peer_proof_probe::recipient_admission::hold_request(&original, peer_proof_nonce, &request).await;
+                    }
+// RECIPIENT_ADMISSION_TEST_END
                     if consent { adapter.publish_sibling_consent(request).await }
                     else { adapter.publish_selected_chat(request).await }
                 } => report.map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?,

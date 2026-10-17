@@ -101,16 +101,9 @@ async fn admitted_recipient_starts_first_consent_without_periodic_tick() {
                 self.0.notify_one();
             }
         }
-        // This transport hold is not a receipt. Its identity must later match
-        // the actual Request retained on B's original Core channel, or this
-        // fixture is unqualified (automatic Group traffic can also use this gate).
-        let (request_observed, request_release) =
-            apps[1]
-                .relay_plane
-                .hold_next_selected_commit(cgka_traits::MemberId::new(
-                    keys.public_key().to_bytes().to_vec(),
-                ));
-        let request_release = PublicationRelease(request_release);
+        // Hold only the exact actual sibling Request inside its existing
+        // cancellation/deadline select. Automatic Group traffic cannot consume it.
+        let request_release = proof_gate.hold_recipient_request_for_test();
         let approval = tokio::time::timeout(Duration::from_secs(20), async {
             loop {
                 if let Some(approval) = managers[1]
@@ -132,32 +125,11 @@ async fn admitted_recipient_starts_first_consent_without_periodic_tick() {
         let original = approval
             .sharing_original_for_test()
             .expect("actual B sharing original");
-        let owner = Arc::downgrade(&original);
-        let held_request = tokio::time::timeout(Duration::from_secs(15), request_observed)
+        let request = tokio::time::timeout(Duration::from_secs(15), request_release.observed())
             .await
-            .expect("actual B Group publication held after endorsement")
-            .expect("actual held Group publication");
-        request_held = held_request.id.as_slice().len() == 32 && !held_request.payload.is_empty();
-        let request = tokio::time::timeout(Duration::from_secs(15), async {
-            loop {
-                if let Some(row) = managers[1]
-                    .peer_proof_snapshot_for_test("test", owner.clone())
-                    .await
-                    .unwrap()
-                    && row.request_message_id.as_ref() == Some(&held_request.id)
-                    && row.flags[0]
-                    && row.flags[1]
-                    && row.flags[5]
-                    && row.consent_ordering == [false, false]
-                {
-                    break row;
-                }
-                tokio::time::sleep(Duration::from_millis(25)).await;
-            }
-        })
-        .await
-        .expect("held Group publication is the exact original sibling Request");
-        exact_request_identity = true;
+            .expect("actual B sibling Request held before relay publication");
+        request_held = request.message_id.as_slice().len() == 32 && request.payload_nonempty;
+        exact_request_identity = request.owner.upgrade().is_some_and(|held| Arc::ptr_eq(&held, &original));
         // Endorsement is now genuine and the exact Request has not reached C.
         // Primary commitment depends on B endorsement, so establish it here.
         tokio::time::timeout(Duration::from_secs(15), async {

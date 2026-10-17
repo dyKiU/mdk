@@ -17,7 +17,6 @@ FILE = 'crates/marmot-app/src/native_device_linking/tests/recipient_sibling_admi
 PROBE = 'crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe.rs'
 REGISTER = 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
 PRODUCT = 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs'
-CORE = 'crates/cgka-engine/src/account_chat_sharing/transport.rs'
 CASE = 'admitted_recipient_starts_first_consent_without_periodic_tick'
 TEST = 'native_device_linking::automatic_pairing_acceptance::recipient_sibling_admission_acceptance::' + CASE
 MESSAGE = 'admitted_recipient_must_start_first_consent_without_periodic_tick'
@@ -121,10 +120,10 @@ def source_guard():
         ensure(row['git_mode'] == expected and (row['symlink'] or row['actual_executable'] == (expected == '100755'))
                and row['symlink'] == (expected == '120000'), 'whole-tracked-layout-preserved')
     changed = set(subprocess.check_output(['git', 'diff', '--name-only', '--no-renames', BASE, 'HEAD'], text=True).splitlines())
-    ensure(changed == {SELF, WORKFLOW, FILE, PROBE, REGISTER, PRODUCT, CORE},
+    ensure(changed == {SELF, WORKFLOW, FILE, PROBE, REGISTER, PRODUCT},
            'only-exact-reviewed-recipient-test-and-metadata')
     pattern = rb'(?m)^[ \t]*// RECIPIENT_ADMISSION_TEST_BEGIN\n.*?^[ \t]*// RECIPIENT_ADMISSION_TEST_END\n'
-    for name, count in [(PROBE, 3), (REGISTER, 1), (PRODUCT, 1), (CORE, 1)]:
+    for name, count in [(PROBE, 1), (REGISTER, 1), (PRODUCT, 2)]:
         data = Path(name).read_bytes()
         ensure(data.count(b'RECIPIENT_ADMISSION_TEST_BEGIN') == data.count(b'RECIPIENT_ADMISSION_TEST_END') == count,
                'one-passive-test-block-per-path')
