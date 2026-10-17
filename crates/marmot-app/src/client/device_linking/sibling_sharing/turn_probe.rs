@@ -30,7 +30,12 @@ pub(crate) type Snapshot = (
     bool,
     u64,
 );
-pub(crate) type TimerSnapshot = ([u64; 3], [Option<u64>; 3], Option<(bool, u64)>, Option<bool>);
+pub(crate) type TimerSnapshot = (
+    [u64; 3],
+    [Option<u64>; 3],
+    Option<(bool, u64)>,
+    Option<bool>,
+);
 #[derive(Default)]
 struct TimerProgress {
     counts: [u64; 3],
@@ -246,16 +251,21 @@ impl ObservedInterval {
                 && trace.matches()
             {
                 let elapsed = Probe::milliseconds(trace.probe.origin.elapsed());
-                let mut row = trace.probe.timer.lock().expect("ordinary sibling timer trace");
+                let mut row = trace
+                    .probe
+                    .timer
+                    .lock()
+                    .expect("ordinary sibling timer trace");
                 row.counts[0] = row.counts[0].saturating_add(1).min(LIMIT);
                 row.times[0] = Some(elapsed);
                 let slot = if let std::task::Poll::Ready(scheduled) = &result {
                     let now = tokio::time::Instant::now();
-                    let (late, difference) = if let Some(lag) = now.checked_duration_since(*scheduled) {
-                        (true, lag)
-                    } else {
-                        (false, scheduled.duration_since(now))
-                    };
+                    let (late, difference) =
+                        if let Some(lag) = now.checked_duration_since(*scheduled) {
+                            (true, lag)
+                        } else {
+                            (false, scheduled.duration_since(now))
+                        };
                     row.scheduled_vs_observed = Some((late, Probe::milliseconds(difference)));
                     2
                 } else {

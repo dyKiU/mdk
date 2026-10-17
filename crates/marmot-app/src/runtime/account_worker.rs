@@ -1884,7 +1884,9 @@ async fn run_app_runtime_account_worker(
         feature = "test-policy-overrides"
     ))]
     let mut sibling_tick =
-        crate::client::device_linking::sibling_sharing::turn_probe::ObservedInterval::new(sibling_tick);
+        crate::client::device_linking::sibling_sharing::turn_probe::ObservedInterval::new(
+            sibling_tick,
+        );
     // ORDINARY_TURN_TEST_END
     let mut legacy_message_promotion = LegacyMessagePromotionSchedule::new();
     let mut presentation_maintenance = super::presentation::PresentationMaintenance::default();
