@@ -6,10 +6,11 @@ use futures::{SinkExt, StreamExt};
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use tokio::task::{JoinHandle, JoinSet};
-use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
+use tokio_tungstenite::{WebSocketStream, accept_async, connect_async, tungstenite::Message};
 
 #[derive(Clone, Copy, Default)]
 pub(super) struct Observed {
@@ -29,6 +30,9 @@ pub(super) struct Observed {
     pub(super) io_categories: [[u64; 14]; 8],
     // Successful child, returned error, cancelled join, panicked join.
     pub(super) child_outcomes: [u64; 4],
+    // Per frontend/backend: initiated, received, flushed, terminal,
+    // other drained frame, timeout, failure, completed handshake.
+    pub(super) close_handshakes: [[u64; 8]; 2],
 }
 
 pub(super) struct CloseFailure {
@@ -314,6 +318,109 @@ fn inspect(state: &Arc<Mutex<State>>, message: &Message, upstream: bool) -> Resu
     Ok(matches_ok)
 }
 
+#[derive(Default)]
+struct SocketClose {
+    sent: bool,
+    received: bool,
+}
+
+fn record_close(state: &Arc<Mutex<State>>, side: usize, category: usize) {
+    state.lock().expect("ACK proxy").observed.close_handshakes[side][category] += 1;
+}
+
+async fn finish_close<S: AsyncRead + AsyncWrite + Unpin>(
+    socket: &mut WebSocketStream<S>,
+    mut closing: SocketClose,
+    state: &Arc<Mutex<State>>,
+    side: usize,
+) -> bool {
+    let operation = 4 + side;
+    let result = tokio::time::timeout(Duration::from_secs(3), async {
+        if closing.received {
+            record_close(state, side, 1);
+        }
+        if !closing.sent && !closing.received {
+            // Open socket: initiate exactly once. An error cannot prove close.
+            socket.send(Message::Close(None)).await.map_err(|error| {
+                record_error(state, operation, &error);
+            })?;
+            closing.sent = true;
+            record_close(state, side, 0);
+        } else {
+            // Reading Close queued tungstenite's reply automatically. Sending a
+            // second Close is a protocol error; flush the actual queued reply.
+            match socket.flush().await {
+                Ok(()) => {
+                    if closing.received { closing.sent = true; }
+                    record_close(state, side, 2);
+                }
+                Err(error) if terminal(&error) && closing.received => {
+                    record_error(state, operation, &error);
+                    record_close(state, side, 3);
+                    return Ok(());
+                }
+                Err(error) => {
+                    record_error(state, operation, &error);
+                    return Err(());
+                }
+            }
+        }
+        // Bound every drain, even if a peer keeps sending unrelated frames.
+        for _ in 0..256 {
+            match socket.next().await {
+                Some(Ok(Message::Close(_))) => {
+                    closing.received = true;
+                    record_io(state, side, 2);
+                    record_close(state, side, 1);
+                    match socket.flush().await {
+                        Ok(()) => {
+                            closing.sent = true;
+                            record_close(state, side, 2);
+                        }
+                        Err(error) if terminal(&error) && closing.sent => {
+                            record_error(state, operation, &error);
+                            record_close(state, side, 3);
+                            return Ok(());
+                        }
+                        Err(error) => {
+                            record_error(state, operation, &error);
+                            return Err(());
+                        }
+                    }
+                }
+                None => {
+                    record_close(state, side, 3);
+                    return if closing.sent && closing.received { Ok(()) } else { Err(()) };
+                }
+                Some(Err(error)) => {
+                    record_error(state, operation, &error);
+                    return if terminal(&error) && closing.sent && closing.received {
+                        record_close(state, side, 3);
+                        Ok(())
+                    } else { Err(()) };
+                }
+                Some(Ok(_)) => record_close(state, side, 4),
+            }
+        }
+        Err(())
+    }).await;
+    match result {
+        Ok(Ok(())) => {
+            record_io(state, operation, 0);
+            record_close(state, side, 7);
+            true
+        }
+        Ok(Err(())) => {
+            record_close(state, side, 6);
+            false
+        }
+        Err(_) => {
+            record_close(state, side, 5);
+            false
+        }
+    }
+}
+
 async fn connection(
     stream: TcpStream,
     backend: String,
@@ -330,6 +437,8 @@ async fn connection(
     })?;
     record_io(&state, 7, 0);
     let mut held = Vec::new();
+    let mut client_closing = SocketClose::default();
+    let mut relay_closing = SocketClose::default();
     let result = async {
         loop {
             tokio::select! {
@@ -361,9 +470,10 @@ async fn connection(
                     };
                     inspect(&state, &message, false)?;
                     let closing = matches!(message, Message::Close(_));
+                    if closing { client_closing.received = true; }
                     relay.send(message).await.map_err(|error| { record_error(&state, 3, &error); })?;
                     record_io(&state, 3, 0);
-                    if closing { break; }
+                    if closing { relay_closing.sent = true; break; }
                 }
                 incoming = relay.next() => {
                     let message = match incoming {
@@ -385,6 +495,7 @@ async fn connection(
                         held.push((message, original_digest));
                     } else {
                         let closing = matches!(message, Message::Close(_));
+                        if closing { relay_closing.received = true; }
                         client.send(message).await.map_err(|error| { record_error(&state, 2, &error); })?;
                         record_io(&state, 2, 0);
                         if selected_ok {
@@ -392,34 +503,19 @@ async fn connection(
                             state.observed.actual_ok_sent += 1;
                             state.observed.exact_ok_sent += 1;
                         }
-                        if closing { break; }
+                        if closing { client_closing.sent = true; break; }
                     }
                 }
             }
         }
         Ok(())
     }.await;
-    // Both sockets are explicitly closed even after a forwarding error.
-    let client_closed = match client.close(None).await {
-        Ok(()) => {
-            record_io(&state, 4, 0);
-            true
-        }
-        Err(error) => {
-            record_error(&state, 4, &error);
-            terminal(&error)
-        }
-    };
-    let relay_closed = match relay.close(None).await {
-        Ok(()) => {
-            record_io(&state, 5, 0);
-            true
-        }
-        Err(error) => {
-            record_error(&state, 5, &error);
-            terminal(&error)
-        }
-    };
+    // Finish both owned handshakes even after forwarding fails. The actual
+    // socket tasks must terminate; reset/protocol errors and timeout stay failed.
+    let (client_closed, relay_closed) = tokio::join!(
+        finish_close(&mut client, client_closing, &state, 0),
+        finish_close(&mut relay, relay_closing, &state, 1),
+    );
     if result.is_ok() && client_closed && relay_closed {
         state.lock().expect("ACK proxy").observed.closed_connections += 1;
         Ok(())

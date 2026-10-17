@@ -43,10 +43,11 @@ def cleanup_diagnostics(raw):
     def array(length):
         return r'\[' + ', '.join([number] * length) + r'\]'
     matrix = r'\[' + ', '.join([array(14)] * 8) + r'\]'
+    handshakes = r'\[' + ', '.join([array(8)] * 2) + r'\]'
     pattern = (r'body-late-ack-cleanup runtime1=(true|false) runtime2=(true|false) relay_planes=(' + number
                + r') connections=(' + number + r') closed_connections=(' + number
                + r') invalid=(true|false) task_outcome=([0-5]) child_outcomes=('
-               + array(4) + r') io_categories=(' + matrix + r')')
+               + array(4) + r') io_categories=(' + matrix + r') close_handshakes=(' + handshakes + r')')
     lines = [line for line in raw.splitlines() if line.startswith('body-late-ack-cleanup ')]
     if len(lines) != 1 or len(lines[0]) > 8192:
         return {'valid': False, 'line_count': min(len(lines), 2)}
@@ -57,7 +58,8 @@ def cleanup_diagnostics(raw):
             'runtime2_closed': match[2] == 'true', 'relay_planes_completed': int(match[3]),
             'connections': int(match[4]), 'closed_connections': int(match[5]),
             'invalid': match[6] == 'true', 'task_outcome': int(match[7]),
-            'child_outcomes': json.loads(match[8]), 'io_categories': json.loads(match[9])}
+            'child_outcomes': json.loads(match[8]), 'io_categories': json.loads(match[9]),
+            'close_handshakes': json.loads(match[10])}
 
 
 def cleanup_parser_controls():
@@ -65,7 +67,7 @@ def cleanup_parser_controls():
     matrix[2][6] = 1  # Frontend write / BrokenPipe remains failed cleanup.
     sample = ('body-late-ack-cleanup runtime1=true runtime2=true relay_planes=2 connections=2 '
               'closed_connections=1 invalid=false task_outcome=1 child_outcomes=[1, 1, 0, 0] io_categories='
-              + json.dumps(matrix))
+              + json.dumps(matrix) + ' close_handshakes=' + json.dumps([[0] * 8 for _ in range(2)]))
     parsed = cleanup_diagnostics(sample)
     ensure(parsed.get('valid') and parsed['io_categories'][2][6] == 1
            and parsed['task_outcome'] == 1 and parsed['closed_connections'] == 1, 'closed-cleanup-parser')
@@ -74,7 +76,9 @@ def cleanup_parser_controls():
                  sample.replace('connections=2', 'connections=12345678901234567890'),
                  sample.replace('child_outcomes=[1, 1, 0, 0]', 'child_outcomes=[1, 1, 0]'),
                  sample + '\n' + sample, sample.replace('io_categories=[[0', 'io_categories=[["secret"'),
-                 sample.replace('io_categories=[[0', 'io_categories=[[true')]
+                 sample.replace('io_categories=[[0', 'io_categories=[[true'),
+                 sample.replace('close_handshakes=[[0', 'close_handshakes=[[true'),
+                 sample.replace('close_handshakes=[[0', 'close_handshakes=[[-1')]
     for value in negatives:
         ensure(cleanup_diagnostics(value).get('valid') is False, 'reject-private-or-malformed-cleanup')
     return {'positive': 1, 'negative': len(negatives), 'runtime_bodies': 0}
@@ -207,6 +211,8 @@ def main():
         'io_operations': ['frontend_read', 'backend_read', 'frontend_write', 'backend_write', 'frontend_close', 'backend_close', 'frontend_handshake', 'backend_connect'],
         'io_categories': ['success', 'eof', 'close_frame', 'connection_closed', 'already_closed', 'io_reset', 'io_broken_pipe', 'io_unexpected_eof', 'io_other', 'protocol_reset_without_close', 'protocol_send_after_closing', 'protocol_received_after_closing', 'protocol_other', 'other'],
         'child_outcomes': ['success', 'returned_error', 'cancelled_join', 'panicked_join'],
+        'close_handshakes': ['initiated', 'received', 'flushed', 'terminal', 'other_drained_frame', 'timeout', 'failure', 'completed'],
+        'close_handshake_sides': ['frontend', 'backend'],
         'task_outcomes': ['success', 'child_server_error', 'join_failure', 'timeout_abort', 'missing_task', 'invalid_or_incomplete_socket_counts'],
     }
     frozen = freeze(); original_layout = layout(); original = Path(PRODUCT).read_bytes()

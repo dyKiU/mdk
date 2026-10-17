@@ -247,7 +247,7 @@ async fn late_ack_trial(hold_receipt: bool) {
         Err(failure) => (failure.observed, failure.task_outcome),
     };
     eprintln!(
-        "body-late-ack-cleanup runtime1={} runtime2={} relay_planes={} connections={} closed_connections={} invalid={} task_outcome={} child_outcomes={:?} io_categories={:?}",
+        "body-late-ack-cleanup runtime1={} runtime2={} relay_planes={} connections={} closed_connections={} invalid={} task_outcome={} child_outcomes={:?} io_categories={:?} close_handshakes={:?}",
         runtime_closes[0],
         runtime_closes[1],
         relay_plane_closes,
@@ -256,7 +256,7 @@ async fn late_ack_trial(hold_receipt: bool) {
         close_observed.invalid,
         task_outcome,
         close_observed.child_outcomes,
-        close_observed.io_categories,
+        close_observed.io_categories, close_observed.close_handshakes,
     );
     let prerequisites = held_ack
         && before.wire_events > 0
