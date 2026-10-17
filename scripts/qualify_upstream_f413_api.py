@@ -110,12 +110,40 @@ def paired_parser_controls():
     return {'positive': 1, 'negative': len(negatives) + 1, 'actual_runtime_bodies': 0}
 
 
+def compile_storage(cohort, frozen, phase, save):
+    ensure(frozen_inputs() == frozen, 'exact-inputs-before-storage-compilation')
+    command = ['cargo', 'test', '--locked', '-p', 'storage-sqlite', '--lib', '--no-run', '--message-format=json']
+    features = [] if cohort == 'default' else ['experimental-device-sync']
+    if features:
+        command += ['--features', features[0]]
+    code, raw, seconds = capture(command, 1800)
+    events = [json.loads(line) for line in raw.splitlines() if line.startswith('{')]
+    errors = [event for event in events if event.get('reason') == 'compiler-message'
+              and event.get('message', {}).get('level') == 'error']
+    artifacts = [event for event in events if event.get('reason') == 'compiler-artifact']
+    selected = [event for event in artifacts if event['target']['name'] == 'storage_sqlite'
+                and event['target']['kind'] == ['lib'] and event['profile']['test'] and event.get('executable')]
+    phase['compilation'] = {'exit_code': code, 'compiler_error_count': len(errors), 'wall_seconds': seconds,
+                            'succeeded': False, 'command': command, 'selected_test_artifact_count': len(selected),
+                            'safe_compiler_diagnostics': [storage.safe_compiler_diagnostic(event, frozen) for event in errors[:64]],
+                            'diagnostics_truncated': len(errors) > 64}
+    save()
+    ensure(code == len(errors) == 0 and len(selected) == 1
+           and sorted(selected[0]['features']) == features, 'storage-must-compile-in-exact-feature-cohort')
+    binary = Path(selected[0]['executable'])
+    fingerprints = sorted([{'package': event['package_id'], 'target': event['target']['name'],
+                            'kind': event['target']['kind'], 'features': sorted(event['features']), 'profile': event['profile']}
+                           for event in artifacts], key=lambda event: json.dumps(event, sort_keys=True))
+    phase['compilation'].update(succeeded=True, compiled_features=features, binary_sha256=digest(binary.read_bytes()),
+                                compiler_artifact_feature_manifest_sha256=digest(json.dumps(fingerprints, sort_keys=True).encode()))
+    ensure(frozen_inputs() == frozen, 'exact-inputs-after-storage-compilation')
+    return binary
+
+
 def runtime(cohort, report, frozen, save):
     phase = {'bodies': {}}
     report['runtime'] = phase
-    # Delegation only to the historical baseline compiler/feature checker.
-    # This helper does not mutate source or invoke its historical source guard.
-    binary = storage.compile_mutation_phase(cohort, frozen, phase, save)
+    binary = compile_storage(cohort, frozen, phase, save)
     sha = phase['compilation']['binary_sha256']
     selected = BOUNDARY + (PAIRED if cohort == 'experimental' else [])
     phase['expected_names'] = selected
@@ -173,7 +201,7 @@ def main():
     os.umask(0o077); OUT.mkdir(exist_ok=True)
     report = {'mode': args.mode, 'cohort': None if args.mode == 'audit' else args.cohort, 'qualification_passed': False,
               'focused_checks_passed': False, 'mutation_necessity_claim': False, 'native_acceptance_claim': False,
-              'delegation': ['qualify_upstream_storage_boundary.compile_mutation_phase (compile only)',
+              'delegation': ['qualify_upstream_storage_boundary.safe_compiler_diagnostic',
                              'qualify_upstream_storage_boundary.parse_body',
                              'qualify_upstream_639_merge.parse_runtime', 'qualify_upstream_639_merge.static_checks'],
               'historical_source_guards_invoked_or_weakened': False}
