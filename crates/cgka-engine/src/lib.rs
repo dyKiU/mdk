@@ -32,6 +32,13 @@
 //! - [`app_components`] - Marmot app-component state in `app_data_dictionary`.
 
 pub mod account_identity_proof;
+// ORDINARY_TURN_TEST_BEGIN
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+pub mod ordinary_proof_cost;
+// ORDINARY_TURN_TEST_END
 pub mod app_components;
 
 pub(crate) mod app_payload;

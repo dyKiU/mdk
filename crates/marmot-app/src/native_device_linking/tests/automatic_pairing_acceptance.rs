@@ -859,6 +859,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         None
     };
     eprintln!("automatic-enrollment-control stage=fourth-device-completion");
+    // ORDINARY_TURN_TEST_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    let _proof_cost_window = cgka_engine::ordinary_proof_cost::begin_window();
+    // ORDINARY_TURN_TEST_END
     wait_for_automatic_phase_with_approvals(
         &a,
         &d,
@@ -867,6 +871,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     )
     .await;
     eprintln!("automatic-enrollment-control stage=fourth-device-completed");
+    // ORDINARY_TURN_TEST_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    cgka_engine::ordinary_proof_cost::finish_window();
+    // ORDINARY_TURN_TEST_END
     // COMPLETION_TEST_BEGIN
     #[cfg(feature = "test-policy-overrides")]
     if completion_wake_result.is_some() {
@@ -1456,6 +1464,10 @@ async fn wait_for_automatic_phase_with_approvals(
     })
     .await
     .unwrap_or_else(|_| {
+        // ORDINARY_TURN_TEST_BEGIN
+        #[cfg(feature = "test-policy-overrides")]
+        cgka_engine::ordinary_proof_cost::finish_window();
+        // ORDINARY_TURN_TEST_END
         #[cfg(feature = "test-policy-overrides")]
         for (side, original) in [("left", a), ("right", b)] {
 // ORDINARY_TURN_TEST_BEGIN

@@ -56,11 +56,58 @@ TURN_LINE = r'ordinary-sibling-turn side=(left|right) trace=(\(' + ', '.join([TU
 TIMER_LINE = r'ordinary-sibling-timer side=(left|right) timer=(\(' + ', '.join([array(3), sequence(option(NUMBER), 3, r'\[', r'\]'), option(r'\(' + BOOLEAN + ', ' + NUMBER + r'\)'), option(BOOLEAN), option(sequence(BOOLEAN, 2, r'\[', r'\]')), array(2), array(2), NUMBER, option(BOOLEAN)]) + r'\))'
 SIBLING = 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs'
 PROBE = 'crates/marmot-app/src/client/device_linking/sibling_sharing/turn_probe.rs'
+PROOF_PROBE = 'crates/cgka-engine/src/ordinary_proof_cost.rs'
 HOOKS = {SIBLING: 13, 'crates/marmot-app/src/client/device_linking/sibling_sharing/tests.rs': 1, 'crates/marmot-app/src/runtime/account_worker.rs': 3,
          'crates/marmot-app/src/native_device_linking/enabled.rs': 1,
-         'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': 1}
+         'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': 4,
+         'crates/cgka-engine/src/lib.rs': 1,
+         'crates/cgka-engine/src/account_identity_proof.rs': 1,
+         'crates/cgka-engine/src/private_roster_settlement.rs': 1}
 
 PHASE_LINE = r'automatic pairing did not reach required phase: expected=(' + PHASES + r') observed=(None|Some\(\((' + PHASES + '), (' + PHASES + r')\)\))'
+
+
+def proof_cost_diagnostics(raw):
+    snapshots = []
+    for line in raw.splitlines():
+        if not line.startswith('ordinary-proof-cost '):
+            continue
+        match = re.fullmatch(r'ordinary-proof-cost values=(' + array(14) + ')', line)
+        ensure(match is not None and len(line) <= 512, 'closed-proof-cost-numeric-array')
+        values = json.loads(match[1])
+        ensure(all(type(value) is int and 0 <= value <= 1_000_000_000_000_000_000 for value in values), 'bounded-proof-cost-integers')
+        ensure(values[0] in {0, 1, 2} and values[2] in {0, 1} and values[3] in {0, 1}, 'known-proof-cost-stage-and-validity')
+        ensure(len(snapshots) < 2 and values[0] not in {row[0] for row in snapshots}, 'unique-bounded-proof-cost-snapshots')
+        if values[2] and not values[3]:
+            for offset in [4, 9]:
+                entered, completed, total, maximum, inflight = values[offset:offset + 5]
+                ensure(completed <= entered and inflight == entered - completed and maximum <= total
+                       and (completed > 0 or total == maximum == 0), 'consistent-cumulative-proof-cost-counters')
+        snapshots.append(values)
+    ensure(len(snapshots) < 2 or (snapshots[0][0] == 0 and snapshots[1][0] in {1, 2}), 'proof-cost-start-precedes-end')
+    complete = len(snapshots) == 2
+    known = complete and snapshots[1][0] == 1 and all(row[2] == 1 and row[3] == 0 for row in snapshots)
+    result = {'numeric_snapshots': snapshots, 'snapshot_pair_complete': complete,
+              'missing_start': not snapshots or snapshots[0][0] != 0,
+              'missing_end': not snapshots or snapshots[-1][0] == 0,
+              'normal_end_marker': complete and snapshots[1][0] == 1,
+              'measurement_known': known, 'window_elapsed_ns': None, 'spans': []}
+    if known:
+        start, end = snapshots
+        ensure(end[1] >= start[1], 'monotonic-proof-cost-snapshot-time')
+        result['window_elapsed_ns'] = end[1] - start[1]
+        for offset in [4, 9]:
+            before, after = start[offset:offset + 5], end[offset:offset + 5]
+            ensure(all(after[index] >= before[index] for index in range(4)), 'monotonic-proof-cost-cumulative-fields')
+            straddling = before[4] != 0 or after[4] != 0
+            result['spans'].append({'entered_delta': after[0] - before[0],
+                                    'completed_delta': after[1] - before[1],
+                                    'completed_span_total_delta_ns': after[2] - before[2],
+                                    'boundary_straddling': straddling,
+                                    'exact_window_total_ns': None if straddling else after[2] - before[2],
+                                    'start_cumulative_max_ns': before[3], 'end_cumulative_max_ns': after[3],
+                                    'window_max_ns': None})
+    return result
 
 
 def diagnostics(raw):
@@ -118,7 +165,8 @@ def diagnostics(raw):
         ensure(match is not None and len(line) <= 1024 and match[1] not in {row['side'] for row in timer_rows}, 'closed-unique-timer-trace')
         ensure(all(int(value) <= 1_000_000_000 for value in re.findall(r'[0-9]+', match[2])), 'bounded-timer-trace-integers')
         timer_rows.append({'side': match[1], 'closed_tuple': match[2]})
-    return {'aggregates': rows, 'stages': stages, 'phase_failures': phase_rows, 'missing_diagnostics': not rows,
+    return {'proof_cost': proof_cost_diagnostics(raw),
+            'aggregates': rows, 'stages': stages, 'phase_failures': phase_rows, 'missing_diagnostics': not rows,
             'turn_traces': turn_rows, 'missing_turn_trace': not turn_rows,
             'missing_recipient_turn_trace': not any(row['side'] == 'right' for row in turn_rows),
             'timer_traces': timer_rows, 'missing_timer_trace': not timer_rows,
@@ -167,7 +215,51 @@ def parser_controls():
         except ValueError: continue
         raise ValueError('adversarial-timer-trace-accepted')
     ensure(diagnostics('unrelated')['missing_recipient_timer_trace'] is True, 'missing-timer-trace-not-zero')
-    return {'positive_controls': len(positives) + 3, 'negative_controls': len(negatives) + len(trace_variants) + len(timer_variants), 'passed': True}
+    proof_start = [0, 10, 1, 0, 2, 2, 8, 4, 0, 1, 1, 9, 9, 0]
+    proof_end = [1, 30, 1, 0, 4, 4, 14, 4, 0, 2, 2, 20, 11, 0]
+    def proof_line(values):
+        return 'ordinary-proof-cost values=' + json.dumps(values)
+    proof = proof_line(proof_start) + '\n' + proof_line(proof_end)
+    receipt = proof_cost_diagnostics(proof)
+    ensure(receipt['measurement_known'] and receipt['window_elapsed_ns'] == 20
+           and receipt['spans'][0]['exact_window_total_ns'] == 6
+           and receipt['spans'][1]['window_max_ns'] is None, 'proof-cost-known-cumulative-pair')
+    straddled = proof_end.copy()
+    straddled[4], straddled[8] = 5, 1
+    receipt = proof_cost_diagnostics(proof_line(proof_start) + '\n' + proof_line(straddled))
+    ensure(receipt['spans'][0]['boundary_straddling'] and receipt['spans'][0]['exact_window_total_ns'] is None, 'proof-cost-straddling-is-not-exact-window-cost')
+    unknown = [1, 0, 0, 0] + [0] * 10
+    ensure(not proof_cost_diagnostics(proof_line(proof_start) + '\n' + proof_line(unknown))['measurement_known'], 'proof-cost-poison-unknown-not-zero')
+    poisoned_start = [0] * 14
+    receipt = proof_cost_diagnostics(proof_line(poisoned_start) + '\n' + proof_line(unknown))
+    ensure(receipt['snapshot_pair_complete'] and receipt['normal_end_marker']
+           and not receipt['measurement_known'] and receipt['window_elapsed_ns'] is None,
+           'proof-cost-poison-both-boundaries-one-terminal-unknown')
+    overflow = proof_end.copy()
+    overflow[3] = 1
+    ensure(not proof_cost_diagnostics(proof_line(proof_start) + '\n' + proof_line(overflow))['measurement_known'], 'proof-cost-overflow-unknown-not-zero')
+    fallback = proof_end.copy()
+    fallback[0] = 2
+    ensure(not proof_cost_diagnostics(proof_line(proof_start) + '\n' + proof_line(fallback))['normal_end_marker'], 'proof-cost-unwind-end-distinct')
+    ensure(proof_cost_diagnostics(proof_line(proof_end))['missing_start']
+           and not proof_cost_diagnostics(proof_line(proof_end))['measurement_known'], 'proof-cost-missing-start-not-zero')
+    ensure(not proof_cost_diagnostics(proof_line(proof_start))['snapshot_pair_complete']
+           and not proof_cost_diagnostics('unrelated')['measurement_known'], 'proof-cost-missing-end-not-zero')
+    proof_invalid = [proof + '\n' + proof_line(proof_end), proof_line(proof_end) + '\n' + proof_line(proof_start),
+                     proof.replace('values=[', 'values=["private", ', 1), proof + ' private',
+                     proof.replace('[0, 10', '[3, 10', 1), proof.replace('[0, 10', '[0, -10', 1),
+                     proof.replace('[0, 10', '[0, 1000000000000000001', 1),
+                     proof.replace('[0, 10', '[0, true', 1), proof_line(proof_start[:-1])]
+    for index, value in [(1, 9), (2, 2), (4, 1), (5, 1), (6, 7), (7, 15), (8, 1)]:
+        changed = proof_end.copy()
+        changed[index] = value
+        proof_invalid.append(proof_line(proof_start) + '\n' + proof_line(changed))
+    for value in proof_invalid:
+        try: proof_cost_diagnostics(value)
+        except ValueError: continue
+        raise ValueError('adversarial-proof-cost-observation-accepted')
+    return {'positive_controls': len(positives) + 3, 'negative_controls': len(negatives) + len(trace_variants) + len(timer_variants),
+            'proof_cost_positive_controls': 8, 'proof_cost_negative_controls': len(proof_invalid), 'passed': True}
 
 
 def source_guard():
@@ -175,7 +267,7 @@ def source_guard():
     ensure(os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE') == BASE, 'explicit-reviewed-source-cohort')
     ensure(subprocess.run(['git', 'merge-base', '--is-ancestor', BASE, 'HEAD']).returncode == 0, 'reviewed-baseline-ancestor')
     changed = set(subprocess.check_output(['git', 'diff', '--name-only', BASE, 'HEAD'], text=True).splitlines())
-    ensure(changed <= set(HOOKS) | {SELF, PROBE, WORKFLOW}, 'only-passive-test-hooks-and-diagnostic-metadata')
+    ensure(changed <= set(HOOKS) | {SELF, PROBE, PROOF_PROBE, WORKFLOW}, 'only-passive-test-hooks-and-diagnostic-metadata')
     pattern = rb'(?m)^[ \t]*// ORDINARY_TURN_TEST_BEGIN\n.*?^[ \t]*// ORDINARY_TURN_TEST_END\n'
     for name, count in HOOKS.items():
         data = Path(name).read_bytes()
@@ -280,6 +372,18 @@ def main(preflight):
             'scope': 'timer readiness only; no explicit latch/service/gate instrumentation',
         }
         report['diagnostic_environment'] = {'WN_ORDINARY_SIBLING_TURN_TRACE': os.environ.get('WN_ORDINARY_SIBLING_TURN_TRACE')}
+        report['proof_cost_schema'] = {
+            'scope': 'process-wide aggregates from all fixture Engines, no identity attribution',
+            'row_order': ['verify_proof_signature', 'validated_settled_device_roster'],
+            'numeric_snapshot_order': ['stage', 'elapsed_ns', 'known', 'overflow',
+                                       'signature_entered', 'signature_completed', 'signature_total_ns', 'signature_max_ns', 'signature_inflight',
+                                       'roster_entered', 'roster_completed', 'roster_total_ns', 'roster_max_ns', 'roster_inflight'],
+            'stage_order': ['fourth_wait_start', 'normal_success_or_timeout_end', 'other_unwind_end'],
+            'duration_semantics': 'monotonic inclusive wall durations; roster contains signature work, never add nested totals',
+            'straddling': 'completed-duration delta is not exact window cost when either boundary has an in-flight span',
+            'maxima': 'cumulative maxima are reported separately; no subtraction or invented window maximum',
+            'unknown': 'missing, poison or overflow is not zero cost',
+        }
         report['parser_controls'] = parser_controls()
         report['source_before_sha256'] = identity(original)
         if preflight:

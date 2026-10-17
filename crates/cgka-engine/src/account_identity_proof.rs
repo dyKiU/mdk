@@ -425,6 +425,13 @@ fn verify_proof_signature(
     request: &AccountIdentityProofRequest,
     signature_bytes: &[u8; SCHNORR_SIGNATURE_LEN],
 ) -> Result<(), EngineError> {
+    // ORDINARY_TURN_TEST_BEGIN
+    #[cfg(all(
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    let _proof_cost = crate::ordinary_proof_cost::span(0);
+    // ORDINARY_TURN_TEST_END
     let signature = Signature::from_slice(signature_bytes).map_err(|_| {
         EngineError::InvalidAccountIdentityProof(
             "proof signature is not a Nostr Schnorr signature".into(),

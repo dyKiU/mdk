@@ -153,6 +153,13 @@ impl<S: StorageProvider> Engine<S> {
         &self,
         group: &GroupId,
     ) -> Result<Option<ValidatedSettledDeviceRoster>, EngineError> {
+        // ORDINARY_TURN_TEST_BEGIN
+        #[cfg(all(
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        let _proof_cost = crate::ordinary_proof_cost::span(1);
+        // ORDINARY_TURN_TEST_END
         self.ensure_group_live(group)?;
         self.storage.with_read_snapshot(|storage| {
             let Some(evidence) = self.validated_private_successor(group)? else {
