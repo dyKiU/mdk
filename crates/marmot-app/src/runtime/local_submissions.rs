@@ -145,6 +145,7 @@ impl MarmotAppRuntime {
                     self.accounts
                         .app
                         .account_storage(&resolved.label)?
+                        .app_storage()
                         .abandon_bound_attachment_uploads(&hex::encode(group.as_slice()), &slots)?;
                     Ok(())
                 })();
@@ -167,6 +168,7 @@ impl MarmotAppRuntime {
             .accounts
             .app
             .account_storage(&account.label)?
+            .app_storage()
             .local_submission(&hex::encode(group.as_slice()), token)?;
         #[cfg(feature = "experimental-device-sync")]
         if submission.is_none() {

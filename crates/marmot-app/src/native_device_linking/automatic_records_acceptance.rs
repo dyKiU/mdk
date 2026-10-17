@@ -126,7 +126,7 @@ async fn wait_for_records(
             if expected.iter().all(|id| records.iter().any(|record| hex::encode(record.event_id) == *id)) {
                 let source = apps[0].account_storage("test").unwrap();
                 for id in expected {
-                    let row = source.app_message(&hex::encode(group.as_slice()), id).unwrap().unwrap();
+                    let row = source.app_storage().app_message(&hex::encode(group.as_slice()), id).unwrap().unwrap();
                     let record = records.iter().find(|record| hex::encode(record.event_id) == *id).unwrap();
                     assert!(record.payload == serde_json::to_vec(&(&row.plaintext, &row.tags)).unwrap(), "canonical logical payload and tags must survive actual encrypted transport");
                     assert_eq!(hex::encode(record.author), row.sender);

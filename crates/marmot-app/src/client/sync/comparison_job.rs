@@ -512,7 +512,7 @@ impl AppClient {
     /// spending a reservation: a direct caller asks before it waits for a
     /// credit, and the worker asks when none is free.
     pub(crate) fn recovery_pending(&self) -> Result<bool, AppError> {
-        let storage = self.app.account_storage(&self.state.label)?;
+        let storage = self.app.account_storage(&self.state.label)?.app_storage();
         Ok(!self.pending_recovery_arm_writes.is_empty()
             || !self.pending_recovery_capacity_writes.is_empty()
             || !storage.pending_recovery_demands()?.is_empty()
@@ -559,13 +559,14 @@ impl AppClient {
         compare_inventory: bool,
     ) -> Result<bool, AppError> {
         let storage = self.app.account_storage(&self.state.label)?;
-        self.synchronize_recovery_loss(&storage)?;
+        let app = storage.app_storage();
+        self.synchronize_recovery_loss(&app)?;
         drop(self.transport_receipts()?);
         self.observe_recovery_route_policy()?;
-        let current = storage.recovery_revision_fence()?;
+        let current = app.recovery_revision_fence()?;
         let slot_stable = match grant.comparison_revision {
             Some(revision) => {
-                let slot = storage.recovery_comparison()?;
+                let slot = app.recovery_comparison()?;
                 slot.pending()
                     && slot.revision == revision
                     && slot.attempt_serial == grant.reservation.attempt_serial
@@ -1015,6 +1016,7 @@ impl AppClient {
         let complete = !comparison_selected
             && selected.iter().all(|(id, revision)| {
                 storage
+                    .app_storage()
                     .recovery_obligation_is_satisfied(*id, *revision)
                     .unwrap_or(false)
             });
@@ -1316,6 +1318,7 @@ mod tests {
             .epoch;
         fixture
             .storage
+            .app_storage()
             .arm_epoch_backfill_intents(&[storage_sqlite::StoredEpochBackfillIntent {
                 group_id_hex: hex::encode(fixture.group_id.as_slice()),
                 stalled_epoch: epoch,
@@ -1334,6 +1337,7 @@ mod tests {
             arm_test_epoch_gap(&mut fixture).await;
             let serial = fixture
                 .storage
+                .app_storage()
                 .recovery_retry_state()
                 .unwrap()
                 .attempt_serial;
@@ -1341,6 +1345,7 @@ mod tests {
             assert_eq!(
                 fixture
                     .storage
+                    .app_storage()
                     .recovery_retry_state()
                     .unwrap()
                     .attempt_serial,
@@ -1415,6 +1420,7 @@ mod tests {
         assert_eq!(
             fixture
                 .storage
+                .app_storage()
                 .recovery_retry_state()
                 .unwrap()
                 .attempt_serial,
@@ -1440,6 +1446,7 @@ mod tests {
             .unwrap();
         fixture
             .storage
+            .app_storage()
             .join_recovery_comparison(
                 &[9; 16],
                 crate::client::recovery::wall_now_ms().unwrap(),
@@ -1460,7 +1467,14 @@ mod tests {
                 .unwrap(),
             None
         );
-        assert!(fixture.storage.recovery_comparison().unwrap().pending());
+        assert!(
+            fixture
+                .storage
+                .app_storage()
+                .recovery_comparison()
+                .unwrap()
+                .pending()
+        );
         fixture
             .client
             .finish_deferred_comparison_sync()
@@ -1492,6 +1506,7 @@ mod tests {
         let attempt = fixture.client.begin_comparison_grant(&grant).await.unwrap();
         let before = fixture
             .storage
+            .app_storage()
             .recovery_revision_fence()
             .unwrap()
             .inventory_revision;
@@ -1513,6 +1528,7 @@ mod tests {
         assert!(
             fixture
                 .storage
+                .app_storage()
                 .recovery_revision_fence()
                 .unwrap()
                 .inventory_revision
@@ -1536,7 +1552,14 @@ mod tests {
                 .unwrap(),
             None
         );
-        assert!(fixture.storage.recovery_comparison().unwrap().pending());
+        assert!(
+            fixture
+                .storage
+                .app_storage()
+                .recovery_comparison()
+                .unwrap()
+                .pending()
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1574,7 +1597,14 @@ mod tests {
                 .unwrap(),
             None
         );
-        assert!(fixture.storage.recovery_comparison().unwrap().pending());
+        assert!(
+            fixture
+                .storage
+                .app_storage()
+                .recovery_comparison()
+                .unwrap()
+                .pending()
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1821,6 +1851,7 @@ mod tests {
             .unwrap();
         fixture
             .storage
+            .app_storage()
             .join_recovery_comparison(
                 &[9; 16],
                 crate::client::recovery::wall_now_ms().unwrap(),
@@ -1850,7 +1881,14 @@ mod tests {
             None,
             "an invalidated pass records no cursor progress"
         );
-        assert!(fixture.storage.recovery_comparison().unwrap().pending());
+        assert!(
+            fixture
+                .storage
+                .app_storage()
+                .recovery_comparison()
+                .unwrap()
+                .pending()
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1875,9 +1913,17 @@ mod tests {
         // The relays answered; only admission fell short. That withholds the
         // certificate but is a quiet comparison, not an outage, so the slot is
         // serviced and the debt itself carries the retry.
-        assert!(!fixture.storage.recovery_comparison().unwrap().pending());
+        assert!(
+            !fixture
+                .storage
+                .app_storage()
+                .recovery_comparison()
+                .unwrap()
+                .pending()
+        );
         let history = fixture
             .storage
+            .app_storage()
             .pending_recovery_demands()
             .unwrap()
             .into_iter()
@@ -1890,6 +1936,7 @@ mod tests {
         };
         let scope = fixture
             .storage
+            .app_storage()
             .recovery_scope_snapshots(history)
             .unwrap()
             .into_iter()
@@ -1929,7 +1976,7 @@ mod tests {
                 .unwrap(),
             Some([8; 32])
         );
-        let slot = fixture.storage.recovery_comparison().unwrap();
+        let slot = fixture.storage.app_storage().recovery_comparison().unwrap();
         assert!(slot.pending());
         assert!(!slot.plan.unwrap().retry_routes.is_empty());
     }
@@ -1992,6 +2039,7 @@ mod tests {
             .epoch;
         fixture
             .storage
+            .app_storage()
             .arm_epoch_backfill_intents(&[storage_sqlite::StoredEpochBackfillIntent {
                 group_id_hex: hex::encode(fixture.group_id.as_slice()),
                 stalled_epoch: epoch,
@@ -2527,6 +2575,7 @@ mod tests {
             assert!(
                 fixture
                     .storage
+                    .app_storage()
                     .pending_recovery_demands()
                     .unwrap()
                     .iter()

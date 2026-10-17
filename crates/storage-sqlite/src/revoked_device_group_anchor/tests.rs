@@ -284,7 +284,7 @@ fn revoked_anchor_checks_exact_single_remove_full_roster_and_owner() {
         assert!(storage.revoked_anchor().unwrap().is_none());
     }
     storage
-        .ensure_account_projection_with_identity("synthetic-revoked", &hex::encode([60; 32]))
+        .app_storage().ensure_account_projection_with_identity("synthetic-revoked", &hex::encode([60; 32]))
         .unwrap();
     assert!(storage.install_revoked_anchor(&original).is_err());
     assert!(storage.revoked_anchor().unwrap().is_none());

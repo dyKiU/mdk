@@ -141,7 +141,7 @@ pub(super) async fn verify_fresh_rejoin(
             while source_app
                 .account_storage("test")
                 .unwrap()
-                .app_message(&group_hex, event)
+                .app_storage().app_message(&group_hex, event)
                 .unwrap()
                 .is_none()
             {

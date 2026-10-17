@@ -313,7 +313,7 @@ async fn verify_fresh_sources(
                 while reopened[2]
                     .account_storage("test")
                     .unwrap()
-                    .app_message(&group_hex, &sent.message_ids[0])
+                    .app_storage().app_message(&group_hex, &sent.message_ids[0])
                     .unwrap()
                     .is_none()
                 {

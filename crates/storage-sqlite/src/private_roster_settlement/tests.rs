@@ -441,7 +441,7 @@ fn private_settlement_canonical_owner_and_origin_bounds() {
     assert!(storage.select_round(&other).is_err());
     let isolated = SqliteAccountStorage::in_memory().unwrap();
     isolated
-        .ensure_account_projection_with_identity("other", &hex::encode([9; 32]))
+        .app_storage().ensure_account_projection_with_identity("other", &hex::encode([9; 32]))
         .unwrap();
     assert!(isolated.select_round(&anchor()).is_err());
 }

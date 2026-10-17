@@ -806,6 +806,7 @@ async fn cancelling_public_sync_while_waiting_for_recovery_keeps_repaired_activi
     let comparison_before = app
         .account_storage("alice")
         .unwrap()
+        .app_storage()
         .recovery_comparison()
         .unwrap()
         .revision;
@@ -822,6 +823,7 @@ async fn cancelling_public_sync_while_waiting_for_recovery_keeps_repaired_activi
     assert!(
         app.account_storage("alice")
             .unwrap()
+            .app_storage()
             .recovery_comparison()
             .unwrap()
             .revision
@@ -831,6 +833,7 @@ async fn cancelling_public_sync_while_waiting_for_recovery_keeps_repaired_activi
     assert_eq!(
         app.account_storage("alice")
             .unwrap()
+            .app_storage()
             .recovery_retry_state()
             .unwrap()
             .attempt_serial,
@@ -951,6 +954,7 @@ async fn second_local_delete_discards_retry_that_crossed_the_old_frontier() {
         assert!(
             app.account_storage("alice")
                 .unwrap()
+                .app_storage()
                 .local_group_deletion_frontier(&hex::encode(group.as_slice()))
                 .unwrap()
                 .is_some()

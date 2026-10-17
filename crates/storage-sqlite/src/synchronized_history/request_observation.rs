@@ -49,7 +49,7 @@ mod tests {
             MemberId,
             storage::{AccountDeviceSignerBinding, AccountDeviceSignerStorage},
         };
-        s.ensure_account_projection_with_identity("test", &hex::encode([1; 32]))
+        s.app_storage().ensure_account_projection_with_identity("test", &hex::encode([1; 32]))
             .unwrap();
         s.put_account_device_signer(&AccountDeviceSignerBinding {
             marmot_identity: MemberId::new(vec![1; 32]),

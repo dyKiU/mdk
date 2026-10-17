@@ -21,7 +21,7 @@ fn retain_negative_fact(
         .try_into()
         .unwrap();
     storage
-        .ensure_account_projection_with_identity(
+        .app_storage().ensure_account_projection_with_identity(
             "isolated-selected-classification",
             &hex::encode(account),
         )

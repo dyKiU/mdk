@@ -204,7 +204,7 @@ async fn run_fixture(
                                 .expect("actual independent observer");
                             if request.messages.iter().all(|id| {
                                 storage
-                                    .app_message(&hex::encode(peer.group.as_slice()), id)
+                                    .app_storage().app_message(&hex::encode(peer.group.as_slice()), id)
                                     .is_ok_and(|row| row.is_some())
                             }) {
                                 break;

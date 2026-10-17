@@ -81,7 +81,7 @@ fn history_archive_fragment_receipts_do_not_report_import_until_full_atomic_comp
 fn storage() -> SqliteAccountStorage {
     let storage = SqliteAccountStorage::in_memory().unwrap();
     storage
-        .ensure_account_projection_with_identity("test", &hex::encode([1; 32]))
+        .app_storage().ensure_account_projection_with_identity("test", &hex::encode([1; 32]))
         .unwrap();
     storage
 }
@@ -325,12 +325,12 @@ fn live_authenticated_events_shadow_archive_in_both_arrival_orders() {
         origin_commit_id: None,
         moderation_grant: false,
     };
-    s.record_app_event(&event(4)).unwrap();
+    s.app_storage().record_app_event(&event(4)).unwrap();
     import(&s, 9, vec![record(4), record(5)]);
     let rows = s.synchronized_history_page(&group, None, 200, 120).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].record.message_id, [5; 32]);
-    s.record_app_event(&event(5)).unwrap();
+    s.app_storage().record_app_event(&event(5)).unwrap();
     assert!(
         s.synchronized_history_page(&group, None, 200, 120)
             .unwrap()
@@ -411,7 +411,7 @@ fn progress_and_permanent_cancel_fence_survive_encrypted_reopen() {
     let path = dir.path().join("test.sqlite3");
     let key = SqlCipherKey::new("11".repeat(32)).unwrap();
     let s = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
-    s.ensure_account_projection_with_identity("test", &hex::encode([1; 32]))
+    s.app_storage().ensure_account_projection_with_identity("test", &hex::encode([1; 32]))
         .unwrap();
     let chunks = vec![vec![record(4)], vec![record(5)]];
     let m = manifest(9, &chunks);
@@ -466,7 +466,7 @@ fn interrupted_transfer_resumes_to_completion_after_encrypted_reopen() {
     let m = manifest(9, &chunks);
     {
         let s = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
-        s.ensure_account_projection_with_identity("test", &hex::encode([1; 32]))
+        s.app_storage().ensure_account_projection_with_identity("test", &hex::encode([1; 32]))
             .unwrap();
         s.admit_synchronized_history(&m).unwrap();
         s.import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
@@ -520,7 +520,7 @@ fn incomplete_retention_intents_cannot_erase_completed_history() {
     let key = SqlCipherKey::new("11".repeat(32)).unwrap();
     let group = "ab".repeat(16);
     let s = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
-    s.ensure_account_projection_with_identity("test", &hex::encode([1; 32]))
+    s.app_storage().ensure_account_projection_with_identity("test", &hex::encode([1; 32]))
         .unwrap();
     import(&s, 9, vec![record(4)]);
     let mut expired = record(4);
@@ -867,7 +867,7 @@ fn history_archive_encrypted_reopen_cancel_and_completed_receipts() {
     let path = dir.path().join("fragments.sqlite3");
     let key = SqlCipherKey::new("22".repeat(32)).unwrap();
     let s = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
-    s.ensure_account_projection_with_identity("test", &hex::encode([1; 32]))
+    s.app_storage().ensure_account_projection_with_identity("test", &hex::encode([1; 32]))
         .unwrap();
     let (scope, encoded) = archive_fixture(66);
     s.stage_synchronized_history_archive_fragment(&scope, 0, &encoded[..1536], 120, &|| false)

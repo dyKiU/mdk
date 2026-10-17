@@ -5,7 +5,7 @@ const DEVICE: [u8; 32] = [2; 32];
 fn setup() -> (SqliteAccountStorage, PurposeKeyPackage) {
     let storage = SqliteAccountStorage::in_memory().unwrap();
     storage
-        .ensure_account_projection_with_identity("isolated-purpose-test", &hex::encode(ACCOUNT))
+        .app_storage().ensure_account_projection_with_identity("isolated-purpose-test", &hex::encode(ACCOUNT))
         .unwrap();
     let generation = storage
         .reserve_device_linking_attempt(&ACCOUNT, &DEVICE)

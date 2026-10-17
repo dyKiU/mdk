@@ -533,7 +533,7 @@ impl AppClient {
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
         for record in records {
             let Some(row) = storage
-                .app_message(
+                .app_storage().app_message(
                     &hex::encode(group.as_slice()),
                     &hex::encode(record.event_id),
                 )
@@ -626,7 +626,7 @@ impl AppClient {
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
         if pending.is_empty() {
             let rows = storage
-                .app_messages_page(
+                .app_storage().app_messages_page(
                     storage_sqlite::StoredAppMessageQuery {
                         group_id_hex: Some(hex::encode(group.as_slice())),
                         kinds: Some(vec![9]),
@@ -766,7 +766,7 @@ impl AppClient {
             .account_storage(&self.state.label)
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
         let visible = storage
-            .timeline_message(&row.group_id_hex, &row.message_id_hex)
+            .app_storage().timeline_message(&row.group_id_hex, &row.message_id_hex)
             .map_err(|_| AccountSharingError::RuntimeUnavailable)?;
         let expires_at = visible
             .as_ref()

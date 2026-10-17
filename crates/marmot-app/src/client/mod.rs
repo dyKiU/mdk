@@ -1555,6 +1555,7 @@ impl AppClient {
             return Ok(());
         }
         let storage = self.app.account_storage(&self.state.label)?;
+        let app = storage.app_storage();
         let active_jobs = storage
             .list_maintenance_obligations()?
             .into_iter()
@@ -1577,7 +1578,7 @@ impl AppClient {
                     })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        storage.retain_recovery_maintenance_jobs(&active_jobs)?;
+        app.retain_recovery_maintenance_jobs(&active_jobs)?;
         let mut waiting = HashSet::new();
 
         for group in self.state.groups.clone() {
@@ -1651,14 +1652,14 @@ impl AppClient {
                         "invalid maintenance recovery identity".into(),
                     )
                 })?;
-                let ticket = storage.request_recovery(
+                let ticket = app.request_recovery(
                     storage_sqlite::RecoveryRequest::MaintenanceBoundary {
                         job_id: &job,
                         group_id: group_id.as_slice(),
                     },
                     unix_now_seconds().saturating_mul(1000),
                 )?;
-                storage.restore_recovery_maintenance_session(ticket)?;
+                app.restore_recovery_maintenance_session(ticket)?;
             }
             self.observe_post_join_recovery_boundary(&group_id).await?;
         }
@@ -1848,22 +1849,17 @@ impl AppClient {
         upload_id: &str,
         result: &Result<(), AppError>,
     ) -> Result<AppPreparedGroupImageUpload, AppError> {
-        let storage = self.app.account_storage(&self.state.label)?;
+        let storage = self.app.account_storage(&self.state.label)?.app_storage();
         let now = unix_now_seconds();
         match result {
-            Ok(()) => storage
-                .app_storage()
-                .mark_prepared_group_image_upload_uploaded(upload_id, now)?,
-            Err(error) => storage
-                .app_storage()
-                .mark_prepared_group_image_upload_failed(
-                    upload_id,
-                    error.privacy_safe_kind(),
-                    now,
-                )?,
+            Ok(()) => storage.mark_prepared_group_image_upload_uploaded(upload_id, now)?,
+            Err(error) => storage.mark_prepared_group_image_upload_failed(
+                upload_id,
+                error.privacy_safe_kind(),
+                now,
+            )?,
         }
         let record = storage
-            .app_storage()
             .prepared_group_image_upload(upload_id)?
             .ok_or_else(|| {
                 AppError::InvalidEncryptedMedia("prepared group image upload was not found".into())
@@ -1940,9 +1936,8 @@ impl AppClient {
         upload_id: &str,
         telemetry: &AppPerformanceTelemetry,
     ) -> Result<CanonicalCreatedGroup, AppError> {
-        let storage = self.app.account_storage(&self.state.label)?;
+        let storage = self.app.account_storage(&self.state.label)?.app_storage();
         let record = storage
-            .app_storage()
             .prepared_group_image_upload(upload_id)?
             .ok_or_else(|| {
                 AppError::InvalidEncryptedMedia("prepared group image upload was not found".into())
@@ -1982,7 +1977,7 @@ impl AppClient {
         }
         if let Some(group_id) = matching_group_id {
             let group_id_hex = hex::encode(group_id.as_slice());
-            storage.app_storage().consume_prepared_group_image_upload(
+            storage.consume_prepared_group_image_upload(
                 upload_id,
                 &group_id_hex,
                 unix_now_seconds(),
@@ -3624,7 +3619,7 @@ impl AppClient {
         )? {
             return Ok(());
         }
-        let storage = self.app.account_storage(&self.state.label)?;
+        let storage = self.app.account_storage(&self.state.label)?.app_storage();
         let unindexed = storage.unindexed_direct_conversation_group_ids()?;
         let mut hydration_pending = false;
         for group_id_hex in unindexed {
@@ -4314,6 +4309,7 @@ impl AppClient {
             let original = self
                 .app
                 .account_storage(&self.state.label)?
+                .app_storage()
                 .local_submission(&submission.group_id_hex, &original_token)?
                 .ok_or_else(|| {
                     AppError::InvalidAppMessagePayload("original local send was not found".into())
@@ -4412,6 +4408,7 @@ impl AppClient {
                 let storage = self.app.account_storage(&self.state.label)?;
                 let group_hex = hex::encode(group_id.as_slice());
                 let author = storage
+                    .app_storage()
                     .report_target_author(&group_hex, &target_message_id)?
                     .ok_or_else(|| {
                         AppError::InvalidAppMessagePayload("report target is unavailable".into())
@@ -4431,7 +4428,10 @@ impl AppClient {
                 }
                 let storage = self.app.account_storage(&self.state.label)?;
                 for id in report_ids {
-                    if !storage.report_is_reviewable(&hex::encode(group_id.as_slice()), id)? {
+                    if !storage
+                        .app_storage()
+                        .report_is_reviewable(&hex::encode(group_id.as_slice()), id)?
+                    {
                         return Err(AppError::InvalidAppMessagePayload(
                             "report is unavailable in this group".into(),
                         ));
@@ -4453,6 +4453,7 @@ impl AppClient {
             } if prepared.is_none() => {
                 self.app
                     .account_storage(&self.state.label)?
+                    .app_storage()
                     .timeline_message(&hex::encode(group_id.as_slice()), target_message_id)?
                     .filter(|target| {
                         target.kind == cgka_traits::app_event::MARMOT_APP_EVENT_KIND_CHAT
@@ -4468,7 +4469,7 @@ impl AppClient {
                 intent
             }
             AppMessageIntent::Delete { target_message_id } => {
-                let storage = self.app.account_storage(&self.state.label)?;
+                let storage = self.app.account_storage(&self.state.label)?.app_storage();
                 let target =
                     storage.app_message(&hex::encode(group_id.as_slice()), &target_message_id)?;
                 if target.as_ref().is_some_and(|target| {
@@ -4562,6 +4563,7 @@ impl AppClient {
                 self.app.draft_commit_observer(&self.state.label),
             );
             storage
+                .app_storage()
                 .stage_message_draft_submission(&revision, &event.id, &payload)
                 .map_err(|error| crate::drafts::revision_error(error, revision.group_id_hex()))?;
             Some(crate::drafts::DraftSubmissionGuard {
@@ -5498,10 +5500,13 @@ impl AppClient {
             .endpoint_policy()?;
         let version = EncryptedMediaVersion::parse(&reference.version)?;
         let storage = self.app.account_storage(&self.state.label)?;
-        if !storage.encrypted_media_epoch_secret_may_be_served(
-            &hex::encode(group_id.as_slice()),
-            reference.source_epoch,
-        )? {
+        if !storage
+            .app_storage()
+            .encrypted_media_epoch_secret_may_be_served(
+                &hex::encode(group_id.as_slice()),
+                reference.source_epoch,
+            )?
+        {
             return Ok(None);
         }
         let Some(secret) = self.cached_encrypted_media_epoch_secret(
@@ -6174,6 +6179,7 @@ impl AppClient {
         Ok(self
             .app
             .account_storage(&self.state.label)?
+            .app_storage()
             .epoch_gap_recovery_open_since(group_id.as_slice(), epoch.0)?)
     }
 
@@ -6360,6 +6366,7 @@ impl AppClient {
         if !self
             .app
             .account_storage(&self.state.label)?
+            .app_storage()
             .encrypted_media_epoch_secret_may_be_served(&group_id_hex, source_epoch)?
         {
             return Err(AppError::InvalidEncryptedMedia(format!(
@@ -6647,6 +6654,7 @@ impl AppClient {
     ) -> Result<(), AppError> {
         self.app
             .account_storage(&self.state.label)?
+            .app_storage()
             .remember_encrypted_media_epoch_secret(
                 &hex::encode(group_id.as_slice()),
                 component_id,
@@ -6665,6 +6673,7 @@ impl AppClient {
         Ok(self
             .app
             .account_storage(&self.state.label)?
+            .app_storage()
             .encrypted_media_epoch_secret(
                 &hex::encode(group_id.as_slice()),
                 component_id,
@@ -6872,7 +6881,7 @@ impl AppClient {
         for failure in &effects.welcome_failures {
             let message_id_hex = hex::encode(failure.message_id.as_slice());
             let recipient_hex = hex::encode(failure.recipient.as_slice());
-            storage.record_pending_welcome_delivery(
+            storage.app_storage().record_pending_welcome_delivery(
                 &message_id_hex,
                 group_id_hex,
                 &recipient_hex,
@@ -6938,7 +6947,9 @@ impl AppClient {
                 recorded_at,
             });
         }
-        storage.record_pending_welcome_deliveries(&records)?;
+        storage
+            .app_storage()
+            .record_pending_welcome_deliveries(&records)?;
         Ok(records
             .into_iter()
             .map(|record| record.message_id_hex)
@@ -6947,7 +6958,7 @@ impl AppClient {
 
     fn clear_confirmed_welcome_intent(
         &self,
-        storage: &storage_sqlite::SqliteAccountStorage,
+        storage: &storage_sqlite::SqliteAppStorage,
         message_id_hex: &str,
     ) -> Result<(), AppError> {
         let observation = self
@@ -6987,7 +6998,7 @@ impl AppClient {
                 .iter()
                 .any(|failure| hex::encode(failure.message_id.as_slice()) == *message_id_hex);
             if delivered {
-                self.clear_confirmed_welcome_intent(&storage, message_id_hex)?;
+                self.clear_confirmed_welcome_intent(&storage.app_storage(), message_id_hex)?;
             }
         }
         Ok(())
@@ -7010,7 +7021,7 @@ impl AppClient {
             .into_iter()
             .map(|id| hex::encode(id.as_slice()))
             .collect::<HashSet<_>>();
-        let storage = self.app.account_storage(&self.state.label)?;
+        let storage = self.app.account_storage(&self.state.label)?.app_storage();
         let existing = storage.list_pending_welcome_deliveries()?;
         let outstanding_ids = outstanding
             .iter()
@@ -7329,6 +7340,7 @@ impl AppClient {
         Ok(self
             .app
             .account_storage(&self.state.label)?
+            .app_storage()
             .list_pending_welcome_deliveries()?
             .into_iter()
             .map(|record| PendingWelcomeDelivery {
@@ -7390,7 +7402,7 @@ impl AppClient {
             });
         }
         let storage = self.app.account_storage(&self.state.label)?;
-        self.clear_confirmed_welcome_intent(&storage, message_id_hex)?;
+        self.clear_confirmed_welcome_intent(&storage.app_storage(), message_id_hex)?;
         Ok(send_summary_from_effects(&effects))
     }
 }
@@ -7754,6 +7766,7 @@ mod self_membership_backfill_tests {
         let group_id_hex = hex::encode(group_id.as_slice());
         let storage = app.account_storage("alice").unwrap();
         storage
+            .app_storage()
             .reset_direct_conversation_members_backfill(crate::SELF_MEMBERSHIP_BACKFILL_MARKER)
             .unwrap();
 

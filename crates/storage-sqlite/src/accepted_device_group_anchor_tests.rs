@@ -225,7 +225,7 @@ fn accepted_device_group_anchor_encrypted_reopen_retains_exact_denial_without_me
 fn accepted_device_group_anchor_projection_mismatch_and_insert_failure_allocate_nothing() {
     let storage = SqliteAccountStorage::in_memory().unwrap();
     storage
-        .ensure_account_projection_with_identity("synthetic-anchor", &hex::encode([12; 32]))
+        .app_storage().ensure_account_projection_with_identity("synthetic-anchor", &hex::encode([12; 32]))
         .unwrap();
     let cap = storage.accepted_device_group_anchor_storage().unwrap();
     assert!(matches!(

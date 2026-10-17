@@ -194,7 +194,7 @@ impl AppClient {
                 apps[0]
                     .account_storage("test")
                     .unwrap()
-                    .timeline_message(&hex::encode(ordinary_group.as_slice()), source_event)
+                    .app_storage().timeline_message(&hex::encode(ordinary_group.as_slice()), source_event)
                     .unwrap()
                     .is_some_and(|row| !row.deleted && row.invalidation_status.is_none())
             );
@@ -255,7 +255,7 @@ impl AppClient {
                         && catalog
                         && record
                     {
-                        eprintln!("collision_fixture_current_core_roles_and_source_scoped_exact_record=true local_ordinary_present={}", storage.timeline_message(&hex::encode(ordinary_group.as_slice()), witness).unwrap().is_some());
+                        eprintln!("collision_fixture_current_core_roles_and_source_scoped_exact_record=true local_ordinary_present={}", storage.app_storage().timeline_message(&hex::encode(ordinary_group.as_slice()), witness).unwrap().is_some());
                         break;
                     }
                     tokio::time::sleep(Duration::from_millis(20)).await;

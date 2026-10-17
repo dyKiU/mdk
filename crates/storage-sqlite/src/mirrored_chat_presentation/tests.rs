@@ -377,7 +377,7 @@ fn mirrored_presentation_conversation_union_has_one_limit_and_real_ordinary_prec
         origin_commit_id: None,
         moderation_grant: false,
     };
-    storage.record_app_event(&event).unwrap();
+    storage.app_storage().record_app_event(&event).unwrap();
     let rows = storage
         .account_conversation_observation_window(std::slice::from_ref(&scope), &group, None, 2, 0)
         .unwrap();

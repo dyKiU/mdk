@@ -148,7 +148,9 @@ impl AppClient {
                 .app
                 .account_storage(&self.state.label)
                 .and_then(|storage| {
-                    Ok(storage.spilled_account_deliveries(SPILL_READ_BATCH, unix_now_seconds())?)
+                    Ok(storage
+                        .app_storage()
+                        .spilled_account_deliveries(SPILL_READ_BATCH, unix_now_seconds())?)
                 });
             #[cfg(test)]
             let read = if std::mem::take(&mut self.delivery_spill.fail_next_read) {
@@ -225,7 +227,7 @@ impl AppClient {
         let now = unix_now_seconds();
         let settled = (|| -> Result<(), AppError> {
             let admitted = admitted?;
-            let storage = self.app.account_storage(&self.state.label)?;
+            let storage = self.app.account_storage(&self.state.label)?.app_storage();
             if admitted {
                 storage.remove_spilled_account_delivery(seq)?;
                 return Ok(());
@@ -274,7 +276,7 @@ impl AppClient {
         }
         let storage = self.app.account_storage(&self.state.label)?;
         let token = rand::rngs::OsRng.next_u64() & i64::MAX as u64;
-        storage.discard_spilled_account_deliveries(
+        storage.app_storage().discard_spilled_account_deliveries(
             seqs,
             &self.state.label,
             token,
@@ -349,7 +351,7 @@ mod tests {
         app.relay_plane =
             MarmotRelayPlane::new_with_loopback(Some(Duration::from_secs(120)), relay, true);
         let mut client = client_on_app_relay_plane(&app, "alice").await;
-        let storage = app.account_storage("alice").unwrap();
+        let storage = app.account_storage("alice").unwrap().app_storage();
         let now = unix_now_seconds();
         storage
             .spill_account_deliveries(&[delivery(7)], ACCOUNT_DELIVERY_SPILL_LIMITS, now)
@@ -404,7 +406,7 @@ mod tests {
         app.relay_plane =
             MarmotRelayPlane::new_with_loopback(Some(Duration::from_secs(120)), relay, true);
         let mut client = client_on_app_relay_plane(&app, "alice").await;
-        let storage = app.account_storage("alice").unwrap();
+        let storage = app.account_storage("alice").unwrap().app_storage();
         let now = unix_now_seconds();
         storage
             .spill_account_deliveries(&[delivery(3)], ACCOUNT_DELIVERY_SPILL_LIMITS, now)
@@ -448,6 +450,7 @@ mod tests {
         let mut client = client_on_app_relay_plane(&app, "alice").await;
         let storage = app.account_storage("alice").unwrap();
         storage
+            .app_storage()
             .spill_account_deliveries(
                 &[delivery(4)],
                 ACCOUNT_DELIVERY_SPILL_LIMITS,
@@ -487,7 +490,7 @@ mod tests {
         app.relay_plane =
             MarmotRelayPlane::new_with_loopback(Some(Duration::from_secs(120)), relay, true);
         let mut client = client_on_app_relay_plane(&app, "alice").await;
-        let storage = app.account_storage("alice").unwrap();
+        let storage = app.account_storage("alice").unwrap().app_storage();
         let now = unix_now_seconds();
         storage
             .spill_account_deliveries(&[delivery(6)], ACCOUNT_DELIVERY_SPILL_LIMITS, now)
@@ -537,6 +540,7 @@ mod tests {
         let mut client = client_on_app_relay_plane(&app, "alice").await;
         let storage = app.account_storage("alice").unwrap();
         storage
+            .app_storage()
             .spill_account_deliveries(
                 &[delivery(5)],
                 ACCOUNT_DELIVERY_SPILL_LIMITS,
@@ -580,6 +584,7 @@ mod tests {
         let mut client = client_on_app_relay_plane(&app, "alice").await;
         let storage = app.account_storage("alice").unwrap();
         storage
+            .app_storage()
             .spill_account_deliveries(
                 &[delivery(9)],
                 ACCOUNT_DELIVERY_SPILL_LIMITS,
@@ -587,12 +592,14 @@ mod tests {
             )
             .unwrap();
         let seq = storage
+            .app_storage()
             .spilled_account_deliveries(10, unix_now_seconds())
             .unwrap()
             .deliveries[0]
             .seq;
         let queue_loss = |storage: &storage_sqlite::SqliteAccountStorage| {
             storage
+                .app_storage()
                 .pending_recovery_demands()
                 .unwrap()
                 .iter()
@@ -604,6 +611,7 @@ mod tests {
             client.delivery_spill.in_flight = Some((seq, hex::encode([9_u8; 32])));
             client.settle_spilled_delivery();
             let kept = !storage
+                .app_storage()
                 .spilled_account_deliveries(10, u64::MAX >> 2)
                 .unwrap()
                 .deliveries
@@ -620,10 +628,19 @@ mod tests {
         );
         // A directly owned client has no worker to select that loss. Its next
         // receive must start recovery without further relay traffic.
-        let attempts = storage.recovery_retry_state().unwrap().attempt_serial;
+        let attempts = storage
+            .app_storage()
+            .recovery_retry_state()
+            .unwrap()
+            .attempt_serial;
         let _ = tokio::time::timeout(Duration::from_secs(2), client.next_event()).await;
         assert!(
-            storage.recovery_retry_state().unwrap().attempt_serial > attempts,
+            storage
+                .app_storage()
+                .recovery_retry_state()
+                .unwrap()
+                .attempt_serial
+                > attempts,
             "next_event starts recovery for the new queue loss"
         );
     }

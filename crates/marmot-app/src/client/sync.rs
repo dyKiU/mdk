@@ -1264,9 +1264,10 @@ impl AppClient {
         // the omission. Re-observe the same token here so the queued signal is
         // also an idempotent storage boundary before recovery starts.
         let storage = self.app.account_storage(&self.state.label)?;
-        self.synchronize_recovery_loss(&storage)?;
+        let app = storage.app_storage();
+        self.synchronize_recovery_loss(&app)?;
         if overflow.dropped > 0 {
-            let marked = storage.mark_account_delivery_recovery_observed(
+            let marked = app.mark_account_delivery_recovery_observed(
                 &self.state.label,
                 overflow.marker_token,
                 overflow.dropped,
@@ -1278,7 +1279,7 @@ impl AppClient {
             // The lag's REQ floors bound the loss from below. Each lag mints a
             // fresh token, so a lower floor always imports as new loss with a
             // new obligation revision rather than rewriting a frozen goal.
-            storage.record_account_recovery_loss_bounded(
+            app.record_account_recovery_loss_bounded(
                 &self.state.label,
                 storage_sqlite::RecoveryLossCause::NotificationConsumer,
                 overflow.notification_token,
@@ -1286,7 +1287,7 @@ impl AppClient {
                 unix_now_seconds(),
                 overflow.notification_floor,
             )?;
-            self.synchronize_recovery_loss(&storage)?;
+            self.synchronize_recovery_loss(&app)?;
             self.adapter.notification_loss_persisted(overflow);
         }
         // A late observation of loss the user already retired rearms nothing.
@@ -2337,6 +2338,7 @@ impl AppClient {
                 pending.failed_message_update = Some(
                     self.app
                         .account_storage(&self.state.label)?
+                        .app_storage()
                         .invalidate_app_event_by_message_id(
                             &hex::encode(failed.group_id.as_slice()),
                             &failed.app_event_id,
@@ -3656,11 +3658,11 @@ impl AppClient {
             None
         };
         if welcome {
-            let storage = client.app.account_storage(&client.state.label)?;
-            if storage
-                .app_storage()
-                .is_blocked_welcome_dismissed(&source_message_id_hex)?
-            {
+            let storage = client
+                .app
+                .account_storage(&client.state.label)?
+                .app_storage();
+            if storage.is_blocked_welcome_dismissed(&source_message_id_hex)? {
                 return Ok(DeliveryIngest {
                     routes_dirty: false,
                     must_stay_fetchable: false,
@@ -3669,7 +3671,7 @@ impl AppClient {
             }
             // Dismissals remain authoritative after unblock. With no current
             // blocks the normal ingress peeler is sufficient.
-            if storage.app_storage().has_blocked_users()? {
+            if storage.has_blocked_users()? {
                 let account = client.app.account_home().account(&client.state.label)?;
                 let peeler = transport_nostr_peeler::NostrMlsPeeler::new().with_welcome_signer_arc(
                     client
@@ -3683,13 +3685,9 @@ impl AppClient {
                     cgka_traits::peeler::TransportPeeler::peel_welcome(&peeler, &delivery.message)
                         .await
                     && let Some(sender) = peeled.sender
-                    && storage
-                        .app_storage()
-                        .is_user_blocked(&hex::encode(sender.as_slice()))?
+                    && storage.is_user_blocked(&hex::encode(sender.as_slice()))?
                 {
-                    storage
-                        .app_storage()
-                        .dismiss_blocked_welcome(&source_message_id_hex)?;
+                    storage.dismiss_blocked_welcome(&source_message_id_hex)?;
                     return Ok(DeliveryIngest {
                         routes_dirty: false,
                         must_stay_fetchable: false,
@@ -3937,7 +3935,7 @@ impl AppClient {
                             client
                                 .recovery_owner
                                 .observe_scoped_admission(
-                                    &storage,
+                                    &storage.app_storage(),
                                     route,
                                     item.created_at,
                                     Instant::now(),
@@ -4226,7 +4224,7 @@ impl AppClient {
                     .app
                     .account_storage(&client.state.label)
                     .ok()
-                    .and_then(|storage| storage.pending_recovery_demands().ok())
+                    .and_then(|storage| storage.app_storage().pending_recovery_demands().ok())
                     .and_then(|demands| {
                         demands.into_iter().find(|demand| {
                             demand.cause == storage_sqlite::RecoveryCause::EpochGap
@@ -4282,7 +4280,7 @@ impl AppClient {
                 .app
                 .account_storage(&self.state.label)
                 .and_then(|storage| {
-                    Ok(storage.record_recovery_capacity_pressure(
+                    Ok(storage.app_storage().record_recovery_capacity_pressure(
                         group_id.as_slice(),
                         stalled_epoch,
                         self.recovery_owner.logical_now_ms(Instant::now())?,
@@ -4439,8 +4437,11 @@ impl AppClient {
         let divergence = match self
             .app
             .account_storage(&self.state.label)
-            .and_then(|storage| Ok(storage.diverged_branch_selection_withdrawals()?))
-        {
+            .and_then(|storage| {
+                Ok(storage
+                    .app_storage()
+                    .diverged_branch_selection_withdrawals()?)
+            }) {
             Ok(divergence) => divergence,
             Err(error) => {
                 tracing::warn!(
@@ -4689,8 +4690,11 @@ impl AppClient {
         match self
             .app
             .account_storage(&self.state.label)
-            .and_then(|storage| Ok(storage.retire_terminal_group_recovery(group_id)?))
-        {
+            .and_then(|storage| {
+                Ok(storage
+                    .app_storage()
+                    .retire_terminal_group_recovery(group_id)?)
+            }) {
             Ok(changed) => {
                 self.epoch_stall.clear_recovered_group(group_id);
                 if changed {
@@ -4740,7 +4744,7 @@ impl AppClient {
         let intents = match self
             .app
             .account_storage(&self.state.label)
-            .and_then(|storage| Ok(storage.pending_epoch_backfill_intents()?))
+            .and_then(|storage| Ok(storage.app_storage().pending_epoch_backfill_intents()?))
         {
             Ok(intents) => intents,
             Err(error) => {
@@ -4763,7 +4767,11 @@ impl AppClient {
             && let Err(error) = self
                 .app
                 .account_storage(&self.state.label)
-                .and_then(|storage| Ok(storage.clear_epoch_backfill_intents(&resolved)?))
+                .and_then(|storage| {
+                    Ok(storage
+                        .app_storage()
+                        .clear_epoch_backfill_intents(&resolved)?)
+                })
         {
             tracing::warn!(target: "marmot_app::epoch_stall", method = "drop_settled_epoch_backfill_intents",
                 error_kind=error.privacy_safe_kind(), "could not retire resolved epoch-gap demand");
@@ -4826,7 +4834,12 @@ impl AppClient {
             || self
                 .app
                 .account_storage(&self.state.label)
-                .and_then(|storage| Ok(!storage.pending_epoch_backfill_intents()?.is_empty()))
+                .and_then(|storage| {
+                    Ok(!storage
+                        .app_storage()
+                        .pending_epoch_backfill_intents()?
+                        .is_empty())
+                })
                 .unwrap_or(true)
     }
 
@@ -4835,7 +4848,7 @@ impl AppClient {
     fn armed_epoch_backfill_groups(&self) -> HashSet<cgka_traits::GroupId> {
         self.app
             .account_storage(&self.state.label)
-            .and_then(|storage| Ok(storage.pending_epoch_backfill_intents()?))
+            .and_then(|storage| Ok(storage.app_storage().pending_epoch_backfill_intents()?))
             .unwrap_or_default()
             .into_iter()
             .filter_map(|intent| {
@@ -5032,7 +5045,11 @@ impl AppClient {
             let qualified = self
                 .app
                 .account_storage(&self.state.label)
-                .and_then(|storage| Ok(storage.recovery_obligation_is_satisfied(id, revision)?))
+                .and_then(|storage| {
+                    Ok(storage
+                        .app_storage()
+                        .recovery_obligation_is_satisfied(id, revision)?)
+                })
                 .unwrap_or(false);
             self.record_epoch_stall_backfill_terminal(
                 &group,
@@ -5128,8 +5145,9 @@ impl AppClient {
                     SyncFailureStage::StatePersist,
                 )
             })?;
+        let app = storage.app_storage();
         let checkpoint = (|| -> Result<Vec<Reassessed>, AppError> {
-            self.synchronize_recovery_loss(&storage)?;
+            self.synchronize_recovery_loss(&app)?;
             drop(self.transport_receipts()?);
             self.observe_recovery_route_policy()?;
             // An uncertified endpoint's outcome stays Unknown, distinct from
@@ -5173,7 +5191,7 @@ impl AppClient {
                 let unsupported = (!outcomes.is_empty()
                     && outcomes.iter().all(|(_, o)| *o == Comparison::Unsupported))
                 .then_some(self.adapter.recovery_comparison_capability_key());
-                storage.settle_recovery_comparison(
+                app.settle_recovery_comparison(
                     revision,
                     grant.reservation.attempt_serial,
                     &outcomes,
@@ -5358,14 +5376,12 @@ impl AppClient {
                         }
                     }
                     let retained_known_event = match (&route, scope.goal.known_event_id) {
-                        (Some(route), Some(event)) => {
-                            storage.app_storage().retained_recovery_event(
-                                route,
-                                &event,
-                                scope.goal.since_seconds,
-                                scope.goal.until_seconds,
-                            )?
-                        }
+                        (Some(route), Some(event)) => app.retained_recovery_event(
+                            route,
+                            &event,
+                            scope.goal.since_seconds,
+                            scope.goal.until_seconds,
+                        )?,
                         _ => false,
                     };
                     let endpoints = scope
@@ -5406,7 +5422,7 @@ impl AppClient {
                 progressed_any |= certified || fetched;
                 let eligibility = super::recovery::eligibility_after_comparison(outcome, refused);
                 if comparison_owned {
-                    storage.checkpoint_recovery_comparison(
+                    app.checkpoint_recovery_comparison(
                         &grant.fence,
                         grant.reservation.attempt_serial,
                         obligation.id,
@@ -5423,7 +5439,7 @@ impl AppClient {
                     // The close is revision-checked, so a stale attempt that
                     // wrote nothing cannot close a newer request.
                     if obligation.cause == storage_sqlite::RecoveryCause::ExplicitHistory {
-                        let scopes = storage.recovery_scope_snapshots(obligation.id)?;
+                        let scopes = app.recovery_scope_snapshots(obligation.id)?;
                         if !scopes.is_empty() && scopes.iter().all(|scope| scope.window_certified) {
                             explicit_window_certified = true;
                             if let Some((_, revision)) = grant
@@ -5432,7 +5448,7 @@ impl AppClient {
                                 .iter()
                                 .find(|(id, _)| *id == obligation.id)
                             {
-                                closed_below_window = storage.close_explicit_history_request(
+                                closed_below_window = app.close_explicit_history_request(
                                     storage_sqlite::RecoveryDemandTicket {
                                         id: obligation.id,
                                         revision: *revision,
@@ -5442,7 +5458,7 @@ impl AppClient {
                         }
                     }
                 } else {
-                    storage.checkpoint_recovery_obligation(
+                    app.checkpoint_recovery_obligation(
                         &grant.fence,
                         grant.reservation.attempt_serial,
                         obligation.id,
@@ -5463,7 +5479,7 @@ impl AppClient {
                 // New coverage or newly fetched history is progress: the next
                 // pass runs at the base delay and the parking streak restarts.
                 self.recovery_owner
-                    .observe_certified_progress(&storage, grant)?;
+                    .observe_certified_progress(&app, grant)?;
             }
             Ok(reassessed)
         })();
@@ -5471,7 +5487,7 @@ impl AppClient {
             ClassifiedSyncFailure::at_stage(summary.clone(), error, SyncFailureStage::StatePersist)
         })?;
         self.record_recovery_reassessments(
-            &storage,
+            &app,
             grant,
             &AuditEventContext {
                 operation_id: Some(format!("recovery-{}", grant.reservation.attempt_serial)),
@@ -5537,8 +5553,9 @@ impl AppClient {
             .app
             .account_storage(&self.state.label)
             .map_err(|error| state_persist(SyncSummary::default(), error))?;
+        let app = storage.app_storage();
         let operation = rand::random::<[u8; 16]>();
-        let (ticket, transition) = storage
+        let (ticket, transition) = app
             .request_recovery_observed(
                 storage_sqlite::RecoveryRequest::ExplicitHistory {
                     operation_id: &operation,
@@ -5598,7 +5615,7 @@ impl AppClient {
             ) => summary.clone(),
             _ => SyncSummary::default(),
         };
-        let qualified = storage
+        let qualified = app
             .recovery_obligation_is_satisfied(ticket.id, ticket.revision)
             .map_err(|error| state_persist(summary.clone(), error.into()))?;
         // The certified window wins over the clock: a pass that finished,
@@ -5627,7 +5644,7 @@ impl AppClient {
             // left lies below the window, where no pass can search, so the
             // request closes: it would otherwise only park into a notice. It
             // is recorded as neither coverage nor a dismissal.
-            let closed = storage
+            let closed = app
                 .close_explicit_history_request(ticket)
                 .map_err(|error| state_persist(summary.clone(), error.into()))?;
             // Settlement usually closed it already and recorded that verdict;
@@ -5974,7 +5991,10 @@ impl AppClient {
             if !seen_group_ids.insert(group_id_hex.clone()) {
                 continue;
             }
-            if let Some(frontier) = storage.local_group_deletion_frontier(&group_id_hex)? {
+            if let Some(frontier) = storage
+                .app_storage()
+                .local_group_deletion_frontier(&group_id_hex)?
+            {
                 frontiers.insert(group_id_hex, frontier);
             }
         }
@@ -6036,6 +6056,7 @@ impl AppClient {
         Ok(self
             .app
             .account_storage(&self.state.label)?
+            .app_storage()
             .local_group_deletion_message_is_newer_than(&group_id_hex, message_id, frontier)?)
     }
 
@@ -6377,6 +6398,7 @@ impl AppClient {
             *cleanup = Some(
                 self.app
                     .account_storage(&self.state.label)?
+                    .app_storage()
                     .invalidate_pending_sent_app_events_for_group(
                         &hex::encode(group_id.as_slice()),
                         crate::LOCAL_PUBLISH_FAILED_REASON,
@@ -6601,6 +6623,7 @@ impl AppClient {
         let restored = self
             .app
             .account_storage(&self.state.label)?
+            .app_storage()
             .restore_group_self_membership(&hex::encode(group_id.as_slice()))?;
         if restored {
             let group_id_hex = hex::encode(group_id.as_slice());
@@ -8348,7 +8371,7 @@ mod tests {
     /// Contract fixture: provide exhaustive, durably admitted endpoint proof.
     /// Scripted SDK EOSE is deliberately insufficient to produce this proof.
     fn qualify_epoch_obligation(
-        storage: &storage_sqlite::SqliteAccountStorage,
+        storage: &storage_sqlite::SqliteAppStorage,
         grant: &crate::client::recovery::AttemptGrant,
         group: &cgka_traits::GroupId,
     ) -> bool {
@@ -8414,7 +8437,7 @@ mod tests {
         let mut client = client_on_app_relay_plane(&app, "alice").await;
         let group = client.create_group("evidence policy", &[]).await.unwrap();
         let epoch = client.runtime.group_record(&group).unwrap().epoch.0;
-        let storage = app.account_storage("alice").unwrap();
+        let storage = app.account_storage("alice").unwrap().app_storage();
         let fork = IngestOutcome::TransportDeferred {
             group_id: group.clone(),
             lineage: DeferralLineage::ContestedFork,
@@ -8757,7 +8780,7 @@ mod tests {
             .create_group("new durable demand", &[])
             .await
             .unwrap();
-        let storage = app.account_storage("alice").unwrap();
+        let storage = app.account_storage("alice").unwrap().app_storage();
         let intent =
             |group: &cgka_traits::GroupId, epoch| storage_sqlite::StoredEpochBackfillIntent {
                 group_id_hex: hex::encode(group.as_slice()),
@@ -8856,7 +8879,14 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
-        assert_eq!(storage.pending_epoch_backfill_intents().unwrap().len(), 1);
+        assert_eq!(
+            storage
+                .app_storage()
+                .pending_epoch_backfill_intents()
+                .unwrap()
+                .len(),
+            1
+        );
         assert!(
             client.has_pending_epoch_backfill(),
             "durable demand remains visible even when the advisory reload fails"
@@ -8872,7 +8902,10 @@ mod tests {
         );
         assert!(client.has_pending_epoch_backfill());
         assert!(!client.released_backfill_reload_pending);
-        let pending = storage.pending_epoch_backfill_intents().unwrap();
+        let pending = storage
+            .app_storage()
+            .pending_epoch_backfill_intents()
+            .unwrap();
         assert_eq!(pending[0].group_id_hex, hex::encode(group.as_slice()));
         assert_eq!(pending[0].stalled_epoch, raw.epoch.0);
 
@@ -8912,6 +8945,7 @@ mod tests {
             let epoch = client.group_mls_state(&group).unwrap().epoch;
             let storage = app.account_storage("alice").unwrap();
             storage
+                .app_storage()
                 .arm_epoch_backfill_intents(&[storage_sqlite::StoredEpochBackfillIntent {
                     group_id_hex: hex::encode(group.as_slice()),
                     stalled_epoch: epoch,
@@ -8933,18 +8967,25 @@ mod tests {
             storage.release_message_for_replay(&raw).unwrap();
             client.reconcile_released_transport_receipts().unwrap();
             assert!(
-                !qualify_epoch_obligation(&storage, &grant, &group),
+                !qualify_epoch_obligation(&storage.app_storage(), &grant, &group),
                 "old qualified coverage cannot clear newly released input"
             );
-            let retry = storage.recovery_retry_state().unwrap();
+            let retry = storage.app_storage().recovery_retry_state().unwrap();
             drop(grant);
             drop(client);
             let mut reopened = client_on_app_relay_plane(&app, "alice").await;
-            let pending = storage.pending_epoch_backfill_intents().unwrap();
+            let pending = storage
+                .app_storage()
+                .pending_epoch_backfill_intents()
+                .unwrap();
             assert_eq!(pending.len(), 1);
             assert_eq!(pending[0].stalled_epoch, epoch + epoch_increment);
             assert_eq!(
-                storage.recovery_retry_state().unwrap().attempt_serial,
+                storage
+                    .app_storage()
+                    .recovery_retry_state()
+                    .unwrap()
+                    .attempt_serial,
                 retry.attempt_serial
             );
             let mut permit = crate::client::recovery::ExplicitRecoveryPermit::default();
@@ -8955,8 +8996,18 @@ mod tests {
                 )
                 .unwrap()
                 .unwrap();
-            assert!(qualify_epoch_obligation(&storage, &next, &group));
-            assert!(storage.pending_epoch_backfill_intents().unwrap().is_empty());
+            assert!(qualify_epoch_obligation(
+                &storage.app_storage(),
+                &next,
+                &group
+            ));
+            assert!(
+                storage
+                    .app_storage()
+                    .pending_epoch_backfill_intents()
+                    .unwrap()
+                    .is_empty()
+            );
         }
     }
 
@@ -8982,7 +9033,7 @@ mod tests {
             .create_group("compatible obligation", &[])
             .await
             .unwrap();
-        let storage = app.account_storage("alice").unwrap();
+        let storage = app.account_storage("alice").unwrap().app_storage();
         let intent =
             |group: &cgka_traits::GroupId, epoch| storage_sqlite::StoredEpochBackfillIntent {
                 group_id_hex: hex::encode(group.as_slice()),
@@ -9021,7 +9072,7 @@ mod tests {
         let live = client.create_group("still a member", &[]).await.unwrap();
         let removed = client.create_group("removed device", &[]).await.unwrap();
         let disbanded = client.create_group("disbanded group", &[]).await.unwrap();
-        let storage = app.account_storage("alice").unwrap();
+        let storage = app.account_storage("alice").unwrap().app_storage();
 
         let mut armed = armed_backfill(&live, 4);
         armed.extend(armed_backfill(&removed, 5));
@@ -9064,7 +9115,7 @@ mod tests {
         let live = client.create_group("still a member", &[]).await.unwrap();
         let departed = client.create_group("departed", &[]).await.unwrap();
         let queued_departed = client.create_group("queued departed", &[]).await.unwrap();
-        let storage = app.account_storage("alice").unwrap();
+        let storage = app.account_storage("alice").unwrap().app_storage();
         let epoch = client.group_mls_state(&live).unwrap().epoch;
 
         let mut primary = armed_backfill(&live, epoch);
@@ -9151,7 +9202,13 @@ mod tests {
             !client.has_pending_epoch_backfill(),
             "a released receipt must not re-arm a group this device is terminal in"
         );
-        assert!(storage.pending_epoch_backfill_intents().unwrap().is_empty());
+        assert!(
+            storage
+                .app_storage()
+                .pending_epoch_backfill_intents()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     /// A wholly-terminal owner must stop reading as pending *before* the
@@ -9192,6 +9249,7 @@ mod tests {
         assert!(
             app.account_storage("alice")
                 .unwrap()
+                .app_storage()
                 .pending_epoch_backfill_intents()
                 .unwrap()
                 .is_empty()
@@ -9213,7 +9271,7 @@ mod tests {
             .with_test_relay_client(Arc::new(ScriptedPushRelayClient::default()));
         let mut client = app.client("alice").await.unwrap();
         let departed = client.create_group("departed", &[]).await.unwrap();
-        let storage = app.account_storage("alice").unwrap();
+        let storage = app.account_storage("alice").unwrap().app_storage();
 
         client
             .persist_epoch_backfill_intent(&armed_backfill(&departed, 5))
@@ -9260,7 +9318,7 @@ mod tests {
             .with_test_relay_client(Arc::new(ScriptedPushRelayClient::default()));
         let mut client = app.client("alice").await.unwrap();
         let departed = client.create_group("departed", &[]).await.unwrap();
-        let storage = app.account_storage("alice").unwrap();
+        let storage = app.account_storage("alice").unwrap().app_storage();
         let epoch = client.group_mls_state(&departed).unwrap().epoch;
 
         // The detector opens the run; `apply_backfill_decision` only consumes
@@ -9324,7 +9382,7 @@ mod tests {
             .await;
             let group = route.group_id.clone();
             let epoch = client.group_mls_state(&group).unwrap().epoch;
-            let storage = app.account_storage("alice").unwrap();
+            let storage = app.account_storage("alice").unwrap().app_storage();
             let _ = client.epoch_stall.observe_resource_refusal(
                 group.clone(),
                 cgka_traits::EpochId(epoch),
@@ -9384,7 +9442,7 @@ mod tests {
             .with_test_relay_client(Arc::new(ScriptedPushRelayClient::default()));
         let mut client = app.client("alice").await.unwrap();
         let departed = client.create_group("departed", &[]).await.unwrap();
-        let storage = app.account_storage("alice").unwrap();
+        let storage = app.account_storage("alice").unwrap().app_storage();
         let epoch = client.group_mls_state(&departed).unwrap().epoch;
 
         let decision = client.epoch_stall.observe_resource_refusal(
@@ -9989,14 +10047,13 @@ mod retired_loss_observation_tests {
             .with_test_relay_client(Arc::new(ScriptedPushRelayClient::default()));
         let mut client = client_on_app_relay_plane(&app, "alice").await;
         let storage = app.account_storage("alice").unwrap();
-        storage
-            .mark_account_delivery_recovery("alice", 42, 1)
-            .unwrap();
+        let app = storage.app_storage();
+        app.mark_account_delivery_recovery("alice", 42, 1).unwrap();
         client.delivery_overflow_recovery_pending = true;
         client.delivery_overflow_recovery_marker_token = Some(42);
         client.adapter.start_delivery_overflow_recovery(42);
         client.adapter.fail_delivery_overflow_recovery();
-        let loss = storage
+        let loss = app
             .pending_recovery_demands()
             .unwrap()
             .into_iter()
@@ -10005,10 +10062,9 @@ mod retired_loss_observation_tests {
             .ticket
             .id;
         park_recovery_for_test(&storage, loss);
-        let ticket = storage.parked_recovery_obligations().unwrap()[0].ticket;
+        let ticket = app.parked_recovery_obligations().unwrap()[0].ticket;
         assert!(
-            storage
-                .retire_parked_recovery_obligation(ticket.id, ticket.revision, 1_000)
+            app.retire_parked_recovery_obligation(ticket.id, ticket.revision, 1_000)
                 .unwrap()
         );
         assert!(client.delivery_loss_blocks_cursor());
@@ -10018,12 +10074,7 @@ mod retired_loss_observation_tests {
         assert!(!client.delivery_overflow_recovery_pending);
         assert!(client.adapter.pending_delivery_overflow().is_none());
         assert!(!client.delivery_loss_blocks_cursor());
-        assert!(
-            storage
-                .account_delivery_recovery("alice")
-                .unwrap()
-                .is_none()
-        );
+        assert!(app.account_delivery_recovery("alice").unwrap().is_none());
         assert!(client.history_notices().unwrap().is_empty());
 
         client
@@ -10036,8 +10087,7 @@ mod retired_loss_observation_tests {
             .unwrap();
         assert!(client.delivery_overflow_recovery_pending);
         assert_eq!(
-            storage
-                .account_delivery_recovery("alice")
+            app.account_delivery_recovery("alice")
                 .unwrap()
                 .unwrap()
                 .marker_token,

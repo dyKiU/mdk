@@ -61,7 +61,7 @@ pub(super) async fn wait_record(
     tokio::time::timeout(std::time::Duration::from_secs(10), async {
         loop {
             if let Some(row) = storage
-                .timeline_message(&group, &incoming.preapproval_message)
+                .app_storage().timeline_message(&group, &incoming.preapproval_message)
                 .unwrap()
             {
                 assert!(!row.deleted && row.invalidation_status.is_none());

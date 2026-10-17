@@ -7,7 +7,7 @@ use cgka_traits::storage::StorageProvider;
 async fn purpose_factory_resolves_exact_package_and_rejects_scope_substitution() {
     let storage = SqliteAccountStorage::in_memory().unwrap();
     storage
-        .ensure_account_projection_with_identity(
+        .app_storage().ensure_account_projection_with_identity(
             "isolated-purpose-test",
             &hex::encode(pad32(ACCOUNT)),
         )
@@ -83,7 +83,7 @@ async fn reserve(
 ) -> PurposeAttemptScope {
     let account: [u8; 32] = pad32(ACCOUNT).try_into().unwrap();
     storage
-        .ensure_account_projection_with_identity("isolated-purpose-test", &hex::encode(account))
+        .app_storage().ensure_account_projection_with_identity("isolated-purpose-test", &hex::encode(account))
         .unwrap();
     let public = engine.fresh_key_package().await.unwrap();
     let device: [u8; 32] = hex::decode(

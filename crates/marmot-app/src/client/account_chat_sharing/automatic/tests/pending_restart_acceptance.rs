@@ -83,7 +83,7 @@ impl AppClient {
             clients[lower].as_ref().unwrap().runtime.session().validate_account_sharing_channel(&low.channel).unwrap();
             eprintln!("pending_restart_authenticated_y_retained_exact_live_x=true");
             assert!(apps[0].account_storage("test").unwrap()
-                .timeline_message(&hex::encode(ordinary_group.as_slice()), source_event).unwrap()
+                .app_storage().timeline_message(&hex::encode(ordinary_group.as_slice()), source_event).unwrap()
                 .is_some_and(|row| !row.deleted && row.invalidation_status.is_none()));
             let sent = clients[0].as_mut().unwrap().send(ordinary_group, b"ordinary witness after pending-owner restart").await.unwrap();
             assert_eq!(sent.published, 1);
@@ -109,7 +109,7 @@ impl AppClient {
                     recipient.automatic_policy_current(&pair[1]).unwrap();
                     assert!(recipient.presentation_scope(&pair[1]).unwrap() == scope);
                     if catalog && record {
-                        eprintln!("pending_restart_source_scoped_catalog_and_exact_record=true local_ordinary_present={}", storage.timeline_message(&hex::encode(ordinary_group.as_slice()), witness).unwrap().is_some());
+                        eprintln!("pending_restart_source_scoped_catalog_and_exact_record=true local_ordinary_present={}", storage.app_storage().timeline_message(&hex::encode(ordinary_group.as_slice()), witness).unwrap().is_some());
                         break;
                     }
                     tokio::time::sleep(Duration::from_millis(20)).await;

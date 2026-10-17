@@ -52,7 +52,7 @@ pub(crate) fn install(engine: &mut Engine<SqliteAccountStorage>, origin: u64) ->
     let device = engine.identity.signer.public().try_into().unwrap();
     engine
         .storage
-        .ensure_account_projection_with_identity("isolated-engine-prepare", &hex::encode(account))
+        .app_storage().ensure_account_projection_with_identity("isolated-engine-prepare", &hex::encode(account))
         .unwrap();
     let generation = engine
         .storage

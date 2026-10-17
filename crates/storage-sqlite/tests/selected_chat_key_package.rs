@@ -14,7 +14,7 @@ mod feature {
 
     fn package_fixture(storage: &SqliteAccountStorage) -> SelectedChatPurposeKeyPackage {
         storage
-            .ensure_account_projection_with_identity(
+            .app_storage().ensure_account_projection_with_identity(
                 "isolated-selected-chat-purpose",
                 &hex::encode([1; 32]),
             )
@@ -191,7 +191,7 @@ mod feature {
         purpose.put_selected_chat_key_package(&pending).unwrap();
 
         storage
-            .ensure_account_projection_with_identity(
+            .app_storage().ensure_account_projection_with_identity(
                 "isolated-selected-chat-purpose",
                 &hex::encode([15; 32]),
             )

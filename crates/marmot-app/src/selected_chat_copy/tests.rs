@@ -1966,6 +1966,7 @@ mod actual {
                 let stored = app
                     .account_storage("test")
                     .unwrap()
+                    .app_storage()
                     .timeline_message(&fixture.chat_hex, larger_id)
                     .unwrap()
                     .unwrap();

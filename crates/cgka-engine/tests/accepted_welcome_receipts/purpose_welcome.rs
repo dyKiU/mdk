@@ -10,7 +10,7 @@ async fn purpose_welcome_without_live_verifier_gate_is_denied_before_consumption
     let mut approver = client(SqliteAccountStorage::in_memory().unwrap());
     let account: [u8; 32] = pad32(ACCOUNT).try_into().unwrap();
     storage
-        .ensure_account_projection_with_identity(
+        .app_storage().ensure_account_projection_with_identity(
             "isolated-purpose-join-test",
             &hex::encode(account),
         )
@@ -180,7 +180,7 @@ pub(super) async fn verified_package(
 ) -> (PurposeKeyPackage, cgka_traits::engine::KeyPackage) {
     let account: [u8; 32] = pad32(ACCOUNT).try_into().unwrap();
     storage
-        .ensure_account_projection_with_identity("isolated-policy-fixture", &hex::encode(account))
+        .app_storage().ensure_account_projection_with_identity("isolated-policy-fixture", &hex::encode(account))
         .unwrap();
     let public = recipient.fresh_key_package().await.unwrap();
     let device: [u8; 32] = hex::decode(

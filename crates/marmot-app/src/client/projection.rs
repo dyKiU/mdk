@@ -179,6 +179,7 @@ impl AppClient {
         Ok(self
             .app
             .account_storage(&self.state.label)?
+            .app_storage()
             .local_group_deletion_frontier(&group_id_hex)?
             .is_some())
     }
@@ -240,7 +241,9 @@ impl AppClient {
                 continue;
             };
             if self.state_group_record(group_id).is_none() {
-                storage.clear_local_group_deletion_frontier(&hex::encode(group_id.as_slice()))?;
+                storage
+                    .app_storage()
+                    .clear_local_group_deletion_frontier(&hex::encode(group_id.as_slice()))?;
             }
         }
         Ok(())
@@ -342,6 +345,7 @@ impl AppClient {
             // keep receiving on: it retains a quarantined group's inbound
             // input as deferred peels and replays them on recovery.
             let Some(current) = storage
+                .app_storage()
                 .local_group_deletion_prior_nostr_routes(&hex::encode(group_id.as_slice()))?
                 .into_iter()
                 .filter(|route| route.replaced_at.is_none())
@@ -361,6 +365,7 @@ impl AppClient {
         let routing = self.nostr_routing_for_group(group_id)?;
         let current = routing.subscription(group_id)?;
         if storage
+            .app_storage()
             .retain_local_group_deletion_nostr_routes(
                 &hex::encode(group_id.as_slice()),
                 &[StoredNostrRoute {
@@ -403,8 +408,9 @@ impl AppClient {
             .filter(|route| route.group_id == *group_id)
             .collect::<Vec<_>>();
         let mut subscriptions = vec![current.clone()];
-        for route in
-            storage.local_group_deletion_prior_nostr_routes(&hex::encode(group_id.as_slice()))?
+        for route in storage
+            .app_storage()
+            .local_group_deletion_prior_nostr_routes(&hex::encode(group_id.as_slice()))?
         {
             let route = AppPriorNostrRoute {
                 nostr_group_id_hex: route.nostr_group_id_hex,
@@ -471,6 +477,7 @@ impl AppClient {
         let routes = self
             .app
             .account_storage(&self.state.label)?
+            .app_storage()
             .local_group_deletion_prior_nostr_routes(&group_id_hex)?
             .into_iter()
             .map(|route| AppPriorNostrRoute {
@@ -583,6 +590,7 @@ impl AppClient {
                 if self
                     .app
                     .account_storage(&self.state.label)?
+                    .app_storage()
                     .local_group_deletion_frontier(&group_id_hex)?
                     .is_some()
                 {
@@ -942,6 +950,7 @@ impl AppClient {
         if !self
             .app
             .account_storage(&self.state.label)?
+            .app_storage()
             .local_publish_failure_is_clearable(group_id_hex, &published.app_event_id)?
         {
             return Ok(None);
@@ -1597,6 +1606,7 @@ impl super::AppClient {
         // all projections. Queue the complete batch only after it commits.
         let updates = cgka_traits::StorageProvider::with_transaction(&storage, |storage| {
             storage
+                .app_storage()
                 .backfill_content_reports(100)?
                 .into_iter()
                 .map(|update| self.app.app_projection_update(&self.state.label, update))

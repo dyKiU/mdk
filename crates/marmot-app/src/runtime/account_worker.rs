@@ -4241,9 +4241,13 @@ async fn handle_startup_hydration_command(
         AccountWorkerCommand::RecoveryRetrySnapshot { respond } => {
             let storage = client.app.account_storage(&client.state.label).unwrap();
             let _ = respond.send((
-                storage.recovery_retry_state().unwrap(),
+                storage.app_storage().recovery_retry_state().unwrap(),
                 client.recovery_owner.test_retry_remaining(&storage),
-                storage.recovery_comparison().unwrap().pending(),
+                storage
+                    .app_storage()
+                    .recovery_comparison()
+                    .unwrap()
+                    .pending(),
             ));
         }
         #[cfg(test)]
@@ -4344,7 +4348,7 @@ fn schedule_avatar_acquisition(
     let transport = client.blossom_http_transport.clone();
     let mut dispatched = false;
     let result = dispatch_avatar_acquisition(
-        &storage,
+        &storage.app_storage(),
         media_http,
         resumed,
         &mut dispatched,
@@ -4364,7 +4368,7 @@ fn schedule_avatar_acquisition(
 }
 
 fn dispatch_avatar_acquisition<F, Fut>(
-    storage: &storage_sqlite::SqliteAccountStorage,
+    storage: &storage_sqlite::SqliteAppStorage,
     media_http: &MediaHttpContext,
     resumed: &mut bool,
     dispatched: &mut bool,
@@ -4582,17 +4586,21 @@ async fn complete_media_http(
                         )
                         .then(|| now.saturating_add(24 * 60 * 60));
                         storage
+                            .app_storage()
                             .complete_avatar_acquisition(&job, &image, refresh)
                             .map(|_| ())
                     }
                     Err(error) => storage
+                        .app_storage()
                         .fail_avatar_acquisition(&job, now, crate::media::avatar::retryable(&error))
                         .map(|_| ()),
                 };
                 if completed.is_err() {
                     // Publication failure leaves the old bytes untouched. Avoid
                     // stranding a fetching row until process reconstruction.
-                    let _ = storage.fail_avatar_acquisition(&job, now, true);
+                    let _ = storage
+                        .app_storage()
+                        .fail_avatar_acquisition(&job, now, true);
                     tracing::warn!(target: "marmot_app::runtime", method = "avatar_acquisition",
                         "avatar completion could not be committed");
                 }
@@ -5190,9 +5198,13 @@ fn account_worker_command_future<'a>(
         AccountWorkerCommand::RecoveryRetrySnapshot { respond } => Box::pin(async move {
             let storage = client.app.account_storage(&client.state.label).unwrap();
             let _ = respond.send((
-                storage.recovery_retry_state().unwrap(),
+                storage.app_storage().recovery_retry_state().unwrap(),
                 client.recovery_owner.test_retry_remaining(&storage),
-                storage.recovery_comparison().unwrap().pending(),
+                storage
+                    .app_storage()
+                    .recovery_comparison()
+                    .unwrap()
+                    .pending(),
             ));
             true
         }),
@@ -6826,7 +6838,12 @@ async fn wait_for_local_submission_or_shutdown(
             };
             if !app
                 .account_storage(&account_label)
-                .and_then(|storage| storage.next_local_submission().map_err(Into::into))
+                .and_then(|storage| {
+                    storage
+                        .app_storage()
+                        .next_local_submission()
+                        .map_err(Into::into)
+                })
                 .is_ok_and(|submission| submission.is_none())
             {
                 return;
@@ -6860,7 +6877,7 @@ async fn publish_next_local_submission(
             return Some(Duration::from_millis(100));
         };
         let storage = app.account_storage(account_label).ok()?;
-        let submission = storage.next_local_submission().ok()??;
+        let submission = storage.app_storage().next_local_submission().ok()??;
         let queued = shared
             .local_submission_queue
             .lock()
@@ -8516,6 +8533,7 @@ mod tests {
         // rather than assuming the second delivery beats the first timer.
         use cgka_traits::storage::ConvergencePassStorage;
         let storage = app.account_storage("bob").unwrap();
+        let app = storage.app_storage();
         timeout(Duration::from_secs(30), async {
             loop {
                 if storage.convergence_pass(&first).unwrap().is_some()
@@ -8541,10 +8559,9 @@ mod tests {
             .await;
         // Lost history remains independent of the runnable local passes. The
         // account already owes the cooldown reserved by catch-up.
-        let retry = storage.recovery_retry_state().unwrap();
+        let retry = app.recovery_retry_state().unwrap();
         let activations = relay.subscription_count();
-        storage
-            .record_account_delivery_loss("bob", 771, 1, crate::unix_now_seconds())
+        app.record_account_delivery_loss("bob", 771, 1, crate::unix_now_seconds())
             .unwrap();
         let first_pass = Arc::new(tokio::sync::Barrier::new(2));
         runtime
@@ -8605,7 +8622,7 @@ mod tests {
         .await
         .expect("recovery must not starve the queued commands");
         assert_eq!(
-            storage.recovery_retry_state().unwrap(),
+            app.recovery_retry_state().unwrap(),
             retry,
             "both actual scheduled convergence passes preserve history retry cost"
         );
@@ -8615,8 +8632,7 @@ mod tests {
             "post-convergence and maintenance cannot bypass the owner cooldown"
         );
         assert!(
-            storage
-                .pending_recovery_demands()
+            app.pending_recovery_demands()
                 .unwrap()
                 .iter()
                 .any(|d| d.cause == storage_sqlite::RecoveryCause::QueueLoss)
@@ -8744,6 +8760,7 @@ mod tests {
         let storage = app.account_storage("alice").unwrap();
         let arm = |epoch| {
             storage
+                .app_storage()
                 .arm_epoch_backfill_intents(&[storage_sqlite::StoredEpochBackfillIntent {
                     group_id_hex: hex::encode(group_id.as_slice()),
                     stalled_epoch: epoch,
@@ -8763,6 +8780,7 @@ mod tests {
         publish(&mut client);
         while received.try_recv().is_ok() {}
         let gap = storage
+            .app_storage()
             .pending_recovery_demands()
             .unwrap()
             .into_iter()
@@ -8962,7 +8980,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn avatar_dispatch_shares_media_capacity_and_holds_it_through_publication() {
-        let store = storage_sqlite::SqliteAccountStorage::in_memory().unwrap();
+        let store = storage_sqlite::SqliteAccountStorage::in_memory()
+            .unwrap()
+            .app_storage();
         for n in 0..5 {
             store
                 .request_avatar_acquisition(
@@ -9022,7 +9042,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn avatar_shutdown_cancels_io_and_leaves_resumable_intent() {
-        let store = storage_sqlite::SqliteAccountStorage::in_memory().unwrap();
+        let store = storage_sqlite::SqliteAccountStorage::in_memory()
+            .unwrap()
+            .app_storage();
         let reference = store
             .request_avatar_acquisition(
                 "owner",
@@ -9804,6 +9826,7 @@ mod tests {
         let retry = app
             .account_storage("alice")
             .unwrap()
+            .app_storage()
             .recovery_retry_state()
             .unwrap();
         assert_eq!(retry.attempt_serial, 2);
@@ -9822,6 +9845,7 @@ mod tests {
         assert_eq!(
             app.account_storage("alice")
                 .unwrap()
+                .app_storage()
                 .recovery_retry_state()
                 .unwrap(),
             retry
@@ -9858,6 +9882,7 @@ mod tests {
         );
         app.account_storage("alice")
             .unwrap()
+            .app_storage()
             .mark_account_delivery_recovery("alice", 7, 1)
             .unwrap();
         client.delivery_overflow_recovery_pending = true;
@@ -9895,6 +9920,7 @@ mod tests {
             let retry = app
                 .account_storage("alice")
                 .unwrap()
+                .app_storage()
                 .recovery_retry_state()
                 .unwrap();
             assert_eq!(retry.attempt_serial, 1, "{reason}");
@@ -9908,6 +9934,7 @@ mod tests {
         let retry = app
             .account_storage("alice")
             .unwrap()
+            .app_storage()
             .recovery_retry_state()
             .unwrap();
         client
@@ -9927,6 +9954,7 @@ mod tests {
         assert_eq!(
             app.account_storage("alice")
                 .unwrap()
+                .app_storage()
                 .recovery_retry_state()
                 .unwrap(),
             retry
@@ -9939,6 +9967,7 @@ mod tests {
         assert_eq!(
             app.account_storage("alice")
                 .unwrap()
+                .app_storage()
                 .recovery_retry_state()
                 .unwrap()
                 .attempt_serial,
@@ -9977,6 +10006,7 @@ mod tests {
         let marker_token = 7;
         app.account_storage("alice")
             .unwrap()
+            .app_storage()
             .mark_account_delivery_recovery("alice", marker_token, 1)
             .unwrap();
         client.delivery_overflow_recovery_pending = true;
@@ -9998,6 +10028,7 @@ mod tests {
         assert!(
             app.account_storage("alice")
                 .unwrap()
+                .app_storage()
                 .account_delivery_recovery("alice")
                 .unwrap()
                 .is_some(),
@@ -10061,6 +10092,7 @@ mod tests {
         assert_eq!(
             app.account_storage("alice")
                 .unwrap()
+                .app_storage()
                 .recovery_retry_state()
                 .unwrap()
                 .attempt_serial,
@@ -10096,6 +10128,7 @@ mod tests {
         orphan.id = test_group_id(0xde);
         cgka_traits::storage::GroupStorage::put_group(&storage, &orphan).unwrap();
         storage
+            .app_storage()
             .arm_epoch_backfill_intents(&[storage_sqlite::StoredEpochBackfillIntent {
                 group_id_hex: hex::encode(orphan.id.as_slice()),
                 stalled_epoch: 1,
@@ -10236,6 +10269,7 @@ mod tests {
             assert_eq!(
                 app.account_storage("alice")
                     .unwrap()
+                    .app_storage()
                     .recovery_retry_state()
                     .unwrap()
                     .attempt_serial,
@@ -10277,6 +10311,7 @@ mod tests {
         let marker_token = 7;
         app.account_storage("alice")
             .unwrap()
+            .app_storage()
             .mark_account_delivery_recovery("alice", marker_token, 1)
             .unwrap();
         client.delivery_overflow_recovery_pending = true;
@@ -10292,6 +10327,7 @@ mod tests {
         assert!(
             app.account_storage("alice")
                 .unwrap()
+                .app_storage()
                 .account_delivery_recovery("alice")
                 .unwrap()
                 .is_some(),
@@ -10316,6 +10352,7 @@ mod tests {
         let marker_token = 7;
         app.account_storage("alice")
             .unwrap()
+            .app_storage()
             .mark_account_delivery_recovery("alice", marker_token, 1)
             .unwrap();
         client.delivery_overflow_recovery_pending = true;
@@ -10352,6 +10389,7 @@ mod tests {
         assert!(
             app.account_storage("alice")
                 .unwrap()
+                .app_storage()
                 .account_delivery_recovery("alice")
                 .unwrap()
                 .is_some(),
@@ -10389,6 +10427,7 @@ mod tests {
         orphan.id = test_group_id(0xde);
         cgka_traits::storage::GroupStorage::put_group(&storage, &orphan).unwrap();
         storage
+            .app_storage()
             .arm_epoch_backfill_intents(&[storage_sqlite::StoredEpochBackfillIntent {
                 group_id_hex: hex::encode(orphan.id.as_slice()),
                 stalled_epoch: 1,
@@ -10428,7 +10467,7 @@ mod tests {
         let mut client = client_on_app_relay_plane(&app, "alice").await;
         let group_a = client.create_group("demand a", &[]).await.unwrap();
         let group_b = client.create_group("demand b", &[]).await.unwrap();
-        let storage = app.account_storage("alice").unwrap();
+        let storage = app.account_storage("alice").unwrap().app_storage();
         client.apply_backfill_decision(
             &group_a,
             client.group_mls_state(&group_a).unwrap().epoch,
@@ -11189,6 +11228,7 @@ mod tests {
             assert_eq!(
                 app.account_storage("bob")
                     .unwrap()
+                    .app_storage()
                     .recovery_retry_state()
                     .unwrap()
                     .attempt_serial,

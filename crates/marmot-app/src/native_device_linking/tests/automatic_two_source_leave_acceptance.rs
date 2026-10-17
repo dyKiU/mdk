@@ -192,7 +192,7 @@ impl TwoSourcePeer {
                 if future
                     .message_ids
                     .iter()
-                    .all(|id| storage.app_message(&group_hex, id).unwrap().is_some())
+                    .all(|id| storage.app_storage().app_message(&group_hex, id).unwrap().is_some())
                 {
                     break;
                 }
@@ -221,7 +221,7 @@ impl TwoSourcePeer {
                             Err(cgka_traits::StorageError::NotFound) => None,
                             Err(_) => return Err(()),
                         };
-                        let alias = recipient.app_message(&group_hex,&hex::encode(content.as_slice())).map_err(|_| ())?.is_some();
+                        let alias = recipient.app_storage().app_message(&group_hex,&hex::encode(content.as_slice())).map_err(|_| ())?.is_some();
                         eprintln!("two_source_delivery_failure_source_state={:?} recipient_canonical={canonical:?} canonical_alias_delivered={alias}",row.state);
                     }
                     Ok::<(), ()>(())
@@ -511,7 +511,7 @@ async fn wait_for_peer_messages(
             if ids.iter().all(|id| {
                 app.account_storage("test")
                     .unwrap()
-                    .app_message(&group_hex, id)
+                    .app_storage().app_message(&group_hex, id)
                     .unwrap()
                     .is_some()
             }) {
