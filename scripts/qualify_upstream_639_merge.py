@@ -123,7 +123,7 @@ def panic_policy(raw, name):
     # Only this selected test deliberately fails a child. Require the original
     # macro's exact static location and payload, never an arbitrary caught panic.
     line, column = worker_panic_location()
-    pattern = (r"^thread 'tokio-runtime-worker'(?: \([0-9]+\))? panicked at "
+    pattern = (r"^thread '(?:tokio-runtime-worker|tokio-rt-worker)'(?: \([0-9]+\))? panicked at "
                + re.escape(PLANE) + ':' + str(line) + ':' + str(column)
                + r':\ninjected relay notification worker failure\n')
     return count == 1 and len(re.findall(pattern, raw, re.M)) == 1
@@ -183,13 +183,19 @@ def parser_preflight():
     worker_raw = raw.replace(name, worker).replace(' ... ok\n', ' ... ' + panic + 'ok\n')
     ensure(parse_runtime(worker_raw, 0, worker)['passed_gate'], 'exact-intentional-worker-panic-positive')
     ensure(parse_runtime(worker_raw.replace("' (123)", "'"), 0, worker)['passed_gate'], 'exact-worker-panic-without-thread-id-positive')
+    actual_worker = worker_raw.replace('tokio-runtime-worker', 'tokio-rt-worker')
+    ensure(parse_runtime(actual_worker, 0, worker)['passed_gate'], 'actual-ci-tokio-worker-name-positive')
+    ensure(parse_runtime(actual_worker.replace("' (123)", "'"), 0, worker)['passed_gate'], 'actual-ci-tokio-worker-without-thread-id-positive')
     unexpected = [raw + panic, raw + "\nthread 'child' panicked at crates/other.rs:1:1:\nunrelated panic\n",
                   worker_raw.replace('injected relay notification worker failure', 'unrelated panic'),
                   worker_raw.replace(PLANE, 'crates/other.rs'),
                   worker_raw.replace(':' + str(line) + ':', ':' + str(line + 1) + ':'),
                   worker_raw.replace(':' + str(column) + ':', ':' + str(column + 1) + ':'),
                   worker_raw.replace('tokio-runtime-worker', 'unrelated-worker'),
-                  worker_raw + panic, raw.replace(name, worker)]
+                  worker_raw + panic, raw.replace(name, worker),
+                  actual_worker.replace('tokio-rt-worker', 'unrelated-worker'),
+                  actual_worker.replace('injected relay notification worker failure', 'unrelated panic'),
+                  actual_worker.replace(PLANE, 'crates/other.rs'), actual_worker + panic]
     for index, value in enumerate(unexpected):
         selected = name if index < 2 else worker
         ensure(not parse_runtime(value, 0, selected)['passed_gate'], 'missing-extra-or-foreign-worker-panic-rejected')
@@ -206,7 +212,7 @@ def parser_preflight():
          'source_path_form': 'unknown', 'expected_worker_message': False}] and 'PRIVATE_RUNTIME_VALUE' not in json.dumps(unknown), 'unknown-panic-values-never-exported')
     ensure(safe_panic_diagnostics(private * 5, worker)['truncated'] is True, 'panic-diagnostic-export-bounded')
     ensure(safe_panic_diagnostics('unparsed panicked at hidden\n', worker)['unparsed_header_count'] == 1, 'unknown-panic-header-explicit')
-    return {'positive': 3, 'negative': len(negatives) + 1 + len(unexpected),
+    return {'positive': 5, 'negative': len(negatives) + 1 + len(unexpected),
             'diagnostic_positive': 2, 'diagnostic_privacy_and_unknown_controls': 3, 'actual_runtime_bodies': 0}
 
 
