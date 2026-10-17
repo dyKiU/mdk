@@ -1582,12 +1582,14 @@ mod tests {
             targets: Vec::new(),
             attempt_count: 0,
             last_failure_code: None,
+            consumed_at: None,
         });
         lifecycle.retained_private_material = vec![RetainedKeyPackagePrivateMaterial {
             key_package: KeyPackage::new(vec![1]),
             key_package_ref: retained.clone(),
             not_after: Timestamp(2),
             replaced_at: Timestamp(1),
+            consumed: false,
         }];
 
         assert_eq!(

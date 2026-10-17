@@ -86,16 +86,16 @@ pub use error::{EngineError, PeelerError};
 pub use group::{DisbandTombstone, Group, Member};
 pub use group_context::{GroupContext, GroupContextSnapshot, SecretBytes};
 pub use ingest::{
-    IngestOutcome, InputRejectionCategory, LocalIngestState, PeeledContent, PeeledMessage,
-    ProposalRejectionCategory, StaleReason,
+    DeferredStallEvidence, DeferredStallRow, IngestOutcome, InputRejectionCategory,
+    LocalIngestState, PeeledContent, PeeledMessage, ProposalRejectionCategory, StaleReason,
 };
 pub use maintenance::{
-    DurableGroupEvolution, DurableTransportFanout, GroupEvolutionPhase, GroupEvolutionSemantic,
-    GroupMaintenanceState, GroupMaintenanceStatus, KeyPackageLifecycleState, MaintenanceObligation,
-    MaintenancePhase, MaintenanceRandom, MaintenanceRunSummary, MaintenanceTrigger, MonotonicClock,
-    PendingKeyPackageReplacement, PeriodicMaintenancePolicy, RetainedKeyPackagePrivateMaterial,
-    SendMaintenanceDisposition, SignedPublicationArtifact, TransportFanoutAttemptState,
-    TransportFanoutTarget, WallClock,
+    CONSUMED_KEY_PACKAGE_RETENTION_SECS, DurableGroupEvolution, DurableTransportFanout,
+    GroupEvolutionPhase, GroupEvolutionSemantic, GroupMaintenanceState, GroupMaintenanceStatus,
+    KeyPackageLifecycleState, MaintenanceObligation, MaintenancePhase, MaintenanceRandom,
+    MaintenanceRunSummary, MaintenanceTrigger, MonotonicClock, PendingKeyPackageReplacement,
+    PeriodicMaintenancePolicy, RetainedKeyPackagePrivateMaterial, SendMaintenanceDisposition,
+    SignedPublicationArtifact, TransportFanoutAttemptState, TransportFanoutTarget, WallClock,
 };
 pub use message::{
     MessageRecord, MessageState, OwnApplicationConvergenceStamp, OwnCommitConvergenceStamp,

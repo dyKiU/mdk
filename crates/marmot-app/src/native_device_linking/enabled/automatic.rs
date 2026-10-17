@@ -2,7 +2,7 @@
 use super::*;
 use crate::device_linking::network::delivery::{Inbound, Receiver, Sender};
 use crate::device_linking::network::{
-    Bootstrap, Channel, Error as WireError, Message, MessageKind, PeerHint,
+    Bootstrap, Channel, Error as WireError, Message, MessageKind, PeerHint, EVENT_KIND,
 };
 use crate::relay_plane::pairing::{PairingMailbox, PairingRelayError};
 use nostr::prelude::{Event, Keys, PublicKey, Timestamp};
@@ -73,7 +73,7 @@ impl SiblingDriver {
         .map_err(wire_error)?;
         let (plane, endpoints) = state.manager.device_pairing_transport();
         let mailbox = plane
-            .pairing_mailbox(endpoints, channel.public_key(), state.deadline)
+            .pairing_mailbox(EVENT_KIND, endpoints, channel.public_key(), state.deadline)
             .await
             .map_err(relay_error)?;
         state.check_open()?;
@@ -191,7 +191,7 @@ impl Driver {
         let channel = Channel::new(keys, bootstrap, Timestamp::now().as_secs(), deadline)
             .map_err(wire_error)?;
         let mailbox = plane
-            .pairing_mailbox(endpoints, channel.public_key(), deadline)
+            .pairing_mailbox(EVENT_KIND, endpoints, channel.public_key(), deadline)
             .await
             .map_err(relay_error)?;
         let mut driver = Self {

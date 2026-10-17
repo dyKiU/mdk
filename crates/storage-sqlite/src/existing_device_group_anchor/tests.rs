@@ -152,7 +152,7 @@ fn existing_anchor_group_delete_denies_metadata_in_the_same_transaction() {
     let storage = SqliteAccountStorage::in_memory().unwrap();
     let draft = setup(&storage);
     storage
-        .put_group(&crate::storage::test_support::sample_group(
+        .put_group(&crate::base::test_support::sample_group(
             draft.group_id.clone(),
             2,
             3,

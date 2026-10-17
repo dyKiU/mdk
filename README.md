@@ -92,12 +92,13 @@ and reasoned about on its own:
 ```text
  apps (MarmotKit / C)    wn CLI · wnd · TUI    wn-agent ──► agent runtimes
             └────────────────┬─────┴──────────────┘
-                     marmot-app        multi-account runtime, projections, relay plane
+                     marmot-app        multi-account runtime, projections
                      marmot-account    account homes, keys, transport orchestration
                      cgka-session      one encrypted account-device lifecycle
                      cgka-engine       OpenMLS group state machine + commit convergence
                      storage-sqlite    SQLCipher persistence (one DB per account-device)
 
+ transport-nostr                     the relay plane: shared relay sessions, delivery, directory fetches
  transport-nostr-peeler / -adapter   Nostr events ⇄ engine messages, relay I/O
  transport-quic-stream / -broker     transient live previews for agent replies
 ```
@@ -138,6 +139,7 @@ still land on the same epoch and group state. The engine — not relay order or 
 | | [`media-store`](crates/media-store/README.md) | Encrypted per-file media store: file format and file lifecycle |
 | Transport | [`transport-nostr-peeler`](crates/transport-nostr-peeler/README.md) | Nostr event ⇄ engine message boundary |
 | | [`transport-nostr-adapter`](crates/transport-nostr-adapter/README.md) | Relay I/O behind an injectable client |
+| | [`transport-nostr`](crates/transport-nostr/README.md) | The relay plane: per-account relay sessions, delivery and directory fetches |
 | | [`transport-quic-stream`](crates/transport-quic-stream/README.md) | QUIC transport for live agent text previews |
 | | [`transport-quic-broker`](crates/transport-quic-broker/README.md) | Memory-only preview broker (`marmot-quic-broker`); [deployment](docs/quic-broker-deployment.md) |
 | App | [`marmot-account`](crates/marmot-account/README.md) | Account homes, key storage, transport orchestration |
@@ -178,7 +180,7 @@ provider to use `libcrux-kem 0.0.10`, fixing RUSTSEC-2026-0330 and RUSTSEC-2026-
 Its backport notes record provenance, regression commands and the removal condition.
 
 ```sh
-just fast-ci                 # formatting, doc/naming gates, compile checks, clippy; skips the `just test` matrix
+just fast-ci                 # formatting, static gates, CI's two clippy passes; skips the `just test` matrix
 cargo test -p <crate>        # targeted tests for the crate you changed
 just ci                      # full local parity with GitHub CI (slow)
 ```

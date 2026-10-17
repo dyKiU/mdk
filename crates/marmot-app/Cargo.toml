@@ -8,13 +8,14 @@ publish.workspace = true
 [features]
 default = []
 # Private experimental SAS/linking adapter; no adopted Marmot wire identifiers.
-experimental-device-sync = ["marmot-account/experimental-device-sync", "dep:matrix-sdk-crypto", "dep:ruma", "storage-sqlite/experimental-device-sync", "cgka-session/experimental-device-sync", "transport-nostr-peeler/experimental-device-sync", "transport-nostr-adapter/experimental-device-sync"]
+experimental-device-sync = ["marmot-account/experimental-device-sync", "dep:matrix-sdk-crypto", "dep:ruma", "storage-sqlite/experimental-device-sync", "cgka-session/experimental-device-sync", "transport-nostr-peeler/experimental-device-sync", "transport-nostr-adapter/experimental-device-sync", "transport-nostr/experimental-device-sync"]
 product-analytics-export = []
 # Test-only convergence timing/rewind overrides. Never enable in app artifacts.
 test-policy-overrides = [
     "cgka-engine/test-policy-overrides",
     "cgka-session/test-policy-overrides",
     "transport-nostr-adapter/test-policy-overrides",
+    "transport-nostr/test-policy-overrides",
 ]
 # Opt-in relay-telemetry OTLP exporter wire encoding and HTTP push. The
 # privacy-critical mapping and opt-in gate stay in the default build; this
@@ -65,6 +66,7 @@ tempfile.workspace = true
 tokio = { workspace = true, features = ["fs", "net", "io-util"] }
 tokio-util.workspace = true
 tracing.workspace = true
+transport-nostr.workspace = true
 transport-nostr-adapter = { workspace = true, features = ["sdk"] }
 transport-nostr-peeler.workspace = true
 transport-quic-broker.workspace = true
@@ -79,8 +81,9 @@ openmls_basic_credential.workspace = true
 openmls_rust_crypto.workspace = true
 openmls_traits.workspace = true
 tls_codec.workspace = true
+transport-nostr = { workspace = true, features = ["test-support"] }
 criterion.workspace = true
-media-store = { workspace = true, features = ["test-support"] }
+media-store = { workspace = true, features = ["catalog-conformance", "test-support"] }
 storage-sqlite = { workspace = true, features = ["test-support"] }
 tokio-tungstenite.workspace = true
 keyring-core.workspace = true

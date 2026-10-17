@@ -1,0 +1,5836 @@
+type RelayPoolNotification = nostr_sdk::prelude::ClientNotification;
+use nostr_sdk::prelude::{EventBuilder, FinalizeEvent, Keys};
+fn test_notification_stream(
+    receiver: broadcast::Receiver<RelayPoolNotification>,
+) -> RelayNotificationStream {
+    Box::pin(futures::stream::unfold(
+        receiver,
+        |mut receiver| async move {
+            match receiver.recv().await {
+                Ok(notification) => {
+                    Some((NotificationUpdate::Notification(notification), receiver))
+                }
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    Some((NotificationUpdate::Lagged { skipped }, receiver))
+                }
+                Err(broadcast::error::RecvError::Closed) => None,
+            }
+        },
+    ))
+}
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
+
+use cgka_traits::transport::{TransportEnvelope, TransportMessage, TransportSource};
+use cgka_traits::{
+    GroupId, MessageId, TransportDeliveryPlane, TransportDeliverySource, TransportEndpoint,
+    TransportEndpointFailure, TransportEndpointReceipt, TransportGroupSubscription,
+};
+use tokio::sync::Notify;
+use transport_nostr_adapter::{NostrRelayEvent, NostrSubscription};
+use transport_nostr_peeler::{KIND_MARMOT_GROUP_MESSAGE, NOSTR_SOURCE, NostrPeelerError};
+
+use super::*;
+
+#[test]
+fn subscription_rebuild_since_treats_future_cursor_as_corrupted() {
+    // A persisted cursor poisoned by a far-future sender-controlled
+    // `created_at` must not push `since` past the present, or relays would
+    // stop returning present-dated events and the account would silently
+    // halt forever (mdk#182). A detectably-future cursor is
+    // corrupted, not authoritative: rather than clamping it to
+    // `now - lookback` (which would permanently skip valid backlog older
+    // than the short production lookback), we treat it as untrusted and
+    // request a full-history replay (`None`) so the catch-up range is never
+    // dropped.
+    let lookback = Duration::from_secs(30);
+    let plane = MarmotRelayPlane::with_subscription_rebuild_lookback(lookback);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let poisoned = now + 10 * 365 * 24 * 60 * 60; // ~10 years in the future
+
+    assert!(
+        plane.subscription_rebuild_since(Some(poisoned)).is_none(),
+        "a future (poisoned) cursor must trigger full-history replay, not a clamped future `since`"
+    );
+}
+
+#[test]
+fn subscription_rebuild_since_uses_trusted_past_cursor() {
+    // A cursor at or behind wall-clock is trusted and used as-is: `since`
+    // is the cursor minus the lookback margin.
+    let lookback = Duration::from_secs(30);
+    let plane = MarmotRelayPlane::with_subscription_rebuild_lookback(lookback);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let cursor = now - 10_000;
+
+    let since = plane
+        .subscription_rebuild_since(Some(cursor))
+        .expect("a past cursor yields a concrete since")
+        .0;
+
+    assert_eq!(
+        since,
+        cursor.saturating_sub(lookback.as_secs()),
+        "a trusted past cursor must produce since = cursor - lookback"
+    );
+    assert!(since < now, "since {since} must be in the past");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn set_transport_signer_arms_the_sdk_client_for_nip42_auth() {
+    let plane = MarmotRelayPlane::with_subscription_rebuild_lookback(Duration::from_secs(30));
+    let sdk = plane
+        .inner
+        .transport
+        .sdk_relay_client
+        .as_ref()
+        .expect("sdk-backed plane has a relay client");
+    let keys = nostr::prelude::Keys::generate();
+    let account_id = MemberId::new(keys.public_key().to_bytes().to_vec());
+    assert!(
+        sdk.notification_loss_for_account(&account_id)
+            .await
+            .is_err()
+    );
+    plane
+        .set_transport_signer(&account_id, Arc::new(keys))
+        .await
+        .unwrap();
+    assert!(sdk.notification_loss_for_account(&account_id).await.is_ok());
+    let directory_client = plane
+        .inner
+        .transport
+        .directory_client
+        .as_ref()
+        .expect("sdk-backed plane has an anonymous directory client");
+    assert!(directory_client.relays().await.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn history_acquisition_rejects_unsafe_endpoint_before_sdk_registration() {
+    use transport_nostr_adapter::{NostrAcquisitionLimits, NostrAcquisitionScope};
+
+    let plane = MarmotRelayPlane::with_subscription_rebuild_lookback(Duration::from_secs(30));
+    let request = NostrAcquisitionRequest {
+        account_id: MemberId::new(vec![1; 32]),
+        scope: NostrAcquisitionScope::KnownEventIds(vec![[2; 32]]),
+        endpoints: vec![TransportEndpoint("ws://127.0.0.1:19474".into())],
+        limits: NostrAcquisitionLimits {
+            max_endpoints: 1,
+            max_requested_event_ids: 1,
+            max_received_items_per_endpoint: 1,
+            max_serialized_event_bytes_per_endpoint: 1024,
+            max_duration: Duration::from_secs(1),
+        },
+    };
+    assert!(matches!(
+        plane
+            .acquire_history(request, NostrAcquisitionCancellation::new())
+            .await,
+        Err(NostrAcquisitionError::InvalidRequest)
+    ));
+    assert!(
+        plane
+            .inner
+            .transport
+            .sdk_relay_client
+            .as_ref()
+            .unwrap()
+            .client()
+            .relays()
+            .await
+            .is_empty()
+    );
+}
+
+#[test]
+fn account_deliveries_lock_helpers_recover_from_poisoned_guard() {
+    let deliveries = RwLock::new(HashMap::new());
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _guard = deliveries.write().unwrap();
+        panic!("poison account deliveries lock");
+    }));
+
+    let (delivery_tx, _delivery_rx) = mpsc::channel(1);
+    account_deliveries_write(&deliveries).insert(
+        MemberId::new(vec![0x01; 32]),
+        AccountDeliveryRoute {
+            sender: delivery_tx,
+            overflow: Arc::new(AccountDeliveryOverflowState::default()),
+            epoch: 0,
+            recovery_marker: None,
+            spill: None,
+        },
+    );
+
+    assert_eq!(account_deliveries_read(&deliveries).len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn account_delivery_recovery_metrics_report_retry_outcomes_without_identity() {
+    let overflow = AccountDeliveryOverflowState::default();
+    let generation = overflow
+        .record_drop(ACCOUNT_DELIVERY_BUFFER, Some(1))
+        .unwrap();
+    overflow.consume_signal(generation);
+    let first = overflow.start_recovery(1);
+    assert!(overflow.start_marker_persistence());
+    overflow
+        .persist_marker_before_drop(Arc::new(|_, _, _| Ok(())))
+        .await;
+    let elapsed_ms = overflow.finish_recovery(first).unwrap();
+    overflow.record_recovery_success(elapsed_ms);
+
+    let generation = overflow
+        .record_drop(ACCOUNT_DELIVERY_BUFFER, Some(1))
+        .unwrap();
+    overflow.consume_signal(generation);
+    let second = overflow.start_recovery(2);
+    // A new omission during the replay invalidates this attempt.
+    assert!(
+        overflow
+            .record_drop(ACCOUNT_DELIVERY_BUFFER, Some(1))
+            .is_some()
+    );
+    assert!(overflow.finish_recovery(second).is_none());
+    overflow.fail_recovery();
+
+    assert_eq!(
+        overflow.metrics.recovery_attempts.load(Ordering::Relaxed),
+        2
+    );
+    assert_eq!(
+        overflow.metrics.recovery_successes.load(Ordering::Relaxed),
+        1
+    );
+    assert_eq!(
+        overflow.metrics.recovery_failures.load(Ordering::Relaxed),
+        1
+    );
+    assert_eq!(overflow.metrics.dropped.load(Ordering::Relaxed), 3);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn overflow_marker_uses_one_worker_and_stops_when_storage_closes() {
+    let overflow = AccountDeliveryOverflowState::default();
+    assert!(
+        overflow
+            .record_drop(ACCOUNT_DELIVERY_BUFFER, Some(1))
+            .is_some()
+    );
+    assert!(overflow.start_marker_persistence());
+    assert!(
+        !overflow.start_marker_persistence(),
+        "one generation must never own more than one marker worker"
+    );
+
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let observed_attempts = attempts.clone();
+    let marker: AccountDeliveryRecoveryMarker = Arc::new(move |_, _, _| {
+        observed_attempts.fetch_add(1, Ordering::SeqCst);
+        Err(AccountDeliveryRecoveryMarkerError::Closed)
+    });
+    timeout(
+        Duration::from_secs(1),
+        overflow.persist_marker_before_drop(marker),
+    )
+    .await
+    .expect("terminal storage closure must release the marker worker");
+
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    assert!(overflow.marker_barrier_complete());
+    assert!(
+        !overflow.start_marker_persistence(),
+        "closed storage must not arm an immortal retry task"
+    );
+}
+
+async fn assert_stale_marker_worker_preserves_new_generation(
+    result: Result<(), AccountDeliveryRecoveryMarkerError>,
+) {
+    let overflow = Arc::new(AccountDeliveryOverflowState::default());
+    let old_generation = overflow
+        .record_drop(ACCOUNT_DELIVERY_BUFFER, Some(1))
+        .unwrap();
+    overflow.consume_signal(old_generation);
+    assert!(overflow.start_marker_persistence());
+    let old_attempt = overflow.start_recovery(1);
+
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let marker: AccountDeliveryRecoveryMarker = {
+        let entered = entered.clone();
+        let release = release.clone();
+        Arc::new(move |_, _, _| {
+            entered.store(true, Ordering::SeqCst);
+            while !release.load(Ordering::SeqCst) {
+                std::thread::yield_now();
+            }
+            result
+        })
+    };
+    let worker = {
+        let overflow = overflow.clone();
+        tokio::spawn(async move { overflow.persist_marker_before_drop(marker).await })
+    };
+    timeout(Duration::from_secs(1), async {
+        while !entered.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the old generation marker worker must start");
+
+    assert!(
+        overflow.finish_recovery(old_attempt).is_none(),
+        "a writer still in flight must prevent acknowledgment and generation reuse"
+    );
+    // Exercise the defensive stale-worker fence independently of the public
+    // handoff, which now forbids this transition while a writer is in flight.
+    overflow.inner.lock().unwrap().pending = false;
+    let new_generation = overflow
+        .record_drop(ACCOUNT_DELIVERY_BUFFER, Some(1))
+        .unwrap();
+    overflow.consume_signal(new_generation);
+    assert!(overflow.start_marker_persistence());
+
+    release.store(true, Ordering::SeqCst);
+    timeout(Duration::from_secs(1), worker)
+        .await
+        .expect("the stale marker worker must stop")
+        .unwrap();
+
+    assert!(
+        !overflow.start_marker_persistence(),
+        "a stale worker must not release the newer generation's worker claim"
+    );
+    assert!(
+        !overflow.marker_barrier_complete(),
+        "a stale worker must not publish its outcome into the newer generation"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stale_overflow_marker_workers_preserve_new_generation_claim() {
+    assert_stale_marker_worker_preserves_new_generation(Ok(())).await;
+    assert_stale_marker_worker_preserves_new_generation(Err(
+        AccountDeliveryRecoveryMarkerError::Closed,
+    ))
+    .await;
+    assert_stale_marker_worker_preserves_new_generation(Err(
+        AccountDeliveryRecoveryMarkerError::Retryable,
+    ))
+    .await;
+}
+
+#[test]
+fn notification_restart_backoff_caps_and_resets_after_healthy_runtime() {
+    let mut backoff = RelayNotificationRestartBackoff::default();
+
+    assert_eq!(
+        backoff.delay_after_failure(Duration::ZERO),
+        RELAY_NOTIFICATION_RESTART_INITIAL_BACKOFF
+    );
+    assert_eq!(
+        backoff.delay_after_failure(Duration::ZERO),
+        RELAY_NOTIFICATION_RESTART_INITIAL_BACKOFF.saturating_mul(2)
+    );
+    for _ in 0..16 {
+        let _ = backoff.delay_after_failure(Duration::ZERO);
+    }
+    assert_eq!(
+        backoff.delay_after_failure(Duration::ZERO),
+        RELAY_NOTIFICATION_RESTART_MAX_BACKOFF
+    );
+    assert_eq!(
+        backoff.delay_after_failure(RELAY_NOTIFICATION_RESTART_HEALTHY_RUNTIME),
+        RELAY_NOTIFICATION_RESTART_INITIAL_BACKOFF
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn notification_consumer_reports_lag_without_silently_ending() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay);
+    let (notifications, receiver) = broadcast::channel(1);
+    let _ = notifications.send(RelayPoolNotification::Shutdown);
+    let _ = notifications.send(RelayPoolNotification::Shutdown);
+
+    let outcome = run_relay_notification_consumer(
+        test_notification_stream(receiver),
+        relay_plane.inner.transport.adapter.clone(),
+    )
+    .await;
+
+    assert_eq!(
+        outcome.exit,
+        RelayNotificationConsumerExit::Lagged(1),
+        "a broadcast overrun must be an explicit recovery trigger"
+    );
+
+    let resumed = run_relay_notification_consumer(
+        outcome.receiver,
+        relay_plane.inner.transport.adapter.clone(),
+    )
+    .await;
+    assert_eq!(
+        resumed.exit,
+        RelayNotificationConsumerExit::Shutdown,
+        "the retained notification after the lag must still be consumed"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn abandoned_notification_lane_counts_queued_loss_for_only_its_account() {
+    let sdk = NostrSdkRelayClient::multi_account();
+    let alice_keys = nostr::prelude::Keys::generate();
+    let bob_keys = nostr::prelude::Keys::generate();
+    let alice = MemberId::new(alice_keys.public_key().to_bytes().to_vec());
+    let bob = MemberId::new(bob_keys.public_key().to_bytes().to_vec());
+    let alice_client = sdk
+        .register_account(alice.clone(), Arc::new(alice_keys))
+        .await
+        .unwrap();
+    sdk.register_account(bob.clone(), Arc::new(bob_keys))
+        .await
+        .unwrap();
+    let alice_loss = sdk.notification_loss_for_account(&alice).await.unwrap();
+    let bob_loss = sdk.notification_loss_for_account(&bob).await.unwrap();
+    let source = SdkRelayNotificationSource {
+        client: alice_client.client().clone(),
+        loss: Some(alice_client),
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        disposition_observer: None,
+    };
+    let pending = AtomicU64::new(3);
+    let failed_worker = tokio::spawn(async { panic!("forced event worker failure") });
+    assert!(failed_worker.await.unwrap_err().is_panic());
+    let outcome =
+        abandoned_notification_lane(Box::pin(futures::stream::empty()), &pending, &source);
+    assert_eq!(outcome.exit, RelayNotificationConsumerExit::Lagged(3));
+    assert_eq!(
+        outcome.lag_floor,
+        NostrNotificationLossFloor::Unbounded,
+        "an account context with no REQ has no floor"
+    );
+    assert_eq!(alice_loss.borrow().as_ref().unwrap().cumulative_skipped, 3);
+    assert!(bob_loss.borrow().is_none());
+
+    let relay = Arc::new(RecordingRelayClient::default());
+    let plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice_adapter = plane.account_adapter(alice.clone(), relay.clone());
+    let bob_adapter = plane.account_adapter(bob, relay);
+    recover_relay_notification_forwarder_scoped(
+        &plane.inner.transport,
+        outcome.exit,
+        outcome.lag_floor,
+        Some(&alice),
+    );
+    assert_eq!(
+        alice_adapter
+            .pending_delivery_overflow()
+            .unwrap()
+            .notification_losses,
+        1
+    );
+    assert!(bob_adapter.pending_delivery_overflow().is_none());
+}
+
+struct QueuedWorkerFailureSource {
+    sender: broadcast::Sender<RelayPoolNotification>,
+    subscriptions: AtomicUsize,
+    notifications_queued: AtomicUsize,
+    loss: NostrSdkRelayClient,
+    hook: Arc<NotificationWorkerFailureHook>,
+}
+
+impl QueuedWorkerFailureSource {
+    fn new(loss: NostrSdkRelayClient) -> Self {
+        Self::with_hook(loss, 8, true)
+    }
+
+    /// The worker holds its first notification, then keeps working. The
+    /// receiver buffer matches the SDK client's per-receiver notifications.
+    fn busy(loss: NostrSdkRelayClient) -> Self {
+        Self::with_hook(loss, 4096, false)
+    }
+
+    fn with_hook(loss: NostrSdkRelayClient, capacity: usize, fail_once: bool) -> Self {
+        Self {
+            sender: broadcast::channel(capacity).0,
+            subscriptions: AtomicUsize::new(0),
+            notifications_queued: AtomicUsize::new(0),
+            loss,
+            hook: Arc::new(NotificationWorkerFailureHook {
+                entered: Notify::new(),
+                release: Notify::new(),
+                fail_once: AtomicBool::new(fail_once),
+                stall_once: AtomicBool::new(!fail_once),
+            }),
+        }
+    }
+
+    fn send_notice(&self) {
+        self.sender
+            .send(RelayPoolNotification::Message {
+                relay_url: RelayUrl::parse("wss://relay.example").unwrap(),
+                message: Box::new(RelayMessage::Notice("queued test notification".into())),
+            })
+            .expect("supervisor has an active receiver");
+    }
+}
+
+impl RelayNotificationSource for QueuedWorkerFailureSource {
+    fn notifications(&self) -> RelayNotificationStream {
+        self.subscriptions.fetch_add(1, Ordering::SeqCst);
+        test_notification_stream(self.sender.subscribe())
+    }
+
+    fn is_shutdown(&self) -> bool {
+        false
+    }
+
+    fn record_loss(&self, skipped: u64) -> NostrNotificationLossFloor {
+        self.loss.record_notification_gap(skipped);
+        self.loss.notification_loss_floor()
+    }
+
+    fn receiver_replaced(&self) {
+        self.loss.notification_receiver_replaced();
+    }
+
+    fn worker_failure_hook(&self) -> Option<Arc<NotificationWorkerFailureHook>> {
+        Some(self.hook.clone())
+    }
+
+    fn notification_queued(&self) {
+        self.notifications_queued.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn failed_notification_worker_latches_queued_loss_for_only_its_account() {
+    let sdk = NostrSdkRelayClient::multi_account();
+    let alice_keys = nostr::prelude::Keys::generate();
+    let bob_keys = nostr::prelude::Keys::generate();
+    let alice = MemberId::new(alice_keys.public_key().to_bytes().to_vec());
+    let bob = MemberId::new(bob_keys.public_key().to_bytes().to_vec());
+    let alice_client = sdk
+        .register_account(alice.clone(), Arc::new(alice_keys))
+        .await
+        .unwrap();
+    sdk.register_account(bob.clone(), Arc::new(bob_keys))
+        .await
+        .unwrap();
+    let mut alice_loss = sdk.notification_loss_for_account(&alice).await.unwrap();
+    let bob_loss = sdk.notification_loss_for_account(&bob).await.unwrap();
+
+    let relay = Arc::new(RecordingRelayClient::default());
+    let plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice_adapter = plane.account_adapter(alice.clone(), relay.clone());
+    let bob_adapter = plane.account_adapter(bob, relay);
+    let source = Arc::new(QueuedWorkerFailureSource::new(alice_client));
+    let supervisor = spawn_relay_notification_supervisor_scoped(
+        source.clone(),
+        plane.inner.transport.clone(),
+        Some(alice),
+    );
+
+    timeout(Duration::from_secs(2), async {
+        while source.subscriptions.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the supervised consumer subscribes");
+    source.send_notice();
+    timeout(Duration::from_secs(2), source.hook.entered.notified())
+        .await
+        .expect("the real event worker takes its first notification");
+    source.send_notice();
+    source.send_notice();
+    timeout(Duration::from_secs(2), async {
+        while source.notifications_queued.load(Ordering::SeqCst) < 3 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("two more notifications enter the consumer's queue");
+    source.hook.release.notify_one();
+
+    timeout(Duration::from_secs(2), async {
+        loop {
+            alice_loss.changed().await.unwrap();
+            if alice_loss
+                .borrow_and_update()
+                .as_ref()
+                .is_some_and(|gap| gap.cumulative_skipped >= 3)
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("worker panic latches the in-flight and queued loss");
+    assert_eq!(alice_loss.borrow().as_ref().unwrap().cumulative_skipped, 3);
+    assert!(bob_loss.borrow().is_none());
+    timeout(Duration::from_secs(2), async {
+        while alice_adapter
+            .pending_delivery_overflow()
+            .is_none_or(|overflow| overflow.notification_losses == 0)
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("supervisor signals account recovery from the real loss exit");
+    assert!(bob_adapter.pending_delivery_overflow().is_none());
+    // The supervisor records the account's loss before it updates its health
+    // counters, possibly on another thread.
+    let health = &plane.inner.transport.notification_forwarder_health;
+    timeout(Duration::from_secs(2), async {
+        while health.snapshot().lagged_notifications < 3 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("supervisor counts the lost notifications");
+    assert_eq!(health.snapshot().lagged_notifications, 3);
+
+    source.sender.send(RelayPoolNotification::Shutdown).unwrap();
+    timeout(Duration::from_secs(2), supervisor)
+        .await
+        .expect("supervisor stops after the replacement observes shutdown")
+        .unwrap();
+    sdk.shutdown_accounts().await;
+}
+
+/// A catch-up rebuild replays every stored event inside the lookback window:
+/// a raw relay copy of each one, plus a deduplicated delivery for events this
+/// SDK client has not seen. A busy event worker must absorb that replay.
+/// Declaring it notification loss would cost the account a comparison
+/// recovery pass for history it is receiving anyway (the nightly 1024-message
+/// backlog journeys).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn busy_notification_worker_absorbs_rebuild_replay_without_loss() {
+    use nostr_sdk::prelude::{EventBuilder, Keys, Tag};
+
+    // Unseen replay of a 1024-message backlog: delivery plus raw copy each.
+    const REPLAYED_NOTIFICATIONS: usize = 2 * 1024;
+    let sdk = NostrSdkRelayClient::multi_account();
+    let alice_keys = Keys::generate();
+    let alice = MemberId::new(alice_keys.public_key().to_bytes().to_vec());
+    let alice_client = sdk
+        .register_account(alice.clone(), Arc::new(alice_keys))
+        .await
+        .unwrap();
+    let alice_loss = sdk.notification_loss_for_account(&alice).await.unwrap();
+    let relay = Arc::new(RecordingRelayClient::default());
+    let plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice_adapter = plane.account_adapter(alice.clone(), relay);
+    let source = Arc::new(QueuedWorkerFailureSource::busy(alice_client));
+    let supervisor = spawn_relay_notification_supervisor_scoped(
+        source.clone(),
+        plane.inner.transport.clone(),
+        Some(alice),
+    );
+    timeout(Duration::from_secs(2), async {
+        while source.subscriptions.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the supervised consumer subscribes");
+    source.send_notice();
+    timeout(Duration::from_secs(2), source.hook.entered.notified())
+        .await
+        .expect("the event worker is busy with its first notification");
+
+    let stored = EventBuilder::new(Kind::MlsGroupMessage, "stored group message")
+        .tags([Tag::custom("h", [hex::encode([0xD4; 32])])])
+        .finalize(&Keys::generate())
+        .expect("sign stored group event");
+    let relay_url = RelayUrl::parse("wss://relay.example").unwrap();
+    let subscription_id = SubscriptionId::new("rebuilt-group-subscription");
+    for _ in 0..REPLAYED_NOTIFICATIONS {
+        source
+            .sender
+            .send(RelayPoolNotification::Message {
+                relay_url: relay_url.clone(),
+                message: Box::new(RelayMessage::Event {
+                    subscription_id: std::borrow::Cow::Owned(subscription_id.clone()),
+                    event: std::borrow::Cow::Owned(stored.clone()),
+                }),
+            })
+            .expect("supervisor has an active receiver");
+    }
+    source
+        .sender
+        .send(RelayPoolNotification::Message {
+            relay_url,
+            message: Box::new(RelayMessage::EndOfStoredEvents(std::borrow::Cow::Owned(
+                subscription_id,
+            ))),
+        })
+        .expect("supervisor has an active receiver");
+
+    let health = &plane.inner.transport.notification_forwarder_health;
+    timeout(Duration::from_secs(10), async {
+        while health.snapshot().lag_incidents == 0
+            && source.notifications_queued.load(Ordering::SeqCst) < REPLAYED_NOTIFICATIONS + 2
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the consumer admits the replay or reports loss");
+    assert_eq!(
+        health.snapshot().lag_incidents,
+        0,
+        "an ordinary rebuild replay is not notification loss"
+    );
+    assert!(alice_loss.borrow().is_none());
+    assert!(
+        alice_adapter.pending_delivery_overflow().is_none(),
+        "the account delivery route stays open"
+    );
+
+    source.hook.release.notify_one();
+    supervisor.abort();
+    let _ = supervisor.await;
+    sdk.shutdown_accounts().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn notification_consumer_exit_closes_only_account_delivery() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let account = MemberId::new(vec![0xA1; 32]);
+    let account_adapter = relay_plane.account_adapter(account, relay.clone());
+    let mut directory_events = relay_plane.subscribe_directory_events();
+
+    recover_relay_notification_forwarder(
+        &relay_plane.inner.transport,
+        RelayNotificationConsumerExit::Closed,
+    );
+
+    assert!(
+        timeout(Duration::from_secs(1), account_adapter.receive())
+            .await
+            .expect("account receiver should close promptly")
+            .expect("closed account receiver is not an adapter error")
+            .is_none(),
+        "closing the producer must drive the account worker into its existing reconnect path"
+    );
+    assert!(
+        timeout(Duration::from_millis(20), directory_events.recv())
+            .await
+            .is_err(),
+        "account receiver loss must not invalidate the independent directory receiver"
+    );
+
+    let health = relay_plane
+        .inner
+        .transport
+        .notification_forwarder_health
+        .snapshot();
+    assert_eq!(health.restarts, 1);
+    assert_eq!(health.unexpected_exits, 1);
+    assert_eq!(health.lag_incidents, 0);
+
+    let message = group_event("outbound-during-recovery", &[0xD4; 32])
+        .to_transport_message()
+        .unwrap();
+    account_adapter
+        .publish(TransportPublishRequest {
+            account_id: MemberId::new(vec![0xA1; 32]),
+            message,
+            target: TransportPublishTarget::Group {
+                group_id: GroupId::new(vec![0xC3; 32]),
+                transport_group_id: vec![0xD4; 32],
+                endpoints: vec![TransportEndpoint("wss://relay.example".into())],
+            },
+            required_acks: 0,
+        })
+        .await
+        .expect("inbound recovery must not take the outbound publisher down");
+}
+
+/// A lag means only that the consumer fell behind; the live subscriptions
+/// did not fail. The account keeps its route, gets one control record per
+/// loss generation, and the loss carries the lowest REQ floor of its lags.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn notification_lag_keeps_account_delivery_open_and_bounds_the_loss() {
+    use NostrNotificationLossFloor::{Since, Unbounded};
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let account = MemberId::new(vec![0xA1; 32]);
+    let other = MemberId::new(vec![0xB2; 32]);
+    let transport_group_id = vec![0xD4; 32];
+    let endpoint = TransportEndpoint("wss://relay.example".into());
+    let adapter = relay_plane.account_adapter(account.clone(), relay.clone());
+    let other_adapter = relay_plane.account_adapter(other, relay.clone());
+    adapter
+        .activate_account(TransportAccountActivation {
+            account_id: account.clone(),
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: vec![TransportGroupSubscription {
+                group_id: GroupId::new(vec![0xC3; 32]),
+                transport_group_id: transport_group_id.clone(),
+                endpoints: vec![endpoint.clone()],
+                retained_since: None,
+            }],
+            since: Some(Timestamp(1_699_999_000)),
+        })
+        .await
+        .unwrap();
+    let transport = &relay_plane.inner.transport;
+    let lag = |skipped, floor| {
+        recover_relay_notification_forwarder_scoped(
+            transport,
+            RelayNotificationConsumerExit::Lagged(skipped),
+            floor,
+            Some(&account),
+        )
+    };
+
+    lag(7, Since(1_699_999_500));
+    lag(2, Since(1_699_999_000));
+    let Some(AccountDeliveryReceive::Overflow(overflow)) =
+        timeout(Duration::from_secs(1), adapter.receive_account_delivery())
+            .await
+            .unwrap()
+            .unwrap()
+    else {
+        panic!("a lag enqueues the generation's control record");
+    };
+    assert_eq!(overflow.dropped, 0);
+    assert_eq!(overflow.notification_losses, 2);
+    assert_eq!(overflow.notification_floor, Some(1_699_999_000));
+    assert!(
+        adapter.try_receive_account_delivery().is_none(),
+        "one control record per loss generation"
+    );
+    assert!(other_adapter.pending_delivery_overflow().is_none());
+
+    // Later inbound still reaches the same adapter.
+    let later = group_event("delivered-after-lag", &transport_group_id);
+    relay_plane
+        .handle_relay_event_for_test(NostrRelayEvent {
+            endpoint: endpoint.clone(),
+            subscription_id: Some("group-sub".into()),
+            event: later.clone(),
+        })
+        .await
+        .unwrap();
+    let Some(AccountDeliveryReceive::Delivery(delivery)) =
+        timeout(Duration::from_secs(1), adapter.receive_account_delivery())
+            .await
+            .expect("the route stays open after a lag")
+            .unwrap()
+    else {
+        panic!("later inbound is an ordinary delivery");
+    };
+    assert_eq!(
+        delivery.message.id,
+        later.to_transport_message().unwrap().id
+    );
+
+    // An unknown floor makes the generation's bound unknown for good.
+    lag(1, Unbounded);
+    lag(1, Since(1_700_000_000));
+    let pending = adapter.pending_delivery_overflow().unwrap();
+    assert_eq!(pending.notification_losses, 4);
+    assert_eq!(pending.notification_floor, None);
+
+    let health = transport.notification_forwarder_health.snapshot();
+    assert_eq!(health.lag_incidents, 4);
+    assert_eq!(health.lagged_notifications, 11);
+    assert_eq!(
+        health.restarts, 4,
+        "each lag restarts the consumer on its receiver"
+    );
+    assert_eq!(health.unexpected_exits, 0);
+    relay_plane.shutdown().await;
+}
+
+/// The worker drops its client, and with it the account queue, before it
+/// reopens or retires. A control record still queued there dies with it, and
+/// `signal_queued` would keep `finish_recovery` from ever clearing the
+/// generation, so the next route carries the signal instead.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn next_route_carries_a_control_record_that_died_with_its_queue() {
+    for retire_first in [false, true] {
+        let relay = Arc::new(RecordingRelayClient::default());
+        let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+        let account = MemberId::new(vec![0xA1; 32]);
+        let first = relay_plane.account_adapter(account.clone(), relay.clone());
+        relay_plane.simulate_notification_lag_for_test(
+            &account,
+            1,
+            NostrNotificationLossFloor::Since(10),
+        );
+        assert!(first.delivery_overflow_signal_outstanding());
+        drop(first);
+        if retire_first {
+            relay_plane
+                .deactivate_account_context(&account)
+                .await
+                .unwrap();
+        }
+
+        let next = relay_plane.account_adapter(account.clone(), relay.clone());
+        let Some(AccountDeliveryReceive::Overflow(overflow)) = next.try_receive_account_delivery()
+        else {
+            panic!("retire_first={retire_first}: the next route carries the signal");
+        };
+        assert_eq!(overflow.notification_losses, 1);
+        assert!(
+            next.try_receive_account_delivery().is_none(),
+            "retire_first={retire_first}: one control record per generation"
+        );
+        next.notification_loss_persisted(overflow);
+        let attempt = next.start_delivery_overflow_recovery(overflow.marker_token);
+        assert!(
+            next.finish_delivery_overflow_recovery(attempt).is_some(),
+            "retire_first={retire_first}: the generation can clear"
+        );
+        relay_plane.shutdown().await;
+    }
+}
+
+/// A predecessor whose receiver is still alive keeps its own control record,
+/// so a new route gets no duplicate.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn live_predecessor_keeps_its_control_record() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let account = MemberId::new(vec![0xA1; 32]);
+    let first = relay_plane.account_adapter(account.clone(), relay.clone());
+    relay_plane.simulate_notification_lag_for_test(
+        &account,
+        1,
+        NostrNotificationLossFloor::Since(10),
+    );
+    let second = relay_plane.account_adapter(account, relay);
+    assert!(second.try_receive_account_delivery().is_none());
+    assert!(matches!(
+        first.try_receive_account_delivery(),
+        Some(AccountDeliveryReceive::Overflow(_))
+    ));
+    assert!(!second.delivery_overflow_signal_outstanding());
+    relay_plane.shutdown().await;
+}
+
+/// A scoped supervisor charges the floor its source read at the lag, and the
+/// shared forwarder, whose receiver spans accounts, charges none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn supervised_notification_lag_charges_the_source_floor() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let account = MemberId::new(vec![0xA1; 32]);
+    let adapter = relay_plane.account_adapter(account.clone(), relay.clone());
+    let source = Arc::new(TestNotificationSource::lag_once_with_floor(
+        NostrNotificationLossFloor::Since(1_234),
+    ));
+    let supervisor = spawn_relay_notification_supervisor_scoped(
+        source.clone(),
+        relay_plane.inner.transport.clone(),
+        Some(account.clone()),
+    );
+    timeout(Duration::from_secs(2), async {
+        while adapter.pending_delivery_overflow().is_none() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the preloaded overrun is a lag");
+    let overflow = adapter.pending_delivery_overflow().unwrap();
+    assert_eq!(overflow.notification_losses, 1);
+    assert_eq!(overflow.notification_floor, Some(1_234));
+    source.send(RelayPoolNotification::Shutdown);
+    timeout(Duration::from_secs(1), supervisor)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let shared_source = Arc::new(TestNotificationSource::lag_once_with_floor(
+        NostrNotificationLossFloor::Since(1_234),
+    ));
+    let shared_account = MemberId::new(vec![0xB2; 32]);
+    let shared_adapter = relay_plane.account_adapter(shared_account, relay);
+    let shared = spawn_relay_notification_supervisor(
+        shared_source.clone(),
+        relay_plane.inner.transport.clone(),
+    );
+    timeout(Duration::from_secs(2), async {
+        while shared_adapter.pending_delivery_overflow().is_none() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the shared overrun is a lag");
+    assert_eq!(
+        shared_adapter
+            .pending_delivery_overflow()
+            .unwrap()
+            .notification_floor,
+        None
+    );
+    shared_source.send(RelayPoolNotification::Shutdown);
+    timeout(Duration::from_secs(1), shared)
+        .await
+        .unwrap()
+        .unwrap();
+    relay_plane.shutdown().await;
+}
+
+/// The REQs lag repairs have re-issued, sorted, once at least `count` have.
+async fn reissued_reqs(
+    relay: &RecordingRelayClient,
+    count: usize,
+) -> Vec<(String, Vec<TransportEndpoint>)> {
+    timeout(Duration::from_secs(5), async {
+        while relay.reissued.lock().unwrap().len() < count {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the lag repair runs once the receiver settles");
+    let mut reissued = relay.reissued.lock().unwrap().clone();
+    reissued.sort();
+    reissued
+}
+
+fn issued_id(relay: &RecordingRelayClient, wanted: impl Fn(&NostrSubscription) -> bool) -> String {
+    relay
+        .subscriptions
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|subscription| wanted(subscription))
+        .expect("the REQ was issued")
+        .subscription_id()
+}
+
+/// A lag may have lost end-of-stored-events and cannot tell which. Once the
+/// receiver has gone the settle window without another lag, the plane
+/// re-issues just the REQs a relay never answered. Their fresh EOSE lets
+/// post-join maintenance observe its boundary, completes the coverage live
+/// cursor promotion and quiet drains wait on, and brings back activation
+/// reuse once it settles.
+#[tokio::test(start_paused = true)]
+async fn notification_lag_reissues_reqs_whose_eose_it_may_have_lost() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let account = MemberId::new(vec![0xA1; 32]);
+    let endpoint = TransportEndpoint("wss://relay.example".into());
+    let group = TransportGroupSubscription {
+        group_id: GroupId::new(vec![0xC3; 16]),
+        transport_group_id: vec![0xD4; 32],
+        endpoints: vec![endpoint.clone()],
+        retained_since: None,
+    };
+    let adapter = relay_plane.account_adapter(account.clone(), relay.clone());
+    let activation = TransportAccountActivation {
+        account_id: account.clone(),
+        inbox_endpoints: vec![endpoint.clone()],
+        group_subscriptions: vec![group.clone()],
+        since: Some(Timestamp(1_699_999_000)),
+    };
+    adapter.activate_account(activation.clone()).await.unwrap();
+    let inbox_id = issued_id(&relay, |subscription| {
+        matches!(subscription, NostrSubscription::AccountInbox { .. })
+    });
+    let group_id = issued_id(&relay, NostrSubscription::is_group_route);
+    let maintenance_id = relay_plane
+        .inner
+        .transport
+        .adapter
+        .install_group_maintenance_subscription(&account, &group)
+        .await
+        .unwrap();
+    // The inbox's EOSE arrived. The lag lost the others.
+    relay_plane
+        .handle_relay_eose_for_test(endpoint.clone(), inbox_id)
+        .await;
+    let floor = NostrNotificationLossFloor::Since(1_699_999_000);
+    let settle = NOTIFICATION_LAG_EOSE_REPAIR_SETTLE;
+
+    relay_plane.simulate_notification_lag_for_test(&account, 3, floor);
+    tokio::time::sleep(settle / 2).await;
+    relay_plane.simulate_notification_lag_for_test(&account, 1, floor);
+    tokio::time::sleep(settle / 2 + Duration::from_millis(1)).await;
+    assert!(
+        relay.reissued.lock().unwrap().is_empty(),
+        "a later lag postpones the repair"
+    );
+    tokio::time::sleep(settle / 2).await;
+    let mut expected = vec![
+        (group_id.clone(), vec![endpoint.clone()]),
+        (maintenance_id.clone(), vec![endpoint.clone()]),
+    ];
+    expected.sort();
+    assert_eq!(reissued_reqs(&relay, 2).await, expected);
+    // The pass queued one report for the account's audit row: both lags,
+    // the two REQs whose EOSE was lost re-issued, nothing left to retry.
+    let reports = relay_plane.take_eose_repair_reports(&account, true);
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].scope.as_ref(), Some(&account));
+    assert_eq!(reports[0].lags, 2);
+    assert!(!reports[0].follow_up);
+    assert_eq!(reports[0].summary.awaiting_relays, 2);
+    assert_eq!(reports[0].summary.reissued_relays, 2);
+    assert_eq!(reports[0].summary.failed_relays, 0);
+    assert!(!reports[0].follow_up_scheduled);
+    assert!(
+        relay_plane
+            .take_eose_repair_reports(&account, true)
+            .is_empty(),
+        "a report is recorded once"
+    );
+
+    for id in [&group_id, &maintenance_id] {
+        relay_plane
+            .handle_relay_eose_for_test(endpoint.clone(), id.clone())
+            .await;
+    }
+    assert_eq!(
+        adapter
+            .group_maintenance_endpoint_eose(&maintenance_id, &endpoint)
+            .await,
+        Some(true),
+        "maintenance observes its boundary"
+    );
+    assert!(
+        !adapter.account_subscription_eose().await.complete(),
+        "pending loss still fences ordinary EOSE"
+    );
+    let Some(AccountDeliveryReceive::Overflow(overflow)) = adapter.try_receive_account_delivery()
+    else {
+        panic!("the lags queued one control record");
+    };
+    adapter.notification_loss_persisted(overflow);
+    let attempt = adapter.start_delivery_overflow_recovery(overflow.marker_token);
+    assert!(
+        adapter.account_subscription_eose().await.complete(),
+        "a drain gated on EOSE completes during recovery"
+    );
+    assert!(adapter.finish_delivery_overflow_recovery(attempt).is_some());
+
+    let subscribed = relay.subscriptions.lock().unwrap().len();
+    adapter.activate_account(activation).await.unwrap();
+    assert_eq!(
+        relay.subscriptions.lock().unwrap().len(),
+        subscribed,
+        "the next activation reuses the live REQs"
+    );
+    assert_eq!(relay.unsubscribed_accounts.lock().unwrap().len(), 1);
+    relay_plane.shutdown().await;
+}
+
+/// The lag marks the moment it happened. A REQ issued after it, while the
+/// receiver settles, is still replaying and keeps its replay.
+#[tokio::test(start_paused = true)]
+async fn notification_lag_repair_leaves_reqs_issued_after_the_lag() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let account = MemberId::new(vec![0xA1; 32]);
+    let endpoint = TransportEndpoint("wss://relay.example".into());
+    let group = |byte: u8| TransportGroupSubscription {
+        group_id: GroupId::new(vec![byte; 16]),
+        transport_group_id: vec![byte; 32],
+        endpoints: vec![endpoint.clone()],
+        retained_since: None,
+    };
+    let adapter = relay_plane.account_adapter(account.clone(), relay.clone());
+    adapter
+        .activate_account(TransportAccountActivation {
+            account_id: account.clone(),
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: vec![group(0x51)],
+            since: Some(Timestamp(1_699_999_000)),
+        })
+        .await
+        .unwrap();
+    relay_plane.simulate_notification_lag_for_test(
+        &account,
+        1,
+        NostrNotificationLossFloor::Since(1_699_999_000),
+    );
+    // The adapter orders REQs against the lag on a real millisecond clock.
+    std::thread::sleep(Duration::from_millis(5));
+    adapter
+        .sync_account_groups(TransportGroupSync {
+            account_id: account.clone(),
+            group_subscriptions: vec![group(0x51), group(0x52)],
+            since: Some(Timestamp(1_699_999_000)),
+        })
+        .await
+        .unwrap();
+    // The sync repacked both groups into one batch issued after the lag; the
+    // activation's batch it replaced is closed.
+    let live_batch = relay
+        .subscriptions
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|subscription| subscription.carries_group(&GroupId::new(vec![0x52; 16])))
+        .expect("the repacked batch was issued")
+        .subscription_id();
+    let inbox_id = issued_id(&relay, |subscription| {
+        matches!(subscription, NostrSubscription::AccountInbox { .. })
+    });
+
+    tokio::time::sleep(NOTIFICATION_LAG_EOSE_REPAIR_SETTLE).await;
+    assert_eq!(
+        reissued_reqs(&relay, 1).await,
+        vec![(inbox_id, vec![endpoint.clone()])]
+    );
+    assert!(
+        !relay
+            .reissued
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(id, _)| id == &live_batch),
+        "the REQ issued after the lag is not restarted"
+    );
+    relay_plane.shutdown().await;
+}
+
+/// A repair that leaves a relay unrepaired releases its claim and runs again
+/// after the settle window, for the same lag, until the REQ goes out. One
+/// whose re-issue went out does not run again.
+#[tokio::test(start_paused = true)]
+async fn unrepaired_lag_repair_runs_again_after_the_settle_window() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let account = MemberId::new(vec![0xA1; 32]);
+    let endpoint = TransportEndpoint("wss://relay.example".into());
+    let adapter = relay_plane.account_adapter(account.clone(), relay.clone());
+    adapter
+        .activate_account(TransportAccountActivation {
+            account_id: account.clone(),
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: Vec::new(),
+            since: Some(Timestamp(1_699_999_000)),
+        })
+        .await
+        .unwrap();
+    let inbox_id = issued_id(&relay, |subscription| {
+        matches!(subscription, NostrSubscription::AccountInbox { .. })
+    });
+    relay.unsent_reissues.store(2, Ordering::SeqCst);
+    relay_plane.simulate_notification_lag_for_test(
+        &account,
+        1,
+        NostrNotificationLossFloor::Since(1_699_999_000),
+    );
+    let settle = NOTIFICATION_LAG_EOSE_REPAIR_SETTLE;
+    for attempts in 1..=3 {
+        tokio::time::sleep(settle + Duration::from_millis(1)).await;
+        assert_eq!(
+            reissued_reqs(&relay, attempts).await,
+            vec![(inbox_id.clone(), vec![endpoint.clone()]); attempts],
+            "attempt {attempts} of the same REQ"
+        );
+    }
+    tokio::time::sleep(settle * 3).await;
+    assert_eq!(
+        relay.reissued.lock().unwrap().len(),
+        3,
+        "a re-issue that went out ends the repairs"
+    );
+    relay_plane.shutdown().await;
+}
+
+#[async_trait::async_trait]
+impl DirectoryRelayFetcher for RecordingRelayClient {
+    async fn fetch_directory_events(
+        &self,
+        _request: DirectoryFetchRequest,
+    ) -> Result<Vec<DirectoryRelayEventRecord>, String> {
+        Ok(Vec::new())
+    }
+}
+
+#[derive(Default)]
+struct RecordingRelayClient {
+    subscriptions: StdMutex<Vec<NostrSubscription>>,
+    unsubscribed: StdMutex<Vec<NostrSubscription>>,
+    unsubscribed_accounts: StdMutex<Vec<MemberId>>,
+    /// REQs re-issued by lag repairs, with the endpoints they went to.
+    reissued: StdMutex<Vec<(String, Vec<TransportEndpoint>)>>,
+    /// Re-issues left that reach no relay, as when it is unreachable.
+    unsent_reissues: AtomicUsize,
+}
+
+struct TestNotificationSource {
+    sender: broadcast::Sender<RelayPoolNotification>,
+    subscriptions: AtomicUsize,
+    preload_lag: bool,
+    panic_first: AtomicBool,
+    /// Reported for every recorded loss, as an SDK account context reports
+    /// its REQ floor.
+    lag_floor: NostrNotificationLossFloor,
+    shutdown: AtomicBool,
+}
+
+impl TestNotificationSource {
+    fn steady() -> Self {
+        Self {
+            sender: broadcast::channel(1).0,
+            subscriptions: AtomicUsize::new(0),
+            preload_lag: false,
+            panic_first: AtomicBool::new(false),
+            lag_floor: NostrNotificationLossFloor::Unbounded,
+            shutdown: AtomicBool::new(false),
+        }
+    }
+
+    fn lag_once() -> Self {
+        Self::lag_once_with_floor(NostrNotificationLossFloor::Unbounded)
+    }
+
+    fn lag_once_with_floor(lag_floor: NostrNotificationLossFloor) -> Self {
+        Self {
+            sender: broadcast::channel(1).0,
+            subscriptions: AtomicUsize::new(0),
+            preload_lag: true,
+            panic_first: AtomicBool::new(false),
+            lag_floor,
+            shutdown: AtomicBool::new(false),
+        }
+    }
+
+    fn panic_once() -> Self {
+        Self {
+            sender: broadcast::channel(1).0,
+            subscriptions: AtomicUsize::new(0),
+            preload_lag: false,
+            panic_first: AtomicBool::new(true),
+            lag_floor: NostrNotificationLossFloor::Unbounded,
+            shutdown: AtomicBool::new(false),
+        }
+    }
+
+    fn send(&self, notification: RelayPoolNotification) {
+        // Like the SDK pool, mark shutdown before broadcasting it: a consumer
+        // that still had queued work reports the shutdown as a lag, and the
+        // supervisor then stops on the source's shutdown state.
+        if matches!(notification, RelayPoolNotification::Shutdown) {
+            self.shutdown.store(true, Ordering::SeqCst);
+        }
+        self.sender
+            .send(notification)
+            .expect("test supervisor should have an active notification receiver");
+    }
+}
+
+impl RelayNotificationSource for TestNotificationSource {
+    fn notifications(&self) -> RelayNotificationStream {
+        if self.panic_first.swap(false, Ordering::SeqCst) {
+            panic!("injected notification consumer panic");
+        }
+        let receiver = self.sender.subscribe();
+        if self.subscriptions.fetch_add(1, Ordering::SeqCst) == 0 && self.preload_lag {
+            let relay_url = RelayUrl::parse("wss://relay.example").unwrap();
+            let notice = || RelayPoolNotification::Message {
+                relay_url: relay_url.clone(),
+                message: Box::new(RelayMessage::Notice("preloaded notification".into())),
+            };
+            let _ = self.sender.send(notice());
+            let _ = self.sender.send(notice());
+        }
+        test_notification_stream(receiver)
+    }
+
+    fn is_shutdown(&self) -> bool {
+        self.shutdown.load(Ordering::SeqCst)
+    }
+
+    fn record_loss(&self, _skipped: u64) -> NostrNotificationLossFloor {
+        self.lag_floor
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn aborted_scoped_supervisors_release_health_across_account_restarts() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let plane = MarmotRelayPlane::with_subscription_rebuild_lookback(Duration::from_secs(30));
+    let alice = MemberId::new(vec![0xA1; 32]);
+    let bob = MemberId::new(vec![0xB2; 32]);
+    let running_count = &plane
+        .inner
+        .transport
+        .notification_forwarder_health
+        .running_count;
+
+    for _ in 0..3 {
+        let _alice_adapter = plane.account_adapter(alice.clone(), relay.clone());
+        let _bob_adapter = plane.account_adapter(bob.clone(), relay.clone());
+        let source = Arc::new(TestNotificationSource::steady());
+        let mut forwarders = plane
+            .inner
+            .transport
+            .account_notification_forwarders
+            .lock()
+            .await;
+        assert!(
+            forwarders
+                .insert(
+                    alice.clone(),
+                    spawn_relay_notification_supervisor_scoped(
+                        source.clone(),
+                        plane.inner.transport.clone(),
+                        Some(alice.clone()),
+                    ),
+                )
+                .is_none()
+        );
+        assert!(
+            forwarders
+                .insert(
+                    bob.clone(),
+                    spawn_relay_notification_supervisor_scoped(
+                        source.clone(),
+                        plane.inner.transport.clone(),
+                        Some(bob.clone()),
+                    ),
+                )
+                .is_none()
+        );
+        drop(forwarders);
+        timeout(Duration::from_secs(2), async {
+            while running_count.load(Ordering::SeqCst) != 2
+                || source.subscriptions.load(Ordering::SeqCst) != 2
+            {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("both scoped supervisors start");
+
+        plane.deactivate_account_context(&alice).await.unwrap();
+        timeout(Duration::from_secs(2), async {
+            while running_count.load(Ordering::SeqCst) != 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("aborting Alice releases only her supervisor count");
+        assert!(plane.relay_health().await.notification_forwarder_running);
+        assert!(
+            plane
+                .inner
+                .transport
+                .account_notification_forwarders
+                .lock()
+                .await
+                .get(&bob)
+                .is_some_and(|handle| !handle.is_finished())
+        );
+
+        plane.deactivate_account_context(&bob).await.unwrap();
+        timeout(Duration::from_secs(2), async {
+            while running_count.load(Ordering::SeqCst) != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("aborting the last account releases the running count");
+        assert!(!plane.relay_health().await.notification_forwarder_running);
+    }
+
+    plane.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn notification_supervisor_restarts_after_consumer_panic() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let account_adapter = relay_plane.account_adapter(MemberId::new(vec![0xA1; 32]), relay);
+    let source = Arc::new(TestNotificationSource::panic_once());
+    let supervisor =
+        spawn_relay_notification_supervisor(source.clone(), relay_plane.inner.transport.clone());
+
+    timeout(Duration::from_secs(2), async {
+        loop {
+            let health = relay_plane
+                .inner
+                .transport
+                .notification_forwarder_health
+                .snapshot();
+            if health.panics == 1 && source.subscriptions.load(Ordering::SeqCst) == 1 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("a panicked consumer should be observed and replaced");
+
+    assert!(
+        timeout(Duration::from_secs(1), account_adapter.receive())
+            .await
+            .unwrap()
+            .unwrap()
+            .is_none(),
+        "panic recovery must propagate producer death to the account receiver"
+    );
+    let recovered = relay_plane
+        .inner
+        .transport
+        .notification_forwarder_health
+        .snapshot();
+    assert!(recovered.running);
+    assert_eq!(recovered.restarts, 1);
+    assert_eq!(recovered.panics, 1);
+    assert_eq!(recovered.unexpected_exits, 1);
+
+    source.send(RelayPoolNotification::Shutdown);
+    timeout(Duration::from_secs(1), supervisor)
+        .await
+        .expect("normal shutdown should stop the replacement consumer")
+        .unwrap();
+    let stopped = relay_plane
+        .inner
+        .transport
+        .notification_forwarder_health
+        .snapshot();
+    assert!(!stopped.running);
+    assert_eq!(
+        stopped.restarts, 1,
+        "normal shutdown must not be counted as another restart"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn clean_sdk_shutdown_stays_terminal_across_spawn_router_reentry() {
+    let relay_plane = MarmotRelayPlane::with_subscription_rebuild_lookback(Duration::from_secs(30));
+    let relay = Arc::new(RecordingRelayClient::default());
+    let keys = nostr::prelude::Keys::generate();
+    let account_id = MemberId::new(keys.public_key().to_bytes().to_vec());
+    let existing_adapter = relay_plane.account_adapter(account_id.clone(), relay.clone());
+    relay_plane
+        .set_transport_signer(&account_id, Arc::new(keys))
+        .await
+        .unwrap();
+
+    timeout(Duration::from_secs(1), async {
+        while !relay_plane
+            .inner
+            .transport
+            .notification_forwarder_health
+            .snapshot()
+            .running
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("SDK notification supervisor should start");
+
+    relay_plane
+        .inner
+        .transport
+        .sdk_relay_client
+        .as_ref()
+        .unwrap()
+        .shutdown_accounts()
+        .await;
+    timeout(Duration::from_secs(1), async {
+        loop {
+            let forwarder = relay_plane
+                .inner
+                .transport
+                .account_notification_forwarders
+                .lock()
+                .await;
+            if forwarder
+                .get(&account_id)
+                .is_some_and(JoinHandle::is_finished)
+            {
+                break;
+            }
+            drop(forwarder);
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("supervisor should finish after clean pool shutdown");
+
+    let before = relay_plane
+        .inner
+        .transport
+        .notification_forwarder_health
+        .snapshot();
+    relay_plane.account_adapter(MemberId::new(vec![0xB2; 32]), relay);
+    let after = relay_plane
+        .inner
+        .transport
+        .notification_forwarder_health
+        .snapshot();
+
+    assert_eq!(before.unexpected_exits, 0);
+    assert_eq!(after.unexpected_exits, 0);
+    assert_eq!(after.restarts, 0);
+    assert!(
+        relay_plane
+            .inner
+            .transport
+            .account_notification_forwarders
+            .lock()
+            .await
+            .get(&account_id)
+            .is_some_and(JoinHandle::is_finished),
+        "a terminal SDK pool must not be respawned"
+    );
+    assert!(
+        timeout(Duration::from_millis(50), existing_adapter.receive())
+            .await
+            .is_err(),
+        "re-entering spawn_router after clean shutdown must not close existing account senders"
+    );
+
+    relay_plane.shutdown().await;
+}
+
+#[async_trait]
+impl NostrRelayClient for RecordingRelayClient {
+    async fn publish_event_for_account(
+        &self,
+        _account_id: &MemberId,
+        endpoints: &[TransportEndpoint],
+        event: &NostrTransportEvent,
+        required_acks: usize,
+    ) -> Result<NostrPublishOutcome, TransportAdapterError> {
+        self.publish_event(endpoints, event, required_acks).await
+    }
+    async fn subscribe(
+        &self,
+        subscription: NostrSubscription,
+    ) -> Result<(), TransportAdapterError> {
+        self.subscriptions.lock().unwrap().push(subscription);
+        Ok(())
+    }
+
+    async fn unsubscribe(
+        &self,
+        subscription: NostrSubscription,
+    ) -> Result<(), TransportAdapterError> {
+        self.unsubscribed.lock().unwrap().push(subscription);
+        Ok(())
+    }
+
+    async fn reissue_subscription(
+        &self,
+        _account_id: &MemberId,
+        subscription_id: &str,
+        endpoints: &[TransportEndpoint],
+    ) -> Result<transport_nostr_adapter::SubscriptionReissue, TransportAdapterError> {
+        self.reissued
+            .lock()
+            .unwrap()
+            .push((subscription_id.to_owned(), endpoints.to_vec()));
+        let outcome = if self
+            .unsent_reissues
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                left.checked_sub(1)
+            })
+            .is_ok()
+        {
+            transport_nostr_adapter::RelayReissue::Unsent
+        } else {
+            transport_nostr_adapter::RelayReissue::Sent
+        };
+        Ok(transport_nostr_adapter::SubscriptionReissue {
+            relays: endpoints
+                .iter()
+                .map(|endpoint| (endpoint.clone(), outcome))
+                .collect(),
+        })
+    }
+
+    async fn unsubscribe_account(
+        &self,
+        account_id: &MemberId,
+    ) -> Result<(), TransportAdapterError> {
+        self.unsubscribed_accounts
+            .lock()
+            .unwrap()
+            .push(account_id.clone());
+        Ok(())
+    }
+
+    async fn publish_event(
+        &self,
+        _endpoints: &[TransportEndpoint],
+        _event: &NostrTransportEvent,
+        _required_acks: usize,
+    ) -> Result<NostrPublishOutcome, TransportAdapterError> {
+        Ok(NostrPublishOutcome {
+            message_id: None,
+            accepted: Vec::<TransportEndpointReceipt>::new(),
+            failed: Vec::<TransportEndpointFailure>::new(),
+        })
+    }
+}
+
+struct BlockingDirectoryFetcher {
+    fetch_count: AtomicUsize,
+    started: Notify,
+    release: Notify,
+    events: Vec<DirectoryRelayEventRecord>,
+}
+
+#[async_trait]
+impl DirectoryRelayFetcher for BlockingDirectoryFetcher {
+    async fn fetch_directory_events(
+        &self,
+        _request: DirectoryFetchRequest,
+    ) -> Result<Vec<DirectoryRelayEventRecord>, String> {
+        self.fetch_count.fetch_add(1, Ordering::SeqCst);
+        // `notify_one` keeps a permit, so neither side can miss the other on a
+        // multi-thread runtime.
+        self.started.notify_one();
+        self.release.notified().await;
+        Ok(self.events.clone())
+    }
+}
+
+#[derive(Default)]
+struct RecordingDirectoryFetcher {
+    fetch_count: AtomicUsize,
+    requests: StdMutex<Vec<DirectoryFetchRequest>>,
+}
+
+#[async_trait]
+impl DirectoryRelayFetcher for RecordingDirectoryFetcher {
+    async fn fetch_directory_events(
+        &self,
+        request: DirectoryFetchRequest,
+    ) -> Result<Vec<DirectoryRelayEventRecord>, String> {
+        self.fetch_count.fetch_add(1, Ordering::SeqCst);
+        self.requests.lock().unwrap().push(request);
+        Ok(Vec::new())
+    }
+}
+
+#[derive(Default)]
+struct PanicOnceDirectoryFetcher {
+    panicked: AtomicBool,
+}
+
+#[async_trait]
+impl DirectoryRelayFetcher for PanicOnceDirectoryFetcher {
+    async fn fetch_directory_events(
+        &self,
+        _request: DirectoryFetchRequest,
+    ) -> Result<Vec<DirectoryRelayEventRecord>, String> {
+        if !self.panicked.swap(true, Ordering::SeqCst) {
+            panic!("injected directory fetch panic");
+        }
+        Ok(Vec::new())
+    }
+}
+
+fn relay_plane_with_directory_fetcher(
+    relay: Arc<dyn NostrRelayClient>,
+    directory_fetcher: Arc<dyn DirectoryRelayFetcher>,
+) -> MarmotRelayPlane {
+    MarmotRelayPlane::from_adapter(
+        Some(Duration::from_secs(30)),
+        NostrTransportAdapter::new(relay),
+        None,
+        None,
+        directory_fetcher,
+        // These plane tests drive an in-process `MockRelay` at loopback.
+        true,
+    )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn relay_plane_rejects_invalid_relay_endpoints_before_subscribing() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice = MemberId::new(vec![0xA1; 32]);
+    let alice_adapter = relay_plane.account_adapter(alice.clone(), relay.clone());
+
+    let err = alice_adapter
+        .activate_account(TransportAccountActivation {
+            account_id: alice,
+            inbox_endpoints: vec![TransportEndpoint("https://relay.example".into())],
+            group_subscriptions: Vec::new(),
+            since: None,
+        })
+        .await
+        .expect_err("invalid relay endpoint should be rejected");
+
+    assert!(err.to_string().contains("invalid relay endpoint"));
+    assert!(relay.subscriptions.lock().unwrap().is_empty());
+}
+
+#[test]
+fn notification_trigger_endpoints_use_the_relay_safety_policy() {
+    let plane = MarmotRelayPlane::with_subscription_rebuild_lookback(Duration::from_secs(30));
+    let err = plane
+        .sanitize_relay_endpoints(
+            vec![TransportEndpoint("wss://169.254.169.254".into())],
+            "notification trigger publish",
+        )
+        .expect_err("peer-controlled link-local relay hint must be rejected");
+
+    assert!(err.contains("host is not a public address"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unsafe_group_routes_isolated() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let account_id = MemberId::new(vec![0xA1; 32]);
+    let adapter = plane.account_adapter(account_id.clone(), relay.clone());
+    let safe = TransportEndpoint("wss://relay.example".into());
+    let unsafe_endpoints = vec![
+        TransportEndpoint("wss://relay.onion".into()),
+        TransportEndpoint("ws://relay.onion".into()),
+        TransportEndpoint("wss://127.0.0.1".into()),
+        TransportEndpoint("not a url".into()),
+    ];
+    let groups: Vec<_> = (0..3)
+        .map(|id| TransportGroupSubscription {
+            group_id: GroupId::new(vec![id; 16]),
+            transport_group_id: vec![id; 32],
+            endpoints: match id {
+                0 => vec![safe.clone()],
+                1 => [unsafe_endpoints.clone(), vec![safe.clone()]].concat(),
+                _ => unsafe_endpoints.clone(),
+            },
+            retained_since: None,
+        })
+        .collect();
+    adapter
+        .activate_account(TransportAccountActivation {
+            account_id: account_id.clone(),
+            inbox_endpoints: vec![safe.clone()],
+            group_subscriptions: groups.clone(),
+            since: None,
+        })
+        .await
+        .unwrap();
+    adapter
+        .sync_account_groups(TransportGroupSync {
+            account_id: account_id.clone(),
+            group_subscriptions: groups.clone(),
+            since: None,
+        })
+        .await
+        .unwrap();
+    let subscriptions = relay.subscriptions.lock().unwrap().clone();
+    // The two usable groups share the safe relay, so one batch carries both.
+    assert_eq!(subscriptions.len(), 2, "inbox and one batch");
+    let batch = subscriptions
+        .iter()
+        .find(|subscription| subscription.is_group_route())
+        .expect("the usable groups' batch");
+    for (id, usable) in [(0, true), (1, true), (2, false)] {
+        assert_eq!(batch.carries_group(&GroupId::new(vec![id; 16])), usable);
+    }
+    for subscription in subscriptions {
+        assert_eq!(subscription.endpoints(), std::slice::from_ref(&safe));
+    }
+
+    for group in groups {
+        let all_unsafe = group.endpoints == unsafe_endpoints;
+        let admitted = adapter.recovery_admitted_endpoints(&group.endpoints);
+        assert_eq!(
+            admitted,
+            if all_unsafe {
+                vec![]
+            } else {
+                vec![safe.0.clone()]
+            }
+        );
+        let request = TransportPublishRequest {
+            account_id: account_id.clone(),
+            message: group_event("filtered", &group.transport_group_id)
+                .to_transport_message()
+                .unwrap(),
+            target: TransportPublishTarget::Group {
+                group_id: group.group_id,
+                transport_group_id: group.transport_group_id,
+                endpoints: group.endpoints,
+            },
+            required_acks: 1,
+        };
+        let result = plane.inner.relay_safety.sanitize_publish_request(request);
+        if all_unsafe {
+            assert!(result.is_err());
+        } else {
+            assert_eq!(
+                result.unwrap().target.endpoints(),
+                std::slice::from_ref(&safe)
+            );
+        }
+    }
+}
+
+#[test]
+fn recovery_route_cap_and_aliases() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let plane = MarmotRelayPlane::new(None, relay.clone());
+    let adapter = plane.account_adapter(MemberId::new(vec![1; 32]), relay);
+    let mut endpoints = vec![TransportEndpoint("wss://relay.onion".into())];
+    endpoints.extend((0..20).map(|i| TransportEndpoint(format!("wss://relay{i}.example/"))));
+    endpoints.push(TransportEndpoint(" wss://RELAY0.example/ ".into()));
+    let group = TransportGroupSubscription {
+        group_id: GroupId::new(vec![1; 16]),
+        transport_group_id: vec![2; 32],
+        endpoints: endpoints.clone(),
+        retained_since: None,
+    };
+    let sync = plane
+        .inner
+        .relay_safety
+        .sanitize_group_sync(TransportGroupSync {
+            account_id: adapter.account_id().clone(),
+            group_subscriptions: vec![group],
+            since: None,
+        })
+        .unwrap();
+    assert_eq!(sync.group_subscriptions[0].endpoints.len(), 16);
+    let admitted = adapter.recovery_admitted_endpoints(&endpoints);
+    let mut expected: Vec<_> = endpoints[1..17]
+        .iter()
+        .map(|endpoint| endpoint.0.clone())
+        .collect();
+    expected.push(" wss://RELAY0.example/ ".into());
+    expected.sort();
+    assert_eq!(admitted, expected);
+    assert_eq!(endpoints.len(), 22, "signed route remains unchanged");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn relay_plane_deduplicates_canonical_relay_endpoints() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice = MemberId::new(vec![0xA1; 32]);
+    let group_id = GroupId::new(vec![0xC3; 32]);
+    let alice_adapter = relay_plane.account_adapter(alice.clone(), relay.clone());
+
+    alice_adapter
+        .activate_account(TransportAccountActivation {
+            account_id: alice,
+            inbox_endpoints: vec![
+                TransportEndpoint(" wss://relay.example ".into()),
+                TransportEndpoint("wss://relay.example".into()),
+            ],
+            group_subscriptions: vec![TransportGroupSubscription {
+                group_id,
+                transport_group_id: vec![0xD4; 32],
+                endpoints: vec![
+                    TransportEndpoint("wss://relay.example/".into()),
+                    TransportEndpoint("wss://relay.example/".into()),
+                ],
+                retained_since: None,
+            }],
+            since: None,
+        })
+        .await
+        .unwrap();
+
+    let subscriptions = relay.subscriptions.lock().unwrap().clone();
+    assert!(subscriptions.iter().all(|subscription| match subscription {
+        NostrSubscription::AccountInbox { endpoints, .. }
+        | NostrSubscription::Group { endpoints, .. }
+        | NostrSubscription::GroupBatch { endpoints, .. }
+        | NostrSubscription::GroupMaintenance { endpoints, .. } => endpoints.len() == 1,
+    }));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn relay_telemetry_reflects_activation_through_the_plane() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice = MemberId::new(vec![0xA1; 32]);
+    let group_id = GroupId::new(vec![0xC3; 32]);
+    let alice_adapter = relay_plane.account_adapter(alice.clone(), relay.clone());
+
+    alice_adapter
+        .activate_account(TransportAccountActivation {
+            account_id: alice,
+            inbox_endpoints: vec![TransportEndpoint("wss://relay.example".into())],
+            group_subscriptions: vec![TransportGroupSubscription {
+                group_id,
+                transport_group_id: vec![0xD4; 32],
+                endpoints: vec![TransportEndpoint("wss://relay.example".into())],
+                retained_since: None,
+            }],
+            since: None,
+        })
+        .await
+        .unwrap();
+
+    let telemetry = relay_plane.relay_telemetry().await;
+    // The single shared adapter records subscription lifecycle and the
+    // initial-sync gate as soon as an account activates, so the bundled
+    // snapshot is populated without any relay traffic.
+    assert_eq!(telemetry.metrics.active_accounts, 1);
+    assert!(telemetry.metrics.subscriptions_created >= 2);
+    assert!(telemetry.sync.tracked_subscriptions >= 2);
+    // No SDK relay client is wired in this unit harness.
+    assert!(!telemetry.health.sdk_backed);
+    // No relay copies were observed, so spread stays empty (no URLs leak).
+    assert_eq!(telemetry.delivery_spread.spread.sample_count(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn settled_activation_uses_diff() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let account = MemberId::new(vec![0xA1; 32]);
+    let adapter = plane.account_adapter(account.clone(), relay.clone());
+    let endpoint = TransportEndpoint("wss://relay.example".into());
+    let mut activation = TransportAccountActivation {
+        account_id: account,
+        inbox_endpoints: vec![endpoint.clone()],
+        group_subscriptions: Vec::new(),
+        since: Some(Timestamp(100)),
+    };
+    adapter.activate_account(activation.clone()).await.unwrap();
+    let issued = relay.subscriptions.lock().unwrap().clone();
+    for subscription in issued {
+        plane
+            .handle_relay_eose_for_test(endpoint.clone(), subscription.subscription_id())
+            .await;
+    }
+    adapter.activate_account(activation.clone()).await.unwrap();
+    assert_eq!(relay.subscriptions.lock().unwrap().len(), 1);
+    assert_eq!(relay.unsubscribed_accounts.lock().unwrap().len(), 1);
+    activation
+        .group_subscriptions
+        .push(TransportGroupSubscription {
+            group_id: GroupId::new(vec![0xC3; 16]),
+            transport_group_id: vec![0xD4; 32],
+            endpoints: vec![endpoint.clone()],
+            retained_since: None,
+        });
+    adapter.activate_account(activation.clone()).await.unwrap();
+    assert_eq!(
+        relay.subscriptions.lock().unwrap().len(),
+        2,
+        "only the added route"
+    );
+    assert_eq!(relay.unsubscribed_accounts.lock().unwrap().len(), 1);
+    activation.since = None;
+    for expected in [4, 6] {
+        let issued = relay.subscriptions.lock().unwrap().clone();
+        for subscription in issued {
+            plane
+                .handle_relay_eose_for_test(endpoint.clone(), subscription.subscription_id())
+                .await;
+        }
+        adapter.activate_account(activation.clone()).await.unwrap();
+        assert_eq!(
+            relay.subscriptions.lock().unwrap().len(),
+            expected,
+            "full replay must reissue"
+        );
+    }
+    plane.shutdown().await;
+}
+
+#[test]
+fn telemetry_rollup_reshapes_and_joins_per_relay_snapshots() {
+    use transport_nostr_adapter::{HistogramBucket, RelayDeliveryStats, RelayLatencyStats};
+
+    let hist = |count: u64| DurationHistogramSnapshot {
+        buckets: vec![HistogramBucket {
+            upper_bound_ms: 50,
+            count,
+        }],
+        overflow_count: 0,
+        sum_ms: count.saturating_mul(50),
+    };
+
+    let spread = RelayDeliverySpread {
+        observed: 5,
+        corroborated: 4,
+        single_source: 1,
+        spread: hist(3),
+        per_relay: vec![
+            RelayDeliveryStats {
+                relay_index: 0,
+                delivered_first: 3,
+                delivered_later: 1,
+            },
+            RelayDeliveryStats {
+                relay_index: 1,
+                delivered_first: 0,
+                delivered_later: 2,
+            },
+        ],
+    };
+    let sync = RelaySyncSnapshot {
+        tracked_subscriptions: 2,
+        synced_subscriptions: 1,
+        first_event: hist(2),
+        eose: hist(2),
+        per_relay: vec![
+            RelayLatencyStats {
+                relay_index: 0,
+                first_event: hist(1),
+                eose: hist(1),
+            },
+            RelayLatencyStats {
+                relay_index: 2,
+                first_event: hist(1),
+                eose: hist(1),
+            },
+        ],
+        refusals: Vec::new(),
+    };
+    let metrics = NostrAdapterMetrics {
+        publish_attempts: 4,
+        publish_successes: 3,
+        publish_failures: 1,
+        reconciliation_attempts: 7,
+        reconciliation_order_unproven_passes: 2,
+        ..NostrAdapterMetrics::default()
+    };
+    let health = RelayPlaneHealth {
+        connection_attempts: 6,
+        connection_successes: 5,
+        ..RelayPlaneHealth::default()
+    };
+
+    let rollup = rollup_from_snapshots(spread, sync, metrics, health, None);
+
+    // Union of per-relay indices {0,1,2}, ascending.
+    assert_eq!(
+        rollup
+            .relays
+            .iter()
+            .map(|entry| entry.relay_index)
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
+
+    // Index 0: both delivery and latency rows present.
+    let relay0 = &rollup.relays[0];
+    assert_eq!(relay0.delivery_count(), 4);
+    assert_eq!(relay0.redundant_count(), 1);
+    assert_eq!(relay0.first_deliverer_rate(), Some(0.75));
+    assert_eq!(relay0.first_event_latency.sample_count(), 1);
+
+    // Index 1: delivery only -> empty latency histograms.
+    let relay1 = &rollup.relays[1];
+    assert_eq!(relay1.delivery_count(), 2);
+    assert_eq!(relay1.first_deliverer_rate(), Some(0.0));
+    assert_eq!(relay1.eose_latency.sample_count(), 0);
+
+    // Index 2: latency only -> zero delivery counts.
+    let relay2 = &rollup.relays[2];
+    assert_eq!(relay2.delivery_count(), 0);
+    assert_eq!(relay2.first_deliverer_rate(), None);
+    assert_eq!(relay2.eose_latency.sample_count(), 1);
+
+    // Population-level and device-wide fields carry through.
+    assert_eq!(rollup.cross_relay_spread.sample_count(), 3);
+    assert_eq!(rollup.messages_corroborated, 4);
+    assert_eq!(rollup.messages_single_source, 1);
+    assert_eq!(rollup.connection_attempts, 6);
+    assert_eq!(rollup.connection_successes, 5);
+    assert_eq!(rollup.publish_successes, 3);
+    assert_eq!(rollup.reconciliation_attempts, 7);
+    assert_eq!(rollup.reconciliation_order_unproven_passes, 2);
+    assert_eq!(rollup.observed_reorg_rate(), None);
+}
+
+#[test]
+fn rollup_observed_reorg_rate_uses_folded_engine_metrics() {
+    let rollup = RelayTelemetryRollup {
+        engine: Some(EngineReorgMetrics {
+            settles: 8,
+            post_settle_reorgs: 2,
+            reorg_lateness_ms: DurationHistogramSnapshot::default(),
+        }),
+        ..RelayTelemetryRollup::default()
+    };
+    assert_eq!(rollup.observed_reorg_rate(), Some(0.25));
+
+    // Engine present but with no settles yet: rate is undefined, not 0/0.
+    let empty_engine = RelayTelemetryRollup {
+        engine: Some(EngineReorgMetrics::default()),
+        ..RelayTelemetryRollup::default()
+    };
+    assert_eq!(empty_engine.observed_reorg_rate(), None);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn telemetry_rollup_is_empty_without_observed_relay_traffic() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let rollup = relay_plane.telemetry_rollup(None).await;
+    assert!(rollup.relays.is_empty());
+    assert_eq!(rollup.cross_relay_spread.sample_count(), 0);
+    assert!(rollup.engine.is_none());
+}
+
+/// Stands in for the app's export configuration, which is either opted in
+/// or not; `config.rs` tests what makes it so.
+struct TestExportGate(bool);
+
+impl RelayExportGate for TestExportGate {
+    fn export_allowed(&self) -> bool {
+        self.0
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn relay_label_resolution_is_gated_behind_opt_in() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice = MemberId::new(vec![0xA1; 32]);
+    let endpoint = TransportEndpoint("wss://relay.example".into());
+    let alice_adapter = relay_plane.account_adapter(alice.clone(), relay.clone());
+
+    alice_adapter
+        .activate_account(TransportAccountActivation {
+            account_id: alice,
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: Vec::new(),
+            since: None,
+        })
+        .await
+        .unwrap();
+
+    // Not opted in: no relay-identity resolution at all.
+    assert!(
+        relay_plane
+            .resolve_relay_labels(&TestExportGate(false))
+            .await
+            .is_none()
+    );
+
+    // Opted in: the export boundary resolves the opaque index for the
+    // activated inbox endpoint back to its relay URL.
+    let resolution = relay_plane
+        .resolve_relay_labels(&TestExportGate(true))
+        .await
+        .expect("opt-in resolves labels");
+    assert!(!resolution.is_empty());
+    assert!(
+        resolution
+            .label_for(transport_nostr_adapter::RelayIndex(0))
+            .is_some()
+    );
+}
+
+/// Wait until a second identical fetch has joined the in-flight one.
+async fn wait_for_directory_waiter(plane: &MarmotRelayPlane) {
+    timeout(Duration::from_secs(2), async {
+        while plane.relay_health().await.directory_coalesced_waiters < 1 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the second fetch joins the in-flight one");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_fetches_coalesce_identical_inflight_requests() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let event = DirectoryRelayEventRecord {
+        endpoints: vec![TransportEndpoint("wss://relay.example".into())],
+        event: group_event("33", &[0x44; 32]),
+    };
+    let directory_fetcher = Arc::new(BlockingDirectoryFetcher {
+        fetch_count: AtomicUsize::new(0),
+        started: Notify::new(),
+        release: Notify::new(),
+        events: vec![event.clone()],
+    });
+    let relay_plane = relay_plane_with_directory_fetcher(relay, directory_fetcher.clone());
+    let endpoints = vec![TransportEndpoint(" wss://relay.example ".into())];
+    let query = DirectoryEventQuery::new(0, vec!["11".repeat(32)], 12);
+
+    let first_plane = relay_plane.clone();
+    let first_endpoints = endpoints.clone();
+    let first_query = query.clone();
+    let first = tokio::spawn(async move {
+        first_plane
+            .fetch_directory_events(first_endpoints, vec![first_query])
+            .await
+    });
+    directory_fetcher.started.notified().await;
+
+    let second_plane = relay_plane.clone();
+    let second = tokio::spawn(async move {
+        second_plane
+            .fetch_directory_events(endpoints, vec![query])
+            .await
+    });
+    wait_for_directory_waiter(&relay_plane).await;
+    directory_fetcher.release.notify_one();
+
+    assert_eq!(first.await.unwrap().unwrap(), vec![event.clone()]);
+    assert_eq!(second.await.unwrap().unwrap(), vec![event]);
+    assert_eq!(directory_fetcher.fetch_count.load(Ordering::SeqCst), 1);
+
+    let health = relay_plane.relay_health().await;
+    assert_eq!(health.directory_inflight_fetches, 0);
+    assert_eq!(health.directory_completed_fetches, 1);
+    assert_eq!(health.directory_coalesced_waiters, 1);
+    assert_eq!(health.directory_failed_fetches, 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_completion_coalesces_and_survives_waiter_cancellation() {
+    let fetcher = Arc::new(BlockingDirectoryFetcher {
+        fetch_count: AtomicUsize::new(0),
+        started: Notify::new(),
+        release: Notify::new(),
+        events: Vec::new(),
+    });
+    let plane = relay_plane_with_directory_fetcher(
+        Arc::new(RecordingRelayClient::default()),
+        fetcher.clone(),
+    );
+    let endpoints = vec![TransportEndpoint("wss://relay.example".into())];
+    let queries = vec![DirectoryEventQuery::new(0, vec!["11".repeat(32)], 12)];
+    let first_plane = plane.clone();
+    let first_endpoints = endpoints.clone();
+    let first_queries = queries.clone();
+    let first = tokio::spawn(async move {
+        first_plane
+            .fetch_directory_events_with_completion(first_endpoints, first_queries)
+            .await
+    });
+    let second_plane = plane.clone();
+    let second = tokio::spawn(async move {
+        second_plane
+            .fetch_directory_events_with_completion(endpoints, queries)
+            .await
+    });
+    timeout(Duration::from_secs(2), async {
+        loop {
+            if plane.relay_health().await.directory_coalesced_waiters == 1
+                && fetcher.fetch_count.load(Ordering::SeqCst) == 1
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(plane.relay_health().await.directory_inflight_fetches, 1);
+    first.abort();
+    let _ = first.await;
+    fetcher.release.notify_one();
+    let outcome = timeout(Duration::from_secs(2), second)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(
+        !outcome.complete,
+        "a legacy fetcher must not claim authoritative completion"
+    );
+    let health = plane.relay_health().await;
+    assert_eq!(health.directory_inflight_fetches, 0);
+    assert_eq!(health.directory_failed_fetches, 1);
+    assert_eq!(health.directory_completed_fetches, 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_fetch_owner_cancellation_does_not_orphan_waiters() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let event = DirectoryRelayEventRecord {
+        endpoints: vec![TransportEndpoint("wss://relay.example".into())],
+        event: group_event("44", &[0x55; 32]),
+    };
+    let directory_fetcher = Arc::new(BlockingDirectoryFetcher {
+        fetch_count: AtomicUsize::new(0),
+        started: Notify::new(),
+        release: Notify::new(),
+        events: vec![event.clone()],
+    });
+    let relay_plane = relay_plane_with_directory_fetcher(relay, directory_fetcher.clone());
+    let endpoints = vec![TransportEndpoint("wss://relay.example".into())];
+    let query = DirectoryEventQuery::new(0, vec!["11".repeat(32)], 12);
+
+    let first_plane = relay_plane.clone();
+    let first_endpoints = endpoints.clone();
+    let first_query = query.clone();
+    let first = tokio::spawn(async move {
+        first_plane
+            .fetch_directory_events(first_endpoints, vec![first_query])
+            .await
+    });
+    directory_fetcher.started.notified().await;
+    first.abort();
+
+    let second_plane = relay_plane.clone();
+    let second = tokio::spawn(async move {
+        second_plane
+            .fetch_directory_events(endpoints, vec![query])
+            .await
+    });
+    wait_for_directory_waiter(&relay_plane).await;
+    directory_fetcher.release.notify_one();
+
+    assert_eq!(second.await.unwrap().unwrap(), vec![event]);
+    assert_eq!(directory_fetcher.fetch_count.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        relay_plane.relay_health().await.directory_coalesced_waiters,
+        1
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_fetch_panic_clears_inflight_entry_for_retry() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let directory_fetcher = Arc::new(PanicOnceDirectoryFetcher::default());
+    let relay_plane = relay_plane_with_directory_fetcher(relay, directory_fetcher);
+    let endpoints = vec![TransportEndpoint("wss://relay.example".into())];
+    let queries = vec![DirectoryEventQuery::new(0, vec!["11".repeat(32)], 12)];
+
+    let error = relay_plane
+        .fetch_directory_events(endpoints.clone(), queries.clone())
+        .await
+        .expect_err("the injected panic should become a fetch error");
+    assert_eq!(error, "directory fetch task failed");
+    assert_eq!(
+        relay_plane.relay_health().await.directory_inflight_fetches,
+        0,
+        "the panicked owner must release its coalescing key"
+    );
+
+    assert_eq!(
+        relay_plane
+            .fetch_directory_events(endpoints, queries)
+            .await
+            .expect("an identical fetch should retry after the panic"),
+        Vec::new()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_fetches_reject_invalid_relay_endpoints_before_fetching() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let directory_fetcher = Arc::new(RecordingDirectoryFetcher::default());
+    let relay_plane = relay_plane_with_directory_fetcher(relay, directory_fetcher.clone());
+
+    let err = relay_plane
+        .fetch_directory_events(
+            vec![TransportEndpoint("https://relay.example".into())],
+            vec![DirectoryEventQuery::new(0, vec!["11".repeat(32)], 12)],
+        )
+        .await
+        .expect_err("invalid relay endpoint should be rejected");
+
+    assert!(err.contains("invalid relay endpoint"));
+    assert_eq!(directory_fetcher.fetch_count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_fetches_reject_retired_relays_before_fetching() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let directory_fetcher = Arc::new(RecordingDirectoryFetcher::default());
+    let relay_plane = relay_plane_with_directory_fetcher(relay, directory_fetcher.clone());
+    let query = DirectoryEventQuery::new(0, vec!["11".repeat(32)], 12);
+
+    for endpoint in ["wss://relay.nostr.band", "wss://RELAY.NOSTR.BAND./path"] {
+        let err = relay_plane
+            .fetch_directory_events(
+                vec![TransportEndpoint(endpoint.into())],
+                vec![query.clone()],
+            )
+            .await
+            .expect_err("retired relay endpoint should be rejected");
+        assert!(err.contains("retired"));
+    }
+
+    assert_eq!(directory_fetcher.fetch_count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn group_subscriptions_remain_account_scoped_for_shared_group_routes() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice = MemberId::new(vec![0xA1; 32]);
+    let bob = MemberId::new(vec![0xB2; 32]);
+    let group_id = GroupId::new(vec![0xC3; 32]);
+    let transport_group_id = vec![0xD4; 32];
+    let endpoint = TransportEndpoint("wss://relay.example".into());
+    let alice_adapter = relay_plane.account_adapter(alice.clone(), relay.clone());
+    let bob_adapter = relay_plane.account_adapter(bob.clone(), relay.clone());
+
+    alice_adapter
+        .activate_account(TransportAccountActivation {
+            account_id: alice.clone(),
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: vec![TransportGroupSubscription {
+                group_id: group_id.clone(),
+                transport_group_id: transport_group_id.clone(),
+                endpoints: vec![endpoint.clone()],
+                retained_since: None,
+            }],
+            since: Some(Timestamp(10)),
+        })
+        .await
+        .unwrap();
+    bob_adapter
+        .activate_account(TransportAccountActivation {
+            account_id: bob.clone(),
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: vec![TransportGroupSubscription {
+                group_id: group_id.clone(),
+                transport_group_id: transport_group_id.clone(),
+                endpoints: vec![endpoint.clone()],
+                retained_since: None,
+            }],
+            since: Some(Timestamp(10)),
+        })
+        .await
+        .unwrap();
+
+    let subscriptions = relay.subscriptions.lock().unwrap().clone();
+    let group_subscriptions = subscriptions
+        .iter()
+        .filter(|subscription| subscription.is_group_route())
+        .collect::<Vec<_>>();
+    assert_eq!(group_subscriptions.len(), 2);
+    assert!(
+        group_subscriptions
+            .iter()
+            .any(|subscription| subscription.account_id() == &alice)
+    );
+    assert!(
+        group_subscriptions
+            .iter()
+            .any(|subscription| subscription.account_id() == &bob)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shared_group_event_is_delivered_to_each_matching_account_receiver() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice = MemberId::new(vec![0xA1; 32]);
+    let bob = MemberId::new(vec![0xB2; 32]);
+    let group_id = GroupId::new(vec![0xC3; 32]);
+    let transport_group_id = vec![0xD4; 32];
+    let endpoint = TransportEndpoint("wss://relay.example".into());
+    let alice_adapter = relay_plane.account_adapter(alice.clone(), relay.clone());
+    let bob_adapter = relay_plane.account_adapter(bob.clone(), relay.clone());
+    let subscription = TransportGroupSubscription {
+        group_id: group_id.clone(),
+        transport_group_id: transport_group_id.clone(),
+        endpoints: vec![endpoint.clone()],
+        retained_since: None,
+    };
+
+    alice_adapter
+        .activate_account(TransportAccountActivation {
+            account_id: alice.clone(),
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: vec![subscription.clone()],
+            since: None,
+        })
+        .await
+        .unwrap();
+    bob_adapter
+        .activate_account(TransportAccountActivation {
+            account_id: bob.clone(),
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: vec![subscription],
+            since: None,
+        })
+        .await
+        .unwrap();
+
+    let delivered = relay_plane
+        .handle_relay_event_for_test(NostrRelayEvent {
+            endpoint,
+            subscription_id: Some("group-sub".into()),
+            event: group_event("11", &transport_group_id),
+        })
+        .await
+        .unwrap();
+    assert_eq!(delivered, 2);
+
+    let alice_delivery = alice_adapter.receive().await.unwrap().unwrap();
+    let bob_delivery = bob_adapter.receive().await.unwrap().unwrap();
+    assert_eq!(alice_delivery.account_id, alice);
+    assert_eq!(bob_delivery.account_id, bob);
+    assert_eq!(alice_delivery.group_id_hint, Some(group_id.clone()));
+    assert_eq!(bob_delivery.group_id_hint, Some(group_id));
+    assert_eq!(alice_delivery.source.plane, TransportDeliveryPlane::Group);
+    assert_eq!(bob_delivery.source.plane, TransportDeliveryPlane::Group);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn full_account_queue_spills_before_it_omits() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice = MemberId::new(vec![0xA1; 32]);
+    let transport_group_id = vec![0xD3; 32];
+    let endpoint = TransportEndpoint("wss://relay.example".into());
+    // The durable spill keeps two deliveries and reports every later one full.
+    let kept = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let spill = kept.clone();
+    let store: AccountDeliverySpillStore = Arc::new(move |deliveries| {
+        let mut spill = spill.lock().unwrap();
+        Ok(deliveries
+            .iter()
+            .map(|delivery| {
+                if spill.len() < 2 {
+                    spill.push(delivery.clone());
+                    DeliverySpillDisposition::Stored
+                } else {
+                    DeliverySpillDisposition::Full
+                }
+            })
+            .collect())
+    });
+    let adapter = relay_plane.account_adapter_with_recovery_marker(
+        alice.clone(),
+        relay.clone(),
+        None,
+        Some(store),
+    );
+    adapter
+        .activate_account(TransportAccountActivation {
+            account_id: alice.clone(),
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: vec![TransportGroupSubscription {
+                group_id: GroupId::new(vec![0xC3; 32]),
+                transport_group_id: transport_group_id.clone(),
+                endpoints: vec![endpoint.clone()],
+                retained_since: None,
+            }],
+            since: Some(Timestamp(1_699_999_900)),
+        })
+        .await
+        .unwrap();
+
+    for index in 0..ACCOUNT_DELIVERY_BUFFER + 3 {
+        let mut event = group_event(&format!("alice-{index}"), &transport_group_id);
+        event.created_at = 1_700_100_000_u64.saturating_sub(index as u64);
+        event.id = event.computed_id();
+        relay_plane
+            .handle_relay_event_for_test(NostrRelayEvent {
+                endpoint: endpoint.clone(),
+                subscription_id: Some("alice-group".into()),
+                event,
+            })
+            .await
+            .unwrap();
+    }
+
+    let settled = timeout(Duration::from_secs(5), async {
+        loop {
+            let health = relay_plane.relay_health().await;
+            if health.account_delivery_spilled == 2 && health.account_delivery_dropped == 1 {
+                break health;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    let health = match settled {
+        Ok(health) => health,
+        Err(_) => {
+            let health = relay_plane.relay_health().await;
+            panic!(
+                "spill did not settle: spilled={} dropped={} depth={} max_depth={}",
+                health.account_delivery_spilled,
+                health.account_delivery_dropped,
+                health.account_delivery_queue_depth,
+                health.account_delivery_max_queue_depth
+            );
+        }
+    };
+    assert_eq!(health.account_delivery_spill_already_seen, 0);
+    assert_eq!(kept.lock().unwrap().len(), 2);
+    assert!(
+        adapter.delivery_loss_blocks_cursor(),
+        "only the delivery the full spill could not keep becomes loss"
+    );
+}
+
+async fn fill_account_queue(
+    relay_plane: &MarmotRelayPlane,
+    adapter: &MarmotRelayPlaneAccountAdapter,
+    account: &MemberId,
+    extra: usize,
+) {
+    let transport_group_id = vec![0xD3; 32];
+    let endpoint = TransportEndpoint("wss://relay.example".into());
+    adapter
+        .activate_account(TransportAccountActivation {
+            account_id: account.clone(),
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: vec![TransportGroupSubscription {
+                group_id: GroupId::new(vec![0xC3; 32]),
+                transport_group_id: transport_group_id.clone(),
+                endpoints: vec![endpoint.clone()],
+                retained_since: None,
+            }],
+            since: Some(Timestamp(1_699_999_900)),
+        })
+        .await
+        .unwrap();
+    for index in 0..ACCOUNT_DELIVERY_BUFFER + extra {
+        let mut event = group_event(&format!("fill-{index}"), &transport_group_id);
+        event.created_at = 1_700_100_000_u64.saturating_sub(index as u64);
+        event.id = event.computed_id();
+        relay_plane
+            .handle_relay_event_for_test(NostrRelayEvent {
+                endpoint: endpoint.clone(),
+                subscription_id: Some("fill-group".into()),
+                event,
+            })
+            .await
+            .unwrap();
+    }
+}
+
+/// A queue-loss generation carries the earliest wire `created_at` among the
+/// deliveries it dropped, so recovery can bound what it must compare.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn router_drops_record_the_earliest_created_at_they_lost() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice = MemberId::new(vec![0xA1; 32]);
+    let marked = Arc::new(StdMutex::new(Vec::new()));
+    let recorded = marked.clone();
+    let marker: AccountDeliveryRecoveryMarker = Arc::new(move |_, dropped, earliest| {
+        recorded.lock().unwrap().push((dropped, earliest));
+        Ok(())
+    });
+    let adapter = relay_plane.account_adapter_with_recovery_marker(
+        alice.clone(),
+        relay.clone(),
+        Some(marker),
+        None,
+    );
+    // Without a spill the three deliveries past the queue are dropped. They
+    // are the oldest in the fill, and the last is the earliest.
+    fill_account_queue(&relay_plane, &adapter, &alice, 3).await;
+    timeout(Duration::from_secs(5), async {
+        while marked
+            .lock()
+            .unwrap()
+            .last()
+            .is_none_or(|(dropped, _)| *dropped < 3)
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the dropped deliveries become a durable marker");
+    let earliest_fill = 1_700_100_000 - (ACCOUNT_DELIVERY_BUFFER as u64 + 2);
+    assert_eq!(
+        marked.lock().unwrap().last().copied(),
+        Some((3, Some(earliest_fill)))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn transient_spill_store_failures_are_retried_instead_of_lost() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice = MemberId::new(vec![0xA1; 32]);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let attempts = calls.clone();
+    let store: AccountDeliverySpillStore = Arc::new(move |deliveries| {
+        if attempts.fetch_add(1, Ordering::SeqCst) < 2 {
+            return Err(AccountDeliveryRecoveryMarkerError::Retryable);
+        }
+        Ok(vec![DeliverySpillDisposition::Stored; deliveries.len()])
+    });
+    let adapter = relay_plane.account_adapter_with_recovery_marker(
+        alice.clone(),
+        relay.clone(),
+        None,
+        Some(store),
+    );
+    fill_account_queue(&relay_plane, &adapter, &alice, 1).await;
+
+    let health = timeout(Duration::from_secs(5), async {
+        loop {
+            let health = relay_plane.relay_health().await;
+            if health.account_delivery_spilled == 1 {
+                break health;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the retried write stores the delivery");
+    assert_eq!(health.account_delivery_dropped, 0);
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert!(!adapter.delivery_loss_blocks_cursor());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn replaced_adapter_wakes_when_an_earlier_spill_write_commits() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice = MemberId::new(vec![0xA1; 32]);
+    // The first writer's store waits until the adapter has been replaced.
+    let release = Arc::new(AtomicBool::new(false));
+    let gate = release.clone();
+    let store: AccountDeliverySpillStore = Arc::new(move |deliveries| {
+        while !gate.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        Ok(vec![DeliverySpillDisposition::Stored; deliveries.len()])
+    });
+    let first = relay_plane.account_adapter_with_recovery_marker(
+        alice.clone(),
+        relay.clone(),
+        None,
+        Some(store.clone()),
+    );
+    fill_account_queue(&relay_plane, &first, &alice, 1).await;
+    timeout(Duration::from_secs(5), async {
+        while !first.delivery_loss_blocks_cursor() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the overflowed delivery is handed to the spill writer");
+
+    let replacement = relay_plane.account_adapter_with_recovery_marker(
+        alice.clone(),
+        relay.clone(),
+        None,
+        Some(store),
+    );
+    release.store(true, Ordering::SeqCst);
+    let woke = timeout(
+        Duration::from_secs(5),
+        replacement.receive_account_delivery_or_spill(),
+    )
+    .await
+    .expect("the replacement hears the earlier writer");
+    assert!(matches!(woke, AccountDeliveryWait::SpillReady));
+}
+
+/// A spill write can outlive its route: retirement removes the route while
+/// the writer still holds a batch, however long the store takes. A replacement
+/// adapter shares that writer's coordination, so it stays fenced until the
+/// batch settles, wakes when it commits, and is told to recover when it fails,
+/// whether the replacement registered before or after the failure.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn replacement_after_retirement_shares_an_in_flight_spill_write() {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    enum Outcome {
+        Commit,
+        FailAfterReplacement,
+        FailBeforeReplacement,
+    }
+    for outcome in [
+        Outcome::Commit,
+        Outcome::FailAfterReplacement,
+        Outcome::FailBeforeReplacement,
+    ] {
+        let relay = Arc::new(RecordingRelayClient::default());
+        let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+        let alice = MemberId::new(vec![0xA1; 32]);
+        let release = Arc::new(AtomicBool::new(false));
+        // A failed assertion must still free the blocked store thread, or the
+        // runtime cannot shut down.
+        struct ReleaseOnDrop(Arc<AtomicBool>);
+        impl Drop for ReleaseOnDrop {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+        let _release_on_exit = ReleaseOnDrop(release.clone());
+        let gate = release.clone();
+        let store: AccountDeliverySpillStore = Arc::new(move |deliveries| {
+            while !gate.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            if outcome == Outcome::Commit {
+                Ok(vec![DeliverySpillDisposition::Stored; deliveries.len()])
+            } else {
+                Err(AccountDeliveryRecoveryMarkerError::Closed)
+            }
+        });
+        let marked = Arc::new(StdMutex::new(Vec::new()));
+        let recorded = marked.clone();
+        let marker: AccountDeliveryRecoveryMarker = Arc::new(move |token, dropped, _| {
+            recorded.lock().unwrap().push((token, dropped));
+            Ok(())
+        });
+        let adapter = relay_plane.account_adapter_with_recovery_marker(
+            alice.clone(),
+            relay.clone(),
+            Some(marker.clone()),
+            Some(store.clone()),
+        );
+        fill_account_queue(&relay_plane, &adapter, &alice, 1).await;
+        timeout(Duration::from_secs(5), async {
+            while !adapter.delivery_loss_blocks_cursor() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("the overflowed delivery is handed to the spill writer");
+
+        // Retirement does not wait for the held write.
+        timeout(
+            Duration::from_secs(5),
+            relay_plane.deactivate_account_context(&alice),
+        )
+        .await
+        .expect("retirement does not wait for the writer")
+        .unwrap();
+        drop(adapter);
+        let durable = || async {
+            timeout(Duration::from_secs(5), async {
+                while marked
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .all(|(_, dropped)| *dropped == 0)
+                {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .expect("the lost batch is durable although its route was retired");
+        };
+        if outcome == Outcome::FailBeforeReplacement {
+            // The write fails while no route exists.
+            release.store(true, Ordering::SeqCst);
+            durable().await;
+        }
+        let replacement = relay_plane.account_adapter_with_recovery_marker(
+            alice.clone(),
+            relay.clone(),
+            Some(marker),
+            Some(store),
+        );
+        assert!(
+            replacement.delivery_loss_blocks_cursor(),
+            "{outcome:?}: the replacement is fenced by the retired writer's batch"
+        );
+        release.store(true, Ordering::SeqCst);
+        let woke = timeout(
+            Duration::from_secs(5),
+            replacement.receive_account_delivery_or_spill(),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("{outcome:?}: the replacement hears the retired writer"));
+        if outcome == Outcome::Commit {
+            assert!(matches!(woke, AccountDeliveryWait::SpillReady));
+            assert!(!replacement.delivery_loss_blocks_cursor());
+            assert!(marked.lock().unwrap().is_empty());
+        } else {
+            // Recovery starts on the replacement with no further relay
+            // traffic, and the loss keeps its cursor fenced until then.
+            assert!(
+                matches!(
+                    woke,
+                    AccountDeliveryWait::Received(AccountDeliveryReceive::Overflow(_))
+                ),
+                "{outcome:?}: the replacement is told to recover"
+            );
+            durable().await;
+            assert!(replacement.delivery_loss_blocks_cursor());
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pending_spill_wakeup_wins_over_a_ready_live_queue() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice = MemberId::new(vec![0xA1; 32]);
+    let store: AccountDeliverySpillStore =
+        Arc::new(|deliveries| Ok(vec![DeliverySpillDisposition::Stored; deliveries.len()]));
+    let adapter = relay_plane.account_adapter_with_recovery_marker(
+        alice.clone(),
+        relay.clone(),
+        None,
+        Some(store),
+    );
+    // Live input is queued and ready when a spill write commits.
+    fill_account_queue(&relay_plane, &adapter, &alice, 0).await;
+    adapter.delivery_overflow.spill_ready.notify_one();
+    assert!(matches!(
+        adapter.receive_account_delivery_or_spill().await,
+        AccountDeliveryWait::SpillReady
+    ));
+    assert!(matches!(
+        adapter.receive_account_delivery_or_spill().await,
+        AccountDeliveryWait::Received(AccountDeliveryReceive::Delivery(_))
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn spill_hand_off_bounds_deliveries_with_empty_payloads() {
+    let release = Arc::new(AtomicBool::new(false));
+    let gate = release.clone();
+    let store: AccountDeliverySpillStore = Arc::new(move |deliveries| {
+        while !gate.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        Ok(vec![DeliverySpillDisposition::Stored; deliveries.len()])
+    });
+    let spill = delivery_spill::AccountDeliverySpill::new(
+        store,
+        MemberId::new(vec![0xA1; 32]),
+        std::sync::Weak::new(),
+        Arc::new(AccountDeliveryOverflowState::default()),
+        None,
+    );
+    let empty = |index: u32| TransportDelivery {
+        account_id: MemberId::new(vec![0xA1; 32]),
+        group_id_hint: None,
+        message: TransportMessage {
+            id: MessageId::new(index.to_be_bytes().to_vec()),
+            payload: Vec::new(),
+            timestamp: Timestamp(1),
+            causal_deps: Vec::new(),
+            source: TransportSource(NOSTR_SOURCE.to_owned()),
+            envelope: TransportEnvelope::GroupMessage {
+                transport_group_id: vec![0xD3; 32],
+            },
+        },
+        received_at: Timestamp(1),
+        source: TransportDeliverySource {
+            transport: TransportSource(NOSTR_SOURCE.to_owned()),
+            plane: TransportDeliveryPlane::Group,
+            endpoint: None,
+            subscription_id: None,
+            wire: None,
+        },
+    };
+    // The writer takes its first batch and blocks; the hand-off then fills.
+    let mut accepted = 0_u32;
+    while spill.offer(empty(accepted)) {
+        accepted += 1;
+        assert!(
+            accepted < 10_000,
+            "the hand-off must refuse at a finite count"
+        );
+    }
+    assert!(
+        accepted <= 4_096 + 128,
+        "accepted {accepted} empty deliveries"
+    );
+    release.store(true, Ordering::SeqCst);
+}
+
+/// The cursor the account opened with, and the plane's rebuild lookback, in
+/// the cursor-floor tests below.
+const OPENED_CURSOR: u64 = 1_700_000_000;
+const CURSOR_LOOKBACK: u64 = 30;
+
+fn cursor_floor_delivery(
+    account: &MemberId,
+    id: u8,
+    created_at: u64,
+    plane: TransportDeliveryPlane,
+) -> TransportDelivery {
+    TransportDelivery {
+        account_id: account.clone(),
+        group_id_hint: None,
+        message: TransportMessage {
+            id: MessageId::new(vec![id; 32]),
+            payload: vec![id; 8],
+            timestamp: Timestamp(created_at),
+            causal_deps: Vec::new(),
+            source: TransportSource(NOSTR_SOURCE.to_owned()),
+            envelope: if plane == TransportDeliveryPlane::AccountInbox {
+                TransportEnvelope::Welcome {
+                    recipient: account.clone(),
+                }
+            } else {
+                TransportEnvelope::GroupMessage {
+                    transport_group_id: vec![0xD3; 32],
+                }
+            },
+        },
+        received_at: Timestamp(created_at),
+        source: TransportDeliverySource {
+            transport: TransportSource(NOSTR_SOURCE.to_owned()),
+            plane,
+            endpoint: None,
+            subscription_id: None,
+            wire: None,
+        },
+    }
+}
+
+/// A spill store that keeps every delivery it is handed.
+fn recording_spill_store() -> (
+    AccountDeliverySpillStore,
+    Arc<StdMutex<Vec<TransportDelivery>>>,
+) {
+    let kept = Arc::new(StdMutex::new(Vec::new()));
+    let spill = kept.clone();
+    let store: AccountDeliverySpillStore = Arc::new(move |deliveries| {
+        spill.lock().unwrap().extend(deliveries.iter().cloned());
+        Ok(vec![DeliverySpillDisposition::Stored; deliveries.len()])
+    });
+    (store, kept)
+}
+
+/// Holds a gated spill store's writer until opened. Dropping it opens it, so a
+/// failing test never strands the writer on the blocking pool.
+struct SpillGate(Arc<AtomicBool>);
+
+impl SpillGate {
+    fn open(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+impl Drop for SpillGate {
+    fn drop(&mut self) {
+        self.open();
+    }
+}
+
+/// A recording spill store whose writer waits for the returned gate, so a
+/// hand-off stays unsettled however soon the runtime runs the writer.
+fn gated_recording_spill_store() -> (
+    AccountDeliverySpillStore,
+    Arc<StdMutex<Vec<TransportDelivery>>>,
+    SpillGate,
+) {
+    let (record, kept) = recording_spill_store();
+    let gate = SpillGate(Arc::new(AtomicBool::new(false)));
+    let opened = gate.0.clone();
+    let store: AccountDeliverySpillStore = Arc::new(move |deliveries| {
+        while !opened.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        record(deliveries)
+    });
+    (store, kept, gate)
+}
+
+fn cursor_floor_adapter(
+    store: Option<AccountDeliverySpillStore>,
+    marker: Option<AccountDeliveryRecoveryMarker>,
+) -> (MarmotRelayPlane, MarmotRelayPlaneAccountAdapter, MemberId) {
+    cursor_floor_adapter_opened(store, marker, Some(OPENED_CURSOR))
+}
+
+fn cursor_floor_adapter_opened(
+    store: Option<AccountDeliverySpillStore>,
+    marker: Option<AccountDeliveryRecoveryMarker>,
+    opened: Option<u64>,
+) -> (MarmotRelayPlane, MarmotRelayPlaneAccountAdapter, MemberId) {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane =
+        MarmotRelayPlane::new(Some(Duration::from_secs(CURSOR_LOOKBACK)), relay.clone());
+    let alice = MemberId::new(vec![0xA1; 32]);
+    let adapter =
+        relay_plane.account_adapter_with_recovery_marker(alice.clone(), relay, marker, store);
+    adapter.open_transport_cursor(opened);
+    (relay_plane, adapter, alice)
+}
+
+/// Take the next delivery in the account queue.
+fn take_queued(adapter: &MarmotRelayPlaneAccountAdapter) -> TransportDelivery {
+    match adapter.try_receive_account_delivery() {
+        Some(AccountDeliveryReceive::Delivery(delivery)) => delivery.into_delivery(),
+        Some(AccountDeliveryReceive::Overflow(_)) => panic!("no loss was expected"),
+        None => panic!("a delivery is queued"),
+    }
+}
+
+/// Timestamps of the deliveries now in the account queue, in order, each
+/// taken and released as a durable ingest would.
+fn drain_queued_created_at(adapter: &MarmotRelayPlaneAccountAdapter) -> Vec<u64> {
+    let mut queued = Vec::new();
+    while let Some(received) = adapter.try_receive_account_delivery() {
+        let AccountDeliveryReceive::Delivery(delivery) = received else {
+            panic!("no loss was expected");
+        };
+        adapter.release_account_delivery(&delivery.message.id);
+        queued.push(delivery.message.timestamp.0);
+    }
+    queued
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cursor_seal_stops_where_a_restart_still_fetches_every_queued_delivery() {
+    let (store, kept) = recording_spill_store();
+    let (relay_plane, adapter, alice) = cursor_floor_adapter(Some(store), None);
+    let candidate = Some(OPENED_CURSOR + 2_000);
+    for (id, created_at) in [
+        // Already below the opened floor: a restart would not fetch it
+        // whatever this commit does, so it holds nothing back.
+        (1, OPENED_CURSOR - 1_000),
+        (2, OPENED_CURSOR + 500),
+        (3, OPENED_CURSOR + 1_990),
+    ] {
+        relay_plane.route_account_delivery_for_test(cursor_floor_delivery(
+            &alice,
+            id,
+            created_at,
+            TransportDeliveryPlane::Group,
+        ));
+    }
+    assert_eq!(
+        adapter.seal_transport_cursor(candidate),
+        Some(OPENED_CURSOR + 500 + CURSOR_LOOKBACK),
+        "the oldest queued delivery a restart still fetches caps the commit"
+    );
+    let taken = (0..3).map(|_| take_queued(&adapter)).collect::<Vec<_>>();
+    assert_eq!(
+        taken
+            .iter()
+            .map(|delivery| delivery.message.timestamp.0)
+            .collect::<Vec<_>>(),
+        [
+            OPENED_CURSOR - 1_000,
+            OPENED_CURSOR + 500,
+            OPENED_CURSOR + 1_990
+        ]
+    );
+    assert_eq!(
+        adapter.seal_transport_cursor(candidate),
+        Some(OPENED_CURSOR + 500 + CURSOR_LOOKBACK),
+        "a delivery taken but not yet ingested durably still caps a commit"
+    );
+    for delivery in &taken {
+        adapter.release_account_delivery(&delivery.message.id);
+    }
+    assert_eq!(
+        adapter.seal_transport_cursor(candidate),
+        candidate,
+        "a released delivery no longer caps a commit"
+    );
+    // A later, lower candidate reaches only itself, which its caller folds
+    // into the higher cursor it persists; the restart floor stays put.
+    assert_eq!(
+        adapter.seal_transport_cursor(Some(OPENED_CURSOR + 1_000)),
+        Some(OPENED_CURSOR + 1_000)
+    );
+    relay_plane.route_account_delivery_for_test(cursor_floor_delivery(
+        &alice,
+        4,
+        OPENED_CURSOR + 1_500,
+        TransportDeliveryPlane::Group,
+    ));
+    timeout(Duration::from_secs(5), async {
+        while adapter.delivery_loss_blocks_cursor() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the spill writer settles the hand-off");
+    assert_eq!(kept.lock().unwrap().len(), 1);
+
+    // An inbox wrap keeps the NIP-59 widening its REQ adds: two days older
+    // than the group floor, it still caps only as far as a restart fetches.
+    let inbox_created_at = OPENED_CURSOR - 100_000;
+    relay_plane.route_account_delivery_for_test(cursor_floor_delivery(
+        &alice,
+        5,
+        inbox_created_at,
+        TransportDeliveryPlane::AccountInbox,
+    ));
+    assert_eq!(
+        adapter.seal_transport_cursor(Some(OPENED_CURSOR + 200_000)),
+        Some(
+            inbox_created_at
+                + transport_nostr_adapter::NIP59_TIMESTAMP_TWEAK_SECS
+                + CURSOR_LOOKBACK
+        )
+    );
+}
+
+/// Relays replay newest-first, so a drain has already remembered a newer
+/// cursor when an older delivery's ingest fails. That delivery is never
+/// released, so the checkpoint the failure runs, and every later commit,
+/// stops where a restart fetches it again. A redelivery of the same event
+/// takes over its pin, and once that redelivery is ingested nothing holds the
+/// cursor back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delivery_whose_ingest_failed_caps_commits_until_a_redelivery_is_released() {
+    let (store, _) = recording_spill_store();
+    let (relay_plane, adapter, alice) = cursor_floor_adapter(Some(store), None);
+    let route = |id: u8, created_at: u64| {
+        relay_plane.route_account_delivery_for_test(cursor_floor_delivery(
+            &alice,
+            id,
+            created_at,
+            TransportDeliveryPlane::Group,
+        ));
+    };
+    let older_at = OPENED_CURSOR + 1_000;
+    route(1, OPENED_CURSOR + 2_000);
+    route(2, older_at);
+    let newer = take_queued(&adapter);
+    adapter.release_account_delivery(&newer.message.id);
+    let failed = take_queued(&adapter);
+    assert_eq!(failed.message.timestamp.0, older_at);
+
+    let capped = Some(older_at + CURSOR_LOOKBACK);
+    assert_eq!(
+        adapter.seal_transport_cursor(Some(OPENED_CURSOR + 2_000)),
+        capped,
+        "the failed ingest's checkpoint stops where a restart fetches it"
+    );
+    adapter.settle_transport_cursor(capped);
+    assert_eq!(
+        adapter.seal_transport_cursor(Some(OPENED_CURSOR + 3_000)),
+        capped,
+        "so does every later commit"
+    );
+    // Releasing an event the queue holds no pin for changes nothing.
+    adapter.release_account_delivery(&newer.message.id);
+    assert_eq!(
+        adapter.seal_transport_cursor(Some(OPENED_CURSOR + 3_000)),
+        capped
+    );
+
+    route(2, older_at);
+    let redelivered = take_queued(&adapter);
+    assert_eq!(redelivered.message.id, failed.message.id);
+    assert_eq!(
+        adapter.seal_transport_cursor(Some(OPENED_CURSOR + 3_000)),
+        capped,
+        "the redelivery is not ingested yet"
+    );
+    adapter.release_account_delivery(&redelivered.message.id);
+    assert_eq!(
+        adapter.seal_transport_cursor(Some(OPENED_CURSOR + 3_000)),
+        Some(OPENED_CURSOR + 3_000),
+        "one release frees the event, however many times it was taken"
+    );
+}
+
+/// What a replaced queue's consumer took and never released went with that
+/// queue: the new route's subscriptions fetch it again from a cursor it
+/// capped. Its pin must not survive into the new generation, where the same
+/// event's release would free the count of a different delivery.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_queue_generation_drops_the_pins_of_the_last() {
+    let (store, _) = recording_spill_store();
+    let (relay_plane, first, alice) = cursor_floor_adapter(Some(store.clone()), None);
+    let route = |id: u8, created_at: u64| {
+        relay_plane.route_account_delivery_for_test(cursor_floor_delivery(
+            &alice,
+            id,
+            created_at,
+            TransportDeliveryPlane::Group,
+        ));
+    };
+    let key_at = OPENED_CURSOR + 1_000;
+    route(1, key_at);
+    let failed = take_queued(&first);
+    let replacement = relay_plane.account_adapter_with_recovery_marker(
+        alice.clone(),
+        Arc::new(RecordingRelayClient::default()),
+        None,
+        Some(store),
+    );
+    // The new route fetches the same event again, and another delivery with
+    // the same key arrives behind it.
+    route(1, key_at);
+    route(2, key_at);
+    let again = take_queued(&replacement);
+    assert_eq!(again.message.id, failed.message.id);
+    replacement.release_account_delivery(&again.message.id);
+    assert_eq!(
+        replacement.seal_transport_cursor(Some(OPENED_CURSOR + 4_000)),
+        Some(key_at + CURSOR_LOOKBACK),
+        "the other delivery, still queued, caps the commit"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deliveries_placed_after_a_live_seal_spill_what_only_that_promotion_stopped_covering() {
+    let (store, kept) = recording_spill_store();
+    let (relay_plane, adapter, alice) = cursor_floor_adapter(Some(store), None);
+    let promoted = Some(OPENED_CURSOR + 2_000);
+    assert_eq!(adapter.seal_transport_cursor(promoted), promoted);
+
+    // Everything below arrives while that promotion's save runs.
+    let live_floor = OPENED_CURSOR + 2_000 - CURSOR_LOOKBACK;
+    for (id, created_at, plane) in [
+        (1, OPENED_CURSOR + 1_000, TransportDeliveryPlane::Group),
+        (2, live_floor, TransportDeliveryPlane::Group),
+        // Below the floor the account opened with: live promotion did not
+        // expose it, so it is queued as before.
+        (3, OPENED_CURSOR - 1_000, TransportDeliveryPlane::Group),
+        (
+            4,
+            OPENED_CURSOR + 1_000 - transport_nostr_adapter::NIP59_TIMESTAMP_TWEAK_SECS,
+            TransportDeliveryPlane::AccountInbox,
+        ),
+        (
+            5,
+            OPENED_CURSOR - 3_600,
+            TransportDeliveryPlane::AccountInbox,
+        ),
+    ] {
+        relay_plane
+            .route_account_delivery_for_test(cursor_floor_delivery(&alice, id, created_at, plane));
+    }
+    assert!(
+        adapter.delivery_loss_blocks_cursor(),
+        "the spilled deliveries fence the cursor from their placement on"
+    );
+    assert_eq!(
+        adapter.seal_transport_cursor(Some(OPENED_CURSOR + 3_000)),
+        None,
+        "no commit passes a delivery still in the spill hand-off"
+    );
+    timeout(Duration::from_secs(5), async {
+        while adapter.delivery_loss_blocks_cursor() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the spill writer settles both hand-offs");
+    let mut spilled = kept
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|delivery| delivery.message.id.as_slice()[0])
+        .collect::<Vec<_>>();
+    spilled.sort_unstable();
+    assert_eq!(spilled, [1, 4]);
+    assert_eq!(
+        drain_queued_created_at(&adapter),
+        [live_floor, OPENED_CURSOR - 1_000, OPENED_CURSOR - 3_600]
+    );
+    assert_eq!(relay_plane.relay_health().await.account_delivery_dropped, 0);
+}
+
+/// A drain checkpoint's seal raises the floor before its save, as a live
+/// seal does, so an arrival during that save which the checkpoint stops a
+/// restart from fetching is spilled. Once the save succeeds the settled floor
+/// rises with it, and a later arrival below is queued as it always was. A
+/// live promotion past that floor spills only what lies between the two.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_settled_commit_spills_only_what_arrives_during_its_save() {
+    let (store, kept) = recording_spill_store();
+    let (relay_plane, adapter, alice) = cursor_floor_adapter(Some(store), None);
+    let settles = || async {
+        timeout(Duration::from_secs(5), async {
+            while adapter.delivery_loss_blocks_cursor() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("the spill writer settles the hand-off");
+    };
+    let drained = Some(OPENED_CURSOR + 2_000);
+    assert_eq!(adapter.seal_transport_cursor(drained), drained);
+    // Arrives while the checkpoint's save runs.
+    relay_plane.route_account_delivery_for_test(cursor_floor_delivery(
+        &alice,
+        1,
+        OPENED_CURSOR + 1_000,
+        TransportDeliveryPlane::Group,
+    ));
+    settles().await;
+    adapter.settle_transport_cursor(drained);
+    // Arrives once the checkpoint is durable.
+    relay_plane.route_account_delivery_for_test(cursor_floor_delivery(
+        &alice,
+        2,
+        OPENED_CURSOR + 1_001,
+        TransportDeliveryPlane::Group,
+    ));
+    let promoted = Some(OPENED_CURSOR + 3_000);
+    assert_eq!(adapter.seal_transport_cursor(promoted), promoted);
+    for (id, created_at) in [(3, OPENED_CURSOR + 2_500), (4, OPENED_CURSOR + 1_500)] {
+        relay_plane.route_account_delivery_for_test(cursor_floor_delivery(
+            &alice,
+            id,
+            created_at,
+            TransportDeliveryPlane::Group,
+        ));
+    }
+    settles().await;
+    assert_eq!(
+        kept.lock()
+            .unwrap()
+            .iter()
+            .map(|delivery| delivery.message.timestamp.0)
+            .collect::<Vec<_>>(),
+        [OPENED_CURSOR + 1_000, OPENED_CURSOR + 2_500]
+    );
+    assert_eq!(
+        drain_queued_created_at(&adapter),
+        [OPENED_CURSOR + 1_001, OPENED_CURSOR + 1_500]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn without_a_spill_a_delivery_below_the_live_floor_becomes_bounded_loss() {
+    let marked = Arc::new(StdMutex::new(Vec::new()));
+    let recorded = marked.clone();
+    let marker: AccountDeliveryRecoveryMarker = Arc::new(move |_, dropped, earliest| {
+        recorded.lock().unwrap().push((dropped, earliest));
+        Ok(())
+    });
+    let (relay_plane, adapter, alice) = cursor_floor_adapter(None, Some(marker));
+    let promoted = Some(OPENED_CURSOR + 2_000);
+    assert_eq!(adapter.seal_transport_cursor(promoted), promoted);
+    let lost_at = OPENED_CURSOR + 1_000;
+    relay_plane.route_account_delivery_for_test(cursor_floor_delivery(
+        &alice,
+        1,
+        lost_at,
+        TransportDeliveryPlane::Group,
+    ));
+    assert!(adapter.delivery_loss_blocks_cursor());
+    assert_eq!(
+        adapter.seal_transport_cursor(Some(OPENED_CURSOR + 3_000)),
+        None,
+        "pending loss holds every commit"
+    );
+    timeout(Duration::from_secs(5), async {
+        while marked.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the loss becomes a durable marker");
+    assert_eq!(
+        marked.lock().unwrap().last().copied(),
+        Some((1, Some(lost_at))),
+        "the marker bounds recovery at the lost delivery"
+    );
+    let received = timeout(Duration::from_secs(5), adapter.receive_account_delivery())
+        .await
+        .expect("the control record follows its durable marker")
+        .unwrap();
+    assert!(matches!(
+        received,
+        Some(AccountDeliveryReceive::Overflow(overflow))
+            if overflow.dropped == 1 && overflow.earliest_dropped == Some(lost_at)
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_save_lowers_the_floor_its_seal_raised() {
+    let (store, kept) = recording_spill_store();
+    let (relay_plane, adapter, alice) = cursor_floor_adapter(Some(store), None);
+    let opened = Some(OPENED_CURSOR);
+    let promoted = Some(OPENED_CURSOR + 2_000);
+    assert_eq!(adapter.seal_transport_cursor(promoted), promoted);
+    // Placed while the save runs, below the promoted floor.
+    relay_plane.route_account_delivery_for_test(cursor_floor_delivery(
+        &alice,
+        1,
+        OPENED_CURSOR + 1_000,
+        TransportDeliveryPlane::Group,
+    ));
+    // The save failed; the opened cursor is still what a restart uses.
+    adapter.unseal_transport_cursor(opened);
+    relay_plane.route_account_delivery_for_test(cursor_floor_delivery(
+        &alice,
+        2,
+        OPENED_CURSOR + 1_001,
+        TransportDeliveryPlane::Group,
+    ));
+    timeout(Duration::from_secs(5), async {
+        while adapter.delivery_loss_blocks_cursor() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the spill writer settles the earlier hand-off");
+    assert_eq!(
+        adapter.seal_transport_cursor(promoted),
+        Some(OPENED_CURSOR + 1_001 + CURSOR_LOOKBACK),
+        "what the restored floor covers is queued, and caps the next commit"
+    );
+    assert_eq!(
+        kept.lock()
+            .unwrap()
+            .iter()
+            .map(|delivery| delivery.message.timestamp.0)
+            .collect::<Vec<_>>(),
+        [OPENED_CURSOR + 1_000],
+        "a delivery spilled before the failure stays spilled"
+    );
+    assert_eq!(drain_queued_created_at(&adapter), [OPENED_CURSOR + 1_001]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_replaced_adapter_cannot_promote_the_cursor() {
+    let (store, _) = recording_spill_store();
+    let (relay_plane, first, alice) = cursor_floor_adapter(Some(store.clone()), None);
+    let replacement = relay_plane.account_adapter_with_recovery_marker(
+        alice,
+        Arc::new(RecordingRelayClient::default()),
+        None,
+        Some(store),
+    );
+    let candidate = Some(OPENED_CURSOR + 2_000);
+    assert_eq!(
+        first.seal_transport_cursor(candidate),
+        None,
+        "the queue it drains is not the one the router tracks"
+    );
+    assert_eq!(replacement.seal_transport_cursor(candidate), candidate);
+}
+
+/// A settled commit a fence held reaches nothing of its own, so the cursor it
+/// re-persists, which an earlier live promotion set, must not become the
+/// settled floor: what only that promotion exposed is still spilled.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fenced_settled_commit_keeps_spilling_what_live_promotion_exposed() {
+    let (store, kept, gate) = gated_recording_spill_store();
+    let (relay_plane, adapter, alice) = cursor_floor_adapter(Some(store), None);
+    let promoted = Some(OPENED_CURSOR + 2_000);
+    assert_eq!(adapter.seal_transport_cursor(promoted), promoted);
+    relay_plane.route_account_delivery_for_test(cursor_floor_delivery(
+        &alice,
+        1,
+        OPENED_CURSOR + 1_000,
+        TransportDeliveryPlane::Group,
+    ));
+    // A drain checkpoint while that hand-off is unsettled.
+    let reached = adapter.seal_transport_cursor(Some(OPENED_CURSOR + 3_000));
+    assert_eq!(reached, None);
+    adapter.settle_transport_cursor(reached);
+    gate.open();
+    timeout(Duration::from_secs(5), async {
+        while adapter.delivery_loss_blocks_cursor() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the spill writer settles the hand-off");
+    relay_plane.route_account_delivery_for_test(cursor_floor_delivery(
+        &alice,
+        2,
+        OPENED_CURSOR + 1_001,
+        TransportDeliveryPlane::Group,
+    ));
+    timeout(Duration::from_secs(5), async {
+        while adapter.delivery_loss_blocks_cursor() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the spill writer settles the second hand-off");
+    assert_eq!(kept.lock().unwrap().len(), 2);
+    assert!(drain_queued_created_at(&adapter).is_empty());
+}
+
+/// An account that never persisted a cursor has no floor at all. A delivery
+/// queued before its first seal still caps it. Once that seal raised the
+/// durable floor, every older arrival is spilled, however old, until a
+/// settled cursor exists: before it, a restart relied on its comparison, not
+/// the cursor, for everything.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn before_the_first_settled_cursor_a_seal_spills_every_older_arrival() {
+    let (store, kept) = recording_spill_store();
+    let (relay_plane, adapter, alice) = cursor_floor_adapter_opened(Some(store), None, None);
+    let route = |id: u8, created_at: u64| {
+        relay_plane.route_account_delivery_for_test(cursor_floor_delivery(
+            &alice,
+            id,
+            created_at,
+            TransportDeliveryPlane::Group,
+        ));
+    };
+    let settles = || async {
+        timeout(Duration::from_secs(5), async {
+            while adapter.delivery_loss_blocks_cursor() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("the spill writer settles the hand-off");
+    };
+    let candidate = Some(OPENED_CURSOR + 2_000);
+    route(1, OPENED_CURSOR + 500);
+    assert_eq!(
+        adapter.seal_transport_cursor(candidate),
+        Some(OPENED_CURSOR + 500 + CURSOR_LOOKBACK),
+        "with no floor yet, every queued delivery caps the first seal"
+    );
+    assert_eq!(drain_queued_created_at(&adapter), [OPENED_CURSOR + 500]);
+    assert_eq!(adapter.seal_transport_cursor(candidate), candidate);
+    assert!(!adapter.transport_cursor_settled());
+
+    route(2, OPENED_CURSOR - 50_000);
+    route(3, OPENED_CURSOR + 2_000 - CURSOR_LOOKBACK);
+    settles().await;
+    assert_eq!(
+        kept.lock()
+            .unwrap()
+            .iter()
+            .map(|delivery| delivery.message.timestamp.0)
+            .collect::<Vec<_>>(),
+        [OPENED_CURSOR - 50_000],
+        "an arrival below the durable floor is spilled with no settled floor under it"
+    );
+    assert_eq!(
+        drain_queued_created_at(&adapter),
+        [OPENED_CURSOR + 2_000 - CURSOR_LOOKBACK]
+    );
+
+    // A settled commit sets the settled floor, below which arrivals are
+    // queued again, as they always were.
+    adapter.settle_transport_cursor(candidate);
+    assert!(adapter.transport_cursor_settled());
+    route(4, OPENED_CURSOR - 40_000);
+    assert_eq!(drain_queued_created_at(&adapter), [OPENED_CURSOR - 40_000]);
+    assert_eq!(kept.lock().unwrap().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn account_queue_overflow_invalidates_eose_without_blocking_other_accounts() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice = MemberId::new(vec![0xA1; 32]);
+    let bob = MemberId::new(vec![0xB2; 32]);
+    let alice_group_id = GroupId::new(vec![0xC3; 32]);
+    let bob_group_id = GroupId::new(vec![0xC4; 32]);
+    let alice_transport_group_id = vec![0xD3; 32];
+    let bob_transport_group_id = vec![0xD4; 32];
+    let endpoint = TransportEndpoint("wss://relay.example".into());
+    let marker_persisted = Arc::new(AtomicBool::new(false));
+    let marker_attempts = Arc::new(AtomicUsize::new(0));
+    let marker_flag = marker_persisted.clone();
+    let attempts = marker_attempts.clone();
+    let recovery_marker: AccountDeliveryRecoveryMarker = Arc::new(move |_, _, _| {
+        if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+            return Err(AccountDeliveryRecoveryMarkerError::Retryable);
+        }
+        marker_flag.store(true, Ordering::SeqCst);
+        Ok(())
+    });
+    let alice_adapter = relay_plane.account_adapter_with_recovery_marker(
+        alice.clone(),
+        relay.clone(),
+        Some(recovery_marker),
+        None,
+    );
+    let bob_adapter = relay_plane.account_adapter(bob.clone(), relay.clone());
+
+    for (adapter, account_id, group_id, transport_group_id) in [
+        (
+            &alice_adapter,
+            alice.clone(),
+            alice_group_id,
+            alice_transport_group_id.clone(),
+        ),
+        (
+            &bob_adapter,
+            bob.clone(),
+            bob_group_id.clone(),
+            bob_transport_group_id.clone(),
+        ),
+    ] {
+        adapter
+            .activate_account(TransportAccountActivation {
+                account_id,
+                inbox_endpoints: vec![endpoint.clone()],
+                group_subscriptions: vec![TransportGroupSubscription {
+                    group_id,
+                    transport_group_id,
+                    endpoints: vec![endpoint.clone()],
+                    retained_since: None,
+                }],
+                since: Some(Timestamp(1_699_999_900)),
+            })
+            .await
+            .unwrap();
+    }
+
+    // Newest-first stored history fills Alice's deliberately undrained queue.
+    // At least one older delivery is then omitted from that queue while the
+    // shared router must remain available to Bob.
+    for index in 0..=ACCOUNT_DELIVERY_BUFFER {
+        let mut event = group_event(&format!("alice-{index}"), &alice_transport_group_id);
+        event.created_at = 1_700_100_000_u64.saturating_sub(index as u64);
+        event.id = event.computed_id();
+        relay_plane
+            .handle_relay_event_for_test(NostrRelayEvent {
+                endpoint: endpoint.clone(),
+                subscription_id: Some("alice-group".into()),
+                event,
+            })
+            .await
+            .unwrap();
+    }
+
+    relay_plane
+        .handle_relay_event_for_test(NostrRelayEvent {
+            endpoint: endpoint.clone(),
+            subscription_id: Some("bob-group".into()),
+            event: group_event("bob-after-alice-overflow", &bob_transport_group_id),
+        })
+        .await
+        .unwrap();
+    let bob_delivery = timeout(Duration::from_secs(1), bob_adapter.receive())
+        .await
+        .expect("Alice's full queue must not block Bob")
+        .unwrap()
+        .unwrap();
+    assert_eq!(bob_delivery.account_id, bob);
+    assert_eq!(bob_delivery.group_id_hint, Some(bob_group_id));
+
+    let bob_subscription_ids = relay
+        .subscriptions
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|subscription| subscription.account_id() == &bob)
+        .map(NostrSubscription::subscription_id)
+        .collect::<Vec<_>>();
+    assert!(!bob_subscription_ids.is_empty());
+    for subscription_id in bob_subscription_ids {
+        relay_plane
+            .handle_relay_eose_for_test(endpoint.clone(), subscription_id)
+            .await;
+    }
+    assert!(
+        bob_adapter.account_subscription_eose().await.complete(),
+        "Alice's full queue must not block Bob's EOSE"
+    );
+
+    let alice_subscription_ids = relay
+        .subscriptions
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|subscription| subscription.account_id() == &alice)
+        .map(NostrSubscription::subscription_id)
+        .collect::<Vec<_>>();
+    assert!(!alice_subscription_ids.is_empty());
+    for subscription_id in alice_subscription_ids {
+        relay_plane
+            .handle_relay_eose_for_test(endpoint.clone(), subscription_id)
+            .await;
+    }
+
+    assert!(
+        !alice_adapter.account_subscription_eose().await.complete(),
+        "EOSE must stay incomplete while Alice has an unresolved delivery gap"
+    );
+    let health = relay_plane.relay_health().await;
+    assert!(health.account_delivery_queue_depth >= ACCOUNT_DELIVERY_BUFFER);
+    assert!(health.account_delivery_max_queue_depth >= ACCOUNT_DELIVERY_BUFFER as u64);
+    assert!(health.account_delivery_dropped >= 1);
+    assert_eq!(health.account_delivery_recovery_attempts, 0);
+
+    let (retained, overflow) = timeout(Duration::from_secs(1), async {
+        let mut retained = 0_usize;
+        loop {
+            match alice_adapter
+                .receive_account_delivery()
+                .await
+                .unwrap()
+                .expect("Alice's route stays open")
+            {
+                AccountDeliveryReceive::Delivery(_) => retained += 1,
+                AccountDeliveryReceive::Overflow(overflow) => break (retained, overflow),
+            }
+        }
+    })
+    .await
+    .expect("the reserved overflow record must follow the retained prefix");
+    assert_eq!(retained, ACCOUNT_DELIVERY_BUFFER);
+    assert!(
+        marker_persisted.load(Ordering::SeqCst),
+        "the overflow control record is released only after durable marking"
+    );
+    assert!(
+        marker_attempts.load(Ordering::SeqCst) >= 2,
+        "the single marker worker must retry without retaining omitted deliveries"
+    );
+    assert!(overflow.dropped >= 1);
+    assert!(overflow.queue_depth >= ACCOUNT_DELIVERY_BUFFER);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn direct_and_runtime_kind_445_shape_rejection_are_both_malformed() {
+    let transport_group_id = vec![0xD4; 32];
+    let mut event = group_event("extra-tag", &transport_group_id);
+    event.tags.push(vec!["e".into(), "11".repeat(32)]);
+    event.id = event.computed_id();
+
+    assert!(matches!(
+        event.to_transport_message(),
+        Err(NostrPeelerError::Malformed(_))
+    ));
+
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay);
+    let runtime_error = relay_plane
+        .handle_relay_event_for_test(NostrRelayEvent {
+            endpoint: TransportEndpoint("wss://relay.example".into()),
+            subscription_id: Some("group-sub".into()),
+            event,
+        })
+        .await
+        .expect_err("runtime seam must reject the same malformed fixture");
+
+    assert!(
+        matches!(runtime_error, TransportAdapterError::InvalidInboundEncoding),
+        "runtime rejection must preserve the malformed classification"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn published_group_event_is_fanned_out_to_matching_local_accounts() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let alice = MemberId::new(vec![0xA1; 32]);
+    let bob = MemberId::new(vec![0xB2; 32]);
+    let group_id = GroupId::new(vec![0xC3; 32]);
+    let transport_group_id = vec![0xD4; 32];
+    let endpoint = TransportEndpoint("wss://relay.example".into());
+    let alice_adapter = relay_plane.account_adapter(alice.clone(), relay.clone());
+    let bob_adapter = relay_plane.account_adapter(bob.clone(), relay.clone());
+    let subscription = TransportGroupSubscription {
+        group_id: group_id.clone(),
+        transport_group_id: transport_group_id.clone(),
+        endpoints: vec![endpoint.clone()],
+        retained_since: None,
+    };
+
+    alice_adapter
+        .activate_account(TransportAccountActivation {
+            account_id: alice.clone(),
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: vec![subscription.clone()],
+            since: None,
+        })
+        .await
+        .unwrap();
+    bob_adapter
+        .activate_account(TransportAccountActivation {
+            account_id: bob.clone(),
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: vec![subscription],
+            since: None,
+        })
+        .await
+        .unwrap();
+
+    let message = group_event("33", &transport_group_id)
+        .to_transport_message()
+        .unwrap();
+    alice_adapter
+        .publish(TransportPublishRequest {
+            account_id: alice,
+            message: message.clone(),
+            target: TransportPublishTarget::Group {
+                group_id: group_id.clone(),
+                transport_group_id,
+                endpoints: vec![endpoint],
+            },
+            required_acks: 0,
+        })
+        .await
+        .unwrap();
+
+    let bob_delivery = bob_adapter.receive().await.unwrap().unwrap();
+    assert_eq!(bob_delivery.account_id, bob);
+    assert_eq!(bob_delivery.group_id_hint, Some(group_id));
+    assert_eq!(bob_delivery.message, message);
+    assert_eq!(
+        bob_delivery.source.subscription_id.as_deref(),
+        Some("local-publish")
+    );
+    // Empty acceptance fails the at-least-one rule even when required_acks is 0,
+    // while the historical local-delivery fallback above stays in place.
+    let metrics = relay_plane.relay_telemetry().await.metrics;
+    assert_eq!(
+        (
+            metrics.publish_attempts,
+            metrics.publish_successes,
+            metrics.publish_failures
+        ),
+        (1, 0, 1)
+    );
+}
+
+async fn directory_plane_with_active_subscription(
+    subscription_id: &str,
+    authors: Vec<String>,
+    kinds: Vec<u64>,
+) -> DirectoryRelayPlane {
+    let directory = DirectoryRelayPlane::new(Arc::new(RecordingDirectoryFetcher::default()));
+    let mut desired = HashMap::new();
+    desired.insert(
+        subscription_id.to_owned(),
+        DirectorySubscriptionFilter::new(authors, kinds),
+    );
+    directory
+        .replace_subscriptions(desired)
+        .await
+        .expect("active subscription is recorded");
+    directory
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_sync_keeps_filter_for_subscription_created_before_later_error() {
+    let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+    let relay_url = relay.url().await.to_string();
+    let relay_plane = MarmotRelayPlane::full_history_with_loopback(true);
+    let author = "11".repeat(32);
+    let subscription_id = "directory_users_0_first".to_owned();
+    let plan = DirectorySyncPlan {
+        endpoints: vec![TransportEndpoint(relay_url)],
+        watched_user_count: 2,
+        batches: vec![
+            DirectorySyncBatch {
+                subscription_id: subscription_id.clone(),
+                authors: vec![author.clone()],
+                kinds: vec![0],
+                since: None,
+            },
+            DirectorySyncBatch {
+                subscription_id: "directory_users_1_invalid".to_owned(),
+                authors: vec!["not-a-public-key".to_owned()],
+                kinds: vec![0],
+                since: None,
+            },
+        ],
+    };
+
+    let err = relay_plane
+        .sync_directory_user_subscriptions(plan, false)
+        .await
+        .expect_err("the invalid later batch must fail the sync");
+    assert_eq!(err, "invalid directory author");
+
+    let sdk_subscriptions = relay_plane
+        .inner
+        .transport
+        .directory_client
+        .as_ref()
+        .unwrap()
+        .subscriptions()
+        .await;
+    assert!(
+        sdk_subscriptions.contains_key(&SubscriptionId::new(subscription_id.clone())),
+        "the first SDK subscription must be live before the later batch fails"
+    );
+    assert!(
+        !relay_plane
+            .inner
+            .transport
+            .sdk_relay_client
+            .as_ref()
+            .unwrap()
+            .client()
+            .subscriptions()
+            .await
+            .contains_key(&SubscriptionId::new(subscription_id.clone())),
+        "directory read filters must never be installed on the account transport client"
+    );
+    assert!(
+        relay_plane
+            .inner
+            .directory
+            .accepts_live_event(&subscription_id, &author, 0)
+            .await,
+        "the validation filter must be committed for every live SDK subscription"
+    );
+
+    relay_plane
+        .sync_directory_user_subscriptions(
+            DirectorySyncPlan {
+                endpoints: Vec::new(),
+                watched_user_count: 0,
+                batches: Vec::new(),
+            },
+            false,
+        )
+        .await
+        .expect("empty plan removes stale directory interests");
+    assert!(
+        !relay_plane
+            .inner
+            .transport
+            .directory_client
+            .as_ref()
+            .unwrap()
+            .subscriptions()
+            .await
+            .contains_key(&SubscriptionId::new(subscription_id.clone()))
+    );
+    assert!(
+        !relay_plane
+            .inner
+            .directory
+            .accepts_live_event(&subscription_id, &author, 0)
+            .await
+    );
+
+    relay_plane.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_endpoint_change_retries_a_batch_left_pending_by_partial_failure() {
+    use nostr::prelude::{EventBuilder, Keys};
+
+    let old_relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+    let new_relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+    let old_url = old_relay.url().await.to_string();
+    let new_url = new_relay.url().await.to_string();
+    let alice = Keys::generate();
+    let bob = Keys::generate();
+    let relay_plane = MarmotRelayPlane::full_history_with_loopback(true);
+    let mut events = relay_plane.subscribe_directory_events();
+    let plan = |endpoint: &str, bob_author: String| DirectorySyncPlan {
+        endpoints: vec![TransportEndpoint(endpoint.to_owned())],
+        watched_user_count: 2,
+        batches: vec![
+            DirectorySyncBatch {
+                subscription_id: "directory_users_alice".to_owned(),
+                authors: vec![alice.public_key().to_hex()],
+                kinds: vec![0],
+                since: None,
+            },
+            DirectorySyncBatch {
+                subscription_id: "directory_users_bob".to_owned(),
+                authors: vec![bob_author],
+                kinds: vec![0],
+                since: None,
+            },
+        ],
+    };
+
+    relay_plane
+        .sync_directory_user_subscriptions(plan(&old_url, bob.public_key().to_hex()), false)
+        .await
+        .unwrap();
+    assert_eq!(
+        relay_plane
+            .inner
+            .directory
+            .stats()
+            .await
+            .active_subscriptions,
+        2
+    );
+
+    assert_eq!(
+        relay_plane
+            .sync_directory_user_subscriptions(plan(&new_url, "invalid-pubkey".to_owned()), false)
+            .await
+            .unwrap_err(),
+        "invalid directory author"
+    );
+    let desired = [
+        "directory_users_alice".to_owned(),
+        "directory_users_bob".to_owned(),
+    ]
+    .into_iter()
+    .collect();
+    let (to_add, _) = relay_plane
+        .inner
+        .directory
+        .subscription_diff(&desired)
+        .await;
+    assert_eq!(
+        to_add,
+        ["directory_users_bob".to_owned()].into_iter().collect()
+    );
+    assert_eq!(
+        relay_plane
+            .inner
+            .directory
+            .stats()
+            .await
+            .active_subscriptions,
+        1
+    );
+
+    relay_plane
+        .sync_directory_user_subscriptions(plan(&new_url, bob.public_key().to_hex()), false)
+        .await
+        .unwrap();
+    assert_eq!(
+        relay_plane
+            .inner
+            .directory
+            .stats()
+            .await
+            .active_subscriptions,
+        2
+    );
+
+    let writer = NostrSdkClient::default();
+    let relay_url = RelayUrl::parse(&new_url).unwrap();
+    writer.add_relay(relay_url.clone()).await.unwrap();
+    writer
+        .try_connect_relay(relay_url.clone(), Duration::from_secs(5))
+        .await
+        .unwrap();
+    let profile = EventBuilder::new(Kind::Metadata, r#"{"name":"bob"}"#)
+        .finalize(&bob)
+        .unwrap();
+    writer.send_event(&profile).to([relay_url]).await.unwrap();
+    timeout(Duration::from_secs(5), async {
+        loop {
+            if let DirectoryRelayPlaneEvent::Record(record) = events.recv().await.unwrap()
+                && record.event.id == profile.id.to_hex()
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("Bob's retried subscription must deliver from the new relay");
+    writer.shutdown().await;
+    relay_plane.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_subscribe_error_restores_filter_and_keeps_rebuild_pending() {
+    let id = "directory_users_retry";
+    let old_author = "11".repeat(32);
+    let new_author = "22".repeat(32);
+    let directory =
+        directory_plane_with_active_subscription(id, vec![old_author.clone()], vec![0]).await;
+    let endpoint = RelayUrl::parse("wss://relay.example").unwrap();
+    directory.set_subscription_endpoints(&[endpoint]).await;
+    directory
+        .mark_rebuild_pending(&[id.to_owned()].into_iter().collect())
+        .await;
+    let previous = directory
+        .record_subscription_filter(
+            id.to_owned(),
+            DirectorySubscriptionFilter::new(vec![new_author.clone()], vec![0]),
+        )
+        .await;
+    directory
+        .restore_failed_subscription_filter(id, previous)
+        .await;
+
+    let (to_add, _) = directory
+        .subscription_diff(&[id.to_owned()].into_iter().collect())
+        .await;
+    assert!(to_add.contains(id));
+    assert_eq!(directory.stats().await.active_subscriptions, 0);
+    assert!(directory.accepts_live_event(id, &old_author, 0).await);
+    assert!(!directory.accepts_live_event(id, &new_author, 0).await);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_forwards_immediate_event_while_rebuild_is_pending() {
+    use nostr::prelude::{EventBuilder, Keys};
+
+    let keys = Keys::generate();
+    let id = "directory_users_immediate";
+    let endpoint = RelayUrl::parse("wss://relay.example").unwrap();
+    let directory =
+        directory_plane_with_active_subscription(id, vec![keys.public_key().to_hex()], vec![0])
+            .await;
+    directory
+        .set_subscription_endpoints(std::slice::from_ref(&endpoint))
+        .await;
+    directory
+        .mark_rebuild_pending(&[id.to_owned()].into_iter().collect())
+        .await;
+    let previous = directory
+        .record_subscription_filter(
+            id.to_owned(),
+            DirectorySubscriptionFilter::new(vec![keys.public_key().to_hex()], vec![0]),
+        )
+        .await;
+    let source = Arc::new(TestNotificationSource {
+        sender: broadcast::channel(8).0,
+        subscriptions: AtomicUsize::new(0),
+        preload_lag: false,
+        panic_first: AtomicBool::new(false),
+        lag_floor: NostrNotificationLossFloor::Unbounded,
+        shutdown: AtomicBool::new(false),
+    });
+    let (sender, mut events) = broadcast::channel(8);
+    let forwarder =
+        spawn_directory_notification_forwarder(source.clone(), sender, directory.clone());
+    timeout(Duration::from_secs(2), async {
+        while source.subscriptions.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+
+    let profile = EventBuilder::new(Kind::Metadata, r#"{"name":"immediate"}"#)
+        .finalize(&keys)
+        .unwrap();
+    source.send(RelayPoolNotification::Event {
+        relay_url: endpoint.clone(),
+        subscription_id: SubscriptionId::new(id),
+        event: Box::new(profile.clone()),
+    });
+    let record = timeout(Duration::from_secs(2), events.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let DirectoryRelayPlaneEvent::Record(record) = record else {
+        panic!("immediate matching event must be forwarded while subscribe is still pending");
+    };
+    assert_eq!(record.event.id, profile.id.to_hex());
+    assert_eq!(directory.stats().await.active_subscriptions, 0);
+
+    directory
+        .restore_failed_subscription_filter(id, previous)
+        .await;
+    let (to_add, _) = directory
+        .subscription_diff(&[id.to_owned()].into_iter().collect())
+        .await;
+    assert!(to_add.contains(id));
+    assert_eq!(directory.stats().await.active_subscriptions, 0);
+    assert!(directory.mark_auth_required(id, endpoint.as_str()).await);
+    source.send(RelayPoolNotification::Event {
+        relay_url: endpoint,
+        subscription_id: SubscriptionId::new(id),
+        event: Box::new(profile),
+    });
+    source.send(RelayPoolNotification::Shutdown);
+    timeout(Duration::from_secs(2), forwarder)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        events.try_recv(),
+        Err(broadcast::error::TryRecvError::Empty | broadcast::error::TryRecvError::Closed)
+    ));
+}
+
+async fn directory_live_auth_challenge(deny_read: bool) {
+    use futures::{SinkExt, StreamExt};
+    use nostr::prelude::{EventBuilder, Keys};
+    use tokio::net::TcpListener;
+    use tokio_tungstenite::{accept_async, tungstenite::Message};
+
+    let keys = Keys::generate();
+    let profile = EventBuilder::new(Kind::Metadata, r#"{"name":"jack"}"#)
+        .finalize(&keys)
+        .unwrap();
+    let expected_id = profile.id.to_hex();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = TransportEndpoint(format!("ws://{}", listener.local_addr().unwrap()));
+    let requests = Arc::new(AtomicUsize::new(0));
+    let auth_responses = Arc::new(AtomicUsize::new(0));
+    let server = {
+        let requests = requests.clone();
+        let auth_responses = auth_responses.clone();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            while let Some(Ok(message)) = socket.next().await {
+                let Message::Text(text) = message else {
+                    continue;
+                };
+                let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if request[0] == "AUTH" {
+                    auth_responses.fetch_add(1, Ordering::SeqCst);
+                    continue;
+                }
+                if request[0] != "REQ" {
+                    continue;
+                }
+                requests.fetch_add(1, Ordering::SeqCst);
+                let subscription = request[1].as_str().unwrap();
+                socket
+                    .send(Message::Text(r#"["AUTH","optional-challenge"]"#.into()))
+                    .await
+                    .unwrap();
+                let reply = if deny_read {
+                    serde_json::json!([
+                        "CLOSED",
+                        subscription,
+                        "auth-required: read requires login"
+                    ])
+                } else {
+                    serde_json::json!(["EVENT", subscription, profile])
+                };
+                socket
+                    .send(Message::Text(reply.to_string().into()))
+                    .await
+                    .unwrap();
+                if !deny_read {
+                    socket
+                        .send(Message::Text(
+                            serde_json::json!(["EOSE", subscription]).to_string().into(),
+                        ))
+                        .await
+                        .unwrap();
+                }
+            }
+        })
+    };
+
+    let relay_plane = MarmotRelayPlane::full_history_with_loopback(true);
+    let mut events = relay_plane.subscribe_directory_events();
+    relay_plane
+        .sync_directory_user_subscriptions(
+            DirectorySyncPlan {
+                endpoints: vec![endpoint],
+                watched_user_count: 1,
+                batches: vec![DirectorySyncBatch {
+                    subscription_id: "directory_users_auth".to_owned(),
+                    authors: vec![keys.public_key().to_hex()],
+                    kinds: vec![0],
+                    since: None,
+                }],
+            },
+            false,
+        )
+        .await
+        .unwrap();
+
+    if deny_read {
+        timeout(Duration::from_secs(5), async {
+            loop {
+                let stats = relay_plane.inner.directory.stats().await;
+                if stats.auth_required_routes == 1 && stats.active_subscriptions == 0 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("auth-required CLOSE must remove healthy directory coverage");
+        assert!(
+            timeout(Duration::from_millis(200), events.recv())
+                .await
+                .is_err(),
+            "auth-required must not trigger a rebuild loop"
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+    } else {
+        let record = timeout(Duration::from_secs(5), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let DirectoryRelayPlaneEvent::Record(record) = record else {
+            panic!("optional AUTH must not trigger a recovery rebuild");
+        };
+        assert_eq!(record.event.id, expected_id);
+        let stats = relay_plane.inner.directory.stats().await;
+        assert_eq!(stats.auth_required_routes, 0);
+        assert_eq!(stats.active_subscriptions, 1);
+    }
+    assert_eq!(auth_responses.load(Ordering::SeqCst), 0);
+    relay_plane.shutdown().await;
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn anonymous_live_directory_auth_required_is_visible_without_retry_loop() {
+    directory_live_auth_challenge(true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn anonymous_live_directory_accepts_event_after_optional_auth() {
+    directory_live_auth_challenge(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_notification_lag_requests_refresh() {
+    let source: Arc<dyn RelayNotificationSource> = Arc::new(TestNotificationSource::lag_once());
+    let (sender, mut receiver) = broadcast::channel(4);
+    let directory = DirectoryRelayPlane::new(Arc::new(RecordingDirectoryFetcher::default()));
+    let task = spawn_directory_notification_forwarder(source, sender, directory);
+    assert!(matches!(
+        timeout(Duration::from_secs(2), receiver.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        DirectoryRelayPlaneEvent::RecoveryRequired
+    ));
+    task.abort();
+    let _ = task.await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_auth_required_blocks_only_the_rejecting_endpoint() {
+    let author = "11".repeat(32);
+    let id = "directory_users_shared";
+    let directory =
+        directory_plane_with_active_subscription(id, vec![author.clone()], vec![0]).await;
+    let blocked = RelayUrl::parse("wss://blocked.example").unwrap();
+    let healthy = RelayUrl::parse("wss://healthy.example").unwrap();
+    assert!(
+        directory
+            .set_subscription_endpoints(&[blocked.clone(), healthy.clone()])
+            .await
+    );
+    assert!(
+        !directory
+            .set_subscription_endpoints(&[blocked.clone(), healthy.clone()])
+            .await
+    );
+    assert!(directory.mark_auth_required(id, blocked.as_str()).await);
+    assert!(
+        !directory
+            .accepts_live_event_from(id, blocked.as_str(), &author, 0)
+            .await
+    );
+    assert!(
+        directory
+            .accepts_live_event_from(id, healthy.as_str(), &author, 0)
+            .await
+    );
+    let stats = directory.stats().await;
+    assert_eq!(stats.auth_required_routes, 1);
+    assert_eq!(stats.active_subscriptions, 1);
+
+    assert!(directory.mark_auth_required(id, healthy.as_str()).await);
+    let stats = directory.stats().await;
+    assert_eq!(stats.auth_required_routes, 2);
+    assert_eq!(stats.active_subscriptions, 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_live_event_matching_active_subscription_is_accepted() {
+    let author = "11".repeat(32);
+    let directory = directory_plane_with_active_subscription(
+        "directory_users_0_abc",
+        vec![author.clone()],
+        vec![0],
+    )
+    .await;
+
+    assert!(
+        directory
+            .accepts_live_event("directory_users_0_abc", &author, 0)
+            .await,
+        "an event matching the active subscription id, author, and kind must be accepted"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_live_event_with_unknown_subscription_id_is_rejected() {
+    let author = "11".repeat(32);
+    let directory = directory_plane_with_active_subscription(
+        "directory_users_0_abc",
+        vec![author.clone()],
+        vec![0],
+    )
+    .await;
+
+    assert!(
+        !directory
+            .accepts_live_event("directory_users_0_stale", &author, 0)
+            .await,
+        "an unknown/stale subscription id must be rejected even with a matching author and kind"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_live_event_with_wrong_author_is_rejected() {
+    let author = "11".repeat(32);
+    let other_author = "22".repeat(32);
+    let directory =
+        directory_plane_with_active_subscription("directory_users_0_abc", vec![author], vec![0])
+            .await;
+
+    assert!(
+        !directory
+            .accepts_live_event("directory_users_0_abc", &other_author, 0)
+            .await,
+        "an author the subscription never requested must be rejected (mdk#709)"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_live_event_with_wrong_kind_is_rejected() {
+    let author = "11".repeat(32);
+    let directory = directory_plane_with_active_subscription(
+        "directory_users_0_abc",
+        vec![author.clone()],
+        vec![0],
+    )
+    .await;
+
+    // Kind 3 (contact list) is the unsolicited write the issue calls out: a
+    // subscription requesting only kind 0 must never admit a kind-3 event.
+    assert!(
+        !directory
+            .accepts_live_event("directory_users_0_abc", &author, 3)
+            .await,
+        "a kind outside the subscription filter must be rejected (mdk#709)"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn directory_live_event_rejected_after_subscription_removed() {
+    let author = "11".repeat(32);
+    let directory = directory_plane_with_active_subscription(
+        "directory_users_0_abc",
+        vec![author.clone()],
+        vec![0],
+    )
+    .await;
+    directory
+        .replace_subscriptions(HashMap::new())
+        .await
+        .expect("subscriptions can be cleared");
+
+    assert!(
+        !directory
+            .accepts_live_event("directory_users_0_abc", &author, 0)
+            .await,
+        "once a subscription is no longer active, its events must not be admitted to the cache"
+    );
+}
+
+fn group_event(id_prefix: &str, transport_group_id: &[u8]) -> NostrTransportEvent {
+    // `to_transport_message` verifies the id against the event hash (#351), so
+    // the distinguishing prefix lives in the content and the id is computed
+    // from it — distinct `id_prefix` values still yield distinct event ids.
+    let mut event = NostrTransportEvent {
+        id: String::new(),
+        pubkey: "22".repeat(32),
+        created_at: 1_700_000_000,
+        kind: KIND_MARMOT_GROUP_MESSAGE,
+        tags: vec![vec!["h".into(), hex::encode(transport_group_id)]],
+        content: format!("encrypted {id_prefix}"),
+        sig: None,
+    };
+    event.id = event.computed_id();
+    event
+}
+
+fn relay_pool_group_notification(
+    id_prefix: &str,
+    transport_group_id: &[u8],
+) -> RelayPoolNotification {
+    use nostr_sdk::prelude::{EventBuilder, FinalizeEvent, Keys, Tag};
+
+    let signed = EventBuilder::new(
+        Kind::MlsGroupMessage,
+        format!("encrypted recovery {id_prefix}"),
+    )
+    .tags([Tag::custom("h", [hex::encode(transport_group_id)])])
+    .custom_created_at(NostrTimestamp::from_secs(1_700_000_001))
+    .finalize(&Keys::generate())
+    .expect("sign test group event");
+    RelayPoolNotification::Event {
+        relay_url: RelayUrl::parse("wss://relay.example").unwrap(),
+        subscription_id: SubscriptionId::new("group-sub"),
+        event: Box::new(signed),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn supervised_notification_lag_delivers_later_inbound_exactly_once() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let account = MemberId::new(vec![0xA1; 32]);
+    let group_id = GroupId::new(vec![0xC3; 32]);
+    let transport_group_id = vec![0xD4; 32];
+    let endpoint = TransportEndpoint("wss://relay.example".into());
+    let adapter = relay_plane.account_adapter(account.clone(), relay.clone());
+    adapter
+        .activate_account(TransportAccountActivation {
+            account_id: account.clone(),
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: vec![TransportGroupSubscription {
+                group_id: group_id.clone(),
+                transport_group_id: transport_group_id.clone(),
+                endpoints: vec![endpoint.clone()],
+                retained_since: None,
+            }],
+            since: None,
+        })
+        .await
+        .unwrap();
+    let subscriptions = relay.subscriptions.lock().unwrap().len();
+
+    let source = Arc::new(TestNotificationSource::lag_once());
+    let supervisor =
+        spawn_relay_notification_supervisor(source.clone(), relay_plane.inner.transport.clone());
+
+    timeout(Duration::from_secs(2), async {
+        while relay_plane
+            .inner
+            .transport
+            .notification_forwarder_health
+            .snapshot()
+            .lag_incidents
+            == 0
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the deterministic overrun should be recorded as a lag");
+    assert!(
+        matches!(
+            timeout(Duration::from_secs(1), adapter.receive_account_delivery())
+                .await
+                .unwrap()
+                .unwrap(),
+            Some(AccountDeliveryReceive::Overflow(overflow)) if overflow.notification_losses == 1
+        ),
+        "the lag reaches the account as a control record on its open route"
+    );
+
+    let outbound = group_event("outbound-still-available", &transport_group_id)
+        .to_transport_message()
+        .unwrap();
+    adapter
+        .publish(TransportPublishRequest {
+            account_id: account.clone(),
+            message: outbound,
+            target: TransportPublishTarget::Group {
+                group_id: group_id.clone(),
+                transport_group_id: transport_group_id.clone(),
+                endpoints: vec![endpoint],
+            },
+            required_acks: 0,
+        })
+        .await
+        .expect("outbound publishing remains available after a lag");
+
+    let later = relay_pool_group_notification("after-lag", &transport_group_id);
+    let expected_message_id = match &later {
+        RelayPoolNotification::Event { event, .. } => {
+            NostrTransportEvent::from_nostr_event(event)
+                .unwrap()
+                .to_transport_message()
+                .unwrap()
+                .id
+        }
+        _ => unreachable!(),
+    };
+    source.send(later);
+    let first_delivery = timeout(Duration::from_secs(1), adapter.receive())
+        .await
+        .expect("the resumed consumer should deliver later inbound")
+        .unwrap()
+        .unwrap();
+    let mut deliveries = vec![first_delivery];
+    loop {
+        match timeout(Duration::from_millis(50), adapter.receive()).await {
+            Err(_) => break,
+            Ok(Ok(Some(delivery))) => deliveries.push(delivery),
+            Ok(Ok(None)) => panic!("account delivery stream closed after a lag"),
+            Ok(Err(error)) => panic!("account delivery stream failed: {error}"),
+        }
+    }
+    let matching = deliveries
+        .iter()
+        .filter(|delivery| delivery.message.id == expected_message_id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        matching.len(),
+        1,
+        "later inbound must be delivered exactly once"
+    );
+    assert_eq!(matching[0].account_id, account);
+    assert_eq!(matching[0].group_id_hint, Some(group_id));
+    assert_eq!(
+        relay.subscriptions.lock().unwrap().len(),
+        subscriptions,
+        "a lag issues no new subscription"
+    );
+
+    source.send(RelayPoolNotification::Shutdown);
+    timeout(Duration::from_secs(1), supervisor)
+        .await
+        .expect("supervisor should stop on normal SDK shutdown")
+        .unwrap();
+}
+
+#[test]
+fn publish_report_preserves_fallback_message_id() {
+    let request = TransportPublishRequest {
+        account_id: MemberId::new(vec![0xA1; 32]),
+        message: TransportMessage {
+            id: MessageId::new(vec![0x55; 32]),
+            payload: Vec::new(),
+            timestamp: Timestamp(1),
+            causal_deps: Vec::new(),
+            source: TransportSource(NOSTR_SOURCE.into()),
+            envelope: TransportEnvelope::GroupMessage {
+                transport_group_id: vec![0x11],
+            },
+        },
+        target: cgka_traits::TransportPublishTarget::Group {
+            group_id: GroupId::new(vec![0x22; 32]),
+            transport_group_id: vec![0x11],
+            endpoints: Vec::new(),
+        },
+        required_acks: 2,
+    };
+    let report = publish_report_from_outcome(
+        NostrPublishOutcome {
+            message_id: None,
+            accepted: Vec::new(),
+            failed: Vec::new(),
+        },
+        request,
+    );
+    assert_eq!(report.message_id.as_slice(), vec![0x55; 32].as_slice());
+    assert_eq!(report.required_acks, 2);
+}
+
+#[test]
+fn loss_authority_notification_cannot_claim_the_queue_writer() {
+    let overflow = AccountDeliveryOverflowState::default();
+    overflow.record_notification_loss(NostrNotificationLossFloor::Unbounded);
+    assert!(
+        !overflow.start_marker_persistence(),
+        "notification incidents must be persisted by the account worker"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn loss_authority_persists_count_growth_after_the_first_queue_write() {
+    let overflow = AccountDeliveryOverflowState::default();
+    overflow.record_drop(1, Some(1));
+    assert!(overflow.start_marker_persistence());
+    overflow
+        .persist_marker_before_drop(Arc::new(|_, _, _| Ok(())))
+        .await;
+    let original = overflow.pending_snapshot().unwrap();
+    overflow.record_drop(1, Some(1));
+    assert!(
+        overflow.start_marker_persistence(),
+        "new count must reach durable evidence"
+    );
+    let observed = Arc::new(AtomicUsize::new(0));
+    let count = observed.clone();
+    overflow
+        .persist_marker_before_drop(Arc::new(move |token, dropped, _| {
+            assert_eq!(token, original.marker_token);
+            count.store(dropped as usize, Ordering::SeqCst);
+            Ok(())
+        }))
+        .await;
+    assert_eq!(observed.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn loss_authority_normal_close_does_not_invent_notification_loss() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let adapter = plane.account_adapter_with_recovery_marker(
+        MemberId::new(vec![0xA2; 32]),
+        relay,
+        None,
+        None,
+    );
+    recover_relay_notification_forwarder(
+        &plane.inner.transport,
+        RelayNotificationConsumerExit::Closed,
+    );
+    assert!(adapter.pending_delivery_overflow().is_none());
+    plane.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn loss_authority_router_updates_a_marker_with_its_control_already_queued() {
+    let overflow = Arc::new(AccountDeliveryOverflowState::default());
+    let (sender, mut receiver) = mpsc::channel(2);
+    let latest = Arc::new(AtomicUsize::new(0));
+    let observed = latest.clone();
+    let marker: AccountDeliveryRecoveryMarker = Arc::new(move |_, count, _| {
+        observed.store(count as usize, Ordering::SeqCst);
+        Ok(())
+    });
+    let signal = overflow.record_drop(1, Some(1));
+    persist_queue_loss(&sender, &overflow, marker.clone(), signal);
+    timeout(Duration::from_secs(2), async {
+        while sender.capacity() == 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let signal = overflow.record_drop(1, Some(1));
+    assert!(signal.is_none(), "existing control record remains queued");
+    persist_queue_loss(&sender, &overflow, marker, signal);
+    timeout(Duration::from_secs(2), async {
+        while latest.load(Ordering::SeqCst) != 2 || !overflow.marker_barrier_complete() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let AccountDeliveryEvent::Overflow { generation } = receiver.recv().await.unwrap() else {
+        panic!("control record")
+    };
+    assert_eq!(overflow.consume_signal(generation).dropped, 2);
+    assert!(
+        receiver.try_recv().is_err(),
+        "count updates do not enqueue duplicate controls"
+    );
+}
+
+/// A reopen cancelled mid-retirement leaves nothing running. The reaper
+/// retires the context, and a replacement registered afterwards keeps its
+/// SDK context.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancelled_reopen_retirement_cannot_remove_a_replacement_context() {
+    use futures::FutureExt;
+    use nostr_sdk::prelude::Keys;
+
+    let plane = MarmotRelayPlane::from_sdk(None, true);
+    let sdk = plane.sdk_relay_client_for_test().unwrap();
+    let keys = Keys::generate();
+    let alice = MemberId::new(keys.public_key().to_bytes().to_vec());
+    sdk.register_account(alice.clone(), Arc::new(keys.clone()))
+        .await
+        .unwrap();
+    // A forwarder still winding down: running blocking work ignores abort, so
+    // the retirement is still waiting on it at its first poll, however soon
+    // another runtime thread handles the abort. Dropping `release` ends it.
+    let (started, running) = tokio::sync::oneshot::channel();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let forwarder = tokio::task::spawn_blocking(move || {
+        let _ = started.send(());
+        let _ = released.recv();
+    });
+    running.await.unwrap();
+    plane
+        .inner
+        .transport
+        .account_notification_forwarders
+        .lock()
+        .await
+        .insert(alice.clone(), forwarder);
+
+    // The reopening worker is cancelled after its first poll.
+    assert!(
+        plane
+            .retire_account_session_transport(&alice)
+            .now_or_never()
+            .is_none()
+    );
+    plane.deactivate_account_context(&alice).await.unwrap();
+    // The reopened session brings a new signer handle for the same identity.
+    sdk.register_account(alice.clone(), Arc::new(keys))
+        .await
+        .expect("the reaper retired the old context");
+    tokio::time::sleep(RELAY_PLANE_TASK_ABORT_WAIT * 2).await;
+    assert!(
+        sdk.notification_loss_for_account(&alice).await.is_ok(),
+        "no retirement outlives the cancelled worker"
+    );
+    drop(release);
+    sdk.shutdown_accounts().await;
+}
+
+fn eose_report(scope: Option<MemberId>) -> EoseRepairReport {
+    EoseRepairReport {
+        scope,
+        follow_up: false,
+        lags: 1,
+        summary: transport_nostr_adapter::EoseReissueSummary::default(),
+        follow_up_scheduled: false,
+        dropped_before: 0,
+    }
+}
+
+/// A shared receiver's report waits for an account that can record it: a
+/// worker with no v5 recorder that looks first takes only its own reports.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shared_eose_repair_report_waits_for_an_account_that_records_it() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay);
+    let unrecorded = MemberId::new(vec![0xA1; 32]);
+    let recorded = MemberId::new(vec![0xB2; 32]);
+    push_eose_repair_report(&plane.inner.transport, eose_report(None));
+    push_eose_repair_report(
+        &plane.inner.transport,
+        eose_report(Some(unrecorded.clone())),
+    );
+    push_eose_repair_report(&plane.inner.transport, eose_report(Some(recorded.clone())));
+
+    // The account without a v5 recorder reaches its seam first.
+    let own = plane.take_eose_repair_reports(&unrecorded, false);
+    assert_eq!(own.len(), 1);
+    assert_eq!(own[0].scope.as_ref(), Some(&unrecorded));
+
+    let taken = plane.take_eose_repair_reports(&recorded, true);
+    assert_eq!(taken.len(), 2, "its own and the shared receiver's");
+    assert!(taken.iter().any(|report| report.scope.is_none()));
+    assert!(plane.take_eose_repair_reports(&recorded, true).is_empty());
+    plane.shutdown().await;
+}
+
+/// Evicted reports are counted on their receiver's next surviving report,
+/// or in one bounded scalar: the accounting never grows with the number of
+/// receivers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn evicted_eose_repair_reports_are_counted_without_unbounded_state() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay);
+    let transport = &plane.inner.transport;
+    let account = MemberId::new(vec![0xC3; 32]);
+    let other = |index: usize| Some(MemberId::new(vec![index as u8, 0xEE]));
+    push_eose_repair_report(transport, eose_report(Some(account.clone())));
+    for index in 0..EOSE_REPAIR_REPORTS_MAX - 1 {
+        push_eose_repair_report(transport, eose_report(other(index)));
+    }
+    // The queue is full; this pass evicts the account's first report and
+    // carries its count.
+    push_eose_repair_report(transport, eose_report(Some(account.clone())));
+    let taken = plane.take_eose_repair_reports(&account, false);
+    assert_eq!(taken.len(), 1);
+    assert_eq!(taken[0].dropped_before, 1);
+
+    // Many receivers each evicted with no later report of their own.
+    for index in 0..EOSE_REPAIR_REPORTS_MAX * 2 {
+        push_eose_repair_report(transport, eose_report(other(index + 100)));
+    }
+    {
+        let reports = transport.eose_repair_reports.lock().unwrap();
+        assert_eq!(reports.pending.len(), EOSE_REPAIR_REPORTS_MAX);
+        assert!(reports.dropped_unattributed >= EOSE_REPAIR_REPORTS_MAX as u64);
+    }
+    plane.shutdown().await;
+}
+
+/// A lag that postpones a pending follow-up widens the pass to its own REQs,
+/// so the lag owns it: the report names the lag, not the follow-up.
+#[tokio::test(start_paused = true)]
+async fn a_lag_that_postpones_a_follow_up_repair_owns_the_pass() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay);
+    let transport = &plane.inner.transport;
+    let account = MemberId::new(vec![0xD4; 32]);
+    let mark = transport.adapter.notification_lag_mark();
+    schedule_eose_repair_pass(transport, Some(&account), mark, true);
+    schedule_eose_repair(transport, Some(&account), mark);
+    tokio::time::sleep(NOTIFICATION_LAG_EOSE_REPAIR_SETTLE + Duration::from_millis(1)).await;
+    let reports = timeout(Duration::from_secs(5), async {
+        loop {
+            let reports = plane.take_eose_repair_reports(&account, false);
+            if !reports.is_empty() {
+                break reports;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the postponed pass runs");
+    assert_eq!(reports.len(), 1);
+    assert!(!reports[0].follow_up, "the lag owns the pass");
+    assert_eq!(reports[0].lags, 1);
+    plane.shutdown().await;
+}
+#[derive(Debug, Clone)]
+struct PublicAckGate(Arc<tokio::sync::Semaphore>);
+
+impl nostr_relay_builder::prelude::WritePolicy for PublicAckGate {
+    fn admit_event<'a>(
+        &'a self,
+        _: &'a nostr_relay_builder::prelude::Event,
+        _: &'a std::net::SocketAddr,
+    ) -> nostr_relay_builder::prelude::BoxedFuture<'a, nostr_relay_builder::prelude::PolicyResult>
+    {
+        Box::pin(async move {
+            timeout(Duration::from_secs(5), self.0.acquire())
+                .await
+                .expect("test must release public acknowledgement")
+                .unwrap()
+                .forget();
+            nostr_relay_builder::prelude::PolicyResult::Accept
+        })
+    }
+}
+
+#[derive(Clone, Copy)]
+enum PublishCompletion {
+    Return,
+    Hold,
+}
+
+struct ObservedPublishClient {
+    inner: NostrSdkRelayClient,
+    account_id: MemberId,
+    attempts: Mutex<Vec<TransportEndpoint>>,
+    events: Mutex<Vec<NostrTransportEvent>>,
+    completed: AtomicUsize,
+    cancelled: AtomicUsize,
+    completion: PublishCompletion,
+}
+
+impl ObservedPublishClient {
+    async fn new(completion: PublishCompletion) -> Self {
+        let keys = Keys::generate();
+        let account_id = MemberId::new(keys.public_key().to_bytes().to_vec());
+        let inner = NostrSdkRelayClient::multi_account();
+        inner
+            .register_account(account_id.clone(), Arc::new(keys))
+            .await
+            .unwrap();
+        Self {
+            inner,
+            account_id,
+            attempts: Mutex::new(Vec::new()),
+            events: Mutex::new(Vec::new()),
+            completed: AtomicUsize::new(0),
+            cancelled: AtomicUsize::new(0),
+            completion,
+        }
+    }
+}
+
+/// Observe cancellation after the relay accepted but before its ACK was returned.
+struct HeldPublishGuard<'a>(&'a AtomicUsize);
+
+impl Drop for HeldPublishGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
+impl NostrRelayClient for ObservedPublishClient {
+    async fn subscribe(
+        &self,
+        subscription: NostrSubscription,
+    ) -> Result<(), TransportAdapterError> {
+        self.inner.subscribe(subscription).await
+    }
+
+    async fn unsubscribe(
+        &self,
+        subscription: NostrSubscription,
+    ) -> Result<(), TransportAdapterError> {
+        self.inner.unsubscribe(subscription).await
+    }
+
+    async fn unsubscribe_account(&self, account: &MemberId) -> Result<(), TransportAdapterError> {
+        self.inner.unsubscribe_account(account).await
+    }
+
+    async fn publish_event(
+        &self,
+        endpoints: &[TransportEndpoint],
+        event: &NostrTransportEvent,
+        required_acks: usize,
+    ) -> Result<NostrPublishOutcome, TransportAdapterError> {
+        self.inner
+            .publish_event(endpoints, event, required_acks)
+            .await
+    }
+
+    async fn publish_event_for_account(
+        &self,
+        account_id: &MemberId,
+        endpoints: &[TransportEndpoint],
+        event: &NostrTransportEvent,
+        required_acks: usize,
+    ) -> Result<NostrPublishOutcome, TransportAdapterError> {
+        assert_eq!(account_id, &self.account_id);
+        self.attempts.lock().await.extend_from_slice(endpoints);
+        self.events.lock().await.push(event.clone());
+        let result = self
+            .inner
+            .publish_event_for_account(account_id, endpoints, event, required_acks)
+            .await;
+        if result.is_ok() {
+            self.completed.fetch_add(1, Ordering::SeqCst);
+            if matches!(self.completion, PublishCompletion::Hold) {
+                // The real relay accepted, but the caller never observes its
+                // ACK. Cancellation must not preserve the initial rejection.
+                let _guard = HeldPublishGuard(&self.cancelled);
+                std::future::pending::<()>().await;
+            }
+        }
+        result
+    }
+}
+
+/// Public and authenticated receipts must satisfy one required quorum.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn publish_auth_receipts() {
+    use nostr_relay_builder::builder::{RelayBuilderNip42, RelayBuilderNip42Mode};
+    use nostr_relay_builder::{LocalRelay, RelayBuilder};
+
+    let public = LocalRelay::new(RelayBuilder::default());
+    let auth = LocalRelay::new(RelayBuilder::default().nip42(RelayBuilderNip42 {
+        mode: RelayBuilderNip42Mode::Write,
+    }));
+    public.run().await.unwrap();
+    auth.run().await.unwrap();
+    let endpoints = vec![
+        TransportEndpoint(public.url().await.to_string()),
+        TransportEndpoint(auth.url().await.to_string()),
+    ];
+    let plane = MarmotRelayPlane::runtime_default_with_loopback(Duration::from_secs(30), true);
+    let fallback = Arc::new(ObservedPublishClient::new(PublishCompletion::Return).await);
+    let adapter = plane.account_adapter(fallback.account_id.clone(), fallback.clone());
+    let signed = EventBuilder::new(Kind::TextNote, "mixed quorum")
+        .finalize(&Keys::generate())
+        .unwrap();
+    let event = NostrTransportEvent::from_nostr_event(&signed).unwrap();
+    let outcome = timeout(
+        Duration::from_secs(10),
+        adapter.publish_signed_event(fallback.as_ref(), &endpoints, &event, 2),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        outcome.message_id,
+        Some(MessageId::new(signed.id.to_bytes().to_vec()))
+    );
+    assert_eq!(
+        outcome
+            .accepted
+            .iter()
+            .map(|receipt| receipt.endpoint.clone())
+            .collect::<HashSet<_>>(),
+        endpoints.iter().cloned().collect()
+    );
+    assert!(outcome.failed.is_empty());
+    assert_eq!(*fallback.attempts.lock().await, vec![endpoints[1].clone()]);
+    assert_eq!(*fallback.events.lock().await, vec![event]);
+    fallback.inner.shutdown_accounts().await;
+    fallback.inner.client().shutdown().await;
+    plane.shutdown().await;
+}
+
+/// Below-quorum authentication retries share the original publication deadline.
+// Pauses the clock, which needs the current-thread runtime.
+#[tokio::test(flavor = "current_thread")]
+async fn publish_auth_deadline() {
+    use nostr_relay_builder::builder::{RelayBuilderNip42, RelayBuilderNip42Mode};
+    use nostr_relay_builder::{LocalRelay, RelayBuilder};
+
+    let gate = PublicAckGate(Arc::new(tokio::sync::Semaphore::new(0)));
+    let public = LocalRelay::new(RelayBuilder::default().write_policy(gate.clone()));
+    let first = LocalRelay::new(RelayBuilder::default().nip42(RelayBuilderNip42 {
+        mode: RelayBuilderNip42Mode::Write,
+    }));
+    let second = LocalRelay::new(RelayBuilder::default().nip42(RelayBuilderNip42 {
+        mode: RelayBuilderNip42Mode::Write,
+    }));
+    public.run().await.unwrap();
+    first.run().await.unwrap();
+    second.run().await.unwrap();
+    let public_url = public.url().await;
+    let endpoints = vec![
+        TransportEndpoint(public_url.to_string()),
+        TransportEndpoint(first.url().await.to_string()),
+        TransportEndpoint(second.url().await.to_string()),
+    ];
+    let plane = MarmotRelayPlane::runtime_default_with_loopback(Duration::from_secs(30), true);
+    let fallback = Arc::new(ObservedPublishClient::new(PublishCompletion::Hold).await);
+    let adapter = plane.account_adapter(fallback.account_id.clone(), fallback.clone());
+    let mut notifications = adapter
+        .anonymous_publish_client
+        .as_ref()
+        .unwrap()
+        .client()
+        .notifications();
+    let signed = EventBuilder::new(Kind::TextNote, "one total deadline")
+        .finalize(&Keys::generate())
+        .unwrap();
+    let event = NostrTransportEvent::from_nostr_event(&signed).unwrap();
+    let publisher = fallback.clone();
+    let targets = endpoints.clone();
+    let started = tokio::time::Instant::now();
+    let publication = tokio::spawn(async move {
+        adapter
+            .publish_signed_event(publisher.as_ref(), &targets, &event, 2)
+            .await
+    });
+    timeout(Duration::from_secs(10), async {
+        while fallback.completed.load(Ordering::SeqCst) != 2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("both authenticated publications must run concurrently");
+    gate.0.add_permits(1);
+    timeout(Duration::from_secs(5), async {
+        loop {
+            if let RelayPoolNotification::Message {
+                relay_url, message, ..
+            } = notifications.next().await.unwrap()
+                && matches!(*message, RelayMessage::Ok { status: true, .. })
+                && relay_url.as_str() == public_url.as_str()
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("the public relay must acknowledge before the deadline");
+    assert!(
+        !publication.is_finished(),
+        "a public receipt below quorum must not cancel authenticated attempts"
+    );
+    tokio::time::pause();
+    tokio::time::advance(
+        ACCOUNT_PUBLISH_WAIT.saturating_sub(started.elapsed()) + Duration::from_millis(10),
+    )
+    .await;
+    tokio::task::yield_now().await;
+    assert!(
+        publication.is_finished(),
+        "auth must not start a fresh publication budget"
+    );
+    let error = publication.await.unwrap().unwrap_err();
+    tokio::time::resume();
+    assert_eq!(
+        error.publish_message_id(),
+        Some(&MessageId::new(signed.id.to_bytes().to_vec()))
+    );
+    assert!(error.to_string().contains("accepted 1 of required 2"));
+    assert_eq!(fallback.cancelled.load(Ordering::SeqCst), 2);
+    let failures = error.publish_endpoint_failures();
+    assert_eq!(failures.len(), 2);
+    for endpoint in endpoints.into_iter().skip(1) {
+        let failure = failures
+            .iter()
+            .find(|failure| failure.endpoint == endpoint)
+            .unwrap();
+        assert_eq!(failure.kind, TransportEndpointFailureKind::PossiblyExposed);
+        assert_eq!(failure.rejection_category, None);
+    }
+    fallback.inner.shutdown_accounts().await;
+    fallback.inner.client().shutdown().await;
+    plane.shutdown().await;
+}
+
+/// Quorum cancellation must preserve the same conservative exposure evidence as timeout.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn publish_auth_quorum_does_not_wait_for_unobserved_fallback() {
+    use nostr_relay_builder::builder::{RelayBuilderNip42, RelayBuilderNip42Mode};
+    use nostr_relay_builder::{LocalRelay, RelayBuilder};
+
+    let gate = PublicAckGate(Arc::new(tokio::sync::Semaphore::new(0)));
+    let public = LocalRelay::new(RelayBuilder::default().write_policy(gate.clone()));
+    let first = LocalRelay::new(RelayBuilder::default().nip42(RelayBuilderNip42 {
+        mode: RelayBuilderNip42Mode::Write,
+    }));
+    let second = LocalRelay::new(RelayBuilder::default().nip42(RelayBuilderNip42 {
+        mode: RelayBuilderNip42Mode::Write,
+    }));
+    public.run().await.unwrap();
+    first.run().await.unwrap();
+    second.run().await.unwrap();
+    let public_url = public.url().await;
+    let endpoints = vec![
+        TransportEndpoint(public_url.to_string()),
+        TransportEndpoint(first.url().await.to_string()),
+        TransportEndpoint(second.url().await.to_string()),
+    ];
+    let plane = MarmotRelayPlane::runtime_default_with_loopback(Duration::from_secs(30), true);
+    let fallback = Arc::new(ObservedPublishClient::new(PublishCompletion::Hold).await);
+    let adapter = plane.account_adapter(fallback.account_id.clone(), fallback.clone());
+    // The pool shuts down when its last handle drops. Met quorum ends the
+    // publication task, and with it the adapter, possibly before the public
+    // relay's OK reaches this stream; keep a handle as adapter clones do.
+    let anonymous = adapter.anonymous_publish_client.clone().unwrap();
+    let mut notifications = anonymous.client().notifications();
+    let signed = EventBuilder::new(Kind::TextNote, "quorum cancels held authentication")
+        .finalize(&Keys::generate())
+        .unwrap();
+    let event = NostrTransportEvent::from_nostr_event(&signed).unwrap();
+    let expected_event = event.clone();
+    let publisher = fallback.clone();
+    let targets = endpoints.clone();
+
+    let publication = tokio::spawn(async move {
+        adapter
+            .publish_signed_event(publisher.as_ref(), &targets, &event, 1)
+            .await
+    });
+    timeout(Duration::from_secs(10), async {
+        while fallback.completed.load(Ordering::SeqCst) != 2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("both authenticated publications must run concurrently");
+    gate.0.add_permits(1);
+    timeout(Duration::from_secs(5), async {
+        loop {
+            if let RelayPoolNotification::Message {
+                relay_url, message, ..
+            } = notifications.next().await.unwrap()
+                && matches!(*message, RelayMessage::Ok { status: true, .. })
+                && relay_url.as_str() == public_url.as_str()
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("the public relay must acknowledge before the deadline");
+    let outcome = timeout(Duration::from_secs(1), publication)
+        .await
+        .expect("met quorum must not wait for an unobserved authenticated ACK")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        outcome.message_id,
+        Some(MessageId::new(signed.id.to_bytes().to_vec()))
+    );
+    assert_eq!(outcome.accepted.len(), 1);
+    assert_eq!(outcome.accepted[0].endpoint, endpoints[0]);
+    assert_eq!(fallback.cancelled.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        *fallback.events.lock().await,
+        vec![expected_event.clone(), expected_event]
+    );
+    let failures = &outcome.failed;
+    assert_eq!(failures.len(), 2);
+    for endpoint in endpoints.into_iter().skip(1) {
+        let failure = failures
+            .iter()
+            .find(|failure| failure.endpoint == endpoint)
+            .unwrap();
+        assert_eq!(failure.kind, TransportEndpointFailureKind::PossiblyExposed);
+        assert_eq!(failure.rejection_category, None);
+    }
+    anonymous.client().shutdown().await;
+    fallback.inner.shutdown_accounts().await;
+    fallback.inner.client().shutdown().await;
+    plane.shutdown().await;
+}
+
+/// mdk#2255: a public relay still pending when quorum is met may yet store
+/// the event. Report it with unknown-acknowledgement evidence so the caller's
+/// durable fanout keeps it owed instead of silently dropping it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn publish_quorum_reports_cancelled_public_relay_as_unknown() {
+    use nostr_relay_builder::{LocalRelay, RelayBuilder};
+
+    let gate = PublicAckGate(Arc::new(tokio::sync::Semaphore::new(0)));
+    let held = LocalRelay::new(RelayBuilder::default().write_policy(gate.clone()));
+    let open = LocalRelay::new(RelayBuilder::default());
+    held.run().await.unwrap();
+    open.run().await.unwrap();
+    let endpoints = vec![
+        TransportEndpoint(held.url().await.to_string()),
+        TransportEndpoint(open.url().await.to_string()),
+    ];
+    let plane = MarmotRelayPlane::runtime_default_with_loopback(Duration::from_secs(30), true);
+    let fallback = Arc::new(ObservedPublishClient::new(PublishCompletion::Return).await);
+    let adapter = plane.account_adapter(fallback.account_id.clone(), fallback.clone());
+    let signed = EventBuilder::new(Kind::TextNote, "quorum before a held relay")
+        .finalize(&Keys::generate())
+        .unwrap();
+    let event = NostrTransportEvent::from_nostr_event(&signed).unwrap();
+
+    let outcome = timeout(
+        Duration::from_secs(4),
+        adapter.publish_signed_event(fallback.as_ref(), &endpoints, &event, 1),
+    )
+    .await
+    .expect("met quorum must not wait for the held relay")
+    .unwrap();
+    gate.0.add_permits(1);
+
+    assert_eq!(outcome.accepted.len(), 1);
+    assert_eq!(outcome.accepted[0].endpoint, endpoints[1]);
+    assert_eq!(outcome.failed.len(), 1, "{:?}", outcome.failed);
+    assert_eq!(outcome.failed[0].endpoint, endpoints[0]);
+    assert_eq!(
+        outcome.failed[0].kind,
+        TransportEndpointFailureKind::PossiblyExposed
+    );
+    fallback.inner.shutdown_accounts().await;
+    fallback.inner.client().shutdown().await;
+    plane.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods)]
+async fn publish_allows_independent_account_registration() {
+    use nostr_relay_builder::{LocalRelay, RelayBuilder};
+    use nostr_sdk::prelude::{EventBuilder, Keys};
+    use tokio::sync::Semaphore;
+    use tokio::time::sleep;
+
+    let gate = PublicAckGate(Arc::new(Semaphore::new(0)));
+    let relay = LocalRelay::new(RelayBuilder::default().write_policy(gate.clone()));
+    relay.run().await.unwrap();
+    let endpoints = vec![TransportEndpoint(relay.url().await.to_string())];
+    let plane = MarmotRelayPlane::runtime_default_with_loopback(Duration::from_secs(30), true);
+    let first = Arc::new(Keys::generate());
+    let account = MemberId::new(first.public_key().to_bytes().to_vec());
+    let fallback = NostrSdkRelayClient::new(NostrSdkClient::builder().build());
+    fallback.client().shutdown().await;
+    let adapter = plane.account_adapter(account.clone(), Arc::new(fallback.clone()));
+    plane
+        .set_transport_signer(&account, first.clone())
+        .await
+        .unwrap();
+    adapter
+        .activate_account(TransportAccountActivation {
+            account_id: account.clone(),
+            inbox_endpoints: endpoints.clone(),
+            group_subscriptions: Vec::new(),
+            since: None,
+        })
+        .await
+        .unwrap();
+    timeout(Duration::from_secs(5), async {
+        while plane.relay_health().await.connected != 1 {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let signed = EventBuilder::new(Kind::TextNote, "independent publisher")
+        .finalize(&Keys::generate())
+        .unwrap();
+    let event = NostrTransportEvent::from_nostr_event(&signed).unwrap();
+    let publication = adapter.publish_signed_event(&fallback, &endpoints, &event, 1);
+    tokio::pin!(publication);
+    assert!(futures::poll!(&mut publication).is_pending());
+
+    let second = Arc::new(Keys::generate());
+    let second_id = MemberId::new(second.public_key().to_bytes().to_vec());
+    let second_adapter = plane.account_adapter(second_id.clone(), Arc::new(fallback.clone()));
+    timeout(
+        Duration::from_secs(1),
+        plane.set_transport_signer(&second_id, second.clone()),
+    )
+    .await
+    .expect("an in-flight public write must not block another account's signer")
+    .unwrap();
+
+    gate.0.add_permits(1);
+    let outcome = timeout(Duration::from_secs(5), publication)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(outcome.accepted.len(), 1);
+    let sdk = plane.inner.transport.sdk_relay_client.as_ref().unwrap();
+    sdk.register_account(account.clone(), first.clone())
+        .await
+        .expect("the first account must retain its immutable signer");
+    sdk.register_account(second_id.clone(), second.clone())
+        .await
+        .expect("the second account must retain its own immutable signer");
+    assert!(sdk.register_account(account.clone(), second).await.is_err());
+    assert!(
+        sdk.register_account(second_id.clone(), first)
+            .await
+            .is_err()
+    );
+    assert!(
+        plane
+            .inner
+            .transport
+            .directory_client
+            .as_ref()
+            .unwrap()
+            .relays()
+            .await
+            .is_empty(),
+        "account publication must not connect the anonymous directory client"
+    );
+
+    // Returning to one account must retain its anonymous publisher after
+    // another account registered its independent receive context.
+    second_adapter.deactivate_account(&second_id).await.unwrap();
+    gate.0.add_permits(1);
+    let outcome = timeout(
+        Duration::from_secs(5),
+        adapter.publish_signed_event(&fallback, &endpoints, &event, 1),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(outcome.accepted.len(), 1);
+    plane.shutdown().await;
+}
+
+// Authenticated Nostr carrier through the real production notification consumer;
+// injected source/relay scheduling only, no MLS/SDK permission claim.
+#[cfg(feature = "experimental-device-sync")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn enrollment_acquisition_delayed_notification_worker_preserves_clock_and_fifo_eose() {
+    use cgka_traits::{TransportAccountActivation, TransportAdapter};
+    use nostr_sdk::prelude::{Kind, SubscriptionId, Tag};
+    let sdk = NostrSdkRelayClient::multi_account();
+    let keys = Keys::generate();
+    let account = MemberId::new(keys.public_key().to_bytes().to_vec());
+    let sdk_account = sdk
+        .register_account(account.clone(), Arc::new(keys))
+        .await
+        .unwrap();
+    let relay = Arc::new(RecordingRelayClient::default());
+    let plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let account_adapter = plane.account_adapter(account.clone(), relay.clone());
+    let group = TransportGroupSubscription {
+        group_id: GroupId::new(vec![2; 32]),
+        transport_group_id: vec![3; 32],
+        endpoints: vec![TransportEndpoint("wss://relay.example/".into())],
+        retained_since: None,
+    };
+    account_adapter
+        .activate_account(TransportAccountActivation {
+            account_id: account.clone(),
+            inbox_endpoints: vec![],
+            group_subscriptions: vec![group.clone()],
+            since: None,
+        })
+        .await
+        .unwrap();
+    let attempt = plane
+        .inner
+        .transport
+        .adapter
+        .account_subscription_attempt(&account)
+        .await
+        .unwrap();
+    let issued_subscription = relay
+        .subscriptions
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|subscription| match subscription {
+            NostrSubscription::GroupBatch {
+                account_id,
+                routes,
+                endpoints,
+                ..
+            } if account_id == &account
+                && endpoints == &group.endpoints
+                && routes.iter().any(|route| {
+                    route.group_id == group.group_id
+                        && route.transport_group_id == group.transport_group_id
+                }) =>
+            {
+                Some(subscription.subscription_id())
+            }
+            _ => None,
+        })
+        .expect("activation issued a live batch containing this exact account/group route");
+    let legacy_subscription = NostrSubscription::Group {
+        account_id: account.clone(),
+        group_id: group.group_id.clone(),
+        transport_group_id: group.transport_group_id.clone(),
+        endpoints: group.endpoints.clone(),
+        since: None,
+        attempt,
+    }
+    .subscription_id();
+    assert_ne!(issued_subscription, legacy_subscription);
+    let subscription = issued_subscription;
+    let source = Arc::new(QueuedWorkerFailureSource::busy(sdk_account));
+    let supervisor = spawn_relay_notification_supervisor_scoped(
+        source.clone(),
+        plane.inner.transport.clone(),
+        Some(account),
+    );
+    timeout(Duration::from_secs(2), async {
+        while source.subscriptions.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    source.send_notice();
+    timeout(Duration::from_secs(2), source.hook.entered.notified())
+        .await
+        .unwrap();
+    let endpoint = RelayUrl::parse(&group.endpoints[0].0).unwrap();
+    // FIFO EOSE precedes this Event at the actual receiver, while the worker
+    // cannot yet update shared telemetry. Eligibility and original clock survive.
+    source
+        .sender
+        .send(RelayPoolNotification::Message {
+            relay_url: endpoint.clone(),
+            message: Box::new(RelayMessage::EndOfStoredEvents(std::borrow::Cow::Owned(
+                SubscriptionId::new(&subscription),
+            ))),
+        })
+        .unwrap();
+    let signed = EventBuilder::new(
+        Kind::Custom(445),
+        "actual signed queued acquisition fixture",
+    )
+    .tag(Tag::parse(["h".to_owned(), hex::encode(&group.transport_group_id)]).unwrap())
+    .finalize(&Keys::generate())
+    .unwrap();
+    let legacy_event = EventBuilder::new(Kind::Custom(445), "legacy wire negative control")
+        .tag(Tag::parse(["h".to_owned(), hex::encode(&group.transport_group_id)]).unwrap())
+        .finalize(&Keys::generate())
+        .unwrap();
+    let acquisition_bound =
+        std::time::Instant::now() + Duration::from_secs(600) + Duration::from_millis(50);
+    source
+        .sender
+        .send(RelayPoolNotification::Event {
+            relay_url: endpoint.clone(),
+            subscription_id: SubscriptionId::new(subscription),
+            event: Box::new(signed),
+        })
+        .unwrap();
+    // Even after the real batch's EOSE, a reconstructed legacy wire ID must
+    // never authorize acquisition for another event on the same logical route.
+    source
+        .sender
+        .send(RelayPoolNotification::Message {
+            relay_url: endpoint.clone(),
+            message: Box::new(RelayMessage::EndOfStoredEvents(std::borrow::Cow::Owned(
+                SubscriptionId::new(&legacy_subscription),
+            ))),
+        })
+        .unwrap();
+    source
+        .sender
+        .send(RelayPoolNotification::Event {
+            relay_url: endpoint,
+            subscription_id: SubscriptionId::new(legacy_subscription),
+            event: Box::new(legacy_event),
+        })
+        .unwrap();
+    timeout(Duration::from_secs(2), async {
+        while source.notifications_queued.load(Ordering::SeqCst) < 5 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("EOSE and actual signed Event entered the existing bounded worker queue");
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    source.hook.release.notify_one();
+    let delivered = timeout(
+        Duration::from_secs(2),
+        account_adapter.receive_account_delivery(),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .unwrap();
+    let AccountDeliveryReceive::Delivery(delivered) = delivered else {
+        panic!("one exact actual delivery expected")
+    };
+    let observation = delivered
+        .observation
+        .as_ref()
+        .expect("post-EOSE acquisition must remain eligible while worker is blocked");
+    let deadline = observation.deadline_for(&delivered.delivery).unwrap();
+    assert!(
+        deadline <= acquisition_bound,
+        "internal notification queue wait cannot create a fresh observation clock"
+    );
+    let legacy_delivery = timeout(
+        Duration::from_secs(2),
+        account_adapter.receive_account_delivery(),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .unwrap();
+    let AccountDeliveryReceive::Delivery(legacy_delivery) = legacy_delivery else {
+        panic!("legacy wire control must exercise actual delivery routing")
+    };
+    assert!(
+        legacy_delivery.observation.is_none(),
+        "a legacy wire ID cannot acquire freshness from the real batch's EOSE"
+    );
+    supervisor.abort();
+}
+
+/// The account relay plane's live notification consumer, not only the
+/// adapter crate's standalone forwarder, hands a relay's `CLOSED` to the
+/// adapter: the refusal reaches the account's reports and settles its inbox
+/// replay without completing it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn live_notification_consumer_reports_relay_closed() {
+    let relay = Arc::new(RecordingRelayClient::default());
+    let relay_plane = MarmotRelayPlane::new(Some(Duration::from_secs(30)), relay.clone());
+    let account = MemberId::new(vec![0xA2; 32]);
+    let endpoint = TransportEndpoint("wss://relay.example".into());
+    let adapter = relay_plane.account_adapter(account.clone(), relay.clone());
+    adapter
+        .activate_account(TransportAccountActivation {
+            account_id: account.clone(),
+            inbox_endpoints: vec![endpoint.clone()],
+            group_subscriptions: Vec::new(),
+            since: None,
+        })
+        .await
+        .unwrap();
+    let inbox_id = issued_id(&relay, |subscription| {
+        matches!(subscription, NostrSubscription::AccountInbox { .. })
+    });
+    let source = Arc::new(TestNotificationSource::steady());
+    let supervisor = spawn_relay_notification_supervisor_scoped(
+        source.clone(),
+        relay_plane.inner.transport.clone(),
+        Some(account.clone()),
+    );
+    timeout(Duration::from_secs(2), async {
+        while source.subscriptions.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the supervised consumer subscribes");
+    source.send(RelayPoolNotification::Message {
+        relay_url: RelayUrl::parse(endpoint.as_str()).unwrap(),
+        message: Box::new(RelayMessage::Closed {
+            subscription_id: std::borrow::Cow::Owned(SubscriptionId::new(inbox_id)),
+            message: std::borrow::Cow::Borrowed("restricted: members only"),
+        }),
+    });
+    let reports = timeout(Duration::from_secs(2), async {
+        loop {
+            let reports = relay_plane.take_subscription_refusals(&account);
+            if !reports.reports.is_empty() {
+                break reports;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the live consumer reports the refusal");
+    let report = &reports.reports[0];
+    assert_eq!(
+        report.route_kind,
+        transport_nostr_adapter::SubscriptionRouteKind::Inbox
+    );
+    assert_eq!(
+        report.category,
+        Some(cgka_traits::TransportEndpointRejectionCategory::Restricted)
+    );
+    assert_eq!(
+        report.disposition,
+        transport_nostr_adapter::SubscriptionRefusalDisposition::Dropped
+    );
+    let progress = adapter.account_subscription_eose().await;
+    assert!(progress.settled());
+    assert!(!progress.complete());
+    supervisor.abort();
+    let _ = supervisor.await;
+}

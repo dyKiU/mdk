@@ -442,7 +442,7 @@ fn revoked_anchor_encrypted_reopen_and_group_deletion_preserve_terminal_bytes() 
     let d = draft(&storage);
     let fact = storage.install_revoked_anchor(&d).unwrap();
     storage
-        .put_group(&crate::storage::test_support::sample_group(
+        .put_group(&crate::base::test_support::sample_group(
             d.group_id.clone(),
             3,
             2,
@@ -504,7 +504,7 @@ fn revoked_anchor_group_snapshot_rollback_cannot_restore_positive_metadata() {
     let d = draft(&storage);
     let fact = storage.install_revoked_anchor(&d).unwrap();
     storage
-        .put_group(&crate::storage::test_support::sample_group(
+        .put_group(&crate::base::test_support::sample_group(
             d.group_id.clone(),
             3,
             2,

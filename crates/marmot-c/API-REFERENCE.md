@@ -5354,7 +5354,7 @@ Read monotonic processed bytes into a required cleared output. Preparation, encr
 MarmotStatus marmot_upload_media_files(const struct MarmotClient *client, const char *account_ref, const char *group_id_hex, const struct MarmotMediaFileUploadRequest *request, const struct MarmotMediaFileTransferControl *control, struct MarmotMediaUploadResult **out);
 ```
 
-Blocking file-backed upload using borrowed regular-file inputs, privately snapshotted before PUT. Use off the UI thread and keep strings, request and source paths valid until return. Required output preflight precedes work. Ordered fallback preserves identical ciphertext; signer denial/cancellation stops. Free the owned result with `marmot_media_upload_result_free`. See the [shared contract](../marmot-uniffi/README.md#file-backed-media-upload).
+Blocking file-backed upload using borrowed regular-file inputs, copied into the account's encrypted media store before PUT; `MARMOT_STATUS_STORAGE_FULL` when the disk cannot hold a source beyond its reserve, before anything is uploaded. Use off the UI thread and keep strings, request and source paths valid until return. Required output preflight precedes work. Ordered fallback preserves identical ciphertext; signer denial/cancellation stops. Free the owned result with `marmot_media_upload_result_free`. See the [shared contract](../marmot-uniffi/README.md#file-backed-media-upload).
 
 [Header contract](include/marmot.h#L10930)
 

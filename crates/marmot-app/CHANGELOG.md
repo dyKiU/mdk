@@ -14,6 +14,13 @@
 - `AppError::MissingKeyPackage` is now `{ account, reason: MissingKeyPackageReason }`.
   `ObsoleteOnly` means a completed lookup found only legacy-profile KeyPackages, so the
   recipient must update and publish a current one; `NotFound` keeps the previous meaning.
+- Sends stage every attachment body in the account's media store before the
+  first upload (mdk#2314 step 3). A body the disk cannot hold beyond the
+  attachment policy's disk reserve fails with
+  `AppError::Storage(StorageError::Capacity)` before anything is uploaded or
+  published, instead of sending without a local copy. A full upload table
+  (256 uploads awaiting publication) or a failed binding after the upload
+  also fails the send, which publishes nothing.
 - `AttachmentTransferState` adds `StorageBlocked`: free disk cannot cover the
   publication reserve for the body. Update exhaustive matches; the job keeps
   its checkpoint and readmits once space frees or on explicit Retry.
@@ -25,9 +32,30 @@
   (mdk#2314). Identical content is stored once and attached without downloading
   again. `read_attachment_asset` reads either layout unchanged; existing bodies
   stay in the database until a later migration.
+- Sent attachment bodies are kept as encrypted media store files owned by
+  their upload, and the wire ciphertext streams from that file in two passes
+  (digest, then each PUT): no plaintext snapshot, ciphertext temp file or
+  SQLCipher copy is written, and no retained-byte budget or 4x disk rule
+  applies. The account worker promotes each upload into the sent message's
+  slots once the message is confirmed; an upload whose file was lost is
+  dropped so the message downloads its own media. Uploads staged in the
+  database by earlier releases keep their previous promotion until they
+  expire.
 - The retained-byte budget (`retained_bytes_per_account`) no longer gates
   downloads, so a full budget cannot leave downloads waiting in `RetryScheduled`.
   Free disk is the only limit: a full disk parks the job as `StorageBlocked`.
+- Download checkpoints keep their ciphertext in append-only `.wire` files in
+  the account's `media/` directory instead of SQLCipher rows (mdk#2314).
+  Checkpoints saved by an older build are discarded on upgrade.
+- Downloads need the configured disk reserve plus twice the body (its
+  ciphertext and its stored file) instead of four times; bytes already
+  checkpointed count once. Large explicit downloads streamed to a file write
+  their ciphertext straight into the `.wire` checkpoint (or, without a strong
+  validator, one private staging file) and publication decrypts it straight
+  into the encrypted store file, so no plaintext copy is written to disk. A
+  checkpoint write the disk cannot take, or a full disk while publishing a
+  body, parks the job as `StorageBlocked` for what its retry still writes,
+  never on a retry timer.
 - Publication, hashing and encryption of downloaded bodies run on the blocking
   pool for in-memory bodies too, never on the account worker.
 - Hosts must exclude the account directory, including `media/`, from cloud and
@@ -50,6 +78,12 @@
 - Retain the already-selected hidden receive route while Core owns a live
   protected Remove rollback retry, so successor packets can still reach intake.
 
+- A device woken mostly by notifications now detects that it is stuck behind
+  its group. Notification wakes (`CursorPersistence::Frozen`) retain
+  undecryptable traffic without tracking stalls, and the main app later sees
+  that traffic only as duplicates, so epoch-gap recovery armed only by chance.
+  The next `Advance` open now rebuilds the evidence from the retained deferred
+  rows, with the same filters live detection applies (mdk#2257).
 - `edit_message` refuses with `AppError::InvalidEditTarget`, publishing nothing, unless the target is an available chat message this account sent. Before, the CLI, bindings and connector could publish an edit of another account's message, a reaction, or a deleted message to the whole group, report it as sent, and have every recipient ignore it. Queued local edits apply the same rule at admission. The check is fail-fast against this device's view when the edit is requested, not a guarantee: recipients stay authoritative, and a delete that lands afterwards still yields an ignored edit. A target whose own publish failed and is awaiting retry stays editable.
 - Accounts in many groups no longer fill a relay connection's REQ limit (mdk#2266).
   Live group subscriptions go out in batches of up to 50 routes per REQ instead of
@@ -73,10 +107,11 @@
   paged backwards before its end-of-stored-events counts, so older events in
   the replay window are no longer skipped (#2263).
 - An explicit attachment download the device lacks room to publish no longer
-  retries forever. The publication reserve (disk reserve plus four times the
-  plaintext) is checked as soon as a response declares the size, as a body
-  grows, and before the completed-body receipt, counting the staging,
-  checkpoint and decrypted-file bytes the attempt itself still has to write.
+  retries forever. The download's disk need (disk reserve plus twice the body:
+  its ciphertext and its stored file, less what is already checkpointed) is
+  checked as soon as a response declares the size, as a body grows, and
+  before the completed-body receipt, counting only the bytes the attempt
+  itself still has to write.
   A shortage, or a database that reports it is full while publishing, parks
   the job as `AttachmentTransferState::StorageBlocked` with its ciphertext
   checkpoint instead of scheduling a timer, recording the free space it needs
@@ -88,11 +123,9 @@
   tail; without one both start over. A full database records at least the free
   space seen at the refusal plus the body and withdraws the completed-body
   receipt. If even the park write fails, the error is returned and the lease
-  recovers the job. Parked checkpoints keep their quota reservation for at
-  most seven days after the latest park. Explicit bodies between the transfer
-  limit and 512 MiB now take the file sink and need the reserve plus five
-  bodies free (six with a strong validator) instead of about four, because
-  their staging and checkpoint copies are counted (#2239).
+  recovers the job. Parked checkpoints are kept for at most seven days after
+  the latest park. Explicit bodies between the transfer limit and 512 MiB take
+  the file sink, which follows the same rule (#2239).
 - Receiving an attachment no longer holds several copies of it in native
   memory. The body buffer is reserved once from the declared length (an
   undeclared length grows geometrically to half the transfer limit and then

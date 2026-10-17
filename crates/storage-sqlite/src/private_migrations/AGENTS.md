@@ -1,6 +1,6 @@
 # Separate experimental private migration bodies
 
-These bodies are registered only in `../migrations.rs::PRIVATE_MIGRATIONS` and
+These bodies are registered only in `../base/migrations.rs::PRIVATE_MIGRATIONS` and
 executed under the separate experimental ledger. Their prefixes are private
 revisions, never upstream `cgka_schema_migrations` allocations. Revision9 is the
 first body in this directory; revisions1–8 retain frozen historical filenames

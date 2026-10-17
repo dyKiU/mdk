@@ -158,45 +158,7 @@ pub enum MarmotStatus {
     /// The edit target is missing, not a chat message, sent by another
     /// account, deleted, or withdrawn by convergence; nothing was published.
     InvalidEditTarget = 105,
-    // Private experimental ABI: upstream owns statuses through 105.
-    DeviceLinkingUnsupported = 121,
-    DeviceLinkingClosed = 122,
-    DeviceLinkingInvalidPacket = 123,
-    DeviceLinkingNotReady = 124,
-    DeviceLinkingStaleRevision = 125,
-    DeviceLinkingRuntimeUnavailable = 126,
-    SelectedChatCopyUnsupported = 127,
-    SelectedChatCopyNotReady = 128,
-    SelectedChatCopyInvalidSelection = 129,
-    SelectedChatCopyUnsupportedGroup = 130,
-    SelectedChatCopyNotAdmin = 131,
-    SelectedChatCopyBusy = 132,
-    SelectedChatCopyRuntimeUnavailable = 133,
-    SelectedChatCopyInvalidPacket = 134,
-    SelectedChatCopyStaleRevision = 135,
-    SelectedChatCopyClosed = 136,
-    HistoryTransferUnsupported = 137,
-    HistoryTransferNotReady = 138,
-    HistoryTransferClosed = 139,
-    HistoryTransferStaleRevision = 140,
-    HistoryTransferRuntimeUnavailable = 141,
-    SynchronizedHistoryUnsupported = 142,
-    SynchronizedHistoryInvalidQuery = 143,
-    SynchronizedHistoryUnavailable = 144,
-    SynchronizedHistoryInvalidRecord = 145,
-    AccountSharingUnsupported = 146,
-    AccountSharingNotReady = 147,
-    AccountSharingClosed = 148,
-    AccountSharingStaleRevision = 149,
-    AccountSharingRuntimeUnavailable = 150,
-    DeviceRevocationUnsupported = 151,
-    DeviceRevocationNotReady = 152,
-    DeviceRevocationClosed = 153,
-    DeviceRevocationInvalidSelection = 154,
-    DeviceRevocationBusy = 155,
-    DeviceRevocationStaleRevision = 156,
-    DeviceRevocationRuntimeUnavailable = 157,
-    AccountChatDepartureDenied = 158,
+            135,
 }
 
 thread_local! {
@@ -399,6 +361,7 @@ pub(crate) fn status_from_error(err: &MarmotKitError) -> MarmotStatus {
         MarmotKitError::GroupCatchingUp { .. } => MarmotStatus::GroupCatchingUp,
         MarmotKitError::GroupCommitUndelivered { .. } => MarmotStatus::GroupCommitUndelivered,
         MarmotKitError::StorageClosed { .. } => MarmotStatus::StorageClosed,
+        MarmotKitError::StorageFull { .. } => MarmotStatus::StorageFull,
         MarmotKitError::GroupSendQueueFull { .. } => MarmotStatus::GroupSendQueueFull,
         MarmotKitError::CreatedGroupProjectionUnavailable { .. } => {
             MarmotStatus::CreatedGroupProjectionUnavailable
@@ -686,6 +649,9 @@ mod tests {
             MarmotKitError::StorageClosed {
                 details: "d".into(),
             },
+            MarmotKitError::StorageFull {
+                details: "d".into(),
+            },
             MarmotKitError::SecretNotFound {
                 details: "d".into(),
             },
@@ -756,7 +722,7 @@ mod tests {
         ];
         assert_eq!(
             variants.len(),
-            134,
+            135,
             "list every MarmotKitError variant exactly once (update this count with the enum)"
         );
         assert_eq!(
@@ -785,6 +751,12 @@ mod tests {
         assert_eq!(
             status_from_error(&MarmotKitError::InvalidEditTarget) as i32,
             105
+        );
+        assert_eq!(
+            status_from_error(&MarmotKitError::StorageFull {
+                details: "d".into()
+            }) as i32,
+            106
         );
         assert_eq!(
             status_from_error(&MarmotKitError::BlockListUnavailable) as i32,

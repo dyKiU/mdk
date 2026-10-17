@@ -1,7 +1,7 @@
 ---
 title: "Local Artifact Safety"
 created: 2026-07-02
-updated: 2026-10-15
+updated: 2026-10-17
 tags: [marmot, overview, security, filesystem, permissions]
 status: overview
 ---
@@ -111,6 +111,19 @@ account database stays the authority: each file's random key and state live in i
   not Rust's `sync_all` (`F_FULLFSYNC`). Other platforms use `fsync`.
 - **Delete the key, then the file.** Deleting the row under `secure_delete` is the real erase. The unlink that follows
   is best effort, and the sweep removes any file whose row is gone.
+- **Staged files are owned by their upload row.** An outgoing body can be sealed into an encrypted store file that
+  stays `staged` under its `outgoing_attachment_uploads` row, and promotion marks it `ready` and attaches it in one
+  transaction. A file lives while a slot references it or an upload owns it. Deleting the upload row deletes a
+  still-staged file's key, and the sweep unlinks the file. Sends stage every body this way before uploading and
+  stream the wire ciphertext from the staged file, so no plaintext snapshot or ciphertext temp file is written.
+- **Download checkpoints are `.wire` files.** A resumable download appends the received Blossom ciphertext (already
+  encrypted to the group, never plaintext) to `<shard>/<id>.wire`, created at 0600. The media store owns the
+  sequence: the `attachment_partial` row commits before the file exists and is deleted before the file is unlinked,
+  each append is synced before the row records it, and an append that fails or is refused is cut off at once. A crash
+  can leave at most one append unrecorded; reopening and the sweep cut it off. The sweep unlinks wire files whose row
+  is gone. A finished download is authenticated in place and decrypted straight into the store's encrypted pending
+  file, so a downloaded body never exists as a plaintext file. A body served without a strong validator cannot
+  checkpoint and stages its ciphertext in one private `media-staging/` file instead.
 - **Terminal close covers media.** Once the account database closes, or the store's own close latch is tripped, media
   reads (including open readers), writes and sweeps fail with `Closed`. The store joins the runtime's close path; it
   never adds a second one.

@@ -6,10 +6,82 @@ fn attachment_capacity_reserves_disk_overhead_and_never_evicts() {
     assert_eq!(p.retained_bytes, 2 * 1024 * 1024 * 1024);
     assert_eq!(p.disk_reserve, 256 * 1024 * 1024);
     assert_eq!(p.transfer_limit, 64 * 1024 * 1024);
-    let free = p.disk_reserve + 4 * p.transfer_limit;
-    assert!(capacity(&p, p.transfer_limit, free));
-    assert!(!capacity(&p, p.transfer_limit, free - 1));
-    assert!(!capacity(&p, u64::MAX, u64::MAX));
+    // The reserve plus a wire checkpoint and a store file (mdk#2314).
+    let free = p.disk_reserve + 2 * p.transfer_limit;
+    assert!(capacity(&p, p.transfer_limit, None, free));
+    assert!(!capacity(&p, p.transfer_limit, None, free - 1));
+    assert!(!capacity(&p, u64::MAX, None, u64::MAX));
+    // A checkpoint is already on disk, and so may be one unrecorded append
+    // a crash left: a resumed download is credited both, and needs at least
+    // its store file.
+    let saved = p.transfer_limit / 2;
+    let credit = saved + media_store::CHECKPOINT_APPEND_MAX as u64;
+    assert!(capacity(&p, p.transfer_limit, Some(saved), free - credit));
+    assert!(!capacity(
+        &p,
+        p.transfer_limit,
+        Some(saved),
+        free - credit - 1
+    ));
+    let floor = p.disk_reserve + p.transfer_limit;
+    assert!(capacity(
+        &p,
+        p.transfer_limit,
+        Some(2 * p.transfer_limit),
+        floor
+    ));
+    assert!(!capacity(
+        &p,
+        p.transfer_limit,
+        Some(2 * p.transfer_limit),
+        floor - 1
+    ));
+}
+
+/// Readmission's checkpoint threshold admits exactly the parked jobs worker
+/// admission would let start, whatever their recorded checkpoint.
+#[test]
+fn readmission_threshold_agrees_with_worker_admission() {
+    let mib = 1024 * 1024;
+    let slack = media_store::CHECKPOINT_APPEND_MAX as u64;
+    for limit in [mib, 3 * mib, 64 * mib] {
+        let mut policy =
+            super::super::super::attachment_controls::default_policy(&MarmotAppConfig::default());
+        policy.transfer_limit = limit;
+        policy.disk_reserve = 7 * mib;
+        for available in [
+            0,
+            slack - 1,
+            limit - 1,
+            limit,
+            limit + slack,
+            2 * limit - 1,
+            2 * limit,
+            3 * limit,
+        ] {
+            let free = policy.disk_reserve + available;
+            let threshold = readmit_admission(&policy, free);
+            for recorded in [
+                None,
+                Some(0),
+                Some(1),
+                Some(limit / 2),
+                Some(limit - slack),
+                Some(limit),
+                Some(2 * limit),
+            ] {
+                assert_eq!(
+                    threshold.admits(recorded),
+                    capacity(&policy, limit, recorded, free),
+                    "limit {limit} available {available} recorded {recorded:?}"
+                );
+            }
+        }
+        assert_eq!(
+            readmit_admission(&policy, policy.disk_reserve - 1),
+            storage_sqlite::ReadmitAdmission::NONE
+        );
+    }
 }
 
 use crate::tests::ScriptedPushRelayClient;

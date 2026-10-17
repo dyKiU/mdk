@@ -535,6 +535,16 @@ where
         Ok(self.session.group_record(group_id)?)
     }
 
+    /// Undecryptable objects retained while stuck at the group's current
+    /// epoch; see `Engine::deferred_stall_evidence`.
+    pub fn deferred_stall_evidence(
+        &mut self,
+        group_id: &GroupId,
+        limit: usize,
+    ) -> AccountResult<cgka_traits::DeferredStallEvidence> {
+        Ok(self.session.deferred_stall_evidence(group_id, limit)?)
+    }
+
     pub fn epoch_state(&self, group_id: &GroupId) -> Option<cgka_traits::EpochState> {
         self.session.epoch_state(group_id)
     }
@@ -997,6 +1007,8 @@ where
             .session
             .key_package_lifecycle()?
             .expect("prepared lifecycle is durable");
+        // Promotion clears the marker, so move an old record's marker first.
+        lifecycle.migrate_legacy_consumption_marker();
 
         let pending = lifecycle
             .pending_replacement
@@ -1079,24 +1091,31 @@ where
             &receipt.failed,
             self.wall_clock.now(),
         );
-        let previous = lifecycle.current_key_package.clone();
         let previous_was_consumed = lifecycle.current_key_package_ref.is_some()
             && lifecycle.current_key_package_ref == lifecycle.last_consumed_key_package_ref;
-        if !previous_was_consumed
-            && let (Some(key_package), Some(key_package_ref), Some(not_after)) = (
-                previous.clone(),
+        // Inviters may still hold the replaced publication, so its private
+        // material outlives the replacement; a consumed package only for
+        // CONSUMED_KEY_PACKAGE_RETENTION_SECS (mdk#2344).
+        let mut retired = Vec::new();
+        if let Some(key_package) = lifecycle.current_key_package.clone() {
+            match (
                 lifecycle.current_key_package_ref.clone(),
                 lifecycle.current_not_after,
-            )
-        {
-            lifecycle
-                .retained_private_material
-                .push(RetainedKeyPackagePrivateMaterial {
-                    key_package,
-                    key_package_ref,
-                    not_after,
-                    replaced_at: self.wall_clock.now(),
-                });
+            ) {
+                (Some(key_package_ref), Some(not_after)) => lifecycle
+                    .retained_private_material
+                    .push(RetainedKeyPackagePrivateMaterial {
+                        key_package,
+                        key_package_ref,
+                        not_after,
+                        replaced_at: self.wall_clock.now(),
+                        consumed: previous_was_consumed,
+                    }),
+                // Without a lifetime there is no deletion bound to retain it
+                // under.
+                _ if previous_was_consumed => retired.push(key_package),
+                _ => {}
+            }
         }
         lifecycle.current_key_package = Some(replacement.key_package.clone());
         lifecycle.current_key_package_ref = Some(replacement.key_package_ref);
@@ -1120,13 +1139,13 @@ where
         };
         lifecycle.upgrade_rotation_recorded = true;
         lifecycle.generation_revision = replacement.generation_revision;
-        lifecycle.last_consumed_key_package_ref = None;
-        lifecycle.last_consumed_at = None;
-        let retired = if previous_was_consumed {
-            previous.into_iter().collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
+        // A Welcome can consume the replacement before its acknowledgement,
+        // which makes the new current package due for replacement in turn.
+        lifecycle.last_consumed_key_package_ref = lifecycle
+            .current_key_package_ref
+            .clone()
+            .filter(|_| replacement.consumed_at.is_some());
+        lifecycle.last_consumed_at = replacement.consumed_at;
         self.session
             .promote_key_package_lifecycle(&retired, &lifecycle)?;
         Ok(replacement.key_package)
@@ -1333,26 +1352,18 @@ where
             lifecycle.phase = cgka_traits::MaintenancePhase::Failed;
             retired.push(expired.key_package);
         }
-        let consumed_ref = lifecycle.last_consumed_key_package_ref.as_deref();
-        let mut consumed_retained_deleted = false;
+        let marker_migrated = lifecycle.migrate_legacy_consumption_marker();
         let mut retained = Vec::with_capacity(lifecycle.retained_private_material.len());
         for material in lifecycle.retained_private_material.drain(..) {
-            let was_consumed = consumed_ref
-                .is_some_and(|consumed| consumed == material.key_package_ref.as_slice());
-            if material.not_after <= now || was_consumed {
-                consumed_retained_deleted |= was_consumed;
+            if material.delete_at() <= now {
                 retired.push(material.key_package);
             } else {
                 retained.push(material);
             }
         }
         lifecycle.retained_private_material = retained;
-        if consumed_retained_deleted {
-            lifecycle.last_consumed_key_package_ref = None;
-            lifecycle.last_consumed_at = None;
-        }
         let deleted = retired.len();
-        if deleted > 0 {
+        if deleted > 0 || marker_migrated {
             self.session
                 .promote_key_package_lifecycle(&retired, &lifecycle)?;
             let mut activity = self

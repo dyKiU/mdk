@@ -257,7 +257,16 @@ pub struct PendingKeyPackageReplacement {
     pub targets: Vec<TransportFanoutTarget>,
     pub attempt_count: u32,
     pub last_failure_code: Option<String>,
+    /// When a successfully processed Welcome consumed this package before its
+    /// publication was acknowledged. It may already have reached a relay.
+    #[serde(default)]
+    pub consumed_at: Option<Timestamp>,
 }
+
+/// How long a consumed KeyPackage's private material outlives confirmed
+/// publication of its replacement. An inviter that fetched the old publication
+/// before the replacement reached it can still be joined (mdk#2344).
+pub const CONSUMED_KEY_PACKAGE_RETENTION_SECS: u64 = 24 * 60 * 60;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RetainedKeyPackagePrivateMaterial {
@@ -265,6 +274,28 @@ pub struct RetainedKeyPackagePrivateMaterial {
     pub key_package_ref: Vec<u8>,
     pub not_after: Timestamp,
     pub replaced_at: Timestamp,
+    /// A successfully processed Welcome consumed this package, so its private
+    /// material is deleted [`CONSUMED_KEY_PACKAGE_RETENTION_SECS`] after
+    /// `replaced_at`, or at `not_after` if that is earlier.
+    #[serde(default)]
+    pub consumed: bool,
+}
+
+impl RetainedKeyPackagePrivateMaterial {
+    /// When the private material must be deleted.
+    pub fn delete_at(&self) -> Timestamp {
+        if self.consumed {
+            Timestamp(
+                self.not_after.0.min(
+                    self.replaced_at
+                        .0
+                        .saturating_add(CONSUMED_KEY_PACKAGE_RETENTION_SECS),
+                ),
+            )
+        } else {
+            self.not_after
+        }
+    }
 }
 
 /// The one stable replaceable-event slot for an account-device's last-resort
@@ -296,12 +327,20 @@ pub struct KeyPackageLifecycleState {
     /// The reference proven to have been consumed by a successfully processed
     /// MLS Welcome. This comes from the Welcome's encrypted-group-secrets
     /// entries matched against local bundles, never from a transport tag.
+    ///
+    /// It names only the current package, whose consumption makes a
+    /// replacement due. A pending or retained package records its own
+    /// consumption, so a delayed Welcome for one cannot overwrite this marker;
+    /// see [`Self::record_consumed_key_package`].
     #[serde(default)]
     pub last_consumed_key_package_ref: Option<Vec<u8>>,
     #[serde(default)]
     pub last_consumed_at: Option<Timestamp>,
-    /// Prior, unconsumed packages remain decryptable until their MLS lifetime
-    /// expires so an invite already in flight can still be processed.
+    /// Prior packages remain decryptable after their replacement so an invite
+    /// already in flight can still be processed: unconsumed ones until their
+    /// MLS lifetime expires, consumed ones for
+    /// [`CONSUMED_KEY_PACKAGE_RETENTION_SECS`]. See
+    /// [`RetainedKeyPackagePrivateMaterial::delete_at`].
     #[serde(default)]
     pub retained_private_material: Vec<RetainedKeyPackagePrivateMaterial>,
     pub pending_replacement: Option<PendingKeyPackageReplacement>,
@@ -331,6 +370,59 @@ impl KeyPackageLifecycleState {
             retained_private_material: Vec::new(),
             pending_replacement: None,
         }
+    }
+
+    /// Record that a successfully processed Welcome consumed `key_package_ref`.
+    pub fn record_consumed_key_package(&mut self, key_package_ref: &[u8], consumed_at: Timestamp) {
+        // An older record may keep a replaced or pending package's consumption
+        // only in the marker this can overwrite.
+        self.migrate_legacy_consumption_marker();
+        if !self.mark_replaced_or_pending_consumed(key_package_ref, consumed_at)
+            && self.current_key_package_ref.as_deref() == Some(key_package_ref)
+        {
+            self.last_consumed_key_package_ref = Some(key_package_ref.to_vec());
+            self.last_consumed_at = Some(consumed_at);
+        }
+    }
+
+    /// Move a consumption marker written before pending and retained packages
+    /// recorded their own onto the package it names. Returns whether the
+    /// lifecycle changed.
+    pub fn migrate_legacy_consumption_marker(&mut self) -> bool {
+        let Some(consumed) = self.last_consumed_key_package_ref.clone() else {
+            return false;
+        };
+        let consumed_at = self.last_consumed_at.unwrap_or(Timestamp(0));
+        if !self.mark_replaced_or_pending_consumed(&consumed, consumed_at) {
+            return false;
+        }
+        self.last_consumed_key_package_ref = None;
+        self.last_consumed_at = None;
+        true
+    }
+
+    fn mark_replaced_or_pending_consumed(
+        &mut self,
+        key_package_ref: &[u8],
+        consumed_at: Timestamp,
+    ) -> bool {
+        if let Some(material) = self
+            .retained_private_material
+            .iter_mut()
+            .find(|material| material.key_package_ref == key_package_ref)
+        {
+            material.consumed = true;
+            return true;
+        }
+        if let Some(pending) = self
+            .pending_replacement
+            .as_mut()
+            .filter(|pending| pending.key_package_ref == key_package_ref)
+        {
+            pending.consumed_at.get_or_insert(consumed_at);
+            return true;
+        }
+        false
     }
 }
 
@@ -378,7 +470,145 @@ pub struct GroupMaintenanceStatus {
 
 #[cfg(test)]
 mod tests {
-    use super::MaintenancePhase;
+    use super::{
+        CONSUMED_KEY_PACKAGE_RETENTION_SECS, KeyPackageLifecycleState, MaintenancePhase,
+        PendingKeyPackageReplacement, RetainedKeyPackagePrivateMaterial,
+    };
+    use crate::engine::KeyPackage;
+    use crate::transport::Timestamp;
+
+    fn retained(not_after: u64, consumed: bool) -> RetainedKeyPackagePrivateMaterial {
+        RetainedKeyPackagePrivateMaterial {
+            key_package: KeyPackage::new(vec![1]),
+            key_package_ref: vec![2],
+            not_after: Timestamp(not_after),
+            replaced_at: Timestamp(1_000),
+            consumed,
+        }
+    }
+
+    #[test]
+    fn retained_key_package_deletion_bound_depends_on_consumption() {
+        let retention_end = 1_000 + CONSUMED_KEY_PACKAGE_RETENTION_SECS;
+        assert_eq!(
+            retained(retention_end + 10, false).delete_at(),
+            Timestamp(retention_end + 10)
+        );
+        assert_eq!(
+            retained(retention_end + 10, true).delete_at(),
+            Timestamp(retention_end)
+        );
+        assert_eq!(
+            retained(retention_end - 10, true).delete_at(),
+            Timestamp(retention_end - 10),
+            "the KeyPackage lifetime still bounds consumed material"
+        );
+    }
+
+    fn pending(key_package_ref: Vec<u8>) -> PendingKeyPackageReplacement {
+        PendingKeyPackageReplacement {
+            generation_revision: 1,
+            key_package: KeyPackage::new(vec![3]),
+            key_package_ref,
+            authored_created_at: Timestamp(1),
+            not_before: Timestamp(1),
+            not_after: Timestamp(5_000),
+            refresh_at: Timestamp(4_000),
+            signed_event: None,
+            targets: Vec::new(),
+            attempt_count: 0,
+            last_failure_code: None,
+            consumed_at: None,
+        }
+    }
+
+    /// Current `[1]`, retained `[2]` (unconsumed), pending `[3]`.
+    fn lifecycle() -> KeyPackageLifecycleState {
+        let mut lifecycle = KeyPackageLifecycleState::slot_only("slot".into());
+        lifecycle.current_key_package_ref = Some(vec![1]);
+        lifecycle.retained_private_material = vec![retained(5_000, false)];
+        lifecycle.pending_replacement = Some(pending(vec![3]));
+        lifecycle
+    }
+
+    #[test]
+    fn delayed_welcome_for_a_replaced_package_keeps_the_current_marker() {
+        let mut lifecycle = lifecycle();
+        lifecycle.record_consumed_key_package(&[1], Timestamp(10));
+        lifecycle.record_consumed_key_package(&[2], Timestamp(11));
+        lifecycle.record_consumed_key_package(&[3], Timestamp(12));
+
+        assert_eq!(lifecycle.last_consumed_key_package_ref, Some(vec![1]));
+        assert_eq!(lifecycle.last_consumed_at, Some(Timestamp(10)));
+        assert!(lifecycle.retained_private_material[0].consumed);
+        assert_eq!(
+            lifecycle.pending_replacement.unwrap().consumed_at,
+            Some(Timestamp(12))
+        );
+    }
+
+    #[test]
+    fn current_consumption_migrates_a_legacy_marker_before_replacing_it() {
+        let mut replaced = lifecycle();
+        replaced.last_consumed_key_package_ref = Some(vec![2]);
+        replaced.last_consumed_at = Some(Timestamp(10));
+        replaced.record_consumed_key_package(&[1], Timestamp(20));
+        assert!(replaced.retained_private_material[0].consumed);
+        assert_eq!(replaced.last_consumed_key_package_ref, Some(vec![1]));
+        assert_eq!(replaced.last_consumed_at, Some(Timestamp(20)));
+
+        let mut pending = lifecycle();
+        pending.last_consumed_key_package_ref = Some(vec![3]);
+        pending.last_consumed_at = Some(Timestamp(10));
+        pending.record_consumed_key_package(&[1], Timestamp(20));
+        assert_eq!(
+            pending.pending_replacement.as_ref().unwrap().consumed_at,
+            Some(Timestamp(10))
+        );
+        assert_eq!(pending.last_consumed_key_package_ref, Some(vec![1]));
+    }
+
+    #[test]
+    fn untracked_consumption_leaves_the_current_marker() {
+        let mut lifecycle = lifecycle();
+        lifecycle.record_consumed_key_package(&[1], Timestamp(10));
+        lifecycle.record_consumed_key_package(&[9], Timestamp(11));
+        assert_eq!(lifecycle.last_consumed_key_package_ref, Some(vec![1]));
+        assert_eq!(lifecycle.last_consumed_at, Some(Timestamp(10)));
+    }
+
+    #[test]
+    fn legacy_consumption_marker_moves_onto_the_package_it_names() {
+        let mut current = lifecycle();
+        current.last_consumed_key_package_ref = Some(vec![1]);
+        assert!(!current.migrate_legacy_consumption_marker());
+        assert_eq!(current.last_consumed_key_package_ref, Some(vec![1]));
+
+        let mut replaced = lifecycle();
+        replaced.last_consumed_key_package_ref = Some(vec![2]);
+        replaced.last_consumed_at = Some(Timestamp(10));
+        assert!(replaced.migrate_legacy_consumption_marker());
+        assert!(replaced.retained_private_material[0].consumed);
+        assert!(replaced.last_consumed_key_package_ref.is_none());
+        assert!(replaced.last_consumed_at.is_none());
+
+        let mut pending = lifecycle();
+        pending.last_consumed_key_package_ref = Some(vec![3]);
+        pending.last_consumed_at = Some(Timestamp(10));
+        assert!(pending.migrate_legacy_consumption_marker());
+        assert_eq!(
+            pending.pending_replacement.unwrap().consumed_at,
+            Some(Timestamp(10))
+        );
+    }
+
+    #[test]
+    fn retained_key_package_records_without_consumption_decode_as_unconsumed() {
+        let mut value = serde_json::to_value(retained(5_000, true)).unwrap();
+        value.as_object_mut().unwrap().remove("consumed");
+        let decoded: RetainedKeyPackagePrivateMaterial = serde_json::from_value(value).unwrap();
+        assert!(!decoded.consumed);
+    }
 
     #[test]
     fn maintenance_phase_names_are_stable_snake_case() {

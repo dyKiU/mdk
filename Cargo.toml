@@ -16,6 +16,7 @@ members = [
     "crates/incident-replay",
     "crates/transport-nostr-peeler",
     "crates/transport-nostr-adapter",
+    "crates/transport-nostr",
     "crates/transport-quic-stream",
     "crates/transport-quic-broker",
     "crates/agent-stream-compose",
@@ -150,6 +151,7 @@ storage-sqlite = { path = "crates/storage-sqlite" }
 cgka-conformance-simulator = { path = "crates/cgka-conformance-simulator" }
 transport-nostr-peeler = { path = "crates/transport-nostr-peeler" }
 transport-nostr-adapter = { path = "crates/transport-nostr-adapter" }
+transport-nostr = { path = "crates/transport-nostr" }
 transport-quic-stream = { path = "crates/transport-quic-stream" }
 transport-quic-broker = { path = "crates/transport-quic-broker" }
 agent-stream-compose = { path = "crates/agent-stream-compose" }
@@ -175,6 +177,13 @@ hax-lib-macros = { git = "https://github.com/cryspen/hax.git", rev = "8f9cb576e5
 # memory-security allocator emits one WARN for every mlock failure. Pin the
 # merged 4.17.0 amalgamation until a crates.io release contains that lineage.
 libsqlite3-sys = { git = "https://github.com/rusqlite/rusqlite.git", rev = "5ae7fdf83085c595fd54f977b3a56ccacabaf16b" }
+
+# Dev and test builds keep full debug info for workspace crates and skip it for
+# dependencies, trimming local compile time and target/ size. CI already builds
+# everything with CARGO_PROFILE_{DEV,TEST}_DEBUG=0, so CI artifacts are
+# unchanged. `test` inherits these overrides from `dev`.
+[profile.dev.package."*"]
+debug = false
 
 # Standard release profile for MarmotKit and other workspace release consumers.
 # Thin LTO with one codegen unit is the measured candidate; do not add a custom

@@ -4042,8 +4042,10 @@ impl AppClient {
     /// never recovers the group escalates onto the next successful sync summary,
     /// the seam every worker surface already publishes. Only observed under
     /// `CursorPersistence::Advance`: a `Frozen` wake-collection pass must not
-    /// own recovery, and the main app sees the same evidence on its own next
-    /// sync.
+    /// own recovery. Its deferrals still reach the detector, but not on the
+    /// main app's next sync, where they arrive as duplicates: the next
+    /// `Advance` open rebuilds them from the retained rows instead
+    /// ([`Self::seed_epoch_stall_from_deferred_rows`]).
     fn detect_epoch_stall(
         &mut self,
         group_id_hint: Option<cgka_traits::GroupId>,
@@ -4133,6 +4135,58 @@ impl AppClient {
             decision,
             crate::client::epoch_stall::backfill_trigger_for(outcome),
         );
+    }
+
+    /// Rebuild undecryptable-traffic evidence from durable deferred rows.
+    ///
+    /// [`Self::detect_epoch_stall`] counts only deferrals this process ingests
+    /// in `Advance` mode. A `Frozen` wake (an iOS notification extension) still
+    /// retains each undecryptable object as a `PeelDeferred` row, but when the
+    /// main app next syncs those objects arrive as duplicates, so live
+    /// detection never sees them. A device woken mostly by notifications then
+    /// arms only when one app session happens to see enough live traffic
+    /// (mdk#2257). This feeds the rows retained at each group's current epoch
+    /// through the same detector and filters instead, for groups the detector
+    /// has not already signalled at that epoch. It changes no durable state
+    /// unless the detector arms.
+    pub(crate) fn seed_epoch_stall_from_deferred_rows(&mut self) {
+        if self.app.cursor_persistence() != CursorPersistence::Advance {
+            return;
+        }
+        let limit = self.epoch_stall.threshold();
+        let groups = self
+            .state
+            .groups
+            .iter()
+            .filter_map(|group| hex::decode(&group.group_id_hex).ok())
+            .map(GroupId::new)
+            .collect::<Vec<_>>();
+        for group_id in groups {
+            let Ok(evidence) = self.runtime.deferred_stall_evidence(&group_id, limit) else {
+                continue;
+            };
+            // Retained rows supply only the first arm. Once this group has
+            // signalled at the evidence epoch, here or in the durable state
+            // restored before hydration, rows replayed on every later open are
+            // not fresh traffic and must not pace re-arms or end the run.
+            if evidence.rows.is_empty()
+                || self.epoch_stall.has_signalled_at(&group_id, evidence.epoch)
+            {
+                continue;
+            }
+            let outcome = IngestOutcome::TransportDeferred {
+                group_id: group_id.clone(),
+                lineage: evidence.lineage,
+            };
+            for row in evidence.rows {
+                self.detect_epoch_stall(
+                    Some(group_id.clone()),
+                    &hex::encode(row.message_id.as_slice()),
+                    &outcome,
+                    row.transport_timestamp,
+                );
+            }
+        }
     }
 
     /// Apply an epoch-stall backfill decision: arm the replay, and record an
@@ -7350,7 +7404,7 @@ mod runtime_group_subscription_refresh_tests {
 
     /// A send can release a peer's route update without changing membership.
     /// Its retained observer must install that route and retry a failed rebuild.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn retained_send_route_change_refreshes_subscriptions() {
         use cgka_traits::TransportEndpoint;
         use cgka_traits::app_components::{
@@ -7443,7 +7497,7 @@ mod runtime_group_subscription_refresh_tests {
 
     /// Forgetting one copy must remove only its retained native events: other
     /// groups in the same batch still replay, with the later Welcome last.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn forget_group_local_preserves_other_groups_in_retained_batches() {
         use cgka_traits::engine::GroupEvent;
         let dir = tempfile::tempdir().unwrap();
@@ -7558,7 +7612,7 @@ mod runtime_group_subscription_refresh_tests {
 
     /// Both retry entry points must deliver successful source finalization and
     /// native activity once, even when their route/retention/checkpoint tail fails.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn convergence_retry_preserves_summary_after_tail_failure() {
         use cgka_traits::app_event::{AppMessageRetentionDecision, MARMOT_APP_EVENT_KIND_CHAT};
         use cgka_traits::engine::{GroupEvent, GroupStateChange};
@@ -7727,7 +7781,7 @@ mod runtime_group_subscription_refresh_tests {
 
     /// A later Welcome cannot overtake a retained removal batch. This pins the
     /// projection seam's ordering while the engine already holds the live tree.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn retained_termination_cannot_overtake_later_welcome() {
         use cgka_traits::engine::GroupEvent;
         let dir = tempfile::tempdir().unwrap();
@@ -7853,7 +7907,7 @@ mod runtime_group_subscription_refresh_tests {
         assert!(client.pending_applied_effects.is_empty());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn catch_up_checkpoint_arms_refresh_after_durable_subscription_failure() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -7895,7 +7949,7 @@ mod runtime_group_subscription_refresh_tests {
 
     /// Secondary route failures preserve command success and primary publication
     /// errors, including committed activity and buffered subscriber updates.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn canonical_publish_result_survives_native_route_refresh_failure() {
         use crate::AppError;
         use cgka_traits::engine::{GroupEvent, GroupStateChange};
@@ -8048,7 +8102,7 @@ mod runtime_group_subscription_refresh_tests {
     /// subscriptions stay stale until some unrelated delivery happens to dirty
     /// the routes again — and a stale group subscription is exactly what stops
     /// those deliveries from arriving.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn drained_epilogue_arms_refresh_after_failed_subscription_rebuild() {
         let dir = tempfile::tempdir().unwrap();
         let account = AccountHome::open(dir.path())
@@ -8335,7 +8389,7 @@ mod tests {
             .unwrap()
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn contested_fork_and_capacity_facts_keep_independent_recovery_demand() {
         use crate::client::epoch_stall::BackfillDecision;
         use cgka_traits::ingest::{DeferralLineage, IngestOutcome};
@@ -8592,17 +8646,17 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn scheduled_convergence_projects_every_released_message() {
         assert_released_message_batch_projects(ReleasedBatchObservation::Scheduled).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn send_applied_effects_project_every_released_message() {
         assert_released_message_batch_projects(ReleasedBatchObservation::Send).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn inbound_effects_project_every_released_message() {
         assert_released_message_batch_projects(ReleasedBatchObservation::Inbound).await;
     }
@@ -8617,7 +8671,7 @@ mod tests {
         }]
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn released_receipts_preserve_only_the_surviving_unsaved_tail() {
         use cgka_traits::storage::MessageStorage;
         use cgka_traits::{EpochId, MessageId, MessageRecord, MessageState};
@@ -8672,7 +8726,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn released_backfill_restore_preserves_owned_retry_progress_and_merges_new_work() {
         use marmot_forensics::EpochBackfillExecutionSeam;
         let dir = tempfile::tempdir().unwrap();
@@ -8752,7 +8806,7 @@ mod tests {
         assert_eq!(storage.recovery_retry_state().unwrap(), retry);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn released_backfill_reload_retries_after_consumption_without_reopen() {
         use cgka_traits::storage::MessageStorage;
         use cgka_traits::{EpochId, MessageId, MessageRecord, MessageState};
@@ -8827,7 +8881,7 @@ mod tests {
         assert!(client.fail_next_released_backfill_reload);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn older_backfill_completion_preserves_released_intent_across_reopen() {
         use cgka_traits::storage::MessageStorage;
         use cgka_traits::{EpochId, MessageId, MessageRecord, MessageState};
@@ -8899,7 +8953,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn older_backfill_completion_still_clears_groups_without_new_work() {
         use marmot_forensics::EpochBackfillExecutionSeam;
         let dir = tempfile::tempdir().unwrap();
@@ -8948,7 +9002,7 @@ mod tests {
         assert_eq!(remaining[0].stalled_epoch, 1);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn terminal_group_backfill_intents_are_not_rearmed_on_restore() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -8989,7 +9043,7 @@ mod tests {
     /// pacing is the seam's own way of stopping short of a replay, so the drop
     /// is visible without paying for one: the live group survives the pass and
     /// is what the cooldown is still holding.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_backfill_run_drops_every_group_that_became_terminal() {
         use marmot_forensics::EpochBackfillExecutionSeam;
 
@@ -9054,7 +9108,7 @@ mod tests {
     /// The production restore call site is the released-receipt seam, which
     /// already holds an account storage handle. Exercise it end to end so the
     /// durable clear cannot regress into a self-deadlock.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn released_receipt_restore_retires_a_terminal_group_intent() {
         use cgka_traits::storage::MessageStorage;
         use cgka_traits::{EpochId, MessageId, MessageRecord, MessageState};
@@ -9097,7 +9151,7 @@ mod tests {
     /// account-wide cooldown gate, or it keeps `has_pending_epoch_backfill`
     /// true for a whole backoff window — which is also what arms `next_event`
     /// summaries and the forensic audit-upload schedule.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn wholly_terminal_intent_is_not_pending_under_retry_pacing() {
         use marmot_forensics::EpochBackfillExecutionSeam;
 
@@ -9140,7 +9194,7 @@ mod tests {
     /// The durable arm can sit at a later epoch than the in-memory intent
     /// holding it, so the clear must not key off the intent's epoch. Retiring
     /// the group's row retires it whatever epoch storage holds.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn terminal_group_row_clears_whatever_epoch_storage_holds() {
         use marmot_forensics::EpochBackfillExecutionSeam;
 
@@ -9187,7 +9241,7 @@ mod tests {
     /// group this device is terminal in must keep neither: an orphaned run goes
     /// on accumulating fruitless-completion evidence, and its durable evidence
     /// row is retired by nothing else.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn dropping_a_terminal_intent_also_retires_its_recovery_run() {
         use marmot_forensics::{EpochBackfillExecutionSeam, EpochStallBackfillTrigger};
 
@@ -9246,7 +9300,7 @@ mod tests {
 
     /// A terminal transition during an authorized attempt invalidates its old
     /// coverage and retires both demand and stall evidence, even without EOSE.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_replay_that_ends_terminal_escalates_nothing_and_leaves_no_evidence() {
         use crate::client::epoch_stall::BackfillDecision;
         use marmot_forensics::{EpochBackfillExecutionSeam, EpochStallBackfillTrigger};
@@ -9311,7 +9365,7 @@ mod tests {
     /// leave the intent row behind, because that row is the only thing that
     /// brings the group back through restore into the drop — clearing it anyway
     /// would strand the evidence row with nothing left to retire it.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_failed_retire_keeps_the_intent_row_so_the_next_restore_retries() {
         use marmot_forensics::EpochStallBackfillTrigger;
 
@@ -9642,7 +9696,8 @@ mod tests {
         assert_eq!(transport_reconciliation_record(&account, &delivery), None);
     }
 
-    #[tokio::test]
+    // Pauses the clock, which needs the current-thread runtime.
+    #[tokio::test(flavor = "current_thread")]
     async fn eose_shortens_quiet_drain() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -9677,7 +9732,8 @@ mod tests {
     /// other relay has answered. The refusal is not evidence that history
     /// was served, so the replay stays incomplete and the live cursor is not
     /// promoted past it.
-    #[tokio::test]
+    // Pauses the clock, which needs the current-thread runtime.
+    #[tokio::test(flavor = "current_thread")]
     async fn dropped_refusal_shortens_quiet_drain_without_completing_replay() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -9729,7 +9785,8 @@ mod tests {
     /// re-issues the unanswered REQ, and once the relay's fresh answer
     /// completes coverage, a drain after the loss is in recovery ends at its
     /// first quiet wait again.
-    #[tokio::test]
+    // Pauses the clock, which needs the current-thread runtime.
+    #[tokio::test(flavor = "current_thread")]
     async fn quiet_drain_ends_early_again_after_a_lag_lost_its_eose() {
         let dir = tempfile::tempdir().unwrap();
         let alice = AccountHome::open(dir.path())
@@ -9800,7 +9857,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    // Pauses the clock, which needs the current-thread runtime.
+    #[tokio::test(flavor = "current_thread")]
     async fn idle_drain_skips_directory() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -9854,7 +9912,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn uncertified_full_history_repair_keeps_the_buffered_prefix() {
         let dir = tempfile::tempdir().unwrap();
         AccountHome::open(dir.path())
@@ -9914,7 +9972,7 @@ mod retired_loss_observation_tests {
     /// work in flight, such as a queued control record. The later observation
     /// of the same, now retired, loss must release the fence rather than
     /// re-raise it, while genuinely new loss still arms recovery.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_late_observation_of_retired_loss_releases_the_fence_without_rearming() {
         let dir = tempfile::tempdir().unwrap();
         crate::AccountHome::open(dir.path())

@@ -51,9 +51,9 @@ use cgka_traits::{
     TransportPublishTarget,
 };
 use marmot_account::{
-    AccountDeviceRuntime, AccountHome, AccountHomeError, AccountSummary, KeyPackagePublication,
-    KeyPackagePublishError, KeyPackagePublishReceipt, KeyPackagePublisher, TransportRoutingError,
-    TransportRoutingPolicy,
+    AccountDeviceRuntime, AccountHome, AccountHomeError, AccountSetupKind, AccountSummary,
+    KeyPackagePublication, KeyPackagePublishError, KeyPackagePublishReceipt, KeyPackagePublisher,
+    TransportRoutingError, TransportRoutingPolicy,
 };
 use nostr_sdk::prelude::{
     EventBuilder, FinalizeUnsignedEvent, Kind, PublicKey, Tag, Timestamp as NostrTimestamp,
@@ -2715,8 +2715,23 @@ impl MarmotApp {
         label: &str,
     ) -> Result<AccountRelayListStatus, AppError> {
         let account = self.account_home().account(label)?;
+        // Read the journal before the projection. Setup clears it only after
+        // its bootstrap has projected the chosen lists, so once it is gone the
+        // status read below already reflects them.
+        let setup_owns_relay_lists = self
+            .account_home()
+            .account_setup_state(&account.label)?
+            .is_some_and(|state| state.kind == AccountSetupKind::GeneratedIdentity);
         let status = self.account_relay_list_status_for_account_id(&account.account_id_hex)?;
         if status.complete {
+            return Ok(status);
+        }
+        if setup_owns_relay_lists {
+            // An open generated setup publishes the relays the user chose in
+            // its bootstrap batch, and runtime start resumes it. The app's
+            // relays published here would stay advertised as this account's
+            // write and inbox relays wherever that batch never lands
+            // (mdk#2359).
             return Ok(status);
         }
         let default_relays = self.relay_endpoints();
@@ -4753,9 +4768,15 @@ impl MarmotApp {
             spill_storage
                 .spill_account_deliveries(
                     deliveries,
-                    relay_plane::ACCOUNT_DELIVERY_SPILL_LIMITS,
+                    client::delivery_spill::ACCOUNT_DELIVERY_SPILL_LIMITS,
                     unix_now_seconds(),
                 )
+                .map(|dispositions| {
+                    dispositions
+                        .into_iter()
+                        .map(client::delivery_spill::plane_spill_disposition)
+                        .collect()
+                })
                 .map_err(|error| {
                     if error.is_closed() {
                         relay_plane::AccountDeliveryRecoveryMarkerError::Closed
@@ -4924,7 +4945,7 @@ impl MarmotApp {
 
         Ok(AppTransportRouting::new(AppRoutingState {
             local_inbox_endpoints: self.account_inbox_endpoints(&state.label, &relay_lists),
-            key_package_endpoints: self.key_package_endpoints(&relay_lists),
+            key_package_endpoints: self.key_package_endpoints(&state.label, &relay_lists)?,
             inbox_routes,
             group_routes,
             required_acks: 1,
@@ -5590,8 +5611,11 @@ impl MarmotApp {
                 }
             };
             let endpoints = if target.source_relays.is_empty() {
-                match self.account_relay_list_status_for_account_id(&account_id_hex) {
-                    Ok(relay_lists) => self.key_package_endpoints(&relay_lists),
+                match self
+                    .account_relay_list_status_for_account_id(&account_id_hex)
+                    .and_then(|relay_lists| self.key_package_endpoints(label, &relay_lists))
+                {
+                    Ok(endpoints) => endpoints,
                     Err(error) => {
                         results[index].result = Err(error);
                         continue;
@@ -6336,26 +6360,44 @@ impl MarmotApp {
 
     fn key_package_endpoints(
         &self,
+        label: &str,
         relay_lists: &AccountRelayListStatus,
-    ) -> Vec<TransportEndpoint> {
+    ) -> Result<Vec<TransportEndpoint>, AppError> {
         // KeyPackages publish to (and are fetched from) the account's NIP-65
         // (kind 10002) outbox relays; there is no dedicated KeyPackage relay
         // list. Fall back to the configured default relays when the account has
         // no usable NIP-65 relay. This runtime fallback is not published as a
         // replacement for the account's relay list.
-        let offered = relay_lists.nip65.relays.len();
-        let safe = self.retain_safe_discovered_endpoints(
-            relay_lists
-                .nip65
-                .relays
-                .iter()
-                .cloned()
-                .map(TransportEndpoint)
-                .collect(),
-            "local account key package routing",
-        );
+        let mut outbox = relay_lists
+            .nip65
+            .relays
+            .iter()
+            .cloned()
+            .map(TransportEndpoint)
+            .collect::<Vec<_>>();
+        if outbox.is_empty() {
+            // An open generated setup has not projected the NIP-65 list its
+            // bootstrap publishes yet. Route to the relays that list declares,
+            // not to the app's (mdk#2359).
+            outbox = match self.generated_setup_outbox_relays(label)? {
+                Some(relays) => relays,
+                // Setup removes its journal and context only after projecting
+                // its lists, so one that completed since `relay_lists` was
+                // read shows them in a fresh read.
+                None => self
+                    .account_relay_list_status(label)?
+                    .nip65
+                    .relays
+                    .into_iter()
+                    .map(TransportEndpoint)
+                    .collect(),
+            };
+        }
+        let offered = outbox.len();
+        let safe =
+            self.retain_safe_discovered_endpoints(outbox, "local account key package routing");
         if !safe.is_empty() {
-            return safe;
+            return Ok(safe);
         }
         let fallback = self.relay_endpoints();
         if offered > 0 {
@@ -6367,7 +6409,28 @@ impl MarmotApp {
                 "published account outbox has no usable endpoints; using configured defaults"
             );
         }
-        fallback
+        Ok(fallback)
+    }
+
+    /// The NIP-65 relays an open generated setup declares. `None` once setup
+    /// completes, or when its context is missing or unreadable.
+    fn generated_setup_outbox_relays(
+        &self,
+        label: &str,
+    ) -> Result<Option<Vec<TransportEndpoint>>, AppError> {
+        let home = self.account_home();
+        if !home
+            .account_setup_state(label)?
+            .is_some_and(|state| state.kind == AccountSetupKind::GeneratedIdentity)
+        {
+            return Ok(None);
+        }
+        Ok(home
+            .account_setup_context(label)?
+            .and_then(|bytes| {
+                serde_json::from_slice::<runtime::GeneratedAccountSetupContext>(&bytes).ok()
+            })
+            .map(|context| context.outbox_relays()))
     }
 
     fn transport_label(&self) -> &'static str {
@@ -6771,7 +6834,7 @@ impl MarmotApp {
         // Keep source/retention and chat-list refresh atomic: a refresh failure
         // must leave the accepted fanout able to reconstruct its completion.
         let storage = self.account_storage(label)?;
-        cgka_traits::StorageProvider::with_transaction(&storage, |storage| {
+        let update = cgka_traits::StorageProvider::with_transaction(&storage, |storage| {
             let storage_update = storage.record_app_event_with_source(
                 &stored_app_event_from_projection(message, received_at),
                 message.retention,
@@ -6786,7 +6849,12 @@ impl MarmotApp {
                 );
             }
             self.app_projection_update(label, storage_update)
-        })
+        })?;
+        if message.direction == "sent" {
+            // The worker promotes the message's staged uploads.
+            self.presentation_signals.wake();
+        }
+        Ok(update)
     }
 
     /// Reconcile a local publication with its engine-stamped source authority.
@@ -6798,7 +6866,7 @@ impl MarmotApp {
     ) -> Result<AppProjectionUpdate, AppError> {
         let now = unix_now_seconds();
         let storage = self.account_storage(label)?;
-        cgka_traits::StorageProvider::with_transaction(&storage, |storage| {
+        let update = cgka_traits::StorageProvider::with_transaction(&storage, |storage| {
             let storage_update = storage.record_app_event_with_source(
                 &stored_app_event_from_projection(message, now),
                 message.retention,
@@ -6813,7 +6881,12 @@ impl MarmotApp {
                 );
             }
             self.app_projection_update(label, storage_update)
-        })
+        })?;
+        if message.direction == "sent" {
+            // The worker promotes the message's staged uploads.
+            self.presentation_signals.wake();
+        }
+        Ok(update)
     }
 
     /// Finalize accepted source authority and retry outgoing byte promotion even
@@ -6859,6 +6932,8 @@ impl MarmotApp {
                 .map(|update| self.app_projection_update(label, update))
                 .transpose()
         })?;
+        // The worker promotes the message's staged uploads.
+        self.presentation_signals.wake();
         if update.is_some()
             && let Some(observation) = observation
         {

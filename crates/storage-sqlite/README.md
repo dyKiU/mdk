@@ -96,8 +96,8 @@ while resolving complete intent instead of deriving it from visible rows.
 
 ## Migrations
 
-Account/session schema changes are Rust migrations: the ordered registry lives in `src/migrations.rs` and bodies in
-numbered files like `src/migrations/0001_initial_schema.rs`. Each has a monotonically increasing version, a matching
+Account/session schema changes are Rust migrations: the ordered registry lives in `src/base/migrations.rs` and bodies in
+numbered files like `src/base/migrations/0001_initial_schema.rs`. Each has a monotonically increasing version, a matching
 padded name, and an `apply` function run inside a SQLite transaction, which can execute DDL, rewrite rows, or perform
 larger data-shape changes. Applied migrations are recorded in `cgka_schema_migrations`; opening an encrypted database
 applies missing migrations after SQLCipher keying and before storage handles are exposed. Message rows follow
@@ -286,6 +286,9 @@ the `mls_write_generation` contract for cached `MlsGroup` objects is unchanged.
 `SAVEPOINT` undoes every write the unit made, drops the after-commit wakeups it registered and moves
 `mls_write_generation`, and the caller's transaction stays open. Canonical convergence apply uses it in place of a full
 group snapshot, so its rollback cost no longer grows with stored history (mdk#2326).
+`StorageProvider::rollback_group_state_keeping_live_records`, the rewind onto a retained anchor that a reorg's apply and
+the convergence probes use, restores canonical state only, even from a legacy full anchor, and leaves message,
+pending-event and queue rows untouched, so it does not grow with stored history either (mdk#2330).
 
 **Deferred recovery preparation.** `MessageStorage::list_deferred_message_metadata` preserves insertion order and exact
 encoded payload lengths while omitting payload blobs. The engine uses it for sweep preparation and readiness, then

@@ -1159,6 +1159,8 @@ mod tests {
         }
     }
 
+    // Observes the permit between abort() and the next scheduler turn; on more
+    // than one thread a worker can drop the aborted future before the assert.
     #[tokio::test(flavor = "current_thread")]
     async fn abort_request_keeps_credit_until_network_future_is_dropped() {
         let capacity = Arc::new(tokio::sync::Semaphore::new(1));
@@ -1191,6 +1193,8 @@ mod tests {
         assert_eq!(capacity.available_permits(), 1);
     }
 
+    // Pairs with the test above: on one thread only abort_and_wait, not
+    // another worker, can have dropped the future before the final assert.
     #[tokio::test(flavor = "current_thread")]
     async fn abort_and_wait_reaps_network_future_before_returning() {
         let capacity = Arc::new(tokio::sync::Semaphore::new(1));
@@ -1317,7 +1321,7 @@ mod tests {
             .unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pending_recovery_waits_for_a_credit_without_spending_a_reservation() {
         let relays = (0..5)
             .map(|index| format!("wss://relay-{index}.example"))
@@ -1365,7 +1369,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_route_with_more_than_four_relays_is_compared_by_the_job() {
         let relays = (0..5)
             .map(|index| format!("wss://relay-{index}.example"))
@@ -1416,7 +1420,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn comparison_stale_result_preserves_cursor_and_debt() {
         let mut fixture = fixture().await;
         let grant = fixture
@@ -1465,7 +1469,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn comparison_inventory_change_rejects_owned_result() {
         let mut fixture = fixture().await;
         let grant = fixture
@@ -1529,7 +1533,7 @@ mod tests {
         assert!(fixture.storage.recovery_comparison().unwrap().pending());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn comparison_subscription_change_rejects_owned_result() {
         let mut fixture = fixture().await;
         let grant = fixture
@@ -1566,7 +1570,7 @@ mod tests {
         assert!(fixture.storage.recovery_comparison().unwrap().pending());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn comparison_worker_join_persists_advisory_cursor_before_settlement() {
         let mut fixture = fixture().await;
         let grant = fixture
@@ -1631,7 +1635,7 @@ mod tests {
         network
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_unreadable_event_withholds_the_route_without_failing_the_batch() {
         let mut fixture = fixture().await;
         let (grant, execution, route, group_route) = group_route_grant(&mut fixture).await;
@@ -1663,7 +1667,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn comparison_admits_owned_events_directly_without_the_delivery_queue() {
         let mut fixture = fixture().await;
         let (grant, execution, route, group_route) = group_route_grant(&mut fixture).await;
@@ -1695,7 +1699,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn comparison_admission_runs_in_bounded_turns() {
         let mut fixture = fixture().await;
         let (grant, mut execution, route, group_route) = group_route_grant(&mut fixture).await;
@@ -1734,7 +1738,7 @@ mod tests {
     /// A newest window starts with history the device already holds. Those
     /// events must not spend the turn's admission slots, or the late commit
     /// behind them waits a turn while live input runs (mdk#2256).
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn already_held_events_do_not_spend_a_turns_admission_slots() {
         let mut fixture = fixture().await;
         let (grant, mut execution, route, group_route) = group_route_grant(&mut fixture).await;
@@ -1782,7 +1786,7 @@ mod tests {
             .unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn comparison_change_between_turns_keeps_the_prefix_and_certifies_nothing() {
         let mut fixture = fixture().await;
         let (grant, mut execution, route, group_route) = group_route_grant(&mut fixture).await;
@@ -1838,7 +1842,7 @@ mod tests {
         assert!(fixture.storage.recovery_comparison().unwrap().pending());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn comparison_unadmitted_event_keeps_prepass_cursor() {
         let mut fixture = fixture().await;
         let (grant, execution, route, _) = group_route_grant(&mut fixture).await;
@@ -1882,7 +1886,7 @@ mod tests {
         assert_eq!(scope.quiet_passes, 1);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn comparison_partial_pass_rotates_cursor_and_keeps_retry_debt() {
         let mut fixture = fixture().await;
         let grant = fixture
@@ -2004,7 +2008,7 @@ mod tests {
     /// history recovery can find it. When a relay fails the epoch-gap route's
     /// comparison, the job fetches that relay's newest events for the route
     /// and admits them, without certifying the route.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_epoch_gap_route_a_relay_failed_to_compare_fetches_its_newest_window() {
         let mut fixture = fixture_with_group_relays_and_comparison(None, false).await;
         arm_unpaced_epoch_gap(&fixture);
@@ -2045,7 +2049,7 @@ mod tests {
     /// window newest first. Admission must not converge a newer commit from
     /// the same page before the late one is buffered, so the window is queued
     /// oldest first.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_window_is_admitted_oldest_first() {
         let mut fixture = fixture().await;
         let (grant, mut execution, route, group_route) = group_route_grant(&mut fixture).await;
@@ -2157,7 +2161,7 @@ mod tests {
     /// Relays send the newest page newest first, so a page the byte budget
     /// or the deadline cut holds only the newer events and leaves the late
     /// commit behind. Only a page the relay itself ended is admitted.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_window_page_the_relay_did_not_finish_is_not_admitted() {
         for end in [
             transport_nostr_adapter::NostrAcquisitionEnd::ByteLimitReached,
@@ -2195,7 +2199,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_epoch_gap_route_every_relay_compared_fetches_no_window() {
         let mut fixture = fixture_with_group_relays_and_comparison(None, false).await;
         arm_unpaced_epoch_gap(&fixture);
@@ -2218,7 +2222,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_history_route_a_relay_failed_to_compare_fetches_no_window() {
         let mut fixture = fixture().await;
         let (grant, group_route) = epoch_gap_grant(&mut fixture);
@@ -2248,7 +2252,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn comparison_pass_records_acquisition_counts_and_verdicts() {
         use crate::client::audit_recovery::recorded_v5_rows;
         let mut fixture = audited_fixture().await;
@@ -2316,7 +2320,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_grant_changed_before_admission_records_a_superseded_pass() {
         use crate::client::audit_recovery::recorded_v5_rows;
         let mut fixture = audited_fixture().await;
@@ -2360,7 +2364,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_abandoned_network_pass_records_a_cancelled_pass() {
         use crate::client::audit_recovery::recorded_v5_rows;
         let mut fixture = audited_fixture().await;
@@ -2377,7 +2381,7 @@ mod tests {
         assert_eq!(finished[0]["event"]["routes_compared"], 0);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_repair_stopped_by_its_deadline_reports_what_it_fetched_and_retained() {
         use crate::client::audit_recovery::recorded_v5_rows;
         let mut fixture = audited_fixture().await;
@@ -2428,7 +2432,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_pass_whose_routes_timed_out_is_unserved_not_quiet() {
         use crate::client::audit_recovery::recorded_v5_rows;
         let mut fixture = audited_fixture().await;
@@ -2462,7 +2466,7 @@ mod tests {
         assert_eq!(finished[0]["event"]["events_retrieved"], 0);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn deadline_cuts_keep_retrying() {
         let mut fixture = fixture().await;
         for pass in 0..14 {
@@ -2524,7 +2528,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_comparison_only_pass_without_a_backend_is_unserved_not_quiet() {
         use crate::client::audit_recovery::recorded_v5_rows;
         let mut fixture = fixture_with_options(None, false, true).await;
@@ -2583,7 +2587,7 @@ mod tests {
         assert_eq!(finished["event"]["routes_certified"], 0);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_obligation_compared_without_a_backend_is_unserved_and_spends_no_budget() {
         use crate::client::audit_recovery::recorded_v5_rows;
         let mut fixture = audited_fixture().await;
@@ -2635,7 +2639,7 @@ mod tests {
     }
     /// A real admission repairs retained projection work before a later grant
     /// failure. Both the worker and inline checkpoint must deliver that prefix.
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn failed_comparison_retains_repaired_admission_prefix() {
         for checkpoint in [false, true] {
             let mut fixture = fixture().await;

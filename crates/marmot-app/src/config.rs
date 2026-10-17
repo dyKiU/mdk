@@ -69,8 +69,9 @@ pub enum AttachmentAcquisitionMode {
 /// Automatic attachment policy. Downloaded bodies are retained in the
 /// account's encrypted media store with no byte quota: free disk above
 /// `minimum_free_disk_bytes` is the only gate (mdk#2314).
-/// `retained_bytes_per_account` still bounds legacy database copies of sent
-/// attachments until outgoing bodies move to the media store. No automatic
+/// Sent bodies are kept there too, under the same free-disk gate.
+/// `retained_bytes_per_account` only bounds the promotion of legacy database
+/// copies of sent attachments staged by earlier releases. No automatic
 /// eviction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AttachmentAcquisitionPolicy {
@@ -893,8 +894,8 @@ impl RelayTelemetryExportConfig {
     /// only for loopback collectors used in local testing, so the privacy
     /// contract's TLS requirement holds for anything that leaves the device.
     ///
-    /// This is the single gate condition shared by `telemetry_exporter` and
-    /// relay-identity resolution.
+    /// This is the single gate condition shared by the exporter constructor
+    /// (`RelayTelemetryExporter::new`) and relay-identity resolution.
     pub(crate) fn export_allowed(&self) -> bool {
         self.enabled
             && self
@@ -909,6 +910,12 @@ impl RelayTelemetryExportConfig {
                 .resource
                 .as_ref()
                 .is_some_and(RelayTelemetryResource::has_required_attributes)
+    }
+}
+
+impl crate::relay_plane::RelayExportGate for RelayTelemetryExportConfig {
+    fn export_allowed(&self) -> bool {
+        RelayTelemetryExportConfig::export_allowed(self)
     }
 }
 
@@ -1032,6 +1039,31 @@ mod tests {
                 os_version: "17.5".to_owned(),
                 device_model_identifier: None,
             }),
+        }
+    }
+
+    #[test]
+    fn relay_export_gate_is_the_export_allowed_check() {
+        use crate::relay_plane::RelayExportGate;
+        let configs = [
+            RelayTelemetryExportConfig::disabled(),
+            RelayTelemetryExportConfig {
+                enabled: true,
+                ..Default::default()
+            },
+            RelayTelemetryExportConfig::enabled("https://otlp.example/v1/metrics")
+                .with_runtime_config(runtime_config()),
+        ];
+        let gates = configs
+            .iter()
+            .map(RelayExportGate::export_allowed)
+            .collect::<Vec<_>>();
+        assert_eq!(gates, [false, false, true]);
+        for config in &configs {
+            assert_eq!(
+                RelayExportGate::export_allowed(config),
+                config.export_allowed()
+            );
         }
     }
 

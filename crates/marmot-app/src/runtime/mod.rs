@@ -923,7 +923,9 @@ impl RuntimeSharedServices {
             let Some(executor) = self.diagnostics_executor() else {
                 return;
             };
-            if let Some(exporter) = self.relay_plane.telemetry_exporter(config, permit) {
+            if let Some(exporter) =
+                crate::RelayTelemetryExporter::new(&self.relay_plane, config, permit)
+            {
                 let shutdown = self.lifecycle.subscribe_shutdown();
                 let app_performance_telemetry = self.app_performance_telemetry.clone();
                 let handle = executor
@@ -1520,7 +1522,7 @@ pub enum AccountSetupReadiness {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-struct GeneratedAccountSetupContext {
+pub(crate) struct GeneratedAccountSetupContext {
     default_relays: Vec<String>,
     bootstrap_relays: Vec<String>,
     // Absent from contexts persisted before separate inbox relays existed.
@@ -1590,6 +1592,16 @@ impl GeneratedAccountSetupContext {
             publish_missing_relay_lists: self.publish_missing_relay_lists,
             publish_initial_key_package: self.publish_initial_key_package,
         }
+    }
+
+    /// The NIP-65 relays this setup's bootstrap declares, which its prepared
+    /// initial KeyPackage also targets.
+    pub(crate) fn outbox_relays(&self) -> Vec<TransportEndpoint> {
+        self.default_relays
+            .iter()
+            .cloned()
+            .map(TransportEndpoint)
+            .collect()
     }
 }
 

@@ -32,13 +32,15 @@ check-default:
 check-otlp:
     RUSTFLAGS='-D warnings' cargo check --workspace --all-targets --features {{diagnostics-features}}
 
-clippy: clippy-default clippy-otlp
+# The same two lint passes as GitHub CI's rust-clippy job. `--all-features`
+# covers the OTLP and analytics exporters and the feature-gated test targets.
+clippy: clippy-default clippy-all-features
 
 clippy-default:
-    cargo clippy --workspace --all-targets -- -D warnings
+    cargo clippy --workspace --all-targets --locked -- -D warnings
 
-clippy-otlp:
-    cargo clippy --workspace --all-targets --features {{diagnostics-features}} -- -D warnings
+clippy-all-features:
+    cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
 # Compile the browser-capable library boundary. The target and a WASM-capable
 # C compiler must already be installed; override CC_wasm32_unknown_unknown
@@ -86,7 +88,7 @@ bench-group-image-create:
 # and explicit VACUUM, then prints one stable `MDK_BENCH ...` line. Override
 # the default 512 rows with `MDK_STORAGE_OPS_ROWS=<count>`.
 bench-storage-upgrade:
-    cargo test --release -p storage-sqlite migrations::tests::storage_format_upgrade_benchmark -- --ignored --exact --nocapture --test-threads=1
+    cargo test --release -p storage-sqlite base::migrations::tests::storage_format_upgrade_benchmark -- --ignored --exact --nocapture --test-threads=1
 
 # Media file store benchmark (mdk#2314 step 0). Times the encrypted media
 # file format against today's SQLCipher retained
@@ -676,8 +678,10 @@ apple-privacy-gate:
 release-profile-gate:
     python3 crates/marmot-uniffi/test-release-profile.py
 
-# Fast local pre-push gate: mechanical/static checks plus the release pin proof.
+# Workspace-wide static gate: formatting, the script gates, CI's two clippy
+# passes, and the release pin proof. Run it once for shared build-input or
+# workflow changes; ordinary pushes use the scoped checks in AGENTS.md.
 # GitHub CI invokes the static gates directly and runs the full test matrix.
-fast-ci: fmt-check naming-gate c-parity-gate binding-docs-gate binding-build-gate convergence-ledger-gate campaign-toolchain-gate app-stack-campaign-contract audit-otlp-receiver-contract agent-install-docs-gate install-example-sha256-gate cargo-audit-policy-gate ci-path-classifier-gate apple-privacy-gate release-profile-gate check clippy test-convergence-policy-pin
+fast-ci: fmt-check naming-gate c-parity-gate binding-docs-gate binding-build-gate convergence-ledger-gate campaign-toolchain-gate app-stack-campaign-contract audit-otlp-receiver-contract agent-install-docs-gate install-example-sha256-gate cargo-audit-policy-gate ci-path-classifier-gate apple-privacy-gate release-profile-gate clippy test-convergence-policy-pin
 
-ci: fmt-check naming-gate c-parity-gate binding-docs-gate binding-build-gate convergence-ledger-gate campaign-toolchain-gate app-stack-campaign-contract audit-otlp-receiver-contract agent-install-docs-gate install-example-sha256-gate cargo-audit-policy-gate ci-path-classifier-gate apple-privacy-gate release-profile-gate check clippy test-convergence-policy-pin test
+ci: fmt-check naming-gate c-parity-gate binding-docs-gate binding-build-gate convergence-ledger-gate campaign-toolchain-gate app-stack-campaign-contract audit-otlp-receiver-contract agent-install-docs-gate install-example-sha256-gate cargo-audit-policy-gate ci-path-classifier-gate apple-privacy-gate release-profile-gate clippy test-convergence-policy-pin test

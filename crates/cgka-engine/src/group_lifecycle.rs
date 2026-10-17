@@ -1685,8 +1685,7 @@ impl<S: StorageProvider> Engine<S> {
                 let mut lifecycle = maintenance
                     .key_package_lifecycle()?
                     .unwrap_or_else(|| KeyPackageLifecycleState::slot_only(String::new()));
-                lifecycle.last_consumed_key_package_ref = Some(consumed_key_package_ref.clone());
-                lifecycle.last_consumed_at = Some(joined_at);
+                lifecycle.record_consumed_key_package(&consumed_key_package_ref, joined_at);
                 maintenance.put_key_package_lifecycle(&lifecycle)?;
             }
 

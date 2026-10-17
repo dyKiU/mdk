@@ -90,6 +90,7 @@ async fn rejected_pairing_subscription_cannot_export_a_mailbox() {
     let result = tokio::time::timeout(
         Duration::from_secs(3),
         plane.pairing_mailbox(
+                EVENT_KIND,
             vec![endpoint],
             Keys::generate().public_key(),
             Instant::now() + Duration::from_secs(30),
@@ -131,6 +132,7 @@ async fn healthy_pairing_ack_survives_another_accepted_route_without_ok() {
     let receiver = Channel::new(Keys::generate(), &bootstrap, now, deadline).unwrap();
     let mut sender_box = plane
         .pairing_mailbox(
+                EVENT_KIND,
             vec![TransportEndpoint(healthy.clone()), silent],
             sender.public_key(),
             deadline,
@@ -139,6 +141,7 @@ async fn healthy_pairing_ack_survives_another_accepted_route_without_ok() {
         .unwrap();
     let mut receiver_box = other_plane
         .pairing_mailbox(
+                EVENT_KIND,
             vec![TransportEndpoint(healthy.clone())],
             receiver.public_key(),
             deadline,

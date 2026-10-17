@@ -33,6 +33,10 @@ pub(super) struct Admission {
     permit: Option<OwnedSemaphorePermit>,
     /// The media sweep running on the blocking pool, if any.
     media_sweep: Option<tokio::task::JoinHandle<()>>,
+    /// The outgoing upload promotion pass running on the blocking pool, if
+    /// any, and where the next one resumes.
+    upload_promotion: Option<tokio::task::JoinHandle<()>>,
+    upload_cursor: Arc<std::sync::Mutex<Option<storage_sqlite::AttachmentUploadOwner>>>,
 }
 
 /// Starts a media sweep on the blocking pool unless one is still running:
@@ -59,6 +63,51 @@ fn spawn_media_sweep(admission: &mut Admission, media: AccountMediaStore, until_
         }
     }));
 }
+/// Starts one page of outgoing upload promotion on the blocking pool unless
+/// one is still running. Each run resumes after the last, so uploads that
+/// cannot promote yet never starve the rest; a promotion wakes attachment
+/// observers.
+fn spawn_upload_promotion(
+    admission: &mut Admission,
+    storage: SqliteAccountStorage,
+    media: AccountMediaStore,
+    updates: tokio::sync::watch::Sender<()>,
+) {
+    if admission
+        .upload_promotion
+        .as_ref()
+        .is_some_and(|task| !task.is_finished())
+    {
+        return;
+    }
+    let cursor = admission.upload_cursor.clone();
+    admission.upload_promotion = Some(tokio::task::spawn_blocking(move || {
+        let after = cursor
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        match crate::media::outgoing::promote_uploads(
+            &storage,
+            &media,
+            after.as_ref(),
+            crate::media::outgoing::UPLOAD_PROMOTION_BATCH,
+        ) {
+            Ok((next, promoted)) => {
+                *cursor
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = next;
+                if promoted {
+                    updates.send_modify(|_| {});
+                }
+            }
+            Err(_) => {
+                tracing::warn!(target: "marmot_app::runtime", method = "outgoing_upload_promotion",
+                    "outgoing upload promotion deferred");
+            }
+        }
+    }));
+}
+
 impl Admission {
     pub(super) fn is_waiting(&self) -> bool {
         self.waiting.is_some()
@@ -117,10 +166,55 @@ fn admit_demands(
     Ok(more)
 }
 
-fn capacity(policy: &storage_sqlite::AttachmentDownloadPolicy, max: u64, free: u64) -> bool {
-    max > 0
-        && max <= crate::media::MAX_ENCRYPTED_MEDIA_BLOB_BYTES
-        && free >= policy.disk_reserve.saturating_add(max.saturating_mul(4))
+/// Admits a download of up to `max` body bytes under the app's
+/// [`media_store::DiskPolicy`]: the reserve plus what
+/// [`DiskPolicy::download_need`](media_store::DiskPolicy::download_need) says
+/// the download still writes. A job with a checkpoint (`recorded` bytes) is
+/// credited one more append ([`media_store::CHECKPOINT_APPEND_MAX`]): a crash
+/// between an append and its record can leave that much on disk unrecorded,
+/// and free space already excludes it. The attempt cuts any such tail off
+/// before its own checks, which use the exact length; worker admission and
+/// readmission both decide through this function.
+fn capacity(
+    policy: &storage_sqlite::AttachmentDownloadPolicy,
+    max: u64,
+    recorded: Option<u64>,
+    free: u64,
+) -> bool {
+    let disk = media_store::DiskPolicy {
+        reserve_bytes: policy.disk_reserve,
+    };
+    let on_disk = recorded.map_or(0, |recorded| {
+        recorded.saturating_add(media_store::CHECKPOINT_APPEND_MAX as u64)
+    });
+    let needed = media_store::DiskPolicy::download_need(max, on_disk);
+    admissible_limit(max) && disk.admit(free, needed) == media_store::Admission::Admitted
+}
+
+fn admissible_limit(max: u64) -> bool {
+    max > 0 && max <= crate::media::MAX_ENCRYPTED_MEDIA_BLOB_BYTES
+}
+
+/// [`capacity`] for every parked job at once, as the one checkpoint
+/// threshold readmission filters by before it limits its page: the inverse
+/// of the same need rule, with the same unrecorded-append credit. The two
+/// must agree for every recorded length (see the unit test).
+fn readmit_admission(
+    policy: &storage_sqlite::AttachmentDownloadPolicy,
+    free: u64,
+) -> storage_sqlite::ReadmitAdmission {
+    let max = policy.transfer_limit;
+    let needed = free
+        .checked_sub(policy.disk_reserve)
+        .filter(|_| admissible_limit(max))
+        .and_then(|available| media_store::DiskPolicy::checkpoint_needed(max, available));
+    match needed {
+        Some(needed) => storage_sqlite::ReadmitAdmission {
+            checkpointed_at_least: needed.saturating_sub(media_store::CHECKPOINT_APPEND_MAX as u64),
+            uncheckpointed: needed == 0,
+        },
+        None => storage_sqlite::ReadmitAdmission::NONE,
+    }
 }
 
 async fn cancelled(
@@ -235,6 +329,8 @@ pub(super) fn schedule(
     let host_managed = client.app.config.attachment_acquisition_mode
         == crate::AttachmentAcquisitionMode::HostManaged;
     let identity = storage.attachment_store_identity()?;
+    // Legacy uploads (bodies in SQLCipher) keep their own recovery until
+    // they expire; file-backed ones promote through the media store.
     if storage
         .recover_attachment_uploads(now, 32, policy.retained_bytes)
         .is_err()
@@ -242,6 +338,14 @@ pub(super) fn schedule(
         tracing::warn!(target: "marmot_app::runtime", method = "outgoing_retention_recovery",
             "optional outgoing retention recovery deferred");
     }
+    spawn_upload_promotion(
+        admission,
+        storage.clone(),
+        client
+            .app
+            .account_media_store(&client.state.label, &storage)?,
+        shared.attachment_updates.clone(),
+    );
     let resumed = if policy.automatic {
         storage.resume_permitted_attachments(
             now,
@@ -283,8 +387,8 @@ pub(super) fn schedule(
             now,
             policy.disk_reserve,
             free,
-            policy.transfer_limit,
             policy.automatic,
+            readmit_admission(&policy, free),
         )?,
         None => 0,
     };
@@ -397,7 +501,8 @@ pub(super) fn schedule(
         // automatic-sized object even for explicit work, then enforce actual
         // checkpoint/publication capacity as the transfer grows.
         let reservation = policy.transfer_limit;
-        if !capacity(&policy, reservation, free) {
+        let recorded = storage.attachment_checkpoint_recorded(&candidate)?;
+        if !capacity(&policy, reservation, recorded, free) {
             storage.finish_attachment_preparation(&candidate, now, Some(now.saturating_add(15)))?;
             continue;
         }
@@ -464,8 +569,7 @@ pub(super) fn schedule(
             storage: storage.clone(),
             job: job.clone(),
             ciphertext_digest,
-            // Checkpoints have no retained-byte budget; free disk gates them.
-            budget: u64::MAX,
+            media: media.clone(),
             directory: client.app.account_dir(&client.state.label),
             policy: policy.clone(),
             automatic: !explicit,
@@ -584,8 +688,8 @@ pub(super) fn complete_acquired(
 }
 
 /// Headroom a job records when the disk filled while publishing a
-/// `plaintext`-byte body. The target is the publication reserve a retried
-/// attempt needs in the worker's frame (`multiple` bodies), but never less
+/// `plaintext`-byte body. The target is the `required` space a retried
+/// attempt needs beyond the reserve in the worker's frame, but never less
 /// than the free space measured at the refusal plus one more body:
 /// readmission then waits until the volume has actually gained room, rather
 /// than refetching onto the same full disk whenever free space looked
@@ -595,10 +699,9 @@ fn full_disk_headroom(
     directory: &std::path::Path,
     policy: &storage_sqlite::AttachmentDownloadPolicy,
     plaintext: u64,
-    multiple: u64,
+    required: u64,
     held: u64,
 ) -> u64 {
-    let required = plaintext.saturating_mul(multiple);
     match crate::media::attachment_resume::available_space(directory) {
         Ok(free) => required.max(
             free.saturating_add(held)
@@ -648,23 +751,32 @@ pub(super) fn complete_acquired_stored(
     let digest = job.plaintext_digest()?;
     let clock = crate::unix_now_seconds;
     let target = storage.attachment_publication(job, &clock);
-    // A retried file attempt stages the body again before publishing it, so it
-    // needs five bodies; the in-memory sink holds no staging on disk. The
-    // decrypted file stays held until the headroom is measured below.
-    let (published, len, multiple, held, _staged) = match body {
-        crate::client::AcquiredMediaBody::File(file) => {
-            let mut reader = file.reader()?;
-            let published = media.publish(
-                &target,
-                Category::Retained,
-                &mut reader,
-                file.len,
-                digest,
-                now,
-                cancelled,
-            );
-            let len = file.len;
-            (published, len, 5, len, Some(file))
+    // A retried attempt of either sink needs its store file and whatever of
+    // its ciphertext is not checkpointed: the checkpoint stays on disk, a
+    // file body's staging does not. That staging is held until the headroom
+    // is measured below.
+    let saved = storage
+        .attachment_checkpoint_recorded(&job.reference)
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+    let (published, len, held, staged) = match body {
+        crate::client::AcquiredMediaBody::File(mut file) => {
+            let len = file.plaintext_len;
+            let published = match file.plaintext_reader() {
+                Ok(mut reader) => media.publish(
+                    &target,
+                    Category::Retained,
+                    &mut reader,
+                    len,
+                    digest,
+                    now,
+                    cancelled,
+                ),
+                Err(_) => Err(MediaError::Io(std::io::ErrorKind::InvalidData)),
+            };
+            let held = file.ciphertext.staged_bytes();
+            (published, len, held, Some(file))
         }
         crate::client::AcquiredMediaBody::Memory(result) => {
             let plaintext = zeroize::Zeroizing::new(result.plaintext);
@@ -678,7 +790,7 @@ pub(super) fn complete_acquired_stored(
                 now,
                 cancelled,
             );
-            (published, len, 4, 0, None)
+            (published, len, 0, None)
         }
         crate::client::AcquiredMediaBody::Retained => return Ok(()),
     };
@@ -690,7 +802,8 @@ pub(super) fn complete_acquired_stored(
         }
         // The disk (or database) is full: park, never retry on a timer.
         Err(MediaError::Capacity) => {
-            let headroom = full_disk_headroom(directory, &policy, len, multiple, held);
+            let required = media_store::DiskPolicy::download_need(len, saved);
+            let headroom = full_disk_headroom(directory, &policy, len, required, held);
             storage.block_attachment_storage(job, headroom, now)?;
         }
         // Shutting down: the durable lease lets the next worker resume it.
@@ -698,6 +811,11 @@ pub(super) fn complete_acquired_stored(
         Err(_) => {
             storage.fail_attachment_acquisition(job, Some(retry_at(storage, job, now)))?;
         }
+    }
+    // Only now, with the job's outcome recorded: a published job's wire file
+    // goes (its row went with the publication), staging is deleted.
+    if let Some(file) = staged {
+        file.ciphertext.finish();
     }
     Ok(())
 }

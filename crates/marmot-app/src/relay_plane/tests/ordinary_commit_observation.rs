@@ -1,5 +1,7 @@
 //! Read-only, one-publication fixture observation before actual relay delivery.
 use super::*;
+use cgka_traits::{MemberId, MessageId, TransportPublishRequest};
+use std::sync::Arc;
 use cgka_traits::storage::{MessageStorage, OutboundFanoutStorage};
 use cgka_traits::{FanoutPendingKind, GroupId, message::StoredMessagePayload};
 use openmls::prelude::{ContentType, MlsMessageBodyIn, MlsMessageIn, ProtocolMessage};
@@ -24,7 +26,7 @@ pub(super) struct Watch {
 }
 
 pub(crate) struct Observation {
-    plane: Weak<MarmotRelayPlaneInner>,
+    _registration: transport_nostr::PublicationObservationGuard,
     watch: Arc<Watch>,
 }
 impl Observation {
@@ -41,25 +43,8 @@ impl Observation {
         (result, stages)
     }
 }
-impl Drop for Observation {
-    fn drop(&mut self) {
-        if let Some(plane) = self.plane.upgrade() {
-            let mut slot = plane
-                .ordinary_commit_observation
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            if slot
-                .as_ref()
-                .is_some_and(|watch| Arc::ptr_eq(watch, &self.watch))
-            {
-                slot.take();
-            }
-        }
-    }
-}
-impl MarmotRelayPlane {
-    pub(crate) fn observe_next_ordinary_commit(
-        &self,
+pub(crate) fn observe_next_ordinary_commit(
+        plane: &MarmotRelayPlane,
         account: MemberId,
         group: GroupId,
         source_epoch: u64,
@@ -75,38 +60,22 @@ impl MarmotRelayPlane {
             result: std::sync::Mutex::new(Ok(None)),
             stages: std::sync::Mutex::new([0; 8]),
         });
-        let mut slot = self
-            .inner
-            .ordinary_commit_observation
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        assert!(
-            slot.is_none(),
-            "only one exact ordinary publication observation may be armed"
-        );
-        *slot = Some(watch.clone());
+        let callback_watch = watch.clone();
+        let registration = plane.observe_publications_for_test(Arc::new(move |request| {
+            observe(&callback_watch, request)
+        }));
         Observation {
-            plane: Arc::downgrade(&self.inner),
+            _registration: registration,
             watch,
         }
-    }
 }
 
-pub(super) fn observe(adapter: &MarmotRelayPlaneAccountAdapter, request: &TransportPublishRequest) {
-    let watch = adapter
-        .relay_plane
-        .inner
-        .ordinary_commit_observation
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-        .cloned();
-    let Some(watch) = watch else { return };
+fn observe(watch: &Arc<Watch>, request: &TransportPublishRequest) -> bool {
     if watch.account != request.account_id
         || !matches!(&request.target,
         cgka_traits::TransportPublishTarget::Group { group_id, .. } if *group_id == watch.group)
     {
-        return;
+        return false;
     }
     // account/group visits, no fanout, kind mismatch, missing pending owner,
     // wrong frozen request, no MLS wire, not Commit, wrong source epoch.
@@ -173,22 +142,8 @@ pub(super) fn observe(adapter: &MarmotRelayPlaneAccountAdapter, request: &Transp
         Ok(Some(MessageId::new(Sha256::digest(&wire.payload).to_vec())))
     })();
     if matches!(content, Ok(None)) {
-        return;
+        return false;
     }
-    let mut slot = adapter
-        .relay_plane
-        .inner
-        .ordinary_commit_observation
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    if !slot
-        .as_ref()
-        .is_some_and(|current| Arc::ptr_eq(current, &watch))
-    {
-        return;
-    }
-    slot.take();
-    drop(slot);
     eprintln!(
         "account_departure_nonordered_b_commit_before_publish_observed={}",
         content.is_ok()
@@ -203,4 +158,5 @@ pub(super) fn observe(adapter: &MarmotRelayPlaneAccountAdapter, request: &Transp
         })
     });
     *watch.result.lock().unwrap_or_else(|e| e.into_inner()) = result;
+    true
 }

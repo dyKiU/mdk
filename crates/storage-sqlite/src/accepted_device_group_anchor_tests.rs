@@ -173,7 +173,7 @@ fn accepted_device_group_anchor_group_deletion_permanently_denies_retained_fact(
     let storage = SqliteAccountStorage::in_memory().unwrap();
     let original = draft(1, 10);
     storage
-        .put_group(&crate::storage::test_support::sample_group(
+        .put_group(&crate::base::test_support::sample_group(
             original.group_id.clone(),
             2,
             2,

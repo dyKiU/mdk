@@ -1,0 +1,1817 @@
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::Duration;
+
+use async_trait::async_trait;
+use cgka_traits::TransportEndpoint;
+use futures::StreamExt;
+use nostr_sdk::NotificationUpdate;
+use nostr_sdk::prelude::{
+    AcquisitionEnd, AcquisitionLimits, Client as NostrSdkClient, Event, Filter, Kind, PublicKey,
+    RelayMessage, RelayNotification, RelayStatus, RelayUrl, ReqTarget, SingleLetterTag,
+    SubscribeAutoCloseOptions, SubscriptionId, Timestamp,
+};
+use serde::{Deserialize, Serialize};
+use tokio::sync::{Mutex, oneshot};
+use tokio::task::JoinSet;
+use tokio::time::timeout;
+use transport_nostr_peeler::{NostrTransportEvent, SdkSigner};
+
+use super::DIRECTORY_RELAY_CONNECT_WAIT;
+
+const DIRECTORY_RELAY_FETCH_WAIT: Duration = Duration::from_secs(3);
+
+/// Stable errors for a bounded, isolated relay inspection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DirectoryInspectionError {
+    Unreachable,
+    TimedOut,
+    AuthenticationRequired,
+    PaymentRequired,
+    Restricted,
+    InvalidRequest,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DirectoryRelayConnectOutcome {
+    Connected,
+    TimedOut,
+    Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DirectoryEventQuery {
+    pub kind: u64,
+    pub authors: Vec<String>,
+    pub limit: usize,
+    pub reference: Option<(char, String)>,
+    pub(crate) since: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DirectoryRelayEventRecord {
+    pub endpoints: Vec<TransportEndpoint>,
+    pub event: NostrTransportEvent,
+}
+
+/// The directory subscriptions the plane keeps live: the relays to read and
+/// one batch per REQ. The app decides the batching policy and builds it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DirectorySyncPlan {
+    pub endpoints: Vec<TransportEndpoint>,
+    pub watched_user_count: usize,
+    pub batches: Vec<DirectorySyncBatch>,
+}
+
+/// One directory REQ: its subscription id, authors, kinds and floor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirectorySyncBatch {
+    pub subscription_id: String,
+    pub authors: Vec<String>,
+    pub kinds: Vec<u64>,
+    pub since: Option<u64>,
+}
+
+/// The `(authors, kinds)` an active directory subscription was issued with.
+///
+/// A live SDK relay event is only forwarded into the directory cache when its
+/// `subscription_id` is still active and its author/kind match the filter that
+/// subscription was created with. This prevents a malicious or buggy relay from
+/// injecting unsolicited directory-shaped events (e.g. arbitrary kind-3 contact
+/// lists) into the persistent directory search graph (mdk#709). Authors
+/// and kinds are kept as the canonical hex / `u64` already present in the
+/// [`DirectorySyncBatch`], so matching is a plain membership check.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DirectorySubscriptionFilter {
+    authors: HashSet<String>,
+    kinds: HashSet<u64>,
+}
+
+impl DirectorySubscriptionFilter {
+    pub fn new(authors: Vec<String>, kinds: Vec<u64>) -> Self {
+        Self {
+            authors: authors.into_iter().collect(),
+            kinds: kinds.into_iter().collect(),
+        }
+    }
+
+    fn accepts(&self, author: &str, kind: u64) -> bool {
+        self.authors.contains(author) && self.kinds.contains(&kind)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirectoryFetchRequest {
+    pub endpoints: Vec<TransportEndpoint>,
+    pub queries: Vec<DirectoryEventQuery>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct DirectoryFetchKey {
+    endpoints: Vec<TransportEndpoint>,
+    queries: Vec<DirectoryEventQuery>,
+}
+
+#[derive(Clone)]
+pub struct DirectoryRelayPlane {
+    fetcher: Arc<dyn DirectoryRelayFetcher>,
+    state: Arc<Mutex<DirectoryRelayPlaneState>>,
+}
+
+#[derive(Default)]
+struct DirectoryRelayPlaneState {
+    inflight: HashMap<DirectoryFetchKey, Vec<oneshot::Sender<DirectoryFetchResult>>>,
+    inflight_completion:
+        HashMap<DirectoryFetchKey, Vec<oneshot::Sender<DirectoryCompletionResult>>>,
+    active_subscriptions: HashMap<String, DirectorySubscriptionFilter>,
+    active_endpoints: HashSet<String>,
+    auth_required: HashSet<(String, String)>,
+    pending_rebuild: HashSet<String>,
+    completed_fetches: usize,
+    coalesced_waiters: usize,
+    failed_fetches: usize,
+    completed_subscription_syncs: usize,
+    subscriptions_created: usize,
+    subscriptions_removed: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DirectoryRelayStats {
+    pub(crate) inflight_fetches: usize,
+    pub(crate) active_subscriptions: usize,
+    pub(crate) auth_required_routes: usize,
+    pub(crate) completed_fetches: usize,
+    pub(crate) coalesced_waiters: usize,
+    pub(crate) failed_fetches: usize,
+    pub(crate) completed_subscription_syncs: usize,
+    pub(crate) subscriptions_created: usize,
+    pub(crate) subscriptions_removed: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DirectorySubscriptionSyncSummary {
+    pub active_subscriptions: usize,
+    pub subscriptions_created: usize,
+    pub subscriptions_removed: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DirectoryFetchOutcome {
+    pub records: Vec<DirectoryRelayEventRecord>,
+    pub complete: bool,
+}
+
+type DirectoryFetchResult = Result<Vec<DirectoryRelayEventRecord>, String>;
+type DirectoryCompletionResult = Result<DirectoryFetchOutcome, String>;
+
+#[async_trait]
+pub trait DirectoryRelayFetcher: Send + Sync {
+    async fn fetch_directory_events(
+        &self,
+        request: DirectoryFetchRequest,
+    ) -> Result<Vec<DirectoryRelayEventRecord>, String>;
+
+    async fn fetch_directory_events_with_completion(
+        &self,
+        request: DirectoryFetchRequest,
+    ) -> Result<DirectoryFetchOutcome, String> {
+        self.fetch_directory_events(request)
+            .await
+            .map(|records| DirectoryFetchOutcome {
+                records,
+                complete: false,
+            })
+    }
+
+    /// A single-relay read that must reach EOSE. Pool fetches may silently
+    /// aggregate partial results and cannot establish absence for onboarding.
+    async fn inspect_directory_events(
+        &self,
+        _request: DirectoryFetchRequest,
+        _signer: Option<Arc<dyn transport_nostr_peeler::MarmotNostrSigner>>,
+    ) -> Result<Vec<DirectoryRelayEventRecord>, DirectoryInspectionError> {
+        Err(DirectoryInspectionError::Unreachable)
+    }
+}
+
+#[derive(Clone)]
+pub struct NostrSdkDirectoryRelayFetcher {
+    client: NostrSdkClient,
+}
+
+struct ScopedInspectionClient(NostrSdkClient);
+impl Drop for ScopedInspectionClient {
+    fn drop(&mut self) {
+        let client = self.0.clone();
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                let _ = client.shutdown().await;
+            });
+        }
+    }
+}
+
+impl DirectoryEventQuery {
+    pub fn new(kind: u64, mut authors: Vec<String>, limit: usize) -> Self {
+        authors.sort();
+        authors.dedup();
+        Self {
+            kind,
+            authors,
+            limit,
+            reference: None,
+            since: None,
+        }
+    }
+
+    pub fn deletion_reference(
+        account: &str,
+        name: char,
+        value: String,
+        since: Option<u64>,
+    ) -> Self {
+        let mut query = Self::new(5, vec![account.to_owned()], 1);
+        query.reference = Some((name, value));
+        query.since = since;
+        query
+    }
+
+    fn validate_reference(&self) -> Result<(), String> {
+        let Some((name, value)) = &self.reference else {
+            return if self.since.is_none() {
+                Ok(())
+            } else {
+                Err("invalid directory since constraint".into())
+            };
+        };
+        if self.kind != 5 || self.authors.len() != 1 {
+            return Err("invalid deletion query scope".into());
+        }
+        let author = PublicKey::parse(&self.authors[0])
+            .map_err(|_| "invalid query author")?
+            .to_hex();
+        match name {
+            'e' if self.since.is_none()
+                && value.len() == 64
+                && value
+                    .bytes()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()) =>
+            {
+                Ok(())
+            }
+            'a' if self.since.is_some() => {
+                let mut parts = value.splitn(3, ':');
+                if parts.next() == Some("30443")
+                    && parts.next() == Some(author.as_str())
+                    && parts.next().is_some_and(|slot| !slot.is_empty())
+                {
+                    Ok(())
+                } else {
+                    Err("invalid deletion coordinate".into())
+                }
+            }
+            _ => Err("invalid deletion reference".into()),
+        }
+    }
+
+    pub fn matches(&self, event: &NostrTransportEvent) -> bool {
+        self.kind == event.kind
+            && self.authors.contains(&event.pubkey)
+            && self.since.is_none_or(|since| event.created_at >= since)
+            && self.reference.as_ref().is_none_or(|(name, value)| {
+                event
+                    .tag_values(&name.to_string())
+                    .contains(&value.as_str())
+            })
+    }
+}
+
+impl DirectoryFetchRequest {
+    pub fn new(
+        mut endpoints: Vec<TransportEndpoint>,
+        mut queries: Vec<DirectoryEventQuery>,
+    ) -> Result<Self, String> {
+        endpoints.sort();
+        endpoints.dedup();
+        queries.sort();
+        queries.dedup();
+        if endpoints.is_empty() {
+            return Err("directory fetch: no relay endpoints".to_owned());
+        }
+        if queries.is_empty() {
+            return Err("directory fetch: no queries".to_owned());
+        }
+        for query in &queries {
+            query.validate_reference()?;
+            if query.authors.is_empty() {
+                return Err("directory fetch: no query authors".to_owned());
+            }
+            if query.limit == 0 {
+                return Err("directory fetch: query limit must be greater than zero".to_owned());
+            }
+        }
+        Ok(Self { endpoints, queries })
+    }
+
+    fn key(&self) -> DirectoryFetchKey {
+        DirectoryFetchKey {
+            endpoints: self.endpoints.clone(),
+            queries: self.queries.clone(),
+        }
+    }
+}
+
+impl DirectoryRelayPlane {
+    pub(crate) async fn inspect_events(
+        &self,
+        request: DirectoryFetchRequest,
+        signer: Option<Arc<dyn transport_nostr_peeler::MarmotNostrSigner>>,
+    ) -> Result<Vec<DirectoryRelayEventRecord>, DirectoryInspectionError> {
+        self.fetcher.inspect_directory_events(request, signer).await
+    }
+    pub fn new(fetcher: Arc<dyn DirectoryRelayFetcher>) -> Self {
+        Self {
+            fetcher,
+            state: Arc::new(Mutex::new(DirectoryRelayPlaneState::default())),
+        }
+    }
+
+    pub(crate) async fn fetch_events(
+        &self,
+        request: DirectoryFetchRequest,
+    ) -> Result<Vec<DirectoryRelayEventRecord>, String> {
+        let key = request.key();
+        let (rx, should_spawn) = {
+            let (tx, rx) = oneshot::channel();
+            let mut state = self.state.lock().await;
+            if let Some(waiters) = state.inflight.get_mut(&key) {
+                waiters.push(tx);
+                state.coalesced_waiters += 1;
+                (rx, false)
+            } else {
+                state.inflight.insert(key.clone(), vec![tx]);
+                (rx, true)
+            }
+        };
+
+        if should_spawn {
+            let fetcher = self.fetcher.clone();
+            let state = self.state.clone();
+            tokio::spawn(async move {
+                // Keep ownership of the inflight entry in this supervisor.
+                // The child JoinHandle converts a fetcher panic into an error,
+                // so cleanup and waiter notification still run.
+                let result = match tokio::spawn(async move {
+                    fetcher.fetch_directory_events(request).await
+                })
+                .await
+                {
+                    Ok(result) => result,
+                    Err(_) => Err("directory fetch task failed".to_owned()),
+                };
+                let mut state = state.lock().await;
+                if result.is_ok() {
+                    state.completed_fetches += 1;
+                } else {
+                    state.failed_fetches += 1;
+                }
+                if let Some(waiters) = state.inflight.remove(&key) {
+                    for waiter in waiters {
+                        let _ = waiter.send(result.clone());
+                    }
+                }
+            });
+        }
+
+        rx.await
+            .map_err(|_| "directory fetch owner dropped before completing".to_owned())?
+    }
+
+    pub(crate) async fn fetch_events_with_completion(
+        &self,
+        request: DirectoryFetchRequest,
+    ) -> Result<DirectoryFetchOutcome, String> {
+        let key = request.key();
+        let (tx, rx) = oneshot::channel();
+        let should_spawn = {
+            let mut state = self.state.lock().await;
+            if let Some(waiters) = state.inflight_completion.get_mut(&key) {
+                waiters.push(tx);
+                state.coalesced_waiters += 1;
+                false
+            } else {
+                state.inflight_completion.insert(key.clone(), vec![tx]);
+                true
+            }
+        };
+        if should_spawn {
+            let fetcher = self.fetcher.clone();
+            let state = self.state.clone();
+            tokio::spawn(async move {
+                let result = match tokio::spawn(async move {
+                    fetcher
+                        .fetch_directory_events_with_completion(request)
+                        .await
+                })
+                .await
+                {
+                    Ok(result) => result,
+                    Err(_) => Err("directory fetch task failed".to_owned()),
+                };
+                let mut state = state.lock().await;
+                if matches!(&result, Ok(outcome) if outcome.complete) {
+                    state.completed_fetches += 1;
+                } else {
+                    state.failed_fetches += 1;
+                }
+                if let Some(waiters) = state.inflight_completion.remove(&key) {
+                    for waiter in waiters {
+                        let _ = waiter.send(result.clone());
+                    }
+                }
+            });
+        }
+        rx.await
+            .map_err(|_| "directory fetch owner dropped before completing".to_owned())?
+    }
+
+    pub(crate) async fn stats(&self) -> DirectoryRelayStats {
+        let state = self.state.lock().await;
+        DirectoryRelayStats {
+            inflight_fetches: state.inflight.len() + state.inflight_completion.len(),
+            active_subscriptions: state
+                .active_subscriptions
+                .keys()
+                .filter(|id| {
+                    !state.pending_rebuild.contains(*id)
+                        && state.active_endpoints.iter().any(|endpoint| {
+                            !state
+                                .auth_required
+                                .contains(&((*id).clone(), endpoint.clone()))
+                        })
+                })
+                .count(),
+            auth_required_routes: state.auth_required.len(),
+            completed_fetches: state.completed_fetches,
+            coalesced_waiters: state.coalesced_waiters,
+            failed_fetches: state.failed_fetches,
+            completed_subscription_syncs: state.completed_subscription_syncs,
+            subscriptions_created: state.subscriptions_created,
+            subscriptions_removed: state.subscriptions_removed,
+        }
+    }
+
+    pub(crate) async fn subscription_diff(
+        &self,
+        desired_ids: &HashSet<String>,
+    ) -> (HashSet<String>, HashSet<String>) {
+        let state = self.state.lock().await;
+        let active_ids = state
+            .active_subscriptions
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
+        let to_add = desired_ids
+            .difference(&active_ids)
+            .cloned()
+            .chain(desired_ids.intersection(&state.pending_rebuild).cloned())
+            .collect::<HashSet<_>>();
+        let to_remove = active_ids
+            .difference(desired_ids)
+            .cloned()
+            .collect::<HashSet<_>>();
+        (to_add, to_remove)
+    }
+
+    pub(crate) async fn set_subscription_endpoints(&self, endpoints: &[RelayUrl]) -> bool {
+        let mut state = self.state.lock().await;
+        let next = endpoints.iter().map(ToString::to_string).collect();
+        let changed = !state.active_subscriptions.is_empty() && state.active_endpoints != next;
+        state.active_endpoints = next;
+        let active_endpoints = state.active_endpoints.clone();
+        state
+            .auth_required
+            .retain(|(_, endpoint)| active_endpoints.contains(endpoint));
+        changed
+    }
+
+    pub(crate) async fn clear_auth_required(&self, subscription_id: &str) {
+        self.state
+            .lock()
+            .await
+            .auth_required
+            .retain(|(id, _)| id != subscription_id);
+    }
+
+    pub(crate) async fn mark_rebuild_pending(&self, ids: &HashSet<String>) {
+        self.state
+            .lock()
+            .await
+            .pending_rebuild
+            .extend(ids.iter().cloned());
+    }
+
+    pub(crate) async fn mark_subscription_installed(&self, subscription_id: &str) {
+        self.state
+            .lock()
+            .await
+            .pending_rebuild
+            .remove(subscription_id);
+    }
+
+    pub(crate) async fn mark_auth_required(&self, subscription_id: &str, endpoint: &str) -> bool {
+        let mut state = self.state.lock().await;
+        if !state.active_endpoints.contains(endpoint)
+            || !state.active_subscriptions.contains_key(subscription_id)
+        {
+            return false;
+        }
+        state
+            .auth_required
+            .insert((subscription_id.to_owned(), endpoint.to_owned()))
+    }
+
+    /// Record the validation filter before issuing the SDK subscription so an
+    /// immediate EVENT cannot race ahead of local admission. A failed subscribe
+    /// restores the previous filter or removes a newly created one.
+    pub(crate) async fn record_subscription_filter(
+        &self,
+        subscription_id: String,
+        filter: DirectorySubscriptionFilter,
+    ) -> Option<DirectorySubscriptionFilter> {
+        let mut state = self.state.lock().await;
+        let previous = state.active_subscriptions.insert(subscription_id, filter);
+        if previous.is_none() {
+            state.subscriptions_created += 1;
+        }
+        previous
+    }
+
+    pub(crate) async fn restore_failed_subscription_filter(
+        &self,
+        subscription_id: &str,
+        previous: Option<DirectorySubscriptionFilter>,
+    ) {
+        let mut state = self.state.lock().await;
+        if let Some(previous) = previous {
+            state
+                .active_subscriptions
+                .insert(subscription_id.to_owned(), previous);
+        } else if state.active_subscriptions.remove(subscription_id).is_some() {
+            state.subscriptions_created -= 1;
+        }
+    }
+
+    /// Complete a subscription sync whose newly created filters were already
+    /// recorded as their SDK subscriptions succeeded.
+    pub(crate) async fn complete_subscription_sync(
+        &self,
+        desired: HashMap<String, DirectorySubscriptionFilter>,
+        subscriptions_created: usize,
+    ) -> Result<DirectorySubscriptionSyncSummary, String> {
+        let mut state = self.state.lock().await;
+        let removed = state
+            .active_subscriptions
+            .keys()
+            .filter(|id| !desired.contains_key(*id))
+            .count();
+        state.completed_subscription_syncs += 1;
+        state.subscriptions_removed += removed;
+        state.active_subscriptions = desired;
+        let active_ids = state
+            .active_subscriptions
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
+        state
+            .auth_required
+            .retain(|(id, _)| active_ids.contains(id));
+        state.pending_rebuild.retain(|id| active_ids.contains(id));
+        Ok(DirectorySubscriptionSyncSummary {
+            active_subscriptions: state.active_subscriptions.len(),
+            subscriptions_created,
+            subscriptions_removed: removed,
+        })
+    }
+
+    /// Replace the active directory subscriptions with the supplied
+    /// `(subscription_id, filter)` plan, returning the lifecycle summary.
+    ///
+    /// The filters are what [`Self::accepts_live_event`] later checks live SDK
+    /// notifications against, so a subscription that is no longer in the plan
+    /// can no longer admit events into the directory cache.
+    pub(crate) async fn replace_subscriptions(
+        &self,
+        desired: HashMap<String, DirectorySubscriptionFilter>,
+    ) -> Result<DirectorySubscriptionSyncSummary, String> {
+        let mut state = self.state.lock().await;
+        let created = desired
+            .keys()
+            .filter(|id| !state.active_subscriptions.contains_key(*id))
+            .count();
+        let removed = state
+            .active_subscriptions
+            .keys()
+            .filter(|id| !desired.contains_key(*id))
+            .count();
+        state.completed_subscription_syncs += 1;
+        state.subscriptions_created += created;
+        state.subscriptions_removed += removed;
+        state.active_subscriptions = desired;
+        let active_ids = state
+            .active_subscriptions
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
+        state
+            .auth_required
+            .retain(|(id, _)| active_ids.contains(id));
+        state.pending_rebuild.retain(|id| active_ids.contains(id));
+        Ok(DirectorySubscriptionSyncSummary {
+            active_subscriptions: state.active_subscriptions.len(),
+            subscriptions_created: created,
+            subscriptions_removed: removed,
+        })
+    }
+
+    /// Decide whether a live SDK relay event may be forwarded into the
+    /// directory cache.
+    ///
+    /// Only events whose `subscription_id` is still an active directory
+    /// subscription, and whose author and kind match that subscription's
+    /// issued filter, are accepted. An unknown/stale subscription id, an author
+    /// the subscription never requested, or a kind outside its filter is
+    /// rejected so a malicious or buggy relay cannot inject unsolicited
+    /// directory-shaped events into the persistent search graph
+    /// (mdk#709).
+    #[cfg(test)]
+    pub(crate) async fn accepts_live_event(
+        &self,
+        subscription_id: &str,
+        author: &str,
+        kind: u64,
+    ) -> bool {
+        self.state
+            .lock()
+            .await
+            .active_subscriptions
+            .get(subscription_id)
+            .is_some_and(|filter| filter.accepts(author, kind))
+    }
+
+    pub(crate) async fn accepts_live_event_from(
+        &self,
+        subscription_id: &str,
+        endpoint: &str,
+        author: &str,
+        kind: u64,
+    ) -> bool {
+        let state = self.state.lock().await;
+        // Pending rebuild means coverage is unknown and a retry is still owed.
+        // A signed, filter-matching EVENT can arrive before SDK subscribe
+        // returns; retain that positive observation without claiming coverage.
+        state.active_endpoints.contains(endpoint)
+            && !state
+                .auth_required
+                .contains(&(subscription_id.to_owned(), endpoint.to_owned()))
+            && state
+                .active_subscriptions
+                .get(subscription_id)
+                .is_some_and(|filter| filter.accepts(author, kind))
+    }
+}
+
+// Public directory reads have no account signer. An optional NIP-42
+// challenge must not trigger a failed authentication attempt that
+// closes the SDK's active fetch before its events arrive.
+pub(super) fn anonymous_directory_client() -> NostrSdkClient {
+    super::nostr_builder().build()
+}
+
+impl NostrSdkDirectoryRelayFetcher {
+    pub fn new(client: NostrSdkClient) -> Self {
+        Self { client }
+    }
+
+    pub fn standalone() -> Self {
+        Self::new(anonymous_directory_client())
+    }
+}
+
+fn validated_directory_event(
+    event: &Event,
+    query: &DirectoryEventQuery,
+) -> Option<NostrTransportEvent> {
+    if event.verify().is_err() {
+        return None;
+    }
+    let event = NostrTransportEvent::from_nostr_event(event).ok()?;
+    query.matches(&event).then_some(event)
+}
+
+/// Shared wire-filter construction, including the inbox inspection probe.
+fn directory_query_filter(query: &DirectoryEventQuery, recipient: bool) -> Result<Filter, String> {
+    query.validate_reference()?;
+    let kind = u16::try_from(query.kind)
+        .map(Kind::from)
+        .map_err(|_| "unsupported Nostr kind")?;
+    let keys = query
+        .authors
+        .iter()
+        .map(|author| PublicKey::parse(author).map_err(|_| "invalid query author"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut filter = if recipient {
+        Filter::new().pubkeys(keys)
+    } else {
+        Filter::new().authors(keys)
+    }
+    .kind(kind)
+    .limit(query.limit);
+    if let Some((name, value)) = &query.reference {
+        filter = filter.custom_tag(
+            SingleLetterTag::from_char(*name).map_err(|_| "invalid reference tag")?,
+            value.clone(),
+        );
+    }
+    if let Some(since) = query.since {
+        filter = filter.since(Timestamp::from_secs(since));
+    }
+    Ok(filter)
+}
+
+impl NostrSdkDirectoryRelayFetcher {
+    /// Add and connect `relay_urls`, returning those that connected within
+    /// the connect wait. Relays that did not connect are removed again.
+    async fn connect_relays(&self, relay_urls: Vec<RelayUrl>) -> Result<Vec<RelayUrl>, String> {
+        let mut connect_candidates = Vec::new();
+        let mut added = vec![false; relay_urls.len()];
+        let mut add_failure_count = 0usize;
+        for (index, relay_url) in relay_urls.iter().cloned().enumerate() {
+            if self.client.add_relay(relay_url.clone()).await.is_ok() {
+                added[index] = true;
+                connect_candidates.push((index, relay_url));
+            } else {
+                add_failure_count += 1;
+            }
+        }
+        let mut connects = JoinSet::new();
+        for (index, relay_url) in connect_candidates {
+            let client = self.client.clone();
+            connects.spawn(async move {
+                let outcome = match timeout(
+                    DIRECTORY_RELAY_CONNECT_WAIT,
+                    client.connect_relay(relay_url),
+                )
+                .await
+                {
+                    Ok(Ok(())) => DirectoryRelayConnectOutcome::Connected,
+                    Ok(Err(_)) => DirectoryRelayConnectOutcome::Failed,
+                    Err(_) => DirectoryRelayConnectOutcome::TimedOut,
+                };
+                (index, outcome)
+            });
+        }
+        let mut connected = vec![false; relay_urls.len()];
+        let mut connect_timeout_count = 0usize;
+        let mut connect_failure_count = 0usize;
+        let mut task_failure_count = 0usize;
+        while let Some(result) = connects.join_next().await {
+            match result {
+                Ok((index, DirectoryRelayConnectOutcome::Connected)) => connected[index] = true,
+                Ok((_index, DirectoryRelayConnectOutcome::TimedOut)) => {
+                    connect_timeout_count += 1;
+                }
+                Ok((_index, DirectoryRelayConnectOutcome::Failed)) => {
+                    connect_failure_count += 1;
+                }
+                Err(_) => task_failure_count += 1,
+            }
+        }
+        // A task that panics or is cancelled never flips its index to
+        // connected, so this also removes relays from failed JoinSet tasks.
+        for (index, relay_url) in relay_urls.iter().cloned().enumerate() {
+            if added[index] && !connected[index] {
+                let _ = self.client.remove_relay(relay_url).await;
+            }
+        }
+        let relay_urls = relay_urls
+            .into_iter()
+            .zip(connected)
+            .filter_map(|(relay_url, connected)| connected.then_some(relay_url))
+            .collect::<Vec<_>>();
+        if relay_urls.is_empty() {
+            return Err(format!(
+                "connect relays failed: add_failures={add_failure_count}, connect_timeouts={connect_timeout_count}, connect_failures={connect_failure_count}, task_failures={task_failure_count}"
+            ));
+        }
+        Ok(relay_urls)
+    }
+
+    async fn fetch_request_events(
+        &self,
+        request: DirectoryFetchRequest,
+    ) -> Result<Vec<DirectoryRelayEventRecord>, String> {
+        let relay_urls = self
+            .connect_relays(parsed_directory_relay_urls(&request.endpoints)?)
+            .await?;
+
+        let mut records = Vec::new();
+        for query in request.queries {
+            let filter = directory_query_filter(&query, false)?;
+            let events = self
+                .client
+                .fetch_events(ReqTarget::manual(
+                    relay_urls
+                        .iter()
+                        .cloned()
+                        .map(|url| (url, vec![filter.clone()])),
+                ))
+                .timeout(DIRECTORY_RELAY_FETCH_WAIT)
+                .max_events(query.limit)
+                .with_outcomes()
+                .await
+                .map_err(|_| "fetch directory events failed".to_owned())?;
+            for event in events.events {
+                let Some(event) = validated_directory_event(&event, &query) else {
+                    continue;
+                };
+                records.push(DirectoryRelayEventRecord {
+                    endpoints: request.endpoints.clone(),
+                    event,
+                });
+            }
+        }
+        Ok(records)
+    }
+}
+
+/// Verified events from one public-event read, and whether every requested
+/// relay connected and reached its end of stored events.
+pub struct PublicEventFetch {
+    pub events: Vec<Event>,
+    pub complete: bool,
+}
+
+/// One bounded, anonymous read of public events matching `filters`.
+///
+/// Uses an owned client like [`DirectoryRelayFetcher::fetch_directory_events`],
+/// so hint relays never join a long-lived pool. Signatures are verified here;
+/// callers still match every event against the reference they asked for.
+pub async fn fetch_public_events(
+    endpoints: &[TransportEndpoint],
+    filters: Vec<Filter>,
+    max_events: usize,
+) -> Result<PublicEventFetch, String> {
+    let fetcher = NostrSdkDirectoryRelayFetcher::standalone();
+    let result = async {
+        let requested = parsed_directory_relay_urls(endpoints)?;
+        let requested_count = requested.len();
+        let relay_urls = fetcher.connect_relays(requested).await?;
+        let connected_count = relay_urls.len();
+        let outcome = fetcher
+            .client
+            .fetch_events(ReqTarget::manual(
+                relay_urls.into_iter().map(|url| (url, filters.clone())),
+            ))
+            .timeout(DIRECTORY_RELAY_FETCH_WAIT)
+            .max_events(max_events)
+            .with_outcomes()
+            .await
+            .map_err(|_| "fetch public events failed".to_owned())?;
+        let complete = connected_count == requested_count
+            && !outcome.truncated
+            && outcome.relays.len() == connected_count
+            && outcome
+                .relays
+                .values()
+                .all(|relay| matches!(relay, nostr_sdk::client::FetchRelayOutcome::Completed));
+        Ok(PublicEventFetch {
+            events: outcome
+                .events
+                .into_iter()
+                .filter(|event| event.verify().is_ok())
+                .collect(),
+            complete,
+        })
+    }
+    .await;
+    fetcher.client.shutdown().await;
+    result
+}
+
+#[async_trait]
+impl DirectoryRelayFetcher for NostrSdkDirectoryRelayFetcher {
+    async fn inspect_directory_events(
+        &self,
+        request: DirectoryFetchRequest,
+        signer: Option<Arc<dyn transport_nostr_peeler::MarmotNostrSigner>>,
+    ) -> Result<Vec<DirectoryRelayEventRecord>, DirectoryInspectionError> {
+        use DirectoryInspectionError::*;
+        // The signer belongs to this request only, never to a shared mutable
+        // directory client that could authenticate as another account.
+        let builder = super::nostr_builder();
+        let client = ScopedInspectionClient(match signer {
+            Some(signer) => builder
+                .authenticator(nostr_sdk::authenticator::SignerAuthenticator::new(
+                    SdkSigner(signer),
+                ))
+                .build(),
+            None => builder.build(),
+        });
+        let client = &client.0;
+        let urls = parsed_directory_relay_urls(&request.endpoints).map_err(|_| InvalidRequest)?;
+        if urls.len() != 1 {
+            return Err(InvalidRequest);
+        }
+        let url = urls[0].clone();
+        client
+            .add_relay(url.clone())
+            .await
+            .map_err(|_| Unreachable)?;
+        timeout(
+            DIRECTORY_RELAY_CONNECT_WAIT,
+            client.connect_relay(url.clone()),
+        )
+        .await
+        .map_err(|_| TimedOut)?
+        .map_err(|_| Unreachable)?;
+        client
+            .relay(url.clone())
+            .await
+            .map_err(|_| Unreachable)?
+            .ok_or(Unreachable)?;
+        let mut records = Vec::new();
+        for query in request.queries {
+            let filter =
+                directory_query_filter(&query, query.kind == 1059).map_err(|_| InvalidRequest)?;
+            // A successful empty fetch can hide a CLOSED terminal. The bounded
+            // SDK acquisition retains that typed outcome and its wire reason.
+            let report = client
+                .acquire_events(
+                    ReqTarget::single(&url, [filter]),
+                    AcquisitionLimits::new(
+                        1,
+                        query.limit.saturating_add(1).max(1),
+                        16 * 1024 * 1024,
+                        DIRECTORY_RELAY_FETCH_WAIT,
+                    ),
+                )
+                .await;
+            let report = report
+                .map_err(|_| Unreachable)?
+                .finish()
+                .await
+                .map_err(|_| Unreachable)?;
+            let result = report.relays.get(&url).ok_or(Unreachable)?;
+            match &result.end {
+                AcquisitionEnd::Completed => {}
+                AcquisitionEnd::AuthenticationFailed => return Err(AuthenticationRequired),
+                AcquisitionEnd::Rejected(reason) | AcquisitionEnd::RelayClosed(reason) => {
+                    return Err(directory_closed_reason(reason));
+                }
+                AcquisitionEnd::TimedOut => return Err(TimedOut),
+                AcquisitionEnd::ItemBudgetExceeded
+                | AcquisitionEnd::ByteBudgetExceeded
+                | AcquisitionEnd::ExitLimitReached => return Err(Restricted),
+                _ => return Err(Unreachable),
+            }
+            if query.kind == 1059 {
+                continue;
+            } // Read probe only; do not retain inbox payloads.
+            for event in &result.events {
+                if let Some(event) = validated_directory_event(event, &query) {
+                    records.push(DirectoryRelayEventRecord {
+                        endpoints: request.endpoints.clone(),
+                        event,
+                    });
+                }
+            }
+        }
+        Ok(records)
+    }
+
+    async fn fetch_directory_events(
+        &self,
+        request: DirectoryFetchRequest,
+    ) -> Result<Vec<DirectoryRelayEventRecord>, String> {
+        let owned = Self::standalone();
+        let result = owned.fetch_request_events(request).await;
+        owned.client.shutdown().await;
+        result
+    }
+
+    async fn fetch_directory_events_with_completion(
+        &self,
+        request: DirectoryFetchRequest,
+    ) -> Result<DirectoryFetchOutcome, String> {
+        let relay_urls = parsed_directory_relay_urls(&request.endpoints)?;
+        // Discovered targets belong to this bounded read, not the long-lived
+        // client pool. Closing the owned client also stops reconnects for
+        // failed relays without removing another caller's active relay.
+        let mut tasks = JoinSet::new();
+        for relay_url in relay_urls.iter().cloned() {
+            let queries = request.queries.clone();
+            tasks.spawn(async move { strict_fetch_endpoint(relay_url, queries).await });
+        }
+
+        let mut outcome = DirectoryFetchOutcome {
+            records: Vec::new(),
+            complete: true,
+        };
+        while let Some(result) = tasks.join_next().await {
+            match result {
+                Ok(endpoint) => {
+                    outcome.complete &= endpoint.complete;
+                    outcome.records.extend(endpoint.records);
+                }
+                Err(_) => outcome.complete = false,
+            }
+        }
+        if relay_urls.is_empty() {
+            outcome.complete = false;
+        }
+        Ok(outcome)
+    }
+}
+
+fn directory_closed_reason(reason: &str) -> DirectoryInspectionError {
+    use DirectoryInspectionError::*;
+    if reason.starts_with("auth-required:") {
+        AuthenticationRequired
+    } else if reason.starts_with("payment-required:") {
+        PaymentRequired
+    } else {
+        Restricted
+    }
+}
+
+async fn strict_fetch_endpoint(
+    relay_url: RelayUrl,
+    queries: Vec<DirectoryEventQuery>,
+) -> DirectoryFetchOutcome {
+    // One bounded subscription owns this connection and its pre-admission wire
+    // counter. Cancellation/early failure closes it through the scoped guard.
+    let builder = super::nostr_builder();
+    let wire =
+        super::directory_wire::DirectoryWireTransport::new(builder.websocket_transport.clone());
+    let owned = ScopedInspectionClient(builder.websocket_transport(wire.clone()).build());
+    let client = &owned.0;
+    let endpoint = TransportEndpoint(relay_url.to_string());
+    if !matches!(client.relay(&relay_url).await, Ok(Some(_)))
+        && client.add_relay(relay_url.clone()).await.is_err()
+    {
+        return DirectoryFetchOutcome::default();
+    }
+    if !matches!(
+        timeout(
+            DIRECTORY_RELAY_CONNECT_WAIT,
+            client.connect_relay(relay_url.clone()),
+        )
+        .await,
+        Ok(Ok(()))
+    ) {
+        return DirectoryFetchOutcome::default();
+    }
+    let Ok(Some(relay)) = client.relay(relay_url).await else {
+        return DirectoryFetchOutcome::default();
+    };
+    let mut filters = Vec::with_capacity(queries.len());
+    for query in &queries {
+        let Ok(filter) = directory_query_filter(query, false) else {
+            return DirectoryFetchOutcome::default();
+        };
+        filters.push(filter);
+    }
+
+    let max_records = queries.iter().map(|query| query.limit).sum::<usize>();
+    let subscription_id = SubscriptionId::generate();
+    let mut notifications = relay.notifications_with_gaps();
+    if relay
+        .subscribe(filters)
+        .with_id(subscription_id.clone())
+        .close_on(
+            SubscribeAutoCloseOptions::default()
+                .timeout(Some(DIRECTORY_RELAY_FETCH_WAIT))
+                .idle_timeout(Some(DIRECTORY_RELAY_FETCH_WAIT)),
+        )
+        .await
+        .is_err()
+    {
+        return DirectoryFetchOutcome::default();
+    }
+
+    let mut records = Vec::new();
+    let mut seen_event_ids = HashSet::new();
+    let mut query_counts = vec![0usize; queries.len()];
+    let mut admitted_messages = 0usize;
+    let complete = timeout(DIRECTORY_RELAY_FETCH_WAIT, async {
+        loop {
+            let received = match notifications.next().await {
+                Some(NotificationUpdate::Notification(RelayNotification::Event {
+                    subscription_id: received_id,
+                    event,
+                })) if received_id == subscription_id => Some(*event),
+                Some(NotificationUpdate::Notification(RelayNotification::Message { message })) => {
+                    match *message {
+                        RelayMessage::Event {
+                            subscription_id: received_id,
+                            event,
+                        } if received_id.as_ref() == &subscription_id => {
+                            admitted_messages += 1;
+                            Some(event.into_owned())
+                        }
+                        RelayMessage::EndOfStoredEvents(received_id)
+                            if received_id.as_ref() == &subscription_id =>
+                        {
+                            // A filter that reaches its limit cannot establish absence.
+                            // A frame discarded before notifications cannot
+                            // establish negative coverage, even after EOSE.
+                            break wire.event_count() == admitted_messages
+                                && queries
+                                    .iter()
+                                    .zip(&query_counts)
+                                    .all(|(query, count)| *count < query.limit);
+                        }
+                        RelayMessage::Closed {
+                            subscription_id: received_id,
+                            ..
+                        } if received_id.as_ref() == &subscription_id => break false,
+                        _ => None,
+                    }
+                }
+                Some(NotificationUpdate::Notification(RelayNotification::AuthenticationFailed)) => {
+                    break false;
+                }
+                Some(NotificationUpdate::Notification(RelayNotification::RelayStatus {
+                    status:
+                        RelayStatus::Disconnected | RelayStatus::Terminated | RelayStatus::Banned,
+                })) => {
+                    break false;
+                }
+                // Lag may have dropped an inbox EVENT immediately before
+                // EOSE. Continuing cannot establish absence safely.
+                Some(NotificationUpdate::Lagged { .. }) | None => break false,
+                _ => None,
+            };
+            if let Some(event) = received {
+                if event.verify().is_err() {
+                    continue;
+                }
+                let Ok(event) = NostrTransportEvent::from_nostr_event(&event) else {
+                    continue;
+                };
+                if !queries.iter().any(|query| query.matches(&event)) {
+                    // A filter-ignoring relay cannot establish a complete empty
+                    // scoped deletion result by filling its page with other posts.
+                    if queries.iter().any(|query| query.reference.is_some()) {
+                        break false;
+                    }
+                    continue;
+                }
+                if !seen_event_ids.insert(event.id.clone()) {
+                    continue;
+                }
+                for (query, count) in queries.iter().zip(&mut query_counts) {
+                    if query.matches(&event) {
+                        *count += 1;
+                    }
+                }
+                if records.len() < max_records {
+                    records.push(DirectoryRelayEventRecord {
+                        endpoints: vec![endpoint.clone()],
+                        event,
+                    });
+                } else {
+                    break false;
+                }
+            }
+        }
+    })
+    .await
+    .unwrap_or(false);
+    let _ = relay.unsubscribe(&subscription_id).await;
+    DirectoryFetchOutcome { records, complete }
+}
+
+fn parsed_directory_relay_urls(endpoints: &[TransportEndpoint]) -> Result<Vec<RelayUrl>, String> {
+    let mut relay_urls = endpoints
+        .iter()
+        .map(|endpoint| {
+            RelayUrl::parse(endpoint.as_str()).map_err(|_| "invalid relay URL".to_owned())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    // RelayUrl equality canonicalizes trailing slashes even though its display
+    // form preserves them. Collapse equivalent candidates before concurrent
+    // connection attempts so one failed twin cannot remove a successful one.
+    relay_urls.sort();
+    relay_urls.dedup();
+    Ok(relay_urls)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nostr_sdk::prelude::FinalizeEvent;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn anonymous_directory_fetch_accepts_profiles_after_optional_auth_challenge() {
+        assert_anonymous_profiles_after_optional_auth_challenge(false).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn anonymous_directory_fetch_completes_after_optional_auth_challenge() {
+        assert_anonymous_profiles_after_optional_auth_challenge(true).await;
+    }
+
+    async fn assert_anonymous_profiles_after_optional_auth_challenge(with_completion: bool) {
+        use futures::{SinkExt, StreamExt};
+        use nostr_sdk::prelude::{EventBuilder, Keys};
+        use tokio::net::TcpListener;
+        use tokio_tungstenite::{accept_async, tungstenite::Message};
+
+        let keys = Keys::generate();
+        let profile = EventBuilder::new(Kind::Metadata, r#"{"name":"jack"}"#)
+            .finalize(&keys)
+            .unwrap();
+        let expected_id = profile.id.to_hex();
+        let fetcher = NostrSdkDirectoryRelayFetcher::standalone();
+        // Pin the anonymous policy independently of AUTH/event scheduling.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = TransportEndpoint(format!("ws://{}", listener.local_addr().unwrap()));
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            while let Some(Ok(message)) = socket.next().await {
+                let Message::Text(text) = message else {
+                    continue;
+                };
+                let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if request[0] != "REQ" {
+                    continue;
+                }
+                let subscription = request[1].as_str().unwrap();
+                socket
+                    .send(Message::Text(r#"["AUTH","optional-challenge"]"#.into()))
+                    .await
+                    .unwrap();
+                for response in [
+                    serde_json::json!(["EVENT", subscription, profile]),
+                    serde_json::json!(["EOSE", subscription]),
+                ] {
+                    if socket
+                        .send(Message::Text(response.to_string().into()))
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+                // Keep the connection alive until the bounded fetch shuts down.
+            }
+        });
+        let request = DirectoryFetchRequest::new(
+            vec![endpoint],
+            vec![DirectoryEventQuery::new(
+                0,
+                vec![keys.public_key().to_hex()],
+                4,
+            )],
+        )
+        .unwrap();
+        let result = timeout(Duration::from_secs(5), async {
+            if with_completion {
+                let outcome = fetcher
+                    .fetch_directory_events_with_completion(request)
+                    .await?;
+                assert!(outcome.complete, "public read must reach EOSE after AUTH");
+                Ok(outcome.records)
+            } else {
+                fetcher.fetch_directory_events(request).await
+            }
+        })
+        .await;
+        server.abort();
+        let _ = server.await;
+        let records = result.unwrap().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].event.id, expected_id);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn signerless_inspection_never_retains_relays_in_the_shared_client() {
+        let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+        let endpoint = TransportEndpoint(relay.url().await.to_string());
+        let fetcher = NostrSdkDirectoryRelayFetcher::standalone();
+        let author = nostr::prelude::Keys::generate().public_key().to_hex();
+        for (author, succeeds) in [(author, true), ("invalid-author".into(), false)] {
+            let result = fetcher
+                .inspect_directory_events(
+                    DirectoryFetchRequest::new(
+                        vec![endpoint.clone()],
+                        vec![DirectoryEventQuery::new(0, vec![author], 1)],
+                    )
+                    .unwrap(),
+                    None,
+                )
+                .await;
+            assert_eq!(result.is_ok(), succeeds);
+            assert!(fetcher.client.relays().await.is_empty());
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn inspection_preserves_auth_and_payment_closed_reasons() {
+        use futures::{SinkExt, StreamExt};
+        use tokio::net::TcpListener;
+        use tokio_tungstenite::{accept_async, tungstenite::Message};
+
+        for (reason, expected) in [
+            (
+                "auth-required: sign in",
+                DirectoryInspectionError::AuthenticationRequired,
+            ),
+            (
+                "payment-required: pay",
+                DirectoryInspectionError::PaymentRequired,
+            ),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let endpoint = TransportEndpoint(format!("ws://{}", listener.local_addr().unwrap()));
+            let server = tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut socket = accept_async(stream).await.unwrap();
+                while let Some(Ok(message)) = socket.next().await {
+                    let Message::Text(text) = message else {
+                        continue;
+                    };
+                    let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                    if request[0] == "REQ" {
+                        let closed = serde_json::json!(["CLOSED", request[1], reason]);
+                        socket
+                            .send(Message::Text(closed.to_string().into()))
+                            .await
+                            .unwrap();
+                    }
+                }
+            });
+            let author = nostr::prelude::Keys::generate().public_key().to_hex();
+            let request = DirectoryFetchRequest::new(
+                vec![endpoint],
+                vec![DirectoryEventQuery::new(0, vec![author], 1)],
+            )
+            .unwrap();
+            let result = timeout(
+                Duration::from_secs(5),
+                NostrSdkDirectoryRelayFetcher::standalone().inspect_directory_events(request, None),
+            )
+            .await
+            .expect("inspection completes");
+            server.abort();
+            assert_eq!(result, Err(expected));
+        }
+    }
+
+    /// Documents a latent limit risk: the strict directory fetch sends every
+    /// query of a request as one filter of ONE REQ, with no cap. Production
+    /// relays allow at most 3 filters per REQ and refuse the rest with
+    /// `invalid: too many filters`, which this path reports as incomplete.
+    /// Today's callers pass at most two queries; a fourth would fail closed.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn strict_directory_fetch_puts_every_query_in_one_req() {
+        use futures::{SinkExt, StreamExt};
+        use tokio::net::TcpListener;
+        use tokio_tungstenite::{accept_async, tungstenite::Message};
+
+        const MAX_FILTERS_PER_REQ: usize = 3;
+        let author = nostr::prelude::Keys::generate().public_key().to_hex();
+        for query_count in [2_usize, 4] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let endpoint = TransportEndpoint(format!("ws://{}", listener.local_addr().unwrap()));
+            let filter_counts = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let seen = filter_counts.clone();
+            let server = tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut socket = accept_async(stream).await.unwrap();
+                while let Some(Ok(message)) = socket.next().await {
+                    let Message::Text(text) = message else {
+                        continue;
+                    };
+                    let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                    if request[0] != "REQ" {
+                        continue;
+                    }
+                    let filters = request.as_array().unwrap().len() - 2;
+                    seen.lock().unwrap().push(filters);
+                    let reply = if filters > MAX_FILTERS_PER_REQ {
+                        serde_json::json!(["CLOSED", request[1], "invalid: too many filters"])
+                    } else {
+                        serde_json::json!(["EOSE", request[1]])
+                    };
+                    if socket
+                        .send(Message::Text(reply.to_string().into()))
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+            });
+            let queries = [0_u64, 3, 10002, 10050]
+                .into_iter()
+                .take(query_count)
+                .map(|kind| DirectoryEventQuery::new(kind, vec![author.clone()], 4))
+                .collect();
+            let request = DirectoryFetchRequest::new(vec![endpoint], queries)
+                .expect("no cap on queries per request");
+            let outcome = timeout(
+                Duration::from_secs(10),
+                NostrSdkDirectoryRelayFetcher::standalone()
+                    .fetch_directory_events_with_completion(request),
+            )
+            .await
+            .expect("strict fetch completes")
+            .unwrap();
+            server.abort();
+            let filter_counts = filter_counts.lock().unwrap().clone();
+            assert_eq!(
+                filter_counts,
+                vec![query_count],
+                "one REQ carries every query"
+            );
+            assert_eq!(outcome.complete, query_count <= MAX_FILTERS_PER_REQ);
+        }
+    }
+
+    #[test]
+    fn directory_event_validation_rejects_invalid_signatures_and_wrong_authors() {
+        use nostr_sdk::prelude::{Event, EventBuilder, FinalizeEvent, Keys};
+
+        let expected = Keys::generate();
+        let wrong = Keys::generate();
+        let query = DirectoryEventQuery::new(0, vec![expected.public_key().to_hex()], 1);
+        let valid = EventBuilder::new(Kind::Metadata, r#"{"name":"agent"}"#)
+            .finalize(&expected)
+            .unwrap();
+        assert!(validated_directory_event(&valid, &query).is_some());
+
+        let wrong_author = EventBuilder::new(Kind::Metadata, r#"{"name":"other"}"#)
+            .finalize(&wrong)
+            .unwrap();
+        assert!(validated_directory_event(&wrong_author, &query).is_none());
+
+        let mut tampered = serde_json::to_value(&valid).unwrap();
+        tampered["content"] = serde_json::Value::String(r#"{"name":"tampered"}"#.to_owned());
+        let tampered = Event::from_json(tampered.to_string()).unwrap();
+        assert!(tampered.verify().is_err());
+        assert!(validated_directory_event(&tampered, &query).is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn strict_directory_exact_filter_limit_keeps_records_but_not_absence_proof() {
+        use nostr_sdk::local_relay::MockRelay;
+        use nostr_sdk::prelude::{EventBuilder, FinalizeEvent, Keys};
+
+        let relay = MockRelay::run().await.unwrap();
+        let url = relay.url().await;
+        let keys = Keys::generate();
+        let client = NostrSdkClient::default();
+        client.add_relay(url.clone()).await.unwrap();
+        client.connect_relay(url.clone()).await.unwrap();
+        client
+            .send_event(
+                &EventBuilder::new(Kind::Metadata, "{}")
+                    .finalize(&keys)
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let request = DirectoryFetchRequest::new(
+            vec![TransportEndpoint(url.to_string())],
+            vec![
+                DirectoryEventQuery::new(0, vec![keys.public_key().to_hex()], 1),
+                DirectoryEventQuery::new(10050, vec![keys.public_key().to_hex()], 12),
+            ],
+        )
+        .unwrap();
+        let result = NostrSdkDirectoryRelayFetcher::standalone()
+            .fetch_directory_events_with_completion(request)
+            .await
+            .unwrap();
+        client.shutdown().await;
+        assert_eq!(result.records.len(), 1);
+        assert!(
+            !result.complete,
+            "one saturated filter must not be hidden by the combined limit"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn strict_directory_sdk_tag_drop_cannot_certify_deletion_absence() {
+        use futures::{SinkExt, StreamExt};
+        use nostr_sdk::prelude::{EventBuilder, FinalizeEvent, Keys, Tag};
+        use tokio::net::TcpListener;
+        use tokio_tungstenite::{accept_async, tungstenite::Message};
+
+        let keys = Keys::generate();
+        let target = "ab".repeat(32);
+        let mut tags = vec![Tag::custom("e", [target.clone()])];
+        tags.extend((0..2000).map(|_| Tag::custom("x", ["padding"])));
+        let deletion = EventBuilder::new(Kind::from(5), "")
+            .tags(tags)
+            .finalize(&keys)
+            .unwrap();
+        assert!(deletion.verify().is_ok());
+        assert_eq!(deletion.tags.len(), 2001);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = TransportEndpoint(format!("ws://{}", listener.local_addr().unwrap()));
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            while let Some(Ok(Message::Text(text))) = socket.next().await {
+                let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if request[0] != "REQ" {
+                    continue;
+                }
+                for response in [
+                    serde_json::json!(["EVENT", request[1], deletion]),
+                    serde_json::json!(["EOSE", request[1]]),
+                ] {
+                    socket
+                        .send(Message::Text(response.to_string().into()))
+                        .await
+                        .unwrap();
+                }
+            }
+        });
+        let request = DirectoryFetchRequest::new(
+            vec![endpoint],
+            vec![DirectoryEventQuery::deletion_reference(
+                &keys.public_key().to_hex(),
+                'e',
+                target,
+                None,
+            )],
+        )
+        .unwrap();
+        let outcome = timeout(
+            Duration::from_secs(8),
+            NostrSdkDirectoryRelayFetcher::standalone()
+                .fetch_directory_events_with_completion(request),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(
+            outcome.records.is_empty(),
+            "SDK tag admission limit stays enabled"
+        );
+        assert!(
+            !outcome.complete,
+            "a discarded signed deletion cannot become complete empty evidence"
+        );
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn sdk_fetcher_errors_do_not_echo_invalid_relay_urls() {
+        let secret_url = "not-a-relay-with-secret-token";
+        let request = DirectoryFetchRequest::new(
+            vec![TransportEndpoint(secret_url.to_owned())],
+            vec![DirectoryEventQuery::new(0, vec!["11".repeat(32)], 1)],
+        )
+        .unwrap();
+
+        let error = NostrSdkDirectoryRelayFetcher::standalone()
+            .fetch_directory_events(request)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error, "invalid relay URL");
+        assert!(!error.contains(secret_url));
+    }
+
+    #[test]
+    fn parsed_directory_relay_urls_deduplicate_trailing_slash_variants() {
+        let relay_urls = parsed_directory_relay_urls(&[
+            TransportEndpoint("wss://relay.example".to_owned()),
+            TransportEndpoint("wss://relay.example/".to_owned()),
+        ])
+        .unwrap();
+
+        assert_eq!(relay_urls.len(), 1);
+    }
+
+    #[test]
+    fn scoped_deletion_queries_match_full_predicate_and_keep_distinct_keys() {
+        use nostr_sdk::prelude::{EventBuilder, Keys, Tag, Timestamp};
+        let keys = Keys::generate();
+        let author = keys.public_key().to_hex();
+        let id = "12".repeat(32);
+        let coordinate = format!("30443:{author}:slot:with:colons");
+        let exact = DirectoryEventQuery::deletion_reference(&author, 'e', id.clone(), None);
+        let address =
+            DirectoryEventQuery::deletion_reference(&author, 'a', coordinate.clone(), Some(100));
+        let later =
+            DirectoryEventQuery::deletion_reference(&author, 'a', coordinate.clone(), Some(101));
+        let endpoint = vec![TransportEndpoint("wss://relay.example".into())];
+        assert_ne!(
+            DirectoryFetchRequest::new(endpoint.clone(), vec![address.clone()])
+                .unwrap()
+                .key(),
+            DirectoryFetchRequest::new(endpoint.clone(), vec![later.clone()])
+                .unwrap()
+                .key()
+        );
+        assert_ne!(
+            DirectoryFetchRequest::new(endpoint.clone(), vec![exact.clone()])
+                .unwrap()
+                .key(),
+            DirectoryFetchRequest::new(
+                endpoint.clone(),
+                vec![DirectoryEventQuery::deletion_reference(
+                    &author,
+                    'e',
+                    "13".repeat(32),
+                    None
+                )]
+            )
+            .unwrap()
+            .key()
+        );
+        for timestamp in [99, 100, 101] {
+            let event = EventBuilder::new(Kind::from(5), "")
+                .tags([
+                    Tag::custom("e", [id.clone()]),
+                    Tag::custom("a", [coordinate.clone()]),
+                ])
+                .custom_created_at(Timestamp::from_secs(timestamp))
+                .finalize(&keys)
+                .unwrap();
+            assert!(validated_directory_event(&event, &exact).is_some());
+            assert_eq!(
+                validated_directory_event(&event, &address).is_some(),
+                timestamp >= 100
+            );
+            assert_eq!(
+                validated_directory_event(&event, &later).is_some(),
+                timestamp >= 101
+            );
+        }
+        for invalid in [
+            DirectoryEventQuery::deletion_reference(&author, 'p', id.clone(), None),
+            DirectoryEventQuery::deletion_reference(&author, 'e', id.clone(), Some(1)),
+            DirectoryEventQuery::deletion_reference(&author, 'e', "invalid".into(), None),
+            DirectoryEventQuery::deletion_reference(
+                &author,
+                'a',
+                format!("30443:{}:slot", "55".repeat(32)),
+                Some(1),
+            ),
+        ] {
+            assert!(DirectoryFetchRequest::new(endpoint.clone(), vec![invalid]).is_err());
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn scoped_deletion_filters_reach_all_sdk_fetch_paths() {
+        use futures::{SinkExt, StreamExt};
+        use nostr_sdk::prelude::{EventBuilder, Keys, Tag, Timestamp};
+        use tokio::net::TcpListener;
+        use tokio_tungstenite::{accept_async, tungstenite::Message};
+        // Fresh clients for each single filter avoid satisfying a second read
+        // from the SDK's local copy instead of inspecting its actual wire REQ.
+        for (mode, scope) in [
+            (0, 'e'),
+            (0, 'a'),
+            (1, 'e'),
+            (1, 'a'),
+            (2, 'e'),
+            (2, 'a'),
+            (2, 'b'),
+            (3, 'b'),
+        ] {
+            let keys = Keys::generate();
+            let author = keys.public_key().to_hex();
+            let target = "22".repeat(32);
+            let coordinate = format!("30443:{author}:slot");
+            let deletion = EventBuilder::new(Kind::from(5), "")
+                .tags([
+                    Tag::custom(
+                        "e",
+                        [if mode == 3 {
+                            "33".repeat(32)
+                        } else {
+                            target.clone()
+                        }],
+                    ),
+                    Tag::custom(
+                        "a",
+                        [if mode == 3 {
+                            format!("30443:{author}:other-slot")
+                        } else {
+                            coordinate.clone()
+                        }],
+                    ),
+                ])
+                .custom_created_at(Timestamp::from_secs(100))
+                .finalize(&keys)
+                .unwrap();
+            let expected_id = deletion.id.to_hex();
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let endpoint = TransportEndpoint(format!("ws://{}", listener.local_addr().unwrap()));
+            let (sender, mut received) = tokio::sync::mpsc::channel(4);
+            let server = tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut socket = accept_async(stream).await.unwrap();
+                while let Some(Ok(message)) = socket.next().await {
+                    let Message::Text(text) = message else {
+                        continue;
+                    };
+                    let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                    if request[0] != "REQ" {
+                        continue;
+                    }
+                    sender.send(request.clone()).await.unwrap();
+                    let mut responses = vec![serde_json::json!(["EVENT", request[1], deletion])];
+                    if mode >= 2 {
+                        responses.push(serde_json::json!(["EVENT", request[1], deletion]));
+                    }
+                    responses.push(serde_json::json!(["EOSE", request[1]]));
+                    for response in responses {
+                        if socket
+                            .send(Message::Text(response.to_string().into()))
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                }
+            });
+            let queries = [
+                DirectoryEventQuery::deletion_reference(&author, 'e', target.clone(), None),
+                DirectoryEventQuery::deletion_reference(
+                    &author,
+                    'a',
+                    coordinate.clone(),
+                    Some(100),
+                ),
+            ]
+            .into_iter()
+            .filter(|query| scope == 'b' || query.reference.as_ref().unwrap().0 == scope)
+            .collect();
+            let request = DirectoryFetchRequest::new(vec![endpoint], queries).unwrap();
+            let fetcher = NostrSdkDirectoryRelayFetcher::standalone();
+            let records = timeout(Duration::from_secs(8), async {
+                match mode {
+                    0 => fetcher.fetch_directory_events(request).await.unwrap(),
+                    1 => fetcher
+                        .inspect_directory_events(request, None)
+                        .await
+                        .unwrap(),
+                    _ => {
+                        let outcome = fetcher
+                            .fetch_directory_events_with_completion(request)
+                            .await
+                            .unwrap();
+                        assert!(
+                            !outcome.complete,
+                            "positive limit or ignored scoped filter cannot prove absence"
+                        );
+                        assert_eq!(
+                            outcome.records.len(),
+                            if mode == 3 { 0 } else { 1 },
+                            "duplicates retained once; unrelated records rejected"
+                        );
+                        outcome.records
+                    }
+                }
+            })
+            .await
+            .unwrap();
+            assert!(records.iter().all(|record| record.event.id == expected_id));
+            assert_eq!(records.is_empty(), mode == 3);
+            let wire = timeout(Duration::from_secs(1), received.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            let filters = &wire.as_array().unwrap()[2..];
+            assert_eq!(filters.len(), if scope == 'b' { 2 } else { 1 });
+            for filter in filters {
+                assert_eq!(filter["limit"], 1);
+                assert_eq!(filter["authors"], serde_json::json!([author]));
+                if let Some(value) = filter.get("#e") {
+                    assert_eq!(*value, serde_json::json!([target]));
+                    assert!(filter.get("#a").is_none() && filter.get("since").is_none());
+                } else {
+                    assert_eq!(filter["#a"], serde_json::json!([coordinate]));
+                    assert_eq!(filter["since"], 100);
+                }
+            }
+            fetcher.client.shutdown().await;
+            server.abort();
+            let _ = server.await;
+        }
+    }
+}

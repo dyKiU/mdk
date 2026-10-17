@@ -56,12 +56,23 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
   before member resolution or group mutation, and preserve app-configured relays when omitted.
 - Keep encrypted-media DTOs, exporter labels, and Blossom upload/download helpers in the `src/media/` module
   (`blossom.rs`, `crypto.rs`, `group_image.rs`, `host_safety.rs`, `avatar.rs` for downloaded avatar admission).
-  `media/attachment_resume.rs` adapts attempt-fenced storage checkpoints to the shared safe HTTP path;
+  `media/attachment_resume.rs` adapts attempt-fenced checkpoints (metadata rows in storage, ciphertext in the media
+  store's `.wire` files) to the shared safe HTTP path, and admits disk use through `media_store::DiskPolicy` built
+  from the configured reserve. Checkpoint reads, writes and clears go through the media store's checkpoint API with
+  the job's `AttachmentCheckpoint` target; never open or truncate a wire file here. Every download disk check uses
+  `DiskPolicy::download_need` (worker admission, readmission and the attempt's checks share `capacity`);
   keep Range validation, protected partials and complete-body authentication separate from native progress/access.
-  `media/file_transfer.rs` owns file-backed upload preparation: private owner-only snapshots under the account's
-  `media-staging/`, streaming EVP ChaCha20-Poly1305 that reproduces the in-memory wire bytes, and the
-  `MediaFileTransferControl` cancellation/progress handle. Prepare every snapshot before the first PUT, keep chunks
-  at 64 KiB, and stage retention through `stage_attachment_upload_files` (never a whole-file `Vec`).
+  `media/file_transfer.rs` owns the download side's `DownloadedFileBody` (ciphertext in the job's `.wire` checkpoint,
+  held open by the store's `CheckpointReader`, or one `media-staging/` file without a validator; authenticated into a
+  discard sink before the receipt and decrypted by `DecryptingReader` straight into the store publish; never write a
+  plaintext file for a download) and the `MediaFileTransferControl` cancellation/progress handle.
+- `media/outgoing.rs` owns the send path on the media store (mdk#2314 step 3): `SendStaging` admits each body with
+  `DiskPolicy::send_need` (a shortfall is `StorageError::Capacity`, which bindings surface as `StorageFull`), reserves
+  an `outgoing_attachment_uploads` row and stages the body as that row's file before the first PUT; `upload_staged`
+  hashes the wire ciphertext in one pass over the staged file and streams it again per server attempt with
+  `EncryptingReader` (never write ciphertext or a plaintext snapshot to disk); `OutgoingUploads` releases every upload
+  of a failed or dropped send (rows, then files). The worker's `promote_uploads` pass promotes owned uploads of
+  confirmed messages and drops uploads whose file was lost. Keep chunks at 64 KiB and never build a whole-file `Vec`.
 - Downloaded attachment bodies are retained in the account's encrypted media store (`media-store` crate,
   `MarmotApp::account_media_store`, one per account; mdk#2314). Callers pass the database handle they already hold, so
   creating a store never opens a database; creation is admitted under the storage lifecycle guard like an open. Every media store call (publish, reuse check, reads,
@@ -239,7 +250,7 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
   ends; one that releases early lets a failed ingest's checkpoint pass the delivery.
 - Keep Nostr group routing sourced from `marmot.transport.nostr.routing.v1` component bytes; relay filtering may affect
   connections, but must not rewrite signed routing state. Relay endpoints pass through the `RelaySafetyPolicy`
-  host-safety chokepoint (`src/relay_plane/safety.rs`), and agent-stream broker candidates through
+  host-safety chokepoint (`transport-nostr`'s `src/safety.rs`), and agent-stream broker candidates through
   `src/runtime/agent_stream_watch.rs`, before any connect; both follow the one dial discipline in
   `docs/marmot-architecture/overview/dial-safety.md` (validate + pin, trust from config, loopback only under an explicit
   dev flag). Do not add an outbound relay/broker path that bypasses them.
@@ -274,15 +285,17 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
 - Keep local test relay code in tests; production app runtime should talk to Nostr relay URLs through the adapter.
 - Do not print or log account ids, group ids, relay URLs, message ids, pubkeys, payloads, ciphertext, plaintext, or key
   material.
-- Keep the relay-telemetry export path in the `src/relay_plane/` module (rollup in `relay_plane/telemetry.rs`) and
-  `relay_telemetry_export.rs` (exporter, including the `MarmotRelayPlane::telemetry_exporter` constructor). It is
-  opt-in and off by default: `MarmotRelayPlane::telemetry_exporter` is the single construction gate, relay-identity
-  resolution requires it, and export points carry only a `relay` label. Keep the OTLP wire encoding and HTTP push behind
+- Keep the relay-telemetry export path in the relay plane (`transport-nostr`, rollup in its `src/telemetry.rs`) and
+  `relay_telemetry_export.rs` (exporter, including the `RelayTelemetryExporter::new` constructor). It is
+  opt-in and off by default: `RelayTelemetryExporter::new` is the single construction gate, relay-identity
+  resolution requires it (through the plane's `RelayExportGate`, which the export config implements), and export
+  points carry only a `relay` label. Keep the OTLP wire encoding and HTTP push behind
   the `otlp-export` feature; keep the privacy-critical mapping (`build_export_batch`) and the opt-in gate in the default
   build. Keep per-attempt collector DNS validation and pinning in `collector_host_safety.rs`: validate
   every address, pin reqwest, disable redirects/system proxies, and retain TLS verification. Explicit SOCKS5 routing
   must send the validated IP rather than delegate HTTP DNS to the proxy. Build every relay client with
-  `network_proxy::nostr_builder()` and every HTTP client through `network_proxy::http_builder()`; `clippy.toml` rejects
+  `network_proxy::nostr_builder()` (in `transport-nostr`, its own `nostr_builder()`, which calls the same adapter
+  builder; that crate's `clippy.toml` holds the same ban) and every HTTP client through `network_proxy::http_builder()`; `clippy.toml` rejects
   direct `nostr_sdk`/`reqwest` constructors. Allow that lint only where a fresh reqwest builder goes straight into
   `http_builder()` or in local test fixtures. Only exact `localhost` or a
   loopback IP literal is a local-test endpoint, and all its addresses must be loopback. The default build includes this
@@ -322,8 +335,8 @@ Implement shared behavior here, following [MDK's host boundary](../../docs/marmo
   `epoch_stall.rs` (epoch-gap backfill detection), `delivery_spill.rs` (worker side of the durable delivery spill),
   `audit_v5_app_update.rs` (bounded app-boundary audit rows), `sync/comparison_job.rs` (the one recovery comparison
   job).
-- `src/relay_plane/`: `mod.rs` (shared relay plane), `safety.rs` (relay dial chokepoint), `directory.rs` (directory
-  fetches/subscriptions), `delivery_spill.rs` (durable overflow tail for a full account queue), `telemetry.rs`.
+- `relay_plane` in `src/lib.rs` re-exports [`transport-nostr`](../transport-nostr/AGENTS.md), the shared relay plane,
+  so its old paths keep working until callers are repointed.
 - `src/directory/`: also `cached_search.rs` (network-free cross-account search), `search.rs` (streaming web-of-trust
   search), `open_ranking.rs` (bounded Vertex Open Ranking discovery), `member_key_packages.rs` (set-oriented roster
   KeyPackage resolution for create/invite).
@@ -848,3 +861,16 @@ line above saying why; a bare `#[tokio::test]` there, or an unexplained pin, fai
 rather than the next event: other tasks run between your steps, and window subscriptions keep only the latest snapshot.
 `Notify::notify_waiters` reaches only waiters already registered, so a fixture signal either uses `notify_one`'s permit
 or the waiter `enable()`s its `notified()` before announcing it waits.
+Async tests in `src/` and `tests/` default to `#[tokio::test(flavor = "multi_thread", worker_threads = 2)]`, the flavor
+every production binding uses; a test that needs more workers sets its own `worker_threads`. Composed whole-app
+`#[test]`s run through `run_composed_app_runtime_test`, which builds the same two-worker runtime with every thread on an
+8 MiB stack; a test that builds its own runtime uses `Builder::new_multi_thread()` with `worker_threads(2)` and gives
+every thread its stack (`thread_stack_size`). Only a test that needs one thread stays off it:
+`#[tokio::test(start_paused = true)]` for a clock paused from the start (Tokio allows that only on the current-thread
+runtime), otherwise `flavor = "current_thread"`, `run_composed_app_runtime_test_on_one_thread`, or
+`Builder::new_current_thread()` with a `//` comment on the line above saying why.
+`async_suites_choose_their_tokio_flavor` rejects a bare `#[tokio::test]` and any of those one-thread pins without that
+comment. When a multi-thread test waits for an effect, wait for the state it expects rather than the next event: other
+tasks run between your steps, and window subscriptions keep only the latest snapshot. `Notify::notify_waiters` reaches
+only waiters already registered, so a fixture signal either uses `notify_one`'s permit or the waiter `enable()`s its
+`notified()` before announcing it waits.

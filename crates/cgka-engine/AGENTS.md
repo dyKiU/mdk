@@ -476,6 +476,7 @@ From the 2026-05-09 engine audit and follow-ups. Grep the rule when touching the
 | Replay swallows only `ProcessMessageError::ValidationError` for application messages; `LibraryError` and structural failures propagate | replay tests |
 | `auto_committer::decide_with_reason` refuses to auto-commit a SelfRemove whose leaver credential is not 32 bytes | MIP-03 guard tests |
 | `SnapshotRollbackGuard` rolls back + releases on `Drop` for peel/replay probes | structural |
+| Every rewind onto a retained anchor (probes and the reorg apply) uses `rollback_group_state_keeping_live_records`, never `rollback_group_to_snapshot` plus a re-put: a legacy full anchor must not drop a pending application event or restore a removed row or queued intent, and on SQLite the rewind must not read or write the ledger (mdk#2330) | `tests/record_write_atomicity.rs::reorg_onto_a_legacy_full_anchor_keeps_live_records`, `::a_failed_generic_rewind_keeps_pending_app_output`, `storage-sqlite` `snapshots::tests::rewind_keeping_live_records_does_not_grow_with_history` |
 
 Deliberately deferred: **H2** (AAD-binding transport wraps to group_id + epoch) — exporter secrets already differ per
 (group, epoch); revisit if a transport reuses exporter material across contexts. **H3** (zeroize `SignatureKeyPair`) —
@@ -489,12 +490,14 @@ cargo test -p cgka-engine --features test-policy-overrides   # suites that insta
 just test-convergence-policy-pin                            # default-build v1 policy pin; never with overrides
 ```
 
-For convergence, delivery, branch-selection, group-data, or multi-client changes, also run the conformance simulator:
+For convergence, delivery, branch-selection, group-data, or multi-client changes, also run the simulator's PR-lane
+selection, or the narrowest simulator gate `crates/cgka-conformance-simulator/AGENTS.md` names:
 
 ```sh
-cargo test -p cgka-conformance-simulator
-cargo test -p cgka-conformance-simulator --features conformance-slow
+just simulator-smoke
 ```
+
+`--features conformance-slow` is a pre-release pass; run it locally only when asked.
 
 Benchmarks and per-file targets are in [`README.md`](README.md#tests-and-measurements) and
 [`tests/AGENTS.md`](tests/AGENTS.md).

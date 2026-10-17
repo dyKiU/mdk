@@ -549,39 +549,39 @@ fn build_export_batch_appends_unlabeled_app_performance_metrics() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn telemetry_exporter_is_gated_and_builds_population_only_batch() {
     let relay_plane = MarmotRelayPlane::full_history();
 
     // Off by default, and enabled-without-endpoint is still inert.
     assert!(
-        relay_plane
-            .telemetry_exporter(
-                RelayTelemetryExportConfig::disabled(),
-                crate::product_analytics::test_permit()
-            )
-            .is_none()
+        RelayTelemetryExporter::new(
+            &relay_plane,
+            RelayTelemetryExportConfig::disabled(),
+            crate::product_analytics::test_permit()
+        )
+        .is_none()
     );
     assert!(
-        relay_plane
-            .telemetry_exporter(
-                RelayTelemetryExportConfig {
-                    enabled: true,
-                    endpoint: None,
-                    ..Default::default()
-                },
-                crate::product_analytics::test_permit()
-            )
-            .is_none()
+        RelayTelemetryExporter::new(
+            &relay_plane,
+            RelayTelemetryExportConfig {
+                enabled: true,
+                endpoint: None,
+                ..Default::default()
+            },
+            crate::product_analytics::test_permit()
+        )
+        .is_none()
     );
 
-    let exporter = relay_plane
-        .telemetry_exporter(
-            RelayTelemetryExportConfig::enabled("https://otlp.example/v1/metrics")
-                .with_runtime_config(runtime_config()),
-            crate::product_analytics::test_permit(),
-        )
-        .expect("opted-in exporter is constructed");
+    let exporter = RelayTelemetryExporter::new(
+        &relay_plane,
+        RelayTelemetryExportConfig::enabled("https://otlp.example/v1/metrics")
+            .with_runtime_config(runtime_config()),
+        crate::product_analytics::test_permit(),
+    )
+    .expect("opted-in exporter is constructed");
     let batch = exporter.build_batch(None).await;
 
     // No relay traffic yet: population points only, no relay labels leak.
@@ -597,13 +597,13 @@ async fn telemetry_exporter_is_gated_and_builds_population_only_batch() {
 
 #[test]
 fn collection_period_subtracts_history_and_detects_resets_against_previous_sample() {
-    let exporter = MarmotRelayPlane::full_history()
-        .telemetry_exporter(
-            RelayTelemetryExportConfig::enabled("https://otlp.example/v1/metrics")
-                .with_runtime_config(runtime_config()),
-            crate::product_analytics::test_permit(),
-        )
-        .unwrap();
+    let exporter = RelayTelemetryExporter::new(
+        &MarmotRelayPlane::full_history(),
+        RelayTelemetryExportConfig::enabled("https://otlp.example/v1/metrics")
+            .with_runtime_config(runtime_config()),
+        crate::product_analytics::test_permit(),
+    )
+    .unwrap();
     let batch = |total, redundant, buckets: Vec<u64>, sum| RelayTelemetryExportBatch {
         points: vec![
             ExportMetricPoint {
@@ -673,13 +673,13 @@ fn collection_period_subtracts_history_and_detects_resets_against_previous_sampl
 
 #[test]
 fn late_cumulative_sources_start_at_zero_and_retain_their_baseline_when_absent() {
-    let exporter = MarmotRelayPlane::full_history()
-        .telemetry_exporter(
-            RelayTelemetryExportConfig::enabled("https://otlp.example/v1/metrics")
-                .with_runtime_config(runtime_config()),
-            crate::product_analytics::test_permit(),
-        )
-        .unwrap();
+    let exporter = RelayTelemetryExporter::new(
+        &MarmotRelayPlane::full_history(),
+        RelayTelemetryExportConfig::enabled("https://otlp.example/v1/metrics")
+            .with_runtime_config(runtime_config()),
+        crate::product_analytics::test_permit(),
+    )
+    .unwrap();
     let batch = |count| RelayTelemetryExportBatch {
         points: vec![
             ExportMetricPoint {
@@ -825,13 +825,13 @@ fn runtime_metrics_keep_first_observation_and_export_live_gauges_without_labels(
         AppPerformanceTelemetry, RuntimePerformanceOperation as Op, runtime::Outcome,
     };
     let telemetry = AppPerformanceTelemetry::default();
-    let exporter = MarmotRelayPlane::full_history()
-        .telemetry_exporter(
-            RelayTelemetryExportConfig::enabled("https://otlp.example/v1/metrics")
-                .with_runtime_config(runtime_config()),
-            crate::product_analytics::test_permit(),
-        )
-        .unwrap();
+    let exporter = RelayTelemetryExporter::new(
+        &MarmotRelayPlane::full_history(),
+        RelayTelemetryExportConfig::enabled("https://otlp.example/v1/metrics")
+            .with_runtime_config(runtime_config()),
+        crate::product_analytics::test_permit(),
+    )
+    .unwrap();
     let batch = || {
         build_export_batch_with_app_performance(
             &RelayTelemetryRollup::default(),
@@ -897,19 +897,18 @@ fn runtime_metrics_keep_first_observation_and_export_live_gauges_without_labels(
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn account_publish_counters_are_unlabeled_population_points() {
-    use crate::relay_plane::publish_accounting_tests::{AccountPublishFixture, PublishScript};
+    use crate::relay_plane::test_support::{AccountPublishFixture, PublishScript};
 
     let fixture = AccountPublishFixture::activate().await;
-    let exporter = fixture
-        .plane
-        .telemetry_exporter(
-            RelayTelemetryExportConfig::enabled("https://otlp.example/v1/metrics")
-                .with_runtime_config(runtime_config()),
-            crate::product_analytics::test_permit(),
-        )
-        .expect("opted-in exporter");
+    let exporter = RelayTelemetryExporter::new(
+        &fixture.plane,
+        RelayTelemetryExportConfig::enabled("https://otlp.example/v1/metrics")
+            .with_runtime_config(runtime_config()),
+        crate::product_analytics::test_permit(),
+    )
+    .expect("opted-in exporter");
     fixture
         .publish(PublishScript::Accept, 1)
         .await
