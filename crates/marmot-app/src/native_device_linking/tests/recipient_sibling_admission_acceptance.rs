@@ -129,7 +129,10 @@ async fn admitted_recipient_starts_first_consent_without_periodic_tick() {
             .await
             .expect("actual B sibling Request held before relay publication");
         request_held = request.message_id.as_slice().len() == 32 && request.payload_nonempty;
-        exact_request_identity = request.owner.upgrade().is_some_and(|held| Arc::ptr_eq(&held, &original));
+        exact_request_identity = request
+            .owner
+            .upgrade()
+            .is_some_and(|held| Arc::ptr_eq(&held, &original));
         // Endorsement is now genuine and the exact Request has not reached C.
         // Primary commitment depends on B endorsement, so establish it here.
         tokio::time::timeout(Duration::from_secs(15), async {

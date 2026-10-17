@@ -137,7 +137,7 @@ def source_guard():
     restored = (before + after).replace('options: [recipient-admission-preflight, recipient-admission-red, ', 'options: [', 1)
     ensure(restored.encode() == subprocess.check_output(['git', 'show', BASE + ':' + WORKFLOW]),
            'all-existing-workflow-bytes-preserved')
-    return {'source': source, 'baseline': BASE, 'only_passive_test_probe_additions': True,
+    return {'source': source, 'baseline': BASE, 'only_test_probes_and_owned_request_schedule_gate_added': True,
             'all_existing_product_fixtures_controllers_sdk_deadlines_unchanged': True,
             'four_device_failure_cause_established': False}
 

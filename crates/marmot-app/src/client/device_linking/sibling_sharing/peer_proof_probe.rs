@@ -203,7 +203,12 @@ pub(crate) mod recipient_admission {
     impl RequestGuard {
         pub(crate) async fn observed(&self) -> HeldRequest {
             self.0.observed.notified().await;
-            self.0.request.lock().expect("held actual Request").clone().expect("actual Request observed")
+            self.0
+                .request
+                .lock()
+                .expect("held actual Request")
+                .clone()
+                .expect("actual Request observed")
         }
     }
     impl Drop for RequestGuard {
@@ -227,7 +232,12 @@ pub(crate) mod recipient_admission {
             let mut gates = request_registry().lock().expect("recipient Request gates");
             gates.retain(|gate| gate.strong_count() != 0);
             assert!(gates.len() < 4, "bounded actual Request gates");
-            assert!(!gates.iter().filter_map(Weak::upgrade).any(|old| old.owner.ptr_eq(&gate.owner)));
+            assert!(
+                !gates
+                    .iter()
+                    .filter_map(Weak::upgrade)
+                    .any(|old| old.owner.ptr_eq(&gate.owner))
+            );
             gates.push(Arc::downgrade(&gate));
             RequestGuard(gate)
         }
@@ -239,7 +249,14 @@ pub(crate) mod recipient_admission {
         nonce: [u8; 32],
         request: &cgka_traits::TransportPublishRequest,
     ) {
-        let SiblingOriginal::Existing { original, source: device, recipient, account, .. } = source.as_ref() else {
+        let SiblingOriginal::Existing {
+            original,
+            source: device,
+            recipient,
+            account,
+            ..
+        } = source.as_ref()
+        else {
             return;
         };
         let gate = {
