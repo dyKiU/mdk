@@ -28,6 +28,7 @@ before adding behavior or bindings.
 | Encrypted per-file media store (format, file lifecycle) | `crates/media-store/AGENTS.md` |
 | SQLite storage | `crates/storage-sqlite/AGENTS.md` (`src/base/migrations/`, `src/protocol/openmls_storage/`, `src/protocol/storage/`, `src/protocol/storage/snapshots/` have their own) |
 | Nostr transport adapter | `crates/transport-nostr-adapter/AGENTS.md` |
+| Nostr relay plane (relay sessions, delivery, publish accounting, directory fetches) | `crates/transport-nostr/AGENTS.md` |
 | Nostr transport peeler | `crates/transport-nostr-peeler/AGENTS.md` |
 | QUIC agent text stream previews | `crates/transport-quic-stream/AGENTS.md` |
 | QUIC preview broker | `crates/transport-quic-broker/AGENTS.md` |
