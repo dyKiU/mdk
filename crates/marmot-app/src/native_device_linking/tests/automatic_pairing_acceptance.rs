@@ -683,6 +683,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
         held_consent
     };
     // COMPLETION_TEST_END
+    // BROAD_TRACE_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    crate::client::device_linking::sibling_sharing::broad_trace::window_begin();
+    // BROAD_TRACE_END
     d.continue_automatic_linking(d.snapshot().await.unwrap().revision, true)
         .await
         .unwrap();

@@ -21,7 +21,7 @@ HOOKS = {
     ROOT + 'client/account_chat_sharing/automatic.rs': 8,
     ROOT + 'native_device_linking/enabled.rs': 2,
     ROOT + 'client/private_enrollment_proposal.rs': 1,
-    ROOT + 'native_device_linking/tests/automatic_pairing_acceptance.rs': 12,
+    ROOT + 'native_device_linking/tests/automatic_pairing_acceptance.rs': 13,
 }
 MODULE = ROOT + 'client/device_linking/sibling_sharing/broad_trace.rs'
 SELF = 'scripts/diagnose_upstream_broad_maintenance.py'
@@ -43,8 +43,8 @@ STAGES = {
     29: 'ObservationResponseTimeout', 30: 'ChannelBecameComplete', 31: 'ChoiceChildAssociation',
     32: 'ExistingOriginalSnapshot', 33: 'RecipientOriginalSnapshot', 34: 'HelperSleepBefore',
     35: 'HelperSleepAfter', 36: 'HelperLeftSnapshotBefore', 37: 'HelperLeftSnapshotAfter',
-    38: 'HelperRightSnapshotBefore', 39: 'HelperRightSnapshotAfter', 40: 'CaseBegin',
-    41: 'CaseEndOrUnwind', 42: 'ObservationReason', 43: 'ExistingAutomaticProbeEnter',
+    38: 'HelperRightSnapshotBefore', 39: 'HelperRightSnapshotAfter', 40: 'FourthDeviceHandoffWindowBegin',
+    41: 'WindowEndAtCaseReturnOrUnwind', 42: 'ObservationReason', 43: 'ExistingAutomaticProbeEnter',
     44: 'ExistingAutomaticProbeExit', 45: 'PhaseWaitEnter', 46: 'PhaseWaitExit',
     47: 'HeldConsentWaitEnter', 48: 'HeldConsentWaitExit', 49: 'FreshNativeResponseIsComplete',
 }
@@ -154,8 +154,11 @@ def timeline(raw, name):
     if summary['known']:
         ensure(events and events[0][2] == 40 and events[-1][2] == 41
                and sum(event[2] == 40 for event in events) == sum(event[2] == 41 for event in events) == 1,
-               'one-owned-case-lifetime')
-    return {'known': summary['known'], 'key_kinds': None if unavailable else keys,
+               'one-owned-fourth-device-handoff-window')
+    return {'known': summary['known'], 'window_known': summary['known'],
+            'capture_scope': 'fourth-device-handoff-through-case-return-or-unwind',
+            'setup_prefix_intentionally_omitted': True, 'prewindow_event_counts': None,
+            'prewindow_coverage': 'unknown-not-captured', 'timestamps_relative_to_window_start': True, 'key_kinds': None if unavailable else keys,
             'events_microseconds_key_stage_value': None if unavailable else events,
             'exported_key_count': summary['keys'], 'exported_event_count': summary['events'],
             'stage_names': STAGES, 'unattributed_key_zero_is_not_an_account': True,
@@ -195,7 +198,9 @@ def parser_controls():
 def main(options):
     os.umask(0o077); OUT.mkdir(exist_ok=True)
     report = {'qualification_passed': False, 'product_green_claim': False, 'native_closes': 'unknown-original-fixtures',
-              'historical_runtime_evidence_reused': False, 'actual_counts_complete': False, 'cases': {}}
+              'historical_runtime_evidence_reused': False, 'actual_counts_complete': False,
+              'trace_scope': 'fourth-device-handoff-through-case-return-or-unwind',
+              'setup_prefix_intentionally_omitted': True, 'event_capacity_unchanged': 8192, 'cases': {}}
     def save():
         (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     before = None; metadata = None

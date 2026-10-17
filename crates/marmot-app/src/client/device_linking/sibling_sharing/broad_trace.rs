@@ -8,7 +8,7 @@ use std::time::Instant;
 
 static ENABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("MDK_UPSTREAM_BROAD_TRACE").as_deref() == Ok("1"));
-// One atomic status makes the freeze/loss cutoff unambiguous.
+// Bits: loss=1, frozen=2, active=4. The setup prefix is intentionally omitted.
 static STATUS: AtomicU8 = AtomicU8::new(0);
 fn unknown() {
     let _ = STATUS.fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
@@ -66,14 +66,14 @@ impl Trace {
     }
 }
 fn record(key: Option<Key>, stage: u64, value: u64) {
-    if !*ENABLED || STATUS.load(Ordering::Acquire) & 2 != 0 {
+    if !*ENABLED || STATUS.load(Ordering::Acquire) & 6 != 4 {
         return;
     }
     let Ok(mut trace) = TRACE.try_lock() else {
         unknown();
         return;
     };
-    if STATUS.load(Ordering::Acquire) & 2 != 0 {
+    if STATUS.load(Ordering::Acquire) & 6 != 4 {
         return;
     }
     let key = match key {
@@ -99,14 +99,14 @@ pub(crate) fn channel(state: &Arc<State>, stage: u64, value: u64) {
     record(Some(Key::Channel(Arc::downgrade(state))), stage, value);
 }
 pub(crate) fn child(choice: &OriginalEnrollmentSharingChoice, state: &Arc<State>) {
-    if !*ENABLED || STATUS.load(Ordering::Acquire) & 2 != 0 {
+    if !*ENABLED || STATUS.load(Ordering::Acquire) & 6 != 4 {
         return;
     }
     let Ok(mut trace) = TRACE.try_lock() else {
         unknown();
         return;
     };
-    if STATUS.load(Ordering::Acquire) & 2 != 0 {
+    if STATUS.load(Ordering::Acquire) & 6 != 4 {
         return;
     }
     let parent = trace.key(Key::Choice(Arc::downgrade(&choice.lifetime)));
@@ -121,7 +121,7 @@ pub(crate) fn global(stage: u64) {
 }
 impl AppClient {
     pub(crate) fn broad_trace_for_test(&self, stage: u64) {
-        if !*ENABLED {
+        if !*ENABLED || STATUS.load(Ordering::Acquire) & 6 != 4 {
             return;
         }
         let mut attributed = false;
@@ -138,10 +138,29 @@ impl AppClient {
         }
     }
 }
+/// Start only before the unchanged fourth-device continuation. No setup
+/// event is a lost observation: it is outside this explicitly scoped window.
+pub(crate) fn window_begin() {
+    if !*ENABLED {
+        return;
+    }
+    if STATUS.load(Ordering::Acquire) != 0 {
+        unknown();
+        return;
+    }
+    let Ok(mut trace) = TRACE.try_lock() else {
+        unknown();
+        return;
+    };
+    trace.event(0, 40, 0);
+    drop(trace);
+    // Publish only after unlocking, so racing first actor events do not report
+    // artificial lock contention against the initialization itself.
+    STATUS.fetch_or(4, Ordering::Release);
+}
 pub(crate) struct Dump;
 impl Dump {
     pub(crate) fn begin() -> Self {
-        global(40);
         Self
     }
 }
@@ -153,6 +172,10 @@ impl Drop for Dump {
         // Freeze before the nonblocking snapshot. Later actor observations are
         // outside this diagnostic lifetime and cannot change its known flag.
         let status = STATUS.fetch_or(2, Ordering::AcqRel);
+        if status & 4 == 0 {
+            eprintln!("broad-trace unavailable");
+            return;
+        }
         let Ok(mut trace) = TRACE.try_lock() else {
             eprintln!("broad-trace unavailable");
             return;
