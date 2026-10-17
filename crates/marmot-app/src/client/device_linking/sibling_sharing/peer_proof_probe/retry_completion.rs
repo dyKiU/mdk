@@ -7,7 +7,11 @@ use std::sync::atomic::AtomicUsize;
 
 type Existing = crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval;
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind { InitialRequest, RetryRequest, Proof }
+enum Kind {
+    InitialRequest,
+    RetryRequest,
+    Proof,
+}
 struct Gate {
     kind: Kind,
     owner: Weak<Existing>,
@@ -42,7 +46,8 @@ impl Guard {
     }
     pub(crate) fn observation(&self) -> Observation {
         Observation {
-            captured_exact_retry: self.0.kind == Kind::RetryRequest && self.0.captured.load(Ordering::Acquire),
+            captured_exact_retry: self.0.kind == Kind::RetryRequest
+                && self.0.captured.load(Ordering::Acquire),
             captured_exact_publication: self.0.captured.load(Ordering::Acquire),
             real_sdk_ack_held: self.0.sdk_ack_held.load(Ordering::Acquire),
             publish_calls: self.0.publish_calls.load(Ordering::Acquire),
@@ -63,7 +68,9 @@ impl Guard {
     }
 }
 impl Drop for Guard {
-    fn drop(&mut self) { self.release(); }
+    fn drop(&mut self) {
+        self.release();
+    }
 }
 fn registry() -> &'static Mutex<Vec<Weak<Gate>>> {
     static REGISTRY: OnceLock<Mutex<Vec<Weak<Gate>>>> = OnceLock::new();
@@ -80,17 +87,33 @@ pub(crate) fn arm_proof(owner: Weak<Existing>, nonce: [u8; 32], deadline: Instan
 }
 fn arm_kind(owner: Weak<Existing>, nonce: [u8; 32], deadline: Instant, kind: Kind) -> Guard {
     let gate = Arc::new(Gate {
-        kind, owner, nonce, deadline,
-        captured: AtomicBool::new(false), sdk_ack_held: AtomicBool::new(false),
-        publish_calls: AtomicUsize::new(0), release_requested: AtomicBool::new(false),
-        normal_release: AtomicBool::new(false), future_dropped: AtomicBool::new(false),
-        dropped_before_release: AtomicBool::new(false), observed: Notify::new(),
-        release: Notify::new(), dropped: Notify::new(),
+        kind,
+        owner,
+        nonce,
+        deadline,
+        captured: AtomicBool::new(false),
+        sdk_ack_held: AtomicBool::new(false),
+        publish_calls: AtomicUsize::new(0),
+        release_requested: AtomicBool::new(false),
+        normal_release: AtomicBool::new(false),
+        future_dropped: AtomicBool::new(false),
+        dropped_before_release: AtomicBool::new(false),
+        observed: Notify::new(),
+        release: Notify::new(),
+        dropped: Notify::new(),
     });
     let mut entries = registry().lock().expect("retry completion probe registry");
     entries.retain(|old| old.strong_count() != 0);
-    assert!(entries.len() < 4, "bounded original retry completion probes");
-    assert!(!entries.iter().filter_map(Weak::upgrade).any(|old| old.owner.ptr_eq(&gate.owner)));
+    assert!(
+        entries.len() < 4,
+        "bounded original retry completion probes"
+    );
+    assert!(
+        !entries
+            .iter()
+            .filter_map(Weak::upgrade)
+            .any(|old| old.owner.ptr_eq(&gate.owner))
+    );
     entries.push(Arc::downgrade(&gate));
     Guard(gate)
 }
@@ -113,40 +136,64 @@ impl Drop for Waiting {
 /// Test-only shadow preserves both canonical adapter routes. Its delayed real
 /// report remains inside the original shutdown/revocation/deadline select.
 struct Identity {
-    owner: Weak<Existing>, nonce: [u8; 32], deadline: Instant, kind: Kind,
+    owner: Weak<Existing>,
+    nonce: [u8; 32],
+    deadline: Instant,
+    kind: Kind,
 }
 pub(crate) struct Adapter {
     inner: MarmotRelayPlaneAccountAdapter,
     identity: Option<Identity>,
 }
 impl Adapter {
-    pub(in super::super) fn capture(inner: MarmotRelayPlaneAccountAdapter, entry: &SiblingChannel, kind: AccountSharingControl) -> Self {
+    pub(in super::super) fn capture(
+        inner: MarmotRelayPlaneAccountAdapter,
+        entry: &SiblingChannel,
+        kind: AccountSharingControl,
+    ) -> Self {
         // These are immutable facts of THIS prepared publication, not a later
         // reconstruction from mutable state or an authority supplied by a test.
         let identity = match entry.original.as_ref() {
             SiblingOriginal::Existing { original, .. } if !entry.recipient => {
                 let kind = match kind {
-                    AccountSharingControl::Request if !entry.handshake_published => Some(Kind::InitialRequest),
-                    AccountSharingControl::Request if entry.handshake_published && !entry.ready => Some(Kind::RetryRequest),
+                    AccountSharingControl::Request if !entry.handshake_published => {
+                        Some(Kind::InitialRequest)
+                    }
+                    AccountSharingControl::Request if entry.handshake_published && !entry.ready => {
+                        Some(Kind::RetryRequest)
+                    }
                     AccountSharingControl::Body(0) => Some(Kind::Proof),
                     _ => None,
                 };
-                kind.map(|kind| Identity { owner: Arc::downgrade(original), nonce: entry.channel.scope().nonce,
-                    deadline: entry.state.deadline, kind })
+                kind.map(|kind| Identity {
+                    owner: Arc::downgrade(original),
+                    nonce: entry.channel.scope().nonce,
+                    deadline: entry.state.deadline,
+                    kind,
+                })
             }
             _ => None,
         };
         Self { inner, identity }
     }
-    pub(crate) async fn publish_selected_chat(&self, request: TransportPublishRequest) -> Result<TransportPublishReport, TransportAdapterError> {
+    pub(crate) async fn publish_selected_chat(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
         // recipient_admission's pre-SDK hold runs before this method entry,
         // allowing the fixture to arm the exact first Request without a race.
         // Capture/count this actual invocation, never a retrospective result.
         let gate = self.identity.as_ref().and_then(|id| {
-            registry().lock().expect("retry completion probe registry").iter()
-                .filter_map(Weak::upgrade).find(|gate| {
-                    gate.kind == id.kind && gate.owner.ptr_eq(&id.owner)
-                        && gate.nonce == id.nonce && gate.deadline == id.deadline
+            registry()
+                .lock()
+                .expect("retry completion probe registry")
+                .iter()
+                .filter_map(Weak::upgrade)
+                .find(|gate| {
+                    gate.kind == id.kind
+                        && gate.owner.ptr_eq(&id.owner)
+                        && gate.nonce == id.nonce
+                        && gate.deadline == id.deadline
                         && !gate.release_requested.load(Ordering::Acquire)
                         && !gate.captured.swap(true, Ordering::AcqRel)
                 })
@@ -166,7 +213,10 @@ impl Adapter {
         }
         Ok(report)
     }
-    pub(crate) async fn publish_sibling_consent(&self, request: TransportPublishRequest) -> Result<TransportPublishReport, TransportAdapterError> {
+    pub(crate) async fn publish_sibling_consent(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
         self.inner.publish_sibling_consent(request).await
     }
 }

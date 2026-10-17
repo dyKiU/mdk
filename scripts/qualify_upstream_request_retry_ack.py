@@ -22,8 +22,8 @@ PROBE = 'crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_
 FIXTURE = 'crates/marmot-app/src/native_device_linking/tests/request_retry_ack_acceptance.rs'
 REGISTRATION = 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
 # Complete reviewed source snapshots, not a blanket test-source exception.
-PROBE_SHA256 = 'd2306a26500a56e6bd0212e17187689d7eedd5d4624314d89c2c45713c61707e'
-FIXTURE_SHA256 = 'cf772684f16c65c464435cce3602b6fe5d62815ff8a1ef56057afc098b3a41f1'
+PROBE_SHA256 = '130d0e19749be42c4451a9ad9345e355d971b0726bda821d709ab9b3cc41b8ca'
+FIXTURE_SHA256 = '88d348b4774b1896c25da0efaef63677f72cea7e368b5981ffc1e93f6f1c201a'
 REGISTER = b'''// REQUEST_RETRY_ACK_TEST_BEGIN
 #[cfg(all(test, feature = "test-policy-overrides"))]
 #[path = "request_retry_ack_acceptance.rs"]
