@@ -1836,7 +1836,10 @@ impl AppClient {
             // RECIPIENT_ADMISSION_TEST_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
             peer_proof_probe::recipient_admission::admitted(
-                self.linking_owner.sibling_channels.last().expect("just admitted recipient channel"),
+                self.linking_owner
+                    .sibling_channels
+                    .last()
+                    .expect("just admitted recipient channel"),
             );
             // RECIPIENT_ADMISSION_TEST_END
             return Ok(true);

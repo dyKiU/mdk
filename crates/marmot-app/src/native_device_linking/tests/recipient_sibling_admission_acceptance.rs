@@ -186,8 +186,18 @@ async fn admitted_recipient_starts_first_consent_without_periodic_tick() {
     let relay_closed = owned_loopback_listener_is_closed(address).await;
     eprintln!(
         "recipient-sibling-admission primary_ready={} periodic_observed={} fresh_admitted={} first_consent_before_gate={} actual_consent_held={} exact_proof_nonce={} enrollment_complete={} public_cancelled={} runtime_closes={} planes_shutdown={} relay_closed={} attempt_completed={}",
-        primary_ready, facts[0], facts[1], facts[2], facts[3], facts[4], facts[5], facts[6],
-        runtime_closes, planes_shutdown, relay_closed, attempt.is_ok()
+        primary_ready,
+        facts[0],
+        facts[1],
+        facts[2],
+        facts[3],
+        facts[4],
+        facts[5],
+        facts[6],
+        runtime_closes,
+        planes_shutdown,
+        relay_closed,
+        attempt.is_ok()
     );
     assert!(
         primary_ready

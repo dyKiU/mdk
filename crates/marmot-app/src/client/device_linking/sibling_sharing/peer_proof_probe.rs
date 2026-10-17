@@ -154,7 +154,11 @@ pub(crate) mod recipient_admission {
     impl AdmissionGuard {
         pub(crate) async fn observed(&self) -> Admission {
             self.0.observed.notified().await;
-            self.0.admitted.lock().expect("recipient admission").expect("actual admitted child")
+            self.0
+                .admitted
+                .lock()
+                .expect("recipient admission")
+                .expect("actual admitted child")
         }
     }
     fn registry() -> &'static Mutex<Vec<Weak<Probe>>> {
@@ -171,7 +175,12 @@ pub(crate) mod recipient_admission {
             let mut probes = registry().lock().expect("recipient admission probes");
             probes.retain(|probe| probe.strong_count() != 0);
             assert!(probes.len() < 4, "bounded recipient admission probes");
-            assert!(!probes.iter().filter_map(Weak::upgrade).any(|old| old.owner.ptr_eq(&probe.owner)));
+            assert!(
+                !probes
+                    .iter()
+                    .filter_map(Weak::upgrade)
+                    .any(|old| old.owner.ptr_eq(&probe.owner))
+            );
             probes.push(Arc::downgrade(&probe));
             AdmissionGuard(probe)
         }
@@ -189,7 +198,14 @@ pub(crate) mod recipient_admission {
             if admitted.is_none() {
                 *admitted = Some(Admission {
                     nonce: entry.channel.scope().nonce,
-                    flags: [entry.original.live(), entry.state.live(), entry.recipient, entry.ready, entry.handshake_published, entry.publication.is_some()],
+                    flags: [
+                        entry.original.live(),
+                        entry.state.live(),
+                        entry.recipient,
+                        entry.ready,
+                        entry.handshake_published,
+                        entry.publication.is_some(),
+                    ],
                 });
                 probe.observed.notify_one();
             }
