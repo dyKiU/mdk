@@ -89,8 +89,12 @@ jobs:
           shared-key: core-regressions
           cache-on-failure: 'true'
       - name: Verify exact source and runtime-oracle parser
+        env:
+          CARGO_INCREMENTAL: '1'
         run: python3 scripts/qualify_upstream_owner_pairing_mutations.py --case '${{ matrix.case }}' --preflight
       - name: Execute baseline, sole intended mutant and exact restored control
+        env:
+          CARGO_INCREMENTAL: '1'
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Owner pairing mutation'
           python3 scripts/qualify_upstream_owner_pairing_mutations.py --case '${{ matrix.case }}'
