@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import qualify_upstream_storage_boundary as storage
 from upstream_extraction_cohort import frozen_inputs
 
-BASE = 'd10cb5f2a202cb2dc512b85625d1d9122b3dd646'
+BASE = 'db130f31a90210abd3f40991328032814d1cc65c'
 UPSTREAM = '639abe576b3b1fd57e336ccdd82b1b06ebd1906d'
 SELF = 'scripts/qualify_upstream_639_merge.py'
 WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
