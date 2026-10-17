@@ -351,7 +351,9 @@ async fn finish_close<S: AsyncRead + AsyncWrite + Unpin>(
             // second Close is a protocol error; flush the actual queued reply.
             match socket.flush().await {
                 Ok(()) => {
-                    if closing.received { closing.sent = true; }
+                    if closing.received {
+                        closing.sent = true;
+                    }
                     record_close(state, side, 2);
                 }
                 Err(error) if terminal(&error) && closing.received => {
@@ -390,20 +392,27 @@ async fn finish_close<S: AsyncRead + AsyncWrite + Unpin>(
                 }
                 None => {
                     record_close(state, side, 3);
-                    return if closing.sent && closing.received { Ok(()) } else { Err(()) };
+                    return if closing.sent && closing.received {
+                        Ok(())
+                    } else {
+                        Err(())
+                    };
                 }
                 Some(Err(error)) => {
                     record_error(state, operation, &error);
                     return if terminal(&error) && closing.sent && closing.received {
                         record_close(state, side, 3);
                         Ok(())
-                    } else { Err(()) };
+                    } else {
+                        Err(())
+                    };
                 }
                 Some(Ok(_)) => record_close(state, side, 4),
             }
         }
         Err(())
-    }).await;
+    })
+    .await;
     match result {
         Ok(Ok(())) => {
             record_io(state, operation, 0);

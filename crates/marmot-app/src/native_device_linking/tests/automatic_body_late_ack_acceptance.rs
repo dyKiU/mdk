@@ -256,7 +256,8 @@ async fn late_ack_trial(hold_receipt: bool) {
         close_observed.invalid,
         task_outcome,
         close_observed.child_outcomes,
-        close_observed.io_categories, close_observed.close_handshakes,
+        close_observed.io_categories,
+        close_observed.close_handshakes,
     );
     let prerequisites = held_ack
         && before.wire_events > 0
