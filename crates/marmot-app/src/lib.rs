@@ -70,7 +70,7 @@ use transport_nostr_adapter::{
     KIND_MARMOT_INBOX_RELAY_LIST, KIND_MARMOT_KEY_PACKAGE, KIND_NIP65_RELAY_LIST,
     NostrAccountRelayListKind, NostrAccountRelayListPublication, NostrEventPublishRequest,
     NostrKeyPackagePublication, NostrKeyPackagePublisher, NostrNip65RelayListPublication,
-    NostrNip65RelaySet, NostrRelayClient, NostrSdkRelayClient, parse_nip65_relay_set,
+    NostrNip65RelaySet, NostrRelayClient, parse_nip65_relay_set,
 };
 use transport_nostr_peeler::{NostrMlsPeeler, NostrTransportEvent};
 
@@ -170,6 +170,7 @@ mod nostr_verification;
 mod notifications;
 mod projection;
 mod publisher_sequences;
+#[cfg(test)]
 mod relay_plane;
 mod relay_telemetry_export;
 mod root_closers;
@@ -335,11 +336,6 @@ pub use profile_pseudonyms::{default_profile_pseudonym, random_profile_pseudonym
 pub use public_event_preview::{
     MAX_PUBLIC_EVENT_REFERENCES, PublicEventPreview, PublicEventPreviewRead,
 };
-pub use relay_plane::{
-    EngineReorgMetrics, MarmotRelayPlane, MarmotRelayPlaneAccountAdapter,
-    RelayEndpointClassification, RelayEndpointPolicy, RelayPlaneHealth, RelayRollupEntry,
-    RelayTelemetryRollup, RelayTelemetrySnapshot, retired_relay_hosts,
-};
 pub use relay_telemetry_export::{
     ExportHistogram, ExportMetricPoint, ExportMetricValue, RelayExportError,
     RelayTelemetryExportBatch, RelayTelemetryExporter, build_export_batch,
@@ -352,6 +348,11 @@ pub use storage_sqlite::{
     TimelineEditVersion, TimelineMessageQuery, TimelineMessageRecord, TimelinePage,
     TimelinePagination, TimelineReactionSummary, TimelineReplyPreview, TimelineUserReaction,
     select_reusable_direct_conversation,
+};
+pub use transport_nostr::{
+    EngineReorgMetrics, MarmotRelayPlane, MarmotRelayPlaneAccountAdapter,
+    RelayEndpointClassification, RelayEndpointPolicy, RelayPlaneHealth, RelayRollupEntry,
+    RelayTelemetryRollup, RelayTelemetrySnapshot, retired_relay_hosts,
 };
 pub use transport_nostr_adapter::{
     DurationHistogramSnapshot, HistogramBucket, NostrAdapterMetrics, RelayDeliverySpread,
@@ -428,7 +429,7 @@ use key_package_records::{
     validated_cached_key_package,
 };
 use projection::LegacyAccountProjectionDb;
-use relay_plane::DirectoryRelayEventRecord as RelayEventRecord;
+use transport_nostr::DirectoryRelayEventRecord as RelayEventRecord;
 
 const LEGACY_ACCOUNT_APP_DB_FILE: &str = "app.sqlite3";
 const LEGACY_ACCOUNT_PROJECTION_IMPORT_MARKER: &str = "legacy-account-projection-v1";
@@ -631,10 +632,6 @@ pub struct MarmotApp {
     product_analytics: ProductAnalytics,
     startup_diagnostics: startup_diagnostics::NativeStartupDiagnostics,
     external_signers: Arc<Mutex<HashMap<String, RegisteredExternalSigner>>>,
-    /// One signer-bound publisher per account. Setup publishes and the managed
-    /// account worker share this client so the worker can reuse the same relay
-    /// pool instead of constructing another TCP/TLS/WebSocket stack.
-    account_publish_clients: Arc<Mutex<HashMap<String, Arc<dyn NostrRelayClient>>>>,
     public_indexer_copy_tasks: Arc<Mutex<PublicIndexerCopyTasks>>,
     /// In-memory view of the persisted per-kind authoring floors; see
     /// `sign_replaceable_identity_event`.
@@ -1786,7 +1783,6 @@ impl MarmotApp {
             product_analytics,
             startup_diagnostics: Default::default(),
             external_signers: Arc::new(Mutex::new(HashMap::new())),
-            account_publish_clients: Arc::new(Mutex::new(HashMap::new())),
             public_indexer_copy_tasks: Arc::new(Mutex::new(PublicIndexerCopyTasks::default())),
             replaceable_identity_created_at: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -1890,7 +1886,6 @@ impl MarmotApp {
             product_analytics,
             startup_diagnostics: Default::default(),
             external_signers: Arc::new(Mutex::new(HashMap::new())),
-            account_publish_clients: Arc::new(Mutex::new(HashMap::new())),
             public_indexer_copy_tasks: Arc::new(Mutex::new(PublicIndexerCopyTasks::default())),
             replaceable_identity_created_at: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -4745,7 +4740,7 @@ impl MarmotApp {
             self.relay_client_for_account_id(&account.account_id_hex, nostr_signer.clone());
         let recovery_storage = self.account_storage(label)?;
         let recovery_label = label.to_owned();
-        let recovery_marker: relay_plane::AccountDeliveryRecoveryMarker =
+        let recovery_marker: transport_nostr::AccountDeliveryRecoveryMarker =
             Arc::new(move |marker_token, dropped, earliest_created_at| {
                 recovery_storage
                     .record_account_delivery_loss_bounded(
@@ -4757,14 +4752,14 @@ impl MarmotApp {
                     )
                     .map_err(|error| {
                         if error.is_closed() {
-                            relay_plane::AccountDeliveryRecoveryMarkerError::Closed
+                            transport_nostr::AccountDeliveryRecoveryMarkerError::Closed
                         } else {
-                            relay_plane::AccountDeliveryRecoveryMarkerError::Retryable
+                            transport_nostr::AccountDeliveryRecoveryMarkerError::Retryable
                         }
                     })
             });
         let spill_storage = self.account_storage(label)?;
-        let spill_store: relay_plane::AccountDeliverySpillStore = Arc::new(move |deliveries| {
+        let spill_store: transport_nostr::AccountDeliverySpillStore = Arc::new(move |deliveries| {
             spill_storage
                 .spill_account_deliveries(
                     deliveries,
@@ -4779,9 +4774,9 @@ impl MarmotApp {
                 })
                 .map_err(|error| {
                     if error.is_closed() {
-                        relay_plane::AccountDeliveryRecoveryMarkerError::Closed
+                        transport_nostr::AccountDeliveryRecoveryMarkerError::Closed
                     } else {
-                        relay_plane::AccountDeliveryRecoveryMarkerError::Retryable
+                        transport_nostr::AccountDeliveryRecoveryMarkerError::Retryable
                     }
                 })
         });
@@ -7390,10 +7385,8 @@ impl MarmotApp {
             .send(label.to_owned());
         if let Ok(account) = self.account_home().account(label) {
             let _ = self.abort_public_indexer_copies_for_account(&account.account_id_hex);
-            self.account_publish_clients
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .remove(&account.account_id_hex);
+            self.relay_plane
+                .evict_account_publish_client(&account.account_id_hex);
         }
         self.account_storages
             .lock()
@@ -7467,34 +7460,14 @@ impl MarmotApp {
         if let Some(client) = &self.test_relay_client {
             return client.clone();
         }
-        let mut clients = self
-            .account_publish_clients
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        // The signer is intentionally ignored on a cache hit. Callers that
-        // replace an account signer must evict this entry first, as
-        // register_external_signer and drop_account_caches do today.
-        clients
-            .entry(account_id_hex.to_owned())
-            .or_insert_with(|| {
-                let client = network_proxy::nostr_builder()
-                    .authenticator(nostr_sdk::authenticator::SignerAuthenticator::new(
-                        transport_nostr_peeler::SdkSigner(signer.clone()),
-                    ))
-                    .build();
-                let account_id =
-                    MemberId::new(hex::decode(account_id_hex).expect("validated account identity"));
-                Arc::new(NostrSdkRelayClient::with_account_signer(
-                    client, account_id, signer,
-                ))
-            })
-            .clone()
+        self.relay_plane
+            .account_publish_client(account_id_hex, signer)
     }
 
     #[cfg(test)]
     fn with_test_relay_client<C>(mut self, client: Arc<C>) -> Self
     where
-        C: NostrRelayClient + crate::relay_plane::DirectoryRelayFetcher + 'static,
+        C: NostrRelayClient + transport_nostr::DirectoryRelayFetcher + 'static,
     {
         self.relay_plane = MarmotRelayPlane::new_with_directory_fetcher_for_test(
             None,
@@ -7537,10 +7510,8 @@ impl MarmotApp {
             }
         }
         drop(signers);
-        self.account_publish_clients
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .remove(&account.account_id_hex);
+        self.relay_plane
+            .evict_account_publish_client(&account.account_id_hex);
         Ok(())
     }
 
@@ -7620,7 +7591,7 @@ impl MarmotApp {
     fn new_nostr_routing(&self, relays: Option<Vec<String>>) -> Result<NostrRoutingV1, AppError> {
         let mut nostr_group_id = [0_u8; 32];
         OsRng.fill_bytes(&mut nostr_group_id);
-        let relays = relay_plane::RelaySafetyPolicy::with_allow_loopback(
+        let relays = transport_nostr::RelaySafetyPolicy::with_allow_loopback(
             self.config.allow_loopback_relay_endpoints,
         )
         .sanitize_endpoints(

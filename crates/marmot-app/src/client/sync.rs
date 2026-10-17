@@ -437,7 +437,7 @@ pub(crate) enum EpochBackfillRunOutcome {
 /// The audit and loss guard of one already-reserved recovery job, opened when
 /// the job begins and closed through one terminal path.
 pub(crate) struct RecoveryExecutionState {
-    overflow: Option<crate::relay_plane::AccountDeliveryOverflow>,
+    overflow: Option<transport_nostr::AccountDeliveryOverflow>,
     overflow_guard: Option<super::recovery::RecoveryLossAttemptGuard>,
     audit_groups: Vec<([u8; 16], GroupId, u64)>,
     context: AuditEventContext,
@@ -1258,7 +1258,7 @@ impl AppClient {
 
     fn observe_delivery_overflow(
         &mut self,
-        overflow: crate::relay_plane::AccountDeliveryOverflow,
+        overflow: transport_nostr::AccountDeliveryOverflow,
     ) -> Result<(), AppError> {
         // The router's process-local fence already froze cursor advancement at
         // the omission. Re-observe the same token here so the queued signal is
@@ -2723,12 +2723,12 @@ impl AppClient {
                 return Ok(self.take_pending_applied_sync_summary());
             }
             let summary = match self.receive_next_delivery().await? {
-                crate::relay_plane::AccountDeliveryReceive::Delivery(delivery) => {
+                transport_nostr::AccountDeliveryReceive::Delivery(delivery) => {
                     self.ingest_received_delivery(*delivery).await?
                 }
                 // The loss is durable and fences the cursor. A directly owned
                 // client has no worker, so its recovery job runs here.
-                crate::relay_plane::AccountDeliveryReceive::Overflow(_) => {
+                transport_nostr::AccountDeliveryReceive::Overflow(_) => {
                     match self
                         .run_pending_epoch_backfill(EpochBackfillExecutionSeam::Receive)
                         .await?
@@ -2773,8 +2773,8 @@ impl AppClient {
     /// halfway through when a command arrives.
     pub(crate) async fn receive_next_delivery(
         &mut self,
-    ) -> Result<crate::relay_plane::AccountDeliveryReceive, AppError> {
-        use crate::relay_plane::AccountDeliveryWait;
+    ) -> Result<transport_nostr::AccountDeliveryReceive, AppError> {
+        use transport_nostr::AccountDeliveryWait;
         loop {
             // A consumer lag charges notification loss before any control
             // record reaches this queue, and a record may never come: its
@@ -2787,7 +2787,7 @@ impl AppClient {
                 self.observe_delivery_overflow(loss)?;
                 if !self.adapter.delivery_overflow_signal_outstanding() {
                     self.delivery_spill.complete_cooperative_offer();
-                    return Ok(crate::relay_plane::AccountDeliveryReceive::Overflow(loss));
+                    return Ok(transport_nostr::AccountDeliveryReceive::Overflow(loss));
                 }
             }
             // Spilled rows that became queue loss are already durable and
@@ -2795,8 +2795,8 @@ impl AppClient {
             // starts the same recovery it runs for a router omission.
             if self.delivery_spill.take_recorded_loss() {
                 self.delivery_spill.complete_cooperative_offer();
-                return Ok(crate::relay_plane::AccountDeliveryReceive::Overflow(
-                    crate::relay_plane::AccountDeliveryOverflow {
+                return Ok(transport_nostr::AccountDeliveryReceive::Overflow(
+                    transport_nostr::AccountDeliveryOverflow {
                         marker_token: self
                             .delivery_overflow_recovery_marker_token
                             .unwrap_or_default(),
@@ -2846,10 +2846,10 @@ impl AppClient {
                 },
             };
             let delivery = match received {
-                crate::relay_plane::AccountDeliveryReceive::Delivery(delivery) => delivery,
-                crate::relay_plane::AccountDeliveryReceive::Overflow(overflow) => {
+                transport_nostr::AccountDeliveryReceive::Delivery(delivery) => delivery,
+                transport_nostr::AccountDeliveryReceive::Overflow(overflow) => {
                     self.observe_delivery_overflow(overflow)?;
-                    return Ok(crate::relay_plane::AccountDeliveryReceive::Overflow(
+                    return Ok(transport_nostr::AccountDeliveryReceive::Overflow(
                         overflow,
                     ));
                 }
@@ -2861,7 +2861,7 @@ impl AppClient {
                 self.settle_spilled_delivery();
                 continue;
             }
-            return Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(
+            return Ok(transport_nostr::AccountDeliveryReceive::Delivery(
                 delivery,
             ));
         }
@@ -3215,10 +3215,10 @@ impl AppClient {
             let received = timeout(wait, receive).await;
             self.prepend_pending_applied_summary(&mut summary);
             let delivery = match received {
-                Ok(Ok(Some(crate::relay_plane::AccountDeliveryReceive::Delivery(delivery)))) => {
+                Ok(Ok(Some(transport_nostr::AccountDeliveryReceive::Delivery(delivery)))) => {
                     delivery
                 }
-                Ok(Ok(Some(crate::relay_plane::AccountDeliveryReceive::Overflow(overflow)))) => {
+                Ok(Ok(Some(transport_nostr::AccountDeliveryReceive::Overflow(overflow)))) => {
                     if let Err(error) = self.observe_delivery_overflow(overflow) {
                         // Never checkpoint a cursor learned from the incomplete
                         // prefix unless the durable recovery marker landed
@@ -5305,7 +5305,7 @@ impl AppClient {
                                 // the same route can require a relay it lacks.
                                 && scope.goal.required_endpoints.iter().all(|endpoint| {
                                     window.work.endpoints().iter().any(|queried| {
-                                        crate::relay_plane::same_relay(queried.as_str(), endpoint)
+                                        transport_nostr::same_relay(queried.as_str(), endpoint)
                                     })
                                 })
                         })
@@ -5343,7 +5343,7 @@ impl AppClient {
                             || compared.is_some_and(|compared| {
                                 scope.goal.required_endpoints.iter().any(|required| {
                                     compared.reached_endpoints.iter().any(|reached| {
-                                        crate::relay_plane::same_relay(required, reached)
+                                        transport_nostr::same_relay(required, reached)
                                     })
                                 })
                             })
@@ -7148,7 +7148,7 @@ mod live_cursor_checkpoint_tests {
                 .await
                 .expect("a delivery is ready")
                 .unwrap();
-                let crate::relay_plane::AccountDeliveryReceive::Delivery(delivery) = received
+                let transport_nostr::AccountDeliveryReceive::Delivery(delivery) = received
                 else {
                     panic!("a live delivery must not produce a control record");
                 };
@@ -9836,7 +9836,7 @@ mod tests {
                     .await;
             }
         }
-        let Some(crate::relay_plane::AccountDeliveryReceive::Overflow(overflow)) =
+        let Some(transport_nostr::AccountDeliveryReceive::Overflow(overflow)) =
             client.adapter.try_receive_account_delivery()
         else {
             panic!("the lag queued its control record");
@@ -9965,7 +9965,7 @@ mod retired_loss_observation_tests {
     use std::sync::Arc;
 
     use crate::client::history_notices::park_recovery_for_test;
-    use crate::relay_plane::AccountDeliveryOverflow;
+    use transport_nostr::AccountDeliveryOverflow;
     use crate::tests::{ScriptedPushRelayClient, client_on_app_relay_plane};
 
     /// A dismissal cannot release the plane while that generation still has

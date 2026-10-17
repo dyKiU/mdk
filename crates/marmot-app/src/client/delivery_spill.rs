@@ -13,7 +13,7 @@ use storage_sqlite::SpilledDelivery;
 
 use super::AppClient;
 use crate::AppError;
-use crate::relay_plane::AccountDeliveryReceive;
+use transport_nostr::AccountDeliveryReceive;
 use crate::unix_now_seconds;
 
 /// Durable spill bounds for one account database.
@@ -26,8 +26,8 @@ pub(crate) const ACCOUNT_DELIVERY_SPILL_LIMITS: storage_sqlite::DeliverySpillLim
 /// The relay plane's view of what the store did with one spilled delivery.
 pub(crate) fn plane_spill_disposition(
     disposition: storage_sqlite::DeliverySpillDisposition,
-) -> crate::relay_plane::DeliverySpillDisposition {
-    use crate::relay_plane::DeliverySpillDisposition as Plane;
+) -> transport_nostr::DeliverySpillDisposition {
+    use transport_nostr::DeliverySpillDisposition as Plane;
     use storage_sqlite::DeliverySpillDisposition as Stored;
     match disposition {
         Stored::Stored => Plane::Stored,
@@ -308,7 +308,7 @@ mod tests {
 
     use super::ACCOUNT_DELIVERY_SPILL_LIMITS;
     use super::SPILL_MAX_ATTEMPTS;
-    use crate::relay_plane::MarmotRelayPlane;
+    use transport_nostr::MarmotRelayPlane;
     use crate::tests::{ScriptedPushRelayClient, client_on_app_relay_plane};
     use crate::{MarmotApp, unix_now_seconds};
 
@@ -562,7 +562,7 @@ mod tests {
         }
         assert!(matches!(
             received,
-            Some(crate::relay_plane::AccountDeliveryReceive::Delivery(d)) if d.delivery == delivery(5)
+            Some(transport_nostr::AccountDeliveryReceive::Delivery(d)) if d.delivery == delivery(5)
         ));
     }
 
@@ -636,7 +636,7 @@ mod yield_handoff_tests {
     use std::time::Duration;
 
     use super::ACCOUNT_DELIVERY_SPILL_LIMITS;
-    use crate::relay_plane::{AccountDeliveryReceive, MarmotRelayPlane};
+    use transport_nostr::{AccountDeliveryReceive, MarmotRelayPlane};
     use crate::tests::{
         ScriptedPushRelayClient, every_subscription, remember_test_member_inbox, scripted_eose_pump,
     };

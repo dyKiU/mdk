@@ -320,7 +320,7 @@ fn denied() -> ClientLinkingError {
     ClientLinkingError::Gate(LinkingWelcomeDenied::NoLiveVerifier)
 }
 struct SettlementPublisher {
-    adapter: crate::relay_plane::MarmotRelayPlaneAccountAdapter,
+    adapter: transport_nostr::MarmotRelayPlaneAccountAdapter,
     account: cgka_traits::MemberId,
     target: cgka_traits::TransportPublishTarget,
 }

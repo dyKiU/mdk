@@ -4,7 +4,7 @@ use crate::device_linking::network::delivery::{Inbound, Receiver, Sender};
 use crate::device_linking::network::{
     Bootstrap, Channel, EVENT_KIND, Error as WireError, Message, MessageKind, PeerHint,
 };
-use crate::relay_plane::pairing::{PairingMailbox, PairingRelayError};
+use transport_nostr::pairing::{PairingMailbox, PairingRelayError};
 use nostr::prelude::{Event, Keys, PublicKey, Timestamp};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;

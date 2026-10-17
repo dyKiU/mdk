@@ -27,8 +27,11 @@ Existing private feature modules retain their root paths during this integration
 in `base/`, `protocol/` and `app/`. Private provider hooks are implemented only in `protocol/provider.rs`. The private
 migration ledger is wired by the base runner; it does not grant consent or replay authority.
 
-Put new code on the side that owns its tables. Code that must touch both sides goes in `cross/` once step 4 PR 3 adds
-it; until then, name any new crossing in the PR description.
+Put new code on the side that owns its tables. `src/base/boundary_tests.rs` fails on any crossing between the sides
+(SQL naming the other side's tables, a `crate::` path or a `self` call into the other side, or a cross-side foreign key
+or trigger) that is missing from `src/cross/allow-list.txt`, and on a listed one that no longer occurs. Do not add a
+line to make a change pass: code that must touch both sides goes in `cross/` once step 4 PR 3 adds it, and until then
+a new line needs its reason in the PR description. A new table needs an owner in `src/base/table_owners.rs`.
 
 ## Key files
 
@@ -38,6 +41,7 @@ it; until then, name any new crossing in the PR description.
 | `src/base/codec.rs` | JSON serialization helpers and SQLite error mapping. |
 | `src/base/migrations.rs` | Upstream core and separate private registry, migration runner and tests. |
 | `src/base/test_support.rs` | Shared storage test fixtures for both sides' tests. |
+| `src/base/table_owners.rs`, `src/base/boundary_tests.rs`, `src/cross/allow-list.txt` | The owning side of every table; the boundary tests and the crossings still to move. |
 | `src/base/migrations/` | Numbered Rust migration bodies plus upgrade/query-work tests; see its local `AGENTS.md`. |
 | `src/protocol/storage/` | Marmot engine storage tables by concern; see its local `AGENTS.md`. |
 | `src/protocol/storage/snapshots/` | Snapshot/checkpoint capture, restoration and the consistent replay-state fingerprint; see its local `AGENTS.md`. |

@@ -2102,7 +2102,7 @@ mod tests {
             .await
             .unwrap();
         let mut app = MarmotApp::with_relay(directories[1].path(), &url);
-        app.relay_plane = crate::relay_plane::MarmotRelayPlane::runtime_default_with_loopback(
+        app.relay_plane = transport_nostr::MarmotRelayPlane::runtime_default_with_loopback(
             std::time::Duration::from_secs(1),
             true,
         );

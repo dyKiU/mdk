@@ -1471,7 +1471,7 @@ async fn run_app_runtime_account_worker(
                             },
                             received = client.receive_next_delivery(), if !client.has_pending_effect_projections() => {
                                 match received {
-                                    Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(delivery)) => {
+                                    Ok(transport_nostr::AccountDeliveryReceive::Delivery(delivery)) => {
                                         // Once claimed, finish engine ingest and projection
                                         // without cancellation by the network completion.
                                         let delivery_started = Instant::now();
@@ -1526,7 +1526,7 @@ async fn run_app_runtime_account_worker(
                                             }
                                         }
                                     }
-                                    Ok(crate::relay_plane::AccountDeliveryReceive::Overflow(_)) => {
+                                    Ok(transport_nostr::AccountDeliveryReceive::Overflow(_)) => {
                                         // receive_next_delivery persisted the loss marker.
                                         // This in-flight comparison cannot certify it;
                                         // the fence check below will retain the debt.
@@ -2505,7 +2505,7 @@ async fn run_app_runtime_account_worker(
                             tokio::time::sleep_until(*retry_at).await;
                             let (delivery, attempt, _) = selected_welcome_retry.take().expect("one original selected Welcome");
                             if attempt.is_live() {
-                                return Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(delivery));
+                                return Ok(transport_nostr::AccountDeliveryReceive::Delivery(delivery));
                             }
                             client.adapter.release_account_delivery(&delivery.message.id);
                         }
@@ -2518,19 +2518,19 @@ async fn run_app_runtime_account_worker(
                                 && client.runtime.session().device_revocation_storage_retry_groups()
                                     .is_ok_and(|groups| groups.contains(control.group()))
                             {
-                                return Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(delivery));
+                                return Ok(transport_nostr::AccountDeliveryReceive::Delivery(delivery));
                             }
                             client.adapter.release_account_delivery(&delivery.message.id);
                         }
                         if enrollment_capacity_retry.is_some() {
                             tokio::time::sleep(Duration::from_millis(100)).await;
-                            Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(
+                            Ok(transport_nostr::AccountDeliveryReceive::Delivery(
                                 enrollment_capacity_retry.take().expect("one exact capacity envelope"),
                             ))
                         } else { client.receive_next_delivery().await }
                     }, if !client.has_pending_effect_projections() => {
                         #[cfg(test)]
-                        if let Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(delivery)) = &received
+                        if let Ok(transport_nostr::AccountDeliveryReceive::Delivery(delivery)) = &received
                             && let (Ok(event_id), Some(subscription_id)) = (
                                 <[u8; 32]>::try_from(delivery.message.id.as_slice()),
                                 delivery.source.subscription_id.as_ref(),
@@ -2555,11 +2555,11 @@ async fn run_app_runtime_account_worker(
                         // delivery has been claimed, finish ingest + incidental
                         // publish + projection as one uncancelled worker operation;
                         // commands remain queued until that durable sequence lands.
-                        let delivery_started = matches!(&received, Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(_)))
+                        let delivery_started = matches!(&received, Ok(transport_nostr::AccountDeliveryReceive::Delivery(_)))
                             .then(Instant::now);
                         let receive_observation = shared.app_performance_telemetry().observe(RuntimeOp::WorkerReceive);
                         let result = match received {
-                            Ok(crate::relay_plane::AccountDeliveryReceive::Delivery(delivery)) => {
+                            Ok(transport_nostr::AccountDeliveryReceive::Delivery(delivery)) => {
                                 #[cfg(feature = "experimental-device-sync")]
                                 client.begin_selected_recipient_ingest();
                                 let result = client.ingest_observed_received_delivery(&delivery).await;
@@ -2586,7 +2586,7 @@ async fn run_app_runtime_account_worker(
                             // receive_next_delivery persisted the loss. The owned
                             // comparison job dispatched below recovers it off the
                             // worker, never by replaying live subscriptions.
-                            Ok(crate::relay_plane::AccountDeliveryReceive::Overflow(_)) => {
+                            Ok(transport_nostr::AccountDeliveryReceive::Overflow(_)) => {
                                 Ok(SyncSummary::default())
                             }
                             Err(err) => Err(err),

@@ -1,5 +1,5 @@
 //! Read-only, one-publication fixture observation before actual relay delivery.
-use super::*;
+use transport_nostr::MarmotRelayPlane;
 use cgka_traits::storage::{MessageStorage, OutboundFanoutStorage};
 use cgka_traits::{FanoutPendingKind, GroupId, message::StoredMessagePayload};
 use cgka_traits::{MemberId, MessageId, TransportPublishRequest};

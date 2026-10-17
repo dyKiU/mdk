@@ -1408,7 +1408,7 @@ impl AppClient {
 
 /// Actual account adapter publication of the one Engine-selected cached commit.
 struct PrivateCommitPublisher {
-    adapter: crate::relay_plane::MarmotRelayPlaneAccountAdapter,
+    adapter: transport_nostr::MarmotRelayPlaneAccountAdapter,
     target: cgka_traits::TransportPublishTarget,
     account: MemberId,
 }
@@ -1639,7 +1639,7 @@ impl AppClient {
 }
 
 struct PrivateWelcomePublisher {
-    adapter: crate::relay_plane::MarmotRelayPlaneAccountAdapter,
+    adapter: transport_nostr::MarmotRelayPlaneAccountAdapter,
     target: cgka_traits::TransportPublishTarget,
     account: MemberId,
 }

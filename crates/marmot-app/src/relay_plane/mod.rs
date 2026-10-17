@@ -1,5 +1,4 @@
-//! Compatibility paths for the generic transport plane and app-owned private fixtures.
-pub use transport_nostr::*;
+//! App-owned encrypted protocol fixtures and authoritative publication observations.
 #[cfg(all(
     test,
     feature = "experimental-device-sync",
