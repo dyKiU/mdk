@@ -61,7 +61,7 @@ def source_guard():
         subprocess.run(['git', 'merge-base', '--is-ancestor', ancestor, head], check=True)
     ensure(not git('diff', '--name-only', 'HEAD'), 'pristine-tracked-source')
     changed = set(git('diff', '--name-only', BASE, head).splitlines())
-    ensure(changed <= {SELF, WORKFLOW}, 'whole-product-and-existing-controller-tree-exact-reviewed-d10')
+    ensure(changed <= {SELF, WORKFLOW}, 'whole-product-and-existing-controller-tree-exact-reviewed-baseline')
     frozen = frozen_inputs()
     ensure(all(row['actual_executable'] == (row['mode'] == '100755') for row in frozen.values()
                if row['mode'] != '120000'), 'every-tracked-source-executable-mode-matches-index')
@@ -73,8 +73,8 @@ def source_guard():
     ensure(workflow.count(begin) == workflow.count(end) == 1, 'one-isolated-639-job-union')
     before, rest = workflow.split(begin)
     _, after = rest.split(end)
-    restored = (before + after).replace('options: [639-preflight, 639-controls, ', 'options: [', 1)
-    ensure(restored.encode() == subprocess.check_output(['git', 'show', BASE + ':' + WORKFLOW]), 'all-existing-workflow-options-and-jobs-exact-d10')
+    restored = (before + after).replace('options: [639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, ', 'options: [', 1)
+    ensure(restored.encode() == subprocess.check_output(['git', 'show', BASE + ':' + WORKFLOW]), 'all-existing-workflow-options-and-jobs-exact-reviewed-baseline')
     sdk, plane = Path(ADAPTER).read_text(), Path(PLANE).read_text()
     dispatch = section(sdk, 'async fn dispatch_sdk_notification_inner(', '\nimpl NostrSdkRelayClient {')
     ensure(dispatch.count('match notification {') == 1
@@ -98,7 +98,7 @@ def source_guard():
     return {'source': head, 'baseline': BASE, 'incoming_upstream': UPSTREAM,
             'source_tree': git('rev-parse', 'HEAD^{tree}'), 'baseline_tree': git('rev-parse', BASE + '^{tree}'),
             'workflow_identity': os.environ['GITHUB_WORKFLOW_REF'],
-            'whole_product_controller_and_test_inputs_exact_d10': True,
+            'whole_product_controller_and_test_inputs_exact_reviewed_baseline': True,
             'all_existing_workflow_jobs_preserved': True,
             'source_scope_oracles_passed': True, 'metadata_overlay': sorted(changed),
             'input_manifest_sha256': digest(json.dumps(frozen, sort_keys=True).encode()),
@@ -136,6 +136,7 @@ def parse_runtime(raw, code, name):
            'passed': None, 'failed': None, 'ignored': None,
            'compiler_error_count': len(re.findall(r'^error(?:\[E\d+\])?:', raw, re.M)),
            'panic_headers': raw.count('panicked at '), 'panic_policy_passed': panic_policy(raw, name),
+           'safe_panic_diagnostics': safe_panic_diagnostics(raw, name),
            'passed_gate': False}
     if len(summary) == 1 and names == [name]:
         status, passed, failed, ignored, measured, _ = summary[0]
@@ -145,6 +146,25 @@ def parse_runtime(raw, code, name):
             row['passed_gate'] = (code == 0 and passed == 1 and failed == 0
                                   and row['compiler_error_count'] == 0 and row['panic_policy_passed'])
     return row
+
+
+def safe_panic_diagnostics(raw, name):
+    # Diagnostic only: never broaden panic_policy or emit arbitrary thread,
+    # path or message strings. Unknown values remain explicitly unknown.
+    headers = re.findall(r"thread '([^'\n]{1,300})'(?: \([0-9]+\))? panicked at ([^\n]{1,600}):([0-9]+):([0-9]+):\n([^\n]{0,500})", raw)
+    known = frozen_inputs()
+    rows = []
+    for thread, filename, line, column, message in headers[:4]:
+        category = ('selected-test' if thread == name else thread if thread in {'tokio-runtime-worker', 'tokio-rt-worker'} else 'unknown')
+        checkout = str(Path.cwd()) + '/'
+        relative = filename[len(checkout):] if filename.startswith(checkout) else filename
+        located = relative in known and relative.endswith('.rs') and 0 < int(line) <= 2147483647 and 0 < int(column) <= 2147483647
+        form = ('checkout-absolute' if filename.startswith(checkout) else 'tracked-relative') if located else 'unknown'
+        rows.append({'thread_category': category, 'known_source': relative if located else None, 'source_path_form': form,
+                     'line': int(line) if located else None, 'column': int(column) if located else None,
+                     'expected_worker_message': message == 'injected relay notification worker failure'})
+    return {'headers_parsed': len(headers), 'unparsed_header_count': max(0, raw.count('panicked at ') - len(headers)),
+            'truncated': len(headers) > 4, 'rows': rows}
 
 
 def parser_preflight():
@@ -173,7 +193,21 @@ def parser_preflight():
     for index, value in enumerate(unexpected):
         selected = name if index < 2 else worker
         ensure(not parse_runtime(value, 0, selected)['passed_gate'], 'missing-extra-or-foreign-worker-panic-rejected')
-    return {'positive': 3, 'negative': len(negatives) + 1 + len(unexpected), 'actual_runtime_bodies': 0}
+    observed = safe_panic_diagnostics(panic, worker)
+    ensure(observed['headers_parsed'] == 1 and observed['rows'] == [
+        {'thread_category': 'tokio-runtime-worker', 'known_source': PLANE, 'line': line,
+         'column': column, 'source_path_form': 'tracked-relative', 'expected_worker_message': True}], 'closed-known-panic-diagnostic-positive')
+    absolute = safe_panic_diagnostics(panic.replace(PLANE, str(Path.cwd()) + '/' + PLANE), worker)
+    ensure(absolute['rows'][0]['known_source'] == PLANE and absolute['rows'][0]['source_path_form'] == 'checkout-absolute', 'closed-checkout-absolute-panic-location-positive')
+    private = "thread 'PRIVATE_RUNTIME_VALUE' panicked at /PRIVATE_RUNTIME_VALUE.rs:1:1:\nPRIVATE_RUNTIME_VALUE\n"
+    unknown = safe_panic_diagnostics(private, worker)
+    ensure(unknown['headers_parsed'] == 1 and unknown['rows'] == [
+        {'thread_category': 'unknown', 'known_source': None, 'line': None, 'column': None,
+         'source_path_form': 'unknown', 'expected_worker_message': False}] and 'PRIVATE_RUNTIME_VALUE' not in json.dumps(unknown), 'unknown-panic-values-never-exported')
+    ensure(safe_panic_diagnostics(private * 5, worker)['truncated'] is True, 'panic-diagnostic-export-bounded')
+    ensure(safe_panic_diagnostics('unparsed panicked at hidden\n', worker)['unparsed_header_count'] == 1, 'unknown-panic-header-explicit')
+    return {'positive': 3, 'negative': len(negatives) + 1 + len(unexpected),
+            'diagnostic_positive': 2, 'diagnostic_privacy_and_unknown_controls': 3, 'actual_runtime_bodies': 0}
 
 
 def compile_package(package, cohort, row):
@@ -207,10 +241,12 @@ def compile_package(package, cohort, row):
     return binary
 
 
-def transport_controls(cohort, report, frozen, save):
+def transport_controls(cohort, report, frozen, save, worker_only=False):
     report['transport'] = {}
-    for package, suffixes, prefix in [('transport-nostr-adapter', ADAPTER_TESTS, 'sdk_client::tests::'),
-                                      ('transport-nostr', PLANE_TESTS + ([CAPTURE_TEST] if cohort == 'experimental' else []), 'tests::')]:
+    selection = [('transport-nostr', ['failed_notification_worker_latches_queued_loss_for_only_its_account'], 'tests::')] if worker_only else [
+        ('transport-nostr-adapter', ADAPTER_TESTS, 'sdk_client::tests::'),
+        ('transport-nostr', PLANE_TESTS + ([CAPTURE_TEST] if cohort == 'experimental' else []), 'tests::')]
+    for package, suffixes, prefix in selection:
         row = {'bodies': {}}
         report['transport'][package] = row
         try:
@@ -286,6 +322,12 @@ def static_checks(cohort, production, report):
                         'safe_compiler_diagnostics': [storage.safe_compiler_diagnostic(event, frozen_inputs()) for event in events
                             if event.get('reason') == 'compiler-message' and event.get('message', {}).get('level') == 'error'][:16],
                         'diagnostics_truncated': errors > 16}
+    closed_lints = {'clippy::type_complexity', 'clippy::too_many_arguments', 'private_interfaces', 'private_bounds'}
+    report['static']['closed_lint_diagnostics'] = [
+        {'lint': event['message']['code']['code'] if isinstance(event['message'].get('code'), dict)
+             and event['message']['code'].get('code') in closed_lints else 'unknown',
+         'location': storage.safe_compiler_diagnostic(event, frozen_inputs())}
+        for event in events if event.get('reason') == 'compiler-message' and event.get('message', {}).get('level') == 'error'][:16]
     ensure(code == errors == 0 and set(selected) == {package.replace('-', '_') for package in PACKAGES}, 'all-four-affected-packages-actually-compiled')
     ensure(all(('experimental-device-sync' in values) == (production or cohort == 'experimental') for values in selected.values()), 'static-actual-experimental-cohort')
     if production:
@@ -294,7 +336,7 @@ def static_checks(cohort, production, report):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode', choices=['preflight', 'runtime', 'static', 'production'], required=True)
+    parser.add_argument('--mode', choices=['preflight', 'runtime', 'static', 'production', 'worker-diagnostic'], required=True)
     parser.add_argument('--cohort', choices=['default', 'experimental'], default='experimental')
     args = parser.parse_args()
     os.umask(0o077)
@@ -318,6 +360,10 @@ def main():
             if args.cohort == 'experimental':
                 report['directed'] = directed_controls()
             report['focused_checks_passed'] = True
+        elif args.mode == 'worker-diagnostic':
+            ensure(args.cohort == 'default', 'worker-diagnostic-default-one-body-only')
+            transport_controls(args.cohort, report, frozen, save, worker_only=True)
+            report['diagnostic_case_passed_existing_strict_oracle'] = True
         else:
             static_checks(args.cohort, args.mode == 'production', report)
             report['focused_checks_passed'] = True
@@ -327,7 +373,7 @@ def main():
         raise SystemExit(1)
     finally:
         bodies = [body for package in report.get('transport', {}).values() for body in package['bodies'].values()]
-        report['expected_transport_bodies'] = 13 if args.cohort == 'experimental' else 12
+        report['expected_transport_bodies'] = 1 if args.mode == 'worker-diagnostic' else 13 if args.cohort == 'experimental' else 12
         report['actual_transport_counts_complete'] = len(bodies) == report['expected_transport_bodies'] and all(row['actual_counts_complete'] for row in bodies)
         report['actual_transport_executed_nonignored'] = sum(row['executed_nonignored'] for row in bodies) if bodies and all(row['actual_counts_complete'] for row in bodies) else None
         report['inputs_pristine'] = frozen_inputs() == frozen

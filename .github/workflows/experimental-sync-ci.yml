@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [639-preflight, 639-controls, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
@@ -56,7 +56,7 @@ env:
 jobs:
   # MERGE_639_JOBS_BEGIN
   merge-639-preflight:
-    if: github.event_name == 'workflow_dispatch' && (inputs.scope == '639-preflight' || inputs.scope == '639-controls')
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["639-preflight","639-controls","639-worker-diagnostic","639-static-diagnostic"]'), inputs.scope)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -96,14 +96,14 @@ jobs:
           retention-days: 7
   merge-639-runtime:
     needs: merge-639-preflight
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == '639-controls'
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == '639-controls' || inputs.scope == '639-worker-diagnostic')
     runs-on: ubuntu-latest
     timeout-minutes: 100
     strategy:
       fail-fast: false
       max-parallel: 2
       matrix:
-        cohort: [default, experimental]
+        cohort: ${{ fromJSON(inputs.scope == '639-worker-diagnostic' && '["default"]' || '["default","experimental"]') }}
     env:
       CARGO_BUILD_JOBS: '2'
       UPSTREAM_639_BASELINE: ${{ inputs.extraction_cohort_baseline }}
@@ -125,7 +125,7 @@ jobs:
           CARGO_INCREMENTAL: '1'
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Reviewed 639 focused controls' --output "$RUNNER_TEMP/merge-639-capacity.json"
-          python3 scripts/qualify_upstream_639_merge.py --mode runtime --cohort '${{ matrix.cohort }}'
+          python3 scripts/qualify_upstream_639_merge.py --mode '${{ inputs.scope == '639-worker-diagnostic' && 'worker-diagnostic' || 'runtime' }}' --cohort '${{ matrix.cohort }}'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -139,14 +139,14 @@ jobs:
           retention-days: 7
   merge-639-static:
     needs: merge-639-preflight
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == '639-controls'
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == '639-controls' || inputs.scope == '639-static-diagnostic')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       max-parallel: 2
       matrix:
-        cohort: [default, experimental]
+        cohort: ${{ fromJSON(inputs.scope == '639-static-diagnostic' && '["experimental"]' || '["default","experimental"]') }}
     env:
       CARGO_BUILD_JOBS: '2'
       UPSTREAM_639_BASELINE: ${{ inputs.extraction_cohort_baseline }}
