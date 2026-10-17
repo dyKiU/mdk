@@ -1,3 +1,7 @@
+// FINITE_QUEUE_TEST_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+mod test_sibling_finite_queue;
+// FINITE_QUEUE_TEST_END
 // COMPLETION_TEST_BEGIN
 #[cfg(all(
     test,
@@ -439,6 +443,10 @@ impl Drop for SubmissionClassificationHold {
 
 #[derive(Clone)]
 pub struct RuntimeSharedServices {
+    // FINITE_QUEUE_TEST_BEGIN
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    sibling_finite_queue_probe: Arc<StdMutex<Option<Arc<test_sibling_finite_queue::Probe>>>>,
+    // FINITE_QUEUE_TEST_END
     // COMPLETION_TEST_BEGIN
     #[cfg(all(
         test,
@@ -595,6 +603,10 @@ impl Default for RuntimeSharedServices {
                 feature = "test-policy-overrides"
             ))]
             linking_periodic_test_gates: Arc::new(StdMutex::new(HashMap::new())),
+            // FINITE_QUEUE_TEST_BEGIN
+            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            sibling_finite_queue_probe: Arc::new(StdMutex::new(None)),
+            // FINITE_QUEUE_TEST_END
             // COMPLETION_TEST_END
             attachment_transfer: Arc::new(tokio::sync::Semaphore::new(1)),
             local_submission_wakeups: watch::channel(()).0,
@@ -769,6 +781,10 @@ impl RuntimeSharedServices {
                 feature = "test-policy-overrides"
             ))]
             linking_periodic_test_gates: Arc::new(StdMutex::new(HashMap::new())),
+            // FINITE_QUEUE_TEST_BEGIN
+            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            sibling_finite_queue_probe: Arc::new(StdMutex::new(None)),
+            // FINITE_QUEUE_TEST_END
             // COMPLETION_TEST_END
             attachment_transfer: Arc::new(tokio::sync::Semaphore::new(1)),
             attachment_updates: watch::channel(()).0,

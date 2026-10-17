@@ -2108,6 +2108,12 @@ async fn run_app_runtime_account_worker(
                         #[cfg(feature = "experimental-device-sync")]
                         {
                             sibling_maintenance_due = true;
+                            // FINITE_QUEUE_TEST_BEGIN
+                            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                            if let Some(probe) = super::test_sibling_finite_queue::latched(&shared, &client) {
+                                super::test_sibling_finite_queue::wait_latched(&shared, probe).await;
+                            }
+                            // FINITE_QUEUE_TEST_END
                         }
                     }
 
@@ -2127,11 +2133,23 @@ async fn run_app_runtime_account_worker(
                         #[cfg(feature = "experimental-device-sync")]
                         {
                             sibling_maintenance_due = false;
+                            // FINITE_QUEUE_TEST_BEGIN
+                            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                            super::test_sibling_finite_queue::before_service(&shared, &client);
+                            // FINITE_QUEUE_TEST_END
                             if !lifecycle.is_stopping()
                                 && client.maintain_sibling_sharing().await.is_err()
                             {
                                 tracing::debug!(target: "marmot_app::device_linking", method = "worker_sibling_maintenance", "sibling maintenance deferred");
+                            // FINITE_QUEUE_TEST_BEGIN
+                            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                            super::test_sibling_finite_queue::failed_service(&shared);
+                            // FINITE_QUEUE_TEST_END
                             }
+                            // FINITE_QUEUE_TEST_BEGIN
+                            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                            super::test_sibling_finite_queue::returned_service(&shared, &client);
+                            // FINITE_QUEUE_TEST_END
                         }
                     }
                     completed = async {
@@ -6000,6 +6018,10 @@ fn account_worker_command_future<'a>(
         }),
         AccountWorkerCommand::GroupRecoveryStatus { group_id, respond } => Box::pin(async move {
             let _ = respond.send(group_recovery_after_hydration(client, &group_id));
+            // FINITE_QUEUE_TEST_BEGIN
+            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            super::test_sibling_finite_queue::replied(shared, &group_id);
+            // FINITE_QUEUE_TEST_END
             true
         }),
         AccountWorkerCommand::HistoryNotices { respond } => Box::pin(async move {

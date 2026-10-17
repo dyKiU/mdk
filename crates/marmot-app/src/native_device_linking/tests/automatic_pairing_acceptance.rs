@@ -2156,3 +2156,8 @@ mod late_sibling_consent_acceptance;
 #[path = "recipient_sibling_admission_acceptance.rs"]
 mod recipient_sibling_admission_acceptance;
 // RECIPIENT_ADMISSION_TEST_END
+// FINITE_QUEUE_TEST_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+#[path = "sibling_finite_queue_acceptance.rs"]
+mod sibling_finite_queue_acceptance;
+// FINITE_QUEUE_TEST_END
