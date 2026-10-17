@@ -1207,6 +1207,8 @@ jobs:
           shared-key: core-regressions
           cache-on-failure: 'true'
       - name: Run real SDK controls, sole context mutant and exact restored controls
+        env:
+          CARGO_INCREMENTAL: '1'
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Actual late Catalog ACK'
           python3 scripts/qualify_upstream_body_late_ack.py
