@@ -904,6 +904,15 @@ async fn compare_and_confirm_pair(a: &DeviceLinkingSession, b: &DeviceLinkingSes
 
 #[tokio::test]
 async fn automatic_pairing_requires_explicit_enrollment_and_shares_existing_and_later_chats() {
+    automatic_pairing_with_recipient_approval_delay(false).await;
+}
+
+#[tokio::test]
+async fn automatic_pairing_delayed_recipient_approval_does_not_lose_welcome() {
+    automatic_pairing_with_recipient_approval_delay(true).await;
+}
+
+async fn automatic_pairing_with_recipient_approval_delay(delay_recipient: bool) {
     use cgka_traits::StorageProvider;
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();
@@ -979,7 +988,44 @@ async fn automatic_pairing_requires_explicit_enrollment_and_shares_existing_and_
         .continue_automatic_linking(revision, true)
         .await
         .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    // A person may approve the scanning/approver device several seconds before
+    // the displayed/new device. Exercise actual relay receipt during that gap,
+    // rather than approving the recipient before the first publication tick.
+    let delay = if delay_recipient { 5_000 } else { 250 };
+    let until = std::time::Instant::now() + std::time::Duration::from_millis(delay);
+    let account_id = cgka_traits::MemberId::new(keys.public_key().to_bytes().to_vec());
+    let mut early_welcome_cached = false;
+    while std::time::Instant::now() < until {
+        assert!(no_policy(), "one side's approval cannot approve its peer");
+        if delay_recipient {
+            let storage = apps[0].account_storage("test").unwrap();
+            if let Some(fact) = storage
+                .private_device_invite_storage()
+                .unwrap()
+                .private_invite()
+                .unwrap()
+                && let Some(transport) = fact.transport
+            {
+                for message in transport.welcomes {
+                    if apps[1]
+                        .relay_plane
+                        .account_sdk_event_observation_for_test(
+                            &account_id,
+                            std::str::from_utf8(&message.payload).unwrap(),
+                        )
+                        .await
+                        .is_some_and(|state| state[0])
+                    {
+                        early_welcome_cached = true;
+                    }
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    if delay_recipient {
+        eprintln!("automatic-approval-order-control early_welcome_cached={early_welcome_cached}");
+    }
     assert!(no_policy(), "one side's approval cannot approve its peer");
     recipient
         .continue_automatic_linking(recipient.snapshot().await.unwrap().revision, true)

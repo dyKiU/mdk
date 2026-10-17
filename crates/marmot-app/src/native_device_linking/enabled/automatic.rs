@@ -152,6 +152,7 @@ enum Sent {
     Response,
     Verification(String),
     Enrollment,
+    RecipientReady,
 }
 /// Scheduling intent from an explicit revision-bound approval, never a proof.
 /// The serial worker must still validate its retained original on finalization.
@@ -173,6 +174,8 @@ pub(super) struct Driver {
     last_send: std::time::Instant,
     deadline: std::time::Instant,
     enrollment_delivered: bool,
+    recipient_ready_sent: bool,
+    peer_recipient_ready: bool,
     siblings: Vec<(PublicKey, Sender)>,
     siblings_prepared: bool,
 }
@@ -207,6 +210,8 @@ impl Driver {
             last_send: std::time::Instant::now() - std::time::Duration::from_secs(1),
             deadline,
             enrollment_delivered: false,
+            recipient_ready_sent: false,
+            peer_recipient_ready: false,
             siblings: Vec::new(),
             siblings_prepared: false,
         };
@@ -320,6 +325,17 @@ impl Driver {
                             .receive_packet(bytes.to_vec())
                             .await?
                     }
+                    MessageKind::RecipientReady
+                        if self.stage == Stage::Verifying
+                            && original.is_some_and(|session| !session.inner.new_device)
+                            && bytes.is_empty() =>
+                    {
+                        // Scheduling observation from this attempt's pinned,
+                        // encrypted peer only. It never supplies local consent:
+                        // drive_automatic_enrollment_choice still validates the
+                        // original revision-bound human action and Core owner.
+                        self.peer_recipient_ready = true;
+                    }
                     MessageKind::Enrollment => {
                         let original = original.ok_or(DeviceLinkingError::NotReady)?;
                         let revision = original.snapshot().await?.revision;
@@ -399,6 +415,20 @@ impl Driver {
                     )
                 };
                 if enrolling {
+                    if original.inner.new_device && !self.recipient_ready_sent {
+                        // The recipient's own explicit approval has successfully
+                        // started its actual native continuation. Singleton
+                        // Welcome admission is now armed; endorsed enrollment
+                        // still requires its separately authenticated artifact.
+                        // Do not let the approver publish a Welcome while it
+                        // would fall through the recipient's unarmed gate.
+                        self.sender
+                            .queue(MessageKind::RecipientReady, &[])
+                            .map_err(wire_error)?;
+                        self.sent = Some(Sent::RecipientReady);
+                        self.recipient_ready_sent = true;
+                        return Ok(());
+                    }
                     // Singleton continuation already owns automatic Add/Welcome
                     // publication. Only an actually accepted existing-roster setup
                     // has the endorsed recipient artifact transport phase.
@@ -483,7 +513,10 @@ impl Driver {
                         .queue(MessageKind::Verification, &packet.bytes)
                         .map_err(wire_error)?;
                     self.sent = Some(Sent::Verification(packet.acknowledgement_id));
-                } else if authorized {
+                } else if authorized && (original.inner.new_device || self.peer_recipient_ready) {
+                    // The approver must retain its own explicit choice AND
+                    // observe recipient readiness before transferring SDK custody
+                    // into Add/Welcome publication. A relay ACK is insufficient.
                     match original.drive_automatic_enrollment_choice().await {
                         Ok(())
                         | Err(DeviceLinkingError::NotReady | DeviceLinkingError::StaleRevision) => {
