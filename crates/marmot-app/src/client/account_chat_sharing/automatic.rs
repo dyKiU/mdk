@@ -187,10 +187,10 @@ impl Drop for AutomaticChannel {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         body_negative_probe::retired(self);
         // BODY_NEGATIVE_TEST_END
-// BODY_LATE_ACK_TEST_BEGIN
+        // BODY_LATE_ACK_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         body_late_ack_probe::retired(self);
-// BODY_LATE_ACK_TEST_END
+        // BODY_LATE_ACK_TEST_END
     }
 }
 // Test-only compatibility encoding keeps the actual eligibility, digest and
@@ -920,10 +920,10 @@ impl AppClient {
             .sent
             .insert(receipt.group.as_slice().to_vec(), receipt.source_digest);
         entry.pending_catalog = None;
-// BODY_LATE_ACK_TEST_BEGIN
+        // BODY_LATE_ACK_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         body_late_ack_probe::receipt(self.app.account_home().root(), entry, &receipt);
-// BODY_LATE_ACK_TEST_END
+        // BODY_LATE_ACK_TEST_END
         Ok(())
     }
 }
@@ -1487,10 +1487,10 @@ impl AppClient {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         body_negative_probe::effects(self.app.account_home().root(), entry);
         // BODY_NEGATIVE_TEST_END
-// BODY_LATE_ACK_TEST_BEGIN
+        // BODY_LATE_ACK_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         body_late_ack_probe::effects(self.app.account_home().root(), entry);
-// BODY_LATE_ACK_TEST_END
+        // BODY_LATE_ACK_TEST_END
         entry.pending.pop_front();
         entry.next_body += 1;
         if entry.pending.is_empty()
@@ -1776,16 +1776,26 @@ impl AppClient {
                     );
                 })
                 // BODY_NEGATIVE_TEST_END
-// BODY_LATE_ACK_TEST_BEGIN
+                // BODY_LATE_ACK_TEST_BEGIN
                 .inspect_err(|_error| {
                     #[cfg(all(test, feature = "test-policy-overrides"))]
-                    body_late_ack_probe::harvest(self.app.account_home().root(), publication.task.id(), false, _error.is_cancelled());
+                    body_late_ack_probe::harvest(
+                        self.app.account_home().root(),
+                        publication.task.id(),
+                        false,
+                        _error.is_cancelled(),
+                    );
                 })
                 .inspect(|_result| {
                     #[cfg(all(test, feature = "test-policy-overrides"))]
-                    body_late_ack_probe::harvest(self.app.account_home().root(), publication.task.id(), _result.is_ok(), false);
+                    body_late_ack_probe::harvest(
+                        self.app.account_home().root(),
+                        publication.task.id(),
+                        _result.is_ok(),
+                        false,
+                    );
                 })
-// BODY_LATE_ACK_TEST_END
+                // BODY_LATE_ACK_TEST_END
                 .map_err(|_| AccountSharingError::RuntimeUnavailable)
                 .and_then(|result| result);
             match result {
@@ -1816,12 +1826,16 @@ impl AppClient {
                 || !entry.original.live()
                 || std::time::Instant::now() >= publication.deadline
             {
-// BODY_LATE_ACK_TEST_BEGIN
-            #[cfg(all(test, feature = "test-policy-overrides"))]
-            if !context_matches {
-                body_late_ack_probe::rejected(self.app.account_home().root(), entry, publication);
-            }
-// BODY_LATE_ACK_TEST_END
+                // BODY_LATE_ACK_TEST_BEGIN
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                if !context_matches {
+                    body_late_ack_probe::rejected(
+                        self.app.account_home().root(),
+                        entry,
+                        publication,
+                    );
+                }
+                // BODY_LATE_ACK_TEST_END
                 entry.publication.take();
                 entry.renew = true;
                 return Err(AccountSharingError::Closed);
@@ -1990,19 +2004,21 @@ impl AppClient {
         let original = entry.original.clone();
         let adapter = self.adapter.clone();
         let mut shutdown = self.history_owner.runtime_shutdown.clone();
-// BODY_LATE_ACK_TEST_BEGIN
+        // BODY_LATE_ACK_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         body_late_ack_probe::arm(self.app.account_home().root(), entry, kind, &request);
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let late_ack_lifetime = body_late_ack_probe::lifetime(self.app.account_home().root(), &request.message.id);
+        let late_ack_lifetime =
+            body_late_ack_probe::lifetime(self.app.account_home().root(), &request.message.id);
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        let late_ack_receipt_gate = body_late_ack_probe::receipt_gate(self.app.account_home().root(), entry, kind);
-// BODY_LATE_ACK_TEST_END
+        let late_ack_receipt_gate =
+            body_late_ack_probe::receipt_gate(self.app.account_home().root(), entry, kind);
+        // BODY_LATE_ACK_TEST_END
         let publication_future = async move {
-// BODY_LATE_ACK_TEST_BEGIN
+            // BODY_LATE_ACK_TEST_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
             let _late_ack_lifetime = late_ack_lifetime;
-// BODY_LATE_ACK_TEST_END
+            // BODY_LATE_ACK_TEST_END
             let _slot = slot;
             let revoked = original.revoked.notified();
             tokio::pin!(revoked);
@@ -2026,40 +2042,42 @@ impl AppClient {
                 return Err(AccountSharingError::Closed);
             }
             let report = tokio::select! { biased;
-                    () = &mut stopping => return Err(AccountSharingError::Closed),
-                    () = &mut revoked => return Err(AccountSharingError::Closed),
-                    () = tokio::time::sleep_until(publication_deadline.into()) => return Err(AccountSharingError::Closed),
-                    report =
-            // AUTOMATIC_BODY_TEST_BEGIN
-            async {
-                #[cfg(all(test, feature = "test-policy-overrides"))]
-                adapter.hold_automatic_catalog_body_for_test(&request, body_catalog_group.as_ref()).await;
-            // AUTOMATIC_BODY_TEST_END
-            // BODY_NEGATIVE_TEST_BEGIN
-            #[cfg(all(test, feature = "test-policy-overrides"))]
-            if let Some(gate) = &negative_intent_gate { gate.wait(input_payload_digest).await; }
-            // BODY_NEGATIVE_TEST_END
-// BODY_LATE_ACK_TEST_BEGIN
-            #[cfg(all(test, feature = "test-policy-overrides"))]
-            if let Some(gate) = &late_ack_receipt_gate { body_late_ack_probe::wait_receipt(gate).await; }
-// BODY_LATE_ACK_TEST_END
-            adapter.publish_automatic_control(request)
-            // AUTOMATIC_BODY_TEST_BEGIN
-            .await
-            }
-            // AUTOMATIC_BODY_TEST_END
-                    => report.map_err(|_| AccountSharingError::RuntimeUnavailable)?,
-                };
+                                () = &mut stopping => return Err(AccountSharingError::Closed),
+                                () = &mut revoked => return Err(AccountSharingError::Closed),
+                                () = tokio::time::sleep_until(publication_deadline.into()) => return Err(AccountSharingError::Closed),
+                                report =
+                        // AUTOMATIC_BODY_TEST_BEGIN
+                        async {
+                            #[cfg(all(test, feature = "test-policy-overrides"))]
+                            adapter.hold_automatic_catalog_body_for_test(&request, body_catalog_group.as_ref()).await;
+                        // AUTOMATIC_BODY_TEST_END
+                        // BODY_NEGATIVE_TEST_BEGIN
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        if let Some(gate) = &negative_intent_gate { gate.wait(input_payload_digest).await; }
+                        // BODY_NEGATIVE_TEST_END
+            // BODY_LATE_ACK_TEST_BEGIN
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        if let Some(gate) = &late_ack_receipt_gate { body_late_ack_probe::wait_receipt(gate).await; }
+            // BODY_LATE_ACK_TEST_END
+                        adapter.publish_automatic_control(request)
+                        // AUTOMATIC_BODY_TEST_BEGIN
+                        .await
+                        }
+                        // AUTOMATIC_BODY_TEST_END
+                                => report.map_err(|_| AccountSharingError::RuntimeUnavailable)?,
+                            };
             if !original.live() {
                 return Err(AccountSharingError::Closed);
             }
             if !report.met_required_acks() {
                 return Err(AccountSharingError::NotReady);
             }
-// BODY_LATE_ACK_TEST_BEGIN
+            // BODY_LATE_ACK_TEST_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            if let Some(lifetime) = &_late_ack_lifetime { lifetime.accepted(); }
-// BODY_LATE_ACK_TEST_END
+            if let Some(lifetime) = &_late_ack_lifetime {
+                lifetime.accepted();
+            }
+            // BODY_LATE_ACK_TEST_END
             Ok(report)
         };
         let task = tokio::spawn(publication_future);
@@ -2074,10 +2092,10 @@ impl AppClient {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         body_negative_probe::capture(self.app.account_home().root(), entry);
         // BODY_NEGATIVE_TEST_END
-// BODY_LATE_ACK_TEST_BEGIN
+        // BODY_LATE_ACK_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         body_late_ack_probe::capture(self.app.account_home().root(), entry);
-// BODY_LATE_ACK_TEST_END
+        // BODY_LATE_ACK_TEST_END
         if let Some(id) = body_id {
             self.account_sharing_owner.automatic_body_after = Some(id);
         }
