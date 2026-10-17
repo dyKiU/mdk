@@ -104,11 +104,12 @@ async fn admitted_recipient_starts_first_consent_without_periodic_tick() {
         // This transport hold is not a receipt. Its identity must later match
         // the actual Request retained on B's original Core channel, or this
         // fixture is unqualified (automatic Group traffic can also use this gate).
-        let (request_observed, request_release) = apps[1]
-            .relay_plane
-            .hold_next_selected_commit(cgka_traits::MemberId::new(
-                keys.public_key().to_bytes().to_vec(),
-            ));
+        let (request_observed, request_release) =
+            apps[1]
+                .relay_plane
+                .hold_next_selected_commit(cgka_traits::MemberId::new(
+                    keys.public_key().to_bytes().to_vec(),
+                ));
         let request_release = PublicationRelease(request_release);
         let approval = tokio::time::timeout(Duration::from_secs(20), async {
             loop {
@@ -189,8 +190,8 @@ async fn admitted_recipient_starts_first_consent_without_periodic_tick() {
         let child = tokio::time::timeout(Duration::from_secs(15), admission.observed())
             .await
             .expect("actual fresh recipient child admitted while periodic work is gated");
-        facts[1] = child.flags == [true, true, true, true, false, false]
-            && child.nonce == request.nonce;
+        facts[1] =
+            child.flags == [true, true, true, true, false, false] && child.nonce == request.nonce;
         // Preserve the receiver if the intended first-publication verdict is
         // negative. Cleanup and ordinary positive progress must still execute.
         let first = tokio::time::timeout(Duration::from_secs(15), &mut consent_observed)
