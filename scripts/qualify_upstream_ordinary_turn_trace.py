@@ -45,9 +45,9 @@ SCHEMAS = [
 STAGES = {'initial-two-comparison', 'initial-two-completion', 'initial-two-completed', 'third-device-comparison', 'third-device-completion', 'third-device-completed', 'fourth-device-comparison', 'fourth-device-completion', 'fourth-device-completed', 'sibling-consent-held-before-peer-progress', 'automatic-publication-held-before-completion'}
 PREFIX = 'automatic-enrollment-control '
 CASE = ORIGINALS[0]
-TURN_STAGES = 'WorkerLoop|BeforeSelect|TickLatched|Selected|Enter|OpaqueStart|OpaqueDone|PendingStart|PendingDone|BeginStart|BeginDone|LoopStart|AdvanceStart|AdvanceEnd|Return|ChildAdded'
-TURN_COUNTS = array(16)
-TURN_TIMES = sequence(option(NUMBER), 16, r'\[', r'\]')
+TURN_STAGES = 'WorkerLoop|BeforeSelect|Enter|OpaqueStart|OpaqueDone|PendingStart|PendingDone|BeginStart|BeginDone|LoopStart|AdvanceStart|AdvanceEnd|Return|ChildAdded'
+TURN_COUNTS = array(14)
+TURN_TIMES = sequence(option(NUMBER), 14, r'\[', r'\]')
 TURN_INDEX = r'(?:[0-9]|[1-9][0-9]|1[01][0-9]|12[0-7])'
 TURN_POINT = option(r'\((' + TURN_STAGES + '), ' + option(TURN_INDEX) + ', ' + NUMBER + r'\)')
 TURN_RETURN = option(r'\((' + TURN_STAGES + '), ' + NUMBER + r'\)')
@@ -55,7 +55,7 @@ TURN_DUE = option(sequence(BOOLEAN, 3, r'\[', r'\]'))
 TURN_LINE = r'ordinary-sibling-turn side=(left|right) trace=(\(' + ', '.join([TURN_COUNTS, TURN_TIMES, TURN_POINT, TURN_RETURN, TURN_DUE, BOOLEAN, NUMBER]) + r'\))'
 SIBLING = 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs'
 PROBE = 'crates/marmot-app/src/client/device_linking/sibling_sharing/turn_probe.rs'
-HOOKS = {SIBLING: 13, 'crates/marmot-app/src/runtime/account_worker.rs': 4,
+HOOKS = {SIBLING: 13, 'crates/marmot-app/src/runtime/account_worker.rs': 2,
          'crates/marmot-app/src/native_device_linking/enabled.rs': 1,
          'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': 1}
 
@@ -133,7 +133,7 @@ def parser_controls():
         raise ValueError('adversarial-parser-control-accepted')
     ensure(diagnostics(phase)['phase_failures'][0]['left'] == 'VerificationCompleteEnrollmentPending', 'phase-projection')
     ensure(not diagnostics('private runtime output')['aggregates'], 'unrelated-raw-output-discarded')
-    trace = 'ordinary-sibling-turn side=right trace=(' + '[' + ', '.join(['0'] * 16) + '], [' + ', '.join(['None'] * 16) + '], Some((BeginStart, None, 10)), Some((BeginStart, 2)), Some([true, false, false]), false, 12)'
+    trace = 'ordinary-sibling-turn side=right trace=(' + '[' + ', '.join(['0'] * 14) + '], [' + ', '.join(['None'] * 14) + '], Some((BeginStart, None, 10)), Some((BeginStart, 2)), Some([true, false, false]), false, 12)'
     ensure(diagnostics(trace)['turn_traces'][0]['side'] == 'right', 'closed-turn-trace-positive')
     trace_variants = [trace.replace('right', 'secret'), trace.replace('BeginStart', 'SecretStage'), trace.replace('None', '"secret"', 1),
                       trace.replace('10)', '1000000001)'), trace + '\n' + trace, trace + ' extra',
@@ -233,13 +233,14 @@ def main(preflight):
             'channel_bits_low_to_high': ['original_live', 'state_live', 'ready', 'handshake_published', 'policy_committed', 'proof_published', 'peer_committed', 'complete'],
         }
         report['turn_trace_schema'] = {'stage_order': TURN_STAGES.split('|'),
-            'counts': '16 bounded counters', 'last_times': '16 optional elapsed milliseconds',
+            'counts': '14 bounded counters', 'last_times': '14 optional elapsed milliseconds',
             'point': 'optional stage/index/elapsed-since-point milliseconds',
             'returned': 'optional last routine stage/elapsed-routine milliseconds',
             'due': 'optional due/yielded/service booleans', 'active': 'routine entered without return',
             'clock': 'bounded elapsed milliseconds since this exact original was captured',
             'failure_interpretation': 'BeginStart without BeginDone plus Return means exited before successful begin; no typed error is invented',
-            'timing_interpretation': 'inclusive stage duration, not exclusive CPU cost'}
+            'timing_interpretation': 'inclusive stage duration, not exclusive CPU cost',
+            'worker_events': 'loop and preselect only; no explicit timer-latch or selection hook inside the unchanged select macro'}
         report['diagnostic_environment'] = {'WN_ORDINARY_SIBLING_TURN_TRACE': os.environ.get('WN_ORDINARY_SIBLING_TURN_TRACE')}
         report['parser_controls'] = parser_controls()
         report['source_before_sha256'] = identity(original)

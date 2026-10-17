@@ -73,10 +73,10 @@ pub(crate) struct OriginalEnrollmentSharingChoice {
     pending_controls: Mutex<Vec<PendingSiblingControl>>,
     #[cfg(all(test, feature = "test-policy-overrides"))]
     native_observation_probe: Mutex<NativeObservationProbe>,
-// ORDINARY_TURN_TEST_BEGIN
+    // ORDINARY_TURN_TEST_BEGIN
     #[cfg(all(test, feature = "test-policy-overrides"))]
     turn_probe: Option<Arc<turn_probe::Probe>>,
-// ORDINARY_TURN_TEST_END
+    // ORDINARY_TURN_TEST_END
     #[cfg(all(test, feature = "test-policy-overrides"))]
     recipient_diagnostics: [std::sync::atomic::AtomicUsize; 19],
     #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -658,12 +658,12 @@ impl OriginalEnrollmentSharingChoice {
             state.cancel();
         }
     }
-// ORDINARY_TURN_TEST_BEGIN
+    // ORDINARY_TURN_TEST_BEGIN
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn turn_trace_for_test(&self) -> Option<turn_probe::Snapshot> {
         self.turn_probe.as_ref().map(|probe| probe.snapshot())
     }
-// ORDINARY_TURN_TEST_END
+    // ORDINARY_TURN_TEST_END
     pub(crate) fn complete(&self) -> bool {
         let progress = self.progress.lock().expect("sharing choice");
         progress.primary_committed
@@ -698,10 +698,12 @@ impl OriginalEnrollmentSharingChoice {
             self.deadline,
         );
         children.push(state.clone());
-// ORDINARY_TURN_TEST_BEGIN
+        // ORDINARY_TURN_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(probe) = &self.turn_probe { probe.mark(turn_probe::Stage::ChildAdded, None); }
-// ORDINARY_TURN_TEST_END
+        if let Some(probe) = &self.turn_probe {
+            probe.mark(turn_probe::Stage::ChildAdded, None);
+        }
+        // ORDINARY_TURN_TEST_END
         if !self.live() {
             state.cancel();
             return Err(denied());
@@ -1232,10 +1234,10 @@ impl AppClient {
             pending_controls: Mutex::new(Vec::new()),
             #[cfg(all(test, feature = "test-policy-overrides"))]
             native_observation_probe: Mutex::default(),
-// ORDINARY_TURN_TEST_BEGIN
+            // ORDINARY_TURN_TEST_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
             turn_probe: turn_probe::Probe::enabled(),
-// ORDINARY_TURN_TEST_END
+            // ORDINARY_TURN_TEST_END
             #[cfg(all(test, feature = "test-policy-overrides"))]
             recipient_diagnostics: std::array::from_fn(|_| std::sync::atomic::AtomicUsize::new(0)),
             #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -1949,19 +1951,19 @@ impl AppClient {
         Ok(())
     }
     pub(crate) async fn maintain_sibling_sharing(&mut self) -> Result<(), ClientLinkingError> {
-// ORDINARY_TURN_TEST_BEGIN
+        // ORDINARY_TURN_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let turn_trace = turn_probe::current(self);
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let _turn_routine = turn_probe::Routine::enter(turn_trace.clone());
         #[cfg(all(test, feature = "test-policy-overrides"))]
         turn_probe::mark(&turn_trace, turn_probe::Stage::OpaqueStart);
-// ORDINARY_TURN_TEST_END
+        // ORDINARY_TURN_TEST_END
         self.retry_existing_sibling_opaque_controls();
-// ORDINARY_TURN_TEST_BEGIN
+        // ORDINARY_TURN_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         turn_probe::mark(&turn_trace, turn_probe::Stage::OpaqueDone);
-// ORDINARY_TURN_TEST_END
+        // ORDINARY_TURN_TEST_END
         let mut pending = Vec::new();
         for entry in &mut self.linking_owner.sibling_channels {
             for (control, signer, wire) in std::mem::take(&mut entry.pending_controls) {
@@ -1983,46 +1985,48 @@ impl AppClient {
             // maintenance must not recreate consent or require MLS redelivery.
             let _ = self.observe_sibling_sharing_control(&received, &wire);
         }
-// ORDINARY_TURN_TEST_BEGIN
+        // ORDINARY_TURN_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         turn_probe::mark(&turn_trace, turn_probe::Stage::PendingStart);
-// ORDINARY_TURN_TEST_END
+        // ORDINARY_TURN_TEST_END
         self.retry_pending_sibling_controls();
-// ORDINARY_TURN_TEST_BEGIN
+        // ORDINARY_TURN_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         turn_probe::mark(&turn_trace, turn_probe::Stage::PendingDone);
-// ORDINARY_TURN_TEST_END
+        // ORDINARY_TURN_TEST_END
         self.linking_owner
             .sibling_channels
             .retain(|entry| entry.original.live() && entry.state.live());
-// ORDINARY_TURN_TEST_BEGIN
+        // ORDINARY_TURN_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         turn_probe::mark(&turn_trace, turn_probe::Stage::BeginStart);
-// ORDINARY_TURN_TEST_END
+        // ORDINARY_TURN_TEST_END
         self.begin_completed_sibling_sharing()?;
-// ORDINARY_TURN_TEST_BEGIN
+        // ORDINARY_TURN_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         turn_probe::mark(&turn_trace, turn_probe::Stage::BeginDone);
-// ORDINARY_TURN_TEST_END
+        // ORDINARY_TURN_TEST_END
         let mut channels = std::mem::take(&mut self.linking_owner.sibling_channels);
         let mut in_flight = channels
             .iter()
             .filter(|entry| entry.publication.is_some())
             .count();
         let mut failure = None;
-// ORDINARY_TURN_TEST_BEGIN
+        // ORDINARY_TURN_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         turn_probe::mark(&turn_trace, turn_probe::Stage::LoopStart);
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let mut trace_index = 0usize;
-// ORDINARY_TURN_TEST_END
+        // ORDINARY_TURN_TEST_END
         for entry in &mut channels {
-// ORDINARY_TURN_TEST_BEGIN
+            // ORDINARY_TURN_TEST_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
             let _turn_advance = turn_probe::Advance::enter(turn_trace.clone(), trace_index);
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            { trace_index += 1; }
-// ORDINARY_TURN_TEST_END
+            {
+                trace_index += 1;
+            }
+            // ORDINARY_TURN_TEST_END
             #[cfg(all(test, feature = "test-policy-overrides"))]
             {
                 entry
