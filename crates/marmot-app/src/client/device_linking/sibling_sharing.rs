@@ -1859,6 +1859,22 @@ impl AppClient {
                         return Err(Error::NotReady);
                     }
                     entry.peer_committed = true;
+                    // The peer proof can arrive after our own ACK was harvested.
+                    // Keep its authenticated fact on this original if fresh parent
+                    // or channel validation fails; periodic maintenance retries
+                    // completion without reopening the already-consumed wire.
+                    if entry.policy_committed && entry.proof_published {
+                        match self.validate_sibling_publication(&entry) {
+                            Ok(()) => Self::complete_sibling_sharing(&entry),
+                            Err(_) => {
+                                tracing::debug!(
+                                    target: "marmot_app::device_linking",
+                                    method = "sibling_peer_proof_completion",
+                                    "authenticated peer proof retained for fresh completion validation"
+                                );
+                            }
+                        }
+                    }
                 }
                 _ => return Err(Error::NotReady),
             }
@@ -2196,7 +2212,10 @@ impl AppClient {
             }
             return Ok(());
         }
-        Self::complete_sibling_sharing(entry);
+        if entry.peer_committed {
+            self.validate_sibling_publication(entry)?;
+            Self::complete_sibling_sharing(entry);
+        }
         Ok(())
     }
 
