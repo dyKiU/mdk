@@ -534,6 +534,137 @@ async fn private_batch_late_receipt_failure_rolls_back_already_inserted_anchor()
         .unwrap();
 }
 
+#[tokio::test]
+async fn private_batch_join_retires_only_unused_birth_atomically() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("unused-birth.db");
+    let key = storage_sqlite::SqlCipherKey::new("09".repeat(32)).unwrap();
+    let mut f = fixture(SqliteAccountStorage::open_encrypted(&path, &key).unwrap()).await;
+    let birth = f.recipient.create_private_device_group_genesis().unwrap();
+    f.recipient
+        .install_trusted_linking_welcome_policy(Arc::new(f.policy.clone()));
+    let injector = rusqlite::Connection::open(&path).unwrap();
+    storage_sqlite::open_hardened_sqlcipher(
+        &injector,
+        &key,
+        storage_sqlite::SqlCipherHardening::default(),
+    )
+    .unwrap();
+    injector.execute_batch("CREATE TRIGGER fail_private_receipt BEFORE INSERT ON accepted_welcome_receipts BEGIN SELECT RAISE(ABORT,'injected receipt failure after birth retirement'); END;").unwrap();
+    assert!(matches!(
+        f.recipient
+            .join_private_linking_welcome_batch(f.messages.clone(), &f.policy.context)
+            .await,
+        Err(cgka_traits::EngineError::Storage(_))
+    ));
+    assert_unjoined(&f);
+    assert!(
+        f.recipient
+            .validated_private_device_group_genesis(birth.group_id())
+            .unwrap()
+            .is_some()
+    );
+    injector
+        .execute_batch("DROP TRIGGER fail_private_receipt;")
+        .unwrap();
+    let group = f
+        .recipient
+        .join_private_linking_welcome_batch(f.messages.clone(), &f.policy.context)
+        .await
+        .unwrap();
+    let retired = f
+        .storage
+        .device_group_genesis_storage()
+        .unwrap()
+        .genesis_selection()
+        .unwrap()
+        .unwrap();
+    assert!(retired.active_denied && retired.fact.birth == *birth.birth());
+    assert!(
+        f.recipient
+            .candidate_device_group_snapshot(birth.group_id())
+            .unwrap()
+            .is_some()
+    );
+    assert!(f.storage.get_group(&group).is_ok());
+    assert_eq!(f.policy.consumed.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn private_batch_expired_join_keeps_unused_birth_selected() {
+    let mut f = fixture(SqliteAccountStorage::in_memory().unwrap()).await;
+    let birth = f.recipient.create_private_device_group_genesis().unwrap();
+    let mut expiring = f.policy.clone();
+    expiring.expire_after_predecessor = true;
+    f.recipient
+        .install_trusted_linking_welcome_policy(Arc::new(expiring));
+    assert!(matches!(
+        f.recipient
+            .join_private_linking_welcome_batch(f.messages.clone(), &f.policy.context)
+            .await,
+        Err(cgka_traits::EngineError::LinkingWelcomeDenied(
+            LinkingWelcomeDenied::Expired
+        ))
+    ));
+    assert_unjoined(&f);
+    assert!(
+        f.recipient
+            .validated_private_device_group_genesis(birth.group_id())
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn private_batch_unused_birth_retirement_preserves_historical_sharing_policy() {
+    let mut f = fixture(SqliteAccountStorage::in_memory().unwrap()).await;
+    let birth = f.recipient.create_private_device_group_genesis().unwrap();
+    // Injected historical policy is only a negative guard fixture, never proof
+    // of SDK approval or a usable sharing channel.
+    let policy = cgka_traits::approved_account_sharing_policy::ApprovedAccountSharingPolicy {
+        account: f.policy.purpose.scope.account,
+        local_device: f.policy.purpose.scope.local_device,
+        peer_device: f.policy.context.approver,
+        protected_group: birth.group_id().clone(),
+        approval_id: [9; 32],
+        version: 1,
+        capabilities: 0x0f,
+        created_at: 1,
+        approved_protected_epoch: 1,
+        revoked: false,
+    };
+    let policies = f.storage.approved_account_sharing_policy_storage().unwrap();
+    policies
+        .put_approved_account_sharing_policy(&policy, &|| Ok(()))
+        .unwrap();
+    let id = cgka_traits::approved_account_sharing_policy::approved_account_sharing_identity(
+        &policy.account,
+        &policy.protected_group,
+        &policy.local_device,
+        &policy.peer_device,
+        &policy.approval_id,
+    )
+    .unwrap();
+    policies
+        .revoke_account_sharing_policy(&id, &|| Ok(()))
+        .unwrap();
+    f.recipient
+        .install_trusted_linking_welcome_policy(Arc::new(f.policy.clone()));
+    assert!(matches!(
+        f.recipient
+            .join_private_linking_welcome_batch(f.messages.clone(), &f.policy.context)
+            .await,
+        Err(cgka_traits::EngineError::LinkingWelcomeDenied(_))
+    ));
+    assert_unjoined(&f);
+    assert!(
+        f.recipient
+            .validated_private_device_group_genesis(birth.group_id())
+            .unwrap()
+            .is_some()
+    );
+}
+
 /// A synthetic adversarial peer deliberately bypasses Engine's policy. Genuine
 /// OpenMLS produces an alternate signed private-tree Welcome; no DTO grant.
 #[tokio::test]
