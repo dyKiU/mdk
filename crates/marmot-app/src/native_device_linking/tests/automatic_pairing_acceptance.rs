@@ -2136,3 +2136,9 @@ async fn another_installations_private_welcome_cannot_abort_an_approved_recipien
 #[path = "automatic_body_negative_acceptance.rs"]
 mod body_negative_acceptance;
 // BODY_NEGATIVE_TEST_END
+
+// BODY_LATE_ACK_TEST_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+#[path = "automatic_body_late_ack_acceptance.rs"]
+mod body_late_ack_acceptance;
+// BODY_LATE_ACK_TEST_END
