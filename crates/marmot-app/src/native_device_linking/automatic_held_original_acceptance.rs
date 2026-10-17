@@ -2,7 +2,7 @@
 //! completed public pairing originals remain held, as in installed hosts.
 use super::*;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_held_originals_allow_sponsor_initiated_discovery() {
     actual::run_native_public_three_device_enrollment(
         actual::ApprovalScenario::AutomaticHeldSponsorInitiates,
@@ -10,7 +10,7 @@ async fn automatic_held_originals_allow_sponsor_initiated_discovery() {
     .await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_held_originals_allow_recipient_initiated_discovery() {
     actual::run_native_public_three_device_enrollment(
         actual::ApprovalScenario::AutomaticHeldRecipientInitiates,

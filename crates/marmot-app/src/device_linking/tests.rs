@@ -63,7 +63,7 @@ async fn ready_with_context(input: LinkingContext, now: Instant) -> (DeviceLinke
     assert_eq!(a.decimals(now).unwrap(), b.decimals(now).unwrap());
     (a, b)
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn expired_genuine_peer_mac_is_fenced_before_sdk_input() {
     let now = Instant::now();
     let (mut a, mut b) = ready(now).await;
@@ -87,7 +87,7 @@ async fn expired_genuine_peer_mac_is_fenced_before_sdk_input() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn per_device_confirmation_requires_verified_remote_mac_and_done() {
     let now = Instant::now();
     let (mut a, mut b) = ready(now).await;
@@ -123,7 +123,7 @@ async fn per_device_confirmation_requires_verified_remote_mac_and_done() {
         Err(LinkError::AlreadyConsumed)
     ));
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exact_context_and_signed_key_directory_substitution_are_rejected() {
     let now = Instant::now();
     let mut a = DeviceLinker::new();
@@ -177,7 +177,7 @@ async fn exact_context_and_signed_key_directory_substitution_are_rejected() {
         Err(LinkError::NotReady)
     ));
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tampered_update_cannot_replace_previously_admitted_key_directory() {
     let now = Instant::now();
     let (mut a, mut b) = ready(now).await;
@@ -197,7 +197,7 @@ async fn tampered_update_cannot_replace_previously_admitted_key_directory() {
         Err(LinkError::NotReady)
     ));
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stale_mac_and_duplicate_events_cannot_complete_a_fresh_session() {
     let now = Instant::now();
     let (mut old, _) = ready(now).await;
@@ -233,7 +233,7 @@ async fn stale_mac_and_duplicate_events_cannot_complete_a_fresh_session() {
         Err(LinkError::NotReady)
     ));
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dropping_remote_mac_keeps_own_confirmation_insufficient() {
     let now = Instant::now();
     let (mut a, mut b) = ready(now).await;
@@ -246,7 +246,7 @@ async fn dropping_remote_mac_keeps_own_confirmation_insufficient() {
         Err(LinkError::NotReady)
     ));
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn corrupted_mac_terminates_the_local_attempt() {
     let now = Instant::now();
     let (mut a, mut b) = ready(now).await;
@@ -277,7 +277,7 @@ async fn corrupted_mac_terminates_the_local_attempt() {
         Err(LinkError::Cancelled)
     ));
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancellation_and_shutdown_fence_replays_without_reopening() {
     let now = Instant::now();
     let (mut a, mut b) = ready(now).await;
@@ -294,7 +294,7 @@ async fn cancellation_and_shutdown_fence_replays_without_reopening() {
     ));
     assert!(matches!(b.take_verified(now).await, Err(LinkError::Closed)));
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn simultaneous_attempts_fence_both_nonces() {
     let now = Instant::now();
     let mut a = DeviceLinker::new();
@@ -318,7 +318,7 @@ async fn simultaneous_attempts_fence_both_nonces() {
         Err(LinkError::Cancelled)
     ));
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn simultaneous_wire_request_is_anomaly_and_closes_current_attempt() {
     let now = Instant::now();
     let (_, mut b) = ready(now).await;
@@ -339,7 +339,7 @@ async fn simultaneous_wire_request_is_anomaly_and_closes_current_attempt() {
     ));
     assert!(matches!(b.offer(now), Err(LinkError::Cancelled)));
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn frame_bounds_and_ambiguous_json_are_rejected_before_sdk_input() {
     let now = Instant::now();
     let (mut a, mut b) = ready(now).await;
@@ -380,7 +380,7 @@ async fn frame_bounds_and_ambiguous_json_are_rejected_before_sdk_input() {
         Err(LinkError::NotReady)
     ));
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exact_request_retry_cannot_extend_response_deadline() {
     let now = Instant::now();
     let mut a = DeviceLinker::new();
@@ -407,7 +407,7 @@ async fn exact_request_retry_cannot_extend_response_deadline() {
     ));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn peer_claimed_generation_cannot_burn_local_reservation() {
     let now = Instant::now();
     let mut linker = DeviceLinker::new();
@@ -424,7 +424,7 @@ async fn peer_claimed_generation_cannot_burn_local_reservation() {
     assert!(linker.offer(now).is_ok());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn device_linking_approver_absent_from_predecessor_cannot_expose_offer() {
     let now = Instant::now();
     let mut input = context();
@@ -437,7 +437,7 @@ async fn device_linking_approver_absent_from_predecessor_cannot_expose_offer() {
     assert!(linker.offer(now).is_err());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn device_linking_malformed_predecessor_is_rejected_before_sdk_setup() {
     let now = Instant::now();
     let mut invalid = Vec::new();
@@ -506,7 +506,7 @@ async fn device_linking_malformed_predecessor_is_rejected_before_sdk_setup() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn device_linking_predecessor_epoch_and_indexed_leaves_bind_peer_offers() {
     let now = Instant::now();
     let mut input = context();
@@ -551,7 +551,7 @@ async fn drain_wire(from: &mut DeviceLinker, to: &mut DeviceLinker, now: Instant
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn device_linking_wire_round_trip_completes_real_two_sided_verification() {
     let now = Instant::now();
     let mut recipient = DeviceLinker::new();
@@ -590,7 +590,7 @@ async fn device_linking_wire_round_trip_completes_real_two_sided_verification() 
     assert!(approver.take_verified(now).await.is_ok());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn device_linking_wire_rejects_truncation_trailing_bytes_and_cross_kind_packets() {
     let now = Instant::now();
     let mut recipient = DeviceLinker::new();
@@ -629,7 +629,7 @@ async fn device_linking_wire_rejects_truncation_trailing_bytes_and_cross_kind_pa
     assert!(LinkFrame::decode_wire(&vec![0; MAX_FRAME_BYTES + 256]).is_err());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn device_linking_wire_never_bypasses_context_or_canonical_sdk_validation() {
     let now = Instant::now();
     let (mut recipient, mut approver) = ready(now).await;
@@ -670,7 +670,7 @@ fn artifact_context() -> LinkingContext {
     input
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn device_linking_artifact_context_same_digest_completes_real_sdk() {
     let now = Instant::now();
     let input = artifact_context();
@@ -695,7 +695,7 @@ async fn device_linking_artifact_context_same_digest_completes_real_sdk() {
     ));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn device_linking_artifact_context_substitution_rejected_before_sdk() {
     let now = Instant::now();
     let input = artifact_context();
@@ -735,7 +735,7 @@ async fn device_linking_artifact_context_substitution_rejected_before_sdk() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn device_linking_artifact_context_version_rules_preserve_reservation() {
     let now = Instant::now();
     let mut invalid = Vec::new();

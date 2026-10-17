@@ -283,22 +283,22 @@ pub(super) async fn assert_bilateral_completion(
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn public_three_device_broad_approvals_commit_each_bilateral_relationship() {
     run_native_public_three_device_enrollment(ApprovalScenario::BroadEnrollment).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn public_third_device_plain_sibling_approval_does_not_share_its_chats() {
     run_native_public_three_device_enrollment(ApprovalScenario::BroadPairPlainSibling).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn public_broad_sibling_cancellation_retires_the_exact_shared_original() {
     run_native_public_three_device_enrollment(ApprovalScenario::BroadSiblingCancel).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn public_broad_sibling_core_authentication_failure_retries_same_original() {
     run_native_public_three_device_enrollment(ApprovalScenario::BroadPreAuthFailure).await;
 }

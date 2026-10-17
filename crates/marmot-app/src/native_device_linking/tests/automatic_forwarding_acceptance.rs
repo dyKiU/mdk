@@ -2,7 +2,7 @@
 use super::*;
 use cgka_traits::StorageProvider;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_forwarding_uses_original_client_token_and_real_ordinary_event() {
     actual::run_native_public_three_device_enrollment(
         actual::ApprovalScenario::AutomaticForwarding,
@@ -151,7 +151,7 @@ pub(super) async fn verify_cancelled_host_admission(
     eprintln!("forwarded_cancelled_host_admission_body_executed=true");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_forwarding_preserves_actual_reply_reference_and_canonical_id() {
     actual::run_native_public_three_device_enrollment(
         actual::ApprovalScenario::AutomaticForwardingReply,
@@ -159,7 +159,7 @@ async fn automatic_forwarding_preserves_actual_reply_reference_and_canonical_id(
     .await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_forwarding_queues_without_members_and_reopens_both_independent_stores() {
     actual::run_native_public_three_device_enrollment(
         actual::ApprovalScenario::AutomaticForwardingOffline,
@@ -167,7 +167,7 @@ async fn automatic_forwarding_queues_without_members_and_reopens_both_independen
     .await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_forwarding_retries_unacknowledged_receipt_after_recipient_sql_rollback() {
     actual::run_native_public_three_device_enrollment(
         actual::ApprovalScenario::AutomaticForwardingReceiptRetry,

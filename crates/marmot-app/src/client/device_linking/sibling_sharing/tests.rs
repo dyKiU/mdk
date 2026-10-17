@@ -95,7 +95,7 @@ fn choice() -> Arc<OriginalEnrollmentSharingChoice> {
         }),
     })
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn original_choice_cancel_wakes_every_registered_child_without_actor_rpc() {
     let original = choice();
     let first = original.child().unwrap();

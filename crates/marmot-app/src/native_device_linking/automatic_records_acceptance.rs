@@ -2,13 +2,13 @@
 use super::*;
 use cgka_traits::StorageProvider;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_records_include_preapproval_and_future_messages_without_per_chat_actions() {
     actual::run_native_public_three_device_enrollment(actual::ApprovalScenario::AutomaticRecords)
         .await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_records_wake_the_original_open_conversation_after_committed_future_import() {
     actual::run_native_public_three_device_enrollment(
         actual::ApprovalScenario::AutomaticRecordsWindow,

@@ -72,7 +72,7 @@ async fn fixture() -> (
     )
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bounded_recipient_collection_assembles_out_of_order_with_exact_duplicate() {
     let (gate, purpose, peeler, context, payload) = fixture().await;
     let mut messages = peeler
@@ -120,7 +120,7 @@ async fn bounded_recipient_collection_assembles_out_of_order_with_exact_duplicat
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bounded_recipient_collection_stale_scope_cannot_erase_current_batch() {
     let (gate, purpose, peeler, context, payload) = fixture().await;
     let messages = peeler
@@ -152,7 +152,7 @@ async fn bounded_recipient_collection_stale_scope_cannot_erase_current_batch() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bounded_recipient_collection_checks_sdk_bindings_before_buffering() {
     let (gate, purpose, peeler, context, payload) = fixture().await;
     let messages = peeler
@@ -213,7 +213,7 @@ async fn bounded_recipient_collection_checks_sdk_bindings_before_buffering() {
     assert!(collection.take_complete(&gate, &purpose).unwrap().is_some());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bounded_recipient_collection_preserves_exact_batch_on_conflicts_and_limits() {
     let (gate, purpose, peeler, context, payload) = fixture().await;
     let messages = peeler
@@ -354,7 +354,7 @@ impl TransportPeeler for PausedObservation {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bounded_recipient_collection_rechecks_cancellation_after_authentication_await() {
     let (gate, purpose, peeler, context, payload) = fixture().await;
     let messages = peeler

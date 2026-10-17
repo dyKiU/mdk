@@ -2040,7 +2040,7 @@ async fn failed_drained_checkpoint_counts_toward_stall_warning() {
 /// A real protected account group must remain hidden while its ambiguous apply
 /// snapshots are quarantined, without retaining unrelated account projection.
 #[cfg(feature = "experimental-device-sync")]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn quarantined_private_group_does_not_retain_or_expose_chat_projection() {
     use cgka_traits::storage::MessageStorage;
 

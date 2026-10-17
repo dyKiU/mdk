@@ -2,7 +2,7 @@
 use super::*;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_records_remain_visible_after_acknowledged_ab_batch_and_broad_abc_renewal() {
     actual::run_native_public_three_device_enrollment(
         actual::ApprovalScenario::AutomaticRecordGenerationRenewal,

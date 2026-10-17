@@ -9,7 +9,7 @@ fn storage() -> Arc<SqliteAccountStorage> {
     storage
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dropping_runtime_owner_terminalizes_its_active_generation() {
     let storage = storage();
     let mut owner = LinkingOwner::startup(storage.clone(), [2; 32], [7; 32]).unwrap();
@@ -39,7 +39,7 @@ async fn dropping_runtime_owner_terminalizes_its_active_generation() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dropping_runtime_owner_after_storage_close_leaves_restart_fence_as_fallback() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("closed-owner.db");
@@ -72,7 +72,7 @@ async fn dropping_runtime_owner_after_storage_close_leaves_restart_fence_as_fall
     assert_eq!(restarted.reserve().unwrap(), 2);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reserved_attempt_cannot_restart_its_deadline_by_delaying_sas_setup() {
     let mut owner = LinkingOwner::startup(storage(), [2; 32], [7; 32]).unwrap();
     assert_eq!(owner.reserve().unwrap(), 1);
@@ -94,7 +94,7 @@ async fn reserved_attempt_cannot_restart_its_deadline_by_delaying_sas_setup() {
     assert_eq!(owner.reserve().unwrap(), 2);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn late_sdk_setup_does_not_extend_the_reserved_attempt_lifetime() {
     let now = Instant::now();
     let (mut a, mut b) = ready(now + Duration::from_secs(100)).await;
@@ -125,7 +125,7 @@ async fn late_sdk_setup_does_not_extend_the_reserved_attempt_lifetime() {
     assert!(a.linker.attempt.is_none());
     assert_eq!(a.reserve().unwrap(), 2);
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelled_verifier_releases_only_a_new_durable_generation() {
     let storage = storage();
     let now = Instant::now();
@@ -143,7 +143,7 @@ async fn cancelled_verifier_releases_only_a_new_durable_generation() {
         2
     );
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn startup_after_encrypted_reopen_abandons_sdk_secrets_and_old_generation() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("owner.db");
@@ -206,7 +206,7 @@ async fn ready(now: Instant) -> (LinkingOwner, LinkingOwner) {
     assert!(a.decimals(now).unwrap().is_some());
     (a, b)
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn genuine_verification_releases_result_only_after_done_delivery_and_terminal_write() {
     let now = Instant::now();
     let (mut a, mut b) = ready(now).await;
@@ -241,7 +241,7 @@ async fn genuine_verification_releases_result_only_after_done_delivery_and_termi
     b.take_verified(now).await.unwrap();
     assert_eq!(a.reserve().unwrap(), 2);
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn externally_terminal_storage_fact_cannot_create_a_verified_result() {
     let now = Instant::now();
     let (mut a, mut b) = ready(now).await;
@@ -260,7 +260,7 @@ async fn externally_terminal_storage_fact_cannot_create_a_verified_result() {
     ));
     assert!(a.linker.attempt.is_none());
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn expired_genuine_mac_persists_expiry_before_fresh_reservation() {
     let now = Instant::now();
     let (mut a, mut b) = ready(now).await;
@@ -282,7 +282,7 @@ async fn expired_genuine_mac_persists_expiry_before_fresh_reservation() {
     ));
     assert_eq!(a.reserve().unwrap(), 2);
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reservation_identity_mismatch_does_not_burn_or_mutate_current_generation() {
     let now = Instant::now();
     let mut a = LinkingOwner::startup(storage(), [2; 32], [7; 32]).unwrap();
@@ -305,7 +305,7 @@ async fn reservation_identity_mismatch_does_not_burn_or_mutate_current_generatio
         .unwrap();
     assert!(a.offer(now).is_ok());
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shutdown_and_competing_local_reservation_persist_terminal_fences() {
     let now = Instant::now();
     let mut a = LinkingOwner::startup(storage(), [2; 32], [7; 32]).unwrap();
@@ -330,7 +330,7 @@ async fn shutdown_and_competing_local_reservation_persist_terminal_fences() {
         3
     );
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exact_sdk_flow_is_durable_before_request_frame_release() {
     let now = Instant::now();
     let (mut a, _b) = ready(now).await;
@@ -342,7 +342,7 @@ async fn exact_sdk_flow_is_durable_before_request_frame_release() {
         .unwrap();
     assert!(matches!(a.outgoing(now), Err(OwnerError::Storage)));
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelled_owner_survives_encrypted_reopen_with_fresh_generation_only() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("cancelled.db");
@@ -379,7 +379,7 @@ async fn cancelled_owner_survives_encrypted_reopen_with_fresh_generation_only() 
     ));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn competing_wire_flow_persists_anomaly_without_accepting_new_request() {
     let now = Instant::now();
     let (_a, mut b) = ready(now).await;
@@ -399,7 +399,7 @@ async fn competing_wire_flow_persists_anomaly_without_accepting_new_request() {
     ));
     assert_eq!(b.reserve().unwrap(), 2);
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invalid_peer_mac_terminalizes_durable_owner_without_result() {
     let now = Instant::now();
     let (mut a, mut b) = ready(now).await;
@@ -426,7 +426,7 @@ async fn invalid_peer_mac_terminalizes_durable_owner_without_result() {
     assert_eq!(a.reserve().unwrap(), 2);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn maintenance_expires_original_reservation_without_sdk_input() {
     let storage = storage();
     let mut owner = LinkingOwner::startup(storage.clone(), [2; 32], [7; 32]).unwrap();
@@ -450,7 +450,7 @@ async fn maintenance_expires_original_reservation_without_sdk_input() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn maintenance_retries_failed_cancellation_without_waiting_for_expiry() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("terminal-retry.db");
@@ -521,7 +521,7 @@ async fn maintenance_retries_failed_cancellation_without_waiting_for_expiry() {
 // A raw peer owner deliberately bypasses the App approver-genesis policy here.
 // Genuine SDK verification still cannot approve arbitrary bootstrap rosters.
 // Public purpose bytes test owner fencing; this fixture does not parse/join MLS.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn singleton_bootstrap_rejects_noninitial_rosters_without_consuming_sdk_result() {
     use cgka_traits::StorageProvider;
     use cgka_traits::device_linking_key_package::PurposeKeyPackage;

@@ -211,7 +211,7 @@ mod tests {
     use super::*;
     use crate::{MarmotApp, MarmotAppRuntime};
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn default_group_device_revocation_is_unsupported_before_account_or_worker_effects() {
         let dir = tempfile::tempdir().unwrap();
         let runtime =

@@ -238,7 +238,7 @@ impl cgka_engine::selected_chat_consent::SelectedChatPackageLease for OriginalPa
 #[cfg(all(test, debug_assertions))]
 mod tests {
     use super::*;
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn actual_legacy_group_cannot_supply_selected_chat_request_anchor() {
         use cgka_session::{PublishWork, SessionConfig};
         use cgka_traits::engine::CreateGroupRequest;

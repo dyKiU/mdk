@@ -2,7 +2,7 @@
 use super::*;
 use marmot_account::AccountHome;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_forwarding_reaches_independent_creator_through_non_admin_member() {
     actual::run_native_public_three_device_enrollment(
         actual::ApprovalScenario::AutomaticForwardingNonAdmin,
@@ -10,7 +10,7 @@ async fn automatic_forwarding_reaches_independent_creator_through_non_admin_memb
     .await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure() {
     actual::run_native_public_three_device_enrollment(
         actual::ApprovalScenario::AutomaticWithdrawal,

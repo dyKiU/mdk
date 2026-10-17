@@ -6,7 +6,7 @@ use nostr_relay_builder::MockRelay;
 use std::{path::Path, time::Duration};
 
 #[cfg(feature = "experimental-device-sync")]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn private_batch_round_trip_uses_product_probe_peeler() {
     use cgka_traits::peeler::PrivateLinkingWelcomeContext;
     use sha2::{Digest, Sha256};
@@ -65,7 +65,7 @@ async fn private_batch_round_trip_uses_product_probe_peeler() {
 }
 
 #[cfg(feature = "experimental-device-sync")]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn private_chunk_observation_uses_product_peeler_trait() {
     use cgka_traits::peeler::PrivateLinkingWelcomeContext;
     use sha2::{Digest, Sha256};

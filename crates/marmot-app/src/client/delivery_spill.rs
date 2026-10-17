@@ -659,7 +659,7 @@ mod yield_handoff_tests {
     use crate::{AccountHome, MarmotApp, TimelineMessageQuery, unix_now_seconds};
     use transport_nostr::{AccountDeliveryReceive, MarmotRelayPlane};
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cancelled_spill_receive_keeps_its_cooperative_offer_and_real_message() {
         let dir = tempfile::tempdir().unwrap();
         let home = AccountHome::open(dir.path());

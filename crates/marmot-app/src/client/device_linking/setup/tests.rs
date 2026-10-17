@@ -29,7 +29,7 @@ async fn drain(
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn setup_factories_bind_real_purpose_and_complete_original_sdk() {
     let keys = nostr::prelude::Keys::generate();
     let directories = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
@@ -99,7 +99,7 @@ async fn setup_factories_bind_real_purpose_and_complete_original_sdk() {
     assert!(c.state.groups.is_empty());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn setup_challenge_substitution_preserves_original_purpose_and_valid_retry() {
     let keys = nostr::prelude::Keys::generate();
     let directories = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
@@ -131,7 +131,7 @@ async fn setup_challenge_substitution_preserves_original_purpose_and_valid_retry
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn setup_ordinary_group_is_not_promoted_to_protected_predecessor() {
     let keys = nostr::prelude::Keys::generate();
     let directories = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
@@ -150,7 +150,7 @@ async fn setup_ordinary_group_is_not_promoted_to_protected_predecessor() {
         .unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn setup_request_framing_and_crypto_substitution_are_rejected_before_reservation() {
     let keys = nostr::prelude::Keys::generate();
     let directories = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
@@ -181,7 +181,7 @@ async fn setup_request_framing_and_crypto_substitution_are_rejected_before_reser
         .unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn setup_foreign_account_request_cannot_replace_original_approver_flow() {
     let keys = nostr::prelude::Keys::generate();
     let directories = [
@@ -217,7 +217,7 @@ async fn setup_foreign_account_request_cannot_replace_original_approver_flow() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn setup_encrypted_reopen_cannot_recreate_the_original_request_owner() {
     let keys = nostr::prelude::Keys::generate();
     let directories = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];

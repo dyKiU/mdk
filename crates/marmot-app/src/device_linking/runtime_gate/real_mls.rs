@@ -137,19 +137,19 @@ fn signer(kp: &KeyPackage) -> [u8; 32] {
         .try_into()
         .unwrap()
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn genuine_sdk_gate_authorizes_only_exact_real_mls_welcome_once() {
     verify_real_welcome(false, false).await;
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn device_linking_real_welcome_with_unapproved_extra_leaf_is_rolled_back() {
     verify_real_welcome(true, false).await;
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn device_linking_collected_real_welcome_joins_once_with_atomic_sql_retry() {
     verify_real_welcome(false, true).await;
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn device_linking_collected_unapproved_leaf_is_rolled_back() {
     verify_real_welcome(true, true).await;
 }

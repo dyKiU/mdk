@@ -211,7 +211,7 @@ impl Drop for HistoryConsent {
 #[cfg(all(test, not(feature = "experimental-device-sync")))]
 mod tests {
     use super::*;
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn default_history_transfer_refuses_before_account_or_worker_effects() {
         let dir = tempfile::tempdir().unwrap();
         let runtime = crate::MarmotAppRuntime::new(crate::MarmotApp::with_relay(
@@ -278,7 +278,7 @@ impl HistoryTransfer {
 #[cfg(all(test, feature = "experimental-device-sync"))]
 mod recipient_tests {
     use super::*;
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn history_recipient_query_validates_group_bounds_before_worker_effects() {
         let dir = tempfile::tempdir().unwrap();
         let runtime = crate::MarmotAppRuntime::new(crate::MarmotApp::with_relay(

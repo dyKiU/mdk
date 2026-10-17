@@ -102,7 +102,7 @@ async fn raw_verified() -> VerifiedPairing {
     }
     a.take_verified(now).await.unwrap()
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn runtime_gate_accepts_only_owner_stamped_new_device_sdk_result() {
     let (new_device, approver) = verified().await;
     assert!(new_device.owner_deadline.is_some());
@@ -183,7 +183,7 @@ fn transport_context(
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn runtime_gate_transport_matches_real_sdk_and_predecessor_requires_authenticated_tree() {
     let (token, _) = verified().await;
     let context = token.context.clone();
@@ -233,7 +233,7 @@ async fn runtime_gate_transport_matches_real_sdk_and_predecessor_requires_authen
     assert!(lease.check_live_before_commit().is_err());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn runtime_gate_transport_rejects_every_substituted_sdk_binding_without_consuming_token() {
     let (token, _) = verified().await;
     let context = token.context.clone();
@@ -269,7 +269,7 @@ async fn runtime_gate_transport_rejects_every_substituted_sdk_binding_without_co
     assert!(lease.approved_predecessor().is_err());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn runtime_gate_transport_and_predecessor_preserve_original_expiry_and_shutdown() {
     let (token, _) = verified().await;
     let context = token.context.clone();
@@ -313,7 +313,7 @@ async fn runtime_gate_transport_and_predecessor_preserve_original_expiry_and_shu
         Err(LinkingWelcomeDenied::Cancelled)
     ));
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn runtime_gate_shutdown_revokes_outstanding_lease_and_retained_policy() {
     let (token, _) = verified().await;
     let expected = purpose(&token.context);
@@ -331,7 +331,7 @@ async fn runtime_gate_shutdown_revokes_outstanding_lease_and_retained_policy() {
     drop(lease);
     assert!(gate.begin_join(&expected).is_err());
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn runtime_gate_context_substitution_and_failed_authenticated_check_preserve_only_exact_retry()
  {
     let (token, _) = verified().await;
@@ -389,7 +389,7 @@ impl Clock for ManualClock {
         *self.0.lock().unwrap()
     }
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn runtime_gate_original_expiry_revokes_a_held_lease_and_cancel_is_serial() {
     let (token, _) = verified().await;
     let deadline = token.owner_deadline.unwrap();
@@ -426,7 +426,7 @@ async fn runtime_gate_original_expiry_revokes_a_held_lease_and_cancel_is_serial(
 }
 mod real_mls;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn runtime_gate_maintenance_discards_original_expired_approval() {
     let (token, _) = verified().await;
     let deadline = token.owner_deadline.unwrap();

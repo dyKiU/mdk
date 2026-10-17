@@ -85,7 +85,7 @@ pub(super) async fn assert_wrong_recipient_request_is_not_pending(
     original.cancel();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn public_wrong_recipient_sharing_request_is_not_retained_by_c_original() {
     run_native_public_three_device_enrollment(ApprovalScenario::BroadWrongRecipientRouting).await;
 }

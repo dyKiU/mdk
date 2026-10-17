@@ -2,7 +2,7 @@ use super::*;
 use crate::{MarmotApp, MarmotAppRuntime};
 
 #[cfg(not(feature = "experimental-device-sync"))]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn default_native_verification_is_unsupported_before_account_or_worker_effects() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = MarmotAppRuntime::new(MarmotApp::with_relay(dir.path(), "wss://relay.example"));
@@ -61,7 +61,7 @@ async fn default_native_verification_is_unsupported_before_account_or_worker_eff
 }
 
 #[cfg(not(feature = "experimental-device-sync"))]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn default_native_enrollment_is_unsupported_without_account_or_worker_effects() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = MarmotAppRuntime::new(MarmotApp::with_relay(dir.path(), "wss://relay.example"));
@@ -144,12 +144,12 @@ pub(super) mod actual {
         }
         (dirs, runtimes)
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cancelled_first_setup_allows_fresh_first_setup_approval() {
         fresh_first_setup_after_cancel(false).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn reopened_cancelled_first_setup_requires_fresh_comparison() {
         fresh_first_setup_after_cancel(true).await;
     }
@@ -278,36 +278,36 @@ pub(super) mod actual {
         .expect("all original native devices must settle their actual complete indexed roster");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn native_public_original_three_device_enrollment_uses_opaque_approval_and_packets() {
         run_native_public_three_device_enrollment(ApprovalScenario::Enroll).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn native_public_original_approval_cancel_fences_shared_handles_and_packets() {
         run_native_public_three_device_enrollment(ApprovalScenario::Cancel).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn native_public_original_approval_review_identifies_authenticated_devices_without_approving()
      {
         run_native_public_three_device_enrollment(ApprovalScenario::ReviewThenEnroll).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn native_pairing_explicit_chat_sharing_persists_only_completed_original() {
         run_native_public_three_device_enrollment(ApprovalScenario::ShareChats).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn existing_pair_explicit_account_sharing_uses_original_relay_consent() {
         run_native_public_three_device_enrollment(ApprovalScenario::ExistingShare).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn automatic_sharing_request_before_source_policy_commit_retains_original_deadline() {
         run_native_public_three_device_enrollment(ApprovalScenario::AutomaticRace).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn automatic_catalog_channel_renewal_reaches_later_entries_without_manual_consent() {
         run_native_public_three_device_enrollment(ApprovalScenario::AutomaticRenewal).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn automatic_catalog_recipient_sql_failure_retries_without_manual_consent() {
         run_native_public_three_device_enrollment(ApprovalScenario::AutomaticCatalogRetry).await;
     }
@@ -2133,7 +2133,7 @@ pub(super) mod actual {
         relay.shutdown();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn native_stalled_original_publication_timeout_is_nonterminal_and_cancel_fences_delivery()
     {
         use cgka_traits::StorageProvider;
@@ -2230,7 +2230,7 @@ pub(super) mod actual {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn native_public_continuation_settles_actual_original_pair_over_live_relay() {
         use cgka_traits::StorageProvider;
         use cgka_traits::private_roster_settlement::PrivateSettlementPhase;
@@ -2344,7 +2344,7 @@ pub(super) mod actual {
         result.expect("public native continuation must settle both actual original device leaves");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn native_original_recipient_observation_survives_actual_sdk_handoff() {
         let (_dirs, runtimes) = workers().await;
         let manager = runtimes[1].accounts();
@@ -2413,7 +2413,7 @@ pub(super) mod actual {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn opaque_native_sessions_complete_real_sdk_with_revision_bound_human_actions() {
         let (_dirs, runtimes) = workers().await;
         let c = runtimes[1]
@@ -2479,7 +2479,7 @@ pub(super) mod actual {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn native_subscription_close_wakes_wait_and_exact_session_cancel_allows_new_attempt() {
         let (_dirs, runtimes) = workers().await;
         let manager = runtimes[1].accounts();
@@ -2515,7 +2515,7 @@ pub(super) mod actual {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn native_drop_closes_observation_and_allows_fresh_original_purpose() {
         let (_dirs, runtimes) = workers().await;
         let manager = runtimes[1].accounts();
@@ -2551,7 +2551,7 @@ pub(super) mod actual {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn native_subscription_close_wakes_both_change_and_receiver_admission() {
         let (_dirs, runtimes) = workers().await;
         let session = runtimes[1]
@@ -2591,7 +2591,7 @@ pub(super) mod actual {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn native_original_worker_expiry_cannot_revive_terminal_session() {
         let (_dirs, runtimes) = workers().await;
         let manager = runtimes[1].accounts();
@@ -2629,7 +2629,7 @@ pub(super) mod actual {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn native_shutdown_closes_original_session_without_a_new_worker() {
         let (_dirs, runtimes) = workers().await;
         let manager = runtimes[1].accounts();

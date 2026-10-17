@@ -215,7 +215,7 @@ async fn fixture_with_engine_storage(
     let (_, token) = verified_for_context(context, new_store, old_store.clone()).await;
     (token, origin, input, old_store, approver, keys)
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invite_gate_genuine_approver_sdk_result_authorizes_exact_actual_input() {
     let (token, origin, input) = fixture().await;
     let gate = RuntimeInviteGate::new();
@@ -240,7 +240,7 @@ async fn invite_gate_genuine_approver_sdk_result_authorizes_exact_actual_input()
     assert!(gate.begin_prepare(&input).is_ok());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invite_gate_substitution_preserves_only_exact_original_retry() {
     let (token, origin, mut input) = fixture().await;
     let gate = RuntimeInviteGate::new();
@@ -270,7 +270,7 @@ impl Clock for ManualClock {
         *self.0.lock().unwrap()
     }
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invite_gate_original_expiry_revokes_held_lease_and_rollback_retry() {
     let (token, origin, input) = fixture().await;
     let deadline = token.owner_deadline.unwrap();
@@ -292,7 +292,7 @@ async fn invite_gate_original_expiry_revokes_held_lease_and_rollback_retry() {
         Err(LinkingWelcomeDenied::Expired)
     ));
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invite_gate_committed_preparation_keeps_live_lease_but_drop_consumes_permission() {
     let (token, origin, input) = fixture().await;
     let gate = RuntimeInviteGate::new();
@@ -311,7 +311,7 @@ async fn invite_gate_committed_preparation_keeps_live_lease_but_drop_consumes_pe
     ));
     assert!(RuntimeInviteGate::new().begin_prepare(&input).is_err());
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invite_gate_cancel_and_shutdown_revoke_even_held_leases() {
     for shutdown in [false, true] {
         let (token, origin, input) = fixture().await;
@@ -349,7 +349,7 @@ impl Clock for CancelDuringArmClock {
         self.now
     }
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invite_gate_cancellation_during_arming_cannot_recreate_consent() {
     let (token, origin, input) = fixture().await;
     let clock = Arc::new(CancelDuringArmClock {
@@ -366,7 +366,7 @@ async fn invite_gate_cancellation_during_arming_cannot_recreate_consent() {
     assert!(gate.begin_prepare(&input).is_err());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invite_gate_account_owner_drop_revokes_held_lease_and_retained_policy() {
     let (token, origin, input, storage) = fixture_with_storage().await;
     let owner = crate::client::device_linking::AccountLinkingOwner::attach(
@@ -389,7 +389,7 @@ async fn invite_gate_account_owner_drop_revokes_held_lease_and_retained_policy()
     ));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invite_gate_genuine_sdk_lease_prepares_actual_add_and_cancellation_consumes_it() {
     use cgka_traits::StorageProvider;
     use cgka_traits::private_device_invite::PrivateInvitePhase;
@@ -428,7 +428,7 @@ async fn invite_gate_genuine_sdk_lease_prepares_actual_add_and_cancellation_cons
     ));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invite_gate_genuine_sdk_prepares_real_private_nostr_welcome_batch() {
     use cgka_traits::StorageProvider;
     let (token, origin, input, storage, mut approver, keys) = fixture_with_engine_kind(true).await;
@@ -504,7 +504,7 @@ impl cgka_engine::private_device_invite::TrustedPrivateInvitePublisher for Commi
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invite_gate_dispatch_sql_failure_preserves_original_sdk_lease_for_exact_retry() {
     use cgka_engine::private_device_invite::PrivateInviteError;
     use cgka_traits::StorageProvider;

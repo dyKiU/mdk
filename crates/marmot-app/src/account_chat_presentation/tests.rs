@@ -1,7 +1,7 @@
 use super::*;
 
 #[cfg(not(feature = "experimental-device-sync"))]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn paired_presentation_default_refuses_before_input_and_account_effects() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = crate::MarmotAppRuntime::new(crate::MarmotApp::with_relay(
@@ -119,7 +119,7 @@ fn paired_presentation_canonical_decode_keeps_ordered_rejections_and_tombstone_p
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn paired_presentation_actual_original_approval_catalog_without_fake_mls_group() {
     use crate::{DeviceLinkingPhase, DeviceLinkingSession, MarmotApp, MarmotAppRuntime};
     use cgka_traits::storage::GroupStorage;

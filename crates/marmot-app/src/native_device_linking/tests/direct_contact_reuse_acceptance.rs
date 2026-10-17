@@ -3,7 +3,7 @@ use super::*;
 use crate::{AccountSetupRequest, AppCreateGroupOptions, ExistingAccountDirectConversation};
 use cgka_traits::{StorageError, TransportEndpoint, storage::GroupStorage};
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn one_scan_direct_contact_reuses_source_chat_without_another_peer_invitation() {
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();

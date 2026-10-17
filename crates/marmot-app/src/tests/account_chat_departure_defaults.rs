@@ -2,7 +2,7 @@
 use super::*;
 use cgka_traits::storage::LeaveRequestStorage;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn no_approved_policy_refuses_account_departure_without_public_leave_effects() {
     let dir = tempfile::tempdir().unwrap();
     let home = AccountHome::open(dir.path());

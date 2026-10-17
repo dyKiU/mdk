@@ -5393,7 +5393,8 @@ mod tests {
         runtime_a.shutdown().await;
         runtime_b.shutdown().await;
     }
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    // Pauses Tokio's clock after actual publication entry; this requires one thread.
+    #[tokio::test(flavor = "current_thread")]
     async fn device_linking_worker_private_commit_deadline_actively_wakes_stalled_network() {
         let VerifiedWorkers {
             directories: _directories,

@@ -1,7 +1,7 @@
 //! Fully broad actual ABC originals retained through automatic discovery.
 use super::*;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_held_three_originals_allow_b_initiated_discovery() {
     actual::run_native_public_three_device_enrollment(
         actual::ApprovalScenario::AutomaticHeldThreeBInitiates,
@@ -9,7 +9,7 @@ async fn automatic_held_three_originals_allow_b_initiated_discovery() {
     .await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_held_three_originals_allow_c_initiated_discovery() {
     actual::run_native_public_three_device_enrollment(
         actual::ApprovalScenario::AutomaticHeldThreeCInitiates,

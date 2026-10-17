@@ -191,7 +191,7 @@ async fn automatic_enrollment_reaches_a_separate_account_inbox_relay() {
 
 // AUTOMATIC_BODY_TEST_BEGIN
 #[cfg(feature = "test-policy-overrides")]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn held_automatic_catalog_body_keeps_fresh_account_commands_responsive() {
     use cgka_traits::StorageProvider;
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
@@ -420,24 +420,44 @@ async fn held_automatic_catalog_body_keeps_fresh_account_commands_responsive() {
 }
 // AUTOMATIC_BODY_TEST_END
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts() {
     four_device_enrollment(HeldPublication::None).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn blocked_sibling_consent_does_not_starve_another_approved_peer() {
     four_device_enrollment(HeldPublication::SiblingConsent).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_sync_does_not_block_foreground_enrollment_completion() {
     four_device_enrollment(HeldPublication::Automatic).await;
 }
 
+// RUNTIME_SERIAL_STRESS_BEGIN
+// One-thread stress retains the original serial-executor enrollment scenario.
+#[tokio::test(flavor = "current_thread")]
+async fn single_thread_stress_four_device_enrollment() {
+    four_device_enrollment(HeldPublication::None).await;
+}
+
+// One-thread stress retains blocked-Consent fairness on the original executor.
+#[tokio::test(flavor = "current_thread")]
+async fn single_thread_stress_blocked_sibling_consent() {
+    four_device_enrollment(HeldPublication::SiblingConsent).await;
+}
+
+// One-thread stress retains foreground enrollment under an automatic hold.
+#[tokio::test(flavor = "current_thread")]
+async fn single_thread_stress_foreground_enrollment() {
+    four_device_enrollment(HeldPublication::Automatic).await;
+}
+// RUNTIME_SERIAL_STRESS_END
+
 // COMPLETION_TEST_BEGIN
 #[cfg(feature = "test-policy-overrides")]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn completed_sibling_consent_services_initial_progress_without_periodic_tick() {
     four_device_enrollment(HeldPublication::CompletionWake).await;
 }
@@ -925,7 +945,7 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     // COMPLETION_TEST_END
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ordinary_one_scan_enrollment_has_original_cancellation_without_chat_sharing() {
     use cgka_traits::StorageProvider;
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
@@ -1081,7 +1101,7 @@ async fn compare_and_confirm_pair(a: &DeviceLinkingSession, b: &DeviceLinkingSes
     .await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_pairing_requires_explicit_enrollment_and_shares_existing_and_later_chats() {
     automatic_pairing_with_recipient_approval_delay(false).await;
 }
@@ -1273,7 +1293,7 @@ async fn automatic_pairing_with_recipient_approval_delay(delay_recipient: bool) 
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dropped_scanner_factory_cannot_export_a_response_before_host_adoption() {
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();
@@ -1314,12 +1334,12 @@ async fn dropped_scanner_factory_cannot_export_a_response_before_host_adoption()
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_one_scan_exchange_keeps_both_human_comparisons_required() {
     automatic_comparison_trial(Vec::new()).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires explicitly selected live public pairing relays"]
 async fn public_one_scan_exchange_keeps_both_human_comparisons_required() {
     let urls = std::env::var("WN_PAIRING_TEST_RELAYS").expect("explicit test relay set required");
@@ -1490,7 +1510,7 @@ async fn wait_for_automatic_phase_with_approvals(
     });
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_transport_cannot_keep_dropped_original_authority_alive() {
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -1568,7 +1588,7 @@ fn install_publication_diagnostic_subscriber() {
 }
 
 #[cfg(feature = "test-policy-overrides")]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn completed_automatic_transport_keeps_public_cleanup_ownership() {
     use futures::FutureExt;
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();

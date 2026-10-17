@@ -1,6 +1,6 @@
 //! A real known-approver control cannot starve the independent B/C original.
 use super::actual::{ApprovalScenario, run_native_public_three_device_enrollment};
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn public_broad_sibling_projection_head_failure_does_not_starve_original() {
     run_native_public_three_device_enrollment(ApprovalScenario::BroadProjectionHeadFailure).await;
 }

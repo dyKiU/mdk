@@ -4,7 +4,7 @@ use super::*;
 use crate::{MarmotApp, MarmotAppRuntime};
 
 #[cfg(not(feature = "experimental-device-sync"))]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn default_selected_chat_copy_is_unsupported_before_account_or_worker_effects() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = MarmotAppRuntime::new(MarmotApp::with_relay(dir.path(), "wss://relay.example"));
@@ -83,7 +83,7 @@ mod actual {
         storage::{KeyPackageBundleStorage, StorageProvider},
     };
     use marmot_account::AccountHome;
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn invalid_selected_chat_bounds_refuse_before_account_or_worker_effects() {
         let dir = tempfile::tempdir().unwrap();
         let runtime =
@@ -390,7 +390,7 @@ mod actual {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn selected_chat_copy_requires_explicit_request_after_public_three_device_linking() {
         let SelectedChatFixture {
             _relay: relay,
@@ -883,147 +883,147 @@ mod actual {
         d_runtime.shutdown_and_close().await.unwrap();
         relay.shutdown();
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn selected_chat_copy_admits_original_siblings_and_delivers_new_messages() {
         selected_chat_delivery(RecipientAdmissionScenario::None).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn selected_chat_welcome_storage_failure_retains_original_consent_for_retry() {
         selected_chat_delivery(RecipientAdmissionScenario::Retry).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn selected_chat_welcome_cancel_during_storage_retry_cannot_admit_or_deliver() {
         selected_chat_delivery(RecipientAdmissionScenario::Cancel).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn selected_chat_welcome_original_expiry_during_storage_retry_cannot_admit_or_deliver() {
         selected_chat_delivery(RecipientAdmissionScenario::Expire).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn selected_chat_welcome_foreign_package_event_refuses_without_consuming_original() {
         selected_chat_delivery(RecipientAdmissionScenario::ForeignPackageEvent).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn selected_chat_blocked_commit_cancel_prevents_late_publication() {
         selected_chat_delivery(RecipientAdmissionScenario::CommitCancel).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn selected_chat_blocked_commit_lost_reply_prevents_late_publication() {
         selected_chat_delivery(RecipientAdmissionScenario::CommitLostReply).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn selected_chat_blocked_welcome_cancel_preserves_confirmation_without_late_join() {
         selected_chat_delivery(RecipientAdmissionScenario::WelcomeCancel).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn selected_chat_blocked_welcome_lost_reply_preserves_confirmation_without_late_join() {
         selected_chat_delivery(RecipientAdmissionScenario::WelcomeLostReply).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn history_recipient_query_observes_actual_linked_leaves_without_creating_originals() {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryRecipientQuery).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn history_transfer_requires_original_recipient_consent_and_committed_prejoin_record() {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryTransfer).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn history_transfer_cancelled_original_cannot_restart_from_fresh_outer_request() {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryRequestReplay).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn history_transfer_expired_unpruned_source_never_serializes_plaintext() {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryExpiredUnpruned).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn history_transfer_cancelled_prefix_cleanup_retries_original_sql_failure() {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryCleanupRetry).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn history_transfer_committed_import_remains_observable_after_original_cancel_before_seal()
      {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryCancelAfterImport).await;
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn history_transfer_original_cancel_interrupts_actual_blocked_chunk_publication() {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryPublicationCancel).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn history_transfer_lost_continue_reply_interrupts_actual_blocked_chunk_publication() {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryPublicationLostReply).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn history_transfer_original_fixed_expiry_interrupts_actual_blocked_chunk_publication() {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryPublicationExpire).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn history_transfer_runtime_shutdown_interrupts_actual_blocked_chunk_publication() {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryPublicationShutdown).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn history_transfer_cancelled_original_cannot_restart_after_encrypted_recipient_reopen() {
         selected_chat_delivery(RecipientAdmissionScenario::HistoryRequestReopen).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn group_device_revocation_requires_fresh_original_for_exact_same_account_leaf() {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceLeafRevocation).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn group_device_revocation_approved_original_removes_only_one_occupied_leaf() {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceLeafRemoval).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn group_device_revocation_original_cancel_interrupts_actual_blocked_remove_publication()
     {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceLeafRemovalCancel).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn group_device_revocation_lost_approval_reply_interrupts_actual_blocked_remove_publication()
      {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceLeafRemovalLostReply).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn group_device_revocation_removed_leaf_stays_evicted_after_encrypted_reopen() {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceLeafRemovalReopen).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_revocation_original_removes_exact_leaf_from_protected_and_two_ordinary_groups()
     {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterRemoval).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_revocation_survivors_regain_fresh_original_history_authority() {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterSuccessor).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_revocation_retained_remove_cannot_restore_positive_guard_after_encrypted_reopen()
      {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterSuccessorReopen).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_revocation_original_receipt_survives_incoming_storage_rollback_retry() {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterSuccessorStorageRetry).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_revocation_challenge_published_before_storage_retry_preserves_fresh_authority()
     {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterChallengeBeforeRetry).await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_revocation_challenge_initial_peel_before_storage_retry_preserves_fresh_authority()
      {
         selected_chat_delivery(
@@ -1031,19 +1031,19 @@ mod actual {
         )
         .await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_revocation_original_rollback_keeps_actual_receive_route_until_reconciliation() {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterRefreshedRollbackRoute)
             .await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn successive_device_revocation_rollback_keeps_fresh_challenge_intake() {
         Box::pin(selected_chat_delivery(
             RecipientAdmissionScenario::DeviceRosterSuccessiveRevocationRollback,
         ))
         .await;
     }
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn device_revocation_confirmation_fact_rollback_preserves_owned_successor_authority() {
         selected_chat_delivery(RecipientAdmissionScenario::DeviceRosterConfirmationStorageRetry)
             .await;
