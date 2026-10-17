@@ -1,0 +1,240 @@
+#!/usr/bin/env python3
+"""Run only the incoming SQLite ownership assertions; failures never qualify."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import selectors
+import signal
+import subprocess
+import time
+
+from upstream_extraction_cohort import frozen_inputs, workflow_identity
+
+INCOMING = '3aec65433eb84f0882430d000b2d31dabf987c24'
+MERGE = 'cbd0e5f09224aae1481c87d69d41c8b0cf033461'
+SELF = 'scripts/qualify_upstream_storage_boundary.py'
+WORKFLOW = '.github/workflows/upstream-boundary-regressions.yml'
+BOUNDARY = [
+    'crates/storage-sqlite/src/base/mod.rs',
+    'crates/storage-sqlite/src/base/boundary_tests.rs',
+    'crates/storage-sqlite/src/base/table_owners.rs',
+    'crates/storage-sqlite/src/cross/allow-list.txt',
+]
+TESTS = sorted('base::boundary_tests::' + name for name in [
+    'table_registry_names_every_table', 'storage_boundary_matches_the_allow_list',
+    'cfg_predicates_skip_only_test_builds',
+])
+OUT = Path('storage-boundary-evidence')
+
+
+class GateFailure(ValueError):
+    """A fixed, source-owned diagnostic label, never child output."""
+
+
+def ensure(value, label):
+    if not value:
+        raise GateFailure(label)
+
+
+def digest(value):
+    return hashlib.sha256(value).hexdigest()
+
+
+def git(*args):
+    return subprocess.check_output(['git', *args], text=True).strip()
+
+
+def capture(command, timeout, limit=16 * 1024 * 1024):
+    """Bound raw output in memory, never publish SQL/payload-bearing panic text."""
+    started = time.monotonic()
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+    chunks, size = [], 0
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ)
+            while selector.get_map():
+                ensure(time.monotonic() - started < timeout, 'bounded-command-timeout')
+                for key, _ in selector.select(timeout=0.2):
+                    data = os.read(key.fd, 65536)
+                    if not data:
+                        selector.unregister(key.fileobj)
+                        continue
+                    size += len(data)
+                    ensure(size <= limit, 'bounded-command-output-limit')
+                    chunks.append(data)
+        code = process.wait(timeout=10)
+        return code, b''.join(chunks).decode('utf-8', errors='replace'), round(time.monotonic() - started, 3)
+    finally:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=10)
+        process.stdout.close()
+
+
+def parse_body(output, code, name):
+    output = re.sub(r'\x1b\[[0-9;]*m', '', output)
+    summaries = re.findall(r'^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;', output, re.M)
+    names = re.findall(r'^test (base::boundary_tests::[A-Za-z_]+) \.\.\. ', output, re.M)
+    panic_headers = re.findall(r"^thread '([^'\n]+)'(?: \(\d+\))? panicked at ([^\n]+):", output, re.M)
+    panics = []
+    for owner, location in panic_headers:
+        match = re.fullmatch(r'(crates/storage-sqlite/src/base/boundary_tests\.rs):(\d+):(\d+)', location)
+        panics.append({'selected_test': owner == name, 'known_source_location': match is not None,
+                       'line': int(match[2]) if match else None,
+                       'column': int(match[3]) if match else None})
+    row = {'exit_code': code, 'actual_counts_complete': False, 'passed': None, 'failed': None,
+           'ignored': None, 'executed_nonignored': None, 'exact_selected_name': names == [name],
+           'panic_count': output.count('panicked at '), 'safe_panic_locations': panics,
+           'compiler_error_count': len(re.findall(r'^error(?:\[E\d+\])?:', output, re.M)),
+           'registry_assertion_observed': 'src/base/table_owners.rs must name every table of a fresh database exactly once.' in output,
+           'boundary_missing_owner_observed': bool(re.search(r'\bhas no owner\b', output)),
+           'boundary_allow_list_assertion_observed': 'crossing(s) between the protocol and app sides are not on' in output}
+    if len(summaries) == 1:
+        status, passed, failed, ignored, measured, _ = summaries[0]
+        passed, failed, ignored = int(passed), int(failed), int(ignored)
+        complete = (passed + failed == 1 and ignored == 0 and int(measured) == 0
+                    and names == [name] and status == ('FAILED' if failed else 'ok'))
+        row.update(actual_counts_complete=complete, passed=passed, failed=failed, ignored=ignored,
+                   executed_nonignored=passed + failed if complete else None)
+    row['passed_gate'] = (row['actual_counts_complete'] and code == 0 and row['passed'] == 1
+                          and row['failed'] == 0 and row['panic_count'] == 0
+                          and row['compiler_error_count'] == 0)
+    return row
+
+
+def parser_preflight():
+    name = TESTS[0]
+    raw = 'running 1 test\ntest ' + name + ' ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.1s\n'
+    ensure(parse_body(raw, 0, name)['passed_gate'], 'parser-positive-exact-body')
+    negative = [raw.replace(name, 'foreign::test'), raw.replace('1 passed', '0 passed'),
+                raw.replace('0 ignored', '1 ignored'), raw + raw, raw + '\nthread other panicked at foreign.rs:1:1:\n',
+                raw + '\nerror[E0001]: compiler failure\n', 'error: failed to compile\n', raw.replace('0 measured', '1 measured')]
+    for value in negative:
+        ensure(not parse_body(value, 0, name)['passed_gate'], 'parser-rejects-incomplete-or-foreign-body')
+    ensure(not parse_body(raw, 101, name)['passed_gate'], 'parser-rejects-nonzero')
+    failed = raw.replace(' ... ok', ' ... \nthread \'' + name + "' panicked at crates/storage-sqlite/src/base/boundary_tests.rs:42:5:\nprivate SQL must stay private\nFAILED")
+    failed = failed.replace('test result: ok. 1 passed; 0 failed', 'test result: FAILED. 0 passed; 1 failed')
+    row = parse_body(failed, 101, name)
+    ensure(row['actual_counts_complete'] and row['failed'] == 1 and not row['passed_gate']
+           and row['safe_panic_locations'] == [{'selected_test': True, 'known_source_location': True, 'line': 42, 'column': 5}], 'parser-safe-failure-receipt')
+    return {'positive': 2, 'negative': len(negative) + 1, 'actual_runtime_bodies': 0}
+
+
+def source_guard(baseline):
+    ensure(isinstance(baseline, str) and re.fullmatch('[0-9a-f]{40}', baseline), 'explicit-reviewed-full-cohort-required')
+    source = git('rev-parse', 'HEAD')
+    workflow = workflow_identity(source)
+    ensure(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch', 'isolated-manual-scope-only')
+    ensure(not git('diff', 'HEAD', '--name-only'), 'initial-tracked-inputs-pristine')
+    for ancestor, target in [(MERGE, baseline), (INCOMING, baseline), (baseline, source)]:
+        subprocess.run(['git', 'merge-base', '--is-ancestor', ancestor, target], check=True)
+    changed = set(git('diff', '--name-only', baseline, source).splitlines())
+    ensure(changed <= {SELF, WORKFLOW}, 'only-reviewed-metadata-overlay')
+    for name in BOUNDARY:
+        ensure(Path(name).read_bytes() == subprocess.check_output(['git', 'show', INCOMING + ':' + name]), 'incoming-boundary-source-remains-exact-before-red')
+    ensure(all(not os.environ.get(key) for key in ['RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTDOCFLAGS', 'CARGO_ENCODED_RUSTDOCFLAGS']), 'no-unrecorded-rust-flags')
+    expected_environment = {'CARGO_INCREMENTAL': '1', 'CARGO_BUILD_JOBS': '2',
+                            'CARGO_PROFILE_DEV_DEBUG': '0', 'CARGO_PROFILE_TEST_DEBUG': '0',
+                            'RUST_MIN_STACK': '4194304'}
+    ensure(all(os.environ.get(key) == value for key, value in expected_environment.items()), 'exact-reviewed-build-environment')
+    return {'source': source, 'reviewed_cohort_baseline': baseline, 'baseline_tree': git('rev-parse', baseline + '^{tree}'),
+            'workflow_identity': workflow, 'incoming_master': INCOMING, 'incoming_boundary_sources_unchanged': True,
+            'overlay_paths': sorted(changed), 'historical_results_reused': False}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--cohort', choices=['default', 'experimental'], required=True)
+    parser.add_argument('--cohort-baseline', default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'))
+    parser.add_argument('--preflight', action='store_true')
+    args = parser.parse_args()
+    os.umask(0o077)
+    OUT.mkdir(exist_ok=True)
+    report = {'cohort': args.cohort, 'qualification_passed': False, 'boundary_controls_passed': False,
+              'actual_counts_complete': False, 'actual_executed_nonignored': 0, 'bodies': {}}
+    frozen = frozen_inputs()
+    report['input_manifest_sha256'] = digest(json.dumps(frozen, sort_keys=True, separators=(',', ':')).encode())
+    def save():
+        (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
+    try:
+        report.update(source_guard(args.cohort_baseline))
+        report['parser_fixtures'] = parser_preflight()
+        report['toolchain'] = {name: subprocess.check_output([name, '--version'], text=True).strip() for name in ['cargo', 'rustc']}
+        report['environment'] = {key: os.environ.get(key) for key in ['CARGO_INCREMENTAL', 'CARGO_BUILD_JOBS', 'CARGO_PROFILE_DEV_DEBUG', 'CARGO_PROFILE_TEST_DEBUG', 'RUST_MIN_STACK']}
+        save()
+        if args.preflight:
+            report['preflight_passed'] = True
+            return 0
+        command = ['cargo', 'test', '--locked', '-p', 'storage-sqlite', '--lib', '--no-run', '--message-format=json']
+        expected_features = []
+        if args.cohort == 'experimental':
+            command += ['--features', 'experimental-device-sync']
+            expected_features = ['experimental-device-sync']
+        report['compile_command'] = command
+        code, raw, seconds = capture(command, 1800)
+        artifacts, errors = [], 0
+        for line in raw.splitlines():
+            if not line.startswith('{'):
+                continue
+            value = json.loads(line)
+            if value.get('reason') == 'compiler-message' and value.get('message', {}).get('level') == 'error':
+                errors += 1
+            if value.get('reason') == 'compiler-artifact':
+                artifacts.append(value)
+        selected = [value for value in artifacts if value['target']['name'] == 'storage_sqlite' and value['target']['kind'] == ['lib'] and value['profile']['test'] and value.get('executable')]
+        report['compilation'] = {'exit_code': code, 'compiler_error_count': errors, 'wall_seconds': seconds,
+                                 'selected_test_artifact_count': len(selected), 'compiled_features': None}
+        save()
+        ensure(code == 0 and errors == 0 and len(selected) == 1, 'actual-storage-lib-compilation-required')
+        artifact = selected[0]
+        ensure(sorted(artifact['features']) == expected_features, 'exact-default-or-experimental-storage-feature-cohort')
+        binary = Path(artifact['executable'])
+        binary_hash = digest(binary.read_bytes())
+        report['compilation'].update(compiled_features=sorted(artifact['features']), binary_sha256=binary_hash)
+        fingerprints = sorted([{'package': value['package_id'], 'target': value['target']['name'],
+                                'kind': value['target']['kind'], 'features': sorted(value['features']), 'profile': value['profile']}
+                               for value in artifacts], key=lambda value: json.dumps(value, sort_keys=True))
+        report['compilation']['compiler_artifact_feature_manifest_sha256'] = digest(json.dumps(fingerprints, sort_keys=True).encode())
+        ensure(frozen_inputs() == frozen, 'inputs-exact-after-compilation')
+        code, inventory, _ = capture([str(binary), 'base::boundary_tests::', '--list', '--format', 'terse'], 60)
+        names = sorted(re.findall(r'^(base::boundary_tests::[A-Za-z_]+): test$', inventory, re.M))
+        inventory_lines = [line for line in inventory.splitlines() if line]
+        allowed_lines = {name + ': test' for name in TESTS} | {'3 tests, 0 benchmarks'}
+        ensure(code == 0 and names == TESTS and all(line in allowed_lines for line in inventory_lines), 'exact-three-body-inventory-required')
+        code, ignored, _ = capture([str(binary), 'base::boundary_tests::', '--ignored', '--list', '--format', 'terse'], 60)
+        ensure(code == 0 and ignored.strip() in {'', '0 tests, 0 benchmarks'}, 'no-selected-ignored-bodies')
+        report['inventory'] = {'selected_names': names, 'selected_nonignored': 3, 'selected_ignored': 0}
+        for name in names:
+            ensure(frozen_inputs() == frozen and digest(binary.read_bytes()) == binary_hash, 'inputs-and-binary-exact-before-body')
+            command = [str(binary), name, '--exact', '--nocapture', '--test-threads=1']
+            code, raw, seconds = capture(command, 300)
+            row = parse_body(raw, code, name)
+            row['wall_seconds'] = seconds
+            row['binary_sha256'] = binary_hash
+            report['bodies'][name] = row
+            known = list(report['bodies'].values())
+            report['actual_executed_nonignored'] = sum(item['executed_nonignored'] for item in known) if all(item['actual_counts_complete'] for item in known) else None
+            save()
+            ensure(frozen_inputs() == frozen and digest(binary.read_bytes()) == binary_hash, 'inputs-and-binary-exact-after-body')
+        rows = list(report['bodies'].values())
+        report['actual_counts_complete'] = len(rows) == 3 and all(row['actual_counts_complete'] for row in rows)
+        report['actual_executed_nonignored'] = sum(row['executed_nonignored'] for row in rows) if report['actual_counts_complete'] else None
+        report['boundary_controls_passed'] = report['actual_counts_complete'] and all(row['passed_gate'] for row in rows)
+        return 0 if report['boundary_controls_passed'] else 1
+    except Exception as error:
+        report['controller_failure_type'] = type(error).__name__
+        report['controller_failure_gate'] = str(error) if isinstance(error, GateFailure) else None
+        # No exception payload: a child process can include raw SQL or account data.
+        return 1
+    finally:
+        report['inputs_pristine'] = frozen_inputs() == frozen
+        save()
+        if not report['inputs_pristine']:
+            raise SystemExit(1)
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
