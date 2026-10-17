@@ -1766,6 +1766,7 @@ impl AppClient {
         };
         self.app
             .account_storage(&self.state.label)?
+            .app_storage()
             .stage_prepared_group_image_upload(&record)?;
         Ok(prepared_group_image_status(&record))
     }
@@ -1777,6 +1778,7 @@ impl AppClient {
         let record = self
             .app
             .account_storage(&self.state.label)?
+            .app_storage()
             .prepared_group_image_upload(upload_id)?
             .ok_or_else(|| {
                 AppError::InvalidEncryptedMedia("prepared group image upload was not found".into())
@@ -1790,6 +1792,7 @@ impl AppClient {
         Ok(self
             .app
             .account_storage(&self.state.label)?
+            .app_storage()
             .list_prepared_group_image_uploads()?
             .iter()
             .map(prepared_group_image_status)
@@ -1805,6 +1808,7 @@ impl AppClient {
         let record = self
             .app
             .account_storage(&self.state.label)?
+            .app_storage()
             .prepared_group_image_upload(upload_id)?
             .ok_or_else(|| {
                 AppError::InvalidEncryptedMedia("prepared group image upload was not found".into())
@@ -1847,14 +1851,19 @@ impl AppClient {
         let storage = self.app.account_storage(&self.state.label)?;
         let now = unix_now_seconds();
         match result {
-            Ok(()) => storage.mark_prepared_group_image_upload_uploaded(upload_id, now)?,
-            Err(error) => storage.mark_prepared_group_image_upload_failed(
-                upload_id,
-                error.privacy_safe_kind(),
-                now,
-            )?,
+            Ok(()) => storage
+                .app_storage()
+                .mark_prepared_group_image_upload_uploaded(upload_id, now)?,
+            Err(error) => storage
+                .app_storage()
+                .mark_prepared_group_image_upload_failed(
+                    upload_id,
+                    error.privacy_safe_kind(),
+                    now,
+                )?,
         }
         let record = storage
+            .app_storage()
             .prepared_group_image_upload(upload_id)?
             .ok_or_else(|| {
                 AppError::InvalidEncryptedMedia("prepared group image upload was not found".into())
@@ -1933,6 +1942,7 @@ impl AppClient {
     ) -> Result<CanonicalCreatedGroup, AppError> {
         let storage = self.app.account_storage(&self.state.label)?;
         let record = storage
+            .app_storage()
             .prepared_group_image_upload(upload_id)?
             .ok_or_else(|| {
                 AppError::InvalidEncryptedMedia("prepared group image upload was not found".into())
@@ -1972,7 +1982,7 @@ impl AppClient {
         }
         if let Some(group_id) = matching_group_id {
             let group_id_hex = hex::encode(group_id.as_slice());
-            storage.consume_prepared_group_image_upload(
+            storage.app_storage().consume_prepared_group_image_upload(
                 upload_id,
                 &group_id_hex,
                 unix_now_seconds(),
@@ -2042,6 +2052,7 @@ impl AppClient {
             && self
                 .app
                 .account_storage(&self.state.label)?
+                .app_storage()
                 .is_user_blocked(&member)?
         {
             return Err(AppError::UserBlocked);
@@ -2277,6 +2288,7 @@ impl AppClient {
                 .account_storage(&self.state.label)
                 .and_then(|storage| {
                     storage
+                        .app_storage()
                         .consume_prepared_group_image_upload(
                             upload_id,
                             &hex::encode(group_id.as_slice()),
@@ -3664,6 +3676,7 @@ impl AppClient {
             && self
                 .app
                 .account_storage(&self.state.label)?
+                .app_storage()
                 .is_user_blocked(sender)?
         {
             return Err(AppError::UserBlocked);
@@ -6200,6 +6213,7 @@ impl AppClient {
         if self
             .app
             .account_storage(&self.state.label)?
+            .app_storage()
             .direct_conversation_has_blocked_user(&hex::encode(group_id.as_slice()))?
         {
             return Err(AppError::UserBlocked);

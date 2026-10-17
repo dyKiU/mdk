@@ -6,7 +6,12 @@ recovery-ledger contracts: [`README.md`](README.md).
 ## Scope
 
 `SqliteAccountStorage` implements `cgka_traits::StorageProvider` with Marmot metadata and custom OpenMLS storage in one
-encrypted SQLite database. One database file belongs to one Marmot account-device identity. `shared.rs`'s
+encrypted SQLite database. One database file belongs to one Marmot account-device identity. App storage is moving
+onto its own handle, `SqliteAppStorage` (`src/app/handle.rs`), a folder at a time (step 4 PR 4 of the brief): it
+shares the account's connection, and `SqliteAccountStorage::app_storage()` (`src/cross/handles.rs`) is the only way
+to get one. So far `app/transport/` has moved, except `delivery_spill`, which stays on the account handle until
+`account_recovery` moves. A new method goes on the handle its module's `impl` already uses, so a module never splits
+across both. Protocol and base code never call `app_storage()`; the names test treats that call as a crossing. `shared.rs`'s
 `SqliteSharedStorage` is a deliberate exception: a separate, non-account-scoped database for cross-identity state — do
 not "fix" it into the per-account database.
 
@@ -21,6 +26,7 @@ The crate is split by which side owns each table; see the
 | `src/protocol/` | The engine's storage: the `StorageProvider` impls (`provider.rs`), `storage/` and `openmls_storage/`. |
 | `src/app/` | App storage: projections, timeline, chat list, recovery ledger, drafts, attachments, avatars, media catalog. |
 | `src/app/transport/` | App storage specific to one transport (NIP-77, NIP-51, relay-plane spill, NIP-59 outbox, QUIC sequences, prepared Blossom uploads), kept together for a later move. |
+| `src/cross/` | Code that must touch both sides in one transaction, one named function per crossing; its `README.md` lists them. |
 | `src/shared.rs`, `src/shared/` | The separate shared database. |
 
 Existing private feature modules retain their root paths during this integration; canonical upstream modules remain
@@ -30,8 +36,8 @@ migration ledger is wired by the base runner; it does not grant consent or repla
 Put new code on the side that owns its tables. `src/base/boundary_tests.rs` fails on any crossing between the sides
 (SQL naming the other side's tables, a `crate::` path or a `self` call into the other side, or a cross-side foreign key
 or trigger) that is missing from `src/cross/allow-list.txt`, and on a listed one that no longer occurs. Do not add a
-line to make a change pass: code that must touch both sides goes in `cross/` once step 4 PR 3 adds it, and until then
-a new line needs its reason in the PR description. A new table needs an owner in `src/base/table_owners.rs`.
+line to make a change pass: code that must touch both sides goes in a named `cross/` function, and a new line needs its
+reason in the PR description. A new table needs an owner in `src/base/table_owners.rs`.
 
 ## Key files
 

@@ -16,7 +16,8 @@
 //!
 //! The scan is by name. It reads string literals for table names, `crate::`
 //! paths for modules, and calls through `self` or `Self` inside
-//! `SqliteAccountStorage` impls for methods. It misses a table name assembled at
+//! `SqliteAccountStorage` impls for methods. A call to `app_storage()`, the
+//! app handle, through any receiver counts as reaching the app side. It misses a table name assembled at
 //! run time and a call through another binding of the storage.
 
 use super::table_owners::{Side, TABLE_OWNERS, owner};
@@ -340,6 +341,9 @@ struct Names {
     literals: Vec<String>,
     paths: BTreeSet<Vec<String>>,
     self_calls: BTreeSet<String>,
+    /// Whether the file asks for the app handle (`app_storage()`), through any
+    /// receiver: that hands out every method on `SqliteAppStorage`.
+    app_handle_calls: bool,
 }
 
 struct Scan<'a> {
@@ -399,6 +403,9 @@ impl<'ast> Visit<'ast> for Scan<'_> {
 
     fn visit_path(&mut self, path: &'ast syn::Path) {
         let segments: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+        if segments.last().is_some_and(|s| s == "app_storage") {
+            self.names.app_handle_calls = true;
+        }
         if segments.first().is_some_and(|s| s == "crate") {
             self.names.paths.insert(segments);
         } else if self.in_storage_impl && segments.len() == 2 && segments[0] == "Self" {
@@ -408,6 +415,9 @@ impl<'ast> Visit<'ast> for Scan<'_> {
     }
 
     fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
+        if call.method == "app_storage" {
+            self.names.app_handle_calls = true;
+        }
         if self.in_storage_impl
             && matches!(&*call.receiver, syn::Expr::Path(p) if p.path.is_ident("self"))
         {
@@ -461,6 +471,9 @@ fn scan_tokens(tokens: TokenStream, in_storage_impl: bool, names: &mut Names) {
                 }
             }
             TokenTree::Group(group) => scan_tokens(group.stream(), in_storage_impl, names),
+            TokenTree::Ident(ident) if ident == "app_storage" => {
+                names.app_handle_calls = true;
+            }
             TokenTree::Ident(ident) if ident == "crate" => {
                 let mut path = vec!["crate".to_owned()];
                 let mut j = i + 1;
@@ -630,6 +643,11 @@ fn source_crossings() -> BTreeSet<String> {
                     found.insert(format!("path {} {name}", file.rel));
                 }
             }
+        }
+        // The app handle carries every app method, so asking for it from
+        // protocol or base code is a crossing whatever is called on it next.
+        if names.app_handle_calls && matches!(side, Side::Protocol | Side::Base) {
+            found.insert(format!("method {} app_storage", file.rel));
         }
         for method in &names.self_calls {
             let Some(sides) = defined.get(method) else {

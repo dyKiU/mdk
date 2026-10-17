@@ -3396,7 +3396,10 @@ impl MarmotApp {
         let Some(record) = storage.app_message(group_id_hex, message_id_hex)? else {
             return Ok(None);
         };
-        if !storage.is_app_author_visible(&record.sender, group_id_hex)? {
+        if !storage
+            .app_storage()
+            .is_app_author_visible(&record.sender, group_id_hex)?
+        {
             return Ok(None);
         }
         Ok(Some(app_message_record_from_stored(record)))
@@ -4517,6 +4520,7 @@ impl MarmotApp {
     ) -> Result<Vec<AppGroupRecord>, AppError> {
         let blocked = self
             .account_storage(label)?
+            .app_storage()
             .block_list_snapshot()?
             .users
             .into_iter()

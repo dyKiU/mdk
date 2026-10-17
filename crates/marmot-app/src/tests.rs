@@ -401,6 +401,7 @@ fn uploaded_prepared_group_image_retry_recovers_from_engine_without_projection()
         let component_data = app
             .account_storage("alice")
             .unwrap()
+            .app_storage()
             .prepared_group_image_upload(&staged.upload_id)
             .unwrap()
             .unwrap()
@@ -22759,6 +22760,7 @@ fn released_transport_is_replayed_after_lost_effect_and_reopen() {
             assert!(!client.state.seen_events.contains(&probe.id));
             assert!(client.has_pending_epoch_backfill());
             let inventory = storage
+                .app_storage()
                 .transport_reconciliation_inventory(
                     &storage_sqlite::TransportReconciliationRoute::Group(
                         hex::decode(&route.nostr_group_id_hex)
