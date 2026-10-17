@@ -12,7 +12,7 @@ import time
 from upstream_completion_ci import ORIGINALS, compile_cases, digest, ensure, environment, identity, parse_body
 from qualify_upstream_body_negative import feature_identity, freeze, layout
 
-BASE = 'a6642b03bd3bb29a529c0fe94b6e3b73d351517c'
+BASE = 'a302c2194c777bef87ae48aff51a8bc570cbc588'
 SELF = 'scripts/qualify_upstream_ordinary_turn_trace.py'
 WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
 OUT = Path('ordinary-turn-trace-evidence')
@@ -53,7 +53,7 @@ TURN_POINT = option(r'\((' + TURN_STAGES + '), ' + option(TURN_INDEX) + ', ' + N
 TURN_RETURN = option(r'\((' + TURN_STAGES + '), ' + NUMBER + r'\)')
 TURN_DUE = option(sequence(BOOLEAN, 3, r'\[', r'\]'))
 TURN_LINE = r'ordinary-sibling-turn side=(left|right) trace=(\(' + ', '.join([TURN_COUNTS, TURN_TIMES, TURN_POINT, TURN_RETURN, TURN_DUE, BOOLEAN, NUMBER]) + r'\))'
-TIMER_LINE = r'ordinary-sibling-timer side=(left|right) timer=(\(' + ', '.join([array(3), sequence(option(NUMBER), 3, r'\[', r'\]'), option(r'\(' + BOOLEAN + ', ' + NUMBER + r'\)'), option(BOOLEAN)]) + r'\))'
+TIMER_LINE = r'ordinary-sibling-timer side=(left|right) timer=(\(' + ', '.join([array(3), sequence(option(NUMBER), 3, r'\[', r'\]'), option(r'\(' + BOOLEAN + ', ' + NUMBER + r'\)'), option(BOOLEAN), option(sequence(BOOLEAN, 2, r'\[', r'\]')), array(2), array(2), NUMBER, option(BOOLEAN)]) + r'\))'
 SIBLING = 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs'
 PROBE = 'crates/marmot-app/src/client/device_linking/sibling_sharing/turn_probe.rs'
 HOOKS = {SIBLING: 13, 'crates/marmot-app/src/client/device_linking/sibling_sharing/tests.rs': 1, 'crates/marmot-app/src/runtime/account_worker.rs': 3,
@@ -153,13 +153,15 @@ def parser_controls():
         except ValueError: continue
         raise ValueError('adversarial-turn-trace-accepted')
     ensure(diagnostics('unrelated')['missing_recipient_turn_trace'] is True, 'missing-turn-trace-not-zero')
-    timer = 'ordinary-sibling-timer side=right timer=([3, 2, 1], [Some(12), Some(11), Some(12)], Some((true, 2)), Some(false))'
-    timer_missing = 'ordinary-sibling-timer side=left timer=([0, 0, 0], [None, None, None], None, None)'
+    timer = 'ordinary-sibling-timer side=right timer=([3, 2, 1], [Some(12), Some(11), Some(12)], Some((true, 2)), Some(false), Some([true, true]), [0, 1], [0, 2], 5, Some(true))'
+    timer_missing = 'ordinary-sibling-timer side=left timer=([0, 0, 0], [None, None, None], None, None, None, [0, 0], [0, 0], 0, None)'
     for value in [timer, timer_missing]:
         ensure(len(diagnostics(value)['timer_traces']) == 1, 'closed-timer-trace-positive')
     timer_variants = [timer.replace('right', 'secret'), timer.replace('true', 'secret'), timer.replace('Some(false)', 'Some(1)'),
                       timer.replace('12)', '1000000001)'), timer.replace('[3, 2, 1]', '[3, 2]'), timer + '\n' + timer,
-                      timer + ' private', timer.replace('Some(11)', 'Some(-1)'), timer.replace('Some(11)', '"private"')]
+                      timer + ' private', timer.replace('Some(11)', 'Some(-1)'), timer.replace('Some(11)', '"private"'),
+                      timer.replace('Some([true, true])', 'Some([true])'),
+                      timer.replace('[0, 1]', '[0, "private"]'), timer.replace('], 5, Some(true)', '], 1000000001, Some(true)')]
     for changed in timer_variants:
         try: diagnostics(changed)
         except ValueError: continue
@@ -269,6 +271,12 @@ def main(preflight):
             'scheduled_vs_observed': 'optional (observed_at_or_after_scheduled, absolute_delta_ms) for last actual Ready',
             'stopping': 'optional lifecycle.is_stopping sampled before select',
             'delegation': 'one original tick future poll per adapter poll; exact Ready Instant returned; no reset or wake',
+            'last_budget': 'optional [before, after] read-only cooperative budget availability for last delegated poll',
+            'overdue_pending_and_max_lateness_order': ['before_budget_false', 'before_budget_true'],
+            'overdue_definition': 'Pending at or after conservative last-Ready observation + unchanged interval period',
+            'maximum_poll_gap_ms': 'maximum observed gap between actual delegated polls for this exact original',
+            'last_pending_overdue': 'optional bool, missing before a known deadline bound or any Pending',
+            'interpretation': 'budget-false supports cooperative denial; budget-true overdue Pending means underlying timer still Pending, not proof of a particular expensive operation',
             'scope': 'timer readiness only; no explicit latch/service/gate instrumentation',
         }
         report['diagnostic_environment'] = {'WN_ORDINARY_SIBLING_TURN_TRACE': os.environ.get('WN_ORDINARY_SIBLING_TURN_TRACE')}

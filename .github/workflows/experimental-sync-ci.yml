@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [ordinary-turn-trace, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [ordinary-turn-trace, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
@@ -58,7 +58,7 @@ jobs:
     env:
       CARGO_INCREMENTAL: '1'
       WN_ORDINARY_SIBLING_TURN_TRACE: '1'
-      UPSTREAM_EXTRACTION_COHORT_BASELINE: 'a6642b03bd3bb29a529c0fe94b6e3b73d351517c'
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: 'a302c2194c777bef87ae48aff51a8bc570cbc588'
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
@@ -90,7 +90,7 @@ jobs:
     timeout-minutes: 35
     env:
       WN_ORDINARY_SIBLING_TURN_TRACE: '1'
-      UPSTREAM_EXTRACTION_COHORT_BASELINE: 'a6642b03bd3bb29a529c0fe94b6e3b73d351517c'
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: 'a302c2194c777bef87ae48aff51a8bc570cbc588'
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
@@ -118,6 +118,175 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   # ORDINARY_TURN_TRACE_JOBS_END
+  # LATE_CONSENT_CANDIDATE_JOBS_BEGIN
+  late-consent-candidate-preflight:
+    if: github.event_name == 'workflow_dispatch' && startsWith(inputs.scope, 'late-consent-candidate-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Frozen regression and exact reviewed product guard
+        run: |
+          python3 scripts/qualify_upstream_late_consent_candidate.py --preflight
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          cargo fmt --all
+          git diff --binary -- crates > "$RUNNER_TEMP/late-consent-candidate-format.patch"
+          git diff --exit-code -- crates
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: late-consent-candidate-preflight
+          path: |
+            late-consent-candidate-evidence/result.json
+            ${{ runner.temp }}/late-consent-candidate-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  late-consent-candidate-runtime:
+    needs: late-consent-candidate-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'late-consent-candidate-green'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Unchanged late Consent first then existing late peer proof
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'One-shot bound Consent candidate' --output "$RUNNER_TEMP/late-consent-candidate-capacity.json"
+          python3 scripts/qualify_upstream_late_consent_candidate.py
+      - name: Five unchanged Body and enrollment controls
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_automatic_body.py --mode controls --cohort-baseline "$GITHUB_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: late-consent-candidate-green
+          path: late-consent-candidate-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: automatic-body-controls
+          path: |
+            automatic-body-evidence/result.json
+            automatic-body-source.json
+          if-no-files-found: warn
+          retention-days: 7
+  late-consent-candidate-static:
+    needs: late-consent-candidate-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'late-consent-candidate-green'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        cohort: [default, experimental]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Both affected App static cohorts
+        env:
+          CARGO_INCREMENTAL: '1'
+          STATIC_COHORT: ${{ matrix.cohort }}
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'One-shot Consent static' --output "$RUNNER_TEMP/late-consent-static-capacity.json"
+          python3 scripts/qualify_upstream_late_consent_candidate.py --mode static --cohort "$STATIC_COHORT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: late-consent-candidate-static-${{ matrix.cohort }}
+          path: late-consent-candidate-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+  # LATE_CONSENT_CANDIDATE_JOBS_END
+  # LATE_CONSENT_RED_JOBS_BEGIN
+  late-consent-red-preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'late-consent-red'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Passive source guard and adversarial RED parser
+        run: |
+          python3 scripts/qualify_upstream_late_consent_red.py --preflight
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          cargo fmt --all
+          git diff --binary -- crates > "$RUNNER_TEMP/late-consent-red-format.patch"
+          git diff --exit-code -- crates
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: late-consent-red-preflight
+          path: |
+            late-consent-red-evidence/result.json
+            ${{ runner.temp }}/late-consent-red-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  late-consent-red-runtime:
+    needs: late-consent-red-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'late-consent-red'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: One real late-Consent RED with positive cleanup
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Late sibling Consent RED' --output "$RUNNER_TEMP/late-consent-red-capacity.json"
+          python3 scripts/qualify_upstream_late_consent_red.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: late-consent-red-runtime
+          path: late-consent-red-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+  # LATE_CONSENT_RED_JOBS_END
   peer-proof-candidate-preflight:
     if: github.event_name == 'workflow_dispatch' && startsWith(inputs.scope, 'peer-proof-candidate-')
     runs-on: ubuntu-latest

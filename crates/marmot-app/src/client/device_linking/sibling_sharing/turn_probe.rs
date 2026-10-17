@@ -35,6 +35,11 @@ pub(crate) type TimerSnapshot = (
     [Option<u64>; 3],
     Option<(bool, u64)>,
     Option<bool>,
+    Option<[bool; 2]>,
+    [u64; 2],
+    [u64; 2],
+    u64,
+    Option<bool>,
 );
 #[derive(Default)]
 struct TimerProgress {
@@ -42,6 +47,12 @@ struct TimerProgress {
     times: [Option<u64>; 3],
     scheduled_vs_observed: Option<(bool, u64)>,
     stopping: Option<bool>,
+    last_budget: Option<[bool; 2]>,
+    overdue_pending: [u64; 2],
+    maximum_overdue_ms: [u64; 2],
+    maximum_poll_gap_ms: u64,
+    last_pending_overdue: Option<bool>,
+    last_poll: Option<tokio::time::Instant>,
 }
 struct Progress {
     counts: [u64; 14],
@@ -95,6 +106,11 @@ impl Probe {
             row.times,
             row.scheduled_vs_observed,
             row.stopping,
+            row.last_budget,
+            row.overdue_pending,
+            row.maximum_overdue_ms,
+            row.maximum_poll_gap_ms,
+            row.last_pending_overdue,
         )
     }
     pub(crate) fn snapshot(&self) -> Snapshot {
@@ -223,10 +239,11 @@ impl Drop for Advance {
 pub(crate) struct ObservedInterval {
     inner: tokio::time::Interval,
     trace: Option<Trace>,
+    next_deadline_not_after: Option<tokio::time::Instant>,
 }
 impl ObservedInterval {
     pub(crate) fn new(inner: tokio::time::Interval) -> Self {
-        Self { inner, trace: None }
+        Self { inner, trace: None, next_deadline_not_after: None }
     }
     pub(crate) fn observe(&mut self, trace: Option<Trace>, stopping: bool) {
         self.trace = trace;
@@ -243,10 +260,21 @@ impl ObservedInterval {
     }
     pub(crate) async fn tick(&mut self) -> tokio::time::Instant {
         let trace = self.trace.clone();
+        let period = self.inner.period();
+        let deadline_bound = &mut self.next_deadline_not_after;
         let tick = self.inner.tick();
         let mut tick = std::pin::pin!(tick);
         std::future::poll_fn(|cx| {
+            let before = tokio::task::coop::has_budget_remaining();
             let result = std::future::Future::poll(tick.as_mut(), cx);
+            let after = tokio::task::coop::has_budget_remaining();
+            let observed = tokio::time::Instant::now();
+            let overdue = (*deadline_bound).and_then(|bound| observed.checked_duration_since(bound));
+            if result.is_ready() {
+                // Delay never rearms later than observation + period. This
+                // observation does not register, reset, or otherwise drive it.
+                *deadline_bound = Some(observed + period);
+            }
             if let Some(trace) = &trace
                 && trace.matches()
             {
@@ -256,6 +284,19 @@ impl ObservedInterval {
                     .timer
                     .lock()
                     .expect("ordinary sibling timer trace");
+                row.last_budget = Some([before, after]);
+                if let Some(previous) = row.last_poll {
+                    row.maximum_poll_gap_ms = row.maximum_poll_gap_ms.max(Probe::milliseconds(observed.duration_since(previous)));
+                }
+                row.last_poll = Some(observed);
+                if result.is_pending() {
+                    row.last_pending_overdue = (*deadline_bound).map(|_| overdue.is_some());
+                    if let Some(lateness) = overdue {
+                        let category = usize::from(before);
+                        row.overdue_pending[category] = row.overdue_pending[category].saturating_add(1).min(LIMIT);
+                        row.maximum_overdue_ms[category] = row.maximum_overdue_ms[category].max(Probe::milliseconds(lateness));
+                    }
+                }
                 row.counts[0] = row.counts[0].saturating_add(1).min(LIMIT);
                 row.times[0] = Some(elapsed);
                 let slot = if let std::task::Poll::Ready(scheduled) = &result {

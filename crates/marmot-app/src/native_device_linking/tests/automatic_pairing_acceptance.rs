@@ -2154,3 +2154,8 @@ mod body_late_ack_acceptance;
 #[path = "late_peer_proof_acceptance.rs"]
 mod late_peer_proof_acceptance;
 // PEER_PROOF_TEST_END
+// LATE_CONSENT_TEST_BEGIN
+#[cfg(feature = "test-policy-overrides")]
+#[path = "late_sibling_consent_acceptance.rs"]
+mod late_sibling_consent_acceptance;
+// LATE_CONSENT_TEST_END

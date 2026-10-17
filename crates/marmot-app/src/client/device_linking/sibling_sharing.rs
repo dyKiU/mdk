@@ -1425,6 +1425,7 @@ pub(super) struct SiblingChannel {
     channel: cgka_engine::account_chat_sharing::OwnedAccountSharingChannel,
     recipient: bool,
     ready: bool,
+    consent_progress_due: bool,
     publication: Option<SiblingPublication>,
     handshake_attempted: bool,
     deferred_initial_error: Option<ClientLinkingError>,
@@ -1481,6 +1482,7 @@ impl AppClient {
         // Harvest every owned result before a successful channel reuses a slot.
         for (index, entry) in channels.iter_mut().enumerate() {
             if entry.deferred_initial_error.is_some() {
+                entry.consent_progress_due = false;
                 continue;
             }
             match self.harvest_sibling_publication(
@@ -1501,6 +1503,18 @@ impl AppClient {
                         failure = Some(error);
                     }
                 }
+            }
+            // A late first Consent may have no Request result left to harvest.
+            // Select only its exact retained hint after a genuine Request ACK;
+            // unrelated ready peers and failed attempts remain periodic work.
+            if entry.consent_progress_due
+                && !entry.recipient
+                && entry.ready
+                && entry.handshake_published
+                && entry.publication.is_none()
+                && !initial.contains(&index)
+            {
+                initial.push(index);
             }
         }
         let mut starts_left = MAX_SIBLING_PUBLICATIONS;
@@ -1545,6 +1559,13 @@ impl AppClient {
                 break;
             }
             starts_left -= 1;
+            let consent_progress = std::mem::take(&mut channels[index].consent_progress_due);
+            if consent_progress
+                && let Err(error) = self.validate_sibling_publication(&channels[index])
+            {
+                channels[index].deferred_initial_error = Some(error);
+                continue;
+            }
             if let Err(error) = self
                 .advance_sibling_sharing(
                     &mut channels[index],
@@ -1629,6 +1650,7 @@ impl AppClient {
             channel,
             recipient: false,
             ready: false,
+            consent_progress_due: false,
             publication: None,
             handshake_attempted: false,
             deferred_initial_error: None,
@@ -1824,6 +1846,7 @@ impl AppClient {
                 channel,
                 recipient: true,
                 ready: true,
+                consent_progress_due: false,
                 publication: None,
                 handshake_attempted: false,
                 deferred_initial_error: None,
@@ -1855,11 +1878,20 @@ impl AppClient {
             }
             match received.control {
                 AccountSharingControl::Consent if !entry.recipient => {
+                    let first_consent = !entry.ready;
                     self.runtime
                         .session()
                         .bind_account_sharing_consent(&mut entry.channel, wire)
                         .map_err(|_| Error::NotReady)?;
                     entry.ready = true;
+                    if first_consent {
+                        // A one-shot scheduling hint, not authority or a retry.
+                        // Core has bound this real Consent to this owned channel.
+                        entry.consent_progress_due = true;
+                        self.linking_owner
+                            .sibling_publication_completions
+                            .send_replace(());
+                    }
                 }
                 AccountSharingControl::Body(_) if entry.ready => {
                     let (kind, _, body) = self
@@ -2190,6 +2222,11 @@ impl AppClient {
         in_flight: &mut usize,
         mode: SiblingAdvanceMode,
     ) -> Result<(), ClientLinkingError> {
+        if mode == SiblingAdvanceMode::Periodic {
+            // The ordinary turn owns progress now, including failure deferral.
+            // Another peer's later wake cannot revive this old one-shot hint.
+            entry.consent_progress_due = false;
+        }
         if mode == SiblingAdvanceMode::Periodic
             && let Some(error) = entry.deferred_initial_error.take()
         {
