@@ -32,6 +32,7 @@ TESTS = sorted('base::boundary_tests::' + name for name in [
 ADDED_TEST = 'base::boundary_tests::unknown_production_roots_cannot_escape_boundary_scan'
 OWNERSHIP_DOC = 'crates/storage-sqlite/src/cross/private-ownership.md'
 OUT = Path('storage-boundary-evidence')
+BOUNDARY_TEST = 'base::boundary_tests::storage_boundary_matches_the_allow_list'
 
 
 class GateFailure(ValueError):
@@ -192,6 +193,151 @@ def rust_function(source, name):
     return source[start:end]
 
 
+def crossing_context(frozen):
+    prefix = 'crates/storage-sqlite/src/'
+    sources = {}
+    for name, expected in frozen.items():
+        if name.startswith(prefix) and name.endswith('.rs'):
+            body = Path(name).read_bytes()
+            ensure(digest(body) == expected['sha256'], 'diagnostic-source-identifiers-exact-frozen-inputs')
+            sources[name[len(prefix):]] = body.decode()
+    registry = sources['base/table_owners.rs']
+    tables = set(re.findall(r'\(\s*"([a-z][a-z0-9_]*)",\s*Side::(?:Base|Protocol|App),?\s*\)', registry))
+    ensure(bool(tables), 'owned-registry-identifiers-required-for-diagnostic')
+    joined = '\n'.join(sources.values())
+    triggers = set(re.findall(r'CREATE TRIGGER(?: IF NOT EXISTS)? ([A-Za-z_][A-Za-z0-9_]*)(?=\s)', joined))
+    # These two literal templates generate names from schema-owned identifiers.
+    # Nothing supplied by a test failure is interpolated into an accepted name.
+    chat = sources['base/migrations/0072_chat_list_pages.rs']
+    if 'CREATE TRIGGER chat_list_keys_{table}_{operation}' in chat:
+        triggers.update('chat_list_keys_' + table + '_' + operation for table in tables
+                        if '"' + table + '"' in chat for operation in ['INSERT', 'UPDATE', 'DELETE'])
+    if 'CREATE TRIGGER {name} AFTER INSERT ON {table}' in sources['private_migration_ledger.rs']:
+        triggers.update('cgka_experimental_device_sync_activate_' + table for table in tables)
+    references = set(re.findall(r'REFERENCES\s+([a-z][a-z0-9_]*)\b', joined))
+    return {'sources': sources, 'tables': tables, 'triggers': triggers, 'references': references}
+
+
+def known_crossing(line, context):
+    parts = line.split(' ')
+    if len(parts) != 3 or ' '.join(parts) != line:
+        return False
+    kind, origin, target = parts
+    identifier = r'[A-Za-z_][A-Za-z0-9_]*'
+    if kind == 'fk':
+        return origin in context['tables'] and target in context['tables'] and target in context['references']
+    if kind == 'trigger':
+        return origin in context['tables'] and target in context['triggers']
+    if (kind not in {'sql', 'path', 'method'} or origin not in context['sources']
+            or not re.fullmatch(r'[A-Za-z0-9_/-]+\.rs', origin) or '..' in origin):
+        return False
+    source = context['sources'][origin]
+    if kind == 'sql':
+        return target in context['tables'] and re.search(r'(?<![A-Za-z0-9_])' + re.escape(target) + r'(?![A-Za-z0-9_])', source) is not None
+    if kind == 'method':
+        return (re.fullmatch(identifier, target) is not None
+                and re.search(r'\b(?:self\s*\.\s*' + re.escape(target) + r'\s*\(|Self\s*::\s*' + re.escape(target) + r'\b)', source) is not None
+                and any(re.search(r'\bfn\s+' + re.escape(target) + r'\b', body) for body in context['sources'].values()))
+    if not re.fullmatch(r'crate(?:::' + identifier + r'){1,3}', target):
+        return False
+    tokens = target.split('::')[1:]
+    terminal = tokens[-1]
+    location = '/'.join(tokens)
+    known_target = (location + '.rs' in context['sources'] or location + '/mod.rs' in context['sources']
+                    or (len(tokens) == 1 and re.search(r'\b' + re.escape(terminal) + r'\b', context['sources']['lib.rs']) is not None))
+    return known_target and re.search(r'\b' + re.escape(terminal) + r'\b', source) is not None
+
+
+def parse_crossing_diagnostic(output, code, context, panic_line):
+    rejected = lambda reason: {'status': 'rejected', 'reason': reason, 'new': [], 'stale': []}
+    row = parse_body(output, code, BOUNDARY_TEST)
+    locations = row['safe_panic_locations']
+    if not (row['actual_counts_complete'] and row['passed'] == 0 and row['failed'] == 1
+            and code != 0 and row['compiler_error_count'] == 0 and row['panic_count'] == 1
+            and len(locations) == 1 and locations[0]['selected_test']
+            and locations[0]['known_source_location'] and locations[0]['line'] == panic_line):
+        return rejected('not-sole-actual-owned-boundary-panic')
+    clean = re.sub(r'\x1b\[[0-9;]*m', '', output)
+    header = re.search(r"^thread '" + re.escape(BOUNDARY_TEST) + r"'(?: \(\d+\))? panicked at crates/storage-sqlite/src/base/boundary_tests\.rs:" + str(panic_line) + r':\d+:\n', clean, re.M)
+    if not header:
+        return rejected('unknown-panic-header')
+    patterns = {
+        'new': r'([1-9][0-9]{0,2}) crossing\(s\) between the protocol and app sides are not on src/cross/allow-list\.txt\. Move them into cross/, or list them:',
+        'stale': r'([1-9][0-9]{0,2}) listed crossing\(s\) no longer occur\. Delete them from src/cross/allow-list\.txt:',
+    }
+    result, declared, section, seen = {'new': [], 'stale': []}, {}, None, set()
+    payload_lines = clean[header.end():].splitlines()
+    tail = []
+    for index, line in enumerate(payload_lines):
+        if not line or line.startswith('note: run with `RUST_BACKTRACE=') or line == 'FAILED':
+            tail = payload_lines[index:]
+            break
+        matches = [(kind, re.fullmatch(pattern, line)) for kind, pattern in patterns.items()]
+        matches = [(kind, match) for kind, match in matches if match]
+        if matches:
+            section, match = matches[0]
+            if section in declared:
+                return rejected('duplicate-section-header')
+            declared[section] = int(match[1])
+            if declared[section] > 64:
+                return rejected('section-bound-exceeded')
+            continue
+        if section is None or not known_crossing(line, context):
+            return rejected('unknown-structural-crossing')
+        if line in seen:
+            return rejected('duplicate-crossing-row')
+        seen.add(line)
+        result[section].append(line)
+        if len(result[section]) > declared[section]:
+            return rejected('declared-count-exceeded')
+    if not declared or any(len(result[kind]) != count for kind, count in declared.items()):
+        return rejected('missing-or-truncated-section')
+    for line in tail:
+        if line in {'', 'FAILED', 'failures:', '    ' + BOUNDARY_TEST}:
+            continue
+        if re.fullmatch(r'note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace', line):
+            continue
+        if re.fullmatch(r'test result: FAILED\. 0 passed; 1 failed; 0 ignored; 0 measured; [0-9]+ filtered out; finished in [0-9.]+s', line):
+            continue
+        return rejected('unknown-trailing-metadata')
+    # Reject a second header anywhere, including after an apparent terminator.
+    for kind, pattern in patterns.items():
+        if len(re.findall('^' + pattern + '$', clean, re.M)) != int(kind in declared):
+            return rejected('duplicate-or-trailing-section-header')
+    return {'status': 'complete', 'new': result['new'], 'stale': result['stale'],
+            'new_count': len(result['new']), 'stale_count': len(result['stale']),
+            'automatically_allowed': False, 'requires_source_reason_review': True}
+
+
+def crossing_parser_preflight():
+    context = {'sources': {'lib.rs': 'mod owner;', 'owner.rs': 'fn actual() {} impl X { fn f() { self.actual(); } }',
+                           'reader.rs': 'use crate::owner; SELECT app_table;'},
+               'tables': {'app_table', 'protocol_table'}, 'triggers': {'known_trigger'}, 'references': {'protocol_table'}}
+    new = '1 crossing(s) between the protocol and app sides are not on src/cross/allow-list.txt. Move them into cross/, or list them:'
+    stale = '1 listed crossing(s) no longer occur. Delete them from src/cross/allow-list.txt:'
+    start = "running 1 test\ntest " + BOUNDARY_TEST + " ... \nthread '" + BOUNDARY_TEST + "' panicked at crates/storage-sqlite/src/base/boundary_tests.rs:90:5:\n"
+    end = '\n\nFAILED\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.1s\n'
+    raw = start + new + '\nsql reader.rs app_table\n' + stale + '\npath reader.rs crate::owner' + end
+    ensure(parse_crossing_diagnostic(raw, 101, context, 90)['status'] == 'complete', 'crossing-parser-known-owned-sections')
+    for line in ['method owner.rs actual', 'fk app_table protocol_table', 'trigger app_table known_trigger']:
+        ensure(parse_crossing_diagnostic(start + new + '\n' + line + end, 101, context, 90)['status'] == 'complete', 'crossing-parser-known-source-schema-kinds')
+    negatives = [raw.replace('reader.rs', '../private/account.rs'), raw.replace('app_table', 'PRIVATE_ACCOUNT_SQL'),
+                 raw.replace('crate::owner', 'crate::PRIVATE_ACCOUNT_SQL'), raw.replace('1 crossing(s)', '2 crossing(s)'),
+                 raw.replace('1 crossing(s)', '65 crossing(s)'), raw.replace(stale, new), raw + '\n' + new,
+                 raw.replace('sql reader.rs app_table', 'sql reader.rs app_table\nsql reader.rs app_table'),
+                 raw.replace('sql reader.rs app_table', 'SELECT private_payload FROM private_account'),
+                 raw.replace('sql reader.rs app_table', 'method reader.rs PRIVATE_ACCOUNT_SQL'),
+                 raw.replace('sql reader.rs app_table', 'fk app_table PRIVATE_ACCOUNT_SQL'),
+                 raw.replace('sql reader.rs app_table', 'trigger app_table PRIVATE_ACCOUNT_SQL'),
+                 raw.replace(BOUNDARY_TEST, 'foreign::test'), raw.replace(':90:5:', ':91:5:'),
+                 raw.replace('1 failed', '0 failed'), raw + "\nthread 'other' panicked at secret:1:1:\n",
+                 raw + '\nPRIVATE_ACCOUNT_SQL\n']
+    for bad in negatives:
+        row = parse_crossing_diagnostic(bad, 101, context, 90)
+        ensure(row['status'] == 'rejected' and 'PRIVATE_ACCOUNT_SQL' not in json.dumps(row), 'crossing-parser-rejects-untrusted-incomplete-or-duplicate-metadata')
+    return {'positive': 4, 'negative': len(negatives), 'actual_runtime_bodies': 0}
+
+
 def source_guard(baseline, ownership_adaptation):
     ensure(isinstance(baseline, str) and re.fullmatch('[0-9a-f]{40}', baseline), 'explicit-reviewed-full-cohort-required')
     source = git('rev-parse', 'HEAD')
@@ -255,10 +401,12 @@ def main():
     parser.add_argument('--preflight', action='store_true')
     parser.add_argument('--compile-only', action='store_true')
     parser.add_argument('--ownership-adaptation', action='store_true')
+    parser.add_argument('--crossing-diagnostics', action='store_true')
     args = parser.parse_args()
     os.umask(0o077)
     OUT.mkdir(exist_ok=True)
-    report = {'cohort': args.cohort, 'compile_only': args.compile_only, 'qualification_passed': False, 'boundary_controls_passed': False,
+    report = {'cohort': args.cohort, 'compile_only': args.compile_only, 'crossing_diagnostics_only': args.crossing_diagnostics,
+              'qualification_passed': False, 'boundary_controls_passed': False,
               'actual_counts_complete': False, 'actual_executed_nonignored': 0, 'bodies': {}}
     frozen = frozen_inputs()
     report['input_manifest_sha256'] = digest(json.dumps(frozen, sort_keys=True, separators=(',', ':')).encode())
@@ -268,7 +416,9 @@ def main():
         report.update(source_guard(args.cohort_baseline, args.ownership_adaptation))
         report['parser_fixtures'] = parser_preflight()
         report['compiler_parser_fixtures'] = diagnostic_parser_preflight()
+        report['crossing_parser_fixtures'] = crossing_parser_preflight()
         ensure(not args.compile_only or args.cohort == 'default', 'diagnostic-scope-default-only')
+        ensure(not args.crossing_diagnostics or (args.cohort == 'default' and args.ownership_adaptation and not args.compile_only), 'crossing-diagnostic-default-owned-runtime-only')
         report['toolchain'] = {name: subprocess.check_output([name, '--version'], text=True).strip() for name in ['cargo', 'rustc']}
         report['environment'] = {key: os.environ.get(key) for key in ['CARGO_INCREMENTAL', 'CARGO_BUILD_JOBS', 'CARGO_PROFILE_DEV_DEBUG', 'CARGO_PROFILE_TEST_DEBUG', 'RUST_MIN_STACK']}
         save()
@@ -276,6 +426,8 @@ def main():
             report['preflight_passed'] = True
             return 0
         selected_tests = sorted(TESTS + ([ADDED_TEST] if args.ownership_adaptation else []))
+        if args.crossing_diagnostics:
+            selected_tests = [BOUNDARY_TEST]
         expected_count = len(selected_tests)
         command = ['cargo', 'test', '--locked', '-p', 'storage-sqlite', '--lib', '--no-run', '--message-format=json']
         expected_features = []
@@ -315,12 +467,13 @@ def main():
             report['compile_only_completed'] = True
             report['compile_only_is_not_runtime_green'] = True
             return 0
-        code, inventory, _ = capture([str(binary), 'base::boundary_tests::', '--list', '--format', 'terse'], 60)
+        inventory_filter = [BOUNDARY_TEST, '--exact'] if args.crossing_diagnostics else ['base::boundary_tests::']
+        code, inventory, _ = capture([str(binary), *inventory_filter, '--list', '--format', 'terse'], 60)
         names = sorted(re.findall(r'^(base::boundary_tests::[A-Za-z_]+): test$', inventory, re.M))
         inventory_lines = [line for line in inventory.splitlines() if line]
-        allowed_lines = {name + ': test' for name in selected_tests} | {str(expected_count) + ' tests, 0 benchmarks'}
+        allowed_lines = {name + ': test' for name in selected_tests} | {str(expected_count) + (' test' if expected_count == 1 else ' tests') + ', 0 benchmarks'}
         ensure(code == 0 and names == selected_tests and all(line in allowed_lines for line in inventory_lines), 'exact-reviewed-body-inventory-required')
-        code, ignored, _ = capture([str(binary), 'base::boundary_tests::', '--ignored', '--list', '--format', 'terse'], 60)
+        code, ignored, _ = capture([str(binary), *inventory_filter, '--ignored', '--list', '--format', 'terse'], 60)
         ensure(code == 0 and ignored.strip() in {'', '0 tests, 0 benchmarks'}, 'no-selected-ignored-bodies')
         report['inventory'] = {'selected_names': names, 'selected_nonignored': expected_count, 'selected_ignored': 0}
         for name in names:
@@ -328,6 +481,12 @@ def main():
             command = [str(binary), name, '--exact', '--nocapture', '--test-threads=1']
             code, raw, seconds = capture(command, 300)
             row = parse_body(raw, code, name)
+            if args.crossing_diagnostics:
+                source = Path(BOUNDARY[1]).read_text()
+                anchor = '    panic!("{message}");'
+                ensure(source.count(anchor) == 1, 'one-original-boundary-panic-anchor')
+                panic_line = source[:source.index(anchor)].count('\n') + 1
+                row['crossing_diagnostic'] = parse_crossing_diagnostic(raw, code, crossing_context(frozen), panic_line)
             row['wall_seconds'] = seconds
             row['binary_sha256'] = binary_hash
             report['bodies'][name] = row
@@ -338,6 +497,9 @@ def main():
         rows = list(report['bodies'].values())
         report['actual_counts_complete'] = len(rows) == expected_count and all(row['actual_counts_complete'] for row in rows)
         report['actual_executed_nonignored'] = sum(row['executed_nonignored'] for row in rows) if report['actual_counts_complete'] else None
+        if args.crossing_diagnostics:
+            report['crossing_diagnostic_complete'] = report['actual_counts_complete'] and rows[0].get('crossing_diagnostic', {}).get('status') == 'complete'
+            return 1
         report['boundary_controls_passed'] = report['actual_counts_complete'] and all(row['passed_gate'] for row in rows)
         return 0 if report['boundary_controls_passed'] else 1
     except Exception as error:

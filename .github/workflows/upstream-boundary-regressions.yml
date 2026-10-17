@@ -11,7 +11,7 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
+        options: [storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
         default: all
 
 permissions:
@@ -22,7 +22,7 @@ env:
 
 jobs:
   cohort-preflight:
-    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green'
+    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -47,7 +47,7 @@ jobs:
           retention-days: 7
   mutation:
     needs: cohort-preflight
-    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green'
+    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -96,7 +96,7 @@ jobs:
           retention-days: 7
 
   storage-ownership-preflight:
-    if: github.event_name == 'workflow_dispatch' && inputs.case == 'storage-ownership-green' && (startsWith(github.ref_name, 'ci/upstream-storage-ownership-green-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-'))
+    if: github.event_name == 'workflow_dispatch' && (inputs.case == 'storage-ownership-green' || inputs.case == 'storage-ownership-crossings') && (startsWith(github.ref_name, 'ci/upstream-storage-ownership-green-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-'))
     name: SQLite ownership source, parser and formatting preflight
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -145,7 +145,7 @@ jobs:
 
   storage-ownership-boundary:
     needs: storage-ownership-preflight
-    if: ${{ !cancelled() && (inputs.case != 'storage-ownership-green' || needs.storage-ownership-preflight.result == 'success') && github.event_name == 'workflow_dispatch' && (inputs.case == 'storage-ownership-green' || inputs.case == 'storage-ownership-boundary' || inputs.case == 'storage-ownership-diagnostics') && (startsWith(github.ref_name, 'ci/upstream-storage-boundary-') || startsWith(github.ref_name, 'ci/upstream-storage-ownership-green-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-')) }}
+    if: ${{ !cancelled() && ((inputs.case != 'storage-ownership-green' && inputs.case != 'storage-ownership-crossings') || needs.storage-ownership-preflight.result == 'success') && github.event_name == 'workflow_dispatch' && (inputs.case == 'storage-ownership-crossings' || inputs.case == 'storage-ownership-green' || inputs.case == 'storage-ownership-boundary' || inputs.case == 'storage-ownership-diagnostics') && (startsWith(github.ref_name, 'ci/upstream-storage-boundary-') || startsWith(github.ref_name, 'ci/upstream-storage-ownership-green-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-')) }}
     name: Incoming SQLite ownership (${{ matrix.cohort }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -153,7 +153,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        cohort: ${{ fromJSON(inputs.case == 'storage-ownership-diagnostics' && '["default"]' || '["default","experimental"]') }}
+        cohort: ${{ fromJSON((inputs.case == 'storage-ownership-diagnostics' || inputs.case == 'storage-ownership-crossings') && '["default"]' || '["default","experimental"]') }}
     env:
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
@@ -180,7 +180,7 @@ jobs:
       - name: Verify explicit source cohort and adversarial receipt fixtures
         env:
           CARGO_INCREMENTAL: '1'
-        run: python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}' --preflight ${{ inputs.case == 'storage-ownership-green' && '--ownership-adaptation' || '' }}
+        run: python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}' --preflight ${{ (inputs.case == 'storage-ownership-green' || inputs.case == 'storage-ownership-crossings') && '--ownership-adaptation' || '' }}
       - name: Run only three unchanged incoming ownership assertions
         if: inputs.case == 'storage-ownership-boundary'
         env:
@@ -202,6 +202,13 @@ jobs:
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Incoming SQLite ownership compiler diagnosis' --output "$RUNNER_TEMP/storage-boundary-capacity.json"
           python3 scripts/qualify_upstream_storage_boundary.py --cohort default --compile-only
+      - name: Diagnose only the actual default boundary assertion with safe structural crossings
+        if: inputs.case == 'storage-ownership-crossings'
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Owned SQLite structural crossing diagnosis' --output "$RUNNER_TEMP/storage-boundary-capacity.json"
+          python3 scripts/qualify_upstream_storage_boundary.py --cohort default --ownership-adaptation --crossing-diagnostics
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
