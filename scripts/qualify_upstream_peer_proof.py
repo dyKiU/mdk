@@ -27,7 +27,7 @@ WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
 FIELDS = ['held', 'own_harvested', 'periodic_observed', 'fresh_before', 'authenticated_peer',
           'gated_complete', 'enrollment_complete', 'public_cancelled']
 MARKER = ('late-peer-proof ' + ' '.join(field + '=(true|false)' for field in FIELDS)
-          + r' runtime_closes=([0-9]+) relay_closed=(true|false) attempt_completed=(true|false)')
+          + r' runtime_closes=([0-9]+) planes_shutdown=([0-9]+) relay_closed=(true|false) attempt_completed=(true|false)')
 OUT = Path('peer-proof-evidence')
 
 
@@ -50,13 +50,13 @@ def parse(raw, exit_code):
     if len(matches) == 1:
         values = matches[0]
         row['facts'] = dict(zip(FIELDS, [value == 'true' for value in values[:8]]))
-        row.update(runtime_closes=int(values[8]), relay_closed=values[9] == 'true', attempt_completed=values[10] == 'true')
+        row.update(runtime_closes=int(values[8]), planes_shutdown=int(values[9]), relay_closed=values[10] == 'true', attempt_completed=values[11] == 'true')
     row['intended_assertion_observed'] = MESSAGE in raw
     return row
 
 
 def prerequisites(row):
-    return (row.get('marker_count') == 1 and row.get('runtime_closes') == 3
+    return (row.get('marker_count') == 1 and row.get('runtime_closes') == 3 and row.get('planes_shutdown') == 3
             and row.get('relay_closed') is True and row.get('attempt_completed') is True
             and all(row.get('facts', {}).get(field) is True for field in FIELDS if field != 'gated_complete'))
 
@@ -78,13 +78,13 @@ def intended_red(row):
 def parser_preflight():
     own = assertion_location()
     marker = 'late-peer-proof ' + ' '.join(field + '=' + ('false' if field == 'gated_complete' else 'true') for field in FIELDS)
-    marker += ' runtime_closes=3 relay_closed=true attempt_completed=true'
+    marker += ' runtime_closes=3 planes_shutdown=3 relay_closed=true attempt_completed=true'
     panic = "thread '" + TEST + "' panicked at " + own['file'] + ':' + str(own['line']) + ':5:\n' + MESSAGE
     raw = 'running 1 test\ntest ' + TEST + ' ... ' + marker + '\n' + panic + '\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out;\n'
     ensure(intended_red(parse(raw, 101)), 'positive-prefixed-runtime-red-parser')
     ensure(intended_red(parse(raw.replace(' ... ' + marker, ' ... \n' + marker), 101)), 'positive-own-line-runtime-red-parser')
     negatives = [raw + marker + '\n', raw.replace(TEST, 'foreign::test'), raw.replace('gated_complete=false', 'gated_complete=true'),
-                 raw.replace('runtime_closes=3', 'runtime_closes=2'), raw.replace('relay_closed=true', 'relay_closed=false'),
+                 raw.replace('runtime_closes=3', 'runtime_closes=2'), raw.replace('planes_shutdown=3', 'planes_shutdown=2'), raw.replace('relay_closed=true', 'relay_closed=false'),
                  raw.replace('attempt_completed=true', 'attempt_completed=false'), raw.replace('1 failed', '0 failed'),
                  raw + '\nthread extra panicked at ' + FILE + ':1:1:\n', raw.replace(own['file'] + ':' + str(own['line']), own['file'] + ':1'),
                  raw.replace(marker, 'arbitrary ' + marker), raw.replace(marker, marker + ' extra'),

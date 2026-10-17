@@ -39,8 +39,17 @@ async fn authenticated_late_peer_proof_completes_without_periodic_tick() {
         a.automatic_pairing_code().await.unwrap();
         compare_and_confirm_pair(&a, &c).await;
         c.continue_automatic_linking(c.snapshot().await.unwrap().revision, true).await.unwrap();
-        let proof_gate = c.arm_late_peer_proof_for_test().expect("actual recipient original captured");
         a.continue_automatic_linking(a.snapshot().await.unwrap().revision, true).await.unwrap();
+        // Automatic continuation stores its negative choice first; refreshing the
+        // original captures the SDK sharing owner asynchronously. B has not yet
+        // approved, so its addressed C proof cannot be prepared before this hold.
+        let proof_gate = tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                c.snapshot().await.unwrap();
+                if let Some(gate) = c.arm_late_peer_proof_for_test() { break gate; }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        }).await.expect("actual recipient sharing original must be captured before B approval");
         let approval = tokio::time::timeout(Duration::from_secs(20), async {
             loop {
                 if let Some(approval) = managers[1].pending_device_linking_approvals("test").await.unwrap().pop() { break approval; }
@@ -96,15 +105,28 @@ async fn authenticated_late_peer_proof_completes_without_periodic_tick() {
     for runtime in runtimes {
         if runtime.shutdown_and_close().await.is_ok() { runtime_closes += 1; }
     }
+    let mut planes_shutdown = 0;
+    for app in &apps {
+        app.relay_plane.shutdown().await;
+        planes_shutdown += 1;
+    }
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
-    let relay_closed = tokio::time::timeout(Duration::from_secs(3), async {
-        while let Ok(socket) = tokio::net::TcpStream::connect(address).await {
-            drop(socket); tokio::task::yield_now().await;
-        }
-    }).await.is_ok();
-    eprintln!("late-peer-proof held={} own_harvested={} periodic_observed={} fresh_before={} authenticated_peer={} gated_complete={} enrollment_complete={} public_cancelled={} runtime_closes={} relay_closed={} attempt_completed={}",
-        facts[0],facts[1],facts[2],facts[3],facts[4],facts[5],facts[6],facts[7],runtime_closes,relay_closed,attempt.is_ok());
-    assert!(facts.into_iter().all(|value| value) && runtime_closes == 3 && relay_closed && attempt.is_ok(),
+    let relay_closed = owned_loopback_listener_is_closed(address).await;
+    eprintln!("late-peer-proof held={} own_harvested={} periodic_observed={} fresh_before={} authenticated_peer={} gated_complete={} enrollment_complete={} public_cancelled={} runtime_closes={} planes_shutdown={} relay_closed={} attempt_completed={}",
+        facts[0],facts[1],facts[2],facts[3],facts[4],facts[5],facts[6],facts[7],runtime_closes,planes_shutdown,relay_closed,attempt.is_ok());
+    assert!(facts.into_iter().all(|value| value) && runtime_closes == 3 && planes_shutdown == 3 && relay_closed && attempt.is_ok(),
         "authenticated_late_peer_proof_must_complete_without_periodic_tick");
+}
+
+// The address comes only from this test's owned MockRelay, never an external
+// endpoint. This final probe proves the owned loopback listener has closed.
+#[allow(clippy::disallowed_methods)]
+async fn owned_loopback_listener_is_closed(address: &str) -> bool {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while let Ok(socket) = tokio::net::TcpStream::connect(address).await {
+            drop(socket);
+            tokio::task::yield_now().await;
+        }
+    }).await.is_ok()
 }
