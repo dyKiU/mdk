@@ -1867,6 +1867,12 @@ async fn run_app_runtime_account_worker(
     let mut linking_tick = interval(Duration::from_secs(1));
     #[cfg(feature = "experimental-device-sync")]
     linking_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    #[cfg(feature = "experimental-device-sync")]
+    let mut sibling_maintenance_due = false;
+    #[cfg(feature = "experimental-device-sync")]
+    let mut sibling_maintenance_yielded = false;
+    #[cfg(feature = "experimental-device-sync")]
+    let mut linking_maintenance_due = false;
     let mut legacy_message_promotion = LegacyMessagePromotionSchedule::new();
     let mut presentation_maintenance = super::presentation::PresentationMaintenance::default();
     let mut presentation_wakeups = app.presentation_signals.subscribe_work();
@@ -1933,9 +1939,22 @@ async fn run_app_runtime_account_worker(
         // A pass whose network wait ended admits its owned batch a few events
         // per turn. The select below then serves commands and live input
         // before the next turn.
+        let admit_comparison_turn = {
+            #[cfg(feature = "experimental-device-sync")]
+            { !(sibling_maintenance_due && sibling_maintenance_yielded) }
+            #[cfg(not(feature = "experimental-device-sync"))]
+            { true }
+        };
         if let Some(job) = comparison_recovery.as_mut()
             && job.network.is_none()
+            && admit_comparison_turn
         {
+            // An admission batch is already one foreground/convergence quantum.
+            // Do not also yield the due sibling debt to another ready branch.
+            #[cfg(feature = "experimental-device-sync")]
+            if sibling_maintenance_due {
+                sibling_maintenance_yielded = true;
+            }
             let turn = match job.admission.as_mut() {
                 Some(admission) => {
                     client
@@ -2037,6 +2056,13 @@ async fn run_app_runtime_account_worker(
             commands.len(),
             yield_to_convergence,
         );
+        // A new due quantum gives one other ready branch its turn. If that
+        // branch wins, the next turn is unconditionally ready for the debt,
+        // rather than relying on yield_now against permanently ready ingress.
+        #[cfg(feature = "experimental-device-sync")]
+        let sibling_service_turn = sibling_maintenance_due && sibling_maintenance_yielded;
+        #[cfg(feature = "experimental-device-sync")]
+        { sibling_maintenance_yielded = sibling_maintenance_due; }
         tokio::select! {
                     biased;
                     _ = wait_for_runtime_shutdown(&mut lifecycle_shutdown) => {
@@ -2048,6 +2074,56 @@ async fn run_app_runtime_account_worker(
                             client.finish_audit_recording();
                         }
                         break 'worker;
+                    }
+                    // Latch the same one-second tick before command/ingress
+                    // selection; no broad maintenance work runs in this arm.
+                    _ = async {
+                        #[cfg(feature = "experimental-device-sync")]
+                        {
+
+        // COMPLETION_TEST_BEGIN
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        shared.wait_periodic_linking_for_test(&account_label).await;
+        // COMPLETION_TEST_END
+        linking_tick.tick().await;
+                        }
+                        #[cfg(not(feature = "experimental-device-sync"))]
+                        std::future::pending::<()>().await;
+                    }, if {
+                        #[cfg(feature = "experimental-device-sync")]
+                        { !sibling_maintenance_due }
+                        #[cfg(not(feature = "experimental-device-sync"))]
+                        { false }
+                    } => {
+                        #[cfg(feature = "experimental-device-sync")]
+                        {
+                            sibling_maintenance_due = true;
+                            linking_maintenance_due = true;
+                        }
+                    }
+
+                    _ = async {
+                        #[cfg(feature = "experimental-device-sync")]
+                        if !sibling_service_turn {
+                            tokio::task::yield_now().await;
+                        }
+                        #[cfg(not(feature = "experimental-device-sync"))]
+                        std::future::pending::<()>().await;
+                    }, if {
+                        #[cfg(feature = "experimental-device-sync")]
+                        { sibling_maintenance_due }
+                        #[cfg(not(feature = "experimental-device-sync"))]
+                        { false }
+                    } => {
+                        #[cfg(feature = "experimental-device-sync")]
+                        {
+                            sibling_maintenance_due = false;
+                            if !lifecycle.is_stopping()
+                                && client.maintain_sibling_sharing().await.is_err()
+                            {
+                                tracing::debug!(target: "marmot_app::device_linking", method = "worker_sibling_maintenance", "sibling maintenance deferred");
+                            }
+                        }
                     }
                     completed = async {
                         #[cfg(feature = "experimental-device-sync")]
@@ -3040,24 +3116,19 @@ async fn run_app_runtime_account_worker(
                     _ = tokio::task::yield_now(), if comparison_recovery.as_ref().is_some_and(|job| job.network.is_none()) => {
                         continue 'worker;
                     }
-                    // Pairing expiry cannot wait for optional network recovery. The
-                    // original deadline is also checked by every verifier/join access.
-                    _ = async {
+                    // Broad housekeeping retains its original lower-priority arm:
+                    // it can await history ACKs and must not hold up sibling progress.
+                    _ = std::future::ready(()), if {
                         #[cfg(feature = "experimental-device-sync")]
-                        {
-
-        // COMPLETION_TEST_BEGIN
-        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
-        shared.wait_periodic_linking_for_test(&account_label).await;
-        // COMPLETION_TEST_END
-        linking_tick.tick().await;
-                        }
+                        { linking_maintenance_due && !sibling_maintenance_due }
                         #[cfg(not(feature = "experimental-device-sync"))]
-                        std::future::pending::<()>().await;
-                    }, if cfg!(feature = "experimental-device-sync") => {
+                        { false }
+                    } => {
+                        #[cfg(feature = "experimental-device-sync")]
+                        { linking_maintenance_due = false; }
                         #[cfg(feature = "experimental-device-sync")]
                         if !lifecycle.is_stopping() {
-                            if client.maintain_device_linking(Instant::now()).await.is_err() {
+                            if client.maintain_device_linking_after_sibling_turn(Instant::now()).await.is_err() {
                                 tracing::debug!(
                                     target: "marmot_app::device_linking",
                                     method = "worker_expiry_tick",

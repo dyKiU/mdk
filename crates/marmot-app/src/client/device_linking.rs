@@ -1216,9 +1216,27 @@ impl AppClient {
         result
     }
 
+    #[cfg(test)]
     pub(crate) async fn maintain_device_linking(
         &mut self,
         now: std::time::Instant,
+    ) -> Result<(), ClientLinkingError> {
+        self.maintain_device_linking_with_sibling_turn(now, true).await
+    }
+
+    /// The account worker has already serviced its one due sibling quantum.
+    /// Other callers retain the complete original maintenance operation.
+    pub(crate) async fn maintain_device_linking_after_sibling_turn(
+        &mut self,
+        now: std::time::Instant,
+    ) -> Result<(), ClientLinkingError> {
+        self.maintain_device_linking_with_sibling_turn(now, false).await
+    }
+
+    async fn maintain_device_linking_with_sibling_turn(
+        &mut self,
+        now: std::time::Instant,
+        service_siblings: bool,
     ) -> Result<(), ClientLinkingError> {
         self.maintain_selected_chat_packages()
             .map_err(ClientLinkingError::Engine)?;
@@ -1239,7 +1257,9 @@ impl AppClient {
             )))
         })?;
         self.persist_completed_pair_sharing_approval()?;
-        self.maintain_sibling_sharing().await?;
+        if service_siblings {
+            self.maintain_sibling_sharing().await?;
+        }
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let observer = self.linking_owner.sharing_approval.clone();
         #[cfg(all(test, feature = "test-policy-overrides"))]
