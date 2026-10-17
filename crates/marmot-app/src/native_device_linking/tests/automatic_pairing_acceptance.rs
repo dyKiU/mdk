@@ -4,18 +4,27 @@ use marmot_account::AccountHome;
 
 #[tokio::test]
 async fn cancelled_setup_can_reverse_roles_and_complete_enrollment() {
+    cancelled_setup_role_reversal(false).await;
+}
+
+#[tokio::test]
+async fn cancelled_setup_can_reverse_roles_after_restart_and_complete_enrollment() {
+    cancelled_setup_role_reversal(true).await;
+}
+
+async fn cancelled_setup_role_reversal(reopen: bool) {
     use cgka_traits::storage::{GroupStorage, StorageProvider};
     let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let url = relay.url().await.to_string();
     let keys = nostr::prelude::Keys::generate();
     let dirs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
-    let apps = dirs.each_ref().map(|dir| {
+    let mut apps = dirs.each_ref().map(|dir| {
         AccountHome::open(dir.path())
             .import_account("test", &keys.secret_key().to_secret_hex())
             .unwrap();
         MarmotApp::with_relay(dir.path(), &url)
     });
-    let runtimes = apps.clone().map(MarmotAppRuntime::new);
+    let mut runtimes = apps.clone().map(MarmotAppRuntime::new);
     for runtime in &runtimes {
         runtime.reconcile_accounts().await.unwrap();
     }
@@ -50,6 +59,20 @@ async fn cancelled_setup_can_reverse_roles_and_complete_enrollment() {
             .unwrap()
             .is_none()
     );
+    drop(storage);
+    if reopen {
+        for runtime in &runtimes {
+            runtime.shutdown_and_close().await.unwrap();
+        }
+        apps = dirs
+            .each_ref()
+            .map(|dir| MarmotApp::with_relay(dir.path(), &url));
+        runtimes = apps.clone().map(MarmotAppRuntime::new);
+        for runtime in &runtimes {
+            runtime.reconcile_accounts().await.unwrap();
+        }
+    }
+    let storage = apps[0].account_storage("test").unwrap();
 
     // The former approver now displays the QR and becomes the recipient. The
     // old one-device genesis must not veto this independently approved join.
