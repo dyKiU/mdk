@@ -20,7 +20,7 @@ TESTS = 'crates/cgka-engine/src/private_roster_settlement_tests.rs'
 CACHE = 'crates/cgka-engine/src/mls_group_cache.rs'
 REVIEWED = {
     'crates/cgka-engine/src/private_roster_settlement.rs': '2ec5dcfdd1c62c4c50677f138bac3d357de3bc2a31c98ca298d5e03732dacbae',
-    'crates/cgka-engine/src/private_roster_settlement_tests.rs': 'ac24762889bfe8f689db0aa32f66b423a139aadf0e5602631ec15ebabeaf527e',
+    'crates/cgka-engine/src/private_roster_settlement_tests.rs': 'a4790ffbeb8044f900677c76b3135c79633d06fe9b6025446b38185988bce596',
     'crates/cgka-engine/src/mls_group_cache.rs': '575386b6e84da462addd8d9354c02338005cfee7aeb76cd6f64af4eba64e4857',
 }
 OUT = Path('settled-roster-reuse-evidence')

@@ -193,7 +193,7 @@ async fn private_roster_reuse_returns_object_after_fresh_storage_error() {
         "the error leaves a returned old-generation object and no taken entry"
     );
     assert!(
-        initiator
+        responder
             .validated_settled_device_roster(&group)
             .unwrap()
             .is_some(),
