@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
@@ -228,7 +228,7 @@ jobs:
           persist-credentials: false
       - if: inputs.scope == 'automatic-body-preflight' || inputs.scope == 'automatic-body-red'
         run: python3 scripts/qualify_upstream_automatic_body.py --mode preflight
-      - if: inputs.scope == 'automatic-body-green-preflight' || inputs.scope == 'automatic-body-controls'
+      - if: inputs.scope == 'automatic-body-green-preflight' || inputs.scope == 'automatic-body-controls' || inputs.scope == 'automatic-body-experimental-static'
         run: python3 scripts/qualify_upstream_automatic_body.py --mode green-preflight
       - run: |
           cargo fmt --all
@@ -311,7 +311,7 @@ jobs:
           retention-days: 14
   automatic-body-static:
     needs: automatic-body-preflight
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'automatic-body-controls'
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'automatic-body-controls' || inputs.scope == 'automatic-body-experimental-static')
     name: Automatic Body affected App static (${{ matrix.cohort }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -319,7 +319,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        cohort: [default, experimental]
+        cohort: ${{ fromJSON(inputs.scope == 'automatic-body-experimental-static' && '["experimental"]' || '["default","experimental"]') }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
@@ -346,7 +346,7 @@ jobs:
           retention-days: 14
   completion-candidate-preflight:
     env:
-      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || '3b87aaa7a11b6ac3611083fb9828dbf737ecc478' }}
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || '0c9065255fa16292e84e12b32fb920db0494b9aa' }}
     if: github.event_name == 'workflow_dispatch' && startsWith(inputs.scope, 'completion-candidate-')
     name: Reviewed completion candidate source parser and format preflight
     runs-on: ubuntu-latest
@@ -372,7 +372,7 @@ jobs:
           retention-days: 14
   completion-candidate-controls:
     env:
-      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || '3b87aaa7a11b6ac3611083fb9828dbf737ecc478' }}
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || '0c9065255fa16292e84e12b32fb920db0494b9aa' }}
     needs: completion-candidate-preflight
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'completion-candidate-controls'
     name: Exact completion regression and three unchanged originals
@@ -408,7 +408,7 @@ jobs:
           retention-days: 14
   completion-candidate-static:
     env:
-      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || '3b87aaa7a11b6ac3611083fb9828dbf737ecc478' }}
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || '0c9065255fa16292e84e12b32fb920db0494b9aa' }}
     needs: completion-candidate-preflight
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'completion-candidate-controls'
     name: Completion affected App static (${{ matrix.cohort }})
@@ -446,7 +446,7 @@ jobs:
           retention-days: 14
   completion-candidate-mutations:
     env:
-      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || '3b87aaa7a11b6ac3611083fb9828dbf737ecc478' }}
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || '0c9065255fa16292e84e12b32fb920db0494b9aa' }}
     needs: completion-candidate-preflight
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'completion-candidate-mutations'
     name: Independent completion omission (${{ matrix.mode }})
