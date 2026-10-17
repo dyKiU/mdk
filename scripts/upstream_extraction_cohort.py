@@ -19,6 +19,7 @@ OVERLAYS = {
     'scripts/verify_upstream_body_negative_source.py',
     'scripts/qualify_upstream_body_negative.py',
     'scripts/upstream_body_negative_ci.py',
+    'scripts/qualify_upstream_owner_pairing_mutations.py',
     '.github/workflows/upstream-private-fix-reconciliation.yml',
     '.github/workflows/upstream-boundary-regressions.yml',
     '.github/workflows/experimental-sync-ci.yml',

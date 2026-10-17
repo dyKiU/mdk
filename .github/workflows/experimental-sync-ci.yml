@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
@@ -46,6 +46,61 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  owner-pairing-mutations:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'owner-pairing-mutations'
+    name: Owner pairing mutation (${{ matrix.case }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - case: readiness
+            stack: '4194304'
+          - case: unrelated-welcome
+            stack: '4194304'
+          - case: historical-policy
+            stack: '16777216'
+          - case: retirement-omission
+            stack: '16777216'
+    env:
+      CARGO_INCREMENTAL: '1'
+      # App stress budget remains 4 MiB. Core uses the existing explicit
+      # pairing-recovery component budget, recorded separately in each proof.
+      RUST_MIN_STACK: ${{ matrix.stack }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Verify exact source and runtime-oracle parser
+        run: python3 scripts/qualify_upstream_owner_pairing_mutations.py --case '${{ matrix.case }}' --preflight
+      - name: Execute baseline, sole intended mutant and exact restored control
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Owner pairing mutation'
+          python3 scripts/qualify_upstream_owner_pairing_mutations.py --case '${{ matrix.case }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: owner-pairing-mutation-${{ matrix.case }}
+          path: owner-pairing-mutation-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
   pairing-recovery-components:
     if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-recovery-components","pairing-recovery-convergence"]'), inputs.scope)
     name: Pairing recovery component (${{ matrix.component }})
