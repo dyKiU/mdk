@@ -12,12 +12,14 @@ import time
 COUNT_FIELDS = ('totalTestCount', 'passedTests', 'failedTests', 'skippedTests')
 STATUSES = {'Passed': 'passedTests', 'Failed': 'failedTests', 'Skipped': 'skippedTests'}
 # Source-style identifiers only: never export dynamic display names or payloads.
-IDENTIFIER = re.compile(r'[A-Za-z_][A-Za-z0-9_./]*(?:\(\))?')
+IDENTIFIER = re.compile(r'[A-Za-z_][A-Za-z0-9_./]*(?:\((?:[A-Za-z_][A-Za-z0-9_]*:)*\))?')
 MAX_EXPORT_BYTES = 8 * 1024 * 1024
 
 
 def summary_counts(summary):
     if not isinstance(summary, dict) or not all(type(summary.get(key)) is int and summary[key] >= 0 for key in COUNT_FIELDS):
+        return None
+    if summary['totalTestCount'] != sum(summary[key] for key in COUNT_FIELDS[1:]):
         return None
     return {key: summary[key] for key in COUNT_FIELDS}
 
