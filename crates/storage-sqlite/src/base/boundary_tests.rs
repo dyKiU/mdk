@@ -107,7 +107,9 @@ fn side_of(rel: &str) -> Option<Side> {
         Some("protocol") => Some(Side::Protocol),
         Some("app") => Some(Side::App),
         Some("base") | Some("lib.rs") => Some(Side::Base),
-        _ => None, // `cross/`, and `shared`, which is a separate database.
+        // `cross/`, `shared` (a separate database), and the feature-gated media
+        // store benchmark, which opens whole account stores.
+        _ => None,
     }
 }
 
@@ -268,8 +270,9 @@ fn starts_test_only(tokens: TokenStream) -> bool {
     is_test_only(&leading_attrs(tokens))
 }
 
-/// What one file names: string literals, `crate::` paths, and calls through
-/// `self` or `Self` inside `SqliteAccountStorage` impls.
+/// What one file names: string literals, `crate::` paths, calls through `self`
+/// or `Self` inside `SqliteAccountStorage` impls, and every identifier a path,
+/// `use` or macro mentions (the trait channel).
 #[derive(Default)]
 struct Names {
     literals: Vec<String>,
@@ -278,6 +281,12 @@ struct Names {
     /// Whether the file asks for the app handle (`app_storage()`), through any
     /// receiver: that hands out every method on `SqliteAppStorage`.
     app_handle_calls: bool,
+    /// Every segment of every path (including `<T as Trait>::m`), every `use`
+    /// leaf and every identifier in macro arguments, whatever the root: a trait
+    /// must be named before its methods can be called. A glob import from
+    /// `cgka_traits` counts as naming every trait it could bring into scope.
+    names_used: BTreeSet<String>,
+    cgka_traits_glob: bool,
 }
 
 struct Scan<'a> {
@@ -307,6 +316,7 @@ impl<'ast> Visit<'ast> for Scan<'_> {
         if let syn::Item::Use(item_use) = item {
             let mut prefix = Vec::new();
             use_paths(&item_use.tree, &mut prefix, &mut self.names.paths);
+            use_leaves(&item_use.tree, &mut Vec::new(), self.names);
             return;
         }
         visit::visit_item(self, item);
@@ -337,6 +347,7 @@ impl<'ast> Visit<'ast> for Scan<'_> {
 
     fn visit_path(&mut self, path: &'ast syn::Path) {
         let segments: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+        self.names.names_used.extend(segments.iter().cloned());
         if segments.last().is_some_and(|s| s == "app_storage") {
             self.names.app_handle_calls = true;
         }
@@ -383,6 +394,28 @@ fn use_paths(tree: &syn::UseTree, prefix: &mut Vec<String>, out: &mut BTreeSet<V
     }
 }
 
+fn use_leaves(tree: &syn::UseTree, prefix: &mut Vec<String>, names: &mut Names) {
+    match tree {
+        syn::UseTree::Path(p) => {
+            prefix.push(p.ident.to_string());
+            use_leaves(&p.tree, prefix, names);
+            prefix.pop();
+        }
+        syn::UseTree::Name(n) => {
+            names.names_used.insert(n.ident.to_string());
+        }
+        syn::UseTree::Rename(r) => {
+            names.names_used.insert(r.ident.to_string());
+        }
+        syn::UseTree::Glob(_) => {
+            if prefix.first().is_some_and(|s| s == "cgka_traits") {
+                names.cgka_traits_glob = true;
+            }
+        }
+        syn::UseTree::Group(g) => g.items.iter().for_each(|t| use_leaves(t, prefix, names)),
+    }
+}
+
 fn leaf(prefix: &[String], name: String, out: &mut BTreeSet<Vec<String>>) {
     let mut path = prefix.to_vec();
     if name != "self" {
@@ -393,11 +426,14 @@ fn leaf(prefix: &[String], name: String, out: &mut BTreeSet<Vec<String>>) {
     }
 }
 
-/// Literals, `crate::` paths and `self.x(` / `Self::x(` calls inside macro
-/// arguments, which `syn` leaves as tokens.
+/// Literals, `crate::` paths, `self.x(` / `Self::x(` calls and every
+/// identifier inside macro arguments, which `syn` leaves as tokens.
 fn scan_tokens(tokens: TokenStream, in_storage_impl: bool, names: &mut Names) {
     let trees: Vec<TokenTree> = tokens.into_iter().collect();
     for (i, tree) in trees.iter().enumerate() {
+        if let TokenTree::Ident(ident) = tree {
+            names.names_used.insert(ident.to_string());
+        }
         match tree {
             TokenTree::Literal(lit) => {
                 if let Ok(s) = syn::parse_str::<syn::LitStr>(&lit.to_string()) {
@@ -528,14 +564,22 @@ fn source_crossings() -> BTreeSet<String> {
         .map(|f| (f, scan(&f.ast)))
         .collect();
 
-    // Methods on `SqliteAccountStorage`, by the side that defines them.
+    // Methods on `SqliteAccountStorage`, by the side that defines them, and
+    // the traits protocol code implements for it.
     let mut defined: BTreeMap<String, BTreeSet<Side>> = BTreeMap::new();
+    let mut protocol_traits = BTreeSet::new();
     for (file, _) in &scanned {
         for item in &file.ast.items {
             let syn::Item::Impl(item_impl) = item else {
                 continue;
             };
             if !is_storage_impl(item_impl) || starts_test_only(item_impl.to_token_stream()) {
+                continue;
+            }
+            if let Some((_, trait_path, _)) = &item_impl.trait_ {
+                if file.side == Some(Side::Protocol) {
+                    protocol_traits.extend(trait_path.segments.last().map(|s| s.ident.to_string()));
+                }
                 continue;
             }
             for impl_item in &item_impl.items {
@@ -574,6 +618,15 @@ fn source_crossings() -> BTreeSet<String> {
         // protocol or base code is a crossing whatever is called on it next.
         if names.app_handle_calls && matches!(side, Side::Protocol | Side::Base) {
             found.insert(format!("method {} app_storage", file.rel));
+        }
+        // App code reaches the engine's storage only through `cross/`.
+        if side == Side::App {
+            for name in names.names_used.intersection(&protocol_traits) {
+                found.insert(format!("trait {} {name}", file.rel));
+            }
+            if names.cgka_traits_glob {
+                found.insert(format!("trait {} cgka_traits::*", file.rel));
+            }
         }
         for method in &names.self_calls {
             let Some(sides) = defined.get(method) else {
@@ -680,4 +733,40 @@ fn cfg_predicates_skip_only_test_builds() {
     assert!(!starts_test_only(stmt.to_token_stream()));
     let stmt: syn::Stmt = syn::parse_str("#[cfg(test)] let x = 1;").unwrap();
     assert!(starts_test_only(stmt.to_token_stream()));
+}
+
+#[test]
+fn trait_channel_sees_every_way_to_name_a_trait() {
+    for (source, trait_name) in [
+        (
+            "use cgka_traits::storage::GroupStorage as _;",
+            "GroupStorage",
+        ),
+        (
+            "fn f() { cgka_traits::StorageProvider::with_transaction(s, g); }",
+            "StorageProvider",
+        ),
+        (
+            "fn f() { <S as GroupStorage>::get_group(s, id); }",
+            "GroupStorage",
+        ),
+        (
+            "fn f() { assert!(GroupStorage::get_group(s, id).is_ok()); }",
+            "GroupStorage",
+        ),
+        ("fn f<S: MessageStorage>(s: &S) {}", "MessageStorage"),
+    ] {
+        let names = scan(&syn::parse_file(source).unwrap());
+        assert!(
+            names.names_used.contains(trait_name),
+            "{source} names {trait_name}"
+        );
+    }
+    let glob = scan(&syn::parse_file("use cgka_traits::storage::*;").unwrap());
+    assert!(
+        glob.cgka_traits_glob,
+        "a cgka_traits glob can bring every trait into scope"
+    );
+    let crate_glob = scan(&syn::parse_file("use crate::app::timeline::*;").unwrap());
+    assert!(!crate_glob.cgka_traits_glob);
 }
