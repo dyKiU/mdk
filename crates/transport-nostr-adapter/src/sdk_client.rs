@@ -1024,6 +1024,14 @@ pub async fn dispatch_sdk_notification(
     .await
 }
 
+/// Test-policy observation callback shared by both SDK dispatch entrypoints.
+#[doc(hidden)]
+#[cfg(all(
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+pub type SdkNotificationObserver<'a> = dyn Fn(&str, usize) + Sync + 'a;
+
 async fn dispatch_sdk_notification_inner(
     notification: ClientNotification,
     adapter: &NostrTransportAdapter,
@@ -1034,7 +1042,7 @@ async fn dispatch_sdk_notification_inner(
         feature = "experimental-device-sync",
         feature = "test-policy-overrides"
     ))]
-    observe: Option<&(dyn Fn(&str, usize) + Sync)>,
+    observe: Option<&SdkNotificationObserver<'_>>,
 ) -> bool {
     match notification {
         ClientNotification::Event {
@@ -1182,7 +1190,7 @@ impl NostrSdkRelayClient {
         account_id: Option<&MemberId>,
         capture: Option<crate::CapturedLiveRelayEvent>,
         classify_closed: &(dyn Fn(&str) -> crate::SubscriptionRefusal + Sync),
-        #[cfg(feature = "test-policy-overrides")] observe: Option<&(dyn Fn(&str, usize) + Sync)>,
+        #[cfg(feature = "test-policy-overrides")] observe: Option<&SdkNotificationObserver<'_>>,
     ) -> bool {
         dispatch_sdk_notification_inner(
             notification,
