@@ -701,6 +701,7 @@ mod yield_handoff_tests {
         assert!(!bob.transport_receipts().unwrap().contains(&event_id));
         let storage = app.account_storage("bob").unwrap();
         storage
+            .app_storage()
             .spill_account_deliveries(
                 std::slice::from_ref(&delivery),
                 ACCOUNT_DELIVERY_SPILL_LIMITS,
@@ -713,6 +714,7 @@ mod yield_handoff_tests {
         let cursor = bob.state.last_transport_timestamp;
         let persisted_cursor = app.load_state("bob").unwrap().last_transport_timestamp;
         let seq = storage
+            .app_storage()
             .spilled_account_deliveries(10, unix_now_seconds())
             .unwrap()
             .deliveries[0]
@@ -725,6 +727,7 @@ mod yield_handoff_tests {
         drop(first);
         assert!(bob.delivery_spill.in_flight.is_none());
         let rows = storage
+            .app_storage()
             .spilled_account_deliveries(10, unix_now_seconds())
             .unwrap()
             .deliveries;
@@ -752,6 +755,7 @@ mod yield_handoff_tests {
         assert!(bob.transport_receipts().unwrap().contains(&event_id));
         assert!(
             storage
+                .app_storage()
                 .spilled_account_deliveries(10, unix_now_seconds())
                 .unwrap()
                 .deliveries

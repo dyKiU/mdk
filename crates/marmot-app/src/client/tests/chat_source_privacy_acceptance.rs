@@ -250,6 +250,7 @@ fn paired_pending_stranger_never_discloses_before_actual_acceptance() {
                     if apps[0]
                         .account_storage("test")
                         .unwrap()
+                        .app_storage()
                         .timeline_message(&hex::encode(group.as_slice()), &event)
                         .unwrap()
                         .is_some()

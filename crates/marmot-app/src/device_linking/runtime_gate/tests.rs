@@ -15,6 +15,7 @@ async fn drain(from: &mut LinkingOwner, to: &mut LinkingOwner, now: Instant) {
 fn storage() -> Arc<storage_sqlite::SqliteAccountStorage> {
     let storage = Arc::new(storage_sqlite::SqliteAccountStorage::in_memory().unwrap());
     storage
+        .app_storage()
         .ensure_account_projection_with_identity("isolated-real-gate-test", &hex::encode([2; 32]))
         .unwrap();
     storage

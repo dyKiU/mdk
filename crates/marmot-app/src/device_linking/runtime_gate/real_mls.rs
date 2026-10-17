@@ -163,6 +163,7 @@ async fn verify_real_welcome(extra_leaf: bool, use_collection: bool) {
     let approver_store = Arc::new(SqliteAccountStorage::in_memory().unwrap());
     for store in [&new_store, &approver_store] {
         store
+            .app_storage()
             .ensure_account_projection_with_identity(
                 "isolated-combined-test",
                 &hex::encode(account),

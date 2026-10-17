@@ -19,7 +19,7 @@ async fn fixture() -> (
     context.account = keys.public_key().to_bytes();
     let storage = || {
         let s = Arc::new(storage_sqlite::SqliteAccountStorage::in_memory().unwrap());
-        s.ensure_account_projection_with_identity(
+        s.app_storage().ensure_account_projection_with_identity(
             "isolated-collector",
             &hex::encode(context.account),
         )
