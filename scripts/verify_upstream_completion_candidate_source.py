@@ -2,6 +2,7 @@
 """Separate reviewed-product guard; frozen historical RED guard stays unchanged."""
 import ast
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -11,7 +12,29 @@ PRODUCT=['crates/marmot-app/src/client/device_linking.rs','crates/marmot-app/src
 HELPERS=['scripts/upstream_completion_ci.py','scripts/verify_upstream_completion_candidate_source.py','scripts/qualify_upstream_completion.py','scripts/upstream_completion_mutations.py','scripts/verify_upstream_completion_green_run.py','.github/workflows/experimental-sync-ci.yml']
 def normalize(value):
     return ''.join(chunk if index%2 else re.sub(r'\s+','',chunk).replace(',)',')').replace(',}','}') for index,chunk in enumerate(re.split(r'("(?:\\.|[^"\\])*")',value)))
-def main():
+def main(cohort_baseline=None):
+    cohort_baseline = cohort_baseline or os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE')
+    if cohort_baseline:
+        from upstream_extraction_cohort import reviewed_cohort
+        cohort = reviewed_cohort(cohort_baseline)
+        current = Path(FILE).read_bytes()
+        ensure(current == subprocess.check_output(['git', 'show', cohort_baseline + ':' + FILE]),
+               'exact-reviewed-completion-fixture-and-four-predicates')
+        actor = re.findall(r'(?m)^[ \t]*// COMPLETION_ACTOR_CHECK_BEGIN\n(.*?)^[ \t]*// COMPLETION_ACTOR_CHECK_END\n', current.decode(), re.S | re.M)
+        ensure(len(actor) == 1 and all(value in actor[0] for value in ['device_linking_targets', 'fresh-actor-progress', 'device_count', '4']), 'reviewed-fresh-actor-check')
+        for name in HELPERS:
+            if name.endswith('.py'): ast.parse(Path(name).read_text())
+        import upstream_completion_mutations as mutations
+        report = {'source': cohort['source'], 'reviewed_extraction_cohort': cohort,
+                  'historical_red_source': BASE, 'historical_stripped_source_comparison_reused': False,
+                  'historical_runtime_red_reused_as_current_evidence': False,
+                  'original_three_and_new_gated_predicates_exact': True,
+                  'new_fresh_actor_command_check_present': True,
+                  'all_non_overlay_inputs_exact_baseline': True,
+                  'mutation_anchors': mutations.verify_anchors(), 'parser_preflight': parser_preflight(),
+                  'source_preflight_passed': True, 'actual_product_bodies': 0, 'qualification_passed': False}
+        Path('completion-candidate-source.json').write_text(json.dumps(report, indent=2) + '\n')
+        return report
     changed=subprocess.check_output(['git','diff','--name-only',BASE],text=True).splitlines()
     ensure(set(changed)<=set(PRODUCT+HELPERS+[FILE]),'unreviewed-source-or-config-change')
     ensure(bool(set(changed)&set(PRODUCT)),'repair-source-absent')
@@ -31,4 +54,6 @@ def main():
     parser=parser_preflight()
     report={'source':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'historical_red_source':BASE,'allowed_reviewed_product_paths':PRODUCT,'reviewed_product_differences':sorted(set(changed)&set(PRODUCT)),'all_other_tracked_inputs_frozen_except_named_helpers_and_fresh_actor_check':True,'original_three_and_new_gated_predicates_exact':True,'new_fresh_actor_command_check_present':True,'mutation_anchors':anchors,'parser_preflight':parser,'source_preflight_passed':True,'actual_product_bodies':0,'qualification_passed':False}
     Path('completion-candidate-source.json').write_text(json.dumps(report,indent=2)+'\n')
-if __name__=='__main__':main()
+if __name__=='__main__':
+    import argparse
+    parser=argparse.ArgumentParser();parser.add_argument('--cohort-baseline');main(parser.parse_args().cohort_baseline)

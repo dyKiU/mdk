@@ -345,6 +345,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   completion-candidate-preflight:
+    env:
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || '3b87aaa7a11b6ac3611083fb9828dbf737ecc478' }}
     if: github.event_name == 'workflow_dispatch' && startsWith(inputs.scope, 'completion-candidate-')
     name: Reviewed completion candidate source parser and format preflight
     runs-on: ubuntu-latest
@@ -369,6 +371,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   completion-candidate-controls:
+    env:
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || '3b87aaa7a11b6ac3611083fb9828dbf737ecc478' }}
     needs: completion-candidate-preflight
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'completion-candidate-controls'
     name: Exact completion regression and three unchanged originals
@@ -403,6 +407,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   completion-candidate-static:
+    env:
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || '3b87aaa7a11b6ac3611083fb9828dbf737ecc478' }}
     needs: completion-candidate-preflight
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'completion-candidate-controls'
     name: Completion affected App static (${{ matrix.cohort }})
@@ -439,6 +445,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   completion-candidate-mutations:
+    env:
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || '3b87aaa7a11b6ac3611083fb9828dbf737ecc478' }}
     needs: completion-candidate-preflight
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'completion-candidate-mutations'
     name: Independent completion omission (${{ matrix.mode }})

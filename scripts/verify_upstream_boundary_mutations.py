@@ -9,7 +9,7 @@ import re
 import subprocess
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority'], required=True)
+parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority', 'outbound-mailbox-kind'], required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--cohort-baseline', default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'), help='Exact separately reviewed extraction merge; historical results are not reused')
 args = parser.parse_args()
@@ -46,6 +46,16 @@ elif args.case == 'relay-acquisition':
                '--', '--exact', '--test-threads=1']
     expected = 1
 
+elif args.case == 'outbound-mailbox-kind':
+    if not cohort:
+        raise ValueError('Generic extracted mailbox requires an explicit reviewed cohort')
+    source = Path('crates/transport-nostr/src/pairing.rs')
+    old = 'if event.kind != self.event_kind || event.content.len() > 32768 || event.verify().is_err() {'
+    new = 'if event.content.len() > 32768 || event.verify().is_err() {'
+    test = 'pairing::tests::generic_mailbox_refuses_a_different_kind_and_an_expired_original'
+    command = ['cargo', 'test', '--locked', '-p', 'transport-nostr', '--lib', '--features',
+               'experimental-device-sync', test, '--', '--exact', '--test-threads=1']
+    expected = 1
 elif args.case == 'upload-fixture':
     source = Path('crates/marmot-app/src/client/upload_cleanup_tests.rs')
     old = ("            let mut first_byte = [0u8; 1];\n"
@@ -125,6 +135,12 @@ original = source.read_bytes()
 text = original.decode()
 if text.count(old) != 1:
     raise ValueError('Mutation anchor must match exactly once')
+mailbox_assertion_line = None
+if args.case == 'outbound-mailbox-kind':
+    assertion = '        assert_eq!(\n            mailbox.publish(&other_kind).await,\n            Err(PairingRelayError::Invalid)\n        );'
+    if text.count(assertion) != 1:
+        raise ValueError('Exact generic mailbox own assertion must remain unchanged')
+    mailbox_assertion_line = text[:text.index(assertion)].count('\n') + 1
 args.output.mkdir(parents=True, exist_ok=False)
 proof = {'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
          'case': args.case, 'source_path': str(source),
@@ -185,6 +201,15 @@ def execute(phase):
             row['held_before_liveness_assertion'] = row['runtime_marker_before_liveness_assertion']
         row['rust_min_stack_bytes'] = int(os.environ['RUST_MIN_STACK'])
         row['selected_nonignored_tests'] = 1 if counts else None
+    if args.case == 'outbound-mailbox-kind':
+        own_location = str(source) + ':' + str(mailbox_assertion_line) + ':'
+        row['own_assertion_location'] = own_location
+        row['exact_wrong_kind_assertion_observed'] = (
+            re.search(r"thread '" + re.escape(test) + r"'(?: \(\d+\))? panicked at " + re.escape(own_location), output) is not None
+            and output.count('panicked at ') == 1
+            and "assertion `left == right` failed" in output
+            and re.search(r'(?m)^\s*left: Ok\(\(\)\)\s*$', output) is not None
+            and re.search(r'(?m)^\s*right: Err\(Invalid\)\s*$', output) is not None)
     proof['runs'].append(row)
     save()
     return row
@@ -203,6 +228,8 @@ try:
     source.write_text(text.replace(old, new))
     mutant = execute('mutant')
     proof['runtime_mutant_killed'] = mutant['exit_code'] != 0 and matches(mutant, 0, expected)
+    if args.case == 'outbound-mailbox-kind':
+        proof['runtime_mutant_killed'] &= mutant['exact_wrong_kind_assertion_observed']
     if args.case == 'worker-spawn-stack':
         proof['runtime_mutant_killed'] &= mutant['runtime_signal_observed']
     if args.case in publication_cases:

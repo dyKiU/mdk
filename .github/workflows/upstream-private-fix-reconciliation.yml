@@ -3,6 +3,13 @@ on:
   push:
     branches: [ci/upstream-private-fix-reconciliation-20261015]
   workflow_dispatch:
+    inputs:
+      extraction_cohort_baseline:
+        description: Exact reviewed extraction cohort (no historical evidence reuse)
+        type: string
+        default: 3b87aaa7a11b6ac3611083fb9828dbf737ecc478
+env:
+  UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline || '3b87aaa7a11b6ac3611083fb9828dbf737ecc478' }}
 permissions:
   contents: read
 concurrency:

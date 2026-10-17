@@ -4,24 +4,57 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      extraction_cohort_baseline:
+        description: Exact reviewed extraction cohort (no historical evidence reuse)
+        type: string
+        default: 3b87aaa7a11b6ac3611083fb9828dbf737ecc478
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority]
+        options: [source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
         default: all
 
 permissions:
   contents: read
 
+env:
+  UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ github.event_name == 'pull_request' && '3b87aaa7a11b6ac3611083fb9828dbf737ecc478' || inputs.extraction_cohort_baseline }}
+
 jobs:
+  cohort-preflight:
+    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch actual Actions synthetic merge object
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags origin "$GITHUB_SHA"
+      - name: Adversarial PR identity fixtures and exact reviewed source gate
+        run: |
+          python3 scripts/test_upstream_extraction_cohort.py
+          python3 scripts/upstream_extraction_cohort.py > cohort-identity.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: boundary-cohort-identity
+          path: cohort-identity.json
+          if-no-files-found: error
+          retention-days: 7
   mutation:
+    needs: cohort-preflight
     if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
-        case: ${{ fromJSON(inputs.case == 'migration-cohorts' && '["migration-default","migration-experimental"]' || inputs.case == 'fixture-adaptations' && '["upload-fixture","migration-default","migration-experimental"]' || inputs.case && inputs.case != 'all' && format('["{0}"]', inputs.case) || '["departure","worker-reap","relay-acquisition","upload-fixture","migration-default","migration-experimental","worker-spawn-stack","automatic-publication","sibling-publication","sibling-retry-priority"]') }}
+        case: ${{ fromJSON(inputs.case == 'migration-cohorts' && '["migration-default","migration-experimental"]' || inputs.case == 'fixture-adaptations' && '["upload-fixture","migration-default","migration-experimental"]' || inputs.case && inputs.case != 'all' && format('["{0}"]', inputs.case) || '["departure","worker-reap","relay-acquisition","upload-fixture","migration-default","migration-experimental","worker-spawn-stack","automatic-publication","sibling-publication","sibling-retry-priority","outbound-mailbox-kind"]') }}
     env:
       CARGO_INCREMENTAL: "1"
       CARGO_BUILD_JOBS: "2"
@@ -32,7 +65,11 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
+      - name: Fetch actual Actions synthetic merge object
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags origin "$GITHUB_SHA"
       - name: Install repository toolchain
         run: |
           toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)

@@ -7,24 +7,42 @@ from pathlib import Path
 import subprocess
 from upstream_completion_ci import BASE,FEATURES,DEFAULT_FEATURES,NEW,ORIGINALS,environment,freeze,identity,digest,ensure,compile_cases,execute,green,intended_red,headers
 from upstream_completion_mutations import SPECS,verify_anchors,anchor
-p=argparse.ArgumentParser();p.add_argument('--mode',choices=['controls','signal','wiring','static'],required=True);p.add_argument('--cohort',choices=['default','experimental']);args=p.parse_args()
+from qualify_upstream_body_negative import layout,feature_identity
+p=argparse.ArgumentParser();p.add_argument('--mode',choices=['controls','signal','wiring','static'],required=True);p.add_argument('--cohort',choices=['default','experimental']);p.add_argument('--cohort-baseline',default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'));args=p.parse_args()
 os.umask(0o077)
 OUT=Path('completion-candidate-evidence');OUT.mkdir(exist_ok=True)
 r={'mode':args.mode,'source':os.environ.get('GITHUB_SHA'),'qualification_passed':False,'controls_passed':False,'mutation_qualified':False,'restoration_control_attempted':False,'scope':'focused App completion service, not full SDK/native/chat-sync acceptance'}
 def save():(OUT/'result.json').write_text(json.dumps(r,indent=2)+'\n')
-save();r.update(environment());frozen=freeze();r['source_before_sha256']=identity(frozen)
+save();r.update(environment())
+if args.cohort_baseline:
+    from verify_upstream_completion_candidate_source import main as source_guard
+    r['source_preflight']=source_guard(args.cohort_baseline)
+    r['reviewed_extraction_cohort']=r['source_preflight']['reviewed_extraction_cohort']
+frozen=freeze();frozen_layout=layout();r['source_before_sha256']=identity(frozen)
+if args.mode in {'signal','wiring'}:
+    prior=json.loads(Path('completion-prior-green.json').read_text())
+    ensure(prior['source']==r['source'] and prior['exact_prior_controls_and_two_static_cohorts_passed'] is True,'exact-prior-real-controls-and-static-required')
+    if args.cohort_baseline:
+        ensure(prior.get('extraction_cohort_baseline')==args.cohort_baseline,'exact-prior-reviewed-cohort-required')
+    r['prior_green']=prior
 r['lock_sha256']=frozen['Cargo.lock'];r['cargo_config_sha256']=frozen['.cargo/config.toml'];r['nextest_config_sha256']=frozen['.config/nextest.toml'];save()
-def pristine():return freeze()==frozen and subprocess.run(['git','diff','--quiet','HEAD']).returncode==0
+def pristine():return layout()==frozen_layout and freeze()==frozen and subprocess.run(['git','diff','--quiet','HEAD']).returncode==0
 def run_phase(label,suffixes,expected=frozen):
+    ensure(layout()==frozen_layout,'tracked-source-mode-or-symlink-drift')
     ensure(freeze()==expected,'before-compile-input-drift')
     compilation,cases=compile_cases(suffixes);r[label]={'compilation':compilation,'bodies':[],'source_before_sha256':identity(expected)};save()
     ensure(freeze()==expected,'compile-input-drift')
     if compilation.get('compile_exit_code')!=0 or compilation.get('compiler_error_count')!=0 or not cases:return False
     ensure(compilation.get('compiled_fingerprints',{}).get('verified'),'actual-compiled-feature-fingerprint-unverified')
+    cohort_features=feature_identity(compilation)
+    if 'compiled_feature_identity' in r:
+        ensure(cohort_features==r['compiled_feature_identity'],'runtime-phase-feature-cohort-drift')
+    else:r['compiled_feature_identity']=cohort_features
+    ensure(layout()==frozen_layout,'compiled-source-layout-drift')
     for suffix in suffixes:
         ensure(freeze()==expected,'before-body-input-drift')
         row=execute(cases[suffix],suffix);r[label]['bodies'].append(row);save()
-        ensure(freeze()==expected,'body-input-drift')
+        ensure(freeze()==expected and layout()==frozen_layout,'body-input-drift')
     r[label]['source_after_sha256']=identity(freeze());save()
     r[label]['actual_executed_nonignored']=sum(row.get('executed_nonignored',0) for row in r[label]['bodies']);save()
     return len(r[label]['bodies'])==len(suffixes) and all(green(row) for row in r[label]['bodies'])
@@ -63,7 +81,7 @@ finally:
     r['exact_source_restored_before_control']=pristine();r['restoration_control_attempted']=True;save()
     try:
         ensure(pristine(),'source-not-restored')
-        guard=subprocess.run(['python3','scripts/verify_upstream_completion_candidate_source.py'])
+        guard=subprocess.run(['python3','scripts/verify_upstream_completion_candidate_source.py'] + (['--cohort-baseline',args.cohort_baseline] if args.cohort_baseline else []))
         r['restored_source_guard_exit_code']=guard.returncode;save()
         # An invalid anchor/guard never suppresses the actual restored control.
         restored_ok=run_phase('restored',[NEW]);r['restored_control_passed']=restored_ok
