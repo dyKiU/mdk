@@ -59,6 +59,12 @@ jobs:
         run: |
           cargo metadata --locked --all-features --format-version 1 > repair/metadata.json
           cp Cargo.lock repair/Cargo.lock
+      - name: Compile the combined C source before trusting generated output
+        env:
+          CARGO_INCREMENTAL: "1"
+        run: |
+          python3 scripts/qualification_build_preflight.py --label merged-c-generation-source --output repair/source-capacity.json
+          cargo check --locked -p marmot-c --lib --features experimental-device-sync
       - name: Regenerate C header
         id: header
         env:
