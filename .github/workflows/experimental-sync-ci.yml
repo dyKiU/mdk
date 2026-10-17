@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [enrollment-diagnostics, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
@@ -46,6 +46,53 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  # ENROLLMENT_DIAGNOSTIC_JOB_BEGIN
+  enrollment-diagnostics:
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'enrollment-diagnostics'
+    name: Unchanged original enrollment diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: '1'
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: '0b50673c5b9e76266b50e660958bb8b24fe926e0'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Verify frozen source and adversarial diagnostic parser
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_enrollment_diagnostics.py --preflight
+      - name: Execute only three unchanged original enrollment cases
+        env:
+          # rust-cache writes GITHUB_ENV=0; explicitly retain this cohort.
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Original enrollment diagnostics'
+          python3 scripts/qualify_upstream_enrollment_diagnostics.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: unchanged-original-enrollment-diagnostics
+          path: enrollment-diagnostic-evidence/*.json
+          if-no-files-found: error
+          retention-days: 7
+  # ENROLLMENT_DIAGNOSTIC_JOB_END
   owner-pairing-mutations:
     if: github.event_name == 'workflow_dispatch' && inputs.scope == 'owner-pairing-mutations'
     name: Owner pairing mutation (${{ matrix.case }})
