@@ -15,6 +15,7 @@ from upstream_extraction_cohort import frozen_inputs, workflow_identity
 
 INCOMING = '3aec65433eb84f0882430d000b2d31dabf987c24'
 MERGE = 'cbd0e5f09224aae1481c87d69d41c8b0cf033461'
+RED = '234c9b064bf6c3702a08898b2ea0ab25aa62265d'
 SELF = 'scripts/qualify_upstream_storage_boundary.py'
 WORKFLOW = '.github/workflows/upstream-boundary-regressions.yml'
 BOUNDARY = [
@@ -27,6 +28,8 @@ TESTS = sorted('base::boundary_tests::' + name for name in [
     'table_registry_names_every_table', 'storage_boundary_matches_the_allow_list',
     'cfg_predicates_skip_only_test_builds',
 ])
+ADDED_TEST = 'base::boundary_tests::unknown_production_roots_cannot_escape_boundary_scan'
+OWNERSHIP_DOC = 'crates/storage-sqlite/src/cross/private-ownership.md'
 OUT = Path('storage-boundary-evidence')
 
 
@@ -179,7 +182,16 @@ def parser_preflight():
     return {'positive': 2, 'negative': len(negative) + 1, 'actual_runtime_bodies': 0}
 
 
-def source_guard(baseline):
+def rust_function(source, name):
+    """Exact top-level source body identity, not a Rust parser or proof oracle."""
+    anchor = '\nfn ' + name + '('
+    ensure(source.count(anchor) == 1, 'one-frozen-top-level-function')
+    start = source.index(anchor) + 1
+    end = source.index('\n}\n', start) + 3
+    return source[start:end]
+
+
+def source_guard(baseline, ownership_adaptation):
     ensure(isinstance(baseline, str) and re.fullmatch('[0-9a-f]{40}', baseline), 'explicit-reviewed-full-cohort-required')
     source = git('rev-parse', 'HEAD')
     workflow = workflow_identity(source)
@@ -189,16 +201,43 @@ def source_guard(baseline):
         subprocess.run(['git', 'merge-base', '--is-ancestor', ancestor, target], check=True)
     changed = set(git('diff', '--name-only', baseline, source).splitlines())
     ensure(changed <= {SELF, WORKFLOW}, 'only-reviewed-metadata-overlay')
-    for name in BOUNDARY:
-        ensure(Path(name).read_bytes() == subprocess.check_output(['git', 'show', INCOMING + ':' + name]), 'incoming-boundary-source-remains-exact-before-red')
+    adaptation = {}
+    if ownership_adaptation:
+        subprocess.run(['git', 'merge-base', '--is-ancestor', RED, baseline], check=True)
+        allowed = {SELF, WORKFLOW, OWNERSHIP_DOC, *BOUNDARY[1:]}
+        red_changed = set(git('diff', '--name-only', RED, source).splitlines())
+        ensure(red_changed <= allowed, 'all-private-providers-migrations-production-and-fixtures-exact-red')
+        ensure(Path(BOUNDARY[0]).read_bytes() == subprocess.check_output(['git', 'show', INCOMING + ':' + BOUNDARY[0]]), 'incoming-base-module-registration-exact')
+        old = subprocess.check_output(['git', 'show', INCOMING + ':' + BOUNDARY[1]]).decode()
+        current = Path(BOUNDARY[1]).read_text()
+        old_functions = re.findall(r'^fn ([A-Za-z_]+)\(', old, re.M)
+        frozen_functions = [name for name in old_functions if name not in {'side_of', 'path_target', 'root_reexports'}]
+        for name in frozen_functions:
+            ensure(rust_function(old, name) == rust_function(current, name), 'original-assertion-and-scanner-function-exact')
+        scan_start, scan_end = "impl<'ast> Visit<'ast> for Scan<'_> {", '\nfn use_paths('
+        ensure(current[current.index(scan_start):current.index(scan_end)] == old[old.index(scan_start):old.index(scan_end)], 'original-ast-visitor-protections-exact')
+        old_registry = subprocess.check_output(['git', 'show', INCOMING + ':' + BOUNDARY[2]]).decode()
+        registry = Path(BOUNDARY[2]).read_text()
+        start = registry.index('    // Private ownership inventory:')
+        end = registry.index('    // The engine:', start)
+        ensure(registry[:start] + registry[end:] == old_registry, 'upstream-table-owner-entries-unmodified')
+        ensure(Path(BOUNDARY[3]).read_bytes().startswith(subprocess.check_output(['git', 'show', INCOMING + ':' + BOUNDARY[3]])), 'all-upstream-allow-list-entries-retained')
+        adaptation = {'historical_red_source': RED, 'historical_red_run_id': 39055385890,
+                      'original_three_test_bodies_exact': True, 'unchanged_scanner_functions': frozen_functions,
+                      'all_private_provider_migration_and_product_inputs_exact_red': True,
+                      'reviewed_ownership_paths': sorted(red_changed - {SELF, WORKFLOW}),
+                      'historical_green_or_mutation_results_reused': False}
+    else:
+        for name in BOUNDARY:
+            ensure(Path(name).read_bytes() == subprocess.check_output(['git', 'show', INCOMING + ':' + name]), 'incoming-boundary-source-remains-exact-before-red')
     ensure(all(not os.environ.get(key) for key in ['RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTDOCFLAGS', 'CARGO_ENCODED_RUSTDOCFLAGS']), 'no-unrecorded-rust-flags')
     expected_environment = {'CARGO_INCREMENTAL': '1', 'CARGO_BUILD_JOBS': '2',
                             'CARGO_PROFILE_DEV_DEBUG': '0', 'CARGO_PROFILE_TEST_DEBUG': '0',
                             'RUST_MIN_STACK': '4194304'}
     ensure(all(os.environ.get(key) == value for key, value in expected_environment.items()), 'exact-reviewed-build-environment')
     return {'source': source, 'reviewed_cohort_baseline': baseline, 'baseline_tree': git('rev-parse', baseline + '^{tree}'),
-            'workflow_identity': workflow, 'incoming_master': INCOMING, 'incoming_boundary_sources_unchanged': True,
-            'overlay_paths': sorted(changed), 'historical_results_reused': False}
+            'workflow_identity': workflow, 'incoming_master': INCOMING, 'incoming_boundary_sources_unchanged': not ownership_adaptation,
+            'ownership_adaptation': adaptation, 'overlay_paths': sorted(changed), 'historical_results_reused': False}
 
 
 def main():
@@ -207,6 +246,7 @@ def main():
     parser.add_argument('--cohort-baseline', default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'))
     parser.add_argument('--preflight', action='store_true')
     parser.add_argument('--compile-only', action='store_true')
+    parser.add_argument('--ownership-adaptation', action='store_true')
     args = parser.parse_args()
     os.umask(0o077)
     OUT.mkdir(exist_ok=True)
@@ -217,7 +257,7 @@ def main():
     def save():
         (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     try:
-        report.update(source_guard(args.cohort_baseline))
+        report.update(source_guard(args.cohort_baseline, args.ownership_adaptation))
         report['parser_fixtures'] = parser_preflight()
         report['compiler_parser_fixtures'] = diagnostic_parser_preflight()
         ensure(not args.compile_only or args.cohort == 'default', 'diagnostic-scope-default-only')
@@ -227,6 +267,8 @@ def main():
         if args.preflight:
             report['preflight_passed'] = True
             return 0
+        selected_tests = sorted(TESTS + ([ADDED_TEST] if args.ownership_adaptation else []))
+        expected_count = len(selected_tests)
         command = ['cargo', 'test', '--locked', '-p', 'storage-sqlite', '--lib', '--no-run', '--message-format=json']
         expected_features = []
         if args.cohort == 'experimental':
@@ -268,11 +310,11 @@ def main():
         code, inventory, _ = capture([str(binary), 'base::boundary_tests::', '--list', '--format', 'terse'], 60)
         names = sorted(re.findall(r'^(base::boundary_tests::[A-Za-z_]+): test$', inventory, re.M))
         inventory_lines = [line for line in inventory.splitlines() if line]
-        allowed_lines = {name + ': test' for name in TESTS} | {'3 tests, 0 benchmarks'}
-        ensure(code == 0 and names == TESTS and all(line in allowed_lines for line in inventory_lines), 'exact-three-body-inventory-required')
+        allowed_lines = {name + ': test' for name in selected_tests} | {str(expected_count) + ' tests, 0 benchmarks'}
+        ensure(code == 0 and names == selected_tests and all(line in allowed_lines for line in inventory_lines), 'exact-reviewed-body-inventory-required')
         code, ignored, _ = capture([str(binary), 'base::boundary_tests::', '--ignored', '--list', '--format', 'terse'], 60)
         ensure(code == 0 and ignored.strip() in {'', '0 tests, 0 benchmarks'}, 'no-selected-ignored-bodies')
-        report['inventory'] = {'selected_names': names, 'selected_nonignored': 3, 'selected_ignored': 0}
+        report['inventory'] = {'selected_names': names, 'selected_nonignored': expected_count, 'selected_ignored': 0}
         for name in names:
             ensure(frozen_inputs() == frozen and digest(binary.read_bytes()) == binary_hash, 'inputs-and-binary-exact-before-body')
             command = [str(binary), name, '--exact', '--nocapture', '--test-threads=1']
@@ -286,7 +328,7 @@ def main():
             save()
             ensure(frozen_inputs() == frozen and digest(binary.read_bytes()) == binary_hash, 'inputs-and-binary-exact-after-body')
         rows = list(report['bodies'].values())
-        report['actual_counts_complete'] = len(rows) == 3 and all(row['actual_counts_complete'] for row in rows)
+        report['actual_counts_complete'] = len(rows) == expected_count and all(row['actual_counts_complete'] for row in rows)
         report['actual_executed_nonignored'] = sum(row['executed_nonignored'] for row in rows) if report['actual_counts_complete'] else None
         report['boundary_controls_passed'] = report['actual_counts_complete'] and all(row['passed_gate'] for row in rows)
         return 0 if report['boundary_controls_passed'] else 1

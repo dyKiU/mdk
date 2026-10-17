@@ -11,7 +11,7 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
+        options: [storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
         default: all
 
 permissions:
@@ -22,7 +22,7 @@ env:
 
 jobs:
   cohort-preflight:
-    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics'
+    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -47,7 +47,7 @@ jobs:
           retention-days: 7
   mutation:
     needs: cohort-preflight
-    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics'
+    if: startsWith(github.head_ref || github.ref_name, 'ci/upstream-develop-dy-') && inputs.case != 'source-format' && inputs.case != 'storage-ownership-boundary' && inputs.case != 'storage-ownership-diagnostics' && inputs.case != 'storage-ownership-green'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -95,8 +95,57 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  storage-ownership-preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'storage-ownership-green' && (startsWith(github.ref_name, 'ci/upstream-storage-ownership-green-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-'))
+    name: SQLite ownership source, parser and formatting preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install exact repository formatter without compiling
+        run: |
+          set -euo pipefail
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+      - name: Verify reviewed source and adversarial receipt parsers without runtime bodies
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_storage_boundary.py --cohort default --preflight --ownership-adaptation
+      - name: Generate exact formatter patch and require the reviewed tree to be formatted
+        run: |
+          set -euo pipefail
+          mkdir -p formatting
+          git rev-parse HEAD > formatting/source-sha.txt
+          git rev-parse HEAD^{tree} > formatting/source-tree.txt
+          cargo fmt --all
+          git diff --binary -- '*.rs' > formatting/formatting.patch
+          sha256sum formatting/formatting.patch > formatting/formatting.patch.sha256
+          test ! -s formatting/formatting.patch
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: storage-ownership-preflight-${{ github.sha }}
+          path: |
+            storage-boundary-evidence/result.json
+            formatting/
+          if-no-files-found: error
+          retention-days: 7
+
   storage-ownership-boundary:
-    if: github.event_name == 'workflow_dispatch' && (inputs.case == 'storage-ownership-boundary' || inputs.case == 'storage-ownership-diagnostics') && (startsWith(github.ref_name, 'ci/upstream-storage-boundary-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-'))
+    needs: storage-ownership-preflight
+    if: ${{ !cancelled() && (inputs.case != 'storage-ownership-green' || needs.storage-ownership-preflight.result == 'success') && github.event_name == 'workflow_dispatch' && (inputs.case == 'storage-ownership-green' || inputs.case == 'storage-ownership-boundary' || inputs.case == 'storage-ownership-diagnostics') && (startsWith(github.ref_name, 'ci/upstream-storage-boundary-') || startsWith(github.ref_name, 'ci/upstream-storage-ownership-green-') || startsWith(github.ref_name, 'ci/upstream-develop-dy-')) }}
     name: Incoming SQLite ownership (${{ matrix.cohort }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -131,7 +180,7 @@ jobs:
       - name: Verify explicit source cohort and adversarial receipt fixtures
         env:
           CARGO_INCREMENTAL: '1'
-        run: python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}' --preflight
+        run: python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}' --preflight ${{ inputs.case == 'storage-ownership-green' && '--ownership-adaptation' || '' }}
       - name: Run only three unchanged incoming ownership assertions
         if: inputs.case == 'storage-ownership-boundary'
         env:
@@ -139,6 +188,13 @@ jobs:
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Incoming SQLite ownership boundary' --output "$RUNNER_TEMP/storage-boundary-capacity.json"
           python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}'
+      - name: Run preserved ownership assertions and unknown-root regression
+        if: inputs.case == 'storage-ownership-green'
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Reviewed SQLite ownership adaptation' --output "$RUNNER_TEMP/storage-boundary-capacity.json"
+          python3 scripts/qualify_upstream_storage_boundary.py --cohort '${{ matrix.cohort }}' --ownership-adaptation
       - name: Export bounded compiler identities without executing test bodies
         if: inputs.case == 'storage-ownership-diagnostics'
         env:
