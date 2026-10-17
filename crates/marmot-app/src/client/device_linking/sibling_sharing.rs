@@ -1190,9 +1190,14 @@ impl AppClient {
                         self.dispatch_authenticated_account_sharing_control(&received, &item.wire);
                     // INTAKE_TRACE_BEGIN
                     #[cfg(all(test, feature = "test-policy-overrides"))]
-                    intake_trace::record(&choice, if result.is_ok() {
-                        intake_trace::Event::RetryDispatched
-                    } else { intake_trace::Event::RetryDispatchFailed });
+                    intake_trace::record(
+                        &choice,
+                        if result.is_ok() {
+                            intake_trace::Event::RetryDispatched
+                        } else {
+                            intake_trace::Event::RetryDispatchFailed
+                        },
+                    );
                     // INTAKE_TRACE_END
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     if result.is_err() {
