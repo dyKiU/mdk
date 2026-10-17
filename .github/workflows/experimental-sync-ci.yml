@@ -83,7 +83,7 @@ jobs:
           # rust-cache writes GITHUB_ENV=0; explicitly retain this cohort.
           CARGO_INCREMENTAL: '1'
         run: |
-          python3 scripts/qualification_build_preflight.py --label 'Original enrollment diagnostics'
+          python3 scripts/qualification_build_preflight.py --label 'Original enrollment diagnostics' --output "$RUNNER_TEMP/enrollment-diagnostic-capacity.json"
           python3 scripts/qualify_upstream_enrollment_diagnostics.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
