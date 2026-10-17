@@ -1834,6 +1834,10 @@ impl AppClient {
                     entry.ready = true;
                 }
                 AccountSharingControl::Body(_) if entry.ready => {
+// PEER_NEGATIVE_TEST_BEGIN
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    peer_proof_probe::negative::opened(&entry);
+// PEER_NEGATIVE_TEST_END
                     let (kind, _, body) = self
                         .runtime
                         .session()
@@ -1859,6 +1863,10 @@ impl AppClient {
                         return Err(Error::NotReady);
                     }
                     entry.peer_committed = true;
+// PEER_NEGATIVE_TEST_BEGIN
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    peer_proof_probe::negative::accepted(&entry);
+// PEER_NEGATIVE_TEST_END
                     // The peer proof can arrive after our own ACK was harvested.
                     // Keep its authenticated fact on this original if fresh parent
                     // or channel validation fails; periodic maintenance retries
@@ -2098,6 +2106,15 @@ impl AppClient {
         if !entry.original.live() || !entry.state.live() {
             return Err(denied());
         }
+// PEER_NEGATIVE_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if peer_proof_probe::negative::reject(entry) {
+            // Explicitly injected validation rejection, not a database fault.
+            return Err(ClientLinkingError::Runtime(Box::new(
+                crate::AppError::InvalidAppMessagePayload("injected completion validation rejection".into()),
+            )));
+        }
+// PEER_NEGATIVE_TEST_END
         self.validate_sibling_parent(&entry.original)?;
         self.runtime
             .session()
@@ -2542,6 +2559,10 @@ impl AppClient {
             outcome: None,
             task,
         });
+// PEER_NEGATIVE_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        peer_proof_probe::negative::started(entry, proof);
+// PEER_NEGATIVE_TEST_END
         Ok(())
     }
     fn validate_sibling_parent(

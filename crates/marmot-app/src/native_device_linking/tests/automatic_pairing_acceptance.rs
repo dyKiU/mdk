@@ -2140,3 +2140,7 @@ mod body_negative_acceptance;
 #[path = "late_peer_proof_acceptance.rs"]
 mod late_peer_proof_acceptance;
 // PEER_PROOF_TEST_END
+// PEER_NEGATIVE_TEST_BEGIN
+#[path = "late_peer_proof_negative_acceptance.rs"]
+mod late_peer_proof_negative_acceptance;
+// PEER_NEGATIVE_TEST_END

@@ -1,5 +1,8 @@
 //! Test-only passive snapshots and one original recipient's real publication hold.
 use super::*;
+// PEER_NEGATIVE_TEST_BEGIN
+pub(crate) mod negative;
+// PEER_NEGATIVE_TEST_END
 use std::sync::{OnceLock, Weak};
 use tokio::sync::Notify;
 
@@ -10,6 +13,10 @@ pub(crate) struct Snapshot {
     // Original live, state live, policy, own proof harvested, peer proof,
     // publication present, complete, exact durable policy. These are fresh actor-owned values.
     pub(crate) flags: [bool; 8],
+// PEER_NEGATIVE_TEST_BEGIN
+    pub(crate) deadline: Instant,
+    pub(crate) pending_controls: usize,
+// PEER_NEGATIVE_TEST_END
 }
 
 pub(crate) struct ProofGate {
@@ -107,6 +114,11 @@ impl AppClient {
                     && !policy.revoked
             });
         Some(Snapshot {
+// PEER_NEGATIVE_TEST_BEGIN
+            deadline: entry.state.deadline,
+            pending_controls: entry.pending_controls.len()
+                + entry.pending_opaque.lock().expect("sibling pending opaque").len(),
+// PEER_NEGATIVE_TEST_END
             nonce: entry.channel.scope().nonce,
             flags: [
                 entry.original.live(),
