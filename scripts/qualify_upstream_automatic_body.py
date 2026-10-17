@@ -3,6 +3,7 @@
 import argparse
 import ast
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -16,6 +17,8 @@ FILE='crates/marmot-app/src/native_device_linking/tests/automatic_pairing_accept
 NAME='native_device_linking::automatic_pairing_acceptance::'+CASE
 MESSAGE='held automatic Catalog Body must not block a fresh account actor command'
 RUST=[FILE,'crates/marmot-app/src/client/account_chat_sharing/automatic.rs','crates/marmot-app/src/relay_plane/mod.rs']
+# Historical RUST paths stay frozen for the original RED-only stripping guard.
+EXTRACTED_GATE='crates/transport-nostr/src/lib.rs'
 SELF='scripts/qualify_upstream_automatic_body.py'
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 STAGES=['bilateral-pair-and-history-ready','prehold-control','actual-new-chat-catalog-body-held','peer-progress-control','fresh-command-verdict-frozen','actual-body-released','same-fresh-command-completed','actual-new-chat-delivered-once','positive-runtime-close','positive-runtime-close']
@@ -66,10 +69,27 @@ def body_green(row):
 
 def body_component_green(report):
     compilation=report.get('compilation',{}); bodies=report.get('bodies',[]); source=report.get('source_preflight',{})
-    reviewed=bool(report.get('source')) and source.get('source')==report.get('source') and source.get('fixture_baseline')==FIXTURE_BASE and source.get('reviewed_product_blobs')==PRODUCT_BLOBS and source.get('original_four_controls_and_body_fixture_unchanged') is True
+    legacy=(not report.get('cohort_baseline') and not source.get('reviewed_extraction_cohort')
+            and source.get('fixture_baseline')==FIXTURE_BASE and source.get('reviewed_product_blobs')==PRODUCT_BLOBS)
+    extracted=False
+    if source.get('reviewed_extraction_cohort'):
+        from upstream_extraction_cohort import EXTRACTION_ORIGIN, UPSTREAM, OWNER
+        cohort=source['reviewed_extraction_cohort']
+        extracted=(bool(re.fullmatch('[0-9a-f]{40}',cohort.get('baseline','')))
+                   and cohort.get('baseline')==report.get('cohort_baseline')
+                   and cohort.get('extraction_origin')==EXTRACTION_ORIGIN and cohort.get('upstream')==UPSTREAM
+                   and cohort.get('owner')==OWNER and cohort.get('source')==report.get('source')
+                   and bool(re.fullmatch('[0-9a-f]{40}',cohort.get('baseline_tree','')))
+                   and type(cohort.get('tracked_input_count')) is int and cohort['tracked_input_count']>0
+                   and bool(re.fullmatch('[0-9a-f]{64}',cohort.get('input_manifest_sha256','')))
+                   and cohort.get('all_non_overlay_inputs_exact_baseline') is True
+                   and cohort.get('historical_results_reused') is False
+                   and source.get('historical_stripped_source_comparison_reused') is False
+                   and source.get('gate_path')==EXTRACTED_GATE)
+    reviewed=bool(report.get('source')) and source.get('source')==report.get('source') and (extracted or legacy) and source.get('original_four_controls_and_body_fixture_unchanged') is True
     return bool(reviewed and report.get('inputs_pristine') is True and report.get('source_before_sha256') and report.get('source_before_sha256')==report.get('source_after_sha256') and compilation.get('compile_exit_code')==0 and compilation.get('compiler_error_count')==0 and compilation.get('compiled_fingerprints',{}).get('verified') is True and bodies and body_green(bodies[0]))
 
-def parser_preflight():
+def parser_preflight(extraction=False):
     panic=expected_panic()
     events=['automatic-body-control stage='+stage+(' responsive=false' if index==4 else ' index='+str(index-8) if index in [8,9] else '') for index,stage in enumerate(STAGES)]
     raw='test '+NAME+' ... FAILED\n'+'\n'.join(events)+'\nthread case panicked at '+FILE+':'+str(panic['line'])+':5:\n'+MESSAGE+'\ntest result: FAILED. 0 passed; 1 failed; 0 ignored;'
@@ -102,7 +122,31 @@ def parser_preflight():
     missing=dict(component); missing.pop('source'); missing['source_preflight']=dict(source); missing['source_preflight'].pop('source')
     ensure(not body_component_green(missing),'body-component-both-source-identities-missing'); negatives+=1
     ensure(not body_component_green(dict(component,source='',source_preflight=dict(source,source=''))),'body-component-empty-source-identities'); negatives+=1
-    return {'positive_controls':3,'negative_controls':negatives,'actual_product_bodies':0}
+    if not extraction:
+        return {'positive_controls':3,'negative_controls':negatives,'actual_product_bodies':0}
+    from upstream_extraction_cohort import EXTRACTION_ORIGIN, UPSTREAM, OWNER
+    extracted={'source':'parser-fixture','baseline':EXTRACTION_ORIGIN,
+               'baseline_tree':'1'*40,'extraction_origin':EXTRACTION_ORIGIN,
+               'upstream':UPSTREAM,'owner':OWNER,'tracked_input_count':1,
+               'input_manifest_sha256':'2'*64,'all_non_overlay_inputs_exact_baseline':True,
+               'historical_results_reused':False}
+    extracted_source=dict(source,reviewed_extraction_cohort=extracted,
+                          historical_stripped_source_comparison_reused=False,
+                          gate_path=EXTRACTED_GATE)
+    extracted_component=dict(component,cohort_baseline=EXTRACTION_ORIGIN,source_preflight=extracted_source)
+    ensure(body_component_green(extracted_component),'body-extraction-component-positive')
+    for change in [{'baseline':'other'},{'source':'other'},{'owner':'other'},
+                   {'upstream':'other'},{'extraction_origin':'other'},
+                   {'baseline_tree':''},{'tracked_input_count':True},
+                   {'input_manifest_sha256':''},{'all_non_overlay_inputs_exact_baseline':False},
+                   {'historical_results_reused':True}]:
+        changed=dict(extracted_source,reviewed_extraction_cohort=dict(extracted,**change))
+        ensure(not body_component_green(dict(extracted_component,source_preflight=changed)),'body-extraction-invalid-cohort-negative'); negatives+=1
+    for changed in [dict(extracted_source,reviewed_extraction_cohort={}),
+                    dict(extracted_source,gate_path='old'),
+                    dict(extracted_source,historical_stripped_source_comparison_reused=True)]:
+        ensure(not body_component_green(dict(extracted_component,source_preflight=changed)),'body-extraction-no-legacy-fallback'); negatives+=1
+    return {'positive_controls':4,'negative_controls':negatives,'actual_product_bodies':0}
 
 def preflight():
     changed=subprocess.check_output(['git','diff','--name-only',BASE],text=True).splitlines()
@@ -118,7 +162,22 @@ def preflight():
     Path('automatic-body-source.json').write_text(json.dumps(report,indent=2)+'\n')
     return report
 
-def candidate_preflight():
+def candidate_preflight(cohort_baseline=None):
+    if cohort_baseline:
+        from upstream_extraction_cohort import reviewed_cohort
+        cohort=reviewed_cohort(cohort_baseline)
+        # Every source/test/configuration byte is pinned to the reviewed merge.
+        # Old ac3/7d8 whole-file comparisons do not describe this extraction.
+        report={'source':cohort['source'],'reviewed_extraction_cohort':cohort,
+                'historical_fixture_baseline':FIXTURE_BASE,
+                'historical_stripped_source_comparison_reused':False,
+                'gate_path':EXTRACTED_GATE,
+                'reviewed_product_blobs':{name:subprocess.check_output(['git','hash-object',name],text=True).strip() for name in PRODUCT_BLOBS},
+                'original_four_controls_and_body_fixture_unchanged':True,
+                'parser_preflight':parser_preflight(extraction=True),'actual_product_bodies':0,
+                'qualification_passed':False}
+        Path('automatic-body-source.json').write_text(json.dumps(report,indent=2)+'\n')
+        return report
     changed=subprocess.check_output(['git','diff','--name-only',FIXTURE_BASE],text=True).splitlines()
     ensure(set(changed)<=set(PRODUCT_BLOBS)|{SELF,WORKFLOW},'body-candidate-unreviewed-source-change')
     for name,expected in PRODUCT_BLOBS.items():
@@ -130,14 +189,14 @@ def candidate_preflight():
     Path('automatic-body-source.json').write_text(json.dumps(report,indent=2)+'\n')
     return report
 
-def run_candidate(mode,cohort):
+def run_candidate(mode,cohort,cohort_baseline=None):
     out=Path('automatic-body-evidence'); out.mkdir(exist_ok=True)
-    report=environment(); report.update(mode=mode,scope='focused automatic Body repair; full SDK, native and original enrollment qualification remain separate',qualification_passed=False,body_control_passed=False,all_five_controls_passed=False)
+    report=environment(); report.update(mode=mode,cohort_baseline=cohort_baseline,scope='focused automatic Body repair; full SDK, native and original enrollment qualification remain separate',qualification_passed=False,body_control_passed=False,all_five_controls_passed=False)
     report['required_followup_before_adoption']=['actual omission of Body detach with same intended runtime failure and exact restored control','authentic ACK/receipt clears pending source context before harvest; old result cannot advance a new front','fixed Body expiry with actual task outcome, renewal and permit release','actual held Body plus transient authenticated negative-assembly SQL failure retains original retry until genuine commit','real deletion/revocation/close while held and late ACK cannot advance effects','bounded separate Body/handshake capacity and ready-Body fairness']
     def save(): (out/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     frozen=freeze(); report['source_before_sha256']=identity(frozen); save()
     try:
-        report['source_preflight']=candidate_preflight(); save()
+        report['source_preflight']=candidate_preflight(cohort_baseline); save()
         if mode=='static':
             ensure(cohort in {'default','experimental'},'body-static-cohort')
             command=['cargo','clippy','--locked','-p','marmot-app','--all-targets','--features',FEATURES if cohort=='experimental' else DEFAULT_FEATURES,'--','-D','warnings']
@@ -209,8 +268,10 @@ def run_red():
     raise SystemExit(0 if report['intended_behavioral_red'] and report['inputs_pristine'] else 1)
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(); parser.add_argument('--mode',choices=['preflight','red','green-preflight','controls','static'],required=True); parser.add_argument('--cohort',choices=['default','experimental']); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('--mode',choices=['preflight','red','green-preflight','controls','static'],required=True); parser.add_argument('--cohort',choices=['default','experimental']); parser.add_argument('--cohort-baseline',default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'),help='Exact reviewed extraction merge; original RED comparisons remain historical'); args=parser.parse_args()
+    if args.cohort_baseline and args.mode in {'preflight','red'}:
+        raise SystemExit('Original behavioral RED requires its unchanged historical source; use green-preflight/controls/static for the extraction cohort')
     if args.mode=='preflight': preflight()
     elif args.mode=='red': run_red()
-    elif args.mode=='green-preflight': candidate_preflight()
-    else: run_candidate(args.mode,args.cohort)
+    elif args.mode=='green-preflight': candidate_preflight(args.cohort_baseline)
+    else: run_candidate(args.mode,args.cohort,args.cohort_baseline)

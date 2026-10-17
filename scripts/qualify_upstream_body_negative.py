@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """One genuine fixture; optional force-renew omission with exact restored control."""
 import io
+import argparse
 import json
 import os
 from pathlib import Path
@@ -29,7 +30,7 @@ def freeze():
 def feature_identity(compilation):
     fingerprints=compilation.get('compiled_fingerprints',{});ensure(fingerprints.get('verified'),'verified-compiled-features-required')
     return {'requested':compilation['features_requested'],'command':compilation['command'],'nodes':{name:{key:node[key] for key in ['features','profile','compile_kind','rustflags_sha256']} for name,node in fingerprints['nodes'].items()}}
-def previous_control(run_id,source):
+def previous_control(run_id,source,cohort_baseline=None):
     ensure(run_id.isdigit(),'prior-control-run-required')
     repo=os.environ['GITHUB_REPOSITORY']
     def api(path): return subprocess.check_output(['gh','api','repos/'+repo+'/'+path],timeout=30)
@@ -46,12 +47,18 @@ def previous_control(run_id,source):
         ensure(len(files)==1 and archive.getinfo(files[0]).file_size<500_000,'bounded-prior-result')
         prior=json.loads(archive.read(files[0]))
     ensure(prior['source']==source and prior['mode']=='control' and prior['inputs_pristine'] and prior['component_control_passed'] and green(prior['baseline']['body']),'prior-real-control-not-green')
+    if cohort_baseline:
+        ensure(prior.get('cohort_baseline')==cohort_baseline and prior.get('source_preflight',{}).get('reviewed_extraction_cohort',{}).get('baseline')==cohort_baseline,'prior-control-extraction-cohort-mismatch')
     prior_features=feature_identity(prior['baseline']['compilation'])
     return {'run_id':int(run_id),'artifact_id':matches[0]['id'],'api_digest':expected_digest,'api_size_bytes':matches[0]['size_in_bytes'],'download_sha256':digest(data),'download_bytes':len(data),'source':source,'compiled_feature_identity':prior_features,'toolchain':prior['toolchain'],'environment':prior['environment']}
 
-def main():
+def main(cohort_baseline=None):
     OUT.mkdir(exist_ok=True);report=environment();report.update(mode=os.environ.get('BODY_NEGATIVE_MODE','control'),fixture_baseline=BASE,qualification_passed=False,component_control_passed=False,mutation_chain_passed=False,scope='Real two-device bilateral pairing/history. Public OLD-chat leave renews peer first; actual prepared DepartureIntent is held inside original select until NEW-chat Catalog Body is held on matching channel/account/protected-group/reversed device roles. SQL failure must match captured weak owner/nonce/owned slot. Persistent SQL trigger until removed. Aborted pre-publication gate release is NOT late ACK; different chat IDs are NOT same-chat withdrawal. Original three enrollment failures and final qualification remain pending.')
     original=freeze();original_layout=layout();original_bytes=Path(PRODUCT).read_bytes();report['source_before_sha256']=identity(original)
+    report['cohort_baseline']=cohort_baseline
+    if cohort_baseline:
+        report['historical_fixture_baseline']=BASE
+        report['fixture_baseline']=cohort_baseline
     report['source_layout_before_sha256']=digest(json.dumps(original_layout,sort_keys=True).encode())
     def save(): (OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     def phase(label,expected):
@@ -78,7 +85,10 @@ def main():
     save()
     try:
         ensure(report['mode'] in {'control','mutation'},'known-mode')
-        if report['mode']=='mutation':report['prior_control']=previous_control(os.environ.get('BODY_NEGATIVE_CONTROL_RUN',''),report['source']);save()
+        if cohort_baseline:
+            from verify_upstream_body_negative_source import main as verify_source
+            report['source_preflight']=verify_source(cohort_baseline);save()
+        if report['mode']=='mutation':report['prior_control']=previous_control(os.environ.get('BODY_NEGATIVE_CONTROL_RUN',''),report['source'],cohort_baseline);save()
         baseline=phase('baseline',original);ensure(green(baseline),'actual-baseline-not-green')
         report['component_control_passed']=True;save()
         if report['mode']=='mutation':
@@ -111,4 +121,5 @@ def main():
         except Exception as error:report['final_freeze_exception']=type(error).__name__
         save()
     raise SystemExit(0 if report['inputs_pristine'] and not report.get('controller_exception') and (report['mutation_chain_passed'] if report['mode']=='mutation' else report['component_control_passed']) else 1)
-if __name__=='__main__':main()
+if __name__=='__main__':
+    parser=argparse.ArgumentParser();parser.add_argument('--cohort-baseline',default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'));args=parser.parse_args();main(args.cohort_baseline)

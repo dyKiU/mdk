@@ -11,7 +11,13 @@ import subprocess
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--case', choices=['departure', 'worker-reap', 'relay-acquisition', 'upload-fixture', 'migration-default', 'migration-experimental', 'worker-spawn-stack', 'automatic-publication', 'sibling-publication', 'sibling-retry-priority'], required=True)
 parser.add_argument('--output', type=Path, required=True)
+parser.add_argument('--cohort-baseline', default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'), help='Exact separately reviewed extraction merge; historical results are not reused')
 args = parser.parse_args()
+cohort = None
+if args.cohort_baseline:
+    from upstream_extraction_cohort import frozen_inputs, reviewed_cohort
+    cohort = reviewed_cohort(args.cohort_baseline)
+    frozen = frozen_inputs()
 publication_cases = {'automatic-publication', 'sibling-publication', 'sibling-retry-priority'}
 nextest_cases = publication_cases | {'worker-spawn-stack'}
 held_marker = None
@@ -32,11 +38,11 @@ elif args.case == 'worker-reap':
                '--', '--exact', '--test-threads=1']
     expected = 1
 elif args.case == 'relay-acquisition':
-    source = Path('crates/marmot-app/src/relay_plane/tests.rs')
+    source = Path('crates/transport-nostr/src/tests.rs' if cohort else 'crates/marmot-app/src/relay_plane/tests.rs')
     old, new = 'let subscription = issued_subscription;', 'let subscription = legacy_subscription.clone();'
-    command = ['cargo', 'test', '--locked', '-p', 'marmot-app', '--lib', '--features',
+    command = ['cargo', 'test', '--locked', '-p', 'transport-nostr' if cohort else 'marmot-app', '--lib', '--features',
                'experimental-device-sync',
-               'relay_plane::tests::enrollment_acquisition_delayed_notification_worker_preserves_clock_and_fifo_eose',
+               ('tests::' if cohort else 'relay_plane::tests::') + 'enrollment_acquisition_delayed_notification_worker_preserves_clock_and_fifo_eose',
                '--', '--exact', '--test-threads=1']
     expected = 1
 
@@ -111,7 +117,7 @@ else:
                '-p', 'storage-sqlite', '--lib']
     if args.case == 'migration-experimental':
         command.extend(['--features', 'experimental-device-sync'])
-    command.extend(['migrations::migration_0108_account_attachment_history::tests::populated_v106_upgrade_preserves_group_pages_and_installs_global_mutation_fences',
+    command.extend([('base::' if cohort else '') + 'migrations::migration_0108_account_attachment_history::tests::populated_v106_upgrade_preserves_group_pages_and_installs_global_mutation_fences',
                     '--', '--exact', '--test-threads=1'])
     expected = 1
 
@@ -123,6 +129,8 @@ args.output.mkdir(parents=True, exist_ok=False)
 proof = {'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
          'case': args.case, 'source_path': str(source),
          'original_sha256': hashlib.sha256(original).hexdigest(), 'command': command, 'runs': []}
+if cohort:
+    proof['reviewed_extraction_cohort'] = cohort
 
 
 def save():
@@ -130,6 +138,12 @@ def save():
 
 
 def execute(phase):
+    if cohort:
+        expected_inputs = dict(frozen)
+        if phase == 'mutant':
+            expected_inputs[str(source)] = dict(frozen[str(source)], sha256=hashlib.sha256(text.replace(old, new).encode()).hexdigest())
+        if frozen_inputs() != expected_inputs:
+            raise ValueError('Unexpected tracked source, mode or configuration drift before runtime phase')
     path = args.output / (phase + '.log')
     with path.open('x') as log:
         result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=1800)
@@ -151,6 +165,10 @@ def execute(phase):
         runtime_signal = (bool(re.search(r'\bSIG(?:ABRT|SEGV)\b', output))
                           and 'running 1 test' in output and test in output)
     row = {'phase': phase, 'exit_code': result.returncode, 'counts': counts, 'log': path.name}
+    if cohort:
+        row['all_tracked_inputs_exact_for_phase'] = frozen_inputs() == expected_inputs
+        if not row['all_tracked_inputs_exact_for_phase']:
+            raise ValueError('Tracked source changed during runtime phase')
     if args.case == 'worker-spawn-stack':
         row['runtime_signal_observed'] = runtime_signal
         row['rust_min_stack_bytes'] = int(os.environ['RUST_MIN_STACK'])
@@ -189,12 +207,15 @@ try:
         proof['runtime_mutant_killed'] &= mutant['runtime_signal_observed']
     if args.case in publication_cases:
         proof['runtime_mutant_killed'] &= mutant['runtime_marker_before_liveness_assertion']
-except (OSError, subprocess.SubprocessError) as error:
+except (OSError, subprocess.SubprocessError, ValueError) as error:
     attempt_error = type(error).__name__
     proof['mutation_error_category'] = attempt_error
 finally:
     source.write_bytes(original)
     proof['source_restored'] = hashlib.sha256(source.read_bytes()).hexdigest() == proof['original_sha256']
+    if cohort:
+        proof['all_inputs_restored'] = frozen_inputs() == frozen
+        proof['source_restored'] &= proof['all_inputs_restored']
     save()
 if not proof['source_restored']:
     raise SystemExit('Exact source restoration failed')

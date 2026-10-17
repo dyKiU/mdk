@@ -12,6 +12,7 @@ import time
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--scope', choices=('cli-default-red', 'cli-experimental-red', 'cli-default-green', 'cli-experimental-green', 'revocation-baseline'), required=True)
+parser.add_argument('--cohort-baseline', default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'), help='Exact separately reviewed extraction merge; historical evidence is not reused')
 args = parser.parse_args()
 if os.environ.get('GITHUB_ACTIONS') != 'true':
     raise SystemExit('This qualification runs only through remote GitHub Actions')
@@ -23,6 +24,11 @@ report = {'source': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=T
           'rust_min_stack': os.environ.get('RUST_MIN_STACK'), 'retries': 0}
 report['required_executions'] = 12 if args.scope.endswith('-green') else (6 if args.scope == 'revocation-baseline' else 1)
 report['baseline'] = '87c992d1ffa478c477b6841e33f1680768dfe329'
+if args.cohort_baseline:
+    from upstream_extraction_cohort import frozen_inputs, reviewed_cohort
+    report['reviewed_extraction_cohort'] = reviewed_cohort(args.cohort_baseline)
+    report['historical_baseline'] = report['baseline']
+    report['baseline'] = args.cohort_baseline
 report['tree'] = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
 report['lock_sha256'] = hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest()
 report['toolchain'] = subprocess.check_output(['rustc', '-Vv'], text=True)
@@ -30,6 +36,8 @@ report['config_sha256'] = hashlib.sha256(Path('.config/nextest.toml').read_bytes
 
 
 def source_hashes():
+    if args.cohort_baseline:
+        return frozen_inputs()
     paths = subprocess.check_output([
         'git', 'ls-files', 'crates/cli/src', 'crates/cli/tests',
         'crates/marmot-app/src/client/private_settlement.rs',
@@ -37,7 +45,9 @@ def source_hashes():
         'crates/marmot-app/src/runtime/account_worker.rs',
         'crates/marmot-app/src/selected_chat_copy/tests.rs',
         'crates/cgka-engine/src/openmls_projection.rs',
-        'crates/storage-sqlite/src/connection.rs', 'crates/traits/src/storage.rs',
+        *(['crates/storage-sqlite/src/base/connection.rs',
+           'crates/storage-sqlite/src/protocol/provider.rs'] if args.cohort_baseline else
+          ['crates/storage-sqlite/src/connection.rs']), 'crates/traits/src/storage.rs',
         'Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml', '.config/nextest.toml',
     ], text=True).splitlines()
     return {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in paths}
@@ -51,7 +61,10 @@ def save():
     (output / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
 
 
-def execute(test, package, features, expected, unit=False):
+def execute(test, package, features, expected, unit=False, expected_inputs=None):
+    phase_inputs = expected_inputs if expected_inputs is not None else FROZEN_SOURCE
+    if args.cohort_baseline and source_hashes() != phase_inputs:
+        raise ValueError('Unexpected tracked input drift before runtime phase')
     command = ['cargo', 'test', '--locked', '-p', package,
                *(['--lib'] if unit else ['--test', 'cli'])] if package == 'wn-cli' else ['cargo', 'test', '--locked', '-p', package, '--lib']
     command += ['--features', features, test, '--', '--exact', '--nocapture', '--test-threads=1']
@@ -65,6 +78,8 @@ def execute(test, package, features, expected, unit=False):
         row['exit_code'] = result.returncode
         log.seek(0)
         text = log.read()
+    if args.cohort_baseline and source_hashes() != phase_inputs:
+        raise ValueError('Tracked inputs changed during runtime phase')
     row['panic_locations'] = [{'file': name, 'line': int(line)}
                               for name, line in re.findall(r'panicked at ([^\n]+):(\d+):\d+:', text)]
     row['compiler_error_codes'] = sorted(set(re.findall(r'error\[(E\d+)\]', text)))
@@ -107,7 +122,7 @@ try:
                'crates/cli/tests/cli.rs', '.github/workflows/upstream-private-fix-reconciliation.yml',
                'scripts/qualify_upstream_private_fixes.py'}
     changed = set(subprocess.check_output(['git', 'diff', '--name-only', report['baseline'], 'HEAD'], text=True).splitlines())
-    if not changed.issubset(allowed):
+    if not args.cohort_baseline and not changed.issubset(allowed):
         raise ValueError('Baseline source includes unreviewed production or configuration changes')
     if subprocess.check_output(['git', 'diff', 'HEAD', '--name-only'], text=True).strip():
         raise ValueError('Baseline source is not pristine')
@@ -166,11 +181,19 @@ try:
                     mutation = {'label': label, 'baseline_sha256': hashlib.sha256(original).hexdigest(),
                                 'mutated_sha256': hashlib.sha256(mutated.encode()).hexdigest()}
                     report.setdefault('mutations', []).append(mutation)
+                    detected = False
                     try:
                         source.write_text(mutated)
-                        detected = execute(test, 'wn-cli', features, expected, unit=unit)
+                        phase_inputs = None
+                        if args.cohort_baseline:
+                            phase_inputs = dict(FROZEN_SOURCE)
+                            phase_inputs[str(source)] = dict(FROZEN_SOURCE[str(source)], sha256=hashlib.sha256(mutated.encode()).hexdigest())
+                        detected = execute(test, 'wn-cli', features, expected, unit=unit, expected_inputs=phase_inputs)
                         outcomes.append(detected)
                         mutation['runtime_detected'] = detected
+                    except Exception as error:
+                        mutation['controller_exception'] = type(error).__name__
+                        outcomes.append(False)
                     finally:
                         source.write_bytes(original)
                         mutation['exact_source_restored'] = source.read_bytes() == original

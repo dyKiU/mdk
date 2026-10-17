@@ -105,6 +105,9 @@ def feature_metadata(binary):
     result={'root_binary_sha256':digest(binary.read_bytes()),'root_fingerprint_found':root.is_file(),'nodes':{},'unresolved':[],'verified':False}
     if not root.is_file(): return result
     wanted={'marmot_app','cgka_engine','storage_sqlite','cgka_session','marmot_account'}
+    # The extracted relay plane is an actual dependency of this App binary.
+    # Preserve the original five-node checks and resolve its exact unit too.
+    if Path('crates/transport-nostr/Cargo.toml').is_file():wanted.add('transport_nostr')
     selected_expected={}
     result['coverage_required']=sorted(wanted)
     def read(path,name):
@@ -138,6 +141,8 @@ def feature_metadata(binary):
     result['unresolved']=sorted(set(result['unresolved']))
     required=wanted
     result['verified']=(required<=set(result['nodes']) and not result['unresolved'] and all(node['rustflags']==[] for node in result['nodes'].values()) and {'experimental-device-sync','test-policy-overrides'}<=set(result['nodes']['marmot_app']['features']) and {'experimental-device-sync','test-policy-overrides'}<=set(result['nodes']['cgka_engine']['features']) and 'experimental-device-sync' in result['nodes']['storage_sqlite']['features'])
+    if 'transport_nostr' in wanted:
+        result['verified'] &= 'experimental-device-sync' in result['nodes'].get('transport_nostr',{}).get('features',[])
     return result
 
 def parser_preflight():

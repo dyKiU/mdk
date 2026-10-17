@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Actual source restoration and compact oracle controls; remote CI only."""
 import ast
+import argparse
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -10,9 +12,13 @@ from verify_upstream_completion_candidate_source import normalize
 from upstream_body_negative_ci import BASE, PRODUCT, TEST, ANCHOR, MUTANT, parser_preflight
 HOOKS=[PRODUCT,'crates/marmot-app/src/client/account_chat_sharing/automatic/departure.rs','crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs']
 NEW=[TEST,'crates/marmot-app/src/client/account_chat_sharing/automatic/body_negative_probe.rs','scripts/upstream_body_negative_ci.py','scripts/qualify_upstream_body_negative.py','scripts/verify_upstream_body_negative_source.py','.github/workflows/experimental-sync-ci.yml']
-def main():
+def main(cohort_baseline=None):
+    cohort=None
+    if cohort_baseline:
+        from upstream_extraction_cohort import reviewed_cohort
+        cohort=reviewed_cohort(cohort_baseline)
     changed=subprocess.check_output(['git','diff','--name-only',BASE],text=True).splitlines()
-    ensure(set(changed)<=set(HOOKS+NEW),'unreviewed-source-or-config-change')
+    if not cohort:ensure(set(changed)<=set(HOOKS+NEW),'unreviewed-source-or-config-change')
     counts={}
     for name in HOOKS:
         text=Path(name).read_text();old=subprocess.check_output(['git','show',BASE+':'+name],text=True)
@@ -20,7 +26,12 @@ def main():
         blocks=re.findall(pattern,text,re.S|re.M)
         ensure(blocks and text.count('BODY_NEGATIVE_TEST_BEGIN')==text.count('BODY_NEGATIVE_TEST_END')==len(blocks),'bounded-hooks')
         stripped=re.sub(pattern,'',text,flags=re.S|re.M)
-        if name.endswith('/automatic_pairing_acceptance.rs'):
+        if cohort:
+            # Whole files, including every original owner acceptance function
+            # and the retained negative hook, match the reviewed new baseline.
+            # The old cb221/a5 stripped-file assertion is historical only.
+            ensure(Path(name).read_bytes()==subprocess.check_output(['git','show',cohort_baseline+':'+name]),'reviewed-extraction-fixture-or-product-drift')
+        elif name.endswith('/automatic_pairing_acceptance.rs'):
             # The only addition is a trailing child-module registration; preserve
             # the original Body plus four original acceptance functions byte-for-byte.
             ensure(text.startswith(old) and stripped==old+'\n','original-five-fixture-bytes-changed')
@@ -54,6 +65,9 @@ def main():
     ensure(fixture.index('fs_private::ensure_private_db_files(&path)')<fixture.index('rusqlite::Connection::open(&path)'),'safe-new-upstream-injector-open-order')
     for name in NEW:
         if name.endswith('.py'):ast.parse(Path(name).read_text())
-    report={'source':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'baseline':BASE,'hook_blocks':counts,'original_five_fixture_bytes_exact':True,'stripped_product_tokens_and_strings_exact':True,'parser_controls':parser_preflight(),'actual_runtime_bodies':0,'qualification_passed':False}
+    report={'source':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'baseline':cohort_baseline or BASE,'historical_baseline':BASE,'hook_blocks':counts,'original_five_fixture_bytes_exact':True,'original_five_comparison_baseline':cohort_baseline or BASE,'stripped_product_tokens_and_strings_exact':True if not cohort else None,'historical_stripped_source_comparison_reused':False if cohort else True,'parser_controls':parser_preflight(),'actual_runtime_bodies':0,'qualification_passed':False}
+    if cohort:report['reviewed_extraction_cohort']=cohort
     Path('body-negative-source.json').write_text(json.dumps(report,indent=2)+'\n')
-if __name__=='__main__':main()
+    return report
+if __name__=='__main__':
+    parser=argparse.ArgumentParser();parser.add_argument('--cohort-baseline',default=os.environ.get('UPSTREAM_EXTRACTION_COHORT_BASELINE'));args=parser.parse_args();main(args.cohort_baseline)
