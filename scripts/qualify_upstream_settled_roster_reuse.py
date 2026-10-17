@@ -20,13 +20,13 @@ TESTS = 'crates/cgka-engine/src/private_roster_settlement_tests.rs'
 CACHE = 'crates/cgka-engine/src/mls_group_cache.rs'
 REVIEWED = {
     'crates/cgka-engine/src/private_roster_settlement.rs': '2ec5dcfdd1c62c4c50677f138bac3d357de3bc2a31c98ca298d5e03732dacbae',
-    'crates/cgka-engine/src/private_roster_settlement_tests.rs': '63822bd92af353bcc7d2bd44b8bb7ba7834e168e41d1cc8fdb890b7213317ae3',
+    'crates/cgka-engine/src/private_roster_settlement_tests.rs': '6edb7bc3dcbe5b09e5acd5f83c597df92555b5c3916e9e8f9767bcba5a4fdfe1',
     'crates/cgka-engine/src/mls_group_cache.rs': '575386b6e84da462addd8d9354c02338005cfee7aeb76cd6f64af4eba64e4857',
 }
 OUT = Path('settled-roster-reuse-evidence')
 BEGIN = '  # SETTLED_ROSTER_REUSE_JOBS_BEGIN\n'
 END = '  # SETTLED_ROSTER_REUSE_JOBS_END\n'
-OPTIONS = 'options: [settled-roster-reuse-preflight, settled-roster-reuse-green, '
+OPTIONS = 'options: [settled-roster-reuse-preflight, settled-roster-reuse-green, settled-roster-reuse-engine, '
 ENGINE_FEATURES = 'experimental-device-sync,test-policy-overrides,test-crash-hooks'
 DEFAULT_ENGINE_FEATURES = 'test-policy-overrides,test-crash-hooks'
 DIRECTED_PARSER_CONTROLS = candidate.parser_controls

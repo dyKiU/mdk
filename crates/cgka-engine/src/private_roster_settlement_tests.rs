@@ -153,17 +153,27 @@ async fn private_roster_reuses_mls_object_without_reusing_settlement_authority()
 
 #[tokio::test]
 async fn private_roster_reuse_returns_object_after_fresh_storage_error() {
-    let (initiator, _responder, group) =
-        complete_pair(SqliteAccountStorage::in_memory().unwrap()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("isolated-roster-reuse-error.db");
+    let key = SqlCipherKey::new("18".repeat(32)).unwrap();
+    let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
+    let (initiator, _responder, group) = complete_pair(storage).await;
     let before = initiator.mls_group_cache.observation_for_test(&group);
     assert!(before.1 && !before.2);
     let generation = initiator.storage.mls_write_generation();
-    // Isolated schema fault only: no fabricated positive facts or admission.
-    initiator.storage.lock().unwrap().execute_batch(
+    let injector = rusqlite::Connection::open(&path).unwrap();
+    storage_sqlite::open_hardened_sqlcipher(
+        &injector,
+        &key,
+        storage_sqlite::SqlCipherHardening::default(),
+    )
+    .unwrap();
+    // Isolated external schema fault only: no fabricated facts or admission.
+    injector.execute_batch(
         "ALTER TABLE private_roster_settlement_facts RENAME TO isolated_unavailable_settlement_facts"
     ).unwrap();
     let result = initiator.validated_settled_device_roster(&group);
-    initiator.storage.lock().unwrap().execute_batch(
+    injector.execute_batch(
         "ALTER TABLE isolated_unavailable_settlement_facts RENAME TO private_roster_settlement_facts"
     ).unwrap();
     assert!(
@@ -173,11 +183,11 @@ async fn private_roster_reuse_returns_object_after_fresh_storage_error() {
     assert_ne!(
         initiator.storage.mls_write_generation(),
         generation,
-        "the failed read snapshot rolls back and invalidates the MLS generation"
+        "foreign schema changes and failed read rollback invalidate the MLS generation"
     );
     let after = initiator.mls_group_cache.observation_for_test(&group);
-    // This retained entry predates the rollback generation and is not eligible
-    // for reuse; the following success must perform fresh validation/reload.
+    // The returned entry predates rollback and external schema restoration.
+    // It is not eligible; the following success must validate/reload afresh.
     assert!(
         after.0 > before.0 && after.1 && !after.2,
         "the error leaves a returned old-generation object and no taken entry"
