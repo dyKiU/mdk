@@ -94,7 +94,7 @@ def source_guard():
     ensure(workflow.count(begin) == workflow.count(end) == 1, 'one-isolated-639-job-union')
     before, rest = workflow.split(begin)
     _, after = rest.split(end)
-    restored = (before + after).replace('options: [639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, ', 'options: [', 1)
+    restored = (before + after).replace('options: [639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, ', 'options: [', 1)
     ensure(restored.count(CONTROL_INPUT) == 1, 'one-exact-capture-controls-input')
     restored = restored.replace(CONTROL_INPUT, '', 1)
     ensure(restored.encode() == subprocess.check_output(['git', 'show', BASE + ':' + WORKFLOW]), 'all-existing-workflow-options-and-jobs-exact-reviewed-baseline')
@@ -577,16 +577,91 @@ def capture_mutation(report, frozen, save, controls_run_id):
 
 
 
+def storage_mutations(cohort, report, frozen, save, controls_run_id):
+    # Reuse the reviewed 35-control cohort honestly across metadata-only ancestry.
+    # The historical 3aec source guard and exact-current-SHA lookup are obsolete;
+    # every runtime mutation, compiler, inventory and restoration oracle remains
+    # the original storage controller implementation.
+    proof = prior_639_controls(controls_run_id, report, frozen)
+    report['prior_controls'] = proof
+    save()
+    old_guard, old_controls, old_argv = storage.source_guard, storage.prior_controls, sys.argv
+    def reviewed_guard(baseline, ownership):
+        ensure(baseline == BASE and ownership, 'explicit-current-storage-mutation-cohort')
+        return source_guard()
+    def reviewed_controls(run_id, child_report):
+        ensure(run_id == CONTROL_RUN and child_report.get('source') == report['source_guard']['source'], 'storage-mutation-reviewed-controls-binding')
+        return proof
+    receipt = Path('storage-boundary-evidence/result.json')
+    try:
+        storage.source_guard, storage.prior_controls = reviewed_guard, reviewed_controls
+        sys.argv = [SELF, '--cohort', cohort, '--cohort-baseline', BASE, '--ownership-adaptation',
+                    '--mutations', '--controls-run-id', controls_run_id]
+        ensure(storage.main() == 0, 'new-cohort-storage-mutation-controller-not-green')
+    finally:
+        storage.source_guard, storage.prior_controls, sys.argv = old_guard, old_controls, old_argv
+        if receipt.exists():
+            child = json.loads(receipt.read_bytes())
+            report['storage_mutations'] = {'receipt': str(receipt), 'sha256': digest(receipt.read_bytes()),
+                                          'actual_counts_complete': child.get('actual_counts_complete'),
+                                          'actual_executed_nonignored': child.get('actual_executed_nonignored'),
+                                          'source_and_modes_restored': child.get('source_and_modes_restored'),
+                                          'necessity_mutations_passed': child.get('necessity_mutations_passed')}
+            save()
+    ensure(frozen_inputs() == frozen, 'storage-mutation-whole-source-and-modes-restored')
+    row = json.loads(receipt.read_bytes())
+    ensure(row.get('source') == report['source_guard']['source'] and row.get('cohort') == cohort
+           and row.get('inputs_pristine') is True and row.get('source_and_modes_restored') is True
+           and row.get('necessity_mutations_passed') is True and row.get('actual_counts_complete') is True
+           and type(row.get('actual_executed_nonignored')) is int and row['actual_executed_nonignored'] == 12
+           and row.get('mutation_phase_count') == 12 and row.get('observed_completed_phase_executions') == 12,
+           'twelve-complete-storage-mutation-phase-bodies-per-cohort')
+    chains = row.get('mutation_chains', {})
+    ensure(set(chains) == {'protocol-root', 'private-path', 'unknown-root', 'lexical-alias'}, 'exact-four-storage-necessity-chains')
+    counts = {'passed': 0, 'failed': 0, 'ignored': 0}
+    for label, chain in chains.items():
+        phases = chain.get('phases', {})
+        ensure(chain.get('passed') is True and set(phases) == {'baseline', 'mutant', 'restored'}, 'complete-storage-control-counterfactual-restored-chain')
+        expected_name = storage.BOUNDARY_TEST if label in {'protocol-root', 'private-path'} else storage.ADDED_TEST
+        ensure(chain.get('selected_test') == expected_name, 'original-storage-mutation-selected-test')
+        for phase_name, phase in phases.items():
+            compilation = phase.get('compilation', {})
+            failed = int(phase_name == 'mutant')
+            ensure(phase.get('actual_counts_complete') is True and phase.get('runtime_started') is True
+                   and phase.get('runtime_completed') is True and type(phase.get('executed_nonignored')) is int
+                   and phase['executed_nonignored'] == 1 and phase.get('exact_selected_name') is True
+                   and type(phase.get('passed')) is int and phase['passed'] == 1 - failed
+                   and type(phase.get('failed')) is int and phase['failed'] == failed
+                   and phase.get('ignored') == phase.get('compiler_error_count') == 0
+                   and compilation.get('succeeded') is True and compilation.get('exit_code') == compilation.get('compiler_error_count') == 0
+                   and compilation.get('selected_test_artifact_count') == 1
+                   and compilation.get('compiled_features') == ([] if cohort == 'default' else ['experimental-device-sync']),
+                   'actual-one-nonignored-compiled-storage-phase')
+            ensure(phase.get('intended_runtime_kill') is True if failed else phase.get('passed_gate') is True, 'storage-phase-original-runtime-oracle')
+            for name in counts:
+                counts[name] += phase[name]
+        first, mutant, last = [phases[name]['compilation'] for name in ['baseline', 'mutant', 'restored']]
+        ensure(first['binary_sha256'] == last['binary_sha256'] and mutant['binary_sha256'] != first['binary_sha256']
+               and first['compiler_artifact_feature_manifest_sha256'] == mutant['compiler_artifact_feature_manifest_sha256'] == last['compiler_artifact_feature_manifest_sha256'],
+               'storage-restored-binary-identical-mutant-different-same-feature-profile-manifests')
+    ensure(counts == {'passed': 8, 'failed': 4, 'ignored': 0}, 'actual-eight-control-passes-four-intended-runtime-failures-per-cohort')
+    report['storage_mutations'].update(actual_passed=8, actual_failed=4, actual_ignored=0,
+                                       expected_other_cohort_bodies=12, combined_cohorts_verified_by_this_receipt=False,
+                                       new_app_storage_scanner_necessity_claim=False, native_acceptance_claim=False)
+    report['storage_mutations_passed'] = True
+
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode', choices=['preflight', 'runtime', 'static', 'production', 'worker-diagnostic', 'capture-mutation'], required=True)
+    parser.add_argument('--mode', choices=['preflight', 'runtime', 'static', 'production', 'worker-diagnostic', 'capture-mutation', 'storage-mutations'], required=True)
     parser.add_argument('--cohort', choices=['default', 'experimental'], default='experimental')
     parser.add_argument('--controls-run-id', default=os.environ.get('MERGE_639_CONTROL_RUN_ID'))
     args = parser.parse_args()
     os.umask(0o077)
     OUT.mkdir(exist_ok=True)
     report = {'mode': args.mode, 'cohort': args.cohort, 'qualification_passed': False, 'focused_checks_passed': False,
-              'capture_mutation_passed': False}
+              'capture_mutation_passed': False, 'storage_mutations_passed': False}
     frozen = frozen_inputs()
     def save():
         (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
@@ -613,6 +688,8 @@ def main():
         elif args.mode == 'capture-mutation':
             ensure(args.cohort == 'experimental', 'capture-mutation-experimental-only')
             capture_mutation(report, frozen, save, args.controls_run_id)
+        elif args.mode == 'storage-mutations':
+            storage_mutations(args.cohort, report, frozen, save, args.controls_run_id)
         else:
             static_checks(args.cohort, args.mode == 'production', report)
             report['focused_checks_passed'] = True
