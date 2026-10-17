@@ -86,7 +86,8 @@ pub(super) async fn create_real_b_source_and_wait(
     tokio::time::timeout(std::time::Duration::from_secs(10), async {
         loop {
             if let Some(row) = storage
-                .app_storage().timeline_message(&hex::encode(group.as_slice()), event)
+                .app_storage()
+                .timeline_message(&hex::encode(group.as_slice()), event)
                 .unwrap()
             {
                 assert!(!row.deleted && row.invalidation_status.is_none());

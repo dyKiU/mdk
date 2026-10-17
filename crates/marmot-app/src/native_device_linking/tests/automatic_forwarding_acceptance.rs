@@ -45,7 +45,8 @@ pub(super) async fn verify(
                 assert!(summary.message_ids == [accepted.message_id_hex.clone()]);
                 let source = apps[0].account_storage("test").unwrap();
                 let row = source
-                    .app_storage().app_message(&hex::encode(group.as_slice()), &accepted.message_id_hex)
+                    .app_storage()
+                    .app_message(&hex::encode(group.as_slice()), &accepted.message_id_hex)
                     .unwrap();
                 let receiver = apps[2].account_storage("test").unwrap();
                 let rows = receiver
@@ -123,7 +124,8 @@ pub(super) async fn verify_cancelled_host_admission(
                 let id = &summary.message_ids[0];
                 let source = apps[0].account_storage("test").unwrap();
                 let row = source
-                    .app_storage().app_message(&hex::encode(group.as_slice()), id)
+                    .app_storage()
+                    .app_message(&hex::encode(group.as_slice()), id)
                     .unwrap();
                 let receiver = apps[2].account_storage("test").unwrap();
                 let rows = receiver
@@ -240,7 +242,8 @@ pub(super) async fn verify_receipt_sql_retry(
         && matches!(r.state, cgka_traits::account_chat_send_queue::AccountChatSendState::Published { event_id } if hex::encode(event_id) == accepted.message_id_hex)));
     assert!(
         storage
-            .app_storage().app_message(&hex::encode(group.as_slice()), &accepted.message_id_hex)
+            .app_storage()
+            .app_message(&hex::encode(group.as_slice()), &accepted.message_id_hex)
             .unwrap()
             .is_some()
     );
@@ -314,7 +317,8 @@ pub(super) async fn verify_reply(
                 assert!(summary.message_ids == [accepted.message_id_hex.clone()]);
                 let source = apps[0].account_storage("test").unwrap();
                 if let Some(row) = source
-                    .app_storage().app_message(&hex::encode(group.as_slice()), &accepted.message_id_hex)
+                    .app_storage()
+                    .app_message(&hex::encode(group.as_slice()), &accepted.message_id_hex)
                     .unwrap()
                 {
                     assert!(row.plaintext == text);
@@ -432,7 +436,8 @@ pub(super) async fn verify_offline_reopen(
                     .mirrored_chat_message_page(scope, group, None, 128, crate::unix_now_seconds())
                     .unwrap();
                 if let Some(row) = source
-                    .app_storage().app_message(&hex::encode(group.as_slice()), &accepted.message_id_hex)
+                    .app_storage()
+                    .app_message(&hex::encode(group.as_slice()), &accepted.message_id_hex)
                     .unwrap()
                     && records
                         .iter()

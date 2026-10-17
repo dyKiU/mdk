@@ -6,7 +6,8 @@ const DEVICE: [u8; 32] = [2; 32];
 
 fn prepare(storage: &SqliteAccountStorage) {
     storage
-        .app_storage().ensure_account_projection_with_identity("isolated-linking-test", &hex::encode(ACCOUNT))
+        .app_storage()
+        .ensure_account_projection_with_identity("isolated-linking-test", &hex::encode(ACCOUNT))
         .unwrap();
 }
 

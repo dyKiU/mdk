@@ -506,7 +506,8 @@ pub(super) mod actual {
             tokio::time::timeout(std::time::Duration::from_secs(10), async {
                 loop {
                     if storage
-                        .app_storage().timeline_message(
+                        .app_storage()
+                        .timeline_message(
                             &hex::encode(peer.group.as_slice()),
                             &peer.preapproval_message,
                         )

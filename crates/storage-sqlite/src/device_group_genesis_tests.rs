@@ -69,7 +69,8 @@ fn private_device_group_genesis_denial_retains_birth_and_fences_old_generations(
 fn private_device_group_genesis_scope_and_projection_identity_are_immutable() {
     let storage = SqliteAccountStorage::in_memory().unwrap();
     storage
-        .app_storage().ensure_account_projection_with_identity("synthetic-genesis", &hex::encode([1; 32]))
+        .app_storage()
+        .ensure_account_projection_with_identity("synthetic-genesis", &hex::encode([1; 32]))
         .unwrap();
     let cap = storage.device_group_genesis_storage().unwrap();
     let first = cap

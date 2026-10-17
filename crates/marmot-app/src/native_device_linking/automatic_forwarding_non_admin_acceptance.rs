@@ -113,7 +113,8 @@ impl IncomingPeer {
                 if source_app
                     .account_storage("test")
                     .unwrap()
-                    .app_storage().app_message(&group_hex, &preapproval_message)
+                    .app_storage()
+                    .app_message(&group_hex, &preapproval_message)
                     .unwrap()
                     .is_some()
                 {
@@ -153,7 +154,8 @@ impl IncomingPeer {
                     .app
                     .account_storage("test")
                     .unwrap()
-                    .app_storage().app_message(&group_hex, &summary.message_ids[0])
+                    .app_storage()
+                    .app_message(&group_hex, &summary.message_ids[0])
                     .unwrap()
                 {
                     assert_eq!(row.plaintext, "message from the paired mirror");
@@ -218,7 +220,8 @@ impl IncomingPeer {
             while apps[0]
                 .account_storage("test")
                 .unwrap()
-                .app_storage().app_message(&group_hex, &fresh.message_ids[0])
+                .app_storage()
+                .app_message(&group_hex, &fresh.message_ids[0])
                 .unwrap()
                 .is_none()
             {
