@@ -11,7 +11,7 @@ import qualify_upstream_639_merge as previous
 import qualify_upstream_storage_boundary as storage
 from upstream_extraction_cohort import frozen_inputs, workflow_identity
 
-BASE = 'c0440349d35e0dd7633be63ee62849d94a737b64'
+BASE = '87cca0da29d40b5ad699770c03a2184575738736'
 UPSTREAM = 'f413e52c489d3500e18be60075524d3254c49b4a'
 SELF = 'scripts/qualify_upstream_f413_api.py'
 WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
