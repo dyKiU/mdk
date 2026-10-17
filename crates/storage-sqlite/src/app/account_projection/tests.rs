@@ -4211,7 +4211,8 @@ fn app_messages_page_covers_old_history_and_same_second_ties() {
     let store = SqliteAccountStorage::in_memory().unwrap();
     for index in (0..300).rev() {
         store
-            .app_storage().record_app_event(&app_event(&format!("{index:04}"), "aa", 50))
+            .app_storage()
+            .record_app_event(&app_event(&format!("{index:04}"), "aa", 50))
             .unwrap();
     }
     let mut other = app_event("0127", "bb", 50);
@@ -4226,7 +4227,8 @@ fn app_messages_page_covers_old_history_and_same_second_ties() {
     let mut sizes = Vec::new();
     loop {
         let page = store
-            .app_storage().app_messages_page(query.clone(), cursor.as_ref())
+            .app_storage()
+            .app_messages_page(query.clone(), cursor.as_ref())
             .unwrap();
         if page.is_empty() {
             break;
@@ -4252,13 +4254,15 @@ fn app_messages_page_covers_old_history_and_same_second_ties() {
     assert_eq!(duplicates[0].group_id_hex, "aa");
     assert_eq!(duplicates[1].group_id_hex, "bb");
     let raw = store
-        .app_storage().app_messages(StoredAppMessageQuery::default())
+        .app_storage()
+        .app_messages(StoredAppMessageQuery::default())
         .unwrap();
     assert_eq!(records, raw);
     // A bounded newest window cannot replace a complete forward scan.
     assert_eq!(
         store
-            .app_storage().app_messages(query)
+            .app_storage()
+            .app_messages(query)
             .unwrap()
             .first()
             .unwrap()
@@ -4271,7 +4275,8 @@ fn app_messages_page_covers_old_history_and_same_second_ties() {
 fn app_messages_page_retains_raw_tombstones_and_filters_before_limit() {
     let store = SqliteAccountStorage::in_memory().unwrap();
     store
-        .app_storage().record_app_event(&app_event("invalid", "aa", 1))
+        .app_storage()
+        .record_app_event(&app_event("invalid", "aa", 1))
         .unwrap();
     store
         .lock()
@@ -4282,7 +4287,8 @@ fn app_messages_page_retains_raw_tombstones_and_filters_before_limit() {
         )
         .unwrap();
     store
-        .app_storage().record_app_event_with_retention(
+        .app_storage()
+        .record_app_event_with_retention(
             &app_event("expired", "aa", 2),
             Some(AppMessageRetentionDecision::new(2, 1)),
         )
@@ -4291,19 +4297,24 @@ fn app_messages_page_retains_raw_tombstones_and_filters_before_limit() {
     reaction.kind = MARMOT_APP_EVENT_KIND_REACTION;
     store.app_storage().record_app_event(&reaction).unwrap();
     store
-        .app_storage().record_app_event(&app_event("other", "bb", 0))
+        .app_storage()
+        .record_app_event(&app_event("other", "bb", 0))
         .unwrap();
     let query = StoredAppMessageQuery {
         group_id_hex: Some("aa".into()),
         kinds: Some(vec![MARMOT_APP_EVENT_KIND_CHAT]),
         limit: Some(1),
     };
-    let first = store.app_storage().app_messages_page(query.clone(), None).unwrap();
+    let first = store
+        .app_storage()
+        .app_messages_page(query.clone(), None)
+        .unwrap();
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].message_id_hex, "invalid");
     assert!(first[0].invalidated);
     let next = store
-        .app_storage().app_messages_page(query, Some(&first[0].replay_cursor()))
+        .app_storage()
+        .app_messages_page(query, Some(&first[0].replay_cursor()))
         .unwrap();
     assert_eq!(next.len(), 1);
     assert_eq!(next[0].message_id_hex, "expired");
@@ -4322,34 +4333,50 @@ fn app_messages_page_resumes_after_encrypted_reopen_and_terminal_close() {
         ..Default::default()
     };
     let store = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
-    store.app_storage().record_app_event(&app_event("a", "aa", 5)).unwrap();
-    store.app_storage().record_app_event(&app_event("b", "aa", 5)).unwrap();
-    let cursor = store.app_storage().app_messages_page(query.clone(), None).unwrap()[0].replay_cursor();
+    store
+        .app_storage()
+        .record_app_event(&app_event("a", "aa", 5))
+        .unwrap();
+    store
+        .app_storage()
+        .record_app_event(&app_event("b", "aa", 5))
+        .unwrap();
+    let cursor = store
+        .app_storage()
+        .app_messages_page(query.clone(), None)
+        .unwrap()[0]
+        .replay_cursor();
     store.close().unwrap();
     assert!(matches!(
-        store.app_storage().app_messages_page(query.clone(), Some(&cursor)),
+        store
+            .app_storage()
+            .app_messages_page(query.clone(), Some(&cursor)),
         Err(StorageError::Closed(_))
     ));
     drop(store);
     let reopened = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     let page = reopened
-        .app_storage().app_messages_page(query.clone(), Some(&cursor))
+        .app_storage()
+        .app_messages_page(query.clone(), Some(&cursor))
         .unwrap();
     assert_eq!(page.len(), 1);
     assert_eq!(page[0].message_id_hex, "b");
     assert!(
         reopened
-            .app_storage().app_messages_page(query, Some(&page[0].replay_cursor()))
+            .app_storage()
+            .app_messages_page(query, Some(&page[0].replay_cursor()))
             .unwrap()
             .is_empty()
     );
     // A late older record is discoverable through a fresh scan, not this cursor.
     reopened
-        .app_storage().record_app_event(&app_event("late", "aa", 4))
+        .app_storage()
+        .record_app_event(&app_event("late", "aa", 4))
         .unwrap();
     assert_eq!(
         reopened
-            .app_storage().app_messages_page(
+            .app_storage()
+            .app_messages_page(
                 StoredAppMessageQuery {
                     limit: Some(1),
                     ..Default::default()
@@ -4395,13 +4422,15 @@ fn app_messages_page_rejects_unbounded_and_invalid_inputs() {
     ] {
         assert!(
             store
-                .app_storage().app_messages_page(query.clone(), Some(&cursor))
+                .app_storage()
+                .app_messages_page(query.clone(), Some(&cursor))
                 .is_err()
         );
     }
     assert!(
         store
-            .app_storage().app_messages_page(
+            .app_storage()
+            .app_messages_page(
                 StoredAppMessageQuery {
                     kinds: Some(vec![9; 129]),
                     ..query.clone()
@@ -4412,7 +4441,8 @@ fn app_messages_page_rejects_unbounded_and_invalid_inputs() {
     );
     assert!(
         store
-            .app_storage().app_messages_page(
+            .app_storage()
+            .app_messages_page(
                 StoredAppMessageQuery {
                     kinds: Some(vec![u64::MAX]),
                     ..query
