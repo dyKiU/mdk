@@ -1930,6 +1930,11 @@ async fn run_app_runtime_account_worker(
         TokioInstant,
     )> = None;
     'worker: loop {
+// ORDINARY_TURN_TEST_BEGIN
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        crate::client::device_linking::sibling_sharing::turn_probe::mark_current(&client,
+            crate::client::device_linking::sibling_sharing::turn_probe::Stage::WorkerLoop);
+// ORDINARY_TURN_TEST_END
         #[cfg(feature = "experimental-device-sync")]
         {
             // Reopened clients inherit only terminal runtime observation, never
@@ -2073,6 +2078,11 @@ async fn run_app_runtime_account_worker(
         {
             sibling_maintenance_yielded = sibling_maintenance_due;
         }
+// ORDINARY_TURN_TEST_BEGIN
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        crate::client::device_linking::sibling_sharing::turn_probe::before_select(&client,
+            sibling_maintenance_due, sibling_maintenance_yielded, sibling_service_turn);
+// ORDINARY_TURN_TEST_END
         tokio::select! {
                     biased;
                     _ = wait_for_runtime_shutdown(&mut lifecycle_shutdown) => {
@@ -2108,6 +2118,11 @@ async fn run_app_runtime_account_worker(
                         #[cfg(feature = "experimental-device-sync")]
                         {
                             sibling_maintenance_due = true;
+// ORDINARY_TURN_TEST_BEGIN
+                            #[cfg(all(test, feature = "test-policy-overrides"))]
+                            crate::client::device_linking::sibling_sharing::turn_probe::mark_current(&client,
+                                crate::client::device_linking::sibling_sharing::turn_probe::Stage::TickLatched);
+// ORDINARY_TURN_TEST_END
                         }
                     }
 
@@ -2126,6 +2141,11 @@ async fn run_app_runtime_account_worker(
                     } => {
                         #[cfg(feature = "experimental-device-sync")]
                         {
+// ORDINARY_TURN_TEST_BEGIN
+                            #[cfg(all(test, feature = "test-policy-overrides"))]
+                            crate::client::device_linking::sibling_sharing::turn_probe::mark_current(&client,
+                                crate::client::device_linking::sibling_sharing::turn_probe::Stage::Selected);
+// ORDINARY_TURN_TEST_END
                             sibling_maintenance_due = false;
                             if !lifecycle.is_stopping()
                                 && client.maintain_sibling_sharing().await.is_err()

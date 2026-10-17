@@ -1458,6 +1458,11 @@ async fn wait_for_automatic_phase_with_approvals(
     .unwrap_or_else(|_| {
         #[cfg(feature = "test-policy-overrides")]
         for (side, original) in [("left", a), ("right", b)] {
+// ORDINARY_TURN_TEST_BEGIN
+            if let Some(trace) = original.sibling_turn_trace_for_test() {
+                eprintln!("ordinary-sibling-turn side={side} trace={trace:?}");
+            }
+// ORDINARY_TURN_TEST_END
             eprintln!(
                 "automatic-enrollment-control side={side} primary/expected/children/completed={:?} intake={:?} rejections={:?} context_rejections={:?} projection={:?}",
                 original.sibling_completion_aggregates_for_test(),
