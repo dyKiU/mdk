@@ -189,11 +189,13 @@ impl TwoSourcePeer {
         let delivery = tokio::time::timeout(std::time::Duration::from_secs(30), async {
             loop {
                 let storage = self.app.account_storage("test").unwrap();
-                if future
-                    .message_ids
-                    .iter()
-                    .all(|id| storage.app_storage().app_message(&group_hex, id).unwrap().is_some())
-                {
+                if future.message_ids.iter().all(|id| {
+                    storage
+                        .app_storage()
+                        .app_message(&group_hex, id)
+                        .unwrap()
+                        .is_some()
+                }) {
                     break;
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(20)).await;
@@ -511,7 +513,8 @@ async fn wait_for_peer_messages(
             if ids.iter().all(|id| {
                 app.account_storage("test")
                     .unwrap()
-                    .app_storage().app_message(&group_hex, id)
+                    .app_storage()
+                    .app_message(&group_hex, id)
                     .unwrap()
                     .is_some()
             }) {

@@ -4410,7 +4410,8 @@ fn paired_ordinary_timeline_preserves_materialization_blocks_and_event_order() {
     store.app_storage().record_app_event(&earlier).unwrap();
     store.app_storage().record_app_event(&later).unwrap();
     store
-        .app_storage().record_app_event(&chat("c", "bob", 30, "blocked"))
+        .app_storage()
+        .record_app_event(&chat("c", "bob", 30, "blocked"))
         .unwrap();
     let mut edited = edit("edit-a", "alice", "a", 40, "edited");
     edited.source_epoch = Some(9);
@@ -4424,7 +4425,8 @@ fn paired_ordinary_timeline_preserves_materialization_blocks_and_event_order() {
         )
         .unwrap();
     let page = store
-        .app_storage().message_timeline_for_paired_presentation(
+        .app_storage()
+        .message_timeline_for_paired_presentation(
             TimelineMessageQuery {
                 group_id_hex: Some("11".repeat(32)),
                 pagination: TimelinePagination {
@@ -4442,10 +4444,12 @@ fn paired_ordinary_timeline_preserves_materialization_blocks_and_event_order() {
     assert_eq!(page.messages[1].source_epoch, Some(3));
     assert_eq!(page.messages[0].plaintext, "edited");
     store
-        .app_storage().record_app_event(&delete("delete-b", "carol", "b", 50))
+        .app_storage()
+        .record_app_event(&delete("delete-b", "carol", "b", 50))
         .unwrap();
     let deleted = store
-        .app_storage().message_timeline_for_paired_presentation(
+        .app_storage()
+        .message_timeline_for_paired_presentation(
             TimelineMessageQuery {
                 group_id_hex: Some("11".repeat(32)),
                 pagination: TimelinePagination {
@@ -4467,7 +4471,8 @@ fn paired_ordinary_timeline_preserves_materialization_blocks_and_event_order() {
     for limit in [None, Some(0), Some(129)] {
         assert!(
             store
-                .app_storage().message_timeline_for_paired_presentation(
+                .app_storage()
+                .message_timeline_for_paired_presentation(
                     TimelineMessageQuery {
                         group_id_hex: Some("11".repeat(32)),
                         pagination: TimelinePagination {
@@ -4483,7 +4488,8 @@ fn paired_ordinary_timeline_preserves_materialization_blocks_and_event_order() {
     }
     assert!(
         store
-            .app_storage().message_timeline_for_paired_presentation(
+            .app_storage()
+            .message_timeline_for_paired_presentation(
                 TimelineMessageQuery {
                     pagination: TimelinePagination {
                         limit: Some(1),
@@ -4502,10 +4508,12 @@ fn paired_ordinary_timeline_preserves_materialization_blocks_and_event_order() {
 fn paired_ordinary_timeline_hides_expired_payload_and_reply_before_sweep() {
     let store = SqliteAccountStorage::in_memory().unwrap();
     store
-        .app_storage().record_app_event(&chat("target", "alice", 10, "retained"))
+        .app_storage()
+        .record_app_event(&chat("target", "alice", 10, "retained"))
         .unwrap();
     store
-        .app_storage().record_app_event(&reply("reply", "bob", "target", 20, "reply"))
+        .app_storage()
+        .record_app_event(&reply("reply", "bob", "target", 20, "reply"))
         .unwrap();
     store.lock().unwrap().execute("UPDATE app_events SET retention_seconds=1,retention_expires_at=11 WHERE message_id_hex='target'",[]).unwrap();
     let query = TimelineMessageQuery {
@@ -4517,7 +4525,8 @@ fn paired_ordinary_timeline_hides_expired_payload_and_reply_before_sweep() {
         ..Default::default()
     };
     let page = store
-        .app_storage().message_timeline_for_paired_presentation(query, 11)
+        .app_storage()
+        .message_timeline_for_paired_presentation(query, 11)
         .unwrap();
     let target = page
         .messages

@@ -294,7 +294,8 @@ impl SqliteAccountStorage {
             for (paired, position, event) in selected {
                 if !paired {
                     let row = store
-                        .app_storage().timeline_message(&hex::encode(group.as_slice()), &event)?
+                        .app_storage()
+                        .timeline_message(&hex::encode(group.as_slice()), &event)?
                         .ok_or_else(invalid)?;
                     observed.push(AccountConversationObservation::LocalMls(Box::new(
                         store.app_storage().scrub_paired_timeline_record(row, now)?,

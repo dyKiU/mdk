@@ -27,10 +27,15 @@ impl RenewalWitness {
         let event = incoming.preapproval_message.clone();
         let group_hex = hex::encode(group.as_slice());
         let storage = apps[0].account_storage("test").unwrap();
-        let source = storage.app_storage().app_message(&group_hex, &event).unwrap().unwrap();
+        let source = storage
+            .app_storage()
+            .app_message(&group_hex, &event)
+            .unwrap()
+            .unwrap();
         assert!(!source.invalidated);
         let visible = storage
-            .app_storage().timeline_message(&group_hex, &event)
+            .app_storage()
+            .timeline_message(&group_hex, &event)
             .unwrap()
             .unwrap();
         assert!(!visible.deleted && visible.invalidation_status.is_none());

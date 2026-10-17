@@ -11,7 +11,8 @@ use sha2::{Digest, Sha256};
 fn store() -> SqliteAccountStorage {
     let storage = SqliteAccountStorage::in_memory().unwrap();
     storage
-        .app_storage().ensure_account_projection_with_identity("private-invite-test", &hex::encode([1; 32]))
+        .app_storage()
+        .ensure_account_projection_with_identity("private-invite-test", &hex::encode([1; 32]))
         .unwrap();
     let draft = raw(1);
     storage
@@ -545,7 +546,8 @@ fn private_device_invite_unresolved_blocks_selecting_an_accepted_group() {
 fn private_device_invite_accepted_origin_retry_is_read_only_while_outgoing_is_pending() {
     let storage = SqliteAccountStorage::in_memory().unwrap();
     storage
-        .app_storage().ensure_account_projection_with_identity(
+        .app_storage()
+        .ensure_account_projection_with_identity(
             "private-invite-accepted-test",
             &hex::encode([1; 32]),
         )
@@ -586,7 +588,8 @@ fn private_device_invite_encrypted_reopen_retains_exact_uncertainty_and_scope() 
         let key = crate::SqlCipherKey::new("42".repeat(32)).unwrap();
         let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
         storage
-            .app_storage().ensure_account_projection_with_identity(
+            .app_storage()
+            .ensure_account_projection_with_identity(
                 "private-invite-reopen-test",
                 &hex::encode([1; 32]),
             )

@@ -34,7 +34,8 @@ pub(crate) async fn joined_pair(
     let account = recipient.self_id().as_slice().try_into().unwrap();
     let local_device = recipient.identity.signer.public().try_into().unwrap();
     storage
-        .app_storage().ensure_account_projection_with_identity(
+        .app_storage()
+        .ensure_account_projection_with_identity(
             "isolated-successor-recipient",
             &hex::encode(account),
         )

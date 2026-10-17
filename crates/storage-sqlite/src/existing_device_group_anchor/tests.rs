@@ -170,7 +170,8 @@ fn existing_anchor_projection_mismatch_and_new_selection_cannot_orphan_live_orig
     let storage = SqliteAccountStorage::in_memory().unwrap();
     let draft = setup(&storage);
     storage
-        .app_storage().ensure_account_projection_with_identity("synthetic-existing", &hex::encode([27; 32]))
+        .app_storage()
+        .ensure_account_projection_with_identity("synthetic-existing", &hex::encode([27; 32]))
         .unwrap();
     assert!(storage.install_existing_anchor(&draft).is_err());
     assert!(storage.existing_anchor().unwrap().is_none());

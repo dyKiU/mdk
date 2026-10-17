@@ -195,7 +195,8 @@ impl AppClient {
         // Read the entire selected logical snapshot; reject the whole transfer
         // when its reviewable bound is exceeded, never trim an archive silently.
         let rows = storage
-            .app_storage().app_messages(storage_sqlite::StoredAppMessageQuery {
+            .app_storage()
+            .app_messages(storage_sqlite::StoredAppMessageQuery {
                 group_id_hex: Some(hex::encode(ordinary.as_slice())),
                 kinds: Some(vec![9]),
                 limit: Some(201),
@@ -211,7 +212,8 @@ impl AppClient {
             .into_iter()
             .map(|row| {
                 let visible = storage
-                    .app_storage().timeline_message(&row.group_id_hex, &row.message_id_hex)
+                    .app_storage()
+                    .timeline_message(&row.group_id_hex, &row.message_id_hex)
                     .map_err(|_| HistoryTransferError::RuntimeUnavailable)?;
                 let created_at = visible
                     .as_ref()

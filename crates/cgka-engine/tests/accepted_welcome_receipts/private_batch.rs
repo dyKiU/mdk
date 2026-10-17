@@ -69,7 +69,8 @@ async fn fixture_with_creator(
     let account = purpose.scope.account;
     let device = genesis.birth().leaves[0].signature_public_key;
     approver_storage
-        .app_storage().ensure_account_projection_with_identity("private-batch-approver", &hex::encode(account))
+        .app_storage()
+        .ensure_account_projection_with_identity("private-batch-approver", &hex::encode(account))
         .unwrap();
     let generation = approver_storage
         .reserve_device_linking_attempt(&account, &device)
