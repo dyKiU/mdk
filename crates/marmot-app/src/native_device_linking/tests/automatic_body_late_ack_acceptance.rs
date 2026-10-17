@@ -248,9 +248,14 @@ async fn late_ack_trial(hold_receipt: bool) {
     };
     eprintln!(
         "body-late-ack-cleanup runtime1={} runtime2={} relay_planes={} connections={} closed_connections={} invalid={} task_outcome={} child_outcomes={:?} io_categories={:?}",
-        runtime_closes[0], runtime_closes[1], relay_plane_closes,
-        close_observed.connections, close_observed.closed_connections,
-        close_observed.invalid, task_outcome, close_observed.child_outcomes,
+        runtime_closes[0],
+        runtime_closes[1],
+        relay_plane_closes,
+        close_observed.connections,
+        close_observed.closed_connections,
+        close_observed.invalid,
+        task_outcome,
+        close_observed.child_outcomes,
         close_observed.io_categories,
     );
     let prerequisites = held_ack

@@ -159,7 +159,8 @@ impl AckProxy {
         self.release_actual_ok();
         self.shutdown.send_replace(true);
         let mut task = self.task.take().ok_or_else(|| CloseFailure {
-            observed: self.observed(), task_outcome: 4,
+            observed: self.observed(),
+            task_outcome: 4,
         })?;
         let outcome = tokio::time::timeout(Duration::from_secs(5), &mut task).await;
         match outcome {
@@ -171,16 +172,28 @@ impl AckProxy {
                 {
                     Ok(observed)
                 } else {
-                    Err(CloseFailure { observed, task_outcome: 5 })
+                    Err(CloseFailure {
+                        observed,
+                        task_outcome: 5,
+                    })
                 }
             }
-            Ok(Ok(Err(()))) => Err(CloseFailure { observed: self.observed(), task_outcome: 1 }),
-            Ok(Err(_)) => Err(CloseFailure { observed: self.observed(), task_outcome: 2 }),
+            Ok(Ok(Err(()))) => Err(CloseFailure {
+                observed: self.observed(),
+                task_outcome: 1,
+            }),
+            Ok(Err(_)) => Err(CloseFailure {
+                observed: self.observed(),
+                task_outcome: 2,
+            }),
             Err(_) => {
                 // Abort is failed cleanup, never positive close evidence.
                 task.abort();
                 let _ = task.await;
-                Err(CloseFailure { observed: self.observed(), task_outcome: 3 })
+                Err(CloseFailure {
+                    observed: self.observed(),
+                    task_outcome: 3,
+                })
             }
         }
     }
@@ -200,7 +213,11 @@ fn record_io(state: &Arc<Mutex<State>>, operation: usize, category: usize) {
     state.lock().expect("ACK proxy").observed.io_categories[operation][category] += 1;
 }
 
-fn record_error(state: &Arc<Mutex<State>>, operation: usize, error: &tokio_tungstenite::tungstenite::Error) {
+fn record_error(
+    state: &Arc<Mutex<State>>,
+    operation: usize,
+    error: &tokio_tungstenite::tungstenite::Error,
+) {
     use tokio_tungstenite::tungstenite::Error;
     let category = match error {
         Error::ConnectionClosed => 3,
@@ -222,7 +239,10 @@ fn record_error(state: &Arc<Mutex<State>>, operation: usize, error: &tokio_tungs
     record_io(state, operation, category);
 }
 
-fn record_child(state: &Arc<Mutex<State>>, result: Result<Result<(), ()>, tokio::task::JoinError>) -> bool {
+fn record_child(
+    state: &Arc<Mutex<State>>,
+    result: Result<Result<(), ()>, tokio::task::JoinError>,
+) -> bool {
     let category = match &result {
         Ok(Ok(())) => 0,
         Ok(Err(())) => 1,
@@ -301,9 +321,13 @@ async fn connection(
     mut released: watch::Receiver<bool>,
     mut stopping: watch::Receiver<bool>,
 ) -> Result<(), ()> {
-    let mut client = accept_async(stream).await.map_err(|error| { record_error(&state, 6, &error); })?;
+    let mut client = accept_async(stream).await.map_err(|error| {
+        record_error(&state, 6, &error);
+    })?;
     record_io(&state, 6, 0);
-    let (mut relay, _) = connect_async(backend).await.map_err(|error| { record_error(&state, 7, &error); })?;
+    let (mut relay, _) = connect_async(backend).await.map_err(|error| {
+        record_error(&state, 7, &error);
+    })?;
     record_io(&state, 7, 0);
     let mut held = Vec::new();
     let result = async {
@@ -377,12 +401,24 @@ async fn connection(
     }.await;
     // Both sockets are explicitly closed even after a forwarding error.
     let client_closed = match client.close(None).await {
-        Ok(()) => { record_io(&state, 4, 0); true },
-        Err(error) => { record_error(&state, 4, &error); terminal(&error) },
+        Ok(()) => {
+            record_io(&state, 4, 0);
+            true
+        }
+        Err(error) => {
+            record_error(&state, 4, &error);
+            terminal(&error)
+        }
     };
     let relay_closed = match relay.close(None).await {
-        Ok(()) => { record_io(&state, 5, 0); true },
-        Err(error) => { record_error(&state, 5, &error); terminal(&error) },
+        Ok(()) => {
+            record_io(&state, 5, 0);
+            true
+        }
+        Err(error) => {
+            record_error(&state, 5, &error);
+            terminal(&error)
+        }
     };
     if result.is_ok() && client_closed && relay_closed {
         state.lock().expect("ACK proxy").observed.closed_connections += 1;
