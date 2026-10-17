@@ -17,6 +17,10 @@ pub(crate) struct Snapshot {
     pub(crate) deadline: Instant,
     pub(crate) pending_controls: usize,
     // PEER_NEGATIVE_TEST_END
+    // LATE_CONSENT_TEST_BEGIN
+    // Fresh Core-bound consent readiness and actual owned Request ACK harvest.
+    pub(crate) consent_ordering: [bool; 2],
+    // LATE_CONSENT_TEST_END
 }
 
 pub(crate) struct ProofGate {
@@ -140,6 +144,9 @@ impl AppClient {
                     .expect("sibling pending opaque")
                     .len(),
             // PEER_NEGATIVE_TEST_END
+            // LATE_CONSENT_TEST_BEGIN
+            consent_ordering: [entry.ready, entry.handshake_published],
+            // LATE_CONSENT_TEST_END
             nonce: entry.channel.scope().nonce,
             flags: [
                 entry.original.live(),
