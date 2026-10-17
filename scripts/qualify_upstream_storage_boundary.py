@@ -272,8 +272,56 @@ def known_crossing(line, context, section='new'):
     return known_target and re.search(r'\b' + re.escape(terminal) + r'\b', source) is not None
 
 
+def source_grounded_rejection(line, section, context):
+    """Unqualified diagnostic atoms only; never export a raw rejected row."""
+    detail = {'validation': 'unresolved-rejected', 'automatically_allowed': False,
+              'section': section if section in {'new', 'stale'} else 'unknown',
+              'kind': 'unknown', 'origin': None, 'target_atoms': [],
+              'target_atoms_proven_static': False}
+    parts = line.split(' ')
+    if len(parts) != 3 or ' '.join(parts) != line or len(line) > 512:
+        return detail
+    kind, origin, target = parts
+    if kind not in {'sql', 'path', 'method', 'fk', 'trigger'}:
+        return detail
+    detail['kind'] = kind
+    tracked = (origin in context['sources'] and re.fullmatch(r'[A-Za-z0-9_/-]+\.rs', origin)
+               and '..' not in origin)
+    owned = origin in context['tables']
+    detail['origin_is_tracked_source'] = bool(tracked)
+    detail['origin_is_owned_schema_table'] = owned
+    if (kind in {'sql', 'path', 'method'} and tracked) or (kind in {'fk', 'trigger'} and owned):
+        detail['origin'] = origin
+    identifier = r'[A-Za-z_][A-Za-z0-9_]{0,127}'
+    atoms = target.split('::') if kind == 'path' else [target]
+    if (len(atoms) > 9 or (kind == 'path' and atoms[0] != 'crate')
+            or not all(re.fullmatch(identifier, atom) for atom in atoms)):
+        return detail
+    static = set(re.findall(r'\b[A-Za-z_][A-Za-z0-9_]{0,127}\b', '\n'.join(context['sources'].values())))
+    safe = all(atom in static and not re.fullmatch(r'[a-fA-F0-9]{24,}', atom)
+               and not re.fullmatch(r'(?:npub|nsec|note|nevent|nprofile|naddr)1[0-9a-z]+', atom)
+               for atom in atoms)
+    if safe:
+        detail['target_atoms'] = atoms
+        detail['target_atoms_proven_static'] = True
+        detail['target_atom_provenance'] = 'bounded-identifiers-in-exact-frozen-storage-source'
+    detail['target_is_owned_table'] = target in context['tables']
+    detail['target_is_known_trigger'] = target in context['triggers']
+    detail['target_is_known_fk_reference'] = target in context['references']
+    if kind == 'path':
+        detail['path_identifier_depth'] = len(atoms) - 1
+        location = '/'.join(atoms[1:])
+        detail['concrete_module_exists'] = location + '.rs' in context['sources'] or location + '/mod.rs' in context['sources']
+        detail['terminal_occurs_in_origin'] = bool(tracked and re.search(r'\b' + re.escape(atoms[-1]) + r'\b', context['sources'][origin]))
+    if kind == 'method':
+        detail['origin_self_call_recognized'] = bool(tracked and re.search(r'\b(?:self\s*\.\s*' + re.escape(target) + r'\s*\(|Self\s*::\s*' + re.escape(target) + r'\b)', context['sources'][origin]))
+        detail['target_fn_declaration_recognized'] = any(re.search(r'\bfn\s+' + re.escape(target) + r'\b', body) for body in context['sources'].values())
+    return detail
+
+
 def parse_crossing_diagnostic(output, code, context, panic_line):
-    rejected = lambda reason: {'status': 'rejected', 'reason': reason, 'new': [], 'stale': []}
+    def rejected(reason, detail=None):
+        return {'status': 'rejected', 'reason': reason, 'new': [], 'stale': [], 'unqualified_rejection_detail': detail}
     row = parse_body(output, code, BOUNDARY_TEST)
     locations = row['safe_panic_locations']
     if not (row['actual_counts_complete'] and row['passed'] == 0 and row['failed'] == 1
@@ -307,7 +355,7 @@ def parse_crossing_diagnostic(output, code, context, panic_line):
                 return rejected('section-bound-exceeded')
             continue
         if section is None or not known_crossing(line, context, section):
-            return rejected('unknown-structural-crossing')
+            return rejected('unknown-structural-crossing', source_grounded_rejection(line, section, context))
         if line in seen:
             return rejected('duplicate-crossing-row')
         seen.add(line)
@@ -353,6 +401,19 @@ def crossing_parser_preflight():
     ensure(parse_crossing_diagnostic(start + stale + '\nmethod owner.rs actual' + end, 101, context, 90)['status'] == 'rejected', 'crossing-parser-stale-requires-exact-listed-line')
     invalid_list = dict(context, listed={'sql ../private/account.rs app_table'})
     ensure(parse_crossing_diagnostic(start + stale + '\nsql ../private/account.rs app_table' + end, 101, invalid_list, 90)['status'] == 'rejected', 'crossing-parser-list-membership-cannot-bypass-path-bounds')
+    semantic = dict(context, sources={**context['sources'], 'reader.rs': 'use crate::owner::StoredRecord;', 'owner.rs': 'pub struct StoredRecord; self.generated_call();'})
+    row = parse_crossing_diagnostic(start + new + '\npath reader.rs crate::owner::StoredRecord' + end, 101, semantic, 90)
+    detail = row['unqualified_rejection_detail']
+    ensure(row['status'] == 'rejected' and row['new'] == row['stale'] == []
+           and detail['target_atoms'] == ['crate', 'owner', 'StoredRecord'] and detail['target_atoms_proven_static']
+           and not detail['concrete_module_exists'] and detail['validation'] == 'unresolved-rejected', 'crossing-parser-semantic-path-atoms-unqualified')
+    row = parse_crossing_diagnostic(start + new + '\nmethod owner.rs generated_call' + end, 101, semantic, 90)
+    ensure(row['status'] == 'rejected' and row['unqualified_rejection_detail']['target_atoms'] == ['generated_call']
+           and not row['unqualified_rejection_detail']['target_fn_declaration_recognized'], 'crossing-parser-macro-like-method-atoms-unqualified')
+    for line in ['path reader.rs crate::PRIVATE_ACCOUNT_SQL', 'sql ../private/account.rs PRIVATE_ACCOUNT_SQL']:
+        row = parse_crossing_diagnostic(start + new + '\n' + line + end, 101, context, 90)
+        ensure(row['status'] == 'rejected' and row['unqualified_rejection_detail']['target_atoms'] == []
+               and 'PRIVATE_ACCOUNT_SQL' not in json.dumps(row) and '../private' not in json.dumps(row), 'crossing-parser-unproven-values-not-exported')
     negatives = [raw.replace('reader.rs', '../private/account.rs'), raw.replace('app_table', 'PRIVATE_ACCOUNT_SQL'),
                  raw.replace('crate::owner', 'crate::PRIVATE_ACCOUNT_SQL'), raw.replace('1 crossing(s)', '2 crossing(s)'),
                  raw.replace('1 crossing(s)', '65 crossing(s)'), raw.replace(stale, new), raw + '\n' + new,
@@ -367,7 +428,7 @@ def crossing_parser_preflight():
     for bad in negatives:
         row = parse_crossing_diagnostic(bad, 101, context, 90)
         ensure(row['status'] == 'rejected' and 'PRIVATE_ACCOUNT_SQL' not in json.dumps(row), 'crossing-parser-rejects-untrusted-incomplete-or-duplicate-metadata')
-    return {'positive': 6, 'negative': len(negatives) + 3, 'actual_runtime_bodies': 0}
+    return {'positive': 8, 'negative': len(negatives) + 5, 'actual_runtime_bodies': 0}
 
 
 def source_guard(baseline, ownership_adaptation):
