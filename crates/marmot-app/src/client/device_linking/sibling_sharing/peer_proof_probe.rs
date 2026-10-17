@@ -166,3 +166,186 @@ impl AppClient {
         })
     }
 }
+// RECIPIENT_ADMISSION_TEST_BEGIN
+/// Passive observation of Core-approved recipient channel admission only.
+pub(crate) mod recipient_admission {
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    pub(crate) struct Admission {
+        pub(crate) nonce: [u8; 32],
+        // Original live, child live, recipient, ready, handshake ACK harvested,
+        // publication present: copied synchronously immediately after admission.
+        pub(crate) flags: [bool; 6],
+    }
+    struct Probe {
+        owner: Weak<OriginalEnrollmentSharingChoice>,
+        admitted: Mutex<Option<Admission>>,
+        observed: Notify,
+    }
+    pub(crate) struct AdmissionGuard(Arc<Probe>);
+    impl AdmissionGuard {
+        pub(crate) async fn observed(&self) -> Admission {
+            self.0.observed.notified().await;
+            self.0
+                .admitted
+                .lock()
+                .expect("recipient admission")
+                .expect("actual admitted child")
+        }
+    }
+    fn registry() -> &'static Mutex<Vec<Weak<Probe>>> {
+        static REGISTRY: OnceLock<Mutex<Vec<Weak<Probe>>>> = OnceLock::new();
+        REGISTRY.get_or_init(Default::default)
+    }
+    impl Guard {
+        pub(crate) fn arm_recipient_admission_for_test(&self) -> AdmissionGuard {
+            let probe = Arc::new(Probe {
+                owner: self.0.owner.clone(),
+                admitted: Mutex::new(None),
+                observed: Notify::new(),
+            });
+            let mut probes = registry().lock().expect("recipient admission probes");
+            probes.retain(|probe| probe.strong_count() != 0);
+            assert!(probes.len() < 4, "bounded recipient admission probes");
+            assert!(
+                !probes
+                    .iter()
+                    .filter_map(Weak::upgrade)
+                    .any(|old| old.owner.ptr_eq(&probe.owner))
+            );
+            probes.push(Arc::downgrade(&probe));
+            AdmissionGuard(probe)
+        }
+    }
+    #[derive(Clone)]
+    pub(crate) struct HeldRequest {
+        pub(crate) owner: Weak<Existing>,
+        pub(crate) nonce: [u8; 32],
+        pub(crate) message_id: cgka_traits::MessageId,
+        pub(crate) payload_nonempty: bool,
+    }
+    struct RequestGate {
+        owner: Weak<OriginalEnrollmentSharingChoice>,
+        fired: AtomicBool,
+        request: Mutex<Option<HeldRequest>>,
+        observed: Notify,
+        release: Notify,
+    }
+    pub(crate) struct RequestGuard(Arc<RequestGate>);
+    impl RequestGuard {
+        pub(crate) async fn observed(&self) -> HeldRequest {
+            self.0.observed.notified().await;
+            self.0
+                .request
+                .lock()
+                .expect("held actual Request")
+                .clone()
+                .expect("actual Request observed")
+        }
+    }
+    impl Drop for RequestGuard {
+        fn drop(&mut self) {
+            self.0.release.notify_one();
+        }
+    }
+    fn request_registry() -> &'static Mutex<Vec<Weak<RequestGate>>> {
+        static REGISTRY: OnceLock<Mutex<Vec<Weak<RequestGate>>>> = OnceLock::new();
+        REGISTRY.get_or_init(Default::default)
+    }
+    impl Guard {
+        pub(crate) fn hold_recipient_request_for_test(&self) -> RequestGuard {
+            let gate = Arc::new(RequestGate {
+                owner: self.0.owner.clone(),
+                fired: AtomicBool::new(false),
+                request: Mutex::new(None),
+                observed: Notify::new(),
+                release: Notify::new(),
+            });
+            let mut gates = request_registry().lock().expect("recipient Request gates");
+            gates.retain(|gate| gate.strong_count() != 0);
+            assert!(gates.len() < 4, "bounded actual Request gates");
+            assert!(
+                !gates
+                    .iter()
+                    .filter_map(Weak::upgrade)
+                    .any(|old| old.owner.ptr_eq(&gate.owner))
+            );
+            gates.push(Arc::downgrade(&gate));
+            RequestGuard(gate)
+        }
+    }
+    // Called only for a genuine Request inside its existing original-owned
+    // publication cancellation/deadline select. This is not a relay ACK.
+    pub(in super::super) async fn hold_request(
+        source: &Arc<SiblingOriginal>,
+        nonce: [u8; 32],
+        request: &cgka_traits::TransportPublishRequest,
+    ) {
+        let SiblingOriginal::Existing {
+            original,
+            source: device,
+            recipient,
+            account,
+            ..
+        } = source.as_ref()
+        else {
+            return;
+        };
+        let gate = {
+            let gates = request_registry().lock().expect("recipient Request gates");
+            gates.iter().filter_map(Weak::upgrade).find(|gate| {
+                gate.owner.upgrade().is_some_and(|choice| {
+                    choice.live()
+                        && source.live()
+                        && choice.scope.local_device == choice.context.recipient
+                        && *recipient == choice.context.recipient
+                        && *account == choice.context.account
+                        && choice.context.digest().ok().is_some_and(|approval| approval == original.state.approval_id)
+                        && request.account_id.as_slice() == choice.context.account
+                        && *device != choice.context.approver
+                        && choice.context.predecessor.leaves.iter().any(|leaf| leaf.signature_public_key == *device)
+                        && matches!(&request.target, cgka_traits::TransportPublishTarget::Group { group_id, .. }
+                            if group_id.as_slice() == choice.context.device_group)
+                }) && !gate.fired.swap(true, Ordering::AcqRel)
+            })
+        };
+        if let Some(gate) = gate {
+            *gate.request.lock().expect("held actual Request") = Some(HeldRequest {
+                owner: Arc::downgrade(original),
+                nonce,
+                message_id: request.message.id.clone(),
+                payload_nonempty: !request.message.payload.is_empty(),
+            });
+            gate.observed.notify_one();
+            gate.release.notified().await;
+        }
+    }
+    pub(in super::super) fn admitted(entry: &SiblingChannel) {
+        let SiblingOriginal::Recipient { choice, .. } = entry.original.as_ref() else {
+            return;
+        };
+        let probes = registry().lock().expect("recipient admission probes");
+        for probe in probes.iter().filter_map(Weak::upgrade) {
+            if !probe.owner.ptr_eq(&Arc::downgrade(choice)) {
+                continue;
+            }
+            let mut admitted = probe.admitted.lock().expect("recipient admission");
+            if admitted.is_none() {
+                *admitted = Some(Admission {
+                    nonce: entry.channel.scope().nonce,
+                    flags: [
+                        entry.original.live(),
+                        entry.state.live(),
+                        entry.recipient,
+                        entry.ready,
+                        entry.handshake_published,
+                        entry.publication.is_some(),
+                    ],
+                });
+                probe.observed.notify_one();
+            }
+        }
+    }
+}
+// RECIPIENT_ADMISSION_TEST_END
