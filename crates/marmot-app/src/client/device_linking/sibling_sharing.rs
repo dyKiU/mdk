@@ -2522,6 +2522,10 @@ impl AppClient {
             .validate_account_sharing_channel(&entry.channel)
             .map_err(ClientLinkingError::Engine)?;
         let adapter = self.adapter.clone();
+        // REQUEST_RETRY_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let adapter = peer_proof_probe::retry_completion::Adapter::capture(adapter, entry, kind);
+        // REQUEST_RETRY_TEST_END
         let original = entry.original.clone();
         let state = entry.state.clone();
         let mut shutdown = self.history_owner.runtime_shutdown.clone();

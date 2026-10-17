@@ -1,5 +1,9 @@
 //! Test-only passive snapshots and one original recipient's real publication hold.
 use super::*;
+// REQUEST_RETRY_TEST_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) mod retry_completion;
+// REQUEST_RETRY_TEST_END
 // PEER_NEGATIVE_TEST_BEGIN
 pub(crate) mod negative;
 // PEER_NEGATIVE_TEST_END
