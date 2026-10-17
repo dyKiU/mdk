@@ -39,6 +39,65 @@ pub(crate) fn check_purpose(
 }
 
 impl<S: StorageProvider> Engine<S> {
+    /// Called inside the authenticated private-join transaction, after the live
+    /// lease validated the new full tree. A cancelled approver setup may have
+    /// left an unchanged one-device birth selected. Retire that negative fence
+    /// atomically with the new join, never an established/advanced group.
+    pub(crate) fn retire_unused_genesis_for_private_join(&self) -> Result<(), EngineError> {
+        use crate::device_group_genesis::GenesisFactoryError;
+        use cgka_traits::device_group_genesis::GenesisError;
+        let map_genesis = |error| match error {
+            GenesisError::Storage(error) => EngineError::Storage(error),
+            _ => denial(),
+        };
+        let Some(store) = self.storage.device_group_genesis_storage() else {
+            return Ok(());
+        };
+        let Some(selection) = store
+            .genesis_selection()
+            .map_err(map_genesis)?
+            .filter(|selection| !selection.active_denied)
+        else {
+            return Ok(());
+        };
+        let group = &selection.fact.birth.group_id;
+        if !self
+            .storage
+            .approved_account_sharing_policy_storage()
+            .ok_or_else(denial)?
+            .approved_account_sharing_policies()?
+            .is_empty()
+            || self
+                .storage
+                .private_roster_settlement_storage()
+                .ok_or_else(denial)?
+                .read_round()?
+                .is_some_and(|round| &round.anchor.group_id == group)
+        {
+            return Err(denial());
+        }
+        let origin = self
+            .validated_private_device_group_genesis(group)
+            .map_err(|error| match error {
+                GenesisFactoryError::Engine(error) => error,
+                GenesisFactoryError::Genesis(error) => map_genesis(error),
+                GenesisFactoryError::Anchor(
+                    cgka_traits::accepted_device_group_anchor::AnchorError::Storage(error),
+                ) => EngineError::Storage(error),
+                _ => denial(),
+            })?
+            .ok_or_else(denial)?;
+        if origin.birth().epoch.0 != 0 || origin.birth().leaves.len() != 1 {
+            return Err(denial());
+        }
+        // Anchor installation still checks all other active origins and pending
+        // invitations. Any later failure, including final lease expiry, rolls
+        // this denial back together with the tentative MLS join.
+        store
+            .deny_genesis_selection(origin.scope(), group)
+            .map_err(map_genesis)
+    }
+
     /// Authenticated chunk metadata only; no membership or verifier permission.
     pub async fn observe_private_linking_welcome(
         &self,
@@ -146,6 +205,21 @@ impl<S: StorageProvider> Engine<S> {
         let content_id = crate::group_lifecycle::welcome_content_dedup_id(&peeled)?;
         if self.storage.has_ingress_dedup_marker(&content_id)? {
             return Err(EngineError::WelcomeAlreadyProcessed);
+        }
+        // Reopened accounts may have only a cheap hydration seed for the old
+        // local birth. Hydration grants nothing; the transaction revalidates it.
+        if let Some(store) = self.storage.device_group_genesis_storage()
+            && let Some(selection) = store
+                .genesis_selection()
+                .map_err(|error| match error {
+                    cgka_traits::device_group_genesis::GenesisError::Storage(error) => {
+                        EngineError::Storage(error)
+                    }
+                    _ => denial(),
+                })?
+                .filter(|selection| !selection.active_denied)
+        {
+            self.ensure_hydrated(&selection.fact.birth.group_id)?;
         }
         self.join_peeled_welcome_with_consent(
             origin,

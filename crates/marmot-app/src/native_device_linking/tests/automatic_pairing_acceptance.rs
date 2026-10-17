@@ -3,6 +3,107 @@ use crate::{MarmotApp, MarmotAppRuntime};
 use marmot_account::AccountHome;
 
 #[tokio::test]
+async fn cancelled_setup_can_reverse_roles_and_complete_enrollment() {
+    use cgka_traits::storage::{GroupStorage, StorageProvider};
+    let relay = nostr_relay_builder::MockRelay::run().await.unwrap();
+    let url = relay.url().await.to_string();
+    let keys = nostr::prelude::Keys::generate();
+    let dirs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+    let apps = dirs.each_ref().map(|dir| {
+        AccountHome::open(dir.path())
+            .import_account("test", &keys.secret_key().to_secret_hex())
+            .unwrap();
+        MarmotApp::with_relay(dir.path(), &url)
+    });
+    let runtimes = apps.clone().map(MarmotAppRuntime::new);
+    for runtime in &runtimes {
+        runtime.reconcile_accounts().await.unwrap();
+    }
+    let first = runtimes[1]
+        .accounts()
+        .begin_device_linking_session("test")
+        .await
+        .unwrap();
+    let response = runtimes[0]
+        .accounts()
+        .approve_device_linking_session("test", first.setup_packet(), None)
+        .await
+        .unwrap();
+    response.cancel().await.unwrap();
+    first.cancel().await.unwrap();
+    drop(response);
+    drop(first);
+    let storage = apps[0].account_storage("test").unwrap();
+    let birth = storage
+        .device_group_genesis_storage()
+        .unwrap()
+        .genesis_selection()
+        .unwrap()
+        .expect("actual abandoned setup created a genesis");
+    assert!(!birth.active_denied);
+    assert_eq!(birth.fact.birth.leaves.len(), 1);
+    assert!(
+        storage
+            .private_roster_settlement_storage()
+            .unwrap()
+            .read_round()
+            .unwrap()
+            .is_none()
+    );
+
+    // The former approver now displays the QR and becomes the recipient. The
+    // old one-device genesis must not veto this independently approved join.
+    let display = runtimes[0]
+        .accounts()
+        .begin_device_linking_session("test")
+        .await
+        .unwrap();
+    let scanner = runtimes[1]
+        .accounts()
+        .approve_automatic_device_linking_session(
+            "test",
+            display.automatic_pairing_code().await.unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+    scanner.automatic_pairing_code().await.unwrap();
+    compare_and_confirm_pair(&display, &scanner).await;
+    for session in [&display, &scanner] {
+        session
+            .continue_automatic_linking(session.snapshot().await.unwrap().revision, true)
+            .await
+            .unwrap();
+    }
+    wait_for_automatic_phase(&display, &scanner, DeviceLinkingPhase::EnrollmentComplete).await;
+    let retired = storage
+        .device_group_genesis_storage()
+        .unwrap()
+        .genesis_selection()
+        .unwrap()
+        .unwrap();
+    assert!(retired.active_denied);
+    assert!(
+        retired.fact.birth == birth.fact.birth,
+        "retain original birth provenance"
+    );
+    assert!(
+        storage.get_group(&birth.fact.birth.group_id).is_ok(),
+        "preserve old MLS group"
+    );
+    for runtime in &runtimes {
+        let targets = runtime
+            .accounts()
+            .device_linking_targets("test")
+            .await
+            .unwrap();
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].device_count, 2);
+        runtime.shutdown_and_close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn automatic_enrollment_reaches_a_separate_account_inbox_relay() {
     let group_relay = nostr_relay_builder::MockRelay::run().await.unwrap();
     let inbox_relay = nostr_relay_builder::MockRelay::run().await.unwrap();

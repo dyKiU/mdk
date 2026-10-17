@@ -1417,6 +1417,7 @@ impl<S: StorageProvider> Engine<S> {
                     if let Some(evidence) = input.evidence { evidence.check_predecessor(&predecessor)?; }
                     let saved = linking_purpose.as_ref().ok_or_else(crate::private_linking_join::denial)?;
                     let draft = crate::private_linking_join::anchor_draft(saved,input.context,&authenticated,predecessor)?;
+                    self.retire_unused_genesis_for_private_join()?;
                     storage.private_group_privacy_storage().ok_or(
                         EngineError::LinkingWelcomeDenied(crate::linking_welcome_policy::LinkingWelcomeDenied::UnsupportedStorage)
                     )?.mark_private_group_for_chat_exclusion(&saved.scope.account,&saved.scope.local_device,&group_id)?;

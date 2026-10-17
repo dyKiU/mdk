@@ -695,3 +695,14 @@ transaction; never delete MLS/chat state, reconstruct consent, retire Completed
 or larger rosters, or infer recovery eligibility from native/wire fields.
 Core controls use genuine MLS with injected policies; App interrupted enrollment
 acceptance supplies actual SDK, encrypted relay and restart coverage.
+
+Switching roles after cancelled setup may leave an unchanged epoch-0 singleton
+genesis on the new recipient. Only the authenticated private join may retire
+that selection: validate the live lease and incoming full tree first, revalidate
+the original local birth, refuse any historical sharing policy or settlement for
+that birth, then deny it in the same SQL transaction as accepted-anchor admission.
+Preserve all competing-origin/pending-invite checks and rollback on later failure
+or expiry. Keep old MLS state and immutable provenance; never extend this path to
+an established or advanced group. Hydration before the transaction is observation
+only. Controls live in `accepted_welcome_receipts/private_batch.rs`; the genuine
+App regression reverses roles after actual public setup and cancellation.
