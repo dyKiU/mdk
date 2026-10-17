@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [f413-api-preflight, f413-api-controls, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
@@ -60,6 +60,101 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  # F413_API_JOBS_BEGIN
+  f413-api-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["f413-api-preflight","f413-api-controls"]'), inputs.scope)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact repository toolchain for source and formatter preflight
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+      - name: Frozen f413 cohort and existing strict parser controls
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_f413_api.py --mode preflight
+      - name: Export exact remote formatter patch
+        run: |
+          cargo fmt --all
+          git diff --binary -- crates > "$RUNNER_TEMP/f413-api-formatting.patch"
+          git diff --exit-code -- crates
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: f413-api-preflight-${{ github.sha }}
+          path: |
+            f413-api-evidence/result.json
+            ${{ runner.temp }}/f413-api-formatting.patch
+          if-no-files-found: error
+          retention-days: 7
+  f413-api-checks:
+    needs: f413-api-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'f413-api-controls'
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - mode: runtime
+            cohort: default
+          - mode: runtime
+            cohort: experimental
+          - mode: static
+            cohort: default
+          - mode: static
+            cohort: experimental
+          - mode: production
+            cohort: experimental
+          - mode: audit
+            cohort: experimental
+    env:
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        if: matrix.mode != 'audit'
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Install existing CI pinned cargo-audit
+        if: matrix.mode == 'audit'
+        uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-audit@0.22.1
+      - name: Fresh remote API checks, exact features and source identities
+        env:
+          CARGO_INCREMENTAL: '1'
+          API_MODE: ${{ matrix.mode }}
+          API_COHORT: ${{ matrix.cohort }}
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'f413 App storage API checks' --output "$RUNNER_TEMP/f413-api-capacity.json"
+          python3 scripts/qualify_upstream_f413_api.py --mode "$API_MODE" --cohort "$API_COHORT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: f413-api-${{ matrix.mode }}-${{ matrix.cohort }}-${{ github.sha }}
+          path: |
+            f413-api-evidence/result.json
+            f413-api-evidence/audit-output.txt
+            ${{ runner.temp }}/f413-api-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  # F413_API_JOBS_END
   # MERGE_639_JOBS_BEGIN
   merge-639-preflight:
     if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["639-preflight","639-controls","639-worker-diagnostic","639-static-diagnostic","639-capture-preflight","639-capture-mutation","639-storage-preflight","639-storage-mutations"]'), inputs.scope)
