@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
@@ -31,6 +31,12 @@ on:
         description: Exact-source successful Body negative control run required for its mutation
         type: string
         default: ''
+      # MERGE_639_CONTROL_INPUT_BEGIN
+      merge_639_control_run_id:
+        description: Reviewed successful 35-control run on the unchanged product cohort
+        type: string
+        default: ''
+      # MERGE_639_CONTROL_INPUT_END
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
         type: boolean
@@ -56,7 +62,7 @@ env:
 jobs:
   # MERGE_639_JOBS_BEGIN
   merge-639-preflight:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["639-preflight","639-controls","639-worker-diagnostic","639-static-diagnostic"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["639-preflight","639-controls","639-worker-diagnostic","639-static-diagnostic","639-capture-preflight","639-capture-mutation"]'), inputs.scope)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -206,6 +212,41 @@ jobs:
           path: |
             merge-639-evidence/result.json
             ${{ runner.temp }}/merge-639-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  merge-639-capture-mutation:
+    needs: merge-639-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == '639-capture-mutation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: '2'
+      UPSTREAM_639_BASELINE: ${{ inputs.extraction_cohort_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Existing acquisition capture necessity and exact restored control
+        env:
+          CARGO_INCREMENTAL: '1'
+          GH_TOKEN: ${{ github.token }}
+          MERGE_639_CONTROL_RUN_ID: ${{ inputs.merge_639_control_run_id }}
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Reviewed 639 capture necessity' --output "$RUNNER_TEMP/merge-639-capture-capacity.json"
+          python3 scripts/qualify_upstream_639_merge.py --mode capture-mutation --cohort experimental
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: merge-639-capture-mutation-${{ github.sha }}
+          path: |
+            merge-639-evidence/result.json
+            ${{ runner.temp }}/merge-639-capture-capacity.json
           if-no-files-found: error
           retention-days: 7
   # MERGE_639_JOBS_END

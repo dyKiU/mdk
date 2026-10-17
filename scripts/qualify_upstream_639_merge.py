@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Focused remote checks of the reviewed 639 merge; no final qualification claim."""
 import argparse
+import io
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import zipfile
 from types import SimpleNamespace
 
 import qualify_upstream_storage_boundary as storage
@@ -37,6 +39,25 @@ PLANE_TESTS = [
     'supervised_notification_lag_delivers_later_inbound_exactly_once',
 ]
 CAPTURE_TEST = 'enrollment_acquisition_delayed_notification_worker_preserves_clock_and_fifo_eose'
+CAPTURE_NAME = 'tests::' + CAPTURE_TEST
+CAPTURE_TEST_FILE = 'crates/transport-nostr/src/tests.rs'
+CONTROL_SOURCE = '764aef8f10c765bc5399762abd8d7f1378b6eac0'
+CONTROL_RUN = '39069674431'
+CONTROL_DIGESTS = {
+    'preflight': '543a2b8dfcd80508babe64ba690709bd54b8739a841405b5a4c39c99e9432b2b',
+    'runtime-default': '593e15478e1eb08ea140b9a63a49083b0239a5ad4931bc548735cbbee2745c70',
+    'runtime-experimental': '3cb971fc93d656412d629c58cfcbea2811841c94213a674ceae4bbff51e6803c',
+    'static-default': 'd6e2ac8f0963aacf1cf2d3e6f62de612edfcbad70d09d975ce4835d041565282',
+    'static-experimental': '3b988df11a1fe94baf3db845576f5fda8f658e832937a69b8fbda55cc265b5ea',
+    'production': '777daefb1e0b37a165a74e4a0aa52e876689d51dff8cb867716fd1de8fc3c2ff',
+}
+CONTROL_INPUT = '''      # MERGE_639_CONTROL_INPUT_BEGIN
+      merge_639_control_run_id:
+        description: Reviewed successful 35-control run on the unchanged product cohort
+        type: string
+        default: ''
+      # MERGE_639_CONTROL_INPUT_END
+'''
 ensure, digest, capture = storage.ensure, storage.digest, storage.capture
 
 
@@ -73,7 +94,9 @@ def source_guard():
     ensure(workflow.count(begin) == workflow.count(end) == 1, 'one-isolated-639-job-union')
     before, rest = workflow.split(begin)
     _, after = rest.split(end)
-    restored = (before + after).replace('options: [639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, ', 'options: [', 1)
+    restored = (before + after).replace('options: [639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, ', 'options: [', 1)
+    ensure(restored.count(CONTROL_INPUT) == 1, 'one-exact-capture-controls-input')
+    restored = restored.replace(CONTROL_INPUT, '', 1)
     ensure(restored.encode() == subprocess.check_output(['git', 'show', BASE + ':' + WORKFLOW]), 'all-existing-workflow-options-and-jobs-exact-reviewed-baseline')
     sdk, plane = Path(ADAPTER).read_text(), Path(PLANE).read_text()
     dispatch = section(sdk, 'async fn dispatch_sdk_notification_inner(', '\nimpl NostrSdkRelayClient {')
@@ -244,6 +267,12 @@ def compile_package(package, cohort, row):
                                     'kind': event['target']['kind'], 'features': sorted(event['features']),
                                     'profile': event['profile']} for event in artifacts],
                                   key=lambda value: json.dumps(value, sort_keys=True)), sort_keys=True).encode()))
+    if package == 'transport-nostr':
+        adapters = [event for event in artifacts if event['target']['name'] == 'transport_nostr_adapter' and event['target']['kind'] == ['lib']]
+        sdks = [event for event in artifacts if event['target']['name'] == 'nostr_sdk' and event['target']['kind'] == ['lib']]
+        required_adapter = {'sdk', 'test-policy-overrides'} | ({'experimental-device-sync'} if cohort == 'experimental' else set())
+        row['compilation']['sdk_dependency_verified'] = bool(adapters and sdks) and all(required_adapter <= set(event['features']) for event in adapters)
+        row['compilation']['adapter_dependency_features'] = [sorted(event['features']) for event in adapters]
     return binary
 
 
@@ -340,14 +369,224 @@ def static_checks(cohort, production, report):
         ensure(all('test-policy-overrides' not in event['features'] and 'test-support' not in event['features'] for event in artifacts), 'production-artifacts-without-test-policy-or-test-support')
 
 
+def capture_assertion_line():
+    source = Path(CAPTURE_TEST_FILE).read_text()
+    anchor = '.expect("post-EOSE acquisition must remain eligible while worker is blocked");'
+    ensure(source.count(anchor) == 1, 'one-original-capture-expect-oracle')
+    return source[:source.index(anchor)].count('\n') + 1
+
+
+def capture_mutation_killed(raw, code):
+    row = parse_runtime(raw, code, CAPTURE_NAME)
+    pattern = (r"^thread '" + re.escape(CAPTURE_NAME) + r"'(?: \([0-9]+\))? panicked at "
+               + re.escape(CAPTURE_TEST_FILE) + ':' + str(capture_assertion_line())
+               + r':[1-9][0-9]{0,8}:\npost-EOSE acquisition must remain eligible while worker is blocked\n')
+    return (row['actual_counts_complete'] and code == 101 and row['passed'] == 0
+            and row['failed'] == 1 and row['ignored'] == 0 and row['compiler_error_count'] == 0
+            and row['panic_headers'] == 1 and len(re.findall(pattern, raw, re.M)) == 1)
+
+
+def capture_parser_preflight():
+    panic = ("\nthread '" + CAPTURE_NAME + "' (123) panicked at " + CAPTURE_TEST_FILE + ':'
+             + str(capture_assertion_line()) + ':10:\npost-EOSE acquisition must remain eligible while worker is blocked\n')
+    raw = ('test ' + CAPTURE_NAME + ' ... ' + panic
+           + 'FAILED\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.1s\n')
+    ensure(capture_mutation_killed(raw, 101), 'exact-original-capture-runtime-assertion-parser-positive')
+    negatives = [(raw, 0), (raw.replace('1 failed', '0 failed'), 101),
+                 (raw.replace('0 ignored', '1 ignored'), 101), (raw.replace('0 measured', '1 measured'), 101),
+                 (raw.replace(CAPTURE_NAME, 'tests::foreign'), 101),
+                 (raw.replace(CAPTURE_TEST_FILE, 'crates/foreign.rs'), 101),
+                 (raw.replace(':' + str(capture_assertion_line()) + ':', ':' + str(capture_assertion_line() + 1) + ':'), 101),
+                 (raw.replace('post-EOSE acquisition must remain eligible while worker is blocked', 'unrelated failure'), 101),
+                 (raw + panic, 101), (raw + raw, 101), ('error[E0001]: compilation failed\n', 101),
+                 ('test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;\n', 0)]
+    for value, code in negatives:
+        ensure(not capture_mutation_killed(value, code), 'capture-parser-rejects-nonruntime-unrelated-or-incomplete-kill')
+    return {'positive': 1, 'negative': len(negatives), 'actual_runtime_bodies': 0}
+
+
+def prior_639_controls(run_id, report, frozen):
+    ensure(run_id == CONTROL_RUN, 'explicit-reviewed-35-controls-run-required')
+    head = report['source_guard']['source']
+    subprocess.run(['git', 'merge-base', '--is-ancestor', CONTROL_SOURCE, head], check=True)
+    ensure(set(git('diff', '--name-only', CONTROL_SOURCE, head).splitlines()) <= {SELF, WORKFLOW}, 'prior-controls-product-tests-config-and-old-controllers-unchanged')
+    prior_frozen = dict(frozen)
+    for name in [SELF, WORKFLOW]:
+        ensure(git('ls-tree', CONTROL_SOURCE, '--', name).split()[0] == '100644', 'prior-controls-ordinary-metadata-mode')
+        prior_frozen[name] = {'mode': '100644', 'actual_executable': False,
+                              'sha256': digest(subprocess.check_output(['git', 'show', CONTROL_SOURCE + ':' + name]))}
+    prior_manifest = digest(json.dumps(prior_frozen, sort_keys=True).encode())
+    product_manifest = digest(json.dumps({name: row for name, row in frozen.items() if name not in {SELF, WORKFLOW}}, sort_keys=True).encode())
+    prefix = 'repos/dyKiU/mdk/actions/'
+    run = storage.github_metadata(prefix + 'runs/' + run_id)
+    ensure(run.get('head_sha') == CONTROL_SOURCE and run.get('event') == 'workflow_dispatch'
+           and run.get('status') == 'completed' and run.get('conclusion') == 'success'
+           and run.get('path') == WORKFLOW and run.get('head_repository', {}).get('full_name') == 'dyKiU/mdk', 'reviewed-successful-owned-control-run')
+    inventory = storage.github_metadata(prefix + 'runs/' + run_id + '/artifacts?per_page=100')
+    artifacts = inventory.get('artifacts')
+    ensure(isinstance(artifacts, list) and inventory.get('total_count') == len(artifacts) <= 100, 'bounded-complete-controls-artifact-inventory')
+    receipts = {}
+    for label, expected_digest in CONTROL_DIGESTS.items():
+        selected = [item for item in artifacts if item.get('name') == 'merge-639-' + label + '-' + CONTROL_SOURCE]
+        ensure(len(selected) == 1 and selected[0].get('expired') is False, 'one-unexpired-reviewed-controls-artifact')
+        item = selected[0]
+        ensure(type(item.get('id')) is int and type(item.get('size_in_bytes')) is int
+               and 0 < item['size_in_bytes'] <= 4 * 1024 * 1024, 'bounded-reviewed-controls-artifact')
+        archive = storage.github_metadata(prefix + 'artifacts/' + str(item['id']) + '/zip', archive=True)
+        checksum = digest(archive)
+        ensure(checksum == expected_digest and item.get('digest') == 'sha256:' + checksum, 'exact-reviewed-and-api-controls-archive-digest')
+        with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+            files = bundle.infolist()
+            ensure(len(files) <= 16 and len({info.filename for info in files}) == len(files)
+                   and all(not info.flag_bits & 1 and info.file_size <= 512 * 1024 for info in files)
+                   and sum(info.file_size for info in files) <= 2 * 1024 * 1024, 'bounded-unique-unencrypted-controls-archive')
+            primary = bundle.read('mdk/mdk/merge-639-evidence/result.json')
+            row = json.loads(primary)
+            guard = row.get('source_guard', {})
+            ensure(guard.get('source') == CONTROL_SOURCE and guard.get('baseline') == BASE
+                   and guard.get('source_tree') == git('rev-parse', CONTROL_SOURCE + '^{tree}')
+                   and guard.get('input_manifest_sha256') == prior_manifest
+                   and guard.get('whole_product_controller_and_test_inputs_exact_reviewed_baseline') is True
+                   and guard.get('all_existing_workflow_jobs_preserved') is True
+                   and guard.get('source_scope_oracles_passed') is True
+                   and guard.get('environment') == report['source_guard']['environment']
+                   and row.get('toolchain') == report['toolchain'] and row.get('inputs_pristine') is True
+                   and not row.get('failure_type'), 'reviewed-control-source-manifest-tools-environment-pristine')
+            actual = 0
+            if label == 'preflight':
+                ensure(row.get('mode') == 'preflight' and row.get('preflight_passed') is True
+                       and bundle.read('_temp/merge-639-formatting.patch') == b'', 'reviewed-parser-and-formatter-preflight-green')
+            elif label.startswith('runtime-'):
+                cohort = label.removeprefix('runtime-')
+                expected_transport = 12 if cohort == 'default' else 13
+                ensure(row.get('mode') == 'runtime' and row.get('cohort') == cohort and row.get('focused_checks_passed') is True
+                       and row.get('actual_transport_counts_complete') is True
+                       and type(row.get('actual_transport_executed_nonignored')) is int
+                       and row['actual_transport_executed_nonignored'] == expected_transport, 'actual-reviewed-transport-counts-complete')
+                transport = row.get('transport', {})
+                expected_names = {'transport-nostr-adapter': ['sdk_client::tests::' + name for name in ADAPTER_TESTS],
+                                  'transport-nostr': ['tests::' + name for name in PLANE_TESTS + ([CAPTURE_TEST] if cohort == 'experimental' else [])]}
+                ensure(set(transport) == set(expected_names), 'both-reviewed-transport-packages')
+                for package, names in expected_names.items():
+                    bodies = transport[package].get('bodies', {})
+                    ensure(set(bodies) == set(names), 'exact-reviewed-transport-body-inventory')
+                    for body in bodies.values():
+                        ensure(body.get('passed_gate') is True and body.get('actual_counts_complete') is True
+                               and type(body.get('passed')) is int and body['passed'] == 1
+                               and body.get('failed') == body.get('ignored') == body.get('compiler_error_count') == 0
+                               and body.get('executed_nonignored') == 1, 'every-reviewed-transport-body-actual-green')
+                stored = bundle.read('mdk/mdk/storage-boundary-evidence/result.json')
+                storage_row = json.loads(stored)
+                ensure(digest(stored) == row.get('storage', {}).get('sha256')
+                       and storage_row.get('boundary_controls_passed') is True and storage_row.get('inputs_pristine') is True
+                       and storage_row.get('actual_counts_complete') is True and storage_row.get('actual_executed_nonignored') == 4
+                       and set(storage_row.get('bodies', {})) == set(storage.TESTS + [storage.ADDED_TEST]), 'four-reviewed-storage-controls-and-artifact-binding')
+                actual = expected_transport + 4
+                if cohort == 'experimental':
+                    import qualify_upstream_late_consent_candidate as directed
+                    directed_bytes = bundle.read('mdk/mdk/late-consent-candidate-evidence/result.json')
+                    directed_row = json.loads(directed_bytes)
+                    ensure(digest(directed_bytes) == row.get('directed', {}).get('sha256')
+                           and directed_row.get('green_passed') is True and directed_row.get('inputs_pristine') is True
+                           and directed_row.get('actual_counts_complete') is True and directed_row.get('actual_executed_nonignored') == 2
+                           and directed.consent_green(directed_row.get('phases', {}).get('late_consent', {}).get('body', {}))
+                           and directed.proof_green(directed_row.get('phases', {}).get('late_proof', {}).get('body', {})), 'two-reviewed-directed-controls-with-original-prerequisites-and-closes')
+                    actual += 2
+            else:
+                static = row.get('static', {})
+                ensure(row.get('focused_checks_passed') is True and static.get('exit_code') == static.get('compiler_error_count') == 0
+                       and set(static.get('compiled_package_features', {})) == {name.replace('-', '_') for name in PACKAGES}
+                       and static.get('production_without_test_policy') is (label == 'production'), 'both-reviewed-statics-and-production-green')
+                ensure(row.get('mode') == ('production' if label == 'production' else 'static')
+                       and (label == 'production' or row.get('cohort') == label.removeprefix('static-')), 'reviewed-static-mode-and-cohort')
+        receipts[label] = {'artifact_id': item['id'], 'archive_sha256': checksum, 'primary_result_sha256': digest(primary),
+                           'actual_runtime_bodies': actual}
+    ensure(sum(row['actual_runtime_bodies'] for row in receipts.values()) == 35, 'all-35-reviewed-runtime-controls')
+    return {'run_id': int(run_id), 'tested_source': CONTROL_SOURCE, 'current_source': head,
+            'same_commit_claimed': False, 'metadata_only_descendant': True, 'prior_full_input_manifest_sha256': prior_manifest,
+            'unchanged_nonmetadata_input_manifest_sha256': product_manifest, 'actual_prior_runtime_bodies': 35, 'receipts': receipts}
+
+
+def capture_phase(label, expected, report, save):
+    ensure(frozen_inputs() == expected, 'capture-phase-source-and-modes-exact-before-compilation')
+    row = {'actual_counts_complete': False}
+    report['capture_phases'][label] = row
+    try:
+        binary = compile_package('transport-nostr', 'experimental', row)
+    finally:
+        save()
+    ensure(row['compilation'].get('sdk_dependency_verified') is True, 'actual-sdk-enabled-capture-dependency')
+    sha = row['compilation']['binary_sha256']
+    code, listed, _ = capture([str(binary), CAPTURE_NAME, '--exact', '--list', '--format', 'terse'], 60)
+    ensure(code == 0 and [line for line in listed.splitlines() if line] == [CAPTURE_NAME + ': test', '1 test, 0 benchmarks'], 'exact-sole-capture-test-inventory')
+    code, ignored, _ = capture([str(binary), CAPTURE_NAME, '--exact', '--ignored', '--list', '--format', 'terse'], 60)
+    ensure(code == 0 and ignored.strip() in {'', '0 tests, 0 benchmarks'}, 'capture-case-not-ignored')
+    ensure(frozen_inputs() == expected and digest(binary.read_bytes()) == sha, 'capture-phase-pristine-before-runtime')
+    code, raw, seconds = capture([str(binary), CAPTURE_NAME, '--exact', '--nocapture', '--test-threads=1'], 300)
+    row['body'] = dict(parse_runtime(raw, code, CAPTURE_NAME), seconds=seconds, binary_sha256=sha)
+    row['actual_counts_complete'] = row['body']['actual_counts_complete']
+    row['intended_capture_runtime_kill'] = capture_mutation_killed(raw, code)
+    row['phase_passed'] = row['intended_capture_runtime_kill'] if label == 'mutant' else row['body']['passed_gate']
+    save()
+    ensure(frozen_inputs() == expected and digest(binary.read_bytes()) == sha, 'capture-phase-pristine-after-runtime')
+    ensure(row['phase_passed'], 'capture-phase-did-not-meet-exact-runtime-oracle')
+    return row
+
+
+def capture_mutation(report, frozen, save, controls_run_id):
+    report['prior_controls'] = prior_639_controls(controls_run_id, report, frozen)
+    original = Path(ADAPTER).read_bytes()
+    original_mode = Path(ADAPTER).stat().st_mode & 0o777
+    old = b'.handle_captured_live_relay_event(account_id, relay_event, capture)'
+    new = b'.handle_captured_live_relay_event(account_id, relay_event, capture.filter(|_| false))'
+    ensure(original.count(old) == 1, 'unique-canonical-capture-argument-mutant')
+    mutated = original.replace(old, new, 1)
+    expected_mutant = dict(frozen)
+    expected_mutant[ADAPTER] = dict(frozen[ADAPTER], sha256=digest(mutated))
+    report['capture_phases'] = {}
+    report['capture_scope'] = {'existing_case': CAPTURE_NAME, 'original_expect_line': capture_assertion_line(),
+                               'native_or_mls_permission_claim': False, 'failing_path_cleanup_claim': False,
+                               'legacy_wire_negative_assertion_reached_only_in_passing_controls': True}
+    baseline = capture_phase('baseline', frozen, report, save)
+    failure = None
+    try:
+        Path(ADAPTER).write_bytes(mutated)
+        ensure(frozen_inputs() == expected_mutant, 'only-exact-owned-capture-substitution')
+        capture_phase('mutant', expected_mutant, report, save)
+    except Exception as error:
+        failure = error
+        report['capture_mutant_failure_type'] = type(error).__name__
+        report['capture_mutant_failure_gate'] = str(error) if isinstance(error, storage.GateFailure) else None
+    finally:
+        Path(ADAPTER).write_bytes(original)
+        os.chmod(ADAPTER, original_mode)
+        report['capture_source_and_modes_restored'] = frozen_inputs() == frozen
+        save()
+    ensure(report['capture_source_and_modes_restored'], 'exact-capture-source-and-mode-restoration')
+    restored = capture_phase('restored', frozen, report, save)
+    if failure is not None:
+        raise failure
+    mutant = report['capture_phases']['mutant']
+    fingerprints = [row['compilation'] for row in [baseline, mutant, restored]]
+    ensure(fingerprints[0]['binary_sha256'] == fingerprints[2]['binary_sha256']
+           and fingerprints[1]['binary_sha256'] != fingerprints[0]['binary_sha256'], 'restored-capture-binary-identical-and-mutant-different')
+    ensure(all(row['compiled_features'] == fingerprints[0]['compiled_features']
+               and row['all_artifact_features_sha256'] == fingerprints[0]['all_artifact_features_sha256'] for row in fingerprints), 'same-capture-compiled-feature-profile-manifest-all-three-phases')
+    report['capture_binary_and_cohort_restored'] = True
+    report['capture_mutation_passed'] = True
+
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode', choices=['preflight', 'runtime', 'static', 'production', 'worker-diagnostic'], required=True)
+    parser.add_argument('--mode', choices=['preflight', 'runtime', 'static', 'production', 'worker-diagnostic', 'capture-mutation'], required=True)
     parser.add_argument('--cohort', choices=['default', 'experimental'], default='experimental')
+    parser.add_argument('--controls-run-id', default=os.environ.get('MERGE_639_CONTROL_RUN_ID'))
     args = parser.parse_args()
     os.umask(0o077)
     OUT.mkdir(exist_ok=True)
-    report = {'mode': args.mode, 'cohort': args.cohort, 'qualification_passed': False, 'focused_checks_passed': False}
+    report = {'mode': args.mode, 'cohort': args.cohort, 'qualification_passed': False, 'focused_checks_passed': False,
+              'capture_mutation_passed': False}
     frozen = frozen_inputs()
     def save():
         (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
@@ -355,6 +594,7 @@ def main():
         report['source_guard'] = source_guard()
         report['toolchain'] = {name: subprocess.check_output([name, '--version'], text=True).strip() for name in ['cargo', 'rustc']}
         report['parser_fixtures'] = parser_preflight()
+        report['capture_parser_fixtures'] = capture_parser_preflight()
         save()
         if args.mode == 'preflight':
             report['storage'] = storage_controls('default', preflight=True)
@@ -370,6 +610,9 @@ def main():
             ensure(args.cohort == 'default', 'worker-diagnostic-default-one-body-only')
             transport_controls(args.cohort, report, frozen, save, worker_only=True)
             report['diagnostic_case_passed_existing_strict_oracle'] = True
+        elif args.mode == 'capture-mutation':
+            ensure(args.cohort == 'experimental', 'capture-mutation-experimental-only')
+            capture_mutation(report, frozen, save, args.controls_run_id)
         else:
             static_checks(args.cohort, args.mode == 'production', report)
             report['focused_checks_passed'] = True
@@ -382,6 +625,11 @@ def main():
         report['expected_transport_bodies'] = 1 if args.mode == 'worker-diagnostic' else 13 if args.cohort == 'experimental' else 12
         report['actual_transport_counts_complete'] = len(bodies) == report['expected_transport_bodies'] and all(row['actual_counts_complete'] for row in bodies)
         report['actual_transport_executed_nonignored'] = sum(row['executed_nonignored'] for row in bodies) if bodies and all(row['actual_counts_complete'] for row in bodies) else None
+        phases = report.get('capture_phases', {})
+        report['capture_actual_counts_complete'] = set(phases) == {'baseline', 'mutant', 'restored'} and all(row.get('actual_counts_complete') is True for row in phases.values())
+        report['capture_actual_executed_nonignored'] = sum(row['body']['executed_nonignored'] for row in phases.values()) if report['capture_actual_counts_complete'] else None
+        for name in ['passed', 'failed', 'ignored']:
+            report['capture_actual_' + name] = sum(row['body'][name] for row in phases.values()) if report['capture_actual_counts_complete'] else None
         report['inputs_pristine'] = frozen_inputs() == frozen
         save()
         if not report['inputs_pristine']:
