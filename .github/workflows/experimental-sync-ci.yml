@@ -62,7 +62,7 @@ jobs:
           persist-credentials: false
       - name: Exact repair and unchanged historical regression source guard
         run: |
-          python3 scripts/qualify_upstream_peer_proof_candidate.py --preflight
+          python3 scripts/qualify_upstream_peer_proof_candidate.py --preflight --require-composed-cohort --cohort-baseline "$UPSTREAM_EXTRACTION_COHORT_BASELINE"
           toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
           rustup toolchain install "$toolchain" --profile minimal --component rustfmt
           rustup default "$toolchain"
@@ -106,7 +106,7 @@ jobs:
           CANDIDATE_MODE: ${{ inputs.scope == 'peer-proof-candidate-mutation' && 'mutation' || 'green' }}
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Directed late peer-proof candidate'
-          python3 scripts/qualify_upstream_peer_proof_candidate.py --mode "$CANDIDATE_MODE"
+          python3 scripts/qualify_upstream_peer_proof_candidate.py --mode "$CANDIDATE_MODE" --require-composed-cohort --cohort-baseline "$UPSTREAM_EXTRACTION_COHORT_BASELINE"
       - name: Five unchanged controls after the separate one-case directed GREEN
         if: success() && inputs.scope == 'peer-proof-candidate-green'
         env:
@@ -158,7 +158,7 @@ jobs:
           STATIC_COHORT: ${{ matrix.cohort }}
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Directed late peer-proof static'
-          python3 scripts/qualify_upstream_peer_proof_candidate.py --mode static --cohort "$STATIC_COHORT"
+          python3 scripts/qualify_upstream_peer_proof_candidate.py --mode static --cohort "$STATIC_COHORT" --require-composed-cohort --cohort-baseline "$UPSTREAM_EXTRACTION_COHORT_BASELINE"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
