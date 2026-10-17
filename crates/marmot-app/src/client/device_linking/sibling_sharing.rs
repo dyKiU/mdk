@@ -1878,6 +1878,15 @@ impl AppClient {
                         .map_err(|_| Error::NotReady)?;
                     entry.ready = true;
                     if first_consent {
+                        // Keep the initial Request ACK; only its superseded retry is obsolete.
+                        if entry.handshake_published
+                            && entry
+                                .publication
+                                .as_ref()
+                                .is_some_and(|pending| !pending.proof)
+                        {
+                            drop(entry.publication.take());
+                        }
                         // A one-shot scheduling hint, not authority or a retry.
                         // Core has bound this real Consent to this owned channel.
                         entry.consent_progress_due = true;
