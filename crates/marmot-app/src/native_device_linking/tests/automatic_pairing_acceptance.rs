@@ -2136,3 +2136,7 @@ async fn another_installations_private_welcome_cannot_abort_an_approved_recipien
 #[path = "automatic_body_negative_acceptance.rs"]
 mod body_negative_acceptance;
 // BODY_NEGATIVE_TEST_END
+// PEER_PROOF_TEST_BEGIN
+#[path = "late_peer_proof_acceptance.rs"]
+mod late_peer_proof_acceptance;
+// PEER_PROOF_TEST_END

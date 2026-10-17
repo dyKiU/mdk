@@ -6,6 +6,13 @@ use crate::device_linking::{LinkError, OwnerError};
 use cgka_traits::{GroupId, device_linking_key_package::PurposeAttemptScope};
 
 pub(crate) enum SetupCommand {
+// PEER_PROOF_TEST_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    PeerProofSnapshot {
+        owner: std::sync::Weak<crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval>,
+        respond: Reply<Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::Snapshot>>,
+    },
+// PEER_PROOF_TEST_END
     ApprovalCancellation {
         binding: [u8; 32],
         respond:
@@ -122,6 +129,12 @@ pub(super) async fn handle(
     publication_control: &crate::runtime::private_commit::PublicationControl,
 ) {
     match command {
+// PEER_PROOF_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        SetupCommand::PeerProofSnapshot { owner, respond } => {
+            let _ = respond.send(Ok(client.peer_proof_snapshot_for_test(&owner)));
+        }
+// PEER_PROOF_TEST_END
         SetupCommand::ApprovalCancellation { binding, respond } => {
             if let Err(Ok(control)) = respond.send(client.native_approval_cancellation(&binding)) {
                 control.cancel();
@@ -276,6 +289,17 @@ pub(super) async fn handle(
 }
 
 impl AccountManager {
+// PEER_PROOF_TEST_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) async fn peer_proof_snapshot_for_test(
+        &self, account: &str,
+        owner: std::sync::Weak<crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval>,
+    ) -> Result<Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::Snapshot>, ClientLinkingError> {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::PeerProofSnapshot { owner, respond })
+        }).await
+    }
+// PEER_PROOF_TEST_END
     pub(crate) async fn native_approval_cancellation(
         &self,
         account: &str,

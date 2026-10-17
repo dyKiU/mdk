@@ -1,4 +1,8 @@
 //! Bilateral sibling handoff retained by the actual enrollment originals.
+// PEER_PROOF_TEST_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) mod peer_proof_probe;
+// PEER_PROOF_TEST_END
 #[cfg(test)]
 mod tests;
 use super::*;
@@ -2432,6 +2436,10 @@ impl AppClient {
         #[cfg(all(test, feature = "test-policy-overrides"))]
         let completion_consent_identity = consent.then(|| request.message.id.clone());
         // COMPLETION_TEST_END
+// PEER_PROOF_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let peer_proof_nonce = entry.channel.scope().nonce;
+// PEER_PROOF_TEST_END
         let completion = self.linking_owner.sibling_publication_completions.clone();
         let (result_tx, result) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
@@ -2462,6 +2470,10 @@ impl AppClient {
                 () = &mut revoked => return Err(denied()),
                 () = tokio::time::sleep_until(state.deadline.into()) => return Err(denied()),
                 report = async {
+// PEER_PROOF_TEST_BEGIN
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    if proof { peer_proof_probe::hold(&original, peer_proof_nonce).await; }
+// PEER_PROOF_TEST_END
                     if consent { adapter.publish_sibling_consent(request).await }
                     else { adapter.publish_selected_chat(request).await }
                 } => report.map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?,
