@@ -75,7 +75,7 @@ def parser_preflight():
     return {'historical_red': old, 'green_positive': 2, 'green_negative': len(negatives), 'actual_runtime_bodies': 0}
 
 
-def source_guard():
+def historical_source_guard():
     source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
     ensure(os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('GITHUB_REPOSITORY') == 'dyKiU/mdk'
            and os.environ.get('GITHUB_SHA') == source, 'exact-approved-remote-source')
@@ -99,7 +99,7 @@ def source_guard():
             'qualification_passed': False}
 
 
-def previous_green(run_id, source, manifest, current):
+def historical_previous_green(run_id, source, manifest, current):
     ensure(run_id.isdecimal(), 'exact-prior-green-run-required')
     repo = os.environ['GITHUB_REPOSITORY']
     def api(path): return subprocess.check_output(['gh', 'api', 'repos/' + repo + '/' + path], timeout=60)
@@ -143,12 +143,228 @@ def previous_green(run_id, source, manifest, current):
     return {'run_id': int(run_id), 'source': source, 'artifacts': receipts, 'compiled_feature_identity': control}
 
 
+# PEER_CANDIDATE_COMPOSED_COHORT_BEGIN
+PEER_SOURCE = 'bc7bf63f645c1490b6dba7061e0207a9452cff96'
+COMPOSED_ANCESTORS = ('3aec65433eb84f0882430d000b2d31dabf987c24', PEER_SOURCE,
+                      '082e6433b7ee62bb728285e85607306ec5d6f048',
+                      'a2871545652998b244bdbc1b2ee6c6a888ba5b4c')
+COHORT_ARGUMENT = "    parser.add_argument('--cohort-baseline', help='Explicit reviewed full composed commit; absence retains the historical guard')\n"
+REQUIRE_ARGUMENT = "    parser.add_argument('--require-composed-cohort', action='store_true')\n"
+REQUIRE_CHECK = "    ensure(not args.require_composed_cohort or bool(args.cohort_baseline), 'explicit-reviewed-composed-cohort-required')\n"
+
+
+def composed_controller_identity():
+    source = Path(SELF).read_text()
+    begin = '# PEER_CANDIDATE_COMPOSED_COHORT_BEGIN\n'
+    end = '# PEER_CANDIDATE_COMPOSED_COHORT_END\n'
+    ensure(source.count('\n' + begin) == source.count('\n' + end) == 1, 'one-composed-controller-block')
+    before, rest = source.split('\n' + begin)
+    _, after = rest.split('\n' + end)
+    reconstructed = before + '\n' + after
+    for addition in [COHORT_ARGUMENT, REQUIRE_ARGUMENT, REQUIRE_CHECK]:
+        ensure(reconstructed.count(addition) == 1, 'one-explicit-cohort-routing-addition')
+        reconstructed = reconstructed.replace(addition, '', 1)
+    for old, new in [('def historical_source_guard():', 'def source_guard():'),
+                     ('def historical_previous_green(', 'def previous_green('),
+                     ('source_guard(args.cohort_baseline)', 'source_guard()')]:
+        ensure(reconstructed.count(old) == 1, 'one-historical-controller-routing-anchor')
+        reconstructed = reconstructed.replace(old, new, 1)
+    original = subprocess.check_output(['git', 'show', PEER_SOURCE + ':' + SELF])
+    ensure(reconstructed.encode() == original, 'complete-original-green-mutation-binary-pristine-oracles-preserved')
+    return digest(original)
+
+
+def source_guard(cohort_baseline=None):
+    if not cohort_baseline:
+        return historical_source_guard()
+    from upstream_extraction_cohort import reviewed_cohort
+    cohort = reviewed_cohort(cohort_baseline)
+    for ancestor in COMPOSED_ANCESTORS:
+        subprocess.run(['git', 'merge-base', '--is-ancestor', ancestor, cohort_baseline], check=True)
+    metadata = layout()
+    exact = [PRODUCT, historical.FILE,
+             'crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe.rs',
+             'crates/marmot-app/src/runtime/device_linking/setup.rs',
+             'crates/marmot-app/src/native_device_linking/enabled.rs',
+             'scripts/qualify_upstream_peer_proof.py']
+    identities = {}
+    for name in exact:
+        original = subprocess.check_output(['git', 'show', PEER_SOURCE + ':' + name])
+        ensure(Path(name).read_bytes() == original and metadata[name]['git_mode'] == '100644'
+               and not metadata[name]['actual_executable'] and not metadata[name]['symlink'], 'exact-original-directed-fixture-probe-and-completion-edges:' + name)
+        identities[name] = digest(original)
+    # Other reviewed test registration is permitted only outside the exact old hooks.
+    registration = 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'
+    pattern = r'(?m)^[ \t]*// PEER_PROOF_TEST_BEGIN\n.*?^[ \t]*// PEER_PROOF_TEST_END\n'
+    current = Path(registration).read_text()
+    original = subprocess.check_output(['git', 'show', PEER_SOURCE + ':' + registration], text=True)
+    current_blocks = re.findall(pattern, current, re.S)
+    original_blocks = re.findall(pattern, original, re.S)
+    ensure(len(current_blocks) == len(original_blocks) == current.count('PEER_PROOF_TEST_BEGIN')
+           == current.count('PEER_PROOF_TEST_END') == 1 and current_blocks == original_blocks,
+           'exact-original-directed-test-registration')
+    ensure(Path(PRODUCT).read_text().count(EVENT) == 1 and Path(PRODUCT).read_text().count(PERIODIC_NEW) == 1,
+           'original-fresh-event-and-periodic-completion-edges')
+    return {'source': cohort['source'], 'baseline': cohort_baseline, 'reviewed_extraction_cohort': cohort,
+            'historical_directed_source': PEER_SOURCE, 'exact_directed_inputs_sha256': identities,
+            'original_complete_controller_sha256': composed_controller_identity(),
+            'historical_identity_reused': False, 'historical_runtime_evidence_reused': False,
+            'historical_stripped_source_comparison_reused': False,
+            'five_control_receipt_parser': five_control_parser_preflight(), 'qualification_passed': False}
+
+
+def five_controls_pass(report, source, manifest, current, directed_features):
+    import qualify_upstream_automatic_body as body
+    from upstream_completion_ci import NEW, ORIGINALS, green as completion_green
+    suffixes = [body.CASE, NEW, *ORIGINALS]
+    compilation = report.get('compilation', {})
+    rows = report.get('bodies', [])
+    cohort = current.get('source_preflight', {}).get('reviewed_extraction_cohort')
+    if not (report.get('source') == source and report.get('mode') == 'controls'
+            and report.get('all_five_controls_passed') is True and report.get('body_control_passed') is True
+            and report.get('inputs_pristine') is True and report.get('actual_counts_complete') is True
+            and type(report.get('actual_executed_nonignored')) is int and report['actual_executed_nonignored'] == 5
+            and report.get('source_before_sha256') == report.get('source_after_sha256') == manifest
+            and report.get('toolchain') == current.get('toolchain') and report.get('environment') == current.get('environment')
+            and report.get('cohort_baseline') == current.get('source_preflight', {}).get('baseline')
+            and report.get('source_preflight', {}).get('reviewed_extraction_cohort') == cohort and cohort
+            and type(compilation.get('compile_exit_code')) is int and type(compilation.get('compiler_error_count')) is int
+            and compilation['compile_exit_code'] == compilation['compiler_error_count'] == 0
+            and len(rows) == 5 and [row.get('suffix') for row in rows] == suffixes
+            and not report.get('controller_exception') and not report.get('watchdog_triggered')):
+        return False
+    features = feature_identity(compilation)
+    # Selection alone differs: all requested features and compiled node profiles remain exact.
+    command = list(features['command'])
+    directed_command = list(directed_features['command'])
+    if command.count('-E') != 1 or directed_command.count('-E') != 1:
+        return False
+    index, directed_index = command.index('-E') + 1, directed_command.index('-E') + 1
+    if command[index] != ' | '.join('test(' + suffix + ')' for suffix in suffixes) or directed_command[directed_index] != 'test(' + historical.CASE + ')':
+        return False
+    command[index] = directed_command[directed_index] = 'test(<verified-exact-cases>)'
+    if dict(features, command=command) != dict(directed_features, command=directed_command):
+        return False
+    cases = compilation.get('cases', [])
+    if len(cases) != 5 or [row.get('name') for row in cases] != [body.NAME.rsplit('::', 1)[0] + '::' + suffix for suffix in suffixes]:
+        return False
+    binaries = [row.get('binary_sha256', '') for row in rows]
+    if len(set(binaries)) != 1 or not re.fullmatch('[0-9a-f]{64}', binaries[0]) or [row.get('binary_sha256') for row in cases] != binaries:
+        return False
+    for index, row in enumerate(rows):
+        if not (row.get('test') == cases[index]['name'] and row.get('named_cases') == [cases[index]['name']]
+                and row.get('control_passed') is True
+                and all(type(row.get(name)) is int for name in ['passed', 'failed', 'ignored', 'executed_nonignored', 'all_panic_header_count'])
+                and row['executed_nonignored'] == 1 and not row.get('parser_exception')
+                and not row.get('actual_count_unknown') and not row.get('watchdog_triggered')
+                and (body.body_green(row) if index == 0 else completion_green(row))):
+            return False
+    return True
+
+
+def five_control_parser_preflight():
+    import copy
+    import qualify_upstream_automatic_body as body
+    from upstream_completion_ci import NEW, ORIGINALS, STAGES, FEATURES
+    suffixes = [body.CASE, NEW, *ORIGINALS]
+    cohort = {'baseline': '1' * 40, 'source': 'fixture'}
+    current = {'toolchain': 'fixture-toolchain', 'environment': {'fixture': True},
+               'source_preflight': {'baseline': '1' * 40, 'reviewed_extraction_cohort': cohort}}
+    command = ['cargo', 'nextest', 'list', '--locked', '--lib', '-p', 'marmot-app',
+               '--features', FEATURES, '-E', ' | '.join('test(' + suffix + ')' for suffix in suffixes), '--message-format', 'json']
+    nodes = {'marmot_app': {'features': ['fixture'], 'profile': 'fixture-profile',
+                           'compile_kind': 'fixture-kind', 'rustflags_sha256': '2' * 64}}
+    compilation = {'compile_exit_code': 0, 'compiler_error_count': 0, 'features_requested': FEATURES,
+                   'command': command, 'compiled_fingerprints': {'verified': True, 'nodes': nodes},
+                   'cases': [{'name': body.NAME.rsplit('::', 1)[0] + '::' + suffix,
+                              'binary_sha256': '3' * 64} for suffix in suffixes]}
+    directed = feature_identity(compilation)
+    directed = dict(directed, command=list(command))
+    directed['command'][directed['command'].index('-E') + 1] = 'test(' + historical.CASE + ')'
+    events = ['automatic-body-control stage=' + stage + (' responsive=true' if index == 4 else ' index=' + str(index - 8) if index in [8, 9] else '') for index, stage in enumerate(body.STAGES)]
+    first = body.parse('test ' + body.NAME + ' ... ok\n' + '\n'.join(events) + '\ntest result: ok. 1 passed; 0 failed; 0 ignored;')
+    first.update(test=body.NAME, suffix=body.CASE, binary_sha256='3' * 64, control_passed=True, body_exit_code=0)
+    rows = [first]
+    for suffix in [NEW, *ORIGINALS]:
+        name = body.NAME.rsplit('::', 1)[0] + '::' + suffix
+        row = {'test': name, 'suffix': suffix, 'binary_sha256': '3' * 64, 'named_cases': [name],
+               'control_passed': True, 'body_exit_code': 0, 'passed': 1, 'failed': 0, 'ignored': 0,
+               'executed_nonignored': 1, 'all_panic_header_count': 0,
+               'original_phase_markers': ['third-device-completion', 'third-device-completed', 'fourth-device-completion', 'fourth-device-completed'],
+               'hold_markers': ['sibling-consent-held-before-peer-progress', 'automatic-publication-held-before-completion']}
+        if suffix == NEW:
+            stages = list(STAGES)
+            stages.insert(stages.index('foreground-progress') + 1, 'fresh-actor-progress')
+            row.update(stages=stages, original_phase_markers=['fourth-device-completion', 'fourth-device-completed'],
+                       observations={name: True for name in ['held_consent_task_success', 'public_snapshot_responsiveness',
+                                     'durable_policy_and_proof_with_gate', 'durable_policy_seen', 'proof_success_seen']})
+        rows.append(row)
+    good = {'mode': 'controls', 'all_five_controls_passed': True, 'body_control_passed': True,
+            'inputs_pristine': True, 'actual_counts_complete': True, 'actual_executed_nonignored': 5,
+            'source': 'fixture', 'source_before_sha256': 'manifest', 'source_after_sha256': 'manifest',
+            'toolchain': current['toolchain'], 'environment': current['environment'], 'cohort_baseline': '1' * 40,
+            'source_preflight': {'reviewed_extraction_cohort': cohort}, 'compilation': compilation, 'bodies': rows}
+    ensure(five_controls_pass(good, 'fixture', 'manifest', current, directed), 'positive-five-named-control-receipt-parser')
+    variants = [dict(good, bodies=[]), dict(good, bodies=rows[:4]), dict(good, bodies=list(reversed(rows))),
+                dict(good, actual_executed_nonignored=0), dict(good, actual_executed_nonignored=True),
+                dict(good, inputs_pristine=False), dict(good, source_after_sha256='changed'),
+                dict(good, all_five_controls_passed=False), dict(good, toolchain='other'),
+                dict(good, source='other'), dict(good, cohort_baseline='2' * 40),
+                dict(good, source_preflight={}), dict(good, environment={})]
+    for index in range(5):
+        for change in [{'executed_nonignored': 0}, {'passed': 0}, {'passed': True}, {'failed': 1}, {'ignored': 1},
+                       {'control_passed': False}, {'named_cases': []}, {'suffix': 'foreign'},
+                       {'watchdog_triggered': True}, {'binary_sha256': '4' * 64}]:
+            changed = copy.deepcopy(good)
+            changed['bodies'][index].update(change)
+            variants.append(changed)
+    changed = copy.deepcopy(good)
+    changed['compilation']['compiled_fingerprints']['nodes']['marmot_app']['profile'] = 'other-profile'
+    variants.append(changed)
+    for report in variants:
+        ensure(not five_controls_pass(report, 'fixture', 'manifest', current, directed), 'partial-vacuous-or-drifted-five-control-receipt-rejected')
+    return {'positive_receipt_fixture': 1, 'rejected_receipt_fixtures': len(variants), 'actual_runtime_bodies': 0}
+
+
+def previous_green(run_id, source, manifest, current):
+    # Preserve whole-run success, the directed runtime and both actual static receipts.
+    proof = historical_previous_green(run_id, source, manifest, current)
+    if not current.get('source_preflight', {}).get('reviewed_extraction_cohort'):
+        return proof
+    repo = os.environ['GITHUB_REPOSITORY']
+    def api(path): return subprocess.check_output(['gh', 'api', 'repos/' + repo + '/' + path], timeout=60)
+    artifacts = json.loads(api('actions/runs/' + run_id + '/artifacts?per_page=100'))['artifacts']
+    matches = [row for row in artifacts if row['name'] == 'automatic-body-controls' and not row['expired']]
+    ensure(len(matches) == 1 and 0 < matches[0]['size_in_bytes'] < 1000000, 'one-bounded-five-controls-artifact')
+    artifact = matches[0]
+    data = api('actions/artifacts/' + str(artifact['id']) + '/zip')
+    ensure(len(data) == artifact['size_in_bytes'] and len(data) < 1000000
+           and artifact.get('digest') == 'sha256:' + digest(data), 'actual-five-controls-artifact-size-and-digest')
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        entries = archive.infolist()
+        ensure(0 < len(entries) <= 8 and len({entry.filename for entry in entries}) == len(entries)
+               and sum(entry.file_size for entry in entries) < 2000000
+               and all(0 <= entry.file_size < 1000000 and not entry.flag_bits & 1
+                       and not Path(entry.filename).is_absolute() and '..' not in Path(entry.filename).parts
+                       for entry in entries), 'bounded-unique-unencrypted-five-control-zip')
+        files = [entry for entry in entries if Path(entry.filename).name == 'result.json']
+        ensure(len(files) == 1 and 0 < files[0].file_size < 1000000, 'one-nonempty-five-control-result')
+        report = json.loads(archive.read(files[0]))
+    ensure(five_controls_pass(report, source, manifest, current, proof['compiled_feature_identity']),
+           'actual-five-unchanged-controls-names-counts-profile-and-frozen-cohort-required')
+    proof['five_controls'] = {'artifact_id': artifact['id'], 'digest': artifact['digest'],
+                              'actual_executed_nonignored': 5, 'download_digest_verified': True}
+    return proof
+# PEER_CANDIDATE_COMPOSED_COHORT_END
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mode', choices=['green', 'static', 'mutation'], default='green')
     parser.add_argument('--cohort', choices=['default', 'experimental'])
     parser.add_argument('--preflight', action='store_true')
+    parser.add_argument('--cohort-baseline', help='Explicit reviewed full composed commit; absence retains the historical guard')
+    parser.add_argument('--require-composed-cohort', action='store_true')
     args = parser.parse_args()
+    ensure(not args.require_composed_cohort or bool(args.cohort_baseline), 'explicit-reviewed-composed-cohort-required')
     os.umask(0o077); OUT.mkdir(exist_ok=True)
     report = {'mode': args.mode, 'qualification_passed': False, 'green_passed': False, 'mutation_chain_passed': False, 'phases': {}}
     def save(): (OUT / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
@@ -188,7 +404,7 @@ def main():
         ensure(pristine(expected), 'runtime-input-drift'); save()
         return row['body']
     try:
-        report['source_preflight'] = source_guard(); report['source'] = report['source_preflight']['source']
+        report['source_preflight'] = source_guard(args.cohort_baseline); report['source'] = report['source_preflight']['source']
         report['parser_controls'] = parser_preflight(); save()
         if args.preflight: return
         report.update(environment())

@@ -8,7 +8,7 @@ import stat
 import subprocess
 
 EXTRACTION_ORIGIN = 'f609d91d21e6ab8a2de17b405acf9884c11a135f'
-UPSTREAM = 'ee56871d7671978d0f060e9665af2ea4220806cf'
+UPSTREAM = '3aec65433eb84f0882430d000b2d31dabf987c24'
 OWNER = '1168b00d1ad275eac925965d8ab505e7c05a452e'
 REPOSITORY = 'dyKiU/mdk'
 OVERLAYS = {
@@ -22,6 +22,7 @@ OVERLAYS = {
     'scripts/upstream_body_negative_ci.py',
     'scripts/qualify_upstream_owner_pairing_mutations.py',
     'scripts/qualify_upstream_body_late_ack.py',
+    'scripts/qualify_upstream_peer_proof_candidate.py',
     'scripts/test_upstream_extraction_cohort.py',
     'scripts/verify_upstream_completion_candidate_source.py',
     'scripts/qualify_upstream_completion.py',
