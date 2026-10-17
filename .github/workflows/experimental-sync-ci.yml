@@ -107,6 +107,20 @@ jobs:
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Directed late peer-proof candidate'
           python3 scripts/qualify_upstream_peer_proof_candidate.py --mode "$CANDIDATE_MODE"
+      - name: Five unchanged Body and enrollment controls after directed GREEN
+        if: success() && inputs.scope == 'peer-proof-candidate-green'
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_automatic_body.py --mode controls --cohort-baseline "$GITHUB_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && inputs.scope == 'peer-proof-candidate-green'
+        with:
+          name: automatic-body-controls
+          path: |
+            automatic-body-evidence/result.json
+            automatic-body-source.json
+          if-no-files-found: error
+          retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
