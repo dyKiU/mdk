@@ -1,0 +1,2067 @@
+{
+  "schema_version": 1,
+  "baseline": "4dc7ed5101b2be35bd273ff67ea10bdc684cd617",
+  "authoring_metadata_head": "714c8db51e8645146268e1cd18316fe1a534dca4",
+  "purpose": "Incoming upstream runtime-flavor alignment only; preserve every original test body/name/assertion/deadline and required serial stress coverage.",
+  "upstream_policy_commits": [
+    "3ea7a87f1b855adc6d43492a7cd42faeb6efe582",
+    "88d1683e13a1dd60ba102d06c7b5a8acb3635590"
+  ],
+  "attribute_ordinal_definition": "One-based occurrence of literal #[tokio::test in the complete baseline file, including existing explicit flavors.",
+  "reversal_contract": "Remove the one exact required-serial-stress block, then reverse declared exact attribute/rationale edits at their baseline function and attribute ordinal; every listed whole file must equal its baseline Git blob, and all unlisted tracked source bytes/modes must remain baseline-exact after explicit controller/workflow/manifest metadata exclusions.",
+  "bare_attribute_changes": 176,
+  "clock_exception_changes": 1,
+  "new_required_stress_cases": 3,
+  "stress_failure_blocks_promotion": true,
+  "two_worker_green_does_not_resolve_single_thread_failure": true,
+  "ignored_or_new_cfg_exclusions": false,
+  "source_execution_performed_locally": false,
+  "paths": {
+    "crates/marmot-app/src/account_chat_presentation/tests.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "b2ce09cc60a330aea25b046cc79a8806c0e8a8b8",
+      "before_sha256": "dba96bf1746f1a7530b350d8125764f91d42c4d67489db71af40b67ef6e43923",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "paired_presentation_default_refuses_before_input_and_account_effects",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 4,
+          "baseline_byte_offset": 65,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "paired_presentation_actual_original_approval_catalog_without_fake_mls_group",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 122,
+          "baseline_byte_offset": 4085,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "6407e4cae4f1d233e4b41d33634638844b05bbbfaba5d84bacdeb815c128312b"
+    },
+    "crates/marmot-app/src/tests/account_chat_departure_defaults.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "021e354174a10fd0d25413d05110d2addcf92832",
+      "before_sha256": "6aacc84f0d481670158f21fa2723c8efbd26d2d21093e67659e85b69a9161ca7",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "no_approved_policy_refuses_account_departure_without_public_leave_effects",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 5,
+          "baseline_byte_offset": 139,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "98177432944aa631028faab5acbaaa10ee85731c92d3ff8bf8e7fc88864f87ba"
+    },
+    "crates/marmot-app/src/device_linking/invite_gate/tests.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "cedc18fde152430ea5f7ab48256fd02ed0c9975a",
+      "before_sha256": "8132af366f50148d2f159d4cdd9ce6fa2761d1b1690c6d083be4d5c5ae295f77",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "invite_gate_genuine_approver_sdk_result_authorizes_exact_actual_input",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 218,
+          "baseline_byte_offset": 7931,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "invite_gate_substitution_preserves_only_exact_original_retry",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 243,
+          "baseline_byte_offset": 8805,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "invite_gate_original_expiry_revokes_held_lease_and_rollback_retry",
+          "attribute_ordinal": 3,
+          "bare_attribute_ordinal": 3,
+          "baseline_line": 273,
+          "baseline_byte_offset": 9806,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "invite_gate_committed_preparation_keeps_live_lease_but_drop_consumes_permission",
+          "attribute_ordinal": 4,
+          "bare_attribute_ordinal": 4,
+          "baseline_line": 295,
+          "baseline_byte_offset": 10612,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "invite_gate_cancel_and_shutdown_revoke_even_held_leases",
+          "attribute_ordinal": 5,
+          "bare_attribute_ordinal": 5,
+          "baseline_line": 314,
+          "baseline_byte_offset": 11388,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "invite_gate_cancellation_during_arming_cannot_recreate_consent",
+          "attribute_ordinal": 6,
+          "bare_attribute_ordinal": 6,
+          "baseline_line": 352,
+          "baseline_byte_offset": 12516,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "invite_gate_account_owner_drop_revokes_held_lease_and_retained_policy",
+          "attribute_ordinal": 7,
+          "bare_attribute_ordinal": 7,
+          "baseline_line": 369,
+          "baseline_byte_offset": 13171,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "invite_gate_genuine_sdk_lease_prepares_actual_add_and_cancellation_consumes_it",
+          "attribute_ordinal": 8,
+          "bare_attribute_ordinal": 8,
+          "baseline_line": 392,
+          "baseline_byte_offset": 13912,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "invite_gate_genuine_sdk_prepares_real_private_nostr_welcome_batch",
+          "attribute_ordinal": 9,
+          "bare_attribute_ordinal": 9,
+          "baseline_line": 431,
+          "baseline_byte_offset": 15402,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "invite_gate_dispatch_sql_failure_preserves_original_sdk_lease_for_exact_retry",
+          "attribute_ordinal": 10,
+          "bare_attribute_ordinal": 10,
+          "baseline_line": 507,
+          "baseline_byte_offset": 18062,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "d68bb0f6183f16ad55273d1bf1cdf2b744731551d1e3777dba3cd1d62bc2db31"
+    },
+    "crates/marmot-app/src/native_device_linking/tests.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "959b24556df77b0e90d1cf87b764196110826735",
+      "before_sha256": "cc884af37ce515b4ca0fff423bdfc1305bc81169bbd693504e54d7b292d4993e",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "default_native_verification_is_unsupported_before_account_or_worker_effects",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 5,
+          "baseline_byte_offset": 107,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "default_native_enrollment_is_unsupported_without_account_or_worker_effects",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 64,
+          "baseline_byte_offset": 2145,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "cancelled_first_setup_allows_fresh_first_setup_approval",
+          "attribute_ordinal": 3,
+          "bare_attribute_ordinal": 3,
+          "baseline_line": 147,
+          "baseline_byte_offset": 5072,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "reopened_cancelled_first_setup_requires_fresh_comparison",
+          "attribute_ordinal": 4,
+          "bare_attribute_ordinal": 4,
+          "baseline_line": 152,
+          "baseline_byte_offset": 5224,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "native_public_original_three_device_enrollment_uses_opaque_approval_and_packets",
+          "attribute_ordinal": 5,
+          "bare_attribute_ordinal": 5,
+          "baseline_line": 281,
+          "baseline_byte_offset": 10122,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "native_public_original_approval_cancel_fences_shared_handles_and_packets",
+          "attribute_ordinal": 6,
+          "bare_attribute_ordinal": 6,
+          "baseline_line": 285,
+          "baseline_byte_offset": 10327,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "native_public_original_approval_review_identifies_authenticated_devices_without_approving",
+          "attribute_ordinal": 7,
+          "bare_attribute_ordinal": 7,
+          "baseline_line": 289,
+          "baseline_byte_offset": 10525,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "native_pairing_explicit_chat_sharing_persists_only_completed_original",
+          "attribute_ordinal": 8,
+          "bare_attribute_ordinal": 8,
+          "baseline_line": 294,
+          "baseline_byte_offset": 10755,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "existing_pair_explicit_account_sharing_uses_original_relay_consent",
+          "attribute_ordinal": 9,
+          "bare_attribute_ordinal": 9,
+          "baseline_line": 298,
+          "baseline_byte_offset": 10954,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_sharing_request_before_source_policy_commit_retains_original_deadline",
+          "attribute_ordinal": 10,
+          "bare_attribute_ordinal": 10,
+          "baseline_line": 302,
+          "baseline_byte_offset": 11153,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_catalog_channel_renewal_reaches_later_entries_without_manual_consent",
+          "attribute_ordinal": 11,
+          "bare_attribute_ordinal": 11,
+          "baseline_line": 306,
+          "baseline_byte_offset": 11365,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_catalog_recipient_sql_failure_retries_without_manual_consent",
+          "attribute_ordinal": 12,
+          "bare_attribute_ordinal": 12,
+          "baseline_line": 310,
+          "baseline_byte_offset": 11579,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "native_stalled_original_publication_timeout_is_nonterminal_and_cancel_fences_delivery",
+          "attribute_ordinal": 13,
+          "bare_attribute_ordinal": 13,
+          "baseline_line": 2136,
+          "baseline_byte_offset": 92906,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "native_public_continuation_settles_actual_original_pair_over_live_relay",
+          "attribute_ordinal": 14,
+          "bare_attribute_ordinal": 14,
+          "baseline_line": 2233,
+          "baseline_byte_offset": 97016,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "native_original_recipient_observation_survives_actual_sdk_handoff",
+          "attribute_ordinal": 15,
+          "bare_attribute_ordinal": 15,
+          "baseline_line": 2347,
+          "baseline_byte_offset": 101933,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "opaque_native_sessions_complete_real_sdk_with_revision_bound_human_actions",
+          "attribute_ordinal": 16,
+          "bare_attribute_ordinal": 16,
+          "baseline_line": 2416,
+          "baseline_byte_offset": 104640,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "native_subscription_close_wakes_wait_and_exact_session_cancel_allows_new_attempt",
+          "attribute_ordinal": 17,
+          "bare_attribute_ordinal": 17,
+          "baseline_line": 2482,
+          "baseline_byte_offset": 106958,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "native_drop_closes_observation_and_allows_fresh_original_purpose",
+          "attribute_ordinal": 18,
+          "bare_attribute_ordinal": 18,
+          "baseline_line": 2518,
+          "baseline_byte_offset": 108319,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "native_subscription_close_wakes_both_change_and_receiver_admission",
+          "attribute_ordinal": 19,
+          "bare_attribute_ordinal": 19,
+          "baseline_line": 2554,
+          "baseline_byte_offset": 109735,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "native_original_worker_expiry_cannot_revive_terminal_session",
+          "attribute_ordinal": 20,
+          "bare_attribute_ordinal": 20,
+          "baseline_line": 2594,
+          "baseline_byte_offset": 111068,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "native_shutdown_closes_original_session_without_a_new_worker",
+          "attribute_ordinal": 21,
+          "bare_attribute_ordinal": 21,
+          "baseline_line": 2632,
+          "baseline_byte_offset": 112540,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "dd884bf3714d40ec263e350af244e8495411ac87b02e58aa99dc2f39b3ea032e"
+    },
+    "crates/marmot-app/src/native_device_linking/automatic_record_renewal_acceptance.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "4cb54841eea220be4a16ea03355dbfef7345f77a",
+      "before_sha256": "b9a5605dbdb5906c72138fb3aa359662ca5b48546f6c26061e3a62bab88eee32",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_records_remain_visible_after_acknowledged_ab_batch_and_broad_abc_renewal",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 5,
+          "baseline_byte_offset": 161,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "750fbe4a50640be4ea65a9e62db004bb9d33a0545396fdf96ea7a1ed5cada1a9"
+    },
+    "crates/marmot-app/src/native_device_linking/sibling_sharing_projection_acceptance.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "1c822e2253d320be8ab260d33587ee9ad97c7219",
+      "before_sha256": "4651758d10f51f1b75e89731b711e60aacd796a225feeedcea22212dccb27f78",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "public_broad_sibling_projection_head_failure_does_not_starve_original",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 3,
+          "baseline_byte_offset": 160,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "70cb125a3f6ecb449a4f4766edce94473d5df849f4daff54e5d42d44ff863c4b"
+    },
+    "crates/marmot-app/src/device_linking/welcome_collection/tests.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "4bb87b0fd216d213493c41747ccc3bf6b78996eb",
+      "before_sha256": "dd3cf74c1f916b39f9d8ef70f0ff4ca7d6ecbd9948f416b465204f758676da1b",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "bounded_recipient_collection_assembles_out_of_order_with_exact_duplicate",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 75,
+          "baseline_byte_offset": 2804,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "bounded_recipient_collection_stale_scope_cannot_erase_current_batch",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 123,
+          "baseline_byte_offset": 4366,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "bounded_recipient_collection_checks_sdk_bindings_before_buffering",
+          "attribute_ordinal": 3,
+          "bare_attribute_ordinal": 3,
+          "baseline_line": 155,
+          "baseline_byte_offset": 5381,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "bounded_recipient_collection_preserves_exact_batch_on_conflicts_and_limits",
+          "attribute_ordinal": 4,
+          "bare_attribute_ordinal": 4,
+          "baseline_line": 216,
+          "baseline_byte_offset": 7513,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "bounded_recipient_collection_rechecks_cancellation_after_authentication_await",
+          "attribute_ordinal": 5,
+          "bare_attribute_ordinal": 5,
+          "baseline_line": 357,
+          "baseline_byte_offset": 12240,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "4f516e6d4ad02e5c3107a970d8c6f1a0b9fe15efcad26c5252da9bfc159d47ef"
+    },
+    "crates/marmot-app/src/native_device_linking/automatic_records_acceptance.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "de5f1f28cf11130da89297d14a664958314f693c",
+      "before_sha256": "05102cb0b8abd813434f0e339048896272c04403e45872060b03c20181257845",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_records_include_preapproval_and_future_messages_without_per_chat_actions",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 5,
+          "baseline_byte_offset": 133,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_records_wake_the_original_open_conversation_after_committed_future_import",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 11,
+          "baseline_byte_offset": 361,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "406cbcabfd026b940503a34c6b0ceb95aecbb5353954885ccd4a42daf7cb1fbc"
+    },
+    "crates/marmot-app/src/device_linking/tests.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "8214487f59f7e19ccfd039b18e12f725c5bc1005",
+      "before_sha256": "fa3f5af8b119b3622ea56f00074b5eec41ef0baf73e1cfc026c1c6ce844317b1",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "expired_genuine_peer_mac_is_fenced_before_sdk_input",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 66,
+          "baseline_byte_offset": 1944,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "per_device_confirmation_requires_verified_remote_mac_and_done",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 90,
+          "baseline_byte_offset": 2646,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "exact_context_and_signed_key_directory_substitution_are_rejected",
+          "attribute_ordinal": 3,
+          "bare_attribute_ordinal": 3,
+          "baseline_line": 126,
+          "baseline_byte_offset": 3736,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "tampered_update_cannot_replace_previously_admitted_key_directory",
+          "attribute_ordinal": 4,
+          "bare_attribute_ordinal": 4,
+          "baseline_line": 180,
+          "baseline_byte_offset": 5696,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "stale_mac_and_duplicate_events_cannot_complete_a_fresh_session",
+          "attribute_ordinal": 5,
+          "bare_attribute_ordinal": 5,
+          "baseline_line": 200,
+          "baseline_byte_offset": 6391,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "dropping_remote_mac_keeps_own_confirmation_insufficient",
+          "attribute_ordinal": 6,
+          "bare_attribute_ordinal": 6,
+          "baseline_line": 236,
+          "baseline_byte_offset": 7457,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "corrupted_mac_terminates_the_local_attempt",
+          "attribute_ordinal": 7,
+          "bare_attribute_ordinal": 7,
+          "baseline_line": 249,
+          "baseline_byte_offset": 7879,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "cancellation_and_shutdown_fence_replays_without_reopening",
+          "attribute_ordinal": 8,
+          "bare_attribute_ordinal": 8,
+          "baseline_line": 280,
+          "baseline_byte_offset": 8844,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "simultaneous_attempts_fence_both_nonces",
+          "attribute_ordinal": 9,
+          "bare_attribute_ordinal": 9,
+          "baseline_line": 297,
+          "baseline_byte_offset": 9428,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "simultaneous_wire_request_is_anomaly_and_closes_current_attempt",
+          "attribute_ordinal": 10,
+          "bare_attribute_ordinal": 10,
+          "baseline_line": 321,
+          "baseline_byte_offset": 10145,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "frame_bounds_and_ambiguous_json_are_rejected_before_sdk_input",
+          "attribute_ordinal": 11,
+          "bare_attribute_ordinal": 11,
+          "baseline_line": 342,
+          "baseline_byte_offset": 10828,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "exact_request_retry_cannot_extend_response_deadline",
+          "attribute_ordinal": 12,
+          "bare_attribute_ordinal": 12,
+          "baseline_line": 383,
+          "baseline_byte_offset": 12117,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "peer_claimed_generation_cannot_burn_local_reservation",
+          "attribute_ordinal": 13,
+          "bare_attribute_ordinal": 13,
+          "baseline_line": 410,
+          "baseline_byte_offset": 13049,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_linking_approver_absent_from_predecessor_cannot_expose_offer",
+          "attribute_ordinal": 14,
+          "bare_attribute_ordinal": 14,
+          "baseline_line": 427,
+          "baseline_byte_offset": 13547,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_linking_malformed_predecessor_is_rejected_before_sdk_setup",
+          "attribute_ordinal": 15,
+          "bare_attribute_ordinal": 15,
+          "baseline_line": 440,
+          "baseline_byte_offset": 13949,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_linking_predecessor_epoch_and_indexed_leaves_bind_peer_offers",
+          "attribute_ordinal": 16,
+          "bare_attribute_ordinal": 16,
+          "baseline_line": 509,
+          "baseline_byte_offset": 16191,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_linking_wire_round_trip_completes_real_two_sided_verification",
+          "attribute_ordinal": 17,
+          "bare_attribute_ordinal": 17,
+          "baseline_line": 554,
+          "baseline_byte_offset": 17753,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_linking_wire_rejects_truncation_trailing_bytes_and_cross_kind_packets",
+          "attribute_ordinal": 18,
+          "bare_attribute_ordinal": 18,
+          "baseline_line": 593,
+          "baseline_byte_offset": 19236,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_linking_wire_never_bypasses_context_or_canonical_sdk_validation",
+          "attribute_ordinal": 19,
+          "bare_attribute_ordinal": 19,
+          "baseline_line": 632,
+          "baseline_byte_offset": 20629,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_linking_artifact_context_same_digest_completes_real_sdk",
+          "attribute_ordinal": 20,
+          "bare_attribute_ordinal": 20,
+          "baseline_line": 673,
+          "baseline_byte_offset": 22109,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_linking_artifact_context_substitution_rejected_before_sdk",
+          "attribute_ordinal": 21,
+          "bare_attribute_ordinal": 21,
+          "baseline_line": 698,
+          "baseline_byte_offset": 23032,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_linking_artifact_context_version_rules_preserve_reservation",
+          "attribute_ordinal": 22,
+          "bare_attribute_ordinal": 22,
+          "baseline_line": 738,
+          "baseline_byte_offset": 24366,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "a58eb63b61ea68f5cf8f474ab9e9bc0e91d75ecbf3c1356606cb5e380b8e2111"
+    },
+    "crates/marmot-app/src/native_device_linking/automatic_forwarding_non_admin_acceptance.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "7af126abf8c5c461afce2dc996705ce24397d7d5",
+      "before_sha256": "85dc41a9895331c7182df7f168718093b6ef2029b0cf0aff07b5aecc5da6a264",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_forwarding_reaches_independent_creator_through_non_admin_member",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 5,
+          "baseline_byte_offset": 129,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_nonadmin_leave_withdraws_mirrors_without_turning_local_hide_into_departure",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 13,
+          "baseline_byte_offset": 370,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "691d2cf110bf1612b1a6c70a13dea1569d5185e6fd1ea6102f472e03fc9614b1"
+    },
+    "crates/marmot-app/src/native_device_linking/sharing_default_tests.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "f93c9899cb2c69d097b67cec7a32865341c0b65f",
+      "before_sha256": "d6cbf332068bf2f617e6dd2c63d9c399a3e1344ddaa7232cef1690c85b3171e0",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "default_original_sibling_sharing_is_unsupported_before_effects",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 4,
+          "baseline_byte_offset": 93,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "51f64d7d188698172f18d4bf9bce65403e3e21559ce171906b283f0349ce7d73"
+    },
+    "crates/marmot-app/src/selected_chat_copy/tests.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "9400cdda79516ad44c07aa6d377c0ce1c73be595",
+      "before_sha256": "7d3a4af9b8dd732e728c50f7acf73488f38aea43a79fb0d4e09360067fdbd24f",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "default_selected_chat_copy_is_unsupported_before_account_or_worker_effects",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 7,
+          "baseline_byte_offset": 207,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "invalid_selected_chat_bounds_refuse_before_account_or_worker_effects",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 86,
+          "baseline_byte_offset": 2800,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "selected_chat_copy_requires_explicit_request_after_public_three_device_linking",
+          "attribute_ordinal": 3,
+          "bare_attribute_ordinal": 3,
+          "baseline_line": 393,
+          "baseline_byte_offset": 14770,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "selected_chat_copy_admits_original_siblings_and_delivers_new_messages",
+          "attribute_ordinal": 4,
+          "bare_attribute_ordinal": 4,
+          "baseline_line": 886,
+          "baseline_byte_offset": 35023,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "selected_chat_welcome_storage_failure_retains_original_consent_for_retry",
+          "attribute_ordinal": 5,
+          "bare_attribute_ordinal": 5,
+          "baseline_line": 891,
+          "baseline_byte_offset": 35208,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "selected_chat_welcome_cancel_during_storage_retry_cannot_admit_or_deliver",
+          "attribute_ordinal": 6,
+          "bare_attribute_ordinal": 6,
+          "baseline_line": 896,
+          "baseline_byte_offset": 35397,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "selected_chat_welcome_original_expiry_during_storage_retry_cannot_admit_or_deliver",
+          "attribute_ordinal": 7,
+          "bare_attribute_ordinal": 7,
+          "baseline_line": 901,
+          "baseline_byte_offset": 35588,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "selected_chat_welcome_foreign_package_event_refuses_without_consuming_original",
+          "attribute_ordinal": 8,
+          "bare_attribute_ordinal": 8,
+          "baseline_line": 906,
+          "baseline_byte_offset": 35788,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "selected_chat_blocked_commit_cancel_prevents_late_publication",
+          "attribute_ordinal": 9,
+          "bare_attribute_ordinal": 9,
+          "baseline_line": 911,
+          "baseline_byte_offset": 35997,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "selected_chat_blocked_commit_lost_reply_prevents_late_publication",
+          "attribute_ordinal": 10,
+          "bare_attribute_ordinal": 10,
+          "baseline_line": 916,
+          "baseline_byte_offset": 36182,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "selected_chat_blocked_welcome_cancel_preserves_confirmation_without_late_join",
+          "attribute_ordinal": 11,
+          "bare_attribute_ordinal": 11,
+          "baseline_line": 921,
+          "baseline_byte_offset": 36374,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "selected_chat_blocked_welcome_lost_reply_preserves_confirmation_without_late_join",
+          "attribute_ordinal": 12,
+          "bare_attribute_ordinal": 12,
+          "baseline_line": 926,
+          "baseline_byte_offset": 36576,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "history_recipient_query_observes_actual_linked_leaves_without_creating_originals",
+          "attribute_ordinal": 13,
+          "bare_attribute_ordinal": 13,
+          "baseline_line": 931,
+          "baseline_byte_offset": 36785,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "history_transfer_requires_original_recipient_consent_and_committed_prejoin_record",
+          "attribute_ordinal": 14,
+          "bare_attribute_ordinal": 14,
+          "baseline_line": 936,
+          "baseline_byte_offset": 36998,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "history_transfer_cancelled_original_cannot_restart_from_fresh_outer_request",
+          "attribute_ordinal": 15,
+          "bare_attribute_ordinal": 15,
+          "baseline_line": 941,
+          "baseline_byte_offset": 37206,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "history_transfer_expired_unpruned_source_never_serializes_plaintext",
+          "attribute_ordinal": 16,
+          "bare_attribute_ordinal": 16,
+          "baseline_line": 946,
+          "baseline_byte_offset": 37413,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "history_transfer_cancelled_prefix_cleanup_retries_original_sql_failure",
+          "attribute_ordinal": 17,
+          "bare_attribute_ordinal": 17,
+          "baseline_line": 951,
+          "baseline_byte_offset": 37614,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "history_transfer_committed_import_remains_observable_after_original_cancel_before_seal",
+          "attribute_ordinal": 18,
+          "bare_attribute_ordinal": 18,
+          "baseline_line": 955,
+          "baseline_byte_offset": 37814,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "history_transfer_original_cancel_interrupts_actual_blocked_chunk_publication",
+          "attribute_ordinal": 19,
+          "bare_attribute_ordinal": 19,
+          "baseline_line": 961,
+          "baseline_byte_offset": 38041,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "history_transfer_lost_continue_reply_interrupts_actual_blocked_chunk_publication",
+          "attribute_ordinal": 20,
+          "bare_attribute_ordinal": 20,
+          "baseline_line": 965,
+          "baseline_byte_offset": 38252,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "history_transfer_original_fixed_expiry_interrupts_actual_blocked_chunk_publication",
+          "attribute_ordinal": 21,
+          "bare_attribute_ordinal": 21,
+          "baseline_line": 969,
+          "baseline_byte_offset": 38470,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "history_transfer_runtime_shutdown_interrupts_actual_blocked_chunk_publication",
+          "attribute_ordinal": 22,
+          "bare_attribute_ordinal": 22,
+          "baseline_line": 973,
+          "baseline_byte_offset": 38687,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "history_transfer_cancelled_original_cannot_restart_after_encrypted_recipient_reopen",
+          "attribute_ordinal": 23,
+          "bare_attribute_ordinal": 23,
+          "baseline_line": 977,
+          "baseline_byte_offset": 38901,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "group_device_revocation_requires_fresh_original_for_exact_same_account_leaf",
+          "attribute_ordinal": 24,
+          "bare_attribute_ordinal": 24,
+          "baseline_line": 981,
+          "baseline_byte_offset": 39115,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "group_device_revocation_approved_original_removes_only_one_occupied_leaf",
+          "attribute_ordinal": 25,
+          "bare_attribute_ordinal": 25,
+          "baseline_line": 985,
+          "baseline_byte_offset": 39321,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "group_device_revocation_original_cancel_interrupts_actual_blocked_remove_publication",
+          "attribute_ordinal": 26,
+          "bare_attribute_ordinal": 26,
+          "baseline_line": 989,
+          "baseline_byte_offset": 39521,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "group_device_revocation_lost_approval_reply_interrupts_actual_blocked_remove_publication",
+          "attribute_ordinal": 27,
+          "bare_attribute_ordinal": 27,
+          "baseline_line": 994,
+          "baseline_byte_offset": 39743,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "group_device_revocation_removed_leaf_stays_evicted_after_encrypted_reopen",
+          "attribute_ordinal": 28,
+          "bare_attribute_ordinal": 28,
+          "baseline_line": 999,
+          "baseline_byte_offset": 39973,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_revocation_original_removes_exact_leaf_from_protected_and_two_ordinary_groups",
+          "attribute_ordinal": 29,
+          "bare_attribute_ordinal": 29,
+          "baseline_line": 1003,
+          "baseline_byte_offset": 40180,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_revocation_survivors_regain_fresh_original_history_authority",
+          "attribute_ordinal": 30,
+          "bare_attribute_ordinal": 30,
+          "baseline_line": 1008,
+          "baseline_byte_offset": 40398,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_revocation_retained_remove_cannot_restore_positive_guard_after_encrypted_reopen",
+          "attribute_ordinal": 31,
+          "bare_attribute_ordinal": 31,
+          "baseline_line": 1012,
+          "baseline_byte_offset": 40597,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_revocation_original_receipt_survives_incoming_storage_rollback_retry",
+          "attribute_ordinal": 32,
+          "bare_attribute_ordinal": 32,
+          "baseline_line": 1017,
+          "baseline_byte_offset": 40826,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_revocation_challenge_published_before_storage_retry_preserves_fresh_authority",
+          "attribute_ordinal": 33,
+          "bare_attribute_ordinal": 33,
+          "baseline_line": 1021,
+          "baseline_byte_offset": 41045,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_revocation_challenge_initial_peel_before_storage_retry_preserves_fresh_authority",
+          "attribute_ordinal": 34,
+          "bare_attribute_ordinal": 34,
+          "baseline_line": 1026,
+          "baseline_byte_offset": 41276,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_revocation_original_rollback_keeps_actual_receive_route_until_reconciliation",
+          "attribute_ordinal": 35,
+          "bare_attribute_ordinal": 35,
+          "baseline_line": 1034,
+          "baseline_byte_offset": 41554,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "successive_device_revocation_rollback_keeps_fresh_challenge_intake",
+          "attribute_ordinal": 36,
+          "bare_attribute_ordinal": 36,
+          "baseline_line": 1039,
+          "baseline_byte_offset": 41795,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_revocation_confirmation_fact_rollback_preserves_owned_successor_authority",
+          "attribute_ordinal": 37,
+          "bare_attribute_ordinal": 37,
+          "baseline_line": 1046,
+          "baseline_byte_offset": 42054,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "9435dd07095c2d5ffb38a5a5f53acbf1cd5ecf0684f0a10e88d9dc3e02173572"
+    },
+    "crates/marmot-app/src/device_linking/owner_tests.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "1f34125f5d28674b4773b83458b02e6c64dff27d",
+      "before_sha256": "53f65e2ff30a631e080c651c510b6dffe03770154bc92d65591603b189214095",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "dropping_runtime_owner_terminalizes_its_active_generation",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 12,
+          "baseline_byte_offset": 328,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "dropping_runtime_owner_after_storage_close_leaves_restart_fence_as_fallback",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 42,
+          "baseline_byte_offset": 1210,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "reserved_attempt_cannot_restart_its_deadline_by_delaying_sas_setup",
+          "attribute_ordinal": 3,
+          "bare_attribute_ordinal": 3,
+          "baseline_line": 75,
+          "baseline_byte_offset": 2495,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "late_sdk_setup_does_not_extend_the_reserved_attempt_lifetime",
+          "attribute_ordinal": 4,
+          "bare_attribute_ordinal": 4,
+          "baseline_line": 97,
+          "baseline_byte_offset": 3285,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "cancelled_verifier_releases_only_a_new_durable_generation",
+          "attribute_ordinal": 5,
+          "bare_attribute_ordinal": 5,
+          "baseline_line": 128,
+          "baseline_byte_offset": 4313,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "startup_after_encrypted_reopen_abandons_sdk_secrets_and_old_generation",
+          "attribute_ordinal": 6,
+          "bare_attribute_ordinal": 6,
+          "baseline_line": 146,
+          "baseline_byte_offset": 4879,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "genuine_verification_releases_result_only_after_done_delivery_and_terminal_write",
+          "attribute_ordinal": 7,
+          "bare_attribute_ordinal": 7,
+          "baseline_line": 209,
+          "baseline_byte_offset": 7188,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "externally_terminal_storage_fact_cannot_create_a_verified_result",
+          "attribute_ordinal": 8,
+          "bare_attribute_ordinal": 8,
+          "baseline_line": 244,
+          "baseline_byte_offset": 8603,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "expired_genuine_mac_persists_expiry_before_fresh_reservation",
+          "attribute_ordinal": 9,
+          "bare_attribute_ordinal": 9,
+          "baseline_line": 263,
+          "baseline_byte_offset": 9205,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "reservation_identity_mismatch_does_not_burn_or_mutate_current_generation",
+          "attribute_ordinal": 10,
+          "bare_attribute_ordinal": 10,
+          "baseline_line": 285,
+          "baseline_byte_offset": 9909,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "shutdown_and_competing_local_reservation_persist_terminal_fences",
+          "attribute_ordinal": 11,
+          "bare_attribute_ordinal": 11,
+          "baseline_line": 308,
+          "baseline_byte_offset": 10741,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "exact_sdk_flow_is_durable_before_request_frame_release",
+          "attribute_ordinal": 12,
+          "bare_attribute_ordinal": 12,
+          "baseline_line": 333,
+          "baseline_byte_offset": 11496,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "cancelled_owner_survives_encrypted_reopen_with_fresh_generation_only",
+          "attribute_ordinal": 13,
+          "bare_attribute_ordinal": 13,
+          "baseline_line": 345,
+          "baseline_byte_offset": 12011,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "competing_wire_flow_persists_anomaly_without_accepting_new_request",
+          "attribute_ordinal": 14,
+          "bare_attribute_ordinal": 14,
+          "baseline_line": 382,
+          "baseline_byte_offset": 13268,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "invalid_peer_mac_terminalizes_durable_owner_without_result",
+          "attribute_ordinal": 15,
+          "bare_attribute_ordinal": 15,
+          "baseline_line": 402,
+          "baseline_byte_offset": 14033,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "maintenance_expires_original_reservation_without_sdk_input",
+          "attribute_ordinal": 16,
+          "bare_attribute_ordinal": 16,
+          "baseline_line": 429,
+          "baseline_byte_offset": 14997,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "maintenance_retries_failed_cancellation_without_waiting_for_expiry",
+          "attribute_ordinal": 17,
+          "bare_attribute_ordinal": 17,
+          "baseline_line": 453,
+          "baseline_byte_offset": 15868,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "singleton_bootstrap_rejects_noninitial_rosters_without_consuming_sdk_result",
+          "attribute_ordinal": 18,
+          "bare_attribute_ordinal": 18,
+          "baseline_line": 524,
+          "baseline_byte_offset": 18578,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "01a608259bfca9cf9f5b1e5f5da43b638bbc73c96fb9470a2828826ba7d2b588"
+    },
+    "crates/marmot-app/src/client/selected_chat_copy.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "421d055ec2674ef7e9e16a546c81d658f3a15e88",
+      "before_sha256": "37d69d4d3c5f6626c5c27357209467370b265306c2f922349611d63d326caafa",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "actual_legacy_group_cannot_supply_selected_chat_request_anchor",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 241,
+          "baseline_byte_offset": 9283,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "9eafa91872a2a98f7ffbb99304f9a352de8903cb10adba6956b90d7e2825182d"
+    },
+    "crates/marmot-app/src/device_linking/runtime_gate/tests.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "7e20238e526dd534f95edd5dc099c389a2909808",
+      "before_sha256": "3cb7e92f1e5696dc4e5ed73ec3f66aa76781fb4a99571ba114ad618aa1977662",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "runtime_gate_accepts_only_owner_stamped_new_device_sdk_result",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 105,
+          "baseline_byte_offset": 4067,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "runtime_gate_transport_matches_real_sdk_and_predecessor_requires_authenticated_tree",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 186,
+          "baseline_byte_offset": 7551,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "runtime_gate_transport_rejects_every_substituted_sdk_binding_without_consuming_token",
+          "attribute_ordinal": 3,
+          "bare_attribute_ordinal": 3,
+          "baseline_line": 236,
+          "baseline_byte_offset": 9929,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "runtime_gate_transport_and_predecessor_preserve_original_expiry_and_shutdown",
+          "attribute_ordinal": 4,
+          "bare_attribute_ordinal": 4,
+          "baseline_line": 272,
+          "baseline_byte_offset": 11443,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "runtime_gate_shutdown_revokes_outstanding_lease_and_retained_policy",
+          "attribute_ordinal": 5,
+          "bare_attribute_ordinal": 5,
+          "baseline_line": 316,
+          "baseline_byte_offset": 13083,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "runtime_gate_context_substitution_and_failed_authenticated_check_preserve_only_exact_retry",
+          "attribute_ordinal": 6,
+          "bare_attribute_ordinal": 6,
+          "baseline_line": 334,
+          "baseline_byte_offset": 13755,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "runtime_gate_original_expiry_revokes_a_held_lease_and_cancel_is_serial",
+          "attribute_ordinal": 7,
+          "bare_attribute_ordinal": 7,
+          "baseline_line": 392,
+          "baseline_byte_offset": 16276,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "runtime_gate_maintenance_discards_original_expired_approval",
+          "attribute_ordinal": 8,
+          "bare_attribute_ordinal": 8,
+          "baseline_line": 429,
+          "baseline_byte_offset": 17519,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "9f8aa774118cf50e48ad0a0b932500a036157f1104f0981eba36ca6025e2e87f"
+    },
+    "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "3af62ed2563109b250e168b01f9da8b4db10d765",
+      "before_sha256": "35cfac70795d5e425c97244fcc02e30668e71ee1669282f6fe6b151ee5313946",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "held_automatic_catalog_body_keeps_fresh_account_commands_responsive",
+          "attribute_ordinal": 4,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 194,
+          "baseline_byte_offset": 6700,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts",
+          "attribute_ordinal": 5,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 423,
+          "baseline_byte_offset": 15489,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "blocked_sibling_consent_does_not_starve_another_approved_peer",
+          "attribute_ordinal": 6,
+          "bare_attribute_ordinal": 3,
+          "baseline_line": 428,
+          "baseline_byte_offset": 15648,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_sync_does_not_block_foreground_enrollment_completion",
+          "attribute_ordinal": 7,
+          "bare_attribute_ordinal": 4,
+          "baseline_line": 433,
+          "baseline_byte_offset": 15808,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "completed_sibling_consent_services_initial_progress_without_periodic_tick",
+          "attribute_ordinal": 8,
+          "bare_attribute_ordinal": 5,
+          "baseline_line": 440,
+          "baseline_byte_offset": 16031,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "ordinary_one_scan_enrollment_has_original_cancellation_without_chat_sharing",
+          "attribute_ordinal": 9,
+          "bare_attribute_ordinal": 6,
+          "baseline_line": 928,
+          "baseline_byte_offset": 35809,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_pairing_requires_explicit_enrollment_and_shares_existing_and_later_chats",
+          "attribute_ordinal": 10,
+          "bare_attribute_ordinal": 7,
+          "baseline_line": 1084,
+          "baseline_byte_offset": 41671,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "dropped_scanner_factory_cannot_export_a_response_before_host_adoption",
+          "attribute_ordinal": 12,
+          "bare_attribute_ordinal": 8,
+          "baseline_line": 1276,
+          "baseline_byte_offset": 49070,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_one_scan_exchange_keeps_both_human_comparisons_required",
+          "attribute_ordinal": 13,
+          "bare_attribute_ordinal": 9,
+          "baseline_line": 1317,
+          "baseline_byte_offset": 50582,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "public_one_scan_exchange_keeps_both_human_comparisons_required",
+          "attribute_ordinal": 14,
+          "bare_attribute_ordinal": 10,
+          "baseline_line": 1322,
+          "baseline_byte_offset": 50729,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_transport_cannot_keep_dropped_original_authority_alive",
+          "attribute_ordinal": 15,
+          "bare_attribute_ordinal": 11,
+          "baseline_line": 1493,
+          "baseline_byte_offset": 57791,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "completed_automatic_transport_keeps_public_cleanup_ownership",
+          "attribute_ordinal": 16,
+          "bare_attribute_ordinal": 12,
+          "baseline_line": 1571,
+          "baseline_byte_offset": 60834,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "bf2d2624a45af16ad2bd0fcd49ecbf99b87ae09a262235f48738e03c889ef2c7"
+    },
+    "crates/marmot-app/src/client/device_linking/setup/tests.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "5ae3f1d9f4028efcc0ccb116ef5b3018994a549d",
+      "before_sha256": "01358c04db9964071fcd921111f67b93ba27621eb38b9cd907e0e708e6d89b60",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "setup_factories_bind_real_purpose_and_complete_original_sdk",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 32,
+          "baseline_byte_offset": 992,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "setup_challenge_substitution_preserves_original_purpose_and_valid_retry",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 102,
+          "baseline_byte_offset": 3521,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "setup_ordinary_group_is_not_promoted_to_protected_predecessor",
+          "attribute_ordinal": 3,
+          "bare_attribute_ordinal": 3,
+          "baseline_line": 134,
+          "baseline_byte_offset": 4706,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "setup_request_framing_and_crypto_substitution_are_rejected_before_reservation",
+          "attribute_ordinal": 4,
+          "bare_attribute_ordinal": 4,
+          "baseline_line": 153,
+          "baseline_byte_offset": 5492,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "setup_foreign_account_request_cannot_replace_original_approver_flow",
+          "attribute_ordinal": 5,
+          "bare_attribute_ordinal": 5,
+          "baseline_line": 184,
+          "baseline_byte_offset": 6602,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "setup_encrypted_reopen_cannot_recreate_the_original_request_owner",
+          "attribute_ordinal": 6,
+          "bare_attribute_ordinal": 6,
+          "baseline_line": 220,
+          "baseline_byte_offset": 7763,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "7cd9407d0a152bd934ca20a9d1d68f6c44d37eff747aa69c489efba4d39b2c7f"
+    },
+    "crates/marmot-app/src/device_linking/runtime_gate/real_mls.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "2bb17fb82cbcb73c2200cac2605f1dfe146679ab",
+      "before_sha256": "4b7e6823c538fa17faf6f91a6c143ae2b2defaeae75379b9d298b802490d4ca3",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "genuine_sdk_gate_authorizes_only_exact_real_mls_welcome_once",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 140,
+          "baseline_byte_offset": 5577,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_linking_real_welcome_with_unapproved_extra_leaf_is_rolled_back",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 144,
+          "baseline_byte_offset": 5713,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_linking_collected_real_welcome_joins_once_with_atomic_sql_retry",
+          "attribute_ordinal": 3,
+          "bare_attribute_ordinal": 3,
+          "baseline_line": 148,
+          "baseline_byte_offset": 5857,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "device_linking_collected_unapproved_leaf_is_rolled_back",
+          "attribute_ordinal": 4,
+          "bare_attribute_ordinal": 4,
+          "baseline_line": 152,
+          "baseline_byte_offset": 6002,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "fcde580e2dc8a9f8aaa75fa0e895cae91d048279cc57dead2923f57e541bac1d"
+    },
+    "crates/marmot-app/src/native_device_linking/automatic_held_original_acceptance.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "2ffff94e652b999f755c0eb98c8217837a826a2b",
+      "before_sha256": "f5be153e7e429fcea84276e9002a47ade997faad0326c74159bfd635087eec2b",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_held_originals_allow_sponsor_initiated_discovery",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 5,
+          "baseline_byte_offset": 167,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_held_originals_allow_recipient_initiated_discovery",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 13,
+          "baseline_byte_offset": 395,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "5bf71c1c9a9d0fec63aacd645936dd7871e21c918607dd30027dea291e1e99cc"
+    },
+    "crates/marmot-app/src/client/audit_v5_probe/tests.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "4add9a74fc80e17d20727452e9e3e26d4b329ec7",
+      "before_sha256": "c47e3a9578ef6fe2741f09dc1cb8a0c88882096bdf138e529a6f39cde8afdc9e",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "private_batch_round_trip_uses_product_probe_peeler",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 9,
+          "baseline_byte_offset": 304,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "private_chunk_observation_uses_product_peeler_trait",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 68,
+          "baseline_byte_offset": 2169,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "fdafb36c4df230bba2835a1886ba45023fcf5eafe3b182d17263ecd447a62cff"
+    },
+    "crates/marmot-app/src/client/device_linking/sibling_sharing/tests.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "92c6b0b3b5a9d252541dc5f1ecd0455f9f56b60e",
+      "before_sha256": "1d30752dd401c307de64919dcdf4892a80123b277136d67951ef8a484ecb3ad2",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "original_choice_cancel_wakes_every_registered_child_without_actor_rpc",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 98,
+          "baseline_byte_offset": 3955,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "1f2284d84e2d68af4038361edb1e839688e23fd44794fbb135c5411a7184fab6"
+    },
+    "crates/marmot-app/src/native_device_linking/automatic_held_three_original_acceptance.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "a26869a4c4db7ee3eacc598c0d7cd84c6655a20f",
+      "before_sha256": "30b856d4542f2a61300feebe016e8f89c8f8ab8aa7b72b17d4e24f13a838c6b3",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_held_three_originals_allow_b_initiated_discovery",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 4,
+          "baseline_byte_offset": 90,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_held_three_originals_allow_c_initiated_discovery",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 12,
+          "baseline_byte_offset": 317,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "9522f031248417c6fd689a1b77b1945ebf197c671ecfcc4621087ec7d2211d01"
+    },
+    "crates/marmot-app/src/native_device_linking/tests/direct_contact_reuse_acceptance.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "d21c461b0d30d9b5c0f579d5f830651edb54fd64",
+      "before_sha256": "93f2cf0df5e3fdb70854ef0a110bbf0d5f59664cbf8da82df19644cac66a8369",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "one_scan_direct_contact_reuses_source_chat_without_another_peer_invitation",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 6,
+          "baseline_byte_offset": 258,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "03cba974aa1119a019b29b28951007a6ea90dda3a2b979bcea2f0bb96c9cacc1"
+    },
+    "crates/marmot-app/src/native_device_linking/sibling_sharing_routing_acceptance.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "5bfda162e73beaa596b2c3430bdd179f4ca82adc",
+      "before_sha256": "f53ed846845e6e5543e597292567215fa18f37ac665a5cb6cb9c9aeac8d0b20d",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "public_wrong_recipient_sharing_request_is_not_retained_by_c_original",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 88,
+          "baseline_byte_offset": 3044,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "a2254aac4776fdfb610885f86a69ffdc8b91e0cbb13e2ddf021968c693b8349d"
+    },
+    "crates/marmot-app/src/history_transfer.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "55eb08ed3f60109110dac6d9ea0345d7b9618dfa",
+      "before_sha256": "307c8837afc6f95fdb5cc33e03b1fbed61a97fc87f3344554760b987070ac423",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "default_history_transfer_refuses_before_account_or_worker_effects",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 214,
+          "baseline_byte_offset": 6939,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "history_recipient_query_validates_group_bounds_before_worker_effects",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 281,
+          "baseline_byte_offset": 8979,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "aeed44afe5ee162ef41c162026016ce5933cdacba41cc07f84bb967a3a43d16f"
+    },
+    "crates/marmot-app/src/native_device_linking/tests/sibling_sharing_acceptance.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "a93bd678adccf6ffb8278f4ec071b27008775a6e",
+      "before_sha256": "d31adc605bfd6b8a275d174d6999dfdb4c5fb90ed24bb9e2b067bb074470bbd5",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "public_three_device_broad_approvals_commit_each_bilateral_relationship",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 286,
+          "baseline_byte_offset": 12316,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "public_third_device_plain_sibling_approval_does_not_share_its_chats",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 291,
+          "baseline_byte_offset": 12506,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "public_broad_sibling_cancellation_retires_the_exact_shared_original",
+          "attribute_ordinal": 3,
+          "bare_attribute_ordinal": 3,
+          "baseline_line": 296,
+          "baseline_byte_offset": 12699,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "public_broad_sibling_core_authentication_failure_retries_same_original",
+          "attribute_ordinal": 4,
+          "bare_attribute_ordinal": 4,
+          "baseline_line": 301,
+          "baseline_byte_offset": 12889,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "6e263b8f26706fc307584d554c9b51cddb58a63cbc288b9828fba1a3dcc7dc59"
+    },
+    "crates/marmot-app/src/native_device_linking/tests/automatic_forwarding_acceptance.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "2a9797ec181cc428f35978464e087d89e3f96c00",
+      "before_sha256": "6caa665bf30a07ba8d6eb0b61da977edaa173c00bfaae2252bae809c4d17888c",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_forwarding_uses_original_client_token_and_real_ordinary_event",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 5,
+          "baseline_byte_offset": 123,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_forwarding_preserves_actual_reply_reference_and_canonical_id",
+          "attribute_ordinal": 2,
+          "bare_attribute_ordinal": 2,
+          "baseline_line": 154,
+          "baseline_byte_offset": 6042,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_forwarding_queues_without_members_and_reopens_both_independent_stores",
+          "attribute_ordinal": 3,
+          "bare_attribute_ordinal": 3,
+          "baseline_line": 162,
+          "baseline_byte_offset": 6277,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        },
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "automatic_forwarding_retries_unacknowledged_receipt_after_recipient_sql_rollback",
+          "attribute_ordinal": 4,
+          "bare_attribute_ordinal": 4,
+          "baseline_line": 170,
+          "baseline_byte_offset": 6523,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "1ffa975bdbf81d1bbf43a474b6e64a6cb1eefe0cd7e39f42b2ba73b82b7c2e59"
+    },
+    "crates/marmot-app/src/client/delivery_spill.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "52db5d1455aaa8fd65d354fa20facb51631e8a8e",
+      "before_sha256": "d91a2d5ea1bf58b65c268688b3669c2f7f68ca6e9c048d72f8473d196f6db5e6",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "cancelled_spill_receive_keeps_its_cooperative_offer_and_real_message",
+          "attribute_ordinal": 7,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 662,
+          "baseline_byte_offset": 25820,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "067d2daa388e86f770f8fe86c5e679d2bb586a789db731e924dfe65258d2e84e"
+    },
+    "crates/marmot-app/src/client/sync/projection_retry_tests.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "40468adccae3d9cbb200186b22f2916f56f67f6d",
+      "before_sha256": "65ebf63be83a1688798e91a0281cfeed094bb39238568091eba842ad713cac1a",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "quarantined_private_group_does_not_retain_or_expose_chat_projection",
+          "attribute_ordinal": 25,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 2043,
+          "baseline_byte_offset": 82560,
+          "before_bytes_utf8": "#[tokio::test]\n",
+          "after_bytes_utf8": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "8667e425664f30905be8f310120e8f4e4ff2bb2f1f49db2a7e45b3de9336bfd0"
+    },
+    "crates/marmot-app/src/device_revocation.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "3405d205732911c2a9f04f0ae496d601770d8ac8",
+      "before_sha256": "891a2bccc5774c9dd79096af13b3274f8e8ea7b5125ae885318ec4d40a9f63c6",
+      "changes": [
+        {
+          "kind": "bare_to_production_multi_thread",
+          "function": "default_group_device_revocation_is_unsupported_before_account_or_worker_effects",
+          "attribute_ordinal": 1,
+          "bare_attribute_ordinal": 1,
+          "baseline_line": 214,
+          "baseline_byte_offset": 6891,
+          "before_bytes_utf8": "    #[tokio::test]\n",
+          "after_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n"
+        }
+      ],
+      "after_sha256": "f426efed68a8a6e7334c5084e106d6f1406a5651a2a445c6a1463ed13b50da55"
+    },
+    "crates/marmot-app/src/runtime/device_linking.rs": {
+      "baseline_git_mode": "100644",
+      "baseline_blob_sha1": "a88cdaac3386bb870a789acf7e9ff7c7e80d7b74",
+      "before_sha256": "5fc31bfec6890b70e4d1c225e625945d44788f38daa1abae4cabf61a2a0dce1c",
+      "changes": [
+        {
+          "kind": "existing_multithread_to_required_paused_clock_single_thread",
+          "function": "device_linking_worker_private_commit_deadline_actively_wakes_stalled_network",
+          "attribute_ordinal": 46,
+          "baseline_line": 5396,
+          "baseline_byte_offset": 229343,
+          "before_bytes_utf8": "    #[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\n",
+          "after_bytes_utf8": "    // Pauses Tokio's clock after actual publication entry; this requires one thread.\n    #[tokio::test(flavor = \"current_thread\")]\n",
+          "new_rationale_bytes_utf8": "    // Pauses Tokio's clock after actual publication entry; this requires one thread.\n",
+          "reason": "The unchanged body pauses/advances/resumes Tokio after actual blocked publication; no cryptographic/verifier clock or deadline is changed."
+        }
+      ],
+      "after_sha256": "dae2d10cd57fbaf14ad0d366d2d8e71b2beb1786f8c601a9793fedda9f820fcc"
+    }
+  },
+  "required_stress_block": {
+    "path": "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs",
+    "block_bytes_utf8": "// RUNTIME_SERIAL_STRESS_BEGIN\n// One-thread stress retains the original serial-executor enrollment scenario.\n#[tokio::test(flavor = \"current_thread\")]\nasync fn single_thread_stress_four_device_enrollment() {\n    four_device_enrollment(HeldPublication::None).await;\n}\n\n// One-thread stress retains blocked-Consent fairness on the original executor.\n#[tokio::test(flavor = \"current_thread\")]\nasync fn single_thread_stress_blocked_sibling_consent() {\n    four_device_enrollment(HeldPublication::SiblingConsent).await;\n}\n\n// One-thread stress retains foreground enrollment under an automatic hold.\n#[tokio::test(flavor = \"current_thread\")]\nasync fn single_thread_stress_foreground_enrollment() {\n    four_device_enrollment(HeldPublication::Automatic).await;\n}\n// RUNTIME_SERIAL_STRESS_END\n\n",
+    "insert_before_after_attribute_migration_bytes_utf8": "// COMPLETION_TEST_BEGIN\n#[cfg(feature = \"test-policy-overrides\")]\n#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\nasync fn completed_sibling_consent_services_initial_progress_without_periodic_tick() {",
+    "cases": [
+      {
+        "function": "single_thread_stress_four_device_enrollment",
+        "original_function": "third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts",
+        "helper_call": "four_device_enrollment(HeldPublication::None).await;"
+      },
+      {
+        "function": "single_thread_stress_blocked_sibling_consent",
+        "original_function": "blocked_sibling_consent_does_not_starve_another_approved_peer",
+        "helper_call": "four_device_enrollment(HeldPublication::SiblingConsent).await;"
+      },
+      {
+        "function": "single_thread_stress_foreground_enrollment",
+        "original_function": "automatic_sync_does_not_block_foreground_enrollment_completion",
+        "helper_call": "four_device_enrollment(HeldPublication::Automatic).await;"
+      }
+    ],
+    "all_cases_required": true,
+    "ignore": false,
+    "additional_cfg_exclusions": false,
+    "helper_body_or_deadline_changes": false
+  },
+  "authoring_backup_manifest": "/Users/pjaeckel/project/whitenoisechat-openclaw/build/upstream-ci-20261015/runtime-alignment-before-20261017T231251Z/manifest.json"
+}

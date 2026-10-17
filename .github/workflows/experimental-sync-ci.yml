@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [runtime-alignment-preflight, runtime-alignment-controls, runtime-alignment-clock-preflight, runtime-alignment-clock-red, runtime-policy-preflight, runtime-policy-red, composed-enrollment-preflight, composed-enrollment-green, recipient-admission-preflight, recipient-admission-red, 639-preflight, 639-controls, 639-worker-diagnostic, 639-static-diagnostic, 639-capture-preflight, 639-capture-mutation, 639-storage-preflight, 639-storage-mutations, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
@@ -60,6 +60,155 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  # RUNTIME_ALIGNMENT_JOBS_BEGIN
+  runtime-alignment-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["runtime-alignment-preflight","runtime-alignment-controls","runtime-alignment-clock-preflight","runtime-alignment-clock-red"]'), inputs.scope)
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      UPSTREAM_RUNTIME_ALIGNMENT_BASELINE: 714c8db51e8645146268e1cd18316fe1a534dca4
+      ALIGNMENT_MODE: ${{ contains(fromJSON('["runtime-alignment-clock-preflight","runtime-alignment-clock-red"]'), inputs.scope) && 'clock-red' || 'controls' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact runtime-only reconstruction and adversarial control parsers
+        run: |
+          python3 scripts/qualify_upstream_runtime_alignment.py --preflight --mode "$ALIGNMENT_MODE"
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+          cargo fmt --all
+          git diff --binary -- crates > "$RUNNER_TEMP/runtime-alignment-format.patch"
+          git diff --exit-code -- crates
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: runtime-alignment-preflight
+          path: |
+            runtime-alignment-evidence/result.json
+            ${{ runner.temp }}/runtime-alignment-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  runtime-alignment-clock-red:
+    needs: runtime-alignment-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'runtime-alignment-clock-red'
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      UPSTREAM_RUNTIME_ALIGNMENT_BASELINE: 714c8db51e8645146268e1cd18316fe1a534dca4
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: One unchanged multi-thread clock regression before its harness fix
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Original paused-clock runtime RED' --output "$RUNNER_TEMP/runtime-alignment-capacity.json"
+          python3 scripts/qualify_upstream_runtime_alignment.py --mode clock-red
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: runtime-alignment-clock-red
+          path: |
+            runtime-alignment-evidence/result.json
+            ${{ runner.temp }}/runtime-alignment-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  runtime-alignment-controls:
+    needs: runtime-alignment-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'runtime-alignment-controls'
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      UPSTREAM_RUNTIME_ALIGNMENT_BASELINE: 714c8db51e8645146268e1cd18316fe1a534dca4
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: All thirteen required production, source-policy, serial-stress and clock bodies
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Runtime alignment thirteen required controls' --output "$RUNNER_TEMP/runtime-alignment-capacity.json"
+          python3 scripts/qualify_upstream_runtime_alignment.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: runtime-alignment-controls
+          path: |
+            runtime-alignment-evidence/result.json
+            ${{ runner.temp }}/runtime-alignment-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  runtime-alignment-static:
+    needs: runtime-alignment-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'runtime-alignment-controls'
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      UPSTREAM_RUNTIME_ALIGNMENT_BASELINE: 714c8db51e8645146268e1cd18316fe1a534dca4
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        cohort: [default, experimental]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Required strict App static cohort
+        env:
+          CARGO_INCREMENTAL: '1'
+          STATIC_COHORT: ${{ matrix.cohort }}
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Runtime alignment App static' --output "$RUNNER_TEMP/runtime-alignment-capacity.json"
+          python3 scripts/qualify_upstream_runtime_alignment.py --mode static --cohort "$STATIC_COHORT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: runtime-alignment-static-${{ matrix.cohort }}
+          path: |
+            runtime-alignment-evidence/result.json
+            ${{ runner.temp }}/runtime-alignment-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  # RUNTIME_ALIGNMENT_JOBS_END
   # RUNTIME_POLICY_RED_JOBS_BEGIN
   runtime-policy-preflight:
     if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["runtime-policy-preflight","runtime-policy-red"]'), inputs.scope)
