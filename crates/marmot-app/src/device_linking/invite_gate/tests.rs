@@ -148,6 +148,7 @@ async fn fixture_with_engine_storage(
     let old_store = Arc::new(approver_storage);
     for store in [&new_store, &old_store] {
         store
+            .app_storage()
             .ensure_account_projection_with_identity(
                 "isolated-invite-policy",
                 &hex::encode(account),

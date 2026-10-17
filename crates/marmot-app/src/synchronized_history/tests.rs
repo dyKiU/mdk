@@ -108,6 +108,7 @@ fn unfinished_import_is_invisible_and_live_events_shadow_completed_history() {
     );
     app.account_storage("alice")
         .unwrap()
+        .app_storage()
         .record_app_event(&StoredAppEvent {
             group_id_hex: hex::encode(group.as_slice()),
             message_id_hex: hex::encode([2; 32]),

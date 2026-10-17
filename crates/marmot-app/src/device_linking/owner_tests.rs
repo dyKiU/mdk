@@ -3,6 +3,7 @@ use storage_sqlite::SqlCipherKey;
 fn storage() -> Arc<SqliteAccountStorage> {
     let storage = Arc::new(SqliteAccountStorage::in_memory().unwrap());
     storage
+        .app_storage()
         .ensure_account_projection_with_identity("isolated-owner-test", &hex::encode([2; 32]))
         .unwrap();
     storage
@@ -45,6 +46,7 @@ async fn dropping_runtime_owner_after_storage_close_leaves_restart_fence_as_fall
     let key = SqlCipherKey::new("08".repeat(32)).unwrap();
     let storage = Arc::new(SqliteAccountStorage::open_encrypted(&path, &key).unwrap());
     storage
+        .app_storage()
         .ensure_account_projection_with_identity("isolated-owner-test", &hex::encode([2; 32]))
         .unwrap();
     let mut owner = LinkingOwner::startup(storage.clone(), [2; 32], [7; 32]).unwrap();
@@ -148,6 +150,7 @@ async fn startup_after_encrypted_reopen_abandons_sdk_secrets_and_old_generation(
     let key = SqlCipherKey::new("07".repeat(32)).unwrap();
     let storage = Arc::new(SqliteAccountStorage::open_encrypted(&path, &key).unwrap());
     storage
+        .app_storage()
         .ensure_account_projection_with_identity("isolated-owner-test", &hex::encode([2; 32]))
         .unwrap();
     let mut owner = LinkingOwner::startup(storage.clone(), [2; 32], [7; 32]).unwrap();
@@ -346,6 +349,7 @@ async fn cancelled_owner_survives_encrypted_reopen_with_fresh_generation_only() 
     let key = SqlCipherKey::new("06".repeat(32)).unwrap();
     let storage = Arc::new(SqliteAccountStorage::open_encrypted(&path, &key).unwrap());
     storage
+        .app_storage()
         .ensure_account_projection_with_identity("isolated-owner-test", &hex::encode([2; 32]))
         .unwrap();
     let mut a = LinkingOwner::startup(storage.clone(), [2; 32], [7; 32]).unwrap();
@@ -453,6 +457,7 @@ async fn maintenance_retries_failed_cancellation_without_waiting_for_expiry() {
     let key = SqlCipherKey::new("09".repeat(32)).unwrap();
     let storage = Arc::new(SqliteAccountStorage::open_encrypted(&path, &key).unwrap());
     storage
+        .app_storage()
         .ensure_account_projection_with_identity("isolated-owner-test", &hex::encode([2; 32]))
         .unwrap();
     let mut owner = LinkingOwner::startup(storage.clone(), [2; 32], [7; 32]).unwrap();
