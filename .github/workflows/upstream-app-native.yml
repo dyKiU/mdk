@@ -191,6 +191,7 @@ jobs:
             scripts/upstream_apple_ci/timestamp-mutations.py \
             scripts/upstream_apple_ci/sdk-manifest-guards.py \
             scripts/upstream_apple_ci/run-hosted-app-acceptance.py
+          python3 scripts/upstream_apple_ci/test_summarize.py
           bash -n scripts/upstream_apple_ci/build-hosted-simulator-agent.sh
           mkdir -p "$RUNNER_TEMP/tools-preflight"
           python3 - <<'PY'
@@ -202,7 +203,8 @@ jobs:
           native_manifest=json.loads(helper.with_name('native').joinpath('SOURCE.json').read_text())
           names=['acceptance-identity.py','hosted-app-fixtures.py','hosted-app-unit.py','hosted-app-ui.py',
                  'hosted-root-mutations.py','timestamp-mutations.py','sdk-manifest-guards.py','build-hosted-simulator-agent.sh',
-                 'run-hosted-app-acceptance.py','paired_direct_mutation.py','paired-direct-mutations.py']
+                 'run-hosted-app-acceptance.py','paired_direct_mutation.py','paired-direct-mutations.py',
+                 'summarize.py','test_summarize.py']
           paths=[Path('scripts/upstream_apple_ci')/name for name in names]
           manifest_path=Path('scripts/upstream_apple_ci/HOSTED-SOURCE.json')
           manifest=json.loads(manifest_path.read_text())
