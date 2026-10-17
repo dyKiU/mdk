@@ -4551,7 +4551,8 @@ fn paired_ordinary_timeline_hides_expired_payload_and_reply_before_sweep() {
     assert!(reply.reply_preview.is_none());
     assert_eq!(
         store
-            .app_storage().app_messages(crate::StoredAppMessageQuery::default())
+            .app_storage()
+            .app_messages(crate::StoredAppMessageQuery::default())
             .unwrap()
             .len(),
         2,
