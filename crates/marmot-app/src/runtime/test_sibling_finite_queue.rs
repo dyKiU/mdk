@@ -1,7 +1,7 @@
 //! Fixture-owned scheduling observation; never constructs protocol authority.
+use super::account_worker::AccountWorkerCommand;
 use super::*;
 use crate::client::AppClient;
-use super::account_worker::AccountWorkerCommand;
 use crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval;
 use std::sync::Weak;
 
@@ -61,7 +61,10 @@ impl Drop for Guard {
     fn drop(&mut self) {
         self.release();
         let mut slot = self.slot.lock().expect("finite queue probe");
-        if slot.as_ref().is_some_and(|probe| Arc::ptr_eq(probe, &self.probe)) {
+        if slot
+            .as_ref()
+            .is_some_and(|probe| Arc::ptr_eq(probe, &self.probe))
+        {
             *slot = None;
         }
     }
@@ -83,10 +86,17 @@ impl MarmotAppRuntime {
             serviced: Notify::new(),
             state: StdMutex::new(State::default()),
         });
-        let mut slot = self.shared.sibling_finite_queue_probe.lock().expect("finite queue probe");
+        let mut slot = self
+            .shared
+            .sibling_finite_queue_probe
+            .lock()
+            .expect("finite queue probe");
         assert!(slot.is_none(), "one owned finite queue probe per runtime");
         *slot = Some(probe.clone());
-        Guard { probe, slot: self.shared.sibling_finite_queue_probe.clone() }
+        Guard {
+            probe,
+            slot: self.shared.sibling_finite_queue_probe.clone(),
+        }
     }
     // Use the ordinary onboarding/identity/lifecycle-checked sender. The fixture
     // acquires it before gating its already enrolled B worker.
@@ -98,11 +108,16 @@ impl MarmotAppRuntime {
     }
 }
 fn probe(shared: &RuntimeSharedServices) -> Option<Arc<Probe>> {
-    shared.sibling_finite_queue_probe.lock().expect("finite queue probe").clone()
+    shared
+        .sibling_finite_queue_probe
+        .lock()
+        .expect("finite queue probe")
+        .clone()
 }
 pub(super) fn latched(shared: &RuntimeSharedServices, client: &AppClient) -> Option<Arc<Probe>> {
     let probe = probe(shared)?;
-    if !client.sibling_finite_queue_observation_for_test(&probe.owner, probe.nonce)
+    if !client
+        .sibling_finite_queue_observation_for_test(&probe.owner, probe.nonce)
         .is_some_and(|(live, _)| live)
         || probe.latched.swap(true, Ordering::AcqRel)
     {
@@ -122,7 +137,8 @@ pub(super) fn before_service(shared: &RuntimeSharedServices, client: &AppClient)
     if let Some(probe) = probe(shared) {
         let mut state = probe.state.lock().expect("finite queue state");
         if probe.latched.load(Ordering::Acquire) && state.service_after.is_none() {
-            state.before = client.sibling_finite_queue_observation_for_test(&probe.owner, probe.nonce);
+            state.before =
+                client.sibling_finite_queue_observation_for_test(&probe.owner, probe.nonce);
             state.failed = false;
         }
     }
@@ -137,7 +153,9 @@ pub(super) fn returned_service(shared: &RuntimeSharedServices, client: &AppClien
         let after = client.sibling_finite_queue_observation_for_test(&probe.owner, probe.nonce);
         let mut state = probe.state.lock().expect("finite queue state");
         if let (Some((true, before)), Some((true, after))) = (state.before.take(), after)
-            && after > before && !state.failed && state.service_after.is_none()
+            && after > before
+            && !state.failed
+            && state.service_after.is_none()
         {
             state.service_after = Some(state.commands);
             state.original_live = true;
@@ -147,7 +165,8 @@ pub(super) fn returned_service(shared: &RuntimeSharedServices, client: &AppClien
 }
 pub(super) fn replied(shared: &RuntimeSharedServices, group: &GroupId) {
     if let Some(probe) = probe(shared)
-        && probe.latched.load(Ordering::Acquire) && probe.group == *group
+        && probe.latched.load(Ordering::Acquire)
+        && probe.group == *group
     {
         let mut state = probe.state.lock().expect("finite queue state");
         state.commands = (state.commands + 1).min(4);

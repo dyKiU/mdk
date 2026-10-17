@@ -1,5 +1,9 @@
 // FINITE_QUEUE_TEST_BEGIN
-#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 mod test_sibling_finite_queue;
 // FINITE_QUEUE_TEST_END
 // COMPLETION_TEST_BEGIN
@@ -444,7 +448,11 @@ impl Drop for SubmissionClassificationHold {
 #[derive(Clone)]
 pub struct RuntimeSharedServices {
     // FINITE_QUEUE_TEST_BEGIN
-    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     sibling_finite_queue_probe: Arc<StdMutex<Option<Arc<test_sibling_finite_queue::Probe>>>>,
     // FINITE_QUEUE_TEST_END
     // COMPLETION_TEST_BEGIN
@@ -604,7 +612,11 @@ impl Default for RuntimeSharedServices {
             ))]
             linking_periodic_test_gates: Arc::new(StdMutex::new(HashMap::new())),
             // FINITE_QUEUE_TEST_BEGIN
-            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
             sibling_finite_queue_probe: Arc::new(StdMutex::new(None)),
             // FINITE_QUEUE_TEST_END
             // COMPLETION_TEST_END
@@ -782,7 +794,11 @@ impl RuntimeSharedServices {
             ))]
             linking_periodic_test_gates: Arc::new(StdMutex::new(HashMap::new())),
             // FINITE_QUEUE_TEST_BEGIN
-            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
             sibling_finite_queue_probe: Arc::new(StdMutex::new(None)),
             // FINITE_QUEUE_TEST_END
             // COMPLETION_TEST_END

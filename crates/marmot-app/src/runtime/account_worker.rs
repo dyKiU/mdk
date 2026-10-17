@@ -6019,7 +6019,11 @@ fn account_worker_command_future<'a>(
         AccountWorkerCommand::GroupRecoveryStatus { group_id, respond } => Box::pin(async move {
             let _ = respond.send(group_recovery_after_hydration(client, &group_id));
             // FINITE_QUEUE_TEST_BEGIN
-            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
             super::test_sibling_finite_queue::replied(shared, &group_id);
             // FINITE_QUEUE_TEST_END
             true

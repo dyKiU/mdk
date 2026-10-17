@@ -1975,19 +1975,29 @@ impl AppClient {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn sibling_finite_queue_observation_for_test(
         &self,
-        owner: &std::sync::Weak<crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval>,
+        owner: &std::sync::Weak<
+            crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval,
+        >,
         nonce: [u8; 32],
     ) -> Option<(bool, usize)> {
-        self.linking_owner.sibling_channels.iter().find_map(|entry| {
-            let SiblingOriginal::Existing { original, .. } = entry.original.as_ref() else {
-                return None;
-            };
-            (Arc::downgrade(original).ptr_eq(owner) && entry.channel.scope().nonce == nonce)
-                .then(|| {
-                    let visits = entry.state.sibling_diagnostics.lock().expect("sibling diagnostics").visits;
-                    (entry.original.live() && entry.state.live(), visits)
-                })
-        })
+        self.linking_owner
+            .sibling_channels
+            .iter()
+            .find_map(|entry| {
+                let SiblingOriginal::Existing { original, .. } = entry.original.as_ref() else {
+                    return None;
+                };
+                (Arc::downgrade(original).ptr_eq(owner) && entry.channel.scope().nonce == nonce)
+                    .then(|| {
+                        let visits = entry
+                            .state
+                            .sibling_diagnostics
+                            .lock()
+                            .expect("sibling diagnostics")
+                            .visits;
+                        (entry.original.live() && entry.state.live(), visits)
+                    })
+            })
     }
     // FINITE_QUEUE_TEST_END
     pub(crate) async fn maintain_sibling_sharing(&mut self) -> Result<(), ClientLinkingError> {

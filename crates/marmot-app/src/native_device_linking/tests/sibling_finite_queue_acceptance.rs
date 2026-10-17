@@ -56,8 +56,14 @@ async fn live_sibling_due_turn_precedes_second_finite_status_reply() {
             .create_group("test", "finite status control", &[], None)
             .await
             .unwrap();
-        runtimes[1].group_recovery_status("test", &ordinary).await.unwrap();
-        let sender = runtimes[1].sibling_finite_queue_sender_for_test("test").await.unwrap();
+        runtimes[1]
+            .group_recovery_status("test", &ordinary)
+            .await
+            .unwrap();
+        let sender = runtimes[1]
+            .sibling_finite_queue_sender_for_test("test")
+            .await
+            .unwrap();
 
         let target = managers[0]
             .device_linking_targets("test")
@@ -121,28 +127,39 @@ async fn live_sibling_due_turn_precedes_second_finite_status_reply() {
         // Genuine C proof is held before actual relay publication; B's
         // already-onboarded source original and channel remain live.
         let nonce = tokio::time::timeout(Duration::from_secs(15), proof_gate.observed())
-            .await.expect("actual C proof hold").expect("actual C proof nonce");
+            .await
+            .expect("actual C proof hold")
+            .expect("actual C proof nonce");
         facts[0] = original.status_for_test() == (true, false);
         let gate = runtimes[1].observe_sibling_finite_queue_for_test(
-            Arc::downgrade(&original), nonce, ordinary.clone(),
+            Arc::downgrade(&original),
+            nonce,
+            ordinary.clone(),
         );
         tokio::time::timeout(Duration::from_secs(10), gate.observed())
-            .await.expect("real sibling interval tick latched for the exact live source");
+            .await
+            .expect("real sibling interval tick latched for the exact live source");
         facts[1] = true;
         // Exactly three ordinary checked commands are queued while this actor
         // is stopped after the actual timer latch. No clock or deadline changes.
         let mut replies = Vec::new();
         for _ in 0..3 {
             let (respond, reply) = tokio::sync::oneshot::channel();
-            sender.try_send(crate::runtime::account_worker::AccountWorkerCommand::GroupRecoveryStatus {
-                group_id: ordinary.clone(), respond,
-            }).expect("finite ordinary status queue capacity");
+            sender
+                .try_send(
+                    crate::runtime::account_worker::AccountWorkerCommand::GroupRecoveryStatus {
+                        group_id: ordinary.clone(),
+                        respond,
+                    },
+                )
+                .expect("finite ordinary status queue capacity");
             replies.push(reply);
         }
         gate.release();
         for reply in replies {
             tokio::time::timeout(Duration::from_secs(15), reply)
-                .await.expect("finite status reply deadline")
+                .await
+                .expect("finite status reply deadline")
                 .expect("ordinary status reply remains owned")
                 .expect("ordinary hydrated group status succeeds");
             command_replies += 1;
@@ -150,7 +167,8 @@ async fn live_sibling_due_turn_precedes_second_finite_status_reply() {
         // If the counterfactual drained all three commands first, still allow
         // its real service to return before freezing the negative ordinal.
         tokio::time::timeout(Duration::from_secs(15), gate.serviced())
-            .await.expect("actual matched sibling maintenance returns successfully");
+            .await
+            .expect("actual matched sibling maintenance returns successfully");
         let (latched, commands, after, live) = gate.result();
         facts[2] = latched && commands == 3 && live;
         service_after = after;
@@ -165,10 +183,14 @@ async fn live_sibling_due_turn_precedes_second_finite_status_reply() {
         facts[5] = true;
         drop(approval);
         drop(original);
-    }).catch_unwind().await;
+    })
+    .catch_unwind()
+    .await;
     let mut runtime_closes = 0;
     for runtime in runtimes {
-        if runtime.shutdown_and_close().await.is_ok() { runtime_closes += 1; }
+        if runtime.shutdown_and_close().await.is_ok() {
+            runtime_closes += 1;
+        }
     }
     let mut planes_shutdown = 0;
     for app in &apps {
@@ -180,13 +202,29 @@ async fn live_sibling_due_turn_precedes_second_finite_status_reply() {
     let relay_closed = owned_loopback_listener_is_closed(address).await;
     eprintln!(
         "sibling-finite-queue live_source={} real_latch={} matched_service={} original_live={} enrollment_complete={} public_cancelled={} command_replies={} service_after={:?} runtime_closes={} planes_shutdown={} relay_closed={} attempt_completed={}",
-        facts[0], facts[1], facts[2], facts[3], facts[4], facts[5], command_replies,
-        service_after, runtime_closes, planes_shutdown, relay_closed, attempt.is_ok()
+        facts[0],
+        facts[1],
+        facts[2],
+        facts[3],
+        facts[4],
+        facts[5],
+        command_replies,
+        service_after,
+        runtime_closes,
+        planes_shutdown,
+        relay_closed,
+        attempt.is_ok()
     );
-    assert!(facts.into_iter().all(|value| value) && command_replies == 3
-        && service_after.is_some_and(|after| after <= 1)
-        && runtime_closes == 3 && planes_shutdown == 3 && relay_closed && attempt.is_ok(),
-        "live_sibling_due_turn_must_precede_second_finite_status_reply");
+    assert!(
+        facts.into_iter().all(|value| value)
+            && command_replies == 3
+            && service_after.is_some_and(|after| after <= 1)
+            && runtime_closes == 3
+            && planes_shutdown == 3
+            && relay_closed
+            && attempt.is_ok(),
+        "live_sibling_due_turn_must_precede_second_finite_status_reply"
+    );
 }
 
 // Probe only this fixture's owned loopback MockRelay listener.
