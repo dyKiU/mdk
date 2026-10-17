@@ -15,7 +15,7 @@ from qualify_upstream_body_negative import feature_identity, freeze, layout
 
 BASE = 'dd38298f3e6269c1911224b04c2833da25826dd8'
 PRODUCT = 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs'
-PRODUCT_SHA256 = '21aee51aeb8f0e972f27a945370704148b6f81ee1f2c4d3ab359c78e0727e763'
+PRODUCT_SHA256 = '6529044d91bdf19c1de8ef157dfbe2724f6128088fa984f891768127ec08c9ee'
 SELF = 'scripts/qualify_upstream_late_consent_candidate.py'
 WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
 OUT = Path('late-consent-candidate-evidence')

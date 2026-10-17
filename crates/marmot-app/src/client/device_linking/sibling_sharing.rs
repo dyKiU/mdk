@@ -1860,7 +1860,9 @@ impl AppClient {
                         // A one-shot scheduling hint, not authority or a retry.
                         // Core has bound this real Consent to this owned channel.
                         entry.consent_progress_due = true;
-                        self.linking_owner.sibling_publication_completions.send_replace(());
+                        self.linking_owner
+                            .sibling_publication_completions
+                            .send_replace(());
                     }
                 }
                 AccountSharingControl::Body(_) if entry.ready => {
