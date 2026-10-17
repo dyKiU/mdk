@@ -157,10 +157,10 @@ async fn private_roster_reuse_returns_object_after_fresh_storage_error() {
     let path = dir.path().join("isolated-roster-reuse-error.db");
     let key = SqlCipherKey::new("18".repeat(32)).unwrap();
     let storage = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
-    let (initiator, _responder, group) = complete_pair(storage).await;
-    let before = initiator.mls_group_cache.observation_for_test(&group);
+    let (_initiator, responder, group) = complete_pair(storage).await;
+    let before = responder.mls_group_cache.observation_for_test(&group);
     assert!(before.1 && !before.2);
-    let generation = initiator.storage.mls_write_generation();
+    let generation = responder.storage.mls_write_generation();
     let injector = rusqlite::Connection::open(&path).unwrap();
     storage_sqlite::open_hardened_sqlcipher(
         &injector,
@@ -172,7 +172,7 @@ async fn private_roster_reuse_returns_object_after_fresh_storage_error() {
     injector.execute_batch(
         "ALTER TABLE private_roster_settlement_facts RENAME TO isolated_unavailable_settlement_facts"
     ).unwrap();
-    let result = initiator.validated_settled_device_roster(&group);
+    let result = responder.validated_settled_device_roster(&group);
     injector.execute_batch(
         "ALTER TABLE isolated_unavailable_settlement_facts RENAME TO private_roster_settlement_facts"
     ).unwrap();
@@ -181,11 +181,11 @@ async fn private_roster_reuse_returns_object_after_fresh_storage_error() {
         "fresh settlement SQL failure must remain an error, never cached success or absence"
     );
     assert_ne!(
-        initiator.storage.mls_write_generation(),
+        responder.storage.mls_write_generation(),
         generation,
         "foreign schema changes and failed read rollback invalidate the MLS generation"
     );
-    let after = initiator.mls_group_cache.observation_for_test(&group);
+    let after = responder.mls_group_cache.observation_for_test(&group);
     // The returned entry predates rollback and external schema restoration.
     // It is not eligible; the following success must validate/reload afresh.
     assert!(
