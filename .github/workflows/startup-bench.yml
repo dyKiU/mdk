@@ -1,65 +1,121 @@
-name: Startup scaling benchmarks
+name: Guarded trusted upstream master fast-forward
 
-# On-demand only (mdk#1161): the full matrix builds 1000-group stores and is
-# far too slow for per-PR CI. The small smoke case runs in the normal test
-# suite; this job produces the full `MDK_BENCH ...` report for before/after
-# comparisons on hydration changes.
+# Temporary qualification branch only. Never merge this workflow into master.
+# The repository GITHUB_TOKEN suppresses push-triggered workflows; a PAT,
+# an SSH key or a separately minted App token must never replace it.
 on:
   workflow_dispatch:
+    inputs:
+      operation:
+        description: Verify only unless the reviewed fast-forward is requested
+        required: true
+        default: verify
+        type: choice
+        options:
+          - verify
+          - fast-forward
+      expected_guard_sha:
+        description: Full signed commit SHA of this reviewed temporary workflow
+        required: true
+        type: string
 
 permissions:
-  contents: read
+  contents: write
 
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: "0"
+concurrency:
+  group: trusted-mdk-master-token-fast-forward
+  cancel-in-progress: false
 
 jobs:
-  startup-bench:
-    name: Startup scaling benchmarks
+  guarded-fast-forward:
+    if: >-
+      github.repository == 'dyKiU/mdk' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/ci/upstream-master-token-ff-20261017'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
-
+    timeout-minutes: 10
+    env:
+      EXPECTED_GUARD_SHA: ${{ inputs.expected_guard_sha }}
+      OPERATION: ${{ inputs.operation }}
+      GIT_CONFIG_NOSYSTEM: "1"
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_TERMINAL_PROMPT: "0"
+      GIT_NO_REPLACE_OBJECTS: "1"
     steps:
-      - name: Check out repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          persist-credentials: false
-
-      - name: Install Rust toolchain
+      - name: Verify fixed identities and perform token-only normal fast-forward
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           set -euo pipefail
-          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
-          rustup toolchain install "$toolchain" --profile minimal
-          rustup default "$toolchain"
-          rustc --version
-          cargo --version
+          # Do not enable shell tracing: credentials are passed only by askpass.
+          old=cb4e9664b1b7a0ae27d85c4e9ba9c828bad49f98
+          new=ee56871d7671978d0f060e9665af2ea4220806cf
+          fork_url=https://github.com/dyKiU/mdk.git
+          upstream_url=https://github.com/marmot-protocol/mdk.git
+          mirror_ref=refs/heads/ci/upstream-master-mirror-ee56871d-20261017
+          [[ "$GITHUB_REPOSITORY" == dyKiU/mdk ]]
+          [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]
+          [[ "$GITHUB_REF" == refs/heads/ci/upstream-master-token-ff-20261017 ]]
+          [[ "$GITHUB_WORKFLOW_REF" == dyKiU/mdk/.github/workflows/startup-bench.yml@refs/heads/ci/upstream-master-token-ff-20261017 ]]
+          [[ "$EXPECTED_GUARD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_SHA" == "$EXPECTED_GUARD_SHA" ]]
+          [[ "$OPERATION" == verify || "$OPERATION" == fast-forward ]]
+          [[ -n "$GH_TOKEN" ]]
 
-      - name: Cache Cargo artifacts
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/master' }}
+          # No checkout or execution of repository code, hooks or build scripts.
+          # Public reads use fresh configuration, without credentials or helpers.
+          work=$(mktemp -d "$RUNNER_TEMP/master-token-ff.XXXXXX")
+          git init --bare "$work/repository.git"
+          cd "$work/repository.git"
+          git config --local credential.helper ''
+          git config --local core.hooksPath /dev/null
+          git config --local push.followTags false
+          git fetch --no-tags "$fork_url" \
+            refs/heads/master:refs/qualification/fork-master \
+            "$mirror_ref:refs/qualification/upstream-mirror"
+          git fetch --no-tags "$upstream_url" \
+            refs/heads/master:refs/qualification/original-master
+          [[ "$(git rev-parse refs/qualification/fork-master)" == "$old" ]]
+          [[ "$(git rev-parse refs/qualification/original-master)" == "$new" ]]
+          [[ "$(git rev-parse refs/qualification/upstream-mirror)" == "$new" ]]
+          git merge-base --is-ancestor "$old" "$new"
 
-      - name: Install just
-        uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5 # just
-        with:
-          tool: just
+          # The mirror must already contain the exact trusted upstream tree.
+          # This does not assume the token's workflow-update permission works:
+          # a server rejection is terminal, with no credential fallback.
+          [[ "$(git rev-parse "$new^{tree}")" == "$(git rev-parse refs/qualification/upstream-mirror^{tree})" ]]
+          printf 'Verified trusted fast-forward: %s -> %s\n' "$old" "$new"
+          if [[ "$OPERATION" == verify ]]; then
+            echo 'Verification only; no remote mutation attempted.'
+            exit 0
+          fi
 
-      - name: Run startup scaling benchmarks
-        run: just bench-startup | tee startup-bench.log
-
-      - name: Summarize
-        run: |
+          # Recheck immediately before the normal push. Git's ref transaction
+          # independently rejects concurrent changes incompatible with an FF.
+          actual=$(git ls-remote --exit-code "$fork_url" refs/heads/master)
+          [[ "$actual" == "$old"$'\t'refs/heads/master ]]
+          askpass="$work/token-askpass"
+          trap 'rm -f "$askpass"' EXIT
+          cat > "$askpass" <<'ASKPASS'
+          #!/usr/bin/env bash
           set -euo pipefail
+          case "$1" in
+            *Username*) printf '%s\n' x-access-token ;;
+            *Password*) printf '%s\n' "$GH_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          ASKPASS
+          chmod 700 "$askpass"
+          # Exactly one destination ref; no force, tags, retries or alternate auth.
+          GIT_ASKPASS="$askpass" git -c credential.helper= \
+            -c core.sshCommand=false push --porcelain --no-follow-tags \
+            "$fork_url" "$new:refs/heads/master"
+          actual=$(git ls-remote --exit-code "$fork_url" refs/heads/master)
+          [[ "$actual" == "$new"$'\t'refs/heads/master ]]
           {
-            echo '### Startup scaling benchmarks'
-            echo '```'
-            grep '^MDK_BENCH ' startup-bench.log
-            echo '```'
+            echo 'Trusted MDK fork master fast-forward completed using GITHUB_TOKEN.'
+            printf 'Old: `%s`\n\nNew: `%s`\n' "$old" "$new"
+            echo 'This run performs no build, test, packaging, publication or deployment.'
+            echo 'Qualification and an independent push-workflow/publication audit remain required.'
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload benchmark log
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: startup-bench-log
-          path: startup-bench.log
