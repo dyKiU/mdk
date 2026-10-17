@@ -125,7 +125,8 @@ def source_guard():
     _, after = job.split(end)
     restored = (before + after).replace('options: [enrollment-diagnostics, ', 'options: [', 1)
     ensure(restored.encode() == subprocess.check_output(['git', 'show', BASE + ':' + WORKFLOW]), 'existing-workflow-scopes-unchanged')
-    ensure(not subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard'], text=True).strip(), 'no-untracked-source-inputs')
+    untracked = set(subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard'], text=True).splitlines())
+    ensure(untracked <= {str(OUT / 'preflight.json'), str(OUT / 'result.json')}, 'no-untracked-source-inputs')
     return {'baseline': BASE, 'changed_paths': sorted(changed), 'unchanged_product_tests_oracles_deadlines': True}
 
 
