@@ -33,9 +33,10 @@ CASES = {
         'old': 'Err(ClientLinkingError::Collection(CollectionError::UnrelatedContext)) => {\n                Ok(Some(PrivateWelcomeIngress::Unrelated))\n            }',
         'new': 'Err(ClientLinkingError::Collection(CollectionError::UnrelatedContext)) => {\n                Err(ClientLinkingError::Collection(CollectionError::UnrelatedContext))\n            }',
         'panic_file': APP_FILE,
-        'panic_anchor': '.expect("unrelated authenticated Welcome must preserve the actual owner");',
-        'message': 'unrelated authenticated Welcome must preserve the actual owner',
-        'claim': 'Return unrelated authenticated inbox context as an owner-fatal error; require the existing genuine four-installation owner-preservation assertion.',
+        'assert_function': 'another_installations_private_welcome_cannot_abort_an_approved_recipient',
+        'assert_anchor': 'assert_eq!(\n        current.phase,\n        DeviceLinkingPhase::VerificationCompleteEnrollmentPending\n    );',
+        'message': 'assertion `left == right` failed',
+        'claim': 'Return unrelated authenticated inbox context as an owner-fatal error; require the exact existing phase-preservation assertion with Failed versus VerificationCompleteEnrollmentPending. Expiry, cancellation and other failures cannot qualify.',
     },
     'historical-policy': {
         'package': 'cgka-engine', 'stack': 16777216,
@@ -64,7 +65,13 @@ CASES = {
 
 def location(case):
     text = Path(case['panic_file']).read_text()
-    if 'panic_anchor' in case:
+    if 'assert_anchor' in case:
+        start = text.index('async fn ' + case['assert_function'] + '(')
+        end = text.find('\n#[tokio::test', start)
+        body = text[start:end if end >= 0 else len(text)]
+        ensure(body.count(case['assert_anchor']) == 1, 'one-exact-scoped-phase-assertion')
+        offset = start + body.index(case['assert_anchor'])
+    elif 'panic_anchor' in case:
         ensure(text.count(case['panic_anchor']) == 1, 'one-exact-own-panic-anchor')
         offset = text.index(case['panic_anchor'])
     else:
@@ -87,6 +94,12 @@ def parse(raw, case, exit_code):
     prefix = r'(?:test ' + re.escape(case['name']) + r' \.\.\. )?'
     row['early_welcome_observations'] = re.findall(
         r'(?m)^' + prefix + r'automatic-approval-order-control early_welcome_cached=(true|false)$', raw)
+    if case is CASES['unrelated-welcome']:
+        phases = 'AwaitingSetup|AwaitingPeer|ComparisonAvailable|AwaitingPeerVerification|VerificationCompleteEnrollmentPending|Cancelled|Expired|Failed|EnrollmentComplete'
+        matches = re.findall(r'(?m)^assertion `left == right` failed\n[ ]+left: (' + phases + r')\n[ ]+right: (' + phases + r')$', raw)
+        row['phase_assertions'] = [{'left': left, 'right': right} for left, right in matches[:2]]
+        row['phase_assertion_count'] = len(matches)
+        row['phase_assertion_header_count'] = len(re.findall(r'(?m)^assertion `left == right` failed$', raw))
     return row
 
 
@@ -111,7 +124,10 @@ def killed(row, case):
             and row.get('executed_case_names') == [case['name']]
             and row.get('intended_assertion_observed') is True
             and not row.get('watchdog_triggered') and not row.get('actual_count_unknown')
-            and (case is not CASES['readiness'] or row.get('early_welcome_observations') == ['true']))
+            and (case is not CASES['readiness'] or row.get('early_welcome_observations') == ['true'])
+            and (case is not CASES['unrelated-welcome'] or
+                 (row.get('phase_assertion_header_count') == 1 and row.get('phase_assertion_count') == 1 and row.get('phase_assertions') == [
+                     {'left': 'Failed', 'right': 'VerificationCompleteEnrollmentPending'}])))
 
 
 def parser_preflight():
@@ -124,6 +140,8 @@ def parser_preflight():
         ensure(green(control, case) and not killed(control, case), 'parser-green'); positive += 1
         red = raw.replace(' ... ok', ' ... FAILED').replace('false\n', 'true\n').replace('test result: ok. 1 passed; 0 failed;', 'test result: FAILED. 0 passed; 1 failed;')
         red += f"thread case panicked at {own['file']}:{own['line']}:5:\n{case['message']}\n"
+        if case is CASES['unrelated-welcome']:
+            red += '  left: Failed\n right: VerificationCompleteEnrollmentPending\n'
         mutant = parse(red, case, 101)
         ensure(killed(mutant, case) and not green(mutant, case), 'parser-intended-red'); positive += 1
         for change in [{'body_exit_code': 1}, {'passed': 1}, {'failed': 0}, {'ignored': 1},
@@ -133,6 +151,19 @@ def parser_preflight():
                        {'passed': False}, {'failed': True},
                        {'panic_locations': [dict(own, line=own['line'] + 1, column=5)]}]:
             ensure(not killed(dict(mutant, **change), case), 'parser-rejects-nonbehavioral-or-unrelated-red'); negative += 1
+        if case is CASES['unrelated-welcome']:
+            for left, right in [('Expired', 'VerificationCompleteEnrollmentPending'),
+                                ('Cancelled', 'VerificationCompleteEnrollmentPending'),
+                                ('EnrollmentComplete', 'VerificationCompleteEnrollmentPending'),
+                                ('Failed', 'Failed'), ('Secret', 'VerificationCompleteEnrollmentPending')]:
+                changed = red.replace('left: Failed', 'left: ' + left).replace('right: VerificationCompleteEnrollmentPending', 'right: ' + right)
+                ensure(not killed(parse(changed, case, 101), case), 'parser-rejects-wrong-or-unknown-phase'); negative += 1
+            for changed in [red.replace('  left: Failed\n', ''), red.replace('assertion `left == right` failed', 'unrelated authenticated Welcome must preserve the actual owner'),
+                            red + 'assertion `left == right` failed\n  left: Failed\n right: VerificationCompleteEnrollmentPending\n',
+                            red + 'assertion `left == right` failed\n  left: Unknown\n right: VerificationCompleteEnrollmentPending\n',
+                            red.replace('left: Failed', 'left: Failed private'),
+                            red.replace(str(own['line']) + ':5:', str(own['line'] - 1) + ':5:')]:
+                ensure(not killed(parse(changed, case, 101), case), 'parser-rejects-missing-duplicate-or-foreign-assertion'); negative += 1
         if case is CASES['readiness']:
             for values in [[], ['false'], ['true', 'true']]:
                 ensure(not killed(dict(mutant, early_welcome_observations=values), case), 'parser-requires-premature-publication'); negative += 1

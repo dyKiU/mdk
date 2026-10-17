@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [owner-pairing-unrelated-welcome, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
@@ -47,7 +47,7 @@ env:
 
 jobs:
   owner-pairing-mutations:
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'owner-pairing-mutations'
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'owner-pairing-mutations' || inputs.scope == 'owner-pairing-unrelated-welcome')
     name: Owner pairing mutation (${{ matrix.case }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -55,20 +55,13 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        include:
-          - case: readiness
-            stack: '4194304'
-          - case: unrelated-welcome
-            stack: '4194304'
-          - case: historical-policy
-            stack: '16777216'
-          - case: retirement-omission
-            stack: '16777216'
+        include: ${{ fromJSON(inputs.scope == 'owner-pairing-unrelated-welcome' && '[{"case":"unrelated-welcome","stack":"4194304"}]' || '[{"case":"readiness","stack":"4194304"},{"case":"unrelated-welcome","stack":"4194304"},{"case":"historical-policy","stack":"16777216"},{"case":"retirement-omission","stack":"16777216"}]') }}
     env:
       CARGO_INCREMENTAL: '1'
       # App stress budget remains 4 MiB. Core uses the existing explicit
       # pairing-recovery component budget, recorded separately in each proof.
       RUST_MIN_STACK: ${{ matrix.stack }}
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.scope == 'owner-pairing-unrelated-welcome' && '14291f0b377a72880390239fd561e28466f3bc67' || inputs.extraction_cohort_baseline }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
