@@ -1871,8 +1871,12 @@ async fn run_app_runtime_account_worker(
     let mut sibling_maintenance_due = false;
     #[cfg(feature = "experimental-device-sync")]
     let mut sibling_maintenance_yielded = false;
+    // Keep broad housekeeping on its original independently polled interval.
+    // A starved broad turn must not inherit the sibling timer's newer cadence.
     #[cfg(feature = "experimental-device-sync")]
-    let mut linking_maintenance_due = false;
+    let mut sibling_tick = interval(Duration::from_secs(1));
+    #[cfg(feature = "experimental-device-sync")]
+    sibling_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut legacy_message_promotion = LegacyMessagePromotionSchedule::new();
     let mut presentation_maintenance = super::presentation::PresentationMaintenance::default();
     let mut presentation_wakeups = app.presentation_signals.subscribe_work();
@@ -2085,7 +2089,7 @@ async fn run_app_runtime_account_worker(
         #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
         shared.wait_periodic_linking_for_test(&account_label).await;
         // COMPLETION_TEST_END
-        linking_tick.tick().await;
+        sibling_tick.tick().await;
                         }
                         #[cfg(not(feature = "experimental-device-sync"))]
                         std::future::pending::<()>().await;
@@ -2098,7 +2102,6 @@ async fn run_app_runtime_account_worker(
                         #[cfg(feature = "experimental-device-sync")]
                         {
                             sibling_maintenance_due = true;
-                            linking_maintenance_due = true;
                         }
                     }
 
@@ -3118,14 +3121,23 @@ async fn run_app_runtime_account_worker(
                     }
                     // Broad housekeeping retains its original lower-priority arm:
                     // it can await history ACKs and must not hold up sibling progress.
-                    _ = std::future::ready(()), if {
+                    _ = async {
                         #[cfg(feature = "experimental-device-sync")]
-                        { linking_maintenance_due && !sibling_maintenance_due }
+                        {
+                            // COMPLETION_TEST_BEGIN
+                            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                            shared.wait_periodic_linking_for_test(&account_label).await;
+                            // COMPLETION_TEST_END
+                            linking_tick.tick().await;
+                        }
+                        #[cfg(not(feature = "experimental-device-sync"))]
+                        std::future::pending::<()>().await;
+                    }, if {
+                        #[cfg(feature = "experimental-device-sync")]
+                        { !sibling_maintenance_due }
                         #[cfg(not(feature = "experimental-device-sync"))]
                         { false }
                     } => {
-                        #[cfg(feature = "experimental-device-sync")]
-                        { linking_maintenance_due = false; }
                         #[cfg(feature = "experimental-device-sync")]
                         if !lifecycle.is_stopping() {
                             if client.maintain_device_linking_after_sibling_turn(Instant::now()).await.is_err() {
