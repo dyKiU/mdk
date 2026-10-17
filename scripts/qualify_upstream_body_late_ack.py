@@ -164,7 +164,7 @@ def parser_controls():
     return {'positive': 3, 'negative': count + 1, 'runtime_bodies': 0, 'cleanup_diagnostics': cleanup_parser_controls()}
 
 
-def source_guard():
+def historical_source_guard():
     ensure(os.environ.get('GITHUB_ACTIONS') == 'true', 'remote-only')
     ensure(subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ.get('GITHUB_SHA'), 'exact-remote-source')
     subprocess.run(['git', 'merge-base', '--is-ancestor', BASE, 'HEAD'], check=True)
@@ -197,16 +197,87 @@ def source_guard():
     return {'baseline': BASE, 'hook_blocks': counts, 'parser_controls': parser_controls()}
 
 
+# BODY_LATE_ACK_COMPOSED_COHORT_BEGIN
+QUALIFIED_FIXTURE_SOURCE = 'a2871545652998b244bdbc1b2ee6c6a888ba5b4c'
+COHORT_ARGUMENT = "    arguments.add_argument('--cohort-baseline', help='Explicit reviewed full composed commit; absence retains the historical guard')\n"
+REQUIRE_ARGUMENT = "    arguments.add_argument('--require-composed-cohort', action='store_true')\n"
+REQUIRE_CHECK = "    ensure(not options.require_composed_cohort or bool(options.cohort_baseline), 'explicit-composed-cohort-required')\n"
+COHORT_REPORT = "    if options.cohort_baseline:\n        report.update(cohort_baseline=options.cohort_baseline, baseline_test_source=options.cohort_baseline, reviewed_product_baseline=options.cohort_baseline, historical_identity_reused=False, historical_runtime_evidence_reused=False, historical_stripped_source_comparison_reused=False, qualified_fixture_source=QUALIFIED_FIXTURE_SOURCE)\n"
+
+
+def composed_controller_identity():
+    # Reconstruct the complete qualified controller, including its actual
+    # execution, mutation, restoration, binary and final-pristine gates.
+    source = Path(SELF).read_text()
+    begin = '# BODY_LATE_ACK_COMPOSED_COHORT_BEGIN\n'
+    end = '# BODY_LATE_ACK_COMPOSED_COHORT_END\n'
+    ensure(source.count('\n' + begin) == source.count('\n' + end) == 1, 'one-composed-controller-block')
+    before, rest = source.split('\n' + begin)
+    _, after = rest.split('\n' + end)
+    reconstructed = before + '\n' + after
+    for addition in [COHORT_ARGUMENT, REQUIRE_ARGUMENT, REQUIRE_CHECK, COHORT_REPORT]:
+        ensure(reconstructed.count(addition) == 1, 'one-reviewed-cohort-routing-addition')
+        reconstructed = reconstructed.replace(addition, '', 1)
+    ensure(reconstructed.count('def historical_source_guard():') == 1
+           and reconstructed.count('    guard = source_guard(options.cohort_baseline)\n') == 1, 'exact-historical-routing-anchors')
+    reconstructed = reconstructed.replace('def historical_source_guard():', 'def source_guard():', 1)
+    reconstructed = reconstructed.replace('    guard = source_guard(options.cohort_baseline)\n', '    guard = source_guard()\n', 1)
+    qualified = subprocess.check_output(['git', 'show', QUALIFIED_FIXTURE_SOURCE + ':' + SELF])
+    ensure(reconstructed.encode() == qualified, 'qualified-complete-controller-and-oracle-preserved')
+    return digest(qualified)
+
+
+def source_guard(cohort_baseline=None):
+    if not cohort_baseline:
+        # Keep the historical 0b stripping, file inventory and parser path.
+        return historical_source_guard()
+    from upstream_extraction_cohort import reviewed_cohort
+    cohort = reviewed_cohort(cohort_baseline)
+    subprocess.run(['git', 'merge-base', '--is-ancestor', QUALIFIED_FIXTURE_SOURCE, cohort_baseline], check=True)
+    controller_identity = composed_controller_identity()
+    fixture_identities = {}
+    metadata = layout()
+    for name in [TEST, PROBE, PROXY]:
+        qualified = subprocess.check_output(['git', 'show', QUALIFIED_FIXTURE_SOURCE + ':' + name])
+        ensure(Path(name).read_bytes() == qualified and metadata[name]['git_mode'] == '100644'
+               and not metadata[name]['actual_executable'] and not metadata[name]['symlink'], 'exact-qualified-fixture-probe-proxy:' + name)
+        fixture_identities[name] = digest(qualified)
+    pattern = r'(?m)^[ \t]*// BODY_LATE_ACK_TEST_BEGIN\n.*?^[ \t]*// BODY_LATE_ACK_TEST_END\n'
+    counts = {}
+    for name in [PRODUCT, REGISTER]:
+        source = Path(name).read_text()
+        qualified = subprocess.check_output(['git', 'show', QUALIFIED_FIXTURE_SOURCE + ':' + name], text=True)
+        blocks = re.findall(pattern, source, re.S)
+        original_blocks = re.findall(pattern, qualified, re.S)
+        ensure(blocks and len(blocks) == source.count('BODY_LATE_ACK_TEST_BEGIN') == source.count('BODY_LATE_ACK_TEST_END'), 'balanced-exact-composed-hooks')
+        ensure([normalize(block) for block in blocks] == [normalize(block) for block in original_blocks], 'qualified-ownership-and-observation-hooks-preserved')
+        counts[name] = len(blocks)
+    source = Path(PRODUCT).read_text()
+    ensure(source.count(ANCHOR) == 1 and MUTANT not in source, 'one-original-live-context-mutation-guard')
+    ensure(source.index('body_late_ack_probe::arm(') < source.index('let task = tokio::spawn(publication_future)'), 'actual-final-fragment-armed-before-spawn')
+    ensure('self.original.cancel();' in source and 'self.channel.retire();' in source and 'body_negative_probe::retired(self);' in source, 'original-retirement-and-negative-control-preserved')
+    return {'baseline': cohort_baseline, 'reviewed_extraction_cohort': cohort,
+            'qualified_fixture_source': QUALIFIED_FIXTURE_SOURCE, 'qualified_fixture_sha256': fixture_identities,
+            'qualified_controller_sha256': controller_identity, 'qualified_hooks': counts,
+            'historical_identity_reused': False, 'historical_runtime_evidence_reused': False,
+            'historical_stripped_source_comparison_reused': False,
+            'parser_controls': parser_controls()}
+# BODY_LATE_ACK_COMPOSED_COHORT_END
 def main():
     arguments = argparse.ArgumentParser()
     arguments.add_argument('--preflight', action='store_true')
+    arguments.add_argument('--cohort-baseline', help='Explicit reviewed full composed commit; absence retains the historical guard')
+    arguments.add_argument('--require-composed-cohort', action='store_true')
     options = arguments.parse_args()
-    guard = source_guard()
+    ensure(not options.require_composed_cohort or bool(options.cohort_baseline), 'explicit-composed-cohort-required')
+    guard = source_guard(options.cohort_baseline)
     if options.preflight:
         print(json.dumps(guard, indent=2)); return
     OUT.mkdir(exist_ok=False)
     report = environment()
     report.update(baseline_test_source=BASE, reviewed_product_baseline=BASE, scope='Actual backend ACK of final Catalog after real recipient import/receipt changes original context; Linux SDK witness, not Apple native acceptance', source_guard=guard, phases={}, qualification_passed=False)
+    if options.cohort_baseline:
+        report.update(cohort_baseline=options.cohort_baseline, baseline_test_source=options.cohort_baseline, reviewed_product_baseline=options.cohort_baseline, historical_identity_reused=False, historical_runtime_evidence_reused=False, historical_stripped_source_comparison_reused=False, qualified_fixture_source=QUALIFIED_FIXTURE_SOURCE)
     report['cleanup_schema'] = {
         'io_operations': ['frontend_read', 'backend_read', 'frontend_write', 'backend_write', 'frontend_close', 'backend_close', 'frontend_handshake', 'backend_connect'],
         'io_categories': ['success', 'eof', 'close_frame', 'connection_closed', 'already_closed', 'io_reset', 'io_broken_pipe', 'io_unexpected_eof', 'io_other', 'protocol_reset_without_close', 'protocol_send_after_closing', 'protocol_received_after_closing', 'protocol_other', 'other'],

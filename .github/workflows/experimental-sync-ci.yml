@@ -1165,7 +1165,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Verify preserved source, passive hooks and actual-oracle parser
-        run: python3 scripts/qualify_upstream_body_late_ack.py --preflight
+        run: python3 scripts/qualify_upstream_body_late_ack.py --preflight --require-composed-cohort --cohort-baseline "$UPSTREAM_EXTRACTION_COHORT_BASELINE"
       - name: Remote formatting with exact feedback artifact
         run: |
           cargo fmt --all
@@ -1185,7 +1185,7 @@ jobs:
     timeout-minutes: 90
     env:
       CARGO_INCREMENTAL: '1'
-      UPSTREAM_EXTRACTION_COHORT_BASELINE: '0b50673c5b9e76266b50e660958bb8b24fe926e0'
+      UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ inputs.extraction_cohort_baseline }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
@@ -1204,7 +1204,7 @@ jobs:
           CARGO_INCREMENTAL: '1'
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Actual late Catalog ACK'
-          python3 scripts/qualify_upstream_body_late_ack.py
+          python3 scripts/qualify_upstream_body_late_ack.py --require-composed-cohort --cohort-baseline "$UPSTREAM_EXTRACTION_COHORT_BASELINE"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

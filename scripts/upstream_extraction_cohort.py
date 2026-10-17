@@ -21,6 +21,7 @@ OVERLAYS = {
     'scripts/qualify_upstream_body_negative.py',
     'scripts/upstream_body_negative_ci.py',
     'scripts/qualify_upstream_owner_pairing_mutations.py',
+    'scripts/qualify_upstream_body_late_ack.py',
     'scripts/test_upstream_extraction_cohort.py',
     'scripts/verify_upstream_completion_candidate_source.py',
     'scripts/qualify_upstream_completion.py',
