@@ -1,7 +1,5 @@
 //! App-owned encrypted pairing protocol fixtures over the generic relay mailbox.
 #[cfg(test)]
-use transport_nostr::MarmotRelayPlane;
-#[cfg(test)]
 use crate::device_linking::network::EVENT_KIND;
 #[cfg(test)]
 use cgka_traits::TransportEndpoint;
@@ -13,7 +11,9 @@ use nostr::prelude::Event;
 use nostr_sdk::prelude::Timestamp as NostrTimestamp;
 #[cfg(test)]
 use std::time::{Duration, Instant};
-use transport_nostr::pairing::PairingRelayError;
+#[cfg(test)]
+use transport_nostr::MarmotRelayPlane;
+use transport_nostr::pairing::{PairingMailbox, PairingRelayError};
 #[cfg(test)]
 mod tests {
     use super::*;

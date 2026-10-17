@@ -13,8 +13,8 @@ use storage_sqlite::SpilledDelivery;
 
 use super::AppClient;
 use crate::AppError;
-use transport_nostr::AccountDeliveryReceive;
 use crate::unix_now_seconds;
+use transport_nostr::AccountDeliveryReceive;
 
 /// Durable spill bounds for one account database.
 pub(crate) const ACCOUNT_DELIVERY_SPILL_LIMITS: storage_sqlite::DeliverySpillLimits =
@@ -27,8 +27,8 @@ pub(crate) const ACCOUNT_DELIVERY_SPILL_LIMITS: storage_sqlite::DeliverySpillLim
 pub(crate) fn plane_spill_disposition(
     disposition: storage_sqlite::DeliverySpillDisposition,
 ) -> transport_nostr::DeliverySpillDisposition {
-    use transport_nostr::DeliverySpillDisposition as Plane;
     use storage_sqlite::DeliverySpillDisposition as Stored;
+    use transport_nostr::DeliverySpillDisposition as Plane;
     match disposition {
         Stored::Stored => Plane::Stored,
         Stored::AlreadySeen => Plane::AlreadySeen,
@@ -308,9 +308,9 @@ mod tests {
 
     use super::ACCOUNT_DELIVERY_SPILL_LIMITS;
     use super::SPILL_MAX_ATTEMPTS;
-    use transport_nostr::MarmotRelayPlane;
     use crate::tests::{ScriptedPushRelayClient, client_on_app_relay_plane};
     use crate::{MarmotApp, unix_now_seconds};
+    use transport_nostr::MarmotRelayPlane;
 
     fn delivery(id: u8) -> TransportDelivery {
         TransportDelivery {
@@ -636,11 +636,11 @@ mod yield_handoff_tests {
     use std::time::Duration;
 
     use super::ACCOUNT_DELIVERY_SPILL_LIMITS;
-    use transport_nostr::{AccountDeliveryReceive, MarmotRelayPlane};
     use crate::tests::{
         ScriptedPushRelayClient, every_subscription, remember_test_member_inbox, scripted_eose_pump,
     };
     use crate::{AccountHome, MarmotApp, TimelineMessageQuery, unix_now_seconds};
+    use transport_nostr::{AccountDeliveryReceive, MarmotRelayPlane};
 
     #[tokio::test]
     async fn cancelled_spill_receive_keeps_its_cooperative_offer_and_real_message() {

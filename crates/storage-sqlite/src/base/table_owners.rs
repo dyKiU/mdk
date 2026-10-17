@@ -18,8 +18,14 @@ pub(crate) const TABLE_OWNERS: &[(&str, Side)] = &[
     ("cgka_schema_migrations", Side::Base),
     // Private ownership inventory: schema exists in both feature cohorts.
     // These are lineage/activation ledgers, never consent or crypto evidence.
-    ("cgka_experimental_device_sync_schema_migrations", Side::Base),
-    ("cgka_experimental_device_sync_migration_bridge_audit", Side::Base),
+    (
+        "cgka_experimental_device_sync_schema_migrations",
+        Side::Base,
+    ),
+    (
+        "cgka_experimental_device_sync_migration_bridge_audit",
+        Side::Base,
+    ),
     ("cgka_experimental_device_sync_cohort", Side::Base),
     // Engine-owned accepted joins, purpose consumption, lineage and settlement.
     // Their immutable facts do not recreate the SDK's original live authority.

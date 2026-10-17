@@ -126,14 +126,28 @@ fn classified_side(rel: &str) -> Result<Option<Side>, &'static str> {
 /// See cross/private-ownership.md for the callers and each retained crossing.
 fn private_root_side(root: &str) -> Option<Side> {
     match root {
-        "accepted_welcome" | "accepted_device_group_anchor" | "existing_device_group_anchor"
-        | "revoked_device_group_anchor" | "private_device_invite" | "device_group_genesis"
-        | "private_group_privacy" | "private_roster_settlement" | "roster_ack_capture"
-        | "device_linking_key_package" | "selected_chat_key_package" => Some(Side::Protocol),
-        "device_linking" | "synchronized_history" | "account_chat_departure"
-        | "account_chat_legacy_acceptance" | "account_chat_origin_observation"
-        | "account_chat_record_stream" | "account_chat_send_queue" | "account_chat_source"
-        | "approved_account_sharing_policy" | "mirrored_chat_catalog" | "mirrored_chat_messages"
+        "accepted_welcome"
+        | "accepted_device_group_anchor"
+        | "existing_device_group_anchor"
+        | "revoked_device_group_anchor"
+        | "private_device_invite"
+        | "device_group_genesis"
+        | "private_group_privacy"
+        | "private_roster_settlement"
+        | "roster_ack_capture"
+        | "device_linking_key_package"
+        | "selected_chat_key_package" => Some(Side::Protocol),
+        "device_linking"
+        | "synchronized_history"
+        | "account_chat_departure"
+        | "account_chat_legacy_acceptance"
+        | "account_chat_origin_observation"
+        | "account_chat_record_stream"
+        | "account_chat_send_queue"
+        | "account_chat_source"
+        | "approved_account_sharing_policy"
+        | "mirrored_chat_catalog"
+        | "mirrored_chat_messages"
         | "mirrored_chat_presentation" => Some(Side::App),
         _ => None,
     }
@@ -485,9 +499,11 @@ fn path_target(path: &[String], root: &BTreeMap<String, Side>) -> Option<(Side, 
         "app" => Side::App,
         "protocol" => Side::Protocol,
         "base" => Side::Base,
-        name => return private_root_side(name)
-            .or_else(|| root.get(name).copied())
-            .map(|side| (side, format!("crate::{name}"))),
+        name => {
+            return private_root_side(name)
+                .or_else(|| root.get(name).copied())
+                .map(|side| (side, format!("crate::{name}")));
+        }
     };
     // `storage` and `transport` are folders of modules; name the module inside them.
     let folder = path

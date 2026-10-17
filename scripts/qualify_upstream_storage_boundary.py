@@ -16,6 +16,7 @@ from upstream_extraction_cohort import frozen_inputs, workflow_identity
 INCOMING = '3aec65433eb84f0882430d000b2d31dabf987c24'
 MERGE = 'cbd0e5f09224aae1481c87d69d41c8b0cf033461'
 RED = '234c9b064bf6c3702a08898b2ea0ab25aa62265d'
+COMPOSED = 'a6642b03bd3bb29a529c0fe94b6e3b73d351517c'
 SELF = 'scripts/qualify_upstream_storage_boundary.py'
 WORKFLOW = '.github/workflows/upstream-boundary-regressions.yml'
 BOUNDARY = [
@@ -204,9 +205,14 @@ def source_guard(baseline, ownership_adaptation):
     adaptation = {}
     if ownership_adaptation:
         subprocess.run(['git', 'merge-base', '--is-ancestor', RED, baseline], check=True)
+        subprocess.run(['git', 'merge-base', '--is-ancestor', RED, COMPOSED], check=True)
+        subprocess.run(['git', 'merge-base', '--is-ancestor', COMPOSED, baseline], check=True)
         allowed = {SELF, WORKFLOW, OWNERSHIP_DOC, *BOUNDARY[1:]}
-        red_changed = set(git('diff', '--name-only', RED, source).splitlines())
-        ensure(red_changed <= allowed, 'all-private-providers-migrations-production-and-fixtures-exact-red')
+        composed_changed = set(git('diff', '--name-only', COMPOSED, source).splitlines())
+        ensure(composed_changed <= allowed, 'nonownership-product-inputs-exact-reviewed-composed-source')
+        storage_changed = set(git('diff', '--name-only', RED, source, '--', 'crates/storage-sqlite').splitlines())
+        ensure(storage_changed <= {OWNERSHIP_DOC, *BOUNDARY[1:]}, 'all-private-storage-providers-migrations-and-fixtures-exact-red')
+        ensure(not git('diff', '--name-only', RED, COMPOSED, '--', 'crates/storage-sqlite'), 'composed-storage-inputs-exact-red-before-ownership-adaptation')
         ensure(Path(BOUNDARY[0]).read_bytes() == subprocess.check_output(['git', 'show', INCOMING + ':' + BOUNDARY[0]]), 'incoming-base-module-registration-exact')
         old = subprocess.check_output(['git', 'show', INCOMING + ':' + BOUNDARY[1]]).decode()
         current = Path(BOUNDARY[1]).read_text()
@@ -223,9 +229,11 @@ def source_guard(baseline, ownership_adaptation):
         ensure(registry[:start] + registry[end:] == old_registry, 'upstream-table-owner-entries-unmodified')
         ensure(Path(BOUNDARY[3]).read_bytes().startswith(subprocess.check_output(['git', 'show', INCOMING + ':' + BOUNDARY[3]])), 'all-upstream-allow-list-entries-retained')
         adaptation = {'historical_red_source': RED, 'historical_red_run_id': 39055385890,
+                      'reviewed_composed_source': COMPOSED,
                       'original_three_test_bodies_exact': True, 'unchanged_scanner_functions': frozen_functions,
-                      'all_private_provider_migration_and_product_inputs_exact_red': True,
-                      'reviewed_ownership_paths': sorted(red_changed - {SELF, WORKFLOW}),
+                      'all_private_storage_provider_migration_and_fixture_inputs_exact_red': True,
+                      'all_nonownership_product_inputs_exact_reviewed_composed_source': True,
+                      'reviewed_ownership_paths': sorted(composed_changed - {SELF, WORKFLOW}),
                       'historical_green_or_mutation_results_reused': False}
     else:
         for name in BOUNDARY:

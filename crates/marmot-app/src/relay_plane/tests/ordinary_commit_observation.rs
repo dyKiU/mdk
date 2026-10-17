@@ -1,5 +1,4 @@
 //! Read-only, one-publication fixture observation before actual relay delivery.
-use transport_nostr::MarmotRelayPlane;
 use cgka_traits::storage::{MessageStorage, OutboundFanoutStorage};
 use cgka_traits::{FanoutPendingKind, GroupId, message::StoredMessagePayload};
 use cgka_traits::{MemberId, MessageId, TransportPublishRequest};
@@ -7,6 +6,7 @@ use openmls::prelude::{ContentType, MlsMessageBodyIn, MlsMessageIn, ProtocolMess
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tls_codec::Deserialize;
+use transport_nostr::MarmotRelayPlane;
 
 pub(crate) type Snapshot = (
     Result<Option<cgka_engine::canonical_probe_observer::Observation>, &'static str>,

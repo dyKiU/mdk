@@ -4,9 +4,9 @@ use crate::device_linking::network::delivery::{Inbound, Receiver, Sender};
 use crate::device_linking::network::{
     Bootstrap, Channel, EVENT_KIND, Error as WireError, Message, MessageKind, PeerHint,
 };
-use transport_nostr::pairing::{PairingMailbox, PairingRelayError};
 use nostr::prelude::{Event, Keys, PublicKey, Timestamp};
 use sha2::{Digest, Sha256};
+use transport_nostr::pairing::{PairingMailbox, PairingRelayError};
 use zeroize::Zeroizing;
 
 // Stable diagnostic codes never format peer or runtime error contents.
