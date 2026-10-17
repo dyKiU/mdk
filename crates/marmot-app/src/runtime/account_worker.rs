@@ -1931,7 +1931,11 @@ async fn run_app_runtime_account_worker(
     )> = None;
     'worker: loop {
         // ORDINARY_TURN_TEST_BEGIN
-        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
         crate::client::device_linking::sibling_sharing::turn_probe::mark_current(
             &client,
             crate::client::device_linking::sibling_sharing::turn_probe::Stage::WorkerLoop,
@@ -2081,7 +2085,11 @@ async fn run_app_runtime_account_worker(
             sibling_maintenance_yielded = sibling_maintenance_due;
         }
         // ORDINARY_TURN_TEST_BEGIN
-        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
         crate::client::device_linking::sibling_sharing::turn_probe::before_select(
             &client,
             sibling_maintenance_due,
