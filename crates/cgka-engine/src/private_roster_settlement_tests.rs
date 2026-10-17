@@ -93,30 +93,62 @@ async fn private_roster_reuses_mls_object_without_reusing_settlement_authority()
     let (initiator, _responder, group) =
         complete_pair(SqliteAccountStorage::in_memory().unwrap()).await;
     let before = initiator.mls_group_cache.observation_for_test(&group);
-    assert!(before.1 && !before.2, "genuine completed roster leaves an eligible MLS object");
+    assert!(
+        before.1 && !before.2,
+        "genuine completed roster leaves an eligible MLS object"
+    );
     let generation = initiator.storage.mls_write_generation();
     assert!(generation.is_some());
-    assert!(initiator.validated_private_successor(&group).unwrap().is_some());
+    assert!(
+        initiator
+            .validated_private_successor(&group)
+            .unwrap()
+            .is_some()
+    );
     let control = initiator.mls_group_cache.observation_for_test(&group);
     let successor_hits = control.0 - before.0;
     assert!(successor_hits > 0 && control.1 && !control.2);
-    assert!(initiator.validated_settled_device_roster(&group).unwrap().is_some());
+    assert!(
+        initiator
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_some()
+    );
     let warmed = initiator.mls_group_cache.observation_for_test(&group);
-    assert_eq!(warmed.0 - control.0, successor_hits + 1,
-        "settled roster adds one actual outer cache reuse beyond its fresh successor control");
+    assert_eq!(
+        warmed.0 - control.0,
+        successor_hits + 1,
+        "settled roster adds one actual outer cache reuse beyond its fresh successor control"
+    );
     assert!(warmed.1 && !warmed.2);
-    assert_eq!(initiator.storage.mls_write_generation(), generation,
-        "the control and successful roster read preserve the warm generation");
-    let store = initiator.storage.private_roster_settlement_storage().unwrap();
+    assert_eq!(
+        initiator.storage.mls_write_generation(),
+        generation,
+        "the control and successful roster read preserve the warm generation"
+    );
+    let store = initiator
+        .storage
+        .private_roster_settlement_storage()
+        .unwrap();
     let round = store.read_round().unwrap().unwrap();
     store.deny_round(round.generation).unwrap();
-    assert_eq!(initiator.storage.mls_write_generation(), generation,
-        "private denial changes no OpenMLS state on this connection");
-    assert!(initiator.validated_settled_device_roster(&group).unwrap().is_none(),
-        "an unchanged MLS object cannot retain a positive settlement verdict");
+    assert_eq!(
+        initiator.storage.mls_write_generation(),
+        generation,
+        "private denial changes no OpenMLS state on this connection"
+    );
+    assert!(
+        initiator
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_none(),
+        "an unchanged MLS object cannot retain a positive settlement verdict"
+    );
     let after = initiator.mls_group_cache.observation_for_test(&group);
-    assert!(after.0 > warmed.0 && after.1 && !after.2,
-        "the denial is fresh even while the eligible MLS object is actually reused and returned");
+    assert!(
+        after.0 > warmed.0 && after.1 && !after.2,
+        "the denial is fresh even while the eligible MLS object is actually reused and returned"
+    );
 }
 
 #[tokio::test]
@@ -134,30 +166,53 @@ async fn private_roster_reuse_returns_object_after_fresh_storage_error() {
     initiator.storage.lock().unwrap().execute_batch(
         "ALTER TABLE isolated_unavailable_settlement_facts RENAME TO private_roster_settlement_facts"
     ).unwrap();
-    assert!(matches!(result, Err(EngineError::Storage(_))),
-        "fresh settlement SQL failure must remain an error, never cached success or absence");
-    assert_ne!(initiator.storage.mls_write_generation(), generation,
-        "the failed read snapshot rolls back and invalidates the MLS generation");
+    assert!(
+        matches!(result, Err(EngineError::Storage(_))),
+        "fresh settlement SQL failure must remain an error, never cached success or absence"
+    );
+    assert_ne!(
+        initiator.storage.mls_write_generation(),
+        generation,
+        "the failed read snapshot rolls back and invalidates the MLS generation"
+    );
     let after = initiator.mls_group_cache.observation_for_test(&group);
     // This retained entry predates the rollback generation and is not eligible
     // for reuse; the following success must perform fresh validation/reload.
-    assert!(after.0 > before.0 && after.1 && !after.2,
-        "the error leaves a returned old-generation object and no taken entry");
-    assert!(initiator.validated_settled_device_roster(&group).unwrap().is_some(),
-        "restoring the actual SQL source permits a fresh positive validation");
+    assert!(
+        after.0 > before.0 && after.1 && !after.2,
+        "the error leaves a returned old-generation object and no taken entry"
+    );
+    assert!(
+        initiator
+            .validated_settled_device_roster(&group)
+            .unwrap()
+            .is_some(),
+        "restoring the actual SQL source permits a fresh positive validation"
+    );
 }
 
 #[tokio::test]
 async fn private_roster_reuse_preserves_missing_and_closed_storage_errors() {
     let (initiator, _responder, group) =
         complete_pair(SqliteAccountStorage::in_memory().unwrap()).await;
-    assert!(initiator.validated_settled_device_roster(&GroupId::new(vec![72; 32])).unwrap().is_none(),
-        "an unknown group remains an absent observation");
+    assert!(
+        initiator
+            .validated_settled_device_roster(&GroupId::new(vec![72; 32]))
+            .unwrap()
+            .is_none(),
+        "an unknown group remains an absent observation"
+    );
     assert!(initiator.mls_group_cache.observation_for_test(&group).1);
     initiator.storage.close().unwrap();
-    assert!(matches!(initiator.validated_settled_device_roster(&group),
-        Err(EngineError::Storage(cgka_traits::storage::StorageError::Closed(_)))),
-        "an eligible object cannot bypass terminal closed storage");
+    assert!(
+        matches!(
+            initiator.validated_settled_device_roster(&group),
+            Err(EngineError::Storage(
+                cgka_traits::storage::StorageError::Closed(_)
+            ))
+        ),
+        "an eligible object cannot bypass terminal closed storage"
+    );
 }
 
 #[tokio::test]
