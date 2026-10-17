@@ -389,7 +389,18 @@ impl OriginalEnrollmentSharingChoice {
     pub(crate) fn record_observation_stage_for_test(&self, stage: NativeObservationStage) {
         // BROAD_TRACE_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        broad_trace::choice(self, match stage { NativeObservationStage::DispatchStarted => 25, NativeObservationStage::WorkerStarted => 26, NativeObservationStage::WorkerReturned => 27, NativeObservationStage::FacadeReturned => 28, NativeObservationStage::AutomaticEntered => 43, NativeObservationStage::AutomaticExited => 44 }, 0);
+        broad_trace::choice(
+            self,
+            match stage {
+                NativeObservationStage::DispatchStarted => 25,
+                NativeObservationStage::WorkerStarted => 26,
+                NativeObservationStage::WorkerReturned => 27,
+                NativeObservationStage::FacadeReturned => 28,
+                NativeObservationStage::AutomaticEntered => 43,
+                NativeObservationStage::AutomaticExited => 44,
+            },
+            0,
+        );
         // BROAD_TRACE_END
         let mut probe = self
             .native_observation_probe
@@ -403,7 +414,18 @@ impl OriginalEnrollmentSharingChoice {
     pub(crate) fn record_observation_reason_for_test(&self, reason: NativeObservationReason) {
         // BROAD_TRACE_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        broad_trace::choice(self, 42, match reason { NativeObservationReason::VerifierFallback => 0, NativeObservationReason::NoRound => 1, NativeObservationReason::GuardInvalid => 2, NativeObservationReason::NoSettledRoster => 3, NativeObservationReason::SharingPending => 4, NativeObservationReason::Complete => 5 });
+        broad_trace::choice(
+            self,
+            42,
+            match reason {
+                NativeObservationReason::VerifierFallback => 0,
+                NativeObservationReason::NoRound => 1,
+                NativeObservationReason::GuardInvalid => 2,
+                NativeObservationReason::NoSettledRoster => 3,
+                NativeObservationReason::SharingPending => 4,
+                NativeObservationReason::Complete => 5,
+            },
+        );
         // BROAD_TRACE_END
         let mut probe = self
             .native_observation_probe
