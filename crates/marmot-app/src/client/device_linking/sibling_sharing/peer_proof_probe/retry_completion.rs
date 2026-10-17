@@ -120,7 +120,7 @@ pub(crate) struct Adapter {
     gate: Option<Arc<Gate>>,
 }
 impl Adapter {
-    pub(crate) fn capture(
+    pub(in super::super) fn capture(
         inner: MarmotRelayPlaneAccountAdapter,
         entry: &SiblingChannel,
         kind: AccountSharingControl,
