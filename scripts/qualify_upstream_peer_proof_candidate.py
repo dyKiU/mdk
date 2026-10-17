@@ -121,10 +121,13 @@ def previous_green(run_id, source, manifest, current):
             report = json.loads(archive.read(files[0]))
         ensure(report['source'] == source and report.get('inputs_pristine') is True
                and report.get('input_manifest_sha256') == manifest
+               and report.get('actual_counts_complete') is True
                and report.get('toolchain') == current.get('toolchain')
                and report.get('environment') == current.get('environment'), 'exact-prior-frozen-cohort')
         if name == 'peer-proof-candidate-green':
             ensure(report.get('mode') == 'green' and report.get('green_passed') is True
+                   and report.get('actual_executed_nonignored') == 1
+                   and re.fullmatch('[0-9a-f]{64}', report['phases']['baseline'].get('compiled_binary_sha256', ''))
                    and green(report['phases']['baseline']['body']), 'actual-prior-one-body-green')
             compilation = report['phases']['baseline']['compilation']
             ensure(compilation['compile_exit_code'] == compilation['compiler_error_count'] == 0, 'prior-actual-compile-success')
@@ -133,7 +136,8 @@ def previous_green(run_id, source, manifest, current):
             cohort = name.rsplit('-', 1)[-1]
             ensure(report.get('mode') == 'static' and report.get('cohort') == cohort
                    and report.get('static_passed') is True and report.get('exit_code') == 0
-                   and report.get('compiler_error_count') == 0 and report.get('actual_runtime_bodies') == 0,
+                   and report.get('compiler_error_count') == 0 and report.get('actual_runtime_bodies') == 0
+                   and report.get('actual_executed_nonignored') == 0,
                    'actual-prior-both-static-cohorts')
         receipts.append({'name': name, 'id': artifact['id'], 'digest': artifact['digest'], 'download_digest_verified': True})
     return {'run_id': int(run_id), 'source': source, 'artifacts': receipts, 'compiled_feature_identity': control}
@@ -156,7 +160,7 @@ def main():
     def phase(label, expected):
         ensure(pristine(expected), 'before-runtime-phase-inputs-exact')
         compilation, cases = compile_cases([historical.CASE])
-        row = {'compilation': compilation}; report['phases'][label] = row; save()
+        row = {'compilation': compilation, 'actual_counts_complete': False, 'actual_executed_nonignored': None}; report['phases'][label] = row; save()
         ensure(compilation.get('compile_exit_code') == compilation.get('compiler_error_count') == 0
                and compilation.get('compiled_fingerprints', {}).get('verified') is True
                and set(cases) == {historical.CASE} and cases[historical.CASE]['name'] == historical.TEST,
@@ -165,12 +169,22 @@ def main():
         if 'compiled_feature_identity' in report: ensure(features == report['compiled_feature_identity'], 'same-phase-feature-cohort')
         else: report['compiled_feature_identity'] = features
         ensure(pristine(expected), 'compile-input-drift')
-        case = cases[historical.CASE]; started = time.monotonic()
+        case = cases[historical.CASE]
+        row['compiled_binary_sha256'] = case['binary_sha256']
+        ensure(digest(Path(case['binary']).read_bytes()) == row['compiled_binary_sha256'], 'selected-compiled-binary-identity')
+        started = time.monotonic()
         try:
             result = subprocess.run([case['binary'], '--exact', historical.TEST, '--nocapture', '--test-threads=1], capture_output=True, text=True, timeout=300)
             row['body'] = historical.parse(result.stdout + result.stderr, result.returncode)
         except subprocess.TimeoutExpired: row['body'] = {'watchdog_triggered': True, 'actual_count_unknown': True}
         row['body']['seconds'] = time.monotonic() - started
+        body = row['body']
+        row['actual_counts_complete'] = (
+            all(type(body.get(key)) is int and body[key] >= 0 for key in ['passed', 'failed', 'ignored', 'executed_nonignored'])
+            and body['executed_nonignored'] == body['passed'] + body['failed']
+            and not body.get('watchdog_triggered') and not body.get('actual_count_unknown'))
+        if row['actual_counts_complete']: row['actual_executed_nonignored'] = body['executed_nonignored']
+        ensure(digest(Path(case['binary']).read_bytes()) == row['compiled_binary_sha256'], 'executed-binary-identity-unchanged')
         ensure(pristine(expected), 'runtime-input-drift'); save()
         return row['body']
     try:
@@ -212,7 +226,10 @@ def main():
             # This runs even when the mutant survives its intended assertion.
             restored = phase('restored', frozen)
             report['restored_control_passed'] = green(restored)
-            report['mutation_chain_passed'] = bool(mutation_error is None and report.get('omission_runtime_killed') and report['restored_control_passed'])
+            report['restored_binary_identical_to_baseline'] = (
+                report['phases']['restored']['compiled_binary_sha256']
+                == report['phases']['baseline']['compiled_binary_sha256'])
+            report['mutation_chain_passed'] = bool(mutation_error is None and report.get('omission_runtime_killed') and report['restored_control_passed'] and report['restored_binary_identical_to_baseline'])
             ensure(report['mutation_chain_passed'], 'actual-omission-and-restored-control-required')
     except Exception as error:
         report['controller_exception'] = type(error).__name__
@@ -220,7 +237,14 @@ def main():
     finally:
         Path(PRODUCT).write_bytes(original_bytes)
         report['inputs_pristine'] = pristine() and subprocess.run(['git', 'diff', '--quiet', 'HEAD']).returncode == 0
+        phases = list(report['phases'].values())
+        report['runtime_phases_attempted'] = len(phases)
+        report['actual_counts_complete'] = all(row.get('actual_counts_complete') is True for row in phases)
+        report['actual_executed_nonignored'] = sum(row['actual_executed_nonignored'] for row in phases
+                                                  if type(row.get('actual_executed_nonignored')) is int)
         save()
+        ensure(report['inputs_pristine'], 'final-inputs-not-pristine')
+        ensure(report['actual_counts_complete'], 'actual-phase-counts-incomplete')
 
 
 if __name__ == '__main__': main()
