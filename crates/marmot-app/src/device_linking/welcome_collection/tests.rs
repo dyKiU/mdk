@@ -19,11 +19,12 @@ async fn fixture() -> (
     context.account = keys.public_key().to_bytes();
     let storage = || {
         let s = Arc::new(storage_sqlite::SqliteAccountStorage::in_memory().unwrap());
-        s.app_storage().ensure_account_projection_with_identity(
-            "isolated-collector",
-            &hex::encode(context.account),
-        )
-        .unwrap();
+        s.app_storage()
+            .ensure_account_projection_with_identity(
+                "isolated-collector",
+                &hex::encode(context.account),
+            )
+            .unwrap();
         s
     };
     let (new_device, _) = verified_for_context(context.clone(), storage(), storage()).await;
