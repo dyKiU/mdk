@@ -1,9 +1,9 @@
 //! Genuine first Request ACK, a later retry SDK result held, then real Consent.
 use super::*;
+use crate::client::device_linking::sibling_sharing::peer_proof_probe::retry_completion;
 use futures::FutureExt;
 use std::sync::Arc;
 use std::time::Duration;
-use crate::client::device_linking::sibling_sharing::peer_proof_probe::retry_completion;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn authenticated_consent_retires_obsolete_request_retry_before_proof() {
@@ -153,76 +153,139 @@ async fn authenticated_consent_retires_obsolete_request_retry_before_proof() {
         // recipient Consent and proof publications cannot enter this hold.
         let retry = retry_completion::arm(owner.clone(), nonce, before.deadline);
         tokio::time::timeout(Duration::from_secs(15), retry.observed())
-            .await.unwrap();
+            .await
+            .unwrap();
         let held_retry = retry.observation();
-        facts[2] = held_retry.captured_exact_retry && held_retry.real_sdk_ack_held
-            && held_retry.publish_calls == 1 && !held_retry.release_requested
+        facts[2] = held_retry.captured_exact_retry
+            && held_retry.real_sdk_ack_held
+            && held_retry.publish_calls == 1
+            && !held_retry.release_requested
             && !held_retry.future_dropped;
         let periodic = runtimes[1].hold_periodic_linking_for_test("test");
-        tokio::time::timeout(Duration::from_secs(10), periodic.observed()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), periodic.observed())
+            .await
+            .unwrap();
         facts[4] = true;
-        let fresh = managers[1].peer_proof_snapshot_for_test("test", owner.clone())
-            .await.unwrap().expect("exact original still owns held retry");
-        facts[3] = fresh.nonce == nonce && fresh.deadline == before.deadline
+        let fresh = managers[1]
+            .peer_proof_snapshot_for_test("test", owner.clone())
+            .await
+            .unwrap()
+            .expect("exact original still owns held retry");
+        facts[3] = fresh.nonce == nonce
+            && fresh.deadline == before.deadline
             && fresh.consent_ordering == [false, true]
             && fresh.flags == [true, true, false, false, false, true, false, false];
         drop(consent_release);
         let bound = tokio::time::timeout(Duration::from_secs(15), async {
             loop {
-                if let Some(row) = managers[1].peer_proof_snapshot_for_test("test", owner.clone()).await.unwrap()
-                    && row.nonce == nonce && row.deadline == before.deadline
+                if let Some(row) = managers[1]
+                    .peer_proof_snapshot_for_test("test", owner.clone())
+                    .await
+                    .unwrap()
+                    && row.nonce == nonce
+                    && row.deadline == before.deadline
                     && row.consent_ordering == [true, true]
-                { break row; }
+                {
+                    break row;
+                }
                 tokio::time::sleep(Duration::from_millis(25)).await;
             }
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
         facts[5] = bound.flags[0] && bound.flags[1] && !bound.flags[4];
         let proof_nonce = tokio::time::timeout(Duration::from_secs(15), proof_gate.observed())
-            .await.unwrap().unwrap();
+            .await
+            .unwrap()
+            .unwrap();
         facts[11] = proof_nonce == nonce;
         // Freeze the intended oracle without asserting; every gate is then
         // released and normal real enrollment/positive closes must still pass.
         let _verdict_window = tokio::time::timeout(Duration::from_secs(15), async {
             loop {
-                let fresh = managers[1].peer_proof_snapshot_for_test("test", owner.clone()).await.unwrap();
-                facts[6] = fresh.is_some_and(|row| row.nonce == nonce && row.deadline == before.deadline
-                    && row.consent_ordering == [true, true]
-                    && row.flags == [true, true, true, true, false, false, false, true]);
+                let fresh = managers[1]
+                    .peer_proof_snapshot_for_test("test", owner.clone())
+                    .await
+                    .unwrap();
+                facts[6] = fresh.is_some_and(|row| {
+                    row.nonce == nonce
+                        && row.deadline == before.deadline
+                        && row.consent_ordering == [true, true]
+                        && row.flags == [true, true, true, true, false, false, false, true]
+                });
                 let observed_retry = retry.observation();
-                facts[7] = observed_retry.future_dropped && observed_retry.dropped_before_release
-                    && !observed_retry.release_requested && !observed_retry.normal_release;
-                if facts[6] && facts[7] { break; }
+                facts[7] = observed_retry.future_dropped
+                    && observed_retry.dropped_before_release
+                    && !observed_retry.release_requested
+                    && !observed_retry.normal_release;
+                if facts[6] && facts[7] {
+                    break;
+                }
                 tokio::time::sleep(Duration::from_millis(25)).await;
             }
-        }).await;
+        })
+        .await;
         // Both independent observations share the same fixed15s window. A
         // pending abort is never inferred from policy/proof progress alone.
         retry.release();
         drop(periodic);
         drop(proof_gate);
-        tokio::time::timeout(Duration::from_secs(15), retry.dropped()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(15), retry.dropped())
+            .await
+            .unwrap();
         facts[10] = retry.observation().future_dropped && retry.observation().release_requested;
         wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
         facts[8] = true;
-        a.cancel().await.unwrap(); c.cancel().await.unwrap(); approval.cancel().await.unwrap();
-        drop(approval); drop(original);
+        a.cancel().await.unwrap();
+        c.cancel().await.unwrap();
+        approval.cancel().await.unwrap();
+        drop(approval);
+        drop(original);
         facts[9] = true;
-    }).catch_unwind().await;
+    })
+    .catch_unwind()
+    .await;
     let mut runtime_closes = 0;
     for runtime in runtimes {
-        if runtime.shutdown_and_close().await.is_ok() { runtime_closes += 1; }
+        if runtime.shutdown_and_close().await.is_ok() {
+            runtime_closes += 1;
+        }
     }
     let mut planes_shutdown = 0;
-    for app in &apps { app.relay_plane.shutdown().await; planes_shutdown += 1; }
+    for app in &apps {
+        app.relay_plane.shutdown().await;
+        planes_shutdown += 1;
+    }
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
     let relay_closed = owned_loopback_listener_is_closed(address).await;
-    eprintln!("request-retry-completion consent_held={} first_request_ack={} retry_sdk_ack_held={} fresh_pending_retry={} periodic_observed={} consent_bound={} proof_progress_before_release={} retry_future_dropped_before_release={} enrollment_complete={} public_cancelled={} guards_released={} peer_proof_held={} runtime_closes={} planes_shutdown={} relay_closed={} attempt_completed={}",
-        facts[0],facts[1],facts[2],facts[3],facts[4],facts[5],facts[6],facts[7],facts[8],facts[9],facts[10],facts[11],
-        runtime_closes,planes_shutdown,relay_closed,attempt.is_ok());
-    assert!(facts.into_iter().all(|value| value) && runtime_closes == 3 && planes_shutdown == 3
-        && relay_closed && attempt.is_ok(),
-        "authenticated_consent_must_retire_only_obsolete_request_retry_before_proof");
+    eprintln!(
+        "request-retry-completion consent_held={} first_request_ack={} retry_sdk_ack_held={} fresh_pending_retry={} periodic_observed={} consent_bound={} proof_progress_before_release={} retry_future_dropped_before_release={} enrollment_complete={} public_cancelled={} guards_released={} peer_proof_held={} runtime_closes={} planes_shutdown={} relay_closed={} attempt_completed={}",
+        facts[0],
+        facts[1],
+        facts[2],
+        facts[3],
+        facts[4],
+        facts[5],
+        facts[6],
+        facts[7],
+        facts[8],
+        facts[9],
+        facts[10],
+        facts[11],
+        runtime_closes,
+        planes_shutdown,
+        relay_closed,
+        attempt.is_ok()
+    );
+    assert!(
+        facts.into_iter().all(|value| value)
+            && runtime_closes == 3
+            && planes_shutdown == 3
+            && relay_closed
+            && attempt.is_ok(),
+        "authenticated_consent_must_retire_only_obsolete_request_retry_before_proof"
+    );
 }
 
 // Probe only this fixture's owned loopback MockRelay listener.
@@ -230,7 +293,10 @@ async fn authenticated_consent_retires_obsolete_request_retry_before_proof() {
 async fn owned_loopback_listener_is_closed(address: &str) -> bool {
     tokio::time::timeout(Duration::from_secs(3), async {
         while let Ok(socket) = tokio::net::TcpStream::connect(address).await {
-            drop(socket); tokio::task::yield_now().await;
+            drop(socket);
+            tokio::task::yield_now().await;
         }
-    }).await.is_ok()
+    })
+    .await
+    .is_ok()
 }

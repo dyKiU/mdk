@@ -17,8 +17,8 @@ WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
 REF = 'refs/heads/ci/upstream-request-retry-20261018'
 FIXTURE = 'crates/marmot-app/src/native_device_linking/tests/request_retry_completion_acceptance.rs'
 PROBE = 'crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/retry_completion.rs'
-NEW_HASHES = {FIXTURE: 'dd99351307654a167f199c962691a9dbfcac596e48b48c30cddc9b153b808e6d',
-              PROBE: 'b63b59de019e51efd7ed5bc45abe5e04f6ad071c18be42d6c33a3441e3c15d4d'}
+NEW_HASHES = {FIXTURE: '062796acf45fe1cc44cca58cf6381b0043923caf6076f04be7a9c8924762db0a',
+              PROBE: 'fabbc36c18d06635da929803ac9260e1d82295eeb145a374c00b41d24cc3b63c'}
 HOOKS = {'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': 1,
          'crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe.rs': 1,
          'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': 1}

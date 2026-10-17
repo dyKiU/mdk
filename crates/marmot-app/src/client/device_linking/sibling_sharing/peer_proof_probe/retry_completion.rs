@@ -58,7 +58,9 @@ impl Guard {
     }
 }
 impl Drop for Guard {
-    fn drop(&mut self) { self.release(); }
+    fn drop(&mut self) {
+        self.release();
+    }
 }
 fn registry() -> &'static Mutex<Vec<Weak<Gate>>> {
     static REGISTRY: OnceLock<Mutex<Vec<Weak<Gate>>>> = OnceLock::new();
@@ -66,17 +68,32 @@ fn registry() -> &'static Mutex<Vec<Weak<Gate>>> {
 }
 pub(crate) fn arm(owner: Weak<Existing>, nonce: [u8; 32], deadline: Instant) -> Guard {
     let gate = Arc::new(Gate {
-        owner, nonce, deadline,
-        captured: AtomicBool::new(false), sdk_ack_held: AtomicBool::new(false),
-        publish_calls: AtomicUsize::new(0), release_requested: AtomicBool::new(false),
-        normal_release: AtomicBool::new(false), future_dropped: AtomicBool::new(false),
-        dropped_before_release: AtomicBool::new(false), observed: Notify::new(),
-        release: Notify::new(), dropped: Notify::new(),
+        owner,
+        nonce,
+        deadline,
+        captured: AtomicBool::new(false),
+        sdk_ack_held: AtomicBool::new(false),
+        publish_calls: AtomicUsize::new(0),
+        release_requested: AtomicBool::new(false),
+        normal_release: AtomicBool::new(false),
+        future_dropped: AtomicBool::new(false),
+        dropped_before_release: AtomicBool::new(false),
+        observed: Notify::new(),
+        release: Notify::new(),
+        dropped: Notify::new(),
     });
     let mut entries = registry().lock().expect("retry completion probe registry");
     entries.retain(|old| old.strong_count() != 0);
-    assert!(entries.len() < 4, "bounded original retry completion probes");
-    assert!(!entries.iter().filter_map(Weak::upgrade).any(|old| old.owner.ptr_eq(&gate.owner)));
+    assert!(
+        entries.len() < 4,
+        "bounded original retry completion probes"
+    );
+    assert!(
+        !entries
+            .iter()
+            .filter_map(Weak::upgrade)
+            .any(|old| old.owner.ptr_eq(&gate.owner))
+    );
     entries.push(Arc::downgrade(&gate));
     Guard(gate)
 }
@@ -103,23 +120,40 @@ pub(crate) struct Adapter {
     gate: Option<Arc<Gate>>,
 }
 impl Adapter {
-    pub(crate) fn capture(inner: MarmotRelayPlaneAccountAdapter, entry: &SiblingChannel, kind: AccountSharingControl) -> Self {
-        let gate = if kind == AccountSharingControl::Request && !entry.recipient
-            && entry.handshake_published && !entry.ready
+    pub(crate) fn capture(
+        inner: MarmotRelayPlaneAccountAdapter,
+        entry: &SiblingChannel,
+        kind: AccountSharingControl,
+    ) -> Self {
+        let gate = if kind == AccountSharingControl::Request
+            && !entry.recipient
+            && entry.handshake_published
+            && !entry.ready
         {
             if let SiblingOriginal::Existing { original, .. } = entry.original.as_ref() {
-                registry().lock().expect("retry completion probe registry").iter()
-                    .filter_map(Weak::upgrade).find(|gate| {
+                registry()
+                    .lock()
+                    .expect("retry completion probe registry")
+                    .iter()
+                    .filter_map(Weak::upgrade)
+                    .find(|gate| {
                         gate.owner.ptr_eq(&Arc::downgrade(original))
                             && gate.nonce == entry.channel.scope().nonce
                             && gate.deadline == entry.state.deadline
                             && !gate.captured.swap(true, Ordering::AcqRel)
                     })
-            } else { None }
-        } else { None };
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         Self { inner, gate }
     }
-    pub(crate) async fn publish_selected_chat(&self, request: TransportPublishRequest) -> Result<TransportPublishReport, TransportAdapterError> {
+    pub(crate) async fn publish_selected_chat(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
         if let Some(gate) = &self.gate {
             gate.publish_calls.fetch_add(1, Ordering::AcqRel);
         }
@@ -135,7 +169,10 @@ impl Adapter {
         }
         Ok(report)
     }
-    pub(crate) async fn publish_sibling_consent(&self, request: TransportPublishRequest) -> Result<TransportPublishReport, TransportAdapterError> {
+    pub(crate) async fn publish_sibling_consent(
+        &self,
+        request: TransportPublishRequest,
+    ) -> Result<TransportPublishReport, TransportAdapterError> {
         self.inner.publish_sibling_consent(request).await
     }
 }
