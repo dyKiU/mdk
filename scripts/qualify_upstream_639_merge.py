@@ -387,6 +387,11 @@ def capture_mutation_killed(raw, code):
 
 
 def capture_parser_preflight():
+    ensure(capture_inventory_matches(CAPTURE_NAME + ': test\n'), 'terse-capture-inventory-without-summary')
+    ensure(capture_inventory_matches(CAPTURE_NAME + ': test\n1 test, 0 benchmarks\n'), 'terse-capture-inventory-with-summary')
+    for inventory in ['', '1 test, 0 benchmarks\n', CAPTURE_NAME + ': test\n' + CAPTURE_NAME + ': test\n',
+                      'tests::foreign: test\n', CAPTURE_NAME + ': test\n2 tests, 0 benchmarks\n']:
+        ensure(not capture_inventory_matches(inventory), 'capture-inventory-rejects-zero-foreign-or-duplicate-tests')
     panic = ("\nthread '" + CAPTURE_NAME + "' (123) panicked at " + CAPTURE_TEST_FILE + ':'
              + str(capture_assertion_line()) + ':10:\npost-EOSE acquisition must remain eligible while worker is blocked\n')
     raw = ('test ' + CAPTURE_NAME + ' ... ' + panic
@@ -402,7 +407,12 @@ def capture_parser_preflight():
                  ('test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;\n', 0)]
     for value, code in negatives:
         ensure(not capture_mutation_killed(value, code), 'capture-parser-rejects-nonruntime-unrelated-or-incomplete-kill')
-    return {'positive': 1, 'negative': len(negatives), 'actual_runtime_bodies': 0}
+    return {'positive': 1, 'negative': len(negatives), 'inventory_positive': 2, 'inventory_negative': 5, 'actual_runtime_bodies': 0}
+
+
+def capture_inventory_matches(raw):
+    lines = [line for line in raw.splitlines() if line]
+    return lines in [[CAPTURE_NAME + ': test'], [CAPTURE_NAME + ': test', '1 test, 0 benchmarks']]
 
 
 def prior_639_controls(run_id, report, frozen):
@@ -518,7 +528,11 @@ def capture_phase(label, expected, report, save):
     ensure(row['compilation'].get('sdk_dependency_verified') is True, 'actual-sdk-enabled-capture-dependency')
     sha = row['compilation']['binary_sha256']
     code, listed, _ = capture([str(binary), CAPTURE_NAME, '--exact', '--list', '--format', 'terse'], 60)
-    ensure(code == 0 and [line for line in listed.splitlines() if line] == [CAPTURE_NAME + ': test', '1 test, 0 benchmarks'], 'exact-sole-capture-test-inventory')
+    row['inventory'] = {'exit_code': code, 'selected_name_count': listed.splitlines().count(CAPTURE_NAME + ': test'),
+                        'summary_present': '1 test, 0 benchmarks' in listed.splitlines(),
+                        'exact_inventory_matched': capture_inventory_matches(listed)}
+    save()
+    ensure(code == 0 and row['inventory']['exact_inventory_matched'], 'exact-sole-capture-test-inventory')
     code, ignored, _ = capture([str(binary), CAPTURE_NAME, '--exact', '--ignored', '--list', '--format', 'terse'], 60)
     ensure(code == 0 and ignored.strip() in {'', '0 tests, 0 benchmarks'}, 'capture-case-not-ignored')
     ensure(frozen_inputs() == expected and digest(binary.read_bytes()) == sha, 'capture-phase-pristine-before-runtime')
