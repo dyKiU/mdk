@@ -1930,6 +1930,12 @@ async fn run_app_runtime_account_worker(
         TokioInstant,
     )> = None;
     'worker: loop {
+        // OWNER_QUANTUM_YIELD_BEGIN
+        // Cooperate between experimental owner-loop iterations even when biased
+        // selection keeps choosing immediately-ready work; retain timer/debt state.
+        #[cfg(feature = "experimental-device-sync")]
+        tokio::task::yield_now().await;
+        // OWNER_QUANTUM_YIELD_END
         #[cfg(feature = "experimental-device-sync")]
         {
             // Reopened clients inherit only terminal runtime observation, never
