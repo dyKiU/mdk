@@ -2170,6 +2170,11 @@ mod late_peer_proof_acceptance;
 #[path = "late_peer_proof_negative_acceptance.rs"]
 mod late_peer_proof_negative_acceptance;
 // PEER_NEGATIVE_TEST_END
+// REQUEST_RETRY_ACK_TEST_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[path = "request_retry_ack_acceptance.rs"]
+mod request_retry_ack_acceptance;
+// REQUEST_RETRY_ACK_TEST_END
 // REQUEST_RETRY_TEST_BEGIN
 #[cfg(all(test, feature = "test-policy-overrides"))]
 #[path = "request_retry_completion_acceptance.rs"]
