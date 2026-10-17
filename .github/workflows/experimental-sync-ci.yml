@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
+        options: [639-preflight, 639-controls, late-consent-omission-preflight, late-consent-omission, late-consent-candidate-preflight, late-consent-candidate-green, late-consent-red, peer-proof-negative-preflight, peer-proof-negative-controls, peer-proof-negative-mutation, body-late-ack, owner-pairing-unrelated-welcome, peer-proof-candidate-preflight, peer-proof-candidate-green, peer-proof-candidate-mutation, peer-proof-preflight, peer-proof-red, automatic-body-experimental-static, owner-pairing-mutations, body-negative-control, body-negative-mutation, pairing-recovery-components, automatic-body-green-preflight, automatic-body-controls, automatic-body-preflight, automatic-body-red, completion-candidate-preflight, completion-candidate-controls, completion-candidate-mutations, completion-source-preflight, completion-runtime-red, full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, pairing-regression, sync-failure-regressions, withdrawal-stack, publication-regressions, pairing-recovery-convergence]
         default: full
       extraction_cohort_baseline:
         description: Reviewed full source SHA for the extracted transport and storage cohort (empty retains historical guards)
@@ -54,6 +54,161 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
+  # MERGE_639_JOBS_BEGIN
+  merge-639-preflight:
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == '639-preflight' || inputs.scope == '639-controls')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      UPSTREAM_639_BASELINE: ${{ inputs.extraction_cohort_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install exact repository toolchain for metadata and formatting only
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup default "$toolchain"
+      - name: Whole reviewed 639 cohort and existing parser controls before compilation
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_639_merge.py --mode preflight
+      - name: Export exact formatter patch and reject unformatted reviewed inputs
+        run: |
+          cargo fmt --all
+          git diff --binary -- crates > "$RUNNER_TEMP/merge-639-formatting.patch"
+          git diff --exit-code -- crates
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: merge-639-preflight-${{ github.sha }}
+          path: |
+            merge-639-evidence/result.json
+            storage-boundary-evidence/result.json
+            late-consent-candidate-evidence/result.json
+            ${{ runner.temp }}/merge-639-formatting.patch
+          if-no-files-found: error
+          retention-days: 7
+  merge-639-runtime:
+    needs: merge-639-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == '639-controls'
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        cohort: [default, experimental]
+    env:
+      CARGO_BUILD_JOBS: '2'
+      UPSTREAM_639_BASELINE: ${{ inputs.extraction_cohort_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: cargo-nextest@0.9.132
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Actual storage and shared-dispatch controls with exact feature cohorts
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Reviewed 639 focused controls' --output "$RUNNER_TEMP/merge-639-capacity.json"
+          python3 scripts/qualify_upstream_639_merge.py --mode runtime --cohort '${{ matrix.cohort }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: merge-639-runtime-${{ matrix.cohort }}-${{ github.sha }}
+          path: |
+            merge-639-evidence/result.json
+            storage-boundary-evidence/result.json
+            late-consent-candidate-evidence/result.json
+            ${{ runner.temp }}/merge-639-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  merge-639-static:
+    needs: merge-639-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == '639-controls'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        cohort: [default, experimental]
+    env:
+      CARGO_BUILD_JOBS: '2'
+      UPSTREAM_639_BASELINE: ${{ inputs.extraction_cohort_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Both affected-component strict static cohorts
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Reviewed 639 strict static cohort' --output "$RUNNER_TEMP/merge-639-capacity.json"
+          python3 scripts/qualify_upstream_639_merge.py --mode static --cohort '${{ matrix.cohort }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: merge-639-static-${{ matrix.cohort }}-${{ github.sha }}
+          path: |
+            merge-639-evidence/result.json
+            ${{ runner.temp }}/merge-639-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  merge-639-production:
+    needs: merge-639-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == '639-controls'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: '2'
+      UPSTREAM_639_BASELINE: ${{ inputs.extraction_cohort_baseline }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Production experimental libraries without test-policy or test-support features
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Reviewed 639 production feature cohort' --output "$RUNNER_TEMP/merge-639-capacity.json"
+          python3 scripts/qualify_upstream_639_merge.py --mode production
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: merge-639-production-${{ github.sha }}
+          path: |
+            merge-639-evidence/result.json
+            ${{ runner.temp }}/merge-639-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  # MERGE_639_JOBS_END
   # LATE_CONSENT_OMISSION_JOBS_BEGIN
   late-consent-omission-preflight:
     if: github.event_name == 'workflow_dispatch' && startsWith(inputs.scope, 'late-consent-omission')
