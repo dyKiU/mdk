@@ -1221,7 +1221,8 @@ impl AppClient {
         &mut self,
         now: std::time::Instant,
     ) -> Result<(), ClientLinkingError> {
-        self.maintain_device_linking_with_sibling_turn(now, true).await
+        self.maintain_device_linking_with_sibling_turn(now, true)
+            .await
     }
 
     /// The account worker has already serviced its one due sibling quantum.
@@ -1230,7 +1231,8 @@ impl AppClient {
         &mut self,
         now: std::time::Instant,
     ) -> Result<(), ClientLinkingError> {
-        self.maintain_device_linking_with_sibling_turn(now, false).await
+        self.maintain_device_linking_with_sibling_turn(now, false)
+            .await
     }
 
     async fn maintain_device_linking_with_sibling_turn(

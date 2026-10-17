@@ -1945,9 +1945,13 @@ async fn run_app_runtime_account_worker(
         // before the next turn.
         let admit_comparison_turn = {
             #[cfg(feature = "experimental-device-sync")]
-            { !(sibling_maintenance_due && sibling_maintenance_yielded) }
+            {
+                !(sibling_maintenance_due && sibling_maintenance_yielded)
+            }
             #[cfg(not(feature = "experimental-device-sync"))]
-            { true }
+            {
+                true
+            }
         };
         if let Some(job) = comparison_recovery.as_mut()
             && job.network.is_none()
@@ -2066,7 +2070,9 @@ async fn run_app_runtime_account_worker(
         #[cfg(feature = "experimental-device-sync")]
         let sibling_service_turn = sibling_maintenance_due && sibling_maintenance_yielded;
         #[cfg(feature = "experimental-device-sync")]
-        { sibling_maintenance_yielded = sibling_maintenance_due; }
+        {
+            sibling_maintenance_yielded = sibling_maintenance_due;
+        }
         tokio::select! {
                     biased;
                     _ = wait_for_runtime_shutdown(&mut lifecycle_shutdown) => {
