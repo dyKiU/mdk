@@ -81,7 +81,7 @@ jobs:
       RUST_MIN_STACK: '4194304'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
-      UPSTREAM_PURE_QUALIFICATION_BASELINE: 75fb999ceea4ef5abefe25060298b6fe021067f3
+      UPSTREAM_PURE_QUALIFICATION_BASELINE: c2bde1ed27f4bc14a0cc9ec86ba2580f67e383ee
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
@@ -121,7 +121,7 @@ jobs:
       RUST_MIN_STACK: '4194304'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
-      UPSTREAM_PURE_QUALIFICATION_BASELINE: 75fb999ceea4ef5abefe25060298b6fe021067f3
+      UPSTREAM_PURE_QUALIFICATION_BASELINE: c2bde1ed27f4bc14a0cc9ec86ba2580f67e383ee
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
@@ -162,7 +162,7 @@ jobs:
     permissions:
       contents: read
     env:
-      UPSTREAM_PURE_QUALIFICATION_BASELINE: 75fb999ceea4ef5abefe25060298b6fe021067f3
+      UPSTREAM_PURE_QUALIFICATION_BASELINE: c2bde1ed27f4bc14a0cc9ec86ba2580f67e383ee
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -202,7 +202,7 @@ jobs:
     permissions:
       contents: read
     env:
-      UPSTREAM_PURE_QUALIFICATION_BASELINE: 75fb999ceea4ef5abefe25060298b6fe021067f3
+      UPSTREAM_PURE_QUALIFICATION_BASELINE: c2bde1ed27f4bc14a0cc9ec86ba2580f67e383ee
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'

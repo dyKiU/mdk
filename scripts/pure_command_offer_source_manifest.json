@@ -1,5 +1,5 @@
 {
-  "baseline": "75fb999ceea4ef5abefe25060298b6fe021067f3",
+  "baseline": "c2bde1ed27f4bc14a0cc9ec86ba2580f67e383ee",
   "owned_metadata": [
     "scripts/qualify_upstream_pure_command_offer.py",
     "scripts/qualify_upstream_pure_native5.py",
@@ -105,5 +105,20 @@
     "restored_setup_prerequisite_failed": true,
     "receipt_sha256": "681050540e06b0cba42a532831476beb45768e15d5253fe7611066548e3a07d0",
     "does_not_qualify": true
+  },
+  "retained_compile_failure": {
+    "source": "62b60ae9765dfe58c7fa9759c059ddbbe2151af2",
+    "run_id": "39148978891",
+    "runtime_bodies_executed": 0,
+    "compiler_exit_code": 101,
+    "safe_code": "E0609",
+    "unique_safe_site": "pending_restart_acceptance.rs:221:31",
+    "receipt_sha256": "a28e5626573f8e8fdef9b056b46f5c36e3690509039c98e3496dab60255e7788",
+    "behavioral_RED": false
+  },
+  "owner_diagnostic_adaptation": {
+    "source": "c2bde1ed27f4bc14a0cc9ec86ba2580f67e383ee",
+    "semantics": "unified publication is a handshake only for Request or Consent; retain same closed observation and assertions",
+    "product_behavior_changed": false
   }
 }
