@@ -2,7 +2,10 @@
 use crate::{SqliteAppStorage, SqliteResultExt};
 use cgka_traits::{
     GroupId,
-    mirrored_chat_catalog::*,
+    mirrored_chat_catalog::{
+        AcceptedChatOrigin, MAX_MIRRORED_CHAT_PAGE, MirroredChatCatalogStorage, MirroredChatEntry,
+        MirroredChatScope, MirroredChatState,
+    },
     storage::{StorageError, StorageResult},
 };
 use rusqlite::{Connection, OptionalExtension, params};

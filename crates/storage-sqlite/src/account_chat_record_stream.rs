@@ -2,7 +2,12 @@
 use crate::{SqliteAppStorage, SqliteResultExt, approved_account_sharing_policy::load};
 use cgka_traits::{
     GroupId,
-    account_chat_record_stream::*,
+    account_chat_record_stream::{
+        AccountChatRecordBatch, AccountChatRecordReceipt, AccountChatRecordStreamStorage,
+        MAX_ACCOUNT_CHAT_RECORD_BATCH_BYTES, MAX_ACCOUNT_CHAT_RECORD_GENERATION_RECEIPTS,
+        MAX_ACCOUNT_CHAT_RECORD_JOURNAL, MAX_ACCOUNT_CHAT_RECORD_OUTBOX,
+        MAX_ACCOUNT_CHAT_RECORD_OUTBOX_BYTES, MAX_ACCOUNT_CHAT_RECORD_RECEIPTS,
+    },
     mirrored_chat_catalog::MirroredChatScope,
     mirrored_chat_messages::{
         MAX_MIRRORED_MESSAGE_PAGE, MirroredChatMessageStorage, MirroredChatRecord,
