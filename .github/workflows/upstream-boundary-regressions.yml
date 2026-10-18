@@ -11,7 +11,7 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
+        options: [generated-identity-preflight, generated-identity-default-diagnostic, generated-identity-policy-experimental, rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
         default: all
       storage_controls_run_id:
         description: Successful eight-control run on this exact helper SHA (mutations only)
@@ -25,6 +25,120 @@ env:
   UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ github.event_name == 'pull_request' && '0c9065255fa16292e84e12b32fb920db0494b9aa' || inputs.extraction_cohort_baseline }}
 
 jobs:
+  # GENERATED_IDENTITY_DIAGNOSTIC_JOBS_BEGIN
+  generated-identity-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["generated-identity-preflight","generated-identity-default-diagnostic","generated-identity-policy-experimental"]'), inputs.case)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GENERATED_IDENTITY_BASELINE: 07da7dd155cd9c93b63afad5a8d8c4a63afbc209
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact frozen source and closed count and marker adversaries
+        run: python3 scripts/qualify_upstream_generated_identity_diagnostic.py --preflight --cohort default
+      - name: Remote test-file formatter and exact source patch
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup run "$toolchain" rustfmt --edition 2024 --config skip_children=true crates/marmot-app/src/tests.rs
+          git diff -- crates/marmot-app/src/tests.rs > "$RUNNER_TEMP/generated-identity-format.patch"
+          test ! -s "$RUNNER_TEMP/generated-identity-format.patch"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: generated-identity-preflight
+          path: |
+            generated-identity-diagnostic-evidence/result.json
+            ${{ runner.temp }}/generated-identity-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  generated-identity-default-diagnostic:
+    needs: generated-identity-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'generated-identity-default-diagnostic'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GENERATED_IDENTITY_BASELINE: 07da7dd155cd9c93b63afad5a8d8c4a63afbc209
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install frozen source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: true
+      - name: Explicit default App source-policy control and original identity diagnostic
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_generated_identity_diagnostic.py --cohort default
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: generated-identity-default-diagnostic
+          path: generated-identity-diagnostic-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+  generated-identity-policy-experimental:
+    needs: generated-identity-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'generated-identity-policy-experimental'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GENERATED_IDENTITY_BASELINE: 07da7dd155cd9c93b63afad5a8d8c4a63afbc209
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install frozen source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: experimental-sync-tests
+          cache-on-failure: true
+      - name: Explicit experimental App source-policy control only
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_generated_identity_diagnostic.py --cohort experimental
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: generated-identity-policy-experimental
+          path: generated-identity-diagnostic-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+  # GENERATED_IDENTITY_DIAGNOSTIC_JOBS_END
+
   # ROTATING_SPONSOR_CANDIDATE_JOBS_BEGIN
   rotating-sponsor-candidate-preflight:
     if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["rotating-sponsor-candidate-preflight","rotating-sponsor-candidate-green","rotating-sponsor-candidate-mutations"]'), inputs.case)
