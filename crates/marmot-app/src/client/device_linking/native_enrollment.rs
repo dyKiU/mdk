@@ -127,7 +127,14 @@ impl AppClient {
                 );
             })
             .map_err(|error| ClientLinkingError::Runtime(Box::new(error)))?;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        use super::sibling_sharing::NativePolicyValidationFailure as ValidationFailure;
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let validation_failure = std::cell::Cell::new(None::<ValidationFailure>);
         let validator = || -> cgka_traits::storage::StorageResult<()> {
+            // Only the actual latest invocation can annotate this call's error.
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            validation_failure.set(None);
             let denied = || {
                 cgka_traits::storage::StorageError::Serialization(
                     "original pairing sharing approval unavailable".into(),
@@ -137,23 +144,51 @@ impl AppClient {
                 || Instant::now() >= original.deadline
                 || !guard.matches_original_context(&original.context)
             {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                validation_failure.set(Some(ValidationFailure::OriginalUnavailable));
                 return Err(denied());
             }
             let round = storage
                 .private_roster_settlement_storage()
-                .ok_or_else(denied)?
-                .read_round()?
-                .ok_or_else(denied)?;
-            guard.validate(&round.anchor).map_err(|_| denied())?;
+                .ok_or_else(|| {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    validation_failure.set(Some(ValidationFailure::SettlementStoreMissing));
+                    denied()
+                })?
+                .read_round()
+                .inspect_err(|_| {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    validation_failure.set(Some(ValidationFailure::RoundReadErr));
+                })?
+                .ok_or_else(|| {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    validation_failure.set(Some(ValidationFailure::RoundMissing));
+                    denied()
+                })?;
+            guard.validate(&round.anchor).map_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                validation_failure.set(Some(ValidationFailure::GuardAnchor));
+                denied()
+            })?;
             let fresh = self
                 .runtime
                 .session()
                 .validated_settled_device_roster(&group)
-                .map_err(|_| denied())?
-                .ok_or_else(denied)?;
+                .map_err(|_| {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    validation_failure.set(Some(ValidationFailure::FreshCoreErr));
+                    denied()
+                })?
+                .ok_or_else(|| {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    validation_failure.set(Some(ValidationFailure::FreshCoreNone));
+                    denied()
+                })?;
             if fresh.settlement_generation() != generation
                 || fresh.candidate() != roster.candidate()
             {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                validation_failure.set(Some(ValidationFailure::RosterChanged));
                 return Err(denied());
             }
             Ok(())
@@ -178,7 +213,10 @@ impl AppClient {
                 #[cfg(all(test, feature = "test-policy-overrides"))]
                 original.record_persist_failure_for_test(
                     super::sibling_sharing::NativePersistFailure::PolicyCommit,
-                    Some(super::sibling_sharing::native_persist_storage_kind(_error)),
+                    Some(super::sibling_sharing::native_persist_storage_kind(
+                        _error,
+                        validation_failure.get(),
+                    )),
                 );
             })
             .map_err(|error| ClientLinkingError::Engine(error.into()))?;

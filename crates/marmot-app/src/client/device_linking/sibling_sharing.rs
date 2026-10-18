@@ -63,11 +63,25 @@ pub(crate) type NativePersistFailureSnapshot = (
     bool,
     Option<(NativePersistFailure, Option<&'static str>)>,
 );
-// Same exhaustive variant-only classification as error.rs::storage_error_kind;
-// that helper is private to its module. Never inspect or retain Display text.
+// Stack-local markers only. They never authorize or persist a validation.
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Clone, Copy)]
+pub(super) enum NativePolicyValidationFailure {
+    OriginalUnavailable,
+    SettlementStoreMissing,
+    RoundReadErr,
+    RoundMissing,
+    GuardAnchor,
+    FreshCoreErr,
+    FreshCoreNone,
+    RosterChanged,
+}
+// Match only three exact source-owned Serialization literals. Never format,
+// retain or export a dynamic payload; every other Serialization is unknown.
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(super) fn native_persist_storage_kind(
     error: &cgka_traits::storage::StorageError,
+    validation_failure: Option<NativePolicyValidationFailure>,
 ) -> &'static str {
     use cgka_traits::storage::StorageError;
     match error {
@@ -83,7 +97,23 @@ pub(super) fn native_persist_storage_kind(
         StorageError::UnsupportedSchemaVersion { .. } => "storage_unsupported_schema_version",
         StorageError::InvalidAttachmentBody(_) => "storage_invalid_attachment_body",
         StorageError::Backend(_) => "storage_backend",
-        StorageError::Serialization(_) => "storage_serialization",
+        StorageError::Serialization(message) => match message.as_str() {
+            "original pairing sharing approval unavailable" => match validation_failure {
+                Some(NativePolicyValidationFailure::OriginalUnavailable) => "storage_serialization_original_unavailable",
+                Some(NativePolicyValidationFailure::SettlementStoreMissing) => "storage_serialization_settlement_store_missing",
+                // This is an observed read Err, not a native-generated denial.
+                Some(NativePolicyValidationFailure::RoundReadErr) => "storage_serialization_round_read_err",
+                Some(NativePolicyValidationFailure::RoundMissing) => "storage_serialization_round_missing",
+                Some(NativePolicyValidationFailure::GuardAnchor) => "storage_serialization_guard_anchor",
+                Some(NativePolicyValidationFailure::FreshCoreErr) => "storage_serialization_fresh_core_err",
+                Some(NativePolicyValidationFailure::FreshCoreNone) => "storage_serialization_fresh_core_none",
+                Some(NativePolicyValidationFailure::RosterChanged) => "storage_serialization_roster_changed",
+                None => "storage_serialization_unknown",
+            },
+            "fresh original legacy acceptance unavailable" => "storage_serialization_legacy_unavailable",
+            "invalid account sharing policy" => "storage_serialization_invalid_policy",
+            _ => "storage_serialization_unknown",
+        },
     }
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
