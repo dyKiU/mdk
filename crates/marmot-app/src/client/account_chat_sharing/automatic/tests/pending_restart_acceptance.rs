@@ -95,6 +95,7 @@ impl AppClient {
             let mut tick_millis = [0_u128; 2];
             let mut waiting_at = (0, "before_delivery");
             let mut waiting_since = std::time::Instant::now();
+            let delivery_started = std::time::Instant::now();
             let delivery = tokio::time::timeout(Duration::from_secs(30), async {
                 loop {
                     for (i, client) in clients.iter_mut().enumerate() {
@@ -143,9 +144,9 @@ impl AppClient {
                 ).map(|(low,high)| low.channel.scope().nonce == high.channel.scope().nonce);
                 eprintln!("pending_restart_ready_role_original_nonce_live_core_valid={observations:?} same_nonce={same_nonce:?}");
             };
+            eprintln!("pending_restart_delivery_observation recovered={} source_is_lower={} elapsed_millis={} completed_syncs={completed_syncs:?} sync_millis={sync_millis:?} completed_ticks={completed_ticks:?} tick_millis={tick_millis:?} waiting_at={waiting_at:?} waiting_millis={}", delivery.is_ok(), lower == 0, delivery_started.elapsed().as_millis(), waiting_since.elapsed().as_millis());
             observation();
             if delivery.is_err() {
-                eprintln!("pending_restart_post_timeout_completed_syncs={completed_syncs:?} sync_millis={sync_millis:?} completed_ticks={completed_ticks:?} tick_millis={tick_millis:?} waiting_at={waiting_at:?} waiting_millis={}", waiting_since.elapsed().as_millis());
                 // Post-timeout observations only. Failed reads stay unknown and
                 // never replace the original recovery-deadline failure.
                 let projection = (|| {
