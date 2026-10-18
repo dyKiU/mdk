@@ -103,7 +103,7 @@ jobs:
           # Preserve missing authored private guidance from the last combined
           # reference. Current upstream entries win every overlapping key;
           # the canonical generator below rewrites all signatures and anchors.
-          reference = '9ff93a8f5475aa075d820e0acb7d4cc9b7b127b8'
+          reference = '0aeb969a5c17102c00945b1c856fdc59983e2718'
           paths = [Path('crates/marmot-uniffi/API-REFERENCE.md'),
                    Path('crates/marmot-c/API-REFERENCE.md')]
           catalogs = [canonical.uniffi_catalog(), canonical.c_exports_in(
