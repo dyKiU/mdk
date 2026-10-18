@@ -1,14 +1,62 @@
 """Mechanical acceptance for qualification counts, oracle and restoration."""
 from pathlib import Path
+import json
 import re
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
-from qualify_hot_checkpoints import CASES, READY_FAILURE, binary_identity, check_case, inputs, restore_actor
+from qualify_hot_checkpoints import ACTOR, HARNESS, ORIGINAL, CASES, READY_FAILURE, binary_identity, check_case, feature_cohort, inputs, qualify, restore_actor
 
 
 class CheckpointQualificationTests(unittest.TestCase):
+    def test_actual_dependency_features_are_order_independent_and_sensitive_to_change(self):
+        app = dict(reason="compiler-artifact", package_id="app", target=dict(name="app", kind=["lib"]),
+                   profile=dict(test=True), features=["test-policy-overrides", "default"])
+        dependency = dict(reason="compiler-artifact", package_id="dependency", target=dict(name="dependency", kind=["lib"]),
+                          profile=dict(test=False), features=["std"])
+        observed = feature_cohort([app, dependency])
+        self.assertEqual(observed, feature_cohort([dependency, app, app]))
+        changed = dict(dependency, features=["std", "changed"])
+        self.assertNotEqual(observed, feature_cohort([app, changed]))
+        self.assertEqual({row["package"] for row in observed}, {"app", "dependency"})
+        with self.assertRaises(ValueError):
+            feature_cohort([])
+
+    def test_failed_proof_excludes_free_form_exception_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "repo"
+            for name, content in ((ACTOR, ORIGINAL), (HARNESS, b"synthetic fixture")):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+
+            def git_output(command, **kwargs):
+                if command[1:3] == ["ls-files", "-z"]:
+                    return (ACTOR + "\0" + HARNESS + "\0").encode()
+                if command[1] in ("status", "ls-files"):
+                    return b""
+                if command[1:] == ["rev-parse", "--show-toplevel"]:
+                    return str(root) + "\n"
+                if command[1] == "rev-parse":
+                    return "0" * 40 + "\n"
+                raise AssertionError("Unexpected controller command")
+
+            output = Path(directory) / "evidence"
+            with mock.patch("qualify_hot_checkpoints.subprocess.check_output", side_effect=git_output), \
+                    mock.patch("qualify_hot_checkpoints.subprocess.run"), \
+                    mock.patch.dict("os.environ", {"GITHUB_SHA": "0" * 40}), \
+                    mock.patch("qualify_hot_checkpoints.compile_app", side_effect=ValueError("synthetic private marker")):
+                with self.assertRaises(ValueError):
+                    qualify(root, output)
+            raw = (output / "proof/checkpoint-proof.json").read_text()
+            self.assertNotIn("synthetic private marker", raw)
+            state = json.loads(raw)
+            self.assertFalse(state["completed"])
+            self.assertTrue(state["inputs_restored"])
+            self.assertEqual(state["error_kind"], "verification_failed")
+
     def test_input_identity_detects_mode_only_changes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
