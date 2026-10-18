@@ -304,17 +304,16 @@ async fn run_search<F>(
     // finds nobody by definition rather than everybody.
     let query = params.query.trim().to_lowercase();
     if !query.is_empty() {
-        let open_ranking_search_endpoint =
-            app.service_endpoints().open_ranking_search_endpoint.clone();
-        let open_ranking_profile_relays = app
-            .service_endpoints()
-            .open_ranking_profile_relays
-            .iter()
-            .cloned()
+        let open_ranking = app.deployment().open_ranking.clone();
+        let open_ranking_search_endpoint = open_ranking
+            .as_ref()
+            .map(|provider| provider.search_endpoint.clone());
+        let open_ranking_profile_relays = open_ranking
+            .map(|provider| provider.profile_relays)
+            .unwrap_or_default()
+            .into_iter()
             .map(TransportEndpoint)
             .collect::<Vec<_>>();
-        let open_ranking_search_endpoint =
-            open_ranking_search_endpoint.filter(|_| !open_ranking_profile_relays.is_empty());
         let cached_app = app.clone();
         let cached_searcher = searcher_account_id_hex.clone();
         let cached_query = query.clone();
@@ -1867,6 +1866,32 @@ mod tests {
         assert_eq!(updates[0].total_result_count, 0);
     }
 
+    /// `deployment` is a public field, so a struct literal can skip
+    /// `with_deployment`. A provider with no profile relay must still be off,
+    /// whichever constructor stores the config, or every query would reach it.
+    #[test]
+    fn open_ranking_without_profile_relays_is_disabled_when_set_through_the_field() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = crate::MarmotAppConfig::default();
+        config.deployment.open_ranking = Some(crate::OpenRankingProvider {
+            search_endpoint: "https://rank.example".into(),
+            profile_relays: vec!["  ".into()],
+        });
+        let relay_only = MarmotApp::with_relays_and_config(
+            dir.path().join("relay-only"),
+            vec!["wss://relay.example".into()],
+            config.clone(),
+        );
+        assert_eq!(relay_only.deployment().open_ranking, None);
+        let with_home = MarmotApp::with_relays_and_account_home_and_config(
+            dir.path().join("with-home"),
+            vec!["wss://relay.example".into()],
+            AccountHome::open(dir.path().join("with-home")),
+            config,
+        );
+        assert_eq!(with_home.deployment().open_ranking, None);
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn streams_a_cached_radius_zero_match_through_the_full_update_sequence() {
         let dir = tempfile::tempdir().unwrap();
@@ -1874,9 +1899,7 @@ mod tests {
         let account = home.create_account("alice").unwrap();
         let app = MarmotApp::with_relay(dir.path(), "wss://relay.example");
         assert!(
-            app.service_endpoints()
-                .open_ranking_search_endpoint
-                .is_none(),
+            app.deployment().open_ranking.is_none(),
             "dev/test convenience constructors must never call a live provider"
         );
         let cache = app.directory_cache_for_account(&account).unwrap();
