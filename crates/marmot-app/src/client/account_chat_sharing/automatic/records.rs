@@ -61,11 +61,19 @@ impl RecordProgress {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn test_body_state(&self) -> (Option<bool>, Option<(usize, usize)>) {
         (
-            self.pending.as_ref().map(|pending| pending.published_at.is_some()),
-            self.assembly.as_ref().map(|assembly| (
-                assembly.fragments.len(),
-                assembly.fragments.iter().filter(|part| part.is_some()).count(),
-            )),
+            self.pending
+                .as_ref()
+                .map(|pending| pending.published_at.is_some()),
+            self.assembly.as_ref().map(|assembly| {
+                (
+                    assembly.fragments.len(),
+                    assembly
+                        .fragments
+                        .iter()
+                        .filter(|part| part.is_some())
+                        .count(),
+                )
+            }),
         )
     }
     pub(super) fn has_pending(&self) -> bool {
