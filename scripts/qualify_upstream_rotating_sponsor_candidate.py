@@ -67,7 +67,8 @@ COMPONENT=[PREFIX+name for name in [
  'private_device_invite_encrypted_reopen_retains_exact_uncertainty_and_scope',
  'private_invite_transport_duplicate_ids_do_not_freeze_a_draft',
  'private_invite_batch_bounds_and_exact_order_are_atomic',
- 'private_invite_full_bound_batch_survives_storage_and_old_singleton_shape_fails_closed']]
+ 'private_invite_full_bound_batch_survives_storage_and_old_singleton_shape_fails_closed']]+['base::migrations::private_device_invite_tests::schema_preserves_confirmed_anchor_separately',
+ 'base::migrations::private_device_invite_tests::schema_retirement_and_deletion_preserve_denied_provenance']
 OUT=Path('rotating-sponsor-candidate-evidence')
 
 def source_guard():
@@ -124,7 +125,7 @@ def prior_receipt(kind):
         infos=archive.infolist()
         ensure(len(infos)==1 and infos[0].filename=='result.json' and infos[0].file_size<=1024*1024,'prior-'+kind+'-single-result')
         receipt=json.loads(archive.read(infos[0]))
-    expected=(5,2,3) if kind=='red' else (21,21,0)
+    expected=(5,2,3) if kind=='red' else (23,23,0)
     ensure(receipt['source_guard']['source']==pin['head_sha'] and receipt['inputs_pristine'] is True
         and receipt['actual_counts_complete'] is True
         and all(type(receipt[k]) is int for k in ['actual_executed_nonignored','actual_passed','actual_failed','actual_ignored'])
@@ -150,9 +151,9 @@ def inventory(binary,names,phase,save):
     lines=[line for line in raw.splitlines() if line]
     actual=[line[:-6] for line in lines if line.endswith(': test')]
     remainder=[line for line in lines if not line.endswith(': test')]
-    phase['module_inventory']={'names':actual,'unknown_or_summary_lines':len(remainder),'expected_count':21};save()
-    ensure(code==0 and sorted(actual)==sorted(COMPONENT) and len(actual)==21
-        and remainder in [[],['21 tests, 0 benchmarks']],'exact-full-component-inventory')
+    phase['module_inventory']={'names':actual,'unknown_or_summary_lines':len(remainder),'expected_count':23};save()
+    ensure(code==0 and sorted(actual)==sorted(COMPONENT) and len(actual)==23
+        and remainder in [[],['23 tests, 0 benchmarks']],'exact-full-component-inventory')
     for name in names:
         for ignored in [False,True]:
             command=[str(binary),'--exact',name]+(['--ignored'] if ignored else [])+['--list','--format','terse']
@@ -232,7 +233,7 @@ def main(args):
         if args.mode=='green':
             target=report['phases']['controls']={};report['component_green']=phase(COMPONENT,frozen,target,save)
             report.update({key:target.get(key) for key in ['actual_passed','actual_failed','actual_ignored','actual_executed_nonignored','actual_counts_complete']});save()
-            ensure(report['component_green'],'all21-component-controls-required');return
+            ensure(report['component_green'],'all23-component-controls-required');return
         report['reviewed_component_GREEN']=prior_receipt('green');save()
         baseline=report['phases']['baseline']={};ensure(phase(red.CASES,frozen,baseline,save),'five-baseline-controls-required')
         ensure(baseline['compilation']['binary_sha256']==report['reviewed_component_GREEN']['compiled_binary_sha256'] and baseline['compilation']['compiler_artifact_feature_manifest_sha256']==report['reviewed_component_GREEN']['feature_profile_manifest_sha256'],'prior-green-binary-and-profile-match')

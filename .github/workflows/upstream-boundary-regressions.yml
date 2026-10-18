@@ -93,7 +93,7 @@ jobs:
         with:
           shared-key: experimental-sync-tests
           cache-on-failure: true
-      - name: One experimental storage compile and every exact invite component body
+      - name: One experimental storage compile and every exact invite component and migration body
         env:
           CARGO_INCREMENTAL: '1'
           GH_TOKEN: ${{ github.token }}
