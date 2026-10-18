@@ -17,32 +17,57 @@ fn native5_prefix_report(
     ids: &[Option<cgka_traits::MessageId>; 3],
 ) -> String {
     use std::fmt::Write as _;
-    let keys = ids.each_ref().map(|id| id.as_ref().map(|id| hex::encode(id.as_slice())));
-    let snapshot = plane.account_notification_prefix_for_test(account, keys.each_ref().map(|key| key.as_deref()));
+    let keys = ids
+        .each_ref()
+        .map(|id| id.as_ref().map(|id| hex::encode(id.as_slice())));
+    let snapshot = plane
+        .account_notification_prefix_for_test(account, keys.each_ref().map(|key| key.as_deref()));
     let mut output = String::new();
     if let Some(snapshot) = snapshot {
-        let _ = writeln!(&mut output, "native5-prefix observed=true entries=Some({}) at_capacity=Some({})", snapshot.entries, snapshot.at_capacity);
+        let _ = writeln!(
+            &mut output,
+            "native5-prefix observed=true entries=Some({}) at_capacity=Some({})",
+            snapshot.entries, snapshot.at_capacity
+        );
         for (index, row) in snapshot.rows.into_iter().enumerate() {
             let row = row.map(|row| {
                 let mut invalid = row.invalid;
                 let mut relative = |instant: std::time::Instant| {
-                    let value = instant.checked_duration_since(origin)
+                    let value = instant
+                        .checked_duration_since(origin)
                         .and_then(|duration| u64::try_from(duration.as_micros()).ok())
                         .filter(|value| *value <= 600_000_000);
-                    if value.is_none() { invalid = true; }
+                    if value.is_none() {
+                        invalid = true;
+                    }
                     value
                 };
                 let anchor = relative(row.target_first_accepted);
-                let first = row.earliest_qualifying_first_dequeue.and_then(&mut relative);
+                let first = row
+                    .earliest_qualifying_first_dequeue
+                    .and_then(&mut relative);
                 let last = row.latest_qualifying_first_dequeue.and_then(&mut relative);
-                (anchor, row.qualifying_distinct, row.qualifying_callbacks,
-                    row.older_without_dequeue, row.older_first_dequeued_before_anchor,
-                    first, last, invalid)
+                (
+                    anchor,
+                    row.qualifying_distinct,
+                    row.qualifying_callbacks,
+                    row.older_without_dequeue,
+                    row.older_first_dequeued_before_anchor,
+                    first,
+                    last,
+                    invalid,
+                )
             });
-            let _ = writeln!(&mut output, "native5-prefix-row index={index} observation={row:?}");
+            let _ = writeln!(
+                &mut output,
+                "native5-prefix-row index={index} observation={row:?}"
+            );
         }
     } else {
-        let _ = writeln!(&mut output, "native5-prefix observed=false entries=None at_capacity=None");
+        let _ = writeln!(
+            &mut output,
+            "native5-prefix observed=false entries=None at_capacity=None"
+        );
     }
     output
 }
@@ -370,89 +395,90 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     if let Some((ordinal, guard)) = native5_timing.take() {
         let mut prefix_report = String::new();
         let mut report = guard.freeze(|origin, peer_outer_ids| {
-                prefix_report = native5_prefix_report(&apps[ordinal - 1].relay_plane, &account, origin, &peer_outer_ids);
-                std::array::from_fn(|plane| {
-                    std::array::from_fn(|channel| {
-                        peer_outer_ids[channel]
-                            .as_ref()
-                            .and_then(|message| {
-                                apps[plane]
-                                    .relay_plane
-                                    .account_notification_timing_for_test(
-                                        &account,
-                                        &hex::encode(message.as_slice()),
+            prefix_report = native5_prefix_report(
+                &apps[ordinal - 1].relay_plane,
+                &account,
+                origin,
+                &peer_outer_ids,
+            );
+            std::array::from_fn(|plane| {
+                std::array::from_fn(|channel| {
+                    peer_outer_ids[channel]
+                        .as_ref()
+                        .and_then(|message| {
+                            apps[plane]
+                                .relay_plane
+                                .account_notification_timing_for_test(
+                                    &account,
+                                    &hex::encode(message.as_slice()),
+                                )
+                        })
+                        .map(
+                            |(counts, instants, placements, placement_instants, queue)| {
+                                let mut invalid = 0u8;
+                                let times = std::array::from_fn(|stage| {
+                                    instants[stage].and_then(|instant| {
+                                        let time = instant
+                                            .checked_duration_since(origin)
+                                            .and_then(|duration| {
+                                                u64::try_from(duration.as_micros()).ok()
+                                            })
+                                            .filter(|time| *time <= 600_000_000);
+                                        if time.is_none() {
+                                            invalid |= 1 << stage;
+                                        }
+                                        time
+                                    })
+                                });
+                                let mut placement_invalid = 0u8;
+                                let placement_times = std::array::from_fn(|stage| {
+                                    placement_instants[stage].and_then(|instant| {
+                                        let time = instant
+                                            .checked_duration_since(origin)
+                                            .and_then(|duration| {
+                                                u64::try_from(duration.as_micros()).ok()
+                                            })
+                                            .filter(|time| *time <= 600_000_000);
+                                        if time.is_none() {
+                                            placement_invalid |= 1 << stage;
+                                        }
+                                        time
+                                    })
+                                });
+                                {
+                                    let (depths, dequeued, first_dequeued, mut queue_invalid) =
+                                        queue;
+                                    let first_dequeued_us = first_dequeued.and_then(|instant| {
+                                        let time = instant
+                                            .checked_duration_since(origin)
+                                            .and_then(|duration| {
+                                                u64::try_from(duration.as_micros()).ok()
+                                            })
+                                            .filter(|time| *time <= 600_000_000);
+                                        if time.is_none() {
+                                            queue_invalid = true;
+                                        }
+                                        time
+                                    });
+                                    (
+                                        Some(counts),
+                                        Some(times),
+                                        Some(invalid),
+                                        Some(placements),
+                                        Some(placement_times),
+                                        Some(placement_invalid),
+                                        Some((depths, dequeued, first_dequeued_us, queue_invalid)),
                                     )
-                            })
-                            .map(
-                                |(counts, instants, placements, placement_instants, queue)| {
-                                    let mut invalid = 0u8;
-                                    let times = std::array::from_fn(|stage| {
-                                        instants[stage].and_then(|instant| {
-                                            let time = instant
-                                                .checked_duration_since(origin)
-                                                .and_then(|duration| {
-                                                    u64::try_from(duration.as_micros()).ok()
-                                                })
-                                                .filter(|time| *time <= 600_000_000);
-                                            if time.is_none() {
-                                                invalid |= 1 << stage;
-                                            }
-                                            time
-                                        })
-                                    });
-                                    let mut placement_invalid = 0u8;
-                                    let placement_times = std::array::from_fn(|stage| {
-                                        placement_instants[stage].and_then(|instant| {
-                                            let time = instant
-                                                .checked_duration_since(origin)
-                                                .and_then(|duration| {
-                                                    u64::try_from(duration.as_micros()).ok()
-                                                })
-                                                .filter(|time| *time <= 600_000_000);
-                                            if time.is_none() {
-                                                placement_invalid |= 1 << stage;
-                                            }
-                                            time
-                                        })
-                                    });
-                                    {
-                                        let (depths, dequeued, first_dequeued, mut queue_invalid) =
-                                            queue;
-                                        let first_dequeued_us =
-                                            first_dequeued.and_then(|instant| {
-                                                let time = instant
-                                                    .checked_duration_since(origin)
-                                                    .and_then(|duration| {
-                                                        u64::try_from(duration.as_micros()).ok()
-                                                    })
-                                                    .filter(|time| *time <= 600_000_000);
-                                                if time.is_none() {
-                                                    queue_invalid = true;
-                                                }
-                                                time
-                                            });
-                                        (
-                                            Some(counts),
-                                            Some(times),
-                                            Some(invalid),
-                                            Some(placements),
-                                            Some(placement_times),
-                                            Some(placement_invalid),
-                                            Some((
-                                                depths,
-                                                dequeued,
-                                                first_dequeued_us,
-                                                queue_invalid,
-                                            )),
-                                        )
-                                    }
-                                },
-                            )
-                            .unwrap_or((None, None, None, None, None, None, None))
-                    })
+                                }
+                            },
+                        )
+                        .unwrap_or((None, None, None, None, None, None, None))
                 })
-            });
-        if report.len() + prefix_report.len() <= 65536 { report.push_str(&prefix_report); }
+            })
+        });
+        if report.len() + prefix_report.len() <= 65536 {
+            report.push_str(&prefix_report);
+        }
         native5_timing_reports.push((ordinal, report));
     }
     // NATIVE5_TIMING_END
