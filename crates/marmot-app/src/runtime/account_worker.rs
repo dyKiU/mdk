@@ -1903,6 +1903,8 @@ async fn run_app_runtime_account_worker(
         });
 
     let mut yield_to_convergence = false;
+    #[cfg(feature = "experimental-device-sync")]
+    let mut command_input_service_owed = false;
     let mut local_submission_service_owed = false;
     let mut comparison_recovery: Option<ComparisonRecoveryJob> = None;
     #[cfg(feature = "experimental-device-sync")]
@@ -2058,6 +2060,22 @@ async fn run_app_runtime_account_worker(
                 continue 'worker;
             }
         }
+        // COMMAND_BACKLOG_TEST_BEGIN
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        if let Some(pause) = client.command_backlog_pause_for_test([
+            !client.has_pending_effect_projections(),
+            selected_welcome_retry.is_none(),
+            revoked_confirmation_retry.is_none(),
+            enrollment_capacity_retry.is_none(),
+            comparison_recovery.is_none(),
+        ]) {
+            pause.wait().await;
+        }
+        // COMMAND_BACKLOG_TEST_END
         let ready_command =
             ready_command_index(&pending, &media_http, comparison_recovery.is_some());
         #[cfg(test)]
@@ -2261,6 +2279,13 @@ async fn run_app_runtime_account_worker(
                     // Alternate a command and a ready recovery quantum. A permanently
                     // nonempty command channel must not starve group convergence.
                     command = async {
+                        #[cfg(feature = "experimental-device-sync")]
+                        if command_input_service_owed {
+                            // Retain consumption across select cancellation. Do not
+                            // remove a command before offering other ready input.
+                            command_input_service_owed = false;
+                            tokio::task::yield_now().await;
+                        }
                         match ready_command.and_then(|index| pending.remove(index)) {
                             Some(command) => Some((command, true)),
                             None => commands.recv().await.map(|command| (command, false)),
@@ -2269,6 +2294,8 @@ async fn run_app_runtime_account_worker(
                         yield_to_convergence = true;
                         match command {
                             Some((command, approved_pending)) => {
+                                #[cfg(feature = "experimental-device-sync")]
+                                { command_input_service_owed = true; }
                                 #[cfg(test)]
                                 tests::secondary_retry_scheduler_tests::record_command(&account_id_hex, &command);
                                 // ready_command_index has already approved pending work

@@ -2028,6 +2028,16 @@ impl AppClient {
                         return Err(Error::NotReady);
                     }
                     entry.peer_committed = true;
+                    // COMMAND_BACKLOG_TEST_BEGIN
+                    #[cfg(all(
+                        test,
+                        feature = "experimental-device-sync",
+                        feature = "test-policy-overrides"
+                    ))]
+                    if received.control == AccountSharingControl::Body(0) {
+                        peer_proof_probe::command_backlog::accepted(&entry);
+                    }
+                    // COMMAND_BACKLOG_TEST_END
                     // PEER_NEGATIVE_TEST_BEGIN
                     #[cfg(all(test, feature = "test-policy-overrides"))]
                     peer_proof_probe::negative::accepted(&entry);
@@ -2492,6 +2502,34 @@ impl AppClient {
         self.commit_policy_with_legacy_chats(&policy, &capture, &validate)
             .map_err(|error| ClientLinkingError::Engine(error.into()))
     }
+    // COMMAND_BACKLOG_TEST_BEGIN
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn command_backlog_pause_for_test(
+        &self,
+        receive: [bool; 5],
+    ) -> Option<peer_proof_probe::command_backlog::Pause> {
+        peer_proof_probe::command_backlog::pause(
+            &self.linking_owner.sibling_channels,
+            receive,
+            || self.adapter.account_delivery_queue_len_for_test(),
+        )
+    }
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
+    pub(crate) fn command_backlog_ingest_for_test(
+        &self,
+        message: &cgka_traits::MessageId,
+    ) -> Option<peer_proof_probe::command_backlog::Ingest> {
+        peer_proof_probe::command_backlog::begin(&self.linking_owner.sibling_channels, message)
+    }
+    // COMMAND_BACKLOG_TEST_END
     async fn start_sibling_publication(
         &mut self,
         entry: &mut SiblingChannel,
@@ -2649,6 +2687,16 @@ impl AppClient {
         let state = entry.state.clone();
         let mut shutdown = self.history_owner.runtime_shutdown.clone();
         let proof = body.is_some();
+        // COMMAND_BACKLOG_TEST_BEGIN
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
+        if proof {
+            peer_proof_probe::command_backlog::prepared(entry, &request.message.id);
+        }
+        // COMMAND_BACKLOG_TEST_END
         // PEER_NEGATIVE_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         if proof {

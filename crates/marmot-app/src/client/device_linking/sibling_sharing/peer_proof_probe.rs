@@ -1,4 +1,12 @@
 //! Test-only passive snapshots and one original recipient's real publication hold.
+// COMMAND_BACKLOG_TEST_BEGIN
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+pub(crate) mod command_backlog;
+// COMMAND_BACKLOG_TEST_END
 use super::*;
 // REQUEST_RETRY_TEST_BEGIN
 #[cfg(all(test, feature = "test-policy-overrides"))]
