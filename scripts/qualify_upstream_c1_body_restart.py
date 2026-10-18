@@ -8,8 +8,8 @@ import qualify_upstream_automatic_body as held
 import qualify_upstream_body_late_ack as late
 import upstream_completion_ci as completion
 ensure=bounded.ensure
-BASE='a098e72bc4071faac524babedb93dd1fb34ac1ca'
-WORKFLOW_SHA='f15f1d5e5389aed4ff02d7c392867334e992de88136602971323c0a8ab6ec4d3'
+BASE='df0e2177230fbe17cbd1d193e05c463efea37df9'
+WORKFLOW_SHA='fcaed3c540b0824cbaaa4fbd1ea6ab6cca13c2d448beaec84ccc3d5ccda879ed'
 SELF='scripts/qualify_upstream_c1_body_restart.py'
 WORKFLOW='.github/workflows/c1-body-restart.yml'
 REF='refs/heads/ci/upstream-c1-body-restart-20261018'
@@ -76,6 +76,13 @@ def source_guard(preflight=False):
         'old_guards_or_main_called':False,'old_module_globals_mutated':False,'historical_runtime_reused':False}
 
 def clean(raw):return re.sub(r'\x1b\[[0-9;]*m','',raw)
+def normalize_parser_prefix(raw,name):
+    text=clean(raw);pattern=r'(?m)^test '+re.escape(name)+r' \.\.\. '
+    hits=list(re.finditer(pattern,text));ensure(len(hits)<=1,'unique-exact-libtest-prefix')
+    # Keep the genuine header/name for inherited inventory parsers, split only
+    # its attached first stderr record onto a new line. Never invent a header.
+    return re.sub(pattern,lambda match:match[0]+'\n',text,count=1) if hits else text
+
 def exact_record(text,prefix,pattern):
     lines=[line for line in text.splitlines() if prefix in line]
     ensure(len(lines)==1 and len(lines[0])<=4096,'one-closed-'+prefix)
@@ -124,14 +131,75 @@ def restart(raw,name,basic,code,expected,helper,composed):
         'catalog_present_Record_absent_after_timeout':timeout_ok,'exact_helper_and_composed_join_panics':valid_panics,'expected_panic_sites':[a,b],
         'focused_GREEN':green,'genuine_behavioral_RED':red,'expected_outcome_verified':red if expected=='red' else green}
 
+def unsigned(value,bits):
+    ensure(re.fullmatch(r'(?:0|[1-9][0-9]{0,38})',value) is not None,'closed-unsigned')
+    number=int(value);ensure(number<(1<<bits),'unsigned-width');return number
+
+def optional_uint(value,bits):
+    if value=='None':return None
+    match=re.fullmatch(r'Some\(((?:0|[1-9][0-9]{0,38}))\)',value);ensure(match is not None,'optional-unsigned')
+    return unsigned(match[1],bits)
+
+def optional_bool(value):
+    ensure(value in {'None','Some(true)','Some(false)'},'optional-boolean')
+    return None if value=='None' else value=='Some(true)'
+
+def paired_uints(value,bits):
+    match=re.fullmatch(r'\[((?:0|[1-9][0-9]{0,38})), ((?:0|[1-9][0-9]{0,38}))\]',value)
+    ensure(match is not None,'fixed-two-unsigneds');return [unsigned(match[1],bits),unsigned(match[2],bits)]
+
+def option_pair(value,pattern,parse):
+    match=re.fullmatch(r'\[('+pattern+'), ('+pattern+r')\]',value);ensure(match is not None,'fixed-two-optional-rows')
+    return [None if part=='None' else parse(part) for part in match.groups()]
+
+def restart_ledgers(raw):
+    text=clean(raw);num=r'(?:0|[1-9][0-9]{0,38})';pair=r'\['+num+', '+num+r'\]';opt=r'(?:None|Some\('+num+r'\))';boolean=r'(?:true|false)'
+    delivery=exact_record(text,'pending_restart_delivery_observation ',r'pending_restart_delivery_observation recovered=(true|false) source_is_lower=(true|false) elapsed_millis=('+num+') completed_syncs=('+pair+') sync_millis=('+pair+') completed_ticks=('+pair+') tick_millis=('+pair+r') waiting_at=\(([01]), "(sync|automatic_tick|projection|inter_turn_sleep|before_delivery)"\) waiting_millis=('+num+')')
+    probe=exact_record(text,'pending_restart_predeadline_sql_observation ',r'pending_restart_predeadline_sql_observation catalog_first_millis=('+opt+') record_first_millis=('+opt+r') scope_unchanged=(None|Some\(true\)|Some\(false\)) sample_count=('+num+') read_millis=('+num+')')
+    ready_pattern=r'(?:None|Some\(\('+', '.join([boolean]*5)+r'\)\))'
+    ready=exact_record(text,'pending_restart_ready_role_original_nonce_live_core_valid=',r'pending_restart_ready_role_original_nonce_live_core_valid=(\[(?:'+ready_pattern+'), (?:'+ready_pattern+r')\]) same_nonce=(None|Some\(true\)|Some\(false\))')
+    ready_values=option_pair(ready[1],ready_pattern,lambda value:[part=='true' for part in value[6:-2].split(', ')])
+    first=[optional_uint(probe[i],128) for i in [1,2]]
+    ensure(all(value is None or value<30000 for value in first),'actual-predeadline-observation-range')
+    result={'schema_known':True,'joint_snapshot_claimed':False,'completed_call_wall_not_CPU':True,
+        'completed_syncs':paired_uints(delivery[4],32),'sync_wall_millis':paired_uints(delivery[5],128),
+        'completed_ticks':paired_uints(delivery[6],32),'tick_wall_millis':paired_uints(delivery[7],128),
+        'waiting_slot':int(delivery[8]),'waiting_stage':delivery[9],'waiting_wall_millis':unsigned(delivery[10],128),
+        'delivery_observation_elapsed_millis':unsigned(delivery[3],128),
+        'predeadline_SQL':{'catalog_first_millis':first[0],'record_first_millis':first[1],'scope_unchanged':optional_bool(probe[3]),'sample_count':unsigned(probe[4],32),'read_wall_millis':unsigned(probe[5],128),'observation_not_success_or_authority':True},
+        'ready_role_original_match_live_Core_valid_by_lower_higher_slot':ready_values,'both_channel_nonce_equal':optional_bool(ready[2]),'actual_nonce_exported':False,
+        'post_timeout_progress':None,'post_timeout_body_queue':None}
+    if delivery[1]=='false':
+        progress_pattern=r'(?:None|Some\(\('+boolean+', '+num+', '+', '.join([boolean]*4)+r'\)\))'
+        progress=exact_record(text,'pending_restart_post_timeout_catalog_record=',r'pending_restart_post_timeout_catalog_record=(None|Some\(\((?:None|Some\((?:true|false)\)), (?:None|Some\((?:true|false)\))\)\)) lower_pending_bodies_catalog_records_sent_renew=(\['+progress_pattern+', '+progress_pattern+r'\])')
+        def progress_value(value):
+            parts=value[6:-2].split(', ')
+            return {'local_is_lower':parts[0]=='true','pending_body_count':unsigned(parts[1],64),'pending_catalog':parts[2]=='true','pending_records':parts[3]=='true','ordinary_sent':parts[4]=='true','renew':parts[5]=='true'}
+        result['post_timeout_progress']=option_pair(progress[2],progress_pattern,progress_value)
+        projection=progress[1]
+        if projection=='None':result['post_timeout_catalog_record']=None
+        else:
+            m=re.fullmatch(r'Some\(\((None|Some\(true\)|Some\(false\)), (None|Some\(true\)|Some\(false\))\)\)',projection)
+            result['post_timeout_catalog_record']=[optional_bool(m[1]),optional_bool(m[2])]
+        kinds='Catalog|CatalogReceipt|PairPolicyCommitted|Records|RecordReceipt|SendIntent|SendReceipt|DepartureIntent|DepartureReceipt'
+        kind_option=r'(?:None|Some\((?:'+kinds+r')\))'
+        body_pattern=r'(?:None|Some\(\('+num+', '+kind_option+', '+kind_option+', '+boolean+r'\)\))'
+        bodies=exact_record(text,'pending_restart_post_timeout_next_body_front_back_handshake_task=',r'pending_restart_post_timeout_next_body_front_back_handshake_task=(\['+body_pattern+', '+body_pattern+r'\])')
+        def body_value(value):
+            m=re.fullmatch(r'Some\(\(('+num+'), ('+kind_option+'), ('+kind_option+'), ('+boolean+r')\)\)',value)
+            return {'next_body':unsigned(m[1],64),'front_kind':None if m[2]=='None' else m[2][5:-1],'back_kind':None if m[3]=='None' else m[3][5:-1],'handshake_publication_task':m[4]=='true'}
+        result['post_timeout_body_queue']=option_pair(bodies[1],body_pattern,body_value)
+    return result
+
 def verdict(raw,code,basic,name,expected):
     if name in NAMES[3:]:return restart(raw,name,basic,code,expected,Path(RESTART_HELPER).read_text(),Path(COMPOSED_HELPER).read_text())
+    parser_raw=normalize_parser_prefix(raw,name)
     ensure(expected=='green','mutant-only-higher-restart')
     if name==NAMES[0]:
-        parsed=held.parse(raw);parsed['body_exit_code']=code;ok=held.body_green(parsed)
+        parsed=held.parse(parser_raw);parsed['body_exit_code']=code;ok=held.body_green(parsed)
         result={k:parsed.get(k) for k in ['responsive_while_held','all_prerequisites_and_two_positive_closes','all_panic_header_count']}
     else:
-        case=name.rsplit('::',1)[1];parsed=late.parse(raw,case,code);ok=late.green(parsed,case)
+        case=name.rsplit('::',1)[1];parsed=late.parse(parser_raw,case,code);ok=late.green(parsed,case) and parsed.get('cleanup_diagnostics',{}).get('valid') is True
         result={k:parsed.get(k) for k in ['observed','cleanup_diagnostics','all_panic_header_count']}
     return dict(result,expected_outcome_verified=bool(ok and basic.get('passed_gate') is True))
 
@@ -191,8 +259,13 @@ def execute_case(root,row,binary,before,mode,expected_inputs,name,expected):
     for dest,key in [('actual_passed','passed'),('actual_failed','failed'),('actual_ignored','ignored'),('actual_executed_nonignored','executed_nonignored')]:row[dest]=basic.get(key)
     row['actual_test_passed']=basic.get('passed_gate') is True;save(root)
     ensure(row['source_after_body_pristine'] and row['binary_after_sha256']==before and row['binary_after_mode']==mode,'postbody-source-binary-mode')
+    if name in NAMES[3:]:
+        try:row['restart_ledgers']=restart_ledgers(raw)
+        except (ValueError,TypeError,OverflowError) as error:
+            row['restart_ledgers']={'schema_known':False,'closed_parser_failure_type':type(error).__name__}
+        save(root)
     row['outcome']=verdict(raw,code,basic,name,expected)
-    row['expected_outcome_verified']=row['outcome']['expected_outcome_verified'];save(root)
+    row['expected_outcome_verified']=row['outcome']['expected_outcome_verified'] and (name not in NAMES[3:] or row['restart_ledgers'].get('schema_known') is True);save(root)
 
 def phase(root,label,cohort,expected_inputs,specs,different_from=None):
     row={'cases':[],'phase_passed':False,'expected_case_count':len(specs)};root.setdefault('phases',{})[label]=row;save(root)
@@ -311,13 +384,56 @@ def controls():
         ensure(not check(data),'missing-extra-panic-or-zero-body-negative')
     return {'restart_positive':3,'restart_negative':15,'counts':counts.parser_controls(),'held':held.parser_preflight(extraction=True),'late_ACK':late.parser_controls(),'runtime_bodies':0}
 
+def prefix_and_ledger_controls():
+    header='test '+NAMES[0]+' ... '
+    events=['automatic-body-control stage='+stage+(' responsive=true' if i==4 else ' index='+str(i-8) if i in [8,9] else '') for i,stage in enumerate(held.STAGES)]
+    body='running 1 test\n'+header+'\n'.join(events)+'\nok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1s\n'
+    normalized=normalize_parser_prefix(body,NAMES[0]);ensure(counts.parse_body(body,0,NAMES[0])['passed_gate'] and held.body_green(dict(held.parse(normalized),body_exit_code=0)),'attached-held-first-marker-positive')
+    ensure(not held.body_green(dict(held.parse(body),body_exit_code=0)),'old-attached-marker-is-not-claimed-retro-green')
+    for case in late.CASES:
+        name=late.PREFIX+case;hold=case==late.CASES[1]
+        cleanup='body-late-ack-cleanup runtime1=true runtime2=true relay_planes=2 connections=2 closed_connections=2 invalid=false task_outcome=1 child_outcomes=[1, 1, 0, 0] io_categories='+json.dumps([[0]*14 for _ in range(8)])+' close_handshakes='+json.dumps([[0]*8 for _ in range(2)])
+        record='body-late-ack-control hold_receipt='+str(hold).lower()+' prerequisites=true cleanup=true followup=true old_body_effects='+str(int(hold))+' sdk_success=1 successful_harvest=1 context_rejected=0 future_dropped=1 retired=1'
+        raw='running 1 test\ntest '+name+' ... '+cleanup+'\n'+record+'\nok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1s\n'
+        parsed=late.parse(normalize_parser_prefix(raw,name),case,0)
+        ensure(late.green(parsed,case) and parsed['cleanup_diagnostics']['valid'],'attached-late-cleanup-positive')
+        ensure(not late.parse(raw,case,0)['cleanup_diagnostics']['valid'],'old-raw-cleanup-prefix-unparsed-not-retro-evidence')
+        ensure(verdict(raw,0,counts.parse_body(raw,0,name),name,'green')['expected_outcome_verified'],'new-late-wrapper-valid-cleanup-positive')
+        for bad in [raw.replace(cleanup,''),raw.replace(cleanup,cleanup+' private')]:
+            old=late.parse(normalize_parser_prefix(bad,name),case,0)
+            ensure(late.green(old,case) and not old['cleanup_diagnostics']['valid'],'isolated-legacy-green-missing-or-malformed-cleanup')
+            ensure(not verdict(bad,0,counts.parse_body(bad,0,name),name,'green')['expected_outcome_verified'],'current-wrapper-rejects-unqualified-cleanup')
+    ensure(normalize_parser_prefix('foreign '+header+'automatic-body-control',NAMES[0])=='foreign '+header+'automatic-body-control','not-line-start-prefix-untouched')
+    ensure(normalize_parser_prefix('test other ... automatic-body-control',NAMES[0])=='test other ... automatic-body-control','foreign-case-prefix-untouched')
+    try:normalize_parser_prefix(body+'\n'+header,NAMES[0])
+    except ValueError:pass
+    else:raise ValueError('duplicate-current-header-accepted')
+    broken=body.replace(events[0],events[0]+' private')
+    ensure(not held.body_green(dict(held.parse(normalize_parser_prefix(broken,NAMES[0])),body_exit_code=0)),'normalization-does-not-repair-malformed-marker')
+    ensure(not held.body_green(dict(held.parse(normalize_parser_prefix(body.replace(events[4],'automatic-body-control stage='+held.STAGES[4]+' responsive=false'),NAMES[0])),body_exit_code=0)),'normalization-preserves-failed-responsive-control')
+    numeric='pending_restart_delivery_observation recovered=false source_is_lower=false elapsed_millis=30001 completed_syncs=[1, 2] sync_millis=[3, 4] completed_ticks=[5, 6] tick_millis=[7, 8] waiting_at=(1, "automatic_tick") waiting_millis=9\npending_restart_predeadline_sql_observation catalog_first_millis=Some(29) record_first_millis=None scope_unchanged=Some(true) sample_count=7 read_millis=3\npending_restart_ready_role_original_nonce_live_core_valid=[Some((true, false, true, true, true)), None] same_nonce=None\npending_restart_post_timeout_catalog_record=Some((Some(true), Some(false))) lower_pending_bodies_catalog_records_sent_renew=[None, Some((false, 1, false, true, true, false))]\npending_restart_post_timeout_next_body_front_back_handshake_task=[Some((7, Some(Records), None, false)), None]\n'
+    row=restart_ledgers(numeric);ensure(row['completed_syncs']==[1,2] and row['waiting_stage']=='automatic_tick' and row['post_timeout_body_queue'][0]['front_kind']=='Records' and row['actual_nonce_exported'] is False,'closed-restart-ledgers-positive')
+    for bad in [numeric.replace('sample_count=7','sample_count=4294967296'),numeric.replace('Some(29)','Some(30000)'),numeric.replace('Some(Records)','Some(PRIVATE)'),numeric.replace('same_nonce=None','same_nonce=actual_secret'),numeric.replace('completed_syncs=[1, 2]','completed_syncs=[1, 2, 3]'),numeric+numeric]:
+        try:restart_ledgers(bad)
+        except ValueError:continue
+        raise ValueError('invalid-restart-ledger-accepted')
+    maximum=numeric.replace('sync_millis=[3, 4]','sync_millis=['+str((1<<128)-1)+', '+str((1<<128)-1)+']')
+    ensure(restart_ledgers(maximum)['sync_wall_millis']==[(1<<128)-1]*2,'u128-actual-wall-bound-positive')
+    try:restart_ledgers(numeric.replace('sync_millis=[3, 4]','sync_millis=['+str(1<<128)+', 4]'))
+    except ValueError:pass
+    else:raise ValueError('u128-overflow-accepted')
+    empty=numeric.replace('recovered=false','recovered=true').replace('catalog_first_millis=Some(29)','catalog_first_millis=None').replace('scope_unchanged=Some(true)','scope_unchanged=None')
+    empty='\n'.join(line for line in empty.splitlines() if not line.startswith('pending_restart_post_timeout_'))+'\n'
+    ensure(restart_ledgers(empty)['predeadline_SQL']['catalog_first_millis'] is None and restart_ledgers(empty)['post_timeout_progress'] is None,'safe-unknown-SQL-and-no-timeout-green-positive')
+    return {'attached_marker_positive':3,'prefix_closed_negative':9,'ledger_positive':3,'ledger_negative':7,'runtime_bodies':0,'old_receipt_reclassified':False}
+
 def main():
     p=argparse.ArgumentParser();p.add_argument('--preflight',action='store_true');p.add_argument('--expected',choices=['green','pfp'],default='green');args=p.parse_args()
     report={'scope':'C1 positive-receipt ordering and five unchanged existing controls','preflight':args.preflight,'expected':args.expected,'runtime_attempted':False,
         'actual_executed_nonignored':0,'qualification_passed':False,'native_global_qualification':False,'automatic_retries':0,'environment_RUST_MIN_STACK':4194304,
         'restart_composed_driver_and_worker_stack_bytes':8388608,'Tokio_workers':2,'raw_output_retained':False}
     try:
-        report['source_guard']=source_guard(args.preflight);save(report);report['parser_controls']=controls();save(report)
+        report['source_guard']=source_guard(args.preflight);save(report);report['parser_controls']=controls();report['prefix_and_restart_ledger_controls']=prefix_and_ledger_controls();save(report)
         if not args.preflight:runtime(report,'experimental',args.expected)
         report['controller_completed']=True;save(report)
     except Exception as error:report['controller_failure_type']=type(error).__name__;save(report);raise
