@@ -246,6 +246,12 @@ jobs:
           path: relay-source
           fetch-depth: 1
           persist-credentials: false
+      - name: Install the exact archived source toolchain without compiling
+        working-directory: relay-source
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
       - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
         with:
           tool: cargo-nextest@0.9.132
@@ -298,6 +304,7 @@ jobs:
            ensure(os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch' and os.environ['GITHUB_REF']=='refs/heads/ci/upstream-windows-provenance-20261018' and os.environ['GITHUB_REPOSITORY']=='dyKiU/mdk' and os.environ['GITHUB_WORKFLOW_REF']=='dyKiU/mdk/.github/workflows/upstream-merge-artifacts.yml@refs/heads/ci/upstream-windows-provenance-20261018' and os.environ['PRODUCER_RUN']==str(RUN),'exact-manual-proof-scope')
            ensure(pristine(),'exact-source-pristine');report['source_tree']=git('rev-parse','HEAD^{tree}');report['parser_controls']=controls();save()
            version_code,version,_=bounded.capture(['cargo','nextest','--version'],30,limit=4096)
+           report['nextest_version_check']={'exit_code':version_code,'captured_bytes':len(version.encode()),'starts_with_exact_version':re.match(r'^cargo-nextest 0\.9\.132(?: |\n|$)',version) is not None,'exact_version_line_count':len(re.findall(r'(?m)^cargo-nextest 0\.9\.132(?: |$)',version)),'toolchain_bootstrap_notice_present':re.search(r'(?m)^info: (?:syncing channel updates|downloading component|installing component)',version) is not None};save()
            ensure(version_code==0 and re.match(r'^cargo-nextest 0\.9\.132(?: |\n|$)',version),'actual-pinned-nextest-version');report['nextest_version']='0.9.132';save()
            run=api('actions/runs/'+str(RUN)+'/attempts/'+str(ATTEMPT))
            ensure(run['id']==RUN and run['run_attempt']==ATTEMPT and run['head_sha']==SOURCE and run['event']=='pull_request' and run['name']=='CI' and run['repository']['id']==1413433183,'exact-producer-run')
