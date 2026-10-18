@@ -15,8 +15,11 @@ COHORTS = {
     "default": (".github/workflows/ci.yml", "rust-test", "tests.tar.zst", "Rust tests"),
     "experimental": (".github/workflows/experimental-sync-ci.yml",
                      "experimental-sync-tests", "experimental-tests.tar.zst", "Experimental sync tests"),
+    "simulator": (".github/workflows/ci.yml", "simulator-tests", "simulator.tar.zst",
+                  "Simulator and vectors"),
 }
-PRODUCERS = {"default": "Build workspace tests", "experimental": "Build experimental sync tests"}
+PRODUCERS = {"default": "Build workspace tests", "experimental": "Build experimental sync tests",
+             "simulator": "Build simulator tests"}
 TERMINAL = re.compile(r"^\s*(PASS|FAIL|TIMEOUT|LEAK)\s+\[[^\]\n]+\]"
                       r"\s+\(\s*\d+/\d+\)\s+(\S+)\s+(.+?)\s*$", re.M)
 
@@ -51,13 +54,18 @@ def validate_origin(run, jobs, artifact, cohort, run_id, source):
             or artifact["workflow_run"]["head_sha"] != source
             or not re.fullmatch(r"sha256:[0-9a-f]{64}", artifact.get("digest", ""))):
         raise ValueError("Immutable artifact provenance mismatch")
-    selected = [job for job in jobs if re.fullmatch(re.escape(label) + r" \([1-5]/5\)", job["name"])]
-    if ({job["name"] for job in selected} != {f"{label} ({i}/5)" for i in range(1, 6)}
-            or len(selected) != 5 or len({job["id"] for job in selected}) != 5
+    if cohort == "simulator":
+        expected = {f"{label} (smoke-{i})" for i in (1, 2)}
+        selected = [job for job in jobs if job["name"].startswith(label + " (smoke-")]
+    else:
+        expected = {f"{label} ({i}/5)" for i in range(1, 6)}
+        selected = [job for job in jobs if re.fullmatch(re.escape(label) + r" \([1-5]/5\)", job["name"])]
+    if ({job["name"] for job in selected} != expected
+            or len(selected) != len(expected) or len({job["id"] for job in selected}) != len(expected)
             or (producer is not None and producer["id"] in {job["id"] for job in selected})
             or any(job["run_id"] != run_id or job["head_sha"] != source
                    or job["run_attempt"] != 1 or job["status"] != "completed" for job in selected)):
-        raise ValueError("Five distinct terminal original partitions required")
+        raise ValueError("Distinct terminal original cohort partitions required")
     return sorted(selected, key=lambda job: job["name"])
 
 

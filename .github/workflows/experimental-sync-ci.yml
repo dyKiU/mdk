@@ -20,7 +20,7 @@ on:
       recovery_cohort:
         description: Original archive cohort for archive-recovery only
         type: choice
-        options: [default, experimental]
+        options: [default, experimental, simulator]
         default: default
       baseline_gap:
         description: Also complete the fixed 0cbff718 default archive partition 2/5
@@ -226,6 +226,11 @@ jobs:
       - uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
         with:
           tool: cargo-nextest@0.9.132
+      - name: Install just for the original simulator smoke filter
+        if: inputs.recovery_cohort == 'simulator'
+        uses: taiki-e/install-action@b18fb392e1a1b90971f7c7572c92790fa54f23d5
+        with:
+          tool: just
       - name: Validate original metadata and download immutable artifact and logs
         env:
           GH_TOKEN: ${{ github.token }}
@@ -245,6 +250,8 @@ jobs:
           filter='all()'
           if [[ "$ORIGINAL_COHORT" == default ]]; then
             filter='not (package(marmot-app) & binary(relay_runtime)) and not (package(wn-cli) & binary(cli))'
+          elif [[ "$ORIGINAL_COHORT" == simulator ]]; then
+            filter="$(just --evaluate simulator-smoke-filter) and not binary(offline_catchup_regression)"
           fi
           cargo nextest list --archive-file "recovery/$tar" --workspace-remap "$GITHUB_WORKSPACE" -E "$filter" --message-format json > recovery/full-inventory.json
           python3 scripts/recover_archive_gaps.py plan --directory recovery --inventory recovery/full-inventory.json --partitions 8 --github-output "$GITHUB_OUTPUT"

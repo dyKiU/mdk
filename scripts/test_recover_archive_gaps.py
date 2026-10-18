@@ -28,7 +28,35 @@ def pr_origin():
     return run, jobs, artifact
 
 
+def simulator_origin():
+    run, jobs, artifact = pr_origin()
+    jobs = [dict(jobs[i - 1], name=f"Simulator and vectors (smoke-{i})") for i in (1, 2)] + [
+        dict(jobs[-1], name="Build simulator tests")]
+    artifact["name"] = "simulator-tests"
+    return run, jobs, artifact
+
+
 class ArchiveGapTests(unittest.TestCase):
+    def test_simulator_requires_exact_two_smoke_partitions_and_own_producer(self):
+        run, jobs, artifact = simulator_origin()
+        self.assertEqual([j["id"] for j in validate_origin(run, jobs, artifact, "simulator", 7, "a" * 40)],
+                         [1, 2])
+        unrelated = dict(jobs[0], id=10, name="Simulator and vectors (models)")
+        self.assertEqual(len(validate_origin(run, jobs + [unrelated], artifact, "simulator", 7,
+                                            "a" * 40)), 2)
+        variants = [jobs[1:], jobs + [jobs[0]],
+                    jobs + [dict(jobs[0], id=10, name="Simulator and vectors (smoke-3)")],
+                    [dict(jobs[0], name="Rust tests (1/5)")] + jobs[1:],
+                    [dict(jobs[0], head_sha="c" * 40)] + jobs[1:],
+                    [dict(jobs[0], run_attempt=2)] + jobs[1:],
+                    [dict(jobs[0], status="in_progress")] + jobs[1:],
+                    jobs[:-1] + [dict(jobs[-1], name="Build workspace tests")]]
+        for changed in variants:
+            with self.subTest(jobs=changed), self.assertRaises(ValueError):
+                validate_origin(run, changed, artifact, "simulator", 7, "a" * 40)
+        with self.assertRaises(ValueError):
+            validate_origin(run, jobs, dict(artifact, name="rust-test"), "simulator", 7, "a" * 40)
+
     def test_pr_origin_requires_exact_head_and_successful_archive_producer(self):
         run, jobs, artifact = pr_origin()
         self.assertEqual(len(validate_origin(run, jobs, artifact, "default", 7, "a" * 40)), 5)
