@@ -1,6 +1,8 @@
 name: Options composition PFP
 on:
   workflow_dispatch:
+  push:
+    branches: [ci/upstream-integration-refresh-20261018]
 permissions:
   contents: read
 env:
@@ -11,8 +13,15 @@ env:
   RUST_MIN_STACK: "4194304"
   OPTIONS_COMPOSITION_BASELINE: 580c1730836e4236d552bd85b6a25cdfce5c9e31
 jobs:
+  register-workflow:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/ci/upstream-integration-refresh-20261018'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Register manual options workflow without runtime execution
+        run: printf '%s\n' 'options_workflow_registration=true runtime_bodies=0 compiler_invoked=false'
   focused-options:
-    if: github.ref == 'refs/heads/ci/upstream-integration-refresh-20261018'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/upstream-integration-refresh-20261018'
     runs-on: ubuntu-latest
     timeout-minutes: 65
     strategy:
