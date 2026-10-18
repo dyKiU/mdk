@@ -162,7 +162,8 @@ def aggregate_counts(bodies):
 
 def parser_controls():
     inherited = old.parser_preflight()
-    context = {'sources': {'app/test.rs': 'use cgka_traits::storage::GroupStorage; use cgka_traits::storage::*;',
+    context = {'sources': {'lib.rs': '',
+                           'app/test.rs': 'use cgka_traits::storage::GroupStorage; use cgka_traits::storage::*;',
                            'protocol/storage.rs': 'impl GroupStorage for SqliteAccountStorage {}'},
                'tables': set(), 'triggers': set(), 'references': set(), 'listed': {'trait app/test.rs OldTrait'}}
     ensure(known_crossing('trait app/test.rs GroupStorage', context, 'new'), 'real-source-trait-row')
