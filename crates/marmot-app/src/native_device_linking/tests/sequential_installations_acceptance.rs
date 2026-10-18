@@ -13,16 +13,42 @@ use std::time::Duration;
 #[cfg(feature = "test-policy-overrides")]
 fn native5_runtime_report(runtime: Option<&crate::MarmotAppRuntime>) -> String {
     use crate::RuntimePerformanceOperation as Op;
-    let observation = runtime.map(|runtime| {
-        let snapshot = runtime.app_performance_snapshot();
-        let operations = [Op::WorkerReceive, Op::Ingest, Op::WorkerMaintenance, Op::IngestEngine].map(|operation| {
-            snapshot.runtime_operations.iter().find(|row| row.operation == operation).map(|row|
-                [row.started, row.completed, row.in_flight, row.duration_ms.sum_ms,
-                 row.oldest_tracked_in_flight_ms, row.untracked_in_flight])
-        });
-        let projection = snapshot.inbound_delivery_projection;
-        (operations, Some([projection.attempts, projection.failures, projection.duration_ms.sum_ms]))
-    }).unwrap_or(([None; 4], None));
+    let observation = runtime
+        .map(|runtime| {
+            let snapshot = runtime.app_performance_snapshot();
+            let operations = [
+                Op::WorkerReceive,
+                Op::Ingest,
+                Op::WorkerMaintenance,
+                Op::IngestEngine,
+            ]
+            .map(|operation| {
+                snapshot
+                    .runtime_operations
+                    .iter()
+                    .find(|row| row.operation == operation)
+                    .map(|row| {
+                        [
+                            row.started,
+                            row.completed,
+                            row.in_flight,
+                            row.duration_ms.sum_ms,
+                            row.oldest_tracked_in_flight_ms,
+                            row.untracked_in_flight,
+                        ]
+                    })
+            });
+            let projection = snapshot.inbound_delivery_projection;
+            (
+                operations,
+                Some([
+                    projection.attempts,
+                    projection.failures,
+                    projection.duration_ms.sum_ms,
+                ]),
+            )
+        })
+        .unwrap_or(([None; 4], None));
     // Core phase records are completed-only: zero active cannot exclude Core work.
     // Oldest age zero means no tracked start (or <1ms); untracked stays explicit.
     format!("native5-runtime observation={observation:?}\n")
@@ -505,7 +531,9 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
         }
         let runtime_report = native5_runtime_report(runtimes.get(ordinal - 1));
         // Retain every existing ledger if an optional appendix exceeds the cap.
-        if report.len() + runtime_report.len() <= 65536 { report.push_str(&runtime_report); }
+        if report.len() + runtime_report.len() <= 65536 {
+            report.push_str(&runtime_report);
+        }
         native5_timing_reports.push((ordinal, report));
     }
     // NATIVE5_TIMING_END
