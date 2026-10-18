@@ -20,6 +20,9 @@ EXPECTED = {
     "pairing-restart-diagnostic": {
         "native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent"
     },
+    "pairing-restart-higher-source": {
+        "native_device_linking::tests::pending_restart_higher_source_delivers_catalog_and_record"
+    },
     "pairing-regression": {
         FOURTH,
         CONSENT,
@@ -37,6 +40,14 @@ def replay_script():
 
 
 class PairingReplayDispatchTests(unittest.TestCase):
+    def test_every_scope_is_offered_and_routes_to_pairing_job(self):
+        text = WORKFLOW.read_text()
+        options = re.search(r"options: \[(.*?)\]", text).group(1).split(", ")
+        job = text.split("  pairing-replay:\n", 1)[1].split("    name:", 1)[0]
+        routed = json.loads(re.search(r"fromJSON\('([^']+)'\)", job).group(1))
+        self.assertTrue(set(EXPECTED) <= set(options))
+        self.assertTrue(set(EXPECTED) <= set(routed))
+
     def test_every_scope_executes_its_exact_inventory_and_bounded_command(self):
         script = replay_script()
         syntax = subprocess.run(["bash", "-n"], input=script, text=True, capture_output=True)
