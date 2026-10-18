@@ -338,49 +338,71 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
                                         &hex::encode(message.as_slice()),
                                     )
                             })
-                            .map(|(counts, instants, placements, placement_instants, queue)| {
-                                let mut invalid = 0u8;
-                                let times = std::array::from_fn(|stage| {
-                                    instants[stage].and_then(|instant| {
-                                        let time = instant
-                                            .checked_duration_since(origin)
-                                            .and_then(|duration| {
-                                                u64::try_from(duration.as_micros()).ok()
-                                            })
-                                            .filter(|time| *time <= 600_000_000);
-                                        if time.is_none() {
-                                            invalid |= 1 << stage;
-                                        }
-                                        time
-                                    })
-                                });
-                                let mut placement_invalid = 0u8;
-                                let placement_times = std::array::from_fn(|stage| {
-                                    placement_instants[stage].and_then(|instant| {
-                                        let time = instant
-                                            .checked_duration_since(origin)
-                                            .and_then(|duration| {
-                                                u64::try_from(duration.as_micros()).ok()
-                                            })
-                                            .filter(|time| *time <= 600_000_000);
-                                        if time.is_none() {
-                                            placement_invalid |= 1 << stage;
-                                        }
-                                        time
-                                    })
-                                });
-                                {
-                                    let (depths, dequeued, first_dequeued, mut queue_invalid) = queue;
-                                    let first_dequeued_us = first_dequeued.and_then(|instant| {
-                                        let time = instant.checked_duration_since(origin)
-                                            .and_then(|duration| u64::try_from(duration.as_micros()).ok())
-                                            .filter(|time| *time <= 600_000_000);
-                                        if time.is_none() { queue_invalid = true; }
-                                        time
+                            .map(
+                                |(counts, instants, placements, placement_instants, queue)| {
+                                    let mut invalid = 0u8;
+                                    let times = std::array::from_fn(|stage| {
+                                        instants[stage].and_then(|instant| {
+                                            let time = instant
+                                                .checked_duration_since(origin)
+                                                .and_then(|duration| {
+                                                    u64::try_from(duration.as_micros()).ok()
+                                                })
+                                                .filter(|time| *time <= 600_000_000);
+                                            if time.is_none() {
+                                                invalid |= 1 << stage;
+                                            }
+                                            time
+                                        })
                                     });
-                                    (Some(counts), Some(times), Some(invalid), Some(placements), Some(placement_times), Some(placement_invalid), Some((depths, dequeued, first_dequeued_us, queue_invalid)))
-                                }
-                            })
+                                    let mut placement_invalid = 0u8;
+                                    let placement_times = std::array::from_fn(|stage| {
+                                        placement_instants[stage].and_then(|instant| {
+                                            let time = instant
+                                                .checked_duration_since(origin)
+                                                .and_then(|duration| {
+                                                    u64::try_from(duration.as_micros()).ok()
+                                                })
+                                                .filter(|time| *time <= 600_000_000);
+                                            if time.is_none() {
+                                                placement_invalid |= 1 << stage;
+                                            }
+                                            time
+                                        })
+                                    });
+                                    {
+                                        let (depths, dequeued, first_dequeued, mut queue_invalid) =
+                                            queue;
+                                        let first_dequeued_us =
+                                            first_dequeued.and_then(|instant| {
+                                                let time = instant
+                                                    .checked_duration_since(origin)
+                                                    .and_then(|duration| {
+                                                        u64::try_from(duration.as_micros()).ok()
+                                                    })
+                                                    .filter(|time| *time <= 600_000_000);
+                                                if time.is_none() {
+                                                    queue_invalid = true;
+                                                }
+                                                time
+                                            });
+                                        (
+                                            Some(counts),
+                                            Some(times),
+                                            Some(invalid),
+                                            Some(placements),
+                                            Some(placement_times),
+                                            Some(placement_invalid),
+                                            Some((
+                                                depths,
+                                                dequeued,
+                                                first_dequeued_us,
+                                                queue_invalid,
+                                            )),
+                                        )
+                                    }
+                                },
+                            )
                             .unwrap_or((None, None, None, None, None, None, None))
                     })
                 })

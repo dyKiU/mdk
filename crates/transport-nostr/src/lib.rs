@@ -300,9 +300,13 @@ impl NotificationDispositionObserver {
     // can take the delivery before this separate post-send lock is acquired.
     fn accepted_depths(&self, id: &str, before: usize, after: usize) {
         let mut entries = self.0.lock().unwrap();
-        let Some(entry) = entries.get_mut(id) else { return; };
+        let Some(entry) = entries.get_mut(id) else {
+            return;
+        };
         let queue = &mut entry.4;
-        if queue.depth_recorded { return; }
+        if queue.depth_recorded {
+            return;
+        }
         queue.depth_recorded = true;
         if before <= ACCOUNT_DELIVERY_BUFFER + 1 && after <= ACCOUNT_DELIVERY_BUFFER + 1 {
             queue.first_accepted_depths = Some((before, after));
@@ -317,8 +321,11 @@ impl NotificationDispositionObserver {
         let mut entries = self.0.lock().unwrap();
         if entries.len() < 512 || entries.contains_key(id) {
             let queue = &mut entries.entry(id.to_owned()).or_default().4;
-            if let Some(next) = queue.dequeued.checked_add(1) { queue.dequeued = next; }
-            else { queue.invalid = true; }
+            if let Some(next) = queue.dequeued.checked_add(1) {
+                queue.dequeued = next;
+            } else {
+                queue.invalid = true;
+            }
             if queue.first_dequeued.is_none() {
                 queue.first_dequeued = Some(std::time::Instant::now());
             }
@@ -2019,7 +2026,12 @@ impl MarmotRelayPlane {
         [Option<std::time::Instant>; 8],
         [u64; 6],
         [Option<std::time::Instant>; 6],
-        (Option<(usize, usize)>, u64, Option<std::time::Instant>, bool),
+        (
+            Option<(usize, usize)>,
+            u64,
+            Option<std::time::Instant>,
+            bool,
+        ),
     )> {
         let observers = self
             .inner
@@ -2031,8 +2043,18 @@ impl MarmotRelayPlane {
         let entries = observer.0.lock().unwrap();
         entries.get(id).map(|entry| {
             let queue = entry.4;
-            (entry.0, entry.1, entry.2, entry.3,
-                (queue.first_accepted_depths, queue.dequeued, queue.first_dequeued, queue.invalid))
+            (
+                entry.0,
+                entry.1,
+                entry.2,
+                entry.3,
+                (
+                    queue.first_accepted_depths,
+                    queue.dequeued,
+                    queue.first_dequeued,
+                    queue.invalid,
+                ),
+            )
         })
     }
 
@@ -4900,10 +4922,21 @@ impl MarmotRelayPlaneAccountAdapter {
         match event {
             AccountDeliveryEvent::Delivery(delivery) => {
                 // NATIVE5_DEQUEUE_TIMING_BEGIN
-                #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                #[cfg(all(
+                    any(test, feature = "test-support"),
+                    feature = "experimental-device-sync",
+                    feature = "test-policy-overrides"
+                ))]
                 {
-                    let observer = self.relay_plane.inner.transport.test_notification_dispositions
-                        .lock().unwrap().get(&delivery.account_id).cloned();
+                    let observer = self
+                        .relay_plane
+                        .inner
+                        .transport
+                        .test_notification_dispositions
+                        .lock()
+                        .unwrap()
+                        .get(&delivery.account_id)
+                        .cloned();
                     if let Some(observer) = observer {
                         observer.dequeued(&hex::encode(delivery.message.id.as_slice()));
                     }
@@ -5325,7 +5358,11 @@ fn route_account_delivery(
         .saturating_sub(route.sender.capacity());
     route.overflow.observe_queue_depth(queue_depth);
     // NATIVE5_DEQUEUE_TIMING_BEGIN
-    #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        any(test, feature = "test-support"),
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     let notification_depth_before_placement = queue_depth;
     // NATIVE5_DEQUEUE_TIMING_END
     let created_at = delivery.message.timestamp.0;
@@ -5356,9 +5393,17 @@ fn route_account_delivery(
                         .saturating_sub(route.sender.capacity());
                     route.overflow.observe_queue_depth(queue_depth);
                     // NATIVE5_DEQUEUE_TIMING_BEGIN
-                    #[cfg(all(any(test, feature = "test-support"), feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                    #[cfg(all(
+                        any(test, feature = "test-support"),
+                        feature = "experimental-device-sync",
+                        feature = "test-policy-overrides"
+                    ))]
                     if let Some(observer) = &observer {
-                        observer.accepted_depths(&observed_id, notification_depth_before_placement, queue_depth);
+                        observer.accepted_depths(
+                            &observed_id,
+                            notification_depth_before_placement,
+                            queue_depth,
+                        );
                     }
                     // NATIVE5_DEQUEUE_TIMING_END
                 }
