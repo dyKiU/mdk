@@ -1916,6 +1916,7 @@ mod actual {
                 .to_vec();
             assert!(
                 recipient_storage
+                    .app_storage()
                     .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
                     .unwrap()
                     .is_empty()
@@ -2050,6 +2051,7 @@ mod actual {
                     );
                     assert!(
                         recipient_storage
+                            .app_storage()
                             .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
                             .unwrap()
                             .is_empty()
@@ -2067,6 +2069,7 @@ mod actual {
                 .expect("a fresh opt-in history request must retain its original actor owner after actual four-leaf admission");
             assert!(
                 recipient_storage
+                    .app_storage()
                     .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
                     .unwrap()
                     .is_empty(),
@@ -2169,6 +2172,7 @@ mod actual {
                     reopened_app
                         .account_storage("test")
                         .unwrap()
+                        .app_storage()
                         .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
                         .unwrap()
                         .is_empty()
@@ -2246,6 +2250,7 @@ mod actual {
                 );
                 assert!(
                     recipient_storage
+                        .app_storage()
                         .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
                         .unwrap()
                         .is_empty()
@@ -2304,6 +2309,7 @@ mod actual {
                     loop {
                         if imported {
                             if recipient_storage
+                                .app_storage()
                                 .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
                                 .unwrap()
                                 .iter()
@@ -2372,6 +2378,7 @@ mod actual {
                     assert_eq!(connection.query_row("SELECT count(*) FROM history_archive_fragments WHERE body IS NOT NULL",[],|r|r.get::<_,i64>(0)).unwrap(),0);
                     assert!(
                         recipient_storage
+                            .app_storage()
                             .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
                             .unwrap()
                             .is_empty()
@@ -2490,6 +2497,7 @@ mod actual {
                 tokio::time::sleep(std::time::Duration::from_millis(250)).await;
                 assert!(
                     recipient_storage
+                        .app_storage()
                         .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
                         .unwrap()
                         .is_empty()
@@ -2514,6 +2522,7 @@ mod actual {
                 .await
                 .unwrap();
             let archived = recipient_storage
+                .app_storage()
                 .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
                 .unwrap();
             assert!(
@@ -2558,6 +2567,7 @@ mod actual {
                 fixture.apps[2]
                     .account_storage("test")
                     .unwrap()
+                    .app_storage()
                     .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
                     .unwrap()
                     .is_empty(),
@@ -4352,6 +4362,7 @@ mod actual {
                 "fresh successor authority must reach a committed recipient import receipt"
             );
             let archived = surviving
+                .app_storage()
                 .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
                 .unwrap();
             assert!(
@@ -4364,6 +4375,7 @@ mod actual {
                 fixture.apps[2]
                     .account_storage("test")
                     .unwrap()
+                    .app_storage()
                     .synchronized_history_page(&fixture.chat_hex, None, 200, 0)
                     .unwrap()
                     .is_empty(),
