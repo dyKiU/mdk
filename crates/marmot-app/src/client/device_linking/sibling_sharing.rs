@@ -35,6 +35,20 @@ pub(crate) enum NativeObservationReason {
     SharingPending,
     Complete,
 }
+// Actual existing Result classifications only; independent cumulative samples.
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Clone, Copy)]
+pub(crate) enum NativeObservationResult {
+    RosterNone,
+    RosterSome,
+    RosterErr,
+    NativePersistErr,
+    MaintenancePersistErr,
+    AutomaticOk,
+    AutomaticErr,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) type NativeObservationResultSnapshot = ([usize; 7], bool);
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(crate) type NativeObservationSnapshot =
     ([usize; 6], [u64; 6], Option<(NativeObservationReason, u64)>);
@@ -44,6 +58,8 @@ struct NativeObservationProbe {
     counts: [usize; 6],
     elapsed_ms: [u64; 6],
     reason: Option<(NativeObservationReason, u64)>,
+    result_counts: [usize; 7],
+    result_overflow: bool,
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl Default for NativeObservationProbe {
@@ -53,6 +69,8 @@ impl Default for NativeObservationProbe {
             counts: [0; 6],
             elapsed_ms: [0; 6],
             reason: None,
+            result_counts: [0; 7],
+            result_overflow: false,
         }
     }
 }
@@ -406,6 +424,22 @@ impl OriginalEnrollmentSharingChoice {
             .lock()
             .expect("native observation probe");
         (probe.counts, probe.elapsed_ms, probe.reason)
+    }
+
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn record_observation_result_for_test(&self, result: NativeObservationResult) {
+        let mut probe = self.native_observation_probe.lock().expect("native observation probe");
+        let index = result as usize;
+        if let Some(count) = probe.result_counts[index].checked_add(1) {
+            probe.result_counts[index] = count;
+        } else {
+            probe.result_overflow = true;
+        }
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn observation_results_for_test(&self) -> NativeObservationResultSnapshot {
+        let probe = self.native_observation_probe.lock().expect("native observation probe");
+        (probe.result_counts, probe.result_overflow)
     }
 
     // COMPLETION_TEST_BEGIN

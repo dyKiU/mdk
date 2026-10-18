@@ -1678,6 +1678,10 @@ fn observe_enrollment_hold_timeout(
             original.sibling_completion_aggregates_for_test(),
             original.native_observation_snapshot_for_test(),
         );
+        eprintln!(
+            "native-result-counts stage={stage:?} side={side} counts_overflow={:?}",
+            original.native_observation_results_for_test(),
+        );
     }
 }
 
@@ -1744,6 +1748,10 @@ async fn wait_for_automatic_phase_with_approvals(
             eprintln!(
                 "automatic-enrollment-control side={side} native_rpc_counts/elapsed_ms/branch={:?}",
                 original.native_observation_snapshot_for_test(),
+            );
+            eprintln!(
+                "native-result-counts stage=PhaseWait side={side} counts_overflow={:?}",
+                original.native_observation_results_for_test(),
             );
         }
         #[cfg(feature = "test-policy-overrides")]
