@@ -293,20 +293,23 @@ jobs:
            return bool(statuses) and all(status==('PASS' if code==0 else 'FAIL') for status in statuses) and code in [0,100]
           def exact_version_record(text,code):
            if type(code) is not int or code!=0 or type(text) is not str or len(text.encode())>4096:return False
-           lines=text.splitlines()
-           version=r'cargo-nextest 0\.9\.132(?: \([A-Za-z0-9][A-Za-z0-9 ._+-]{0,99}\))?'
-           matches=[i for i,line in enumerate(lines) if re.fullmatch(version,line)]
-           if len(matches)!=1:return False
-           index=matches[0]
-           prelude=r'info: (?:syncing channel updates for|latest update on|downloading component|installing component|using existing install for|default toolchain set to) [\x20-\x7e]{1,256}'
-           return all(line=='' or re.fullmatch(prelude,line) for line in lines[:index]) and all(line=='' for line in lines[index+1:])
+           plain='cargo-nextest 0.9.132'
+           built=plain+' (6e4a9d6f2 2026-03-20)'
+           public=[built,'release: 0.9.132','commit-hash: 6e4a9d6f2c4964f30ff54a8cd5466f8869267daa','commit-date: 2026-03-20','host: x86_64-unknown-linux-gnu']
+           return text.splitlines() in [[plain],[built],public]
           def version_controls():
            plain='cargo-nextest 0.9.132\n';built='cargo-nextest 0.9.132 (6e4a9d6f2 2026-03-20)\n'
-           prelude="info: syncing channel updates for '1.97.1-x86_64-unknown-linux-gnu'\ninfo: downloading component 'clippy'\ninfo: installing component 'clippy'\n"
-           for text in [plain,built,prelude+built,'\n'+prelude+'\n'+built+'\n']:ensure(exact_version_record(text,0),'closed-version-positive')
-           negative=[(plain.replace('0.9.132','0.9.131'),0),(plain+plain,0),(plain.replace('0.9.132','0.9.131')+plain,0),('foreign\n'+plain,0),(plain+'foreign\n',0),(plain+prelude,0),(plain,1),(plain,True),(plain.replace('0.9.132','0.9.132-extra'),0),(built.replace(')',']'),0),('info: foreign\n'+plain,0),(built.replace('6e4a9d6f2','private☃'),0),(plain.replace('\n',' trailing\n'),0)]
+           public=built+'release: 0.9.132\ncommit-hash: 6e4a9d6f2c4964f30ff54a8cd5466f8869267daa\ncommit-date: 2026-03-20\nhost: x86_64-unknown-linux-gnu\n'
+           positive=[plain,built,public,public.rstrip('\n')]
+           for text in positive:ensure(exact_version_record(text,0),'closed-version-positive')
+           negative=[(public.replace('release: 0.9.132','release: 0.9.131'),0),(public.replace('commit-hash: 6e4','commit-hash: 7e4'),0),(public.replace('commit-date: 2026-03-20','commit-date: 2026-03-21'),0),(public.replace('host: x86_64-unknown-linux-gnu','host: aarch64-unknown-linux-gnu'),0),
+            (public.replace('release: 0.9.132\ncommit-hash:', 'commit-hash:').replace('commit-date:', 'release: 0.9.132\ncommit-date:'),0),
+            (public+'foreign\n',0),(public+built,0),(plain+public,0),(public,1),(public,True),(plain.replace('0.9.132','0.9.131'),0),(plain+plain,0),(plain.replace('0.9.132','0.9.131')+plain,0),
+            ('foreign\n'+plain,0),(plain+'foreign\n',0),('info: installing component rustfmt\n'+built,0),(plain.replace('0.9.132','0.9.132-extra'),0),(built.replace(')',']'),0),(built.replace('6e4a9d6f2','7e4a9d6f2'),0),
+            (plain+'\n',0),('\n'+plain,0),(public.replace('commit-date: 2026-03-20\n',''),0),(public.replace('release: 0.9.132\n','release: 0.9.132\nrelease: 0.9.132\n'),0)]
            for text,code in negative:ensure(not exact_version_record(text,code),'closed-version-negative')
-           return {'positive':4,'negative':len(negative),'runtime_bodies':0,'raw_version_output_retained':False}
+           ensure(len(public.encode())==171,'actual-public-version-record-171-bytes')
+           return {'positive':len(positive),'negative':len(negative),'actual_public_record_bytes':171,'runtime_bodies':0,'raw_version_output_retained':False}
           def controls():
            ensure(summary('1 test run: 1 passed, 0 skipped',0)['known'],'completed-positive')
            ensure(summary('1 test run: 0 passed, 1 failed, 0 skipped',100)['known'],'failed-positive')
