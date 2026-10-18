@@ -6,7 +6,7 @@ import diagnose_upstream_post_watch_native5 as previous
 frozen=previous.frozen
 ensure=previous.ensure
 digest=previous.digest
-BASE='fdbc9d3f3a7391c1612a5b70202ae19385142d70' # Signed passive Request hooks; all existing files remain BASE-exact.
+BASE='7141b691484f3f58c06a70928024c2b672dbb0b4' # Signed read-only prefix observer; all existing files remain BASE-exact.
 DIAGNOSTIC_PARENT='0b02a07916c17f8240c65f83ad2d916357c7f5fa'
 SELF='scripts/diagnose_upstream_request_consent_gap.py'
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
@@ -110,18 +110,20 @@ def request_gap_windows(raw,name,windows):
     raw=re.sub(r'\x1b\[[0-9;]*m','',raw)
     raw,prefix=re.subn(r'(?m)^test '+re.escape(name)+r' \.\.\. (?=native5-join-window begin ordinal=)','',raw)
     ensure(prefix<=1 and not re.search(r'(?m)^test [A-Za-z0-9_:]+ \.\.\. native5-join-window',raw),'exact-Request-shared-test-prefix')
-    frames=[];active=None;lines=[]
+    frames=[];active=None;lines=[];prefix_lines=[]
     for line in raw.splitlines():
         if line.startswith('native5-join-window'):
             m=re.fullmatch(r'native5-join-window (begin|end) ordinal=([45])',line);ensure(m is not None,'closed-Request-window-marker')
             ordinal=int(m[2])
             if m[1]=='begin':
-                ensure(active is None and ordinal==4+len(frames) and len(frames)<2,'ordered-Request-window-begin');active=ordinal;lines=[]
+                ensure(active is None and ordinal==4+len(frames) and len(frames)<2,'ordered-Request-window-begin');active=ordinal;lines=[];prefix_lines=[]
             else:
                 ensure(active==ordinal and len(windows['windows'])>len(frames),'matching-Request-window-end')
                 original=windows['windows'][len(frames)]
                 ensure(original['actual_join_ordinal']==ordinal,'same-original-native-window')
-                frames.append({'actual_join_ordinal':ordinal,'request_gap':request_gap_rows(lines,original['timing'])});active=None
+                frames.append({'actual_join_ordinal':ordinal,'request_gap':request_gap_rows(lines,original['timing']),'prefix_summary':prefix_summary(prefix_lines,ordinal,original['timing'],original.get('notification_dispositions'))});active=None
+        elif line.startswith('native5-prefix'):
+            ensure(active is not None,'no-orphan-prefix-rows');prefix_lines.append(line)
         elif line.startswith('native5-request'):
             ensure(active is not None,'no-orphan-Request-rows');lines.append(line)
     ensure(active is None and len(frames)==len(windows['windows']),'all-original-Request-windows-closed')
@@ -177,8 +179,109 @@ def request_parser_controls():
         'capacity_fixture_is_not_runtime_evidence':True}
 
 
+# Existing-map summaries only, not an exhaustive receive trace or FIFO proof.
+def prefix_summary(lines,ordinal,timing,notification):
+    p=frozen.timing_parser
+    if not lines:return {'observed':False,'schema_complete':False,'map_available':None,'rows':None,'missing_is_unknown':True}
+    ensure(len(lines)<=4 and all(len(line.encode())<=512 for line in lines),'bounded-prefix-summary')
+    m=re.fullmatch(r'native5-prefix observed=(true|false) entries=('+p.ON+r') at_capacity=('+p.OB+r')',lines[0]);ensure(m is not None,'closed-prefix-header')
+    observed=m[1]=='true';entries=p.opt(m[2],512);atcap=p.boolean(m[3])
+    if not observed:
+        ensure(len(lines)==1 and entries is None and atcap is None,'unavailable-prefix-map-is-unknown')
+        return {'observed':True,'schema_complete':True,'map_available':False,'entries':None,'at_capacity':None,'rows':None,'missing_is_unknown':True}
+    ensure(len(lines)==4 and entries is not None and type(atcap) is bool and atcap==(entries==512),'exact-prefix-map-capacity-state')
+    u64=r'(?:0|[1-9][0-9]{0,19})'
+    pattern=r'native5-prefix-row index=([012]) observation=(?:None|Some\(\(('+p.ON+r'), ('+p.N+r'), ('+u64+r'), ('+p.N+r'), ('+p.N+r'), ('+p.ON+r'), ('+p.ON+r'), (true|false)\)\))'
+    rows=[]
+    for index,line in enumerate(lines[1:]):
+        m=re.fullmatch(pattern,line);ensure(m is not None and int(m[1])==index,'closed-three-prefix-row-indices')
+        if line.endswith('observation=None'):rows.append(None);continue
+        anchor=p.opt(m[2]);distinct=p.number(m[3],512);callbacks=int(m[4]);pending=p.number(m[5],512);excluded=p.number(m[6],512)
+        first=p.opt(m[7]);last=p.opt(m[8]);invalid=m[9]=='true'
+        ensure(callbacks<=18446744073709551615 and entries>=1 and distinct+pending+excluded<=entries-1,'prefix-count-bounds-and-observed-record-partition')
+        ensure(anchor is not None or invalid,'prefix-clock-miss-remains-invalid')
+        if distinct==0:ensure(callbacks==0 and first is None and last is None,'no-invented-positive-prefix-callbacks')
+        elif not invalid:
+            ensure(callbacks>=distinct and first is not None and last is not None and anchor is not None and anchor<=first<=last,'positive-prefix-callback-lower-bound-and-times')
+        ensure(timing.get('snapshot_available') is True,'prefix-row-requires-native-ID-snapshot')
+        bound=(notification or {}).get('source_id_bound')
+        if (notification or {}).get('schema_complete') is True and isinstance(bound,list):
+            ensure(len(bound)==3 and bound[index] is True,'prefix-row-needs-same-freeze-bound-first-peer-ID')
+        proofs=timing.get('peer_proofs')
+        if timing.get('known') is True:
+            ensure(isinstance(proofs,list) and len(proofs)==3 and proofs[index] is not None and proofs[index]['first_attempt_actual_message_bound'] is True,'prefix-needs-actual-first-peer-key')
+        # Independent getters; only compare the immutable first-placement time
+        # when both captured it. Do not assert a joint snapshot or stage order.
+        for prior in (notification or {}).get('rows') or []:
+            if prior.get('plane')==ordinal-1 and prior.get('channel')==index:
+                captured=(prior.get('placement_first_dispatcher_us') or {}).get('queue_accepted')
+                if captured is not None and anchor is not None:ensure(captured==anchor,'same-immutable-prefix-target-first-placement')
+        rows.append({'channel_index':index,'target_first_QueueAccepted_us':anchor,'older_record_distinct_first_dequeued_at_or_after_anchor':distinct,
+            'their_observed_Delivery_dequeue_callback_sum':callbacks,'older_accepted_records_without_observed_dequeue':pending,
+            'older_records_first_dequeued_before_anchor':excluded,'earliest_qualifying_FIRST_dequeue_us':first,'latest_qualifying_FIRST_dequeue_us':last,
+            'invalid_observation':invalid,'lower_bounds_only':True,'old_first_before_anchor_later_repeats_unknown':True})
+    return {'observed':True,'schema_complete':True,'map_available':True,'entries':entries,'at_capacity':atcap,'capacity_may_have_excluded_new_ids':atcap,'not_complete_queue_history':True,'complete_protocol_or_network_coverage':False,
+        'rows':rows,'recipient_plane':ordinal-1,'native_ledger_known':timing.get('known') is True,'native_first_peer_key_crosschecked':timing.get('known') is True,'Delivery_subset_Overflow_excluded':True,'new_hotpath_or_ledger':False,
+        'callback_mutex_order_is_not_exact_removal_or_FIFO_position':True,'first_accepted_and_dequeue_clock_are_observer_callbacks':True,
+        'no_joint_snapshot_with_old_getters_or_native':True,'missing_target_or_anchor_remains_unknown':True,
+        'all_after_anchor_count_is_lower_bound_not_complete_prefix_total':True}
+
+
+def prefix_parser_controls():
+    empty=['native5-prefix observed=true entries=Some(3) at_capacity=Some(false)']+['native5-prefix-row index='+str(i)+' observation=None' for i in range(3)]
+    context={'known':True,'snapshot_available':True,'peer_proofs':[{'first_attempt_actual_message_bound':True},None,None]}
+    prefix_summary(empty,4,context,{})
+    some='native5-prefix-row index=0 observation=Some((Some(10), 1, 2, 1, 0, Some(11), Some(12), false))'
+    valid=[empty[0],some,*empty[2:]];prefix_summary(valid,4,context,{})
+    prefix_summary(['native5-prefix observed=false entries=None at_capacity=None'],4,context,{})
+    prefix_summary([line.replace('entries=Some(3) at_capacity=Some(false)','entries=Some(512) at_capacity=Some(true)') for line in valid],4,context,{})
+    partial=[valid[0],some.replace('Some(11), Some(12), false','None, None, true'),*empty[2:]];prefix_summary(partial,4,context,{})
+    prefix_summary(valid,4,dict(context,known=False),{'schema_complete':True,'source_id_bound':[True,False,False]})
+    bad=[valid+[empty[-1]],valid[:-1],list(reversed(valid)),[valid[0],some+' PRIVATE',*empty[2:]],
+        [line.replace('at_capacity=Some(false)','at_capacity=Some(true)') for line in valid],
+        [line.replace('entries=Some(3)','entries=Some(513)') for line in valid],
+        [valid[0],some.replace(', 1, 2, 1, 0,',', true, 2, 1, 0,'),*empty[2:]],
+        [valid[0],some.replace(', 1, 2, 1, 0,',', 2, 2, 1, 0,'),*empty[2:]],
+        [valid[0],some.replace(', 1, 2, 1, 0,',', 1, 18446744073709551616, 1, 0,'),*empty[2:]],
+        [valid[0],some.replace('Some(11), Some(12)','Some(9), Some(12)'),*empty[2:]],
+        [valid[0],some.replace('Some(11), Some(12)','None, None'),*empty[2:]],
+        [valid[0],some.replace('Some(10)','None'),*empty[2:]],
+        ['native5-prefix observed=false entries=None at_capacity=None',*empty[1:]]]
+    for value in bad:
+        rejected=False
+        try:prefix_summary(value,4,context,{})
+        except (ValueError,frozen.bounded.GateFailure):rejected=True
+        ensure(rejected,'invalid-prefix-closed-shape-rejected')
+    for ctx,prior in [({'known':True,'snapshot_available':True,'peer_proofs':[None]*3},{}),(context,{'rows':[{'plane':3,'channel':0,'placement_first_dispatcher_us':{'queue_accepted':9}}]})]:
+        rejected=False
+        try:prefix_summary(valid,4,ctx,prior)
+        except (ValueError,frozen.bounded.GateFailure):rejected=True
+        ensure(rejected,'invalid-prefix-source-binding-rejected')
+    frame_context=dict(context,snapshot_available=True,slots=[None]*3,wait={})
+    frame='native5-join-window begin ordinal=4\n'+'\n'.join('native5-request index='+str(i)+' observation=None' for i in range(3))+'\n'+'\n'.join(valid)+'\nnative5-join-window end ordinal=4'
+    frames={'windows':[{'actual_join_ordinal':4,'timing':frame_context}]}
+    request_gap_windows(frame,'closed::case',frames)
+    for value in [valid[1]+'\n'+frame,frame+'\n'+valid[0],'test foreign::case ... '+frame]:
+        rejected=False
+        try:request_gap_windows(value,'closed::case',frames)
+        except (ValueError,frozen.bounded.GateFailure):rejected=True
+        ensure(rejected,'prefix-orphan-or-foreign-test-frame-rejected')
+    for ctx,prior in [(dict(context,known=False,snapshot_available=False),{}),(context,{'schema_complete':True,'source_id_bound':[False,False,False]})]:
+        rejected=False
+        try:prefix_summary(valid,4,ctx,prior)
+        except (ValueError,frozen.bounded.GateFailure):rejected=True
+        ensure(rejected,'prefix-impossible-snapshot-or-key-binding-rejected')
+    maximum=['native5-prefix observed=true entries=Some(512) at_capacity=Some(false)']
+    maximum+=['native5-prefix-row index='+str(i)+' observation=Some((Some(600000000), 512, 18446744073709551615, 512, 512, Some(600000000), Some(600000000), false))' for i in range(3)]
+    extra=len(('\n'.join(maximum)+'\n').encode())
+    old=request_parser_controls()['combined_maximum_width_bytes']
+    ensure(old+extra<=65536 and all(len(line.encode())<=512 for line in maximum),'unchanged-whole-window-cap-with-prefix-summary')
+    return {'positive':7,'negative':len(bad)+7,'runtime_bodies':0,'prefix_maximum_bytes':extra,
+        'combined_maximum_width_bytes':old+extra,'cap_bytes':65536,'capacity_fixture_is_not_runtime_evidence':True}
+
+
 def controls():
-    return {'legacy':previous.controls(),'Request_gap':request_parser_controls(),'worker':frozen.timing_parser.worker_parser_controls()} # Data/parsers only; no legacy guard or main.
+    return {'legacy':previous.controls(),'Request_gap':request_parser_controls(),'prefix':prefix_parser_controls(),'worker':frozen.timing_parser.worker_parser_controls()} # Data/parsers only; no legacy guard or main.
 
 
 def compile_one(report,save):
@@ -244,6 +347,8 @@ def main(args):
         report['diagnostic_completed']=all(report[k] is True for k in ['actual_named_body_observed','native_windows_completed','notification_schemas_complete','intake_schemas_complete'])
         report['SDK_worker_intake_known_are_independent']=True
         report['Request_gap_schema_complete']=report['Request_gap_windows']['schema_complete']
+        report['prefix_schemas_complete']=bool(report['Request_gap_windows']['windows']) and all(w['prefix_summary']['schema_complete'] for w in report['Request_gap_windows']['windows'])
+        report['diagnostic_completed']=report['diagnostic_completed'] and report['prefix_schemas_complete']
         report['Request_candidate_owner_requires_actual_authenticated_channel_link']=True
         report['missing_fifth_is_not_zero_or_pass']=True
         report['plane_shutdown_semantics']='returned shutdown calls; internal task quiescence not established';save()
@@ -252,6 +357,7 @@ def main(args):
         ensure(report['inputs_after_body_pristine'] and report['binary_after_body_pristine'],'after-body-source-binary-pristine')
         ensure(report['diagnostic_completed'],'closed-known-native-windows-and-supplemental-schemas-required')
         ensure(report['Request_gap_schema_complete'],'closed-Request-gap-rows-required')
+        ensure(report['prefix_schemas_complete'],'closed-prefix-summary-required')
     except frozen.bounded.GateFailure as error:
         report['watchdog_triggered']=str(error)=='bounded-command-timeout';report['output_limit_triggered']=str(error)=='bounded-command-output-limit'
         report['exception_type']=type(error).__name__
