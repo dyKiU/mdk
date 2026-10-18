@@ -9,8 +9,12 @@ pub(crate) enum SetupCommand {
     // SOURCE_READINESS_TEST_BEGIN
     #[cfg(all(test, feature = "test-policy-overrides"))]
     SourceReadinessSnapshot {
-        owner: std::sync::Weak<crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval>,
-        respond: Reply<Option<crate::client::private_enrollment_proposal::source_readiness_probe::Snapshot>>,
+        owner: std::sync::Weak<
+            crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval,
+        >,
+        respond: Reply<
+            Option<crate::client::private_enrollment_proposal::source_readiness_probe::Snapshot>,
+        >,
     },
     // SOURCE_READINESS_TEST_END
     // PEER_PROOF_TEST_BEGIN
@@ -309,10 +313,19 @@ impl AccountManager {
     // SOURCE_READINESS_TEST_BEGIN
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) async fn source_readiness_snapshot_for_test(
-        &self, account: &str,
-        owner: std::sync::Weak<crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval>,
-    ) -> Result<Option<crate::client::private_enrollment_proposal::source_readiness_probe::Snapshot>, ClientLinkingError> {
-        self.verifier_command(account, |respond| VerifierCommand::Setup(SetupCommand::SourceReadinessSnapshot { owner, respond })).await
+        &self,
+        account: &str,
+        owner: std::sync::Weak<
+            crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval,
+        >,
+    ) -> Result<
+        Option<crate::client::private_enrollment_proposal::source_readiness_probe::Snapshot>,
+        ClientLinkingError,
+    > {
+        self.verifier_command(account, |respond| {
+            VerifierCommand::Setup(SetupCommand::SourceReadinessSnapshot { owner, respond })
+        })
+        .await
     }
     // SOURCE_READINESS_TEST_END
     // PEER_PROOF_TEST_BEGIN

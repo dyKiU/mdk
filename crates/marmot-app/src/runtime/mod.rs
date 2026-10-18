@@ -448,7 +448,11 @@ pub struct RuntimeSharedServices {
     linking_periodic_test_gates:
         Arc<StdMutex<HashMap<String, Arc<test_linking_periodic_gate::PeriodicGate>>>>,
     // SOURCE_READINESS_TEST_BEGIN
-    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     sibling_periodic_only_test_gates:
         Arc<StdMutex<HashMap<String, Arc<test_linking_periodic_gate::PeriodicGate>>>>,
     // SOURCE_READINESS_TEST_END
@@ -601,7 +605,11 @@ impl Default for RuntimeSharedServices {
             ))]
             linking_periodic_test_gates: Arc::new(StdMutex::new(HashMap::new())),
             // SOURCE_READINESS_TEST_BEGIN
-            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
             sibling_periodic_only_test_gates: Arc::new(StdMutex::new(HashMap::new())),
             // SOURCE_READINESS_TEST_END
             // COMPLETION_TEST_END
@@ -779,7 +787,11 @@ impl RuntimeSharedServices {
             ))]
             linking_periodic_test_gates: Arc::new(StdMutex::new(HashMap::new())),
             // SOURCE_READINESS_TEST_BEGIN
-            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            #[cfg(all(
+                test,
+                feature = "experimental-device-sync",
+                feature = "test-policy-overrides"
+            ))]
             sibling_periodic_only_test_gates: Arc::new(StdMutex::new(HashMap::new())),
             // SOURCE_READINESS_TEST_END
             // COMPLETION_TEST_END
