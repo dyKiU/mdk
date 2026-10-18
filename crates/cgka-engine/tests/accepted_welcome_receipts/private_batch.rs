@@ -73,7 +73,8 @@ async fn fixture_with_creator(
         .ensure_account_projection_with_identity("private-batch-approver", &hex::encode(account))
         .unwrap();
     let generation = approver_storage
-        .app_storage().reserve_device_linking_attempt(&account, &device)
+        .app_storage()
+        .reserve_device_linking_attempt(&account, &device)
         .unwrap();
     let binding = storage_sqlite::DeviceLinkingBinding {
         generation,
@@ -81,13 +82,16 @@ async fn fixture_with_creator(
         context_digest: purpose.context.as_ref().unwrap().context_digest,
     };
     approver_storage
-        .app_storage().bind_device_linking_context(&binding)
+        .app_storage()
+        .bind_device_linking_context(&binding)
         .unwrap();
     approver_storage
-        .app_storage().bind_device_linking_flow(&binding, "isolated-outgoing-policy")
+        .app_storage()
+        .bind_device_linking_flow(&binding, "isolated-outgoing-policy")
         .unwrap();
     approver_storage
-        .app_storage().finish_device_linking_attempt(
+        .app_storage()
+        .finish_device_linking_attempt(
             generation,
             storage_sqlite::DeviceLinkingOutcome::PairingVerified,
         )

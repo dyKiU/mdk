@@ -27,14 +27,19 @@ fn pending_flow(
 ) -> DeviceLinkingBinding {
     let binding = DeviceLinkingBinding {
         generation: storage
-            .app_storage().reserve_device_linking_attempt(account, device)
+            .app_storage()
+            .reserve_device_linking_attempt(account, device)
             .unwrap(),
         nonce: [1; 32],
         context_digest: [2; 32],
     };
-    storage.app_storage().bind_device_linking_context(&binding).unwrap();
     storage
-        .app_storage().bind_device_linking_flow(&binding, "isolated-sdk-flow")
+        .app_storage()
+        .bind_device_linking_context(&binding)
+        .unwrap();
+    storage
+        .app_storage()
+        .bind_device_linking_flow(&binding, "isolated-sdk-flow")
         .unwrap();
     binding
 }
@@ -387,7 +392,8 @@ fn device_linking_startup_fences_only_the_exclusively_reopened_account() {
             Err(AppError::AccountSessionBusy)
         ));
         alice_storage
-            .app_storage().check_device_linking_flow(&alice_binding, "isolated-sdk-flow")
+            .app_storage()
+            .check_device_linking_flow(&alice_binding, "isolated-sdk-flow")
             .unwrap();
 
         drop(alice);
@@ -396,18 +402,24 @@ fn device_linking_startup_fences_only_the_exclusively_reopened_account() {
             .await
             .unwrap();
         assert!(matches!(
-            alice_storage.app_storage().check_device_linking_flow(&alice_binding, "isolated-sdk-flow"),
+            alice_storage
+                .app_storage()
+                .check_device_linking_flow(&alice_binding, "isolated-sdk-flow"),
             Err(DeviceLinkingError::Terminal)
         ));
         let next = alice_storage
-            .app_storage().reserve_device_linking_attempt(&alice_account, &alice_device)
+            .app_storage()
+            .reserve_device_linking_attempt(&alice_account, &alice_device)
             .unwrap();
         assert_eq!(next, alice_binding.generation + 1);
         bob_storage
-            .app_storage().check_device_linking_flow(&bob_binding, "isolated-sdk-flow")
+            .app_storage()
+            .check_device_linking_flow(&bob_binding, "isolated-sdk-flow")
             .unwrap();
         assert!(matches!(
-            bob_storage.app_storage().reserve_device_linking_attempt(&bob_account, &bob_device),
+            bob_storage
+                .app_storage()
+                .reserve_device_linking_attempt(&bob_account, &bob_device),
             Err(DeviceLinkingError::Busy)
         ));
         drop(reopened);
@@ -454,13 +466,19 @@ fn device_linking_client_owns_actual_identity_and_fences_before_releasing_sessio
             nonce: [3; 32],
             context_digest: [4; 32],
         };
-        storage.app_storage().bind_device_linking_context(&binding).unwrap();
+        storage
+            .app_storage()
+            .bind_device_linking_context(&binding)
+            .unwrap();
         assert!(matches!(
             app.local_client_with_relay_plane("alice", &plane, None)
                 .await,
             Err(AppError::AccountSessionBusy)
         ));
-        storage.app_storage().bind_device_linking_context(&binding).unwrap();
+        storage
+            .app_storage()
+            .bind_device_linking_context(&binding)
+            .unwrap();
         assert!(
             storage
                 .device_linking_key_package_storage()

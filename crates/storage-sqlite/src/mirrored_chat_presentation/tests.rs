@@ -1,6 +1,6 @@
 //! Synthetic storage controls; these scopes do not prove original SDK approval.
-use crate::SqliteAccountStorage;
 use super::*;
+use crate::SqliteAccountStorage;
 use cgka_traits::{
     MemberId,
     group::ProtocolProfile,
@@ -102,19 +102,22 @@ fn mirrored_presentation_total_limit_dedup_and_catalog_cursor() {
     catalog(&storage, &b, &[1, 2], MirroredChatState::Active);
     let scopes = [a, b];
     let rows = storage
-        .app_storage().mirrored_catalog_observation_page(&scopes, None, 2)
+        .app_storage()
+        .mirrored_catalog_observation_page(&scopes, None, 2)
         .unwrap();
     assert_eq!(rows.len(), 2);
     assert!(rows[0].entry.group_id == GroupId::new(vec![1]));
     assert!(rows[1].entry.group_id == GroupId::new(vec![2]));
     let tail = storage
-        .app_storage().mirrored_catalog_observation_page(&scopes, Some(&rows[1].entry.group_id), 2)
+        .app_storage()
+        .mirrored_catalog_observation_page(&scopes, Some(&rows[1].entry.group_id), 2)
         .unwrap();
     assert_eq!(tail.len(), 1);
     assert!(tail[0].entry.group_id == GroupId::new(vec![3]));
     assert!(
         storage
-            .app_storage().mirrored_catalog_observation_page(&[], None, 128)
+            .app_storage()
+            .mirrored_catalog_observation_page(&[], None, 128)
             .unwrap()
             .is_empty()
     );
@@ -130,20 +133,23 @@ fn mirrored_presentation_excludes_unselected_generation_and_terminal_source() {
     renewed.protected_generation = 2;
     assert!(
         storage
-            .app_storage().mirrored_catalog_observation_page(&[renewed.clone()], None, 128)
+            .app_storage()
+            .mirrored_catalog_observation_page(&[renewed.clone()], None, 128)
             .unwrap()
             .is_empty()
     );
     catalog(&storage, &renewed, &[1], MirroredChatState::Deleted);
     assert!(
         storage
-            .app_storage().mirrored_catalog_observation_page(&[a], None, 128)
+            .app_storage()
+            .mirrored_catalog_observation_page(&[a], None, 128)
             .unwrap()
             .is_empty()
     );
     assert_eq!(
         storage
-            .app_storage().mirrored_catalog_observation_page(&[b], None, 128)
+            .app_storage()
+            .mirrored_catalog_observation_page(&[b], None, 128)
             .unwrap()
             .len(),
         1
@@ -165,7 +171,8 @@ fn mirrored_presentation_message_union_orders_and_paginates_once() {
         .unwrap();
     let scopes = [a, b];
     let rows = storage
-        .app_storage().mirrored_message_observation_page(&scopes, &group, None, 2, 0)
+        .app_storage()
+        .mirrored_message_observation_page(&scopes, &group, None, 2, 0)
         .unwrap();
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].record.event_id, [1; 32]);
@@ -175,7 +182,8 @@ fn mirrored_presentation_message_union_orders_and_paginates_once() {
         event_id: [2; 32],
     };
     let tail = storage
-        .app_storage().mirrored_message_observation_page(&scopes, &group, Some(&cursor), 2, 0)
+        .app_storage()
+        .mirrored_message_observation_page(&scopes, &group, Some(&cursor), 2, 0)
         .unwrap();
     assert_eq!(tail.len(), 1);
     assert_eq!(tail[0].record.event_id, [3; 32]);
@@ -194,7 +202,8 @@ fn mirrored_presentation_expiry_and_cross_source_tombstone_hide_payload() {
         .apply_mirrored_chat_messages(&a, &group, &[original.clone()], 0, &|| Ok(()))
         .unwrap();
     let expired = storage
-        .app_storage().mirrored_message_observation_page(std::slice::from_ref(&a), &group, None, 128, 20)
+        .app_storage()
+        .mirrored_message_observation_page(std::slice::from_ref(&a), &group, None, 128, 20)
         .unwrap();
     assert!(expired[0].record.deleted && expired[0].record.payload.is_empty());
     original.deleted = true;
@@ -205,12 +214,14 @@ fn mirrored_presentation_expiry_and_cross_source_tombstone_hide_payload() {
         .unwrap();
     assert!(
         storage
-            .app_storage().mirrored_message_observation_page(&[a], &group, None, 128, 0)
+            .app_storage()
+            .mirrored_message_observation_page(&[a], &group, None, 128, 0)
             .unwrap()
             .is_empty()
     );
     let terminal = storage
-        .app_storage().mirrored_message_observation_page(&[b], &group, None, 128, 0)
+        .app_storage()
+        .mirrored_message_observation_page(&[b], &group, None, 128, 0)
         .unwrap();
     assert!(terminal[0].record.deleted && terminal[0].record.payload.is_empty());
 }
@@ -220,30 +231,35 @@ fn mirrored_presentation_bounds_duplicate_scopes_and_wrong_account_fail_closed()
     let a = scope(3);
     assert!(
         storage
-            .app_storage().mirrored_catalog_observation_page(&[a.clone(), a.clone()], None, 128)
+            .app_storage()
+            .mirrored_catalog_observation_page(&[a.clone(), a.clone()], None, 128)
             .is_err()
     );
     assert!(
         storage
-            .app_storage().mirrored_catalog_observation_page(&[], None, 0)
+            .app_storage()
+            .mirrored_catalog_observation_page(&[], None, 0)
             .is_err()
     );
     assert!(
         storage
-            .app_storage().mirrored_catalog_observation_page(&[], None, 129)
+            .app_storage()
+            .mirrored_catalog_observation_page(&[], None, 129)
             .is_err()
     );
     let mut wrong = a;
     wrong.account = [8; 32];
     assert!(
         storage
-            .app_storage().mirrored_catalog_observation_page(&[wrong], None, 128)
+            .app_storage()
+            .mirrored_catalog_observation_page(&[wrong], None, 128)
             .is_err()
     );
     let scopes = (3..132).map(scope).collect::<Vec<_>>();
     assert!(
         storage
-            .app_storage().mirrored_catalog_observation_page(&scopes, None, 128)
+            .app_storage()
+            .mirrored_catalog_observation_page(&scopes, None, 128)
             .is_err()
     );
 }
@@ -259,7 +275,8 @@ fn mirrored_presentation_real_ordinary_id_precedence_even_after_invalidation() {
     storage.lock().unwrap().execute("INSERT INTO app_events(group_id_hex,message_id_hex,direction,sender,plaintext,kind,tags_json,recorded_at,received_at,invalidated) VALUES(?1,?2,'inbound','synthetic','',9,'[]',10,10,1)",rusqlite::params![hex::encode(group.as_slice()),hex::encode([1;32])]).unwrap();
     assert!(
         storage
-            .app_storage().mirrored_message_observation_page(std::slice::from_ref(&a), &group, None, 128, 0)
+            .app_storage()
+            .mirrored_message_observation_page(std::slice::from_ref(&a), &group, None, 128, 0)
             .unwrap()
             .is_empty()
     );
@@ -273,7 +290,8 @@ fn mirrored_presentation_real_ordinary_id_precedence_even_after_invalidation() {
         .unwrap();
     assert!(
         storage
-            .app_storage().mirrored_catalog_observation_page(&[a], None, 128)
+            .app_storage()
+            .mirrored_catalog_observation_page(&[a], None, 128)
             .unwrap()
             .is_empty()
     );
@@ -299,7 +317,8 @@ fn mirrored_presentation_blocked_author_is_filtered_before_total_limit() {
         )
         .unwrap();
     let page = storage
-        .app_storage().mirrored_message_observation_page(std::slice::from_ref(&a), &group, None, 1, 0)
+        .app_storage()
+        .mirrored_message_observation_page(std::slice::from_ref(&a), &group, None, 1, 0)
         .unwrap();
     assert_eq!(page.len(), 1);
     assert_eq!(page[0].record.event_id, [2; 32]);
@@ -321,14 +340,16 @@ fn mirrored_presentation_latest_window_uses_canonical_exclusive_cursor() {
         )
         .unwrap();
     let latest = storage
-        .app_storage().mirrored_message_observation_window(std::slice::from_ref(&a), &group, None, 2, 0)
+        .app_storage()
+        .mirrored_message_observation_window(std::slice::from_ref(&a), &group, None, 2, 0)
         .unwrap();
     assert_eq!(
         latest.iter().map(|r| r.record.event_id).collect::<Vec<_>>(),
         [[2; 32], [3; 32]]
     );
     let earlier = storage
-        .app_storage().mirrored_message_observation_window(
+        .app_storage()
+        .mirrored_message_observation_window(
             std::slice::from_ref(&a),
             &group,
             Some(&MirroredChatCursor {
@@ -380,7 +401,8 @@ fn mirrored_presentation_conversation_union_has_one_limit_and_real_ordinary_prec
     };
     storage.app_storage().record_app_event(&event).unwrap();
     let rows = storage
-        .app_storage().account_conversation_observation_window(std::slice::from_ref(&scope), &group, None, 2, 0)
+        .app_storage()
+        .account_conversation_observation_window(std::slice::from_ref(&scope), &group, None, 2, 0)
         .unwrap();
     assert_eq!(rows.len(), 2);
     assert!(
@@ -394,7 +416,8 @@ fn mirrored_presentation_conversation_union_has_one_limit_and_real_ordinary_prec
         event_id: [2; 32],
     };
     let earlier = storage
-        .app_storage().account_conversation_observation_window(
+        .app_storage()
+        .account_conversation_observation_window(
             std::slice::from_ref(&scope),
             &group,
             Some(&cursor),
@@ -408,14 +431,16 @@ fn mirrored_presentation_conversation_union_has_one_limit_and_real_ordinary_prec
     );
     storage.lock().unwrap().execute("UPDATE app_events SET retention_seconds=1,retention_expires_at=26 WHERE message_id_hex=?1",[hex::encode([2;32])]).unwrap();
     let expired = storage
-        .app_storage().account_conversation_observation_window(std::slice::from_ref(&scope), &group, None, 2, 26)
+        .app_storage()
+        .account_conversation_observation_window(std::slice::from_ref(&scope), &group, None, 2, 26)
         .unwrap();
     assert!(
         matches!(&expired[0],AccountConversationObservation::LocalMls(row) if row.deleted && row.plaintext.is_empty() && row.tags.is_empty())
     );
     assert!(
         storage
-            .app_storage().mirrored_catalog_observation(&[scope], &group)
+            .app_storage()
+            .mirrored_catalog_observation(&[scope], &group)
             .unwrap()
             .is_some()
     );

@@ -1,6 +1,6 @@
-use crate::SqliteAccountStorage;
 use super::*;
 use crate::SqlCipherKey;
+use crate::SqliteAccountStorage;
 
 const ACCOUNT: [u8; 32] = [1; 32];
 const DEVICE: [u8; 32] = [2; 32];
@@ -22,12 +22,17 @@ fn binding(generation: u64) -> DeviceLinkingBinding {
 
 fn active(storage: &SqliteAccountStorage) -> DeviceLinkingBinding {
     let generation = storage
-        .app_storage().reserve_device_linking_attempt(&ACCOUNT, &DEVICE)
+        .app_storage()
+        .reserve_device_linking_attempt(&ACCOUNT, &DEVICE)
         .unwrap();
     let binding = binding(generation);
-    storage.app_storage().bind_device_linking_context(&binding).unwrap();
     storage
-        .app_storage().bind_device_linking_flow(&binding, "exact-flow")
+        .app_storage()
+        .bind_device_linking_context(&binding)
+        .unwrap();
+    storage
+        .app_storage()
+        .bind_device_linking_flow(&binding, "exact-flow")
         .unwrap();
     binding
 }
@@ -38,13 +43,17 @@ fn verifier_completion_is_terminal_and_never_creates_membership_evidence() {
     prepare(&storage);
     let binding = active(&storage);
     storage
-        .app_storage().check_device_linking_flow(&binding, "exact-flow")
+        .app_storage()
+        .check_device_linking_flow(&binding, "exact-flow")
         .unwrap();
     storage
-        .app_storage().finish_device_linking_attempt(binding.generation, DeviceLinkingOutcome::PairingVerified)
+        .app_storage()
+        .finish_device_linking_attempt(binding.generation, DeviceLinkingOutcome::PairingVerified)
         .unwrap();
     assert!(matches!(
-        storage.app_storage().check_device_linking_flow(&binding, "exact-flow"),
+        storage
+            .app_storage()
+            .check_device_linking_flow(&binding, "exact-flow"),
         Err(DeviceLinkingError::Terminal)
     ));
     let conn = storage.lock().unwrap();
@@ -59,9 +68,13 @@ fn exact_binding_retries_are_idempotent_but_substitution_is_rejected() {
     let storage = SqliteAccountStorage::in_memory().unwrap();
     prepare(&storage);
     let binding = active(&storage);
-    storage.app_storage().bind_device_linking_context(&binding).unwrap();
     storage
-        .app_storage().bind_device_linking_flow(&binding, "exact-flow")
+        .app_storage()
+        .bind_device_linking_context(&binding)
+        .unwrap();
+    storage
+        .app_storage()
+        .bind_device_linking_flow(&binding, "exact-flow")
         .unwrap();
     for altered in [
         DeviceLinkingBinding {
@@ -80,16 +93,19 @@ fn exact_binding_retries_are_idempotent_but_substitution_is_rejected() {
     }
     assert!(
         storage
-            .app_storage().bind_device_linking_flow(&binding, "Exact-flow")
+            .app_storage()
+            .bind_device_linking_flow(&binding, "Exact-flow")
             .is_err()
     );
     assert!(
         storage
-            .app_storage().check_device_linking_flow(&binding, "exact-flow ")
+            .app_storage()
+            .check_device_linking_flow(&binding, "exact-flow ")
             .is_err()
     );
     storage
-        .app_storage().check_device_linking_flow(&binding, "exact-flow")
+        .app_storage()
+        .check_device_linking_flow(&binding, "exact-flow")
         .unwrap();
 }
 
@@ -99,17 +115,21 @@ fn repeated_reservations_keep_one_row_and_cannot_reactivate_old_generations() {
     prepare(&storage);
     let old = active(&storage);
     storage
-        .app_storage().finish_device_linking_attempt(old.generation, DeviceLinkingOutcome::Cancelled)
+        .app_storage()
+        .finish_device_linking_attempt(old.generation, DeviceLinkingOutcome::Cancelled)
         .unwrap();
     for expected in 2..=300 {
         let current = active(&storage);
         assert_eq!(current.generation, expected);
         assert!(matches!(
-            storage.app_storage().check_device_linking_flow(&old, "exact-flow"),
+            storage
+                .app_storage()
+                .check_device_linking_flow(&old, "exact-flow"),
             Err(DeviceLinkingError::StaleGeneration)
         ));
         storage
-            .app_storage().finish_device_linking_attempt(current.generation, DeviceLinkingOutcome::Cancelled)
+            .app_storage()
+            .finish_device_linking_attempt(current.generation, DeviceLinkingOutcome::Cancelled)
             .unwrap();
     }
     let count: i64 = storage
@@ -131,13 +151,21 @@ fn cancellation_survives_encrypted_reopen_and_startup_cannot_revive_it() {
     prepare(&storage);
     let cancelled = active(&storage);
     storage
-        .app_storage().finish_device_linking_attempt(cancelled.generation, DeviceLinkingOutcome::Cancelled)
+        .app_storage()
+        .finish_device_linking_attempt(cancelled.generation, DeviceLinkingOutcome::Cancelled)
         .unwrap();
     storage.close().unwrap();
     let reopened = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
-    assert!(!reopened.app_storage().abandon_device_linking_on_startup().unwrap());
+    assert!(
+        !reopened
+            .app_storage()
+            .abandon_device_linking_on_startup()
+            .unwrap()
+    );
     assert!(matches!(
-        reopened.app_storage().check_device_linking_flow(&cancelled, "exact-flow"),
+        reopened
+            .app_storage()
+            .check_device_linking_flow(&cancelled, "exact-flow"),
         Err(DeviceLinkingError::Terminal)
     ));
     let fresh = active(&reopened);
@@ -161,11 +189,22 @@ fn startup_abandons_incomplete_verification_and_requires_fresh_generation() {
     let interrupted = active(&storage);
     storage.close().unwrap();
     let reopened = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
-    assert!(reopened.app_storage().abandon_device_linking_on_startup().unwrap());
-    assert!(!reopened.app_storage().abandon_device_linking_on_startup().unwrap());
     assert!(
         reopened
-            .app_storage().bind_device_linking_flow(&interrupted, "exact-flow")
+            .app_storage()
+            .abandon_device_linking_on_startup()
+            .unwrap()
+    );
+    assert!(
+        !reopened
+            .app_storage()
+            .abandon_device_linking_on_startup()
+            .unwrap()
+    );
+    assert!(
+        reopened
+            .app_storage()
+            .bind_device_linking_flow(&interrupted, "exact-flow")
             .is_err()
     );
     let fresh = active(&reopened);
@@ -177,21 +216,28 @@ fn scope_mismatch_and_busy_reservations_do_not_replace_the_active_attempt() {
     let storage = SqliteAccountStorage::in_memory().unwrap();
     prepare(&storage);
     assert!(matches!(
-        storage.app_storage().reserve_device_linking_attempt(&[7; 32], &DEVICE),
+        storage
+            .app_storage()
+            .reserve_device_linking_attempt(&[7; 32], &DEVICE),
         Err(DeviceLinkingError::WrongAccount)
     ));
     let binding = active(&storage);
     assert_eq!(binding.generation, 1);
     assert!(matches!(
-        storage.app_storage().reserve_device_linking_attempt(&ACCOUNT, &[8; 32]),
+        storage
+            .app_storage()
+            .reserve_device_linking_attempt(&ACCOUNT, &[8; 32]),
         Err(DeviceLinkingError::WrongDevice)
     ));
     assert!(matches!(
-        storage.app_storage().reserve_device_linking_attempt(&ACCOUNT, &DEVICE),
+        storage
+            .app_storage()
+            .reserve_device_linking_attempt(&ACCOUNT, &DEVICE),
         Err(DeviceLinkingError::Busy)
     ));
     storage
-        .app_storage().check_device_linking_flow(&binding, "exact-flow")
+        .app_storage()
+        .check_device_linking_flow(&binding, "exact-flow")
         .unwrap();
 }
 
@@ -200,21 +246,27 @@ fn completion_requires_bound_flow_and_terminal_outcome_is_immutable() {
     let storage = SqliteAccountStorage::in_memory().unwrap();
     prepare(&storage);
     let generation = storage
-        .app_storage().reserve_device_linking_attempt(&ACCOUNT, &DEVICE)
+        .app_storage()
+        .reserve_device_linking_attempt(&ACCOUNT, &DEVICE)
         .unwrap();
     assert!(
         storage
-            .app_storage().finish_device_linking_attempt(generation, DeviceLinkingOutcome::PairingVerified)
+            .app_storage()
+            .finish_device_linking_attempt(generation, DeviceLinkingOutcome::PairingVerified)
             .is_err()
     );
     storage
-        .app_storage().finish_device_linking_attempt(generation, DeviceLinkingOutcome::Shutdown)
+        .app_storage()
+        .finish_device_linking_attempt(generation, DeviceLinkingOutcome::Shutdown)
         .unwrap();
     storage
-        .app_storage().finish_device_linking_attempt(generation, DeviceLinkingOutcome::Shutdown)
+        .app_storage()
+        .finish_device_linking_attempt(generation, DeviceLinkingOutcome::Shutdown)
         .unwrap();
     assert!(matches!(
-        storage.app_storage().finish_device_linking_attempt(generation, DeviceLinkingOutcome::PairingVerified),
+        storage
+            .app_storage()
+            .finish_device_linking_attempt(generation, DeviceLinkingOutcome::PairingVerified),
         Err(DeviceLinkingError::Terminal)
     ));
 }
@@ -224,25 +276,34 @@ fn invalid_flow_bounds_and_generation_exhaustion_fail_without_reusing_identity()
     let storage = SqliteAccountStorage::in_memory().unwrap();
     prepare(&storage);
     let generation = storage
-        .app_storage().reserve_device_linking_attempt(&ACCOUNT, &DEVICE)
+        .app_storage()
+        .reserve_device_linking_attempt(&ACCOUNT, &DEVICE)
         .unwrap();
     let binding = binding(generation);
-    storage.app_storage().bind_device_linking_context(&binding).unwrap();
+    storage
+        .app_storage()
+        .bind_device_linking_context(&binding)
+        .unwrap();
     for flow in [String::new(), "x".repeat(129)] {
         assert!(matches!(
-            storage.app_storage().bind_device_linking_flow(&binding, &flow),
+            storage
+                .app_storage()
+                .bind_device_linking_flow(&binding, &flow),
             Err(DeviceLinkingError::InvalidBinding)
         ));
     }
     let maximum_flow = "x".repeat(128);
     storage
-        .app_storage().bind_device_linking_flow(&binding, &maximum_flow)
+        .app_storage()
+        .bind_device_linking_flow(&binding, &maximum_flow)
         .unwrap();
     storage
-        .app_storage().check_device_linking_flow(&binding, &maximum_flow)
+        .app_storage()
+        .check_device_linking_flow(&binding, &maximum_flow)
         .unwrap();
     storage
-        .app_storage().finish_device_linking_attempt(generation, DeviceLinkingOutcome::Expired)
+        .app_storage()
+        .finish_device_linking_attempt(generation, DeviceLinkingOutcome::Expired)
         .unwrap();
     storage
         .lock()
@@ -253,13 +314,16 @@ fn invalid_flow_bounds_and_generation_exhaustion_fail_without_reusing_identity()
         )
         .unwrap();
     assert!(matches!(
-        storage.app_storage().reserve_device_linking_attempt(&ACCOUNT, &DEVICE),
+        storage
+            .app_storage()
+            .reserve_device_linking_attempt(&ACCOUNT, &DEVICE),
         Err(DeviceLinkingError::GenerationExhausted)
     ));
     storage.close().unwrap();
     assert!(
         storage
-            .app_storage().reserve_device_linking_attempt(&ACCOUNT, &DEVICE)
+            .app_storage()
+            .reserve_device_linking_attempt(&ACCOUNT, &DEVICE)
             .is_err()
     );
 }

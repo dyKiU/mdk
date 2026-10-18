@@ -88,7 +88,8 @@ impl MarmotApp {
             let rows = self
                 .account_storage(&account.label)
                 .map_err(|_| SynchronizedHistoryReadError::Unavailable)?
-                .app_storage().synchronized_history_page(
+                .app_storage()
+                .synchronized_history_page(
                     &hex::encode(group.as_slice()),
                     after_message_id.as_ref(),
                     limit as usize,
@@ -200,10 +201,14 @@ mod tests {
             max_record_lifetime_seconds: None,
         };
         let storage = app.account_storage("alice").unwrap();
-        storage.app_storage().admit_synchronized_history(&manifest).unwrap();
+        storage
+            .app_storage()
+            .admit_synchronized_history(&manifest)
+            .unwrap();
         assert!(
             storage
-                .app_storage().import_synchronized_history_chunk(&manifest, 0, &records, 120, &|| false)
+                .app_storage()
+                .import_synchronized_history_chunk(&manifest, 0, &records, 120, &|| false)
                 .unwrap()
                 .complete
         );

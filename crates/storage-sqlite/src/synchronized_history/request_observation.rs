@@ -38,8 +38,8 @@ impl SqliteAppStorage {
 
 #[cfg(test)]
 mod tests {
-    use crate::SqliteAccountStorage;
     use super::*;
+    use crate::SqliteAccountStorage;
     #[cfg(feature = "experimental-device-sync")]
     fn store() -> SqliteAccountStorage {
         configured(SqliteAccountStorage::in_memory().unwrap())
@@ -65,15 +65,18 @@ mod tests {
     fn history_request_observation_is_atomic_immutable_and_negative_only() {
         let s = store();
         assert!(
-            s.app_storage().observe_synchronized_history_request(&[1; 32], &[2; 32], &[3; 32], &[4; 32])
+            s.app_storage()
+                .observe_synchronized_history_request(&[1; 32], &[2; 32], &[3; 32], &[4; 32])
                 .unwrap()
         );
         assert!(
-            !s.app_storage().observe_synchronized_history_request(&[1; 32], &[2; 32], &[3; 32], &[4; 32])
+            !s.app_storage()
+                .observe_synchronized_history_request(&[1; 32], &[2; 32], &[3; 32], &[4; 32])
                 .unwrap()
         );
         assert!(matches!(
-            s.app_storage().observe_synchronized_history_request(&[1; 32], &[2; 32], &[3; 32], &[5; 32]),
+            s.app_storage()
+                .observe_synchronized_history_request(&[1; 32], &[2; 32], &[3; 32], &[5; 32]),
             Err(SynchronizedHistoryError::TransferConflict)
         ));
         for sql in [
@@ -85,13 +88,15 @@ mod tests {
         }
         let result: Result<()> = s.connection.with_transaction(|| {
             assert!(
-                s.app_storage().observe_synchronized_history_request(&[1; 32], &[2; 32], &[6; 32], &[4; 32])?
+                s.app_storage()
+                    .observe_synchronized_history_request(&[1; 32], &[2; 32], &[6; 32], &[4; 32])?
             );
             Err(SynchronizedHistoryError::Cancelled)
         });
         assert!(result.is_err());
         assert!(
-            s.app_storage().observe_synchronized_history_request(&[1; 32], &[2; 32], &[6; 32], &[4; 32])
+            s.app_storage()
+                .observe_synchronized_history_request(&[1; 32], &[2; 32], &[6; 32], &[4; 32])
                 .unwrap()
         );
     }
@@ -101,13 +106,15 @@ mod tests {
         let s = store();
         for (a, d) in [([9; 32], [2; 32]), ([1; 32], [9; 32])] {
             assert!(matches!(
-                s.app_storage().observe_synchronized_history_request(&a, &d, &[3; 32], &[4; 32]),
+                s.app_storage()
+                    .observe_synchronized_history_request(&a, &d, &[3; 32], &[4; 32]),
                 Err(SynchronizedHistoryError::WrongAccount)
             ));
         }
         s.lock().unwrap().execute_batch("CREATE TRIGGER fail_request BEFORE INSERT ON history_request_observations BEGIN SELECT RAISE(ABORT,'forced'); END;").unwrap();
         assert!(matches!(
-            s.app_storage().observe_synchronized_history_request(&[1; 32], &[2; 32], &[3; 32], &[4; 32]),
+            s.app_storage()
+                .observe_synchronized_history_request(&[1; 32], &[2; 32], &[3; 32], &[4; 32]),
             Err(SynchronizedHistoryError::Storage(_))
         ));
         s.lock()
@@ -115,7 +122,8 @@ mod tests {
             .execute_batch("DROP TRIGGER fail_request")
             .unwrap();
         assert!(
-            s.app_storage().observe_synchronized_history_request(&[1; 32], &[2; 32], &[3; 32], &[4; 32])
+            s.app_storage()
+                .observe_synchronized_history_request(&[1; 32], &[2; 32], &[3; 32], &[4; 32])
                 .unwrap()
         );
     }
@@ -128,18 +136,21 @@ mod tests {
         let s = configured(SqliteAccountStorage::open_encrypted(&path, &key).unwrap());
         for n in 1..=128 {
             assert!(
-                s.app_storage().observe_synchronized_history_request(&[1; 32], &[2; 32], &[n; 32], &[4; 32])
+                s.app_storage()
+                    .observe_synchronized_history_request(&[1; 32], &[2; 32], &[n; 32], &[4; 32])
                     .unwrap()
             );
         }
         drop(s);
         let s = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
         assert!(matches!(
-            s.app_storage().observe_synchronized_history_request(&[1; 32], &[2; 32], &[129; 32], &[4; 32]),
+            s.app_storage()
+                .observe_synchronized_history_request(&[1; 32], &[2; 32], &[129; 32], &[4; 32]),
             Err(SynchronizedHistoryError::LimitExceeded)
         ));
         assert!(
-            !s.app_storage().observe_synchronized_history_request(&[1; 32], &[2; 32], &[1; 32], &[4; 32])
+            !s.app_storage()
+                .observe_synchronized_history_request(&[1; 32], &[2; 32], &[1; 32], &[4; 32])
                 .unwrap()
         );
     }

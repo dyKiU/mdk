@@ -1,8 +1,9 @@
 //! Persistence controls only. A callback here is not a native approval owner;
 //! genuine original-action acceptance is exercised separately in the App.
-use crate::SqliteAccountStorage;
 use super::*;
+use crate::SqliteAccountStorage;
 use crate::account_chat_source::AccountChatSourceVerdict;
+use cgka_traits::StorageProvider;
 use cgka_traits::{
     GroupId, MemberId, MessageId,
     approved_account_sharing_policy::{
@@ -11,7 +12,6 @@ use cgka_traits::{
     storage::{AccountDeviceSignerBinding, AccountDeviceSignerStorage},
 };
 use std::cell::Cell;
-use cgka_traits::StorageProvider;
 
 fn policy() -> ApprovedAccountSharingPolicy {
     ApprovedAccountSharingPolicy {
@@ -77,7 +77,8 @@ fn verdict(
     c: &AccountChatSourceChange,
 ) -> Option<AccountChatSourceVerdict> {
     store
-        .app_storage().current_account_chat_source(&c.account, &c.local_device, &c.group)
+        .app_storage()
+        .current_account_chat_source(&c.account, &c.local_device, &c.group)
         .unwrap()
 }
 #[test]
@@ -86,13 +87,15 @@ fn ordinary_reducer_cannot_mint_explicit_legacy_and_exact_original_retry_is_idem
     let c = change(1);
     assert!(
         store
-            .app_storage().apply_account_chat_source_changes(std::slice::from_ref(&c), &|_| Ok(()))
+            .app_storage()
+            .apply_account_chat_source_changes(std::slice::from_ref(&c), &|_| Ok(()))
             .is_err()
     );
     assert!(verdict(&store, &c).is_none());
     for _ in 0..2 {
         store
-            .app_storage().record_explicit_legacy_chat_acceptance(&policy_id(), std::slice::from_ref(&c), &|_| {
+            .app_storage()
+            .record_explicit_legacy_chat_acceptance(&policy_id(), std::slice::from_ref(&c), &|_| {
                 Ok(())
             })
             .unwrap();
@@ -133,17 +136,20 @@ fn pending_and_denied_welcome_lineage_cannot_be_promoted_by_broad_capture() {
             explicitly_accepted: false,
         };
         store
-            .app_storage().apply_account_chat_source_changes(std::slice::from_ref(&welcome), &|_| Ok(()))
+            .app_storage()
+            .apply_account_chat_source_changes(std::slice::from_ref(&welcome), &|_| Ok(()))
             .unwrap();
         if denied_origin {
             welcome.operation = AccountChatSourceOperation::Deny;
             store
-                .app_storage().apply_account_chat_source_changes(&[welcome], &|_| Ok(()))
+                .app_storage()
+                .apply_account_chat_source_changes(&[welcome], &|_| Ok(()))
                 .unwrap();
         }
         assert!(
             store
-                .app_storage().record_explicit_legacy_chat_acceptance(
+                .app_storage()
+                .record_explicit_legacy_chat_acceptance(
                     &policy_id(),
                     std::slice::from_ref(&c),
                     &|_| Ok(())
@@ -179,14 +185,18 @@ fn original_tail_failure_rolls_back_policy_and_all_legacy_evidence() {
         store
             .with_transaction(|_| {
                 store.put_approved_account_sharing_policy(&p, &|| Ok(()))?;
-                store.app_storage().record_explicit_legacy_chat_acceptance(&id, std::slice::from_ref(&c), &|_| {
-                    calls.set(calls.get() + 1);
-                    if calls.get() >= 4 {
-                        Err(denied())
-                    } else {
-                        Ok(())
-                    }
-                })
+                store.app_storage().record_explicit_legacy_chat_acceptance(
+                    &id,
+                    std::slice::from_ref(&c),
+                    &|_| {
+                        calls.set(calls.get() + 1);
+                        if calls.get() >= 4 {
+                            Err(denied())
+                        } else {
+                            Ok(())
+                        }
+                    },
+                )
             })
             .is_err()
     );
@@ -199,13 +209,15 @@ fn actual_lifetime_capacity_failure_preserves_prior_evidence_and_current_pointer
     for start in (0..8192).step_by(128) {
         let batch: Vec<_> = (start..start + 128).map(change).collect();
         store
-            .app_storage().record_explicit_legacy_chat_acceptance(&policy_id(), &batch, &|_| Ok(()))
+            .app_storage()
+            .record_explicit_legacy_chat_acceptance(&policy_id(), &batch, &|_| Ok(()))
             .unwrap();
     }
     let extra = change(8192);
     assert!(
         store
-            .app_storage().record_explicit_legacy_chat_acceptance(
+            .app_storage()
+            .record_explicit_legacy_chat_acceptance(
                 &policy_id(),
                 std::slice::from_ref(&extra),
                 &|_| Ok(())

@@ -131,7 +131,10 @@ impl AppClient {
                     .as_slice()
                     .try_into()
                     .map_err(|_| unavailable())?;
-                if storage.app_storage().has_account_chat_departure(&account, &local, group)? {
+                if storage
+                    .app_storage()
+                    .has_account_chat_departure(&account, &local, group)?
+                {
                     return Err(crate::AppError::AccountChatDepartureDenied);
                 }
             }

@@ -1,6 +1,6 @@
 //! Synthetic persistence acceptance; no stored fact creates a live owner.
-use crate::SqliteAccountStorage;
 use super::*;
+use crate::SqliteAccountStorage;
 use cgka_traits::{MemberId, storage::AccountDeviceSignerStorage};
 use std::cell::Cell;
 

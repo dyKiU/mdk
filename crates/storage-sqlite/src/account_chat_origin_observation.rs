@@ -110,8 +110,8 @@ impl SqliteAppStorage {
 
 #[cfg(test)]
 mod tests {
-    use crate::SqliteAccountStorage;
     use super::*;
+    use crate::SqliteAccountStorage;
     use cgka_traits::{
         MemberId,
         storage::{AccountDeviceSignerBinding, AccountDeviceSignerStorage},
@@ -130,13 +130,15 @@ mod tests {
         let group = GroupId::new(vec![8; 16]);
         assert!(
             storage
-                .app_storage().current_mirrored_chat_origin_observation(&[1; 32], &[2; 32], &[3; 32], &group)
+                .app_storage()
+                .current_mirrored_chat_origin_observation(&[1; 32], &[2; 32], &[3; 32], &group)
                 .unwrap()
                 .is_none()
         );
         storage.lock().unwrap().execute("INSERT INTO mirrored_chat_origin_current(account,local_device,source_device,group_id,origin_id,origin_order,epoch) VALUES(?1,?2,?3,?4,?5,2,1)",params![[1u8;32].as_slice(),[2u8;32].as_slice(),[3u8;32].as_slice(),group.as_slice(),[4u8;32].as_slice()]).unwrap();
         let value = storage
-            .app_storage().current_mirrored_chat_origin_observation(&[1; 32], &[2; 32], &[3; 32], &group)
+            .app_storage()
+            .current_mirrored_chat_origin_observation(&[1; 32], &[2; 32], &[3; 32], &group)
             .unwrap()
             .unwrap();
         assert!(
@@ -148,13 +150,15 @@ mod tests {
         );
         assert!(
             storage
-                .app_storage().current_mirrored_chat_origin_observation(&[1; 32], &[2; 32], &[9; 32], &group)
+                .app_storage()
+                .current_mirrored_chat_origin_observation(&[1; 32], &[2; 32], &[9; 32], &group)
                 .unwrap()
                 .is_none()
         );
         assert!(
             storage
-                .app_storage().current_mirrored_chat_origin_observation(
+                .app_storage()
+                .current_mirrored_chat_origin_observation(
                     &[1; 32],
                     &[2; 32],
                     &[3; 32],
@@ -165,17 +169,20 @@ mod tests {
         );
         assert!(
             storage
-                .app_storage().current_mirrored_chat_origin_observation(&[9; 32], &[2; 32], &[3; 32], &group)
+                .app_storage()
+                .current_mirrored_chat_origin_observation(&[9; 32], &[2; 32], &[3; 32], &group)
                 .is_err()
         );
         assert!(
             storage
-                .app_storage().current_mirrored_chat_origin_observation(&[1; 32], &[9; 32], &[3; 32], &group)
+                .app_storage()
+                .current_mirrored_chat_origin_observation(&[1; 32], &[9; 32], &[3; 32], &group)
                 .is_err()
         );
         assert!(
             storage
-                .app_storage().current_mirrored_chat_origin_observation(
+                .app_storage()
+                .current_mirrored_chat_origin_observation(
                     &[1; 32],
                     &[2; 32],
                     &[3; 32],

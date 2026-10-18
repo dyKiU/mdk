@@ -45,7 +45,8 @@ fn source_observation(app: &MarmotApp, group: &crate::GroupId) -> ([u8; 32], Acc
         .unwrap()
         .unwrap();
     let origin = store
-        .app_storage().current_account_chat_source_origin(
+        .app_storage()
+        .current_account_chat_source_origin(
             &round.anchor.account,
             &round.anchor.local_device,
             group,
@@ -591,7 +592,8 @@ async fn diagnose_delivery(
             round.anchor.local_device < source.device
         );
         let origin = storage
-            .app_storage().current_mirrored_chat_origin_observation(
+            .app_storage()
+            .current_mirrored_chat_origin_observation(
                 &round.anchor.account,
                 &round.anchor.local_device,
                 &source.device,

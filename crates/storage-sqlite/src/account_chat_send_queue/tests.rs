@@ -1,6 +1,6 @@
 //! Synthetic storage acceptance. Member authentication and publication stay Core/App-owned.
-use crate::SqliteAccountStorage;
 use super::*;
+use crate::SqliteAccountStorage;
 use cgka_traits::{
     MemberId,
     approved_account_sharing_policy::{

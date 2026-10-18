@@ -308,10 +308,12 @@ fn diagnose_rejoin(source: &MarmotApp, recipient: &MarmotApp, group: &crate::Gro
         .unwrap();
     let local: [u8; 32] = signer.mls_signature_public_key.try_into().unwrap();
     let accepted_origin = storage
-        .app_storage().current_account_chat_source_origin(&account_id, &local, group)
+        .app_storage()
+        .current_account_chat_source_origin(&account_id, &local, group)
         .unwrap();
     let accepted = storage
-        .app_storage().current_account_chat_source(&account_id, &local, group)
+        .app_storage()
+        .current_account_chat_source(&account_id, &local, group)
         .unwrap()
         == Some(storage_sqlite::account_chat_source::AccountChatSourceVerdict::Accepted);
     eprintln!(

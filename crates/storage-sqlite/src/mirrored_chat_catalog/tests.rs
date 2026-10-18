@@ -1,6 +1,6 @@
 //! Synthetic persistence acceptance; not pairing or transport qualification.
-use crate::SqliteAccountStorage;
 use super::*;
+use crate::SqliteAccountStorage;
 use cgka_traits::{
     MemberId,
     group::ProtocolProfile,
@@ -591,14 +591,16 @@ fn direct_peer_lookup_requires_exact_current_scope_and_never_joins_mls() {
         .apply_mirrored_chat_catalog(&scope(), &[entry(6, 1), direct.clone()], &|| Ok(()))
         .unwrap();
     let found = storage
-        .app_storage().mirrored_direct_conversation_observation(&[scope()], &peer)
+        .app_storage()
+        .mirrored_direct_conversation_observation(&[scope()], &peer)
         .unwrap()
         .unwrap();
     assert!(found.entry == direct && found.scope == scope());
     assert!(storage.list_group_records().unwrap().is_empty());
     assert!(
         storage
-            .app_storage().mirrored_direct_conversation_observation(&[], &peer)
+            .app_storage()
+            .mirrored_direct_conversation_observation(&[], &peer)
             .unwrap()
             .is_none()
     );
@@ -606,24 +608,28 @@ fn direct_peer_lookup_requires_exact_current_scope_and_never_joins_mls() {
     stale.policy_digest = [43; 32];
     assert!(
         storage
-            .app_storage().mirrored_direct_conversation_observation(&[stale], &peer)
+            .app_storage()
+            .mirrored_direct_conversation_observation(&[stale], &peer)
             .unwrap()
             .is_none()
     );
     assert!(
         storage
-            .app_storage().mirrored_direct_conversation_observation(&[scope()], &[44; 32])
+            .app_storage()
+            .mirrored_direct_conversation_observation(&[scope()], &[44; 32])
             .unwrap()
             .is_none()
     );
     assert!(
         storage
-            .app_storage().mirrored_direct_conversation_observation(&[scope()], &[0; 32])
+            .app_storage()
+            .mirrored_direct_conversation_observation(&[scope()], &[0; 32])
             .is_err()
     );
     assert!(
         storage
-            .app_storage().mirrored_direct_conversation_observation(&[scope()], &scope().account)
+            .app_storage()
+            .mirrored_direct_conversation_observation(&[scope()], &scope().account)
             .is_err()
     );
 }
@@ -645,7 +651,8 @@ fn direct_peer_changes_and_terminal_fences_retire_the_old_lookup() {
         .unwrap();
     assert!(
         storage
-            .app_storage().mirrored_direct_conversation_observation(&[scope()], &peer)
+            .app_storage()
+            .mirrored_direct_conversation_observation(&[scope()], &peer)
             .unwrap()
             .is_none()
     );
@@ -662,7 +669,8 @@ fn direct_peer_changes_and_terminal_fences_retire_the_old_lookup() {
         .unwrap();
     assert!(
         storage
-            .app_storage().mirrored_direct_conversation_observation(&[scope()], &peer)
+            .app_storage()
+            .mirrored_direct_conversation_observation(&[scope()], &peer)
             .unwrap()
             .is_none()
     );
@@ -675,7 +683,8 @@ fn direct_peer_changes_and_terminal_fences_retire_the_old_lookup() {
     );
     assert!(
         storage
-            .app_storage().mirrored_direct_conversation_observation(&[renewed], &peer)
+            .app_storage()
+            .mirrored_direct_conversation_observation(&[renewed], &peer)
             .unwrap()
             .is_none()
     );
@@ -704,7 +713,8 @@ fn direct_peer_original_tail_failure_rolls_back_the_index_and_observation() {
     assert_eq!(checks.get(), 2);
     assert!(
         storage
-            .app_storage().mirrored_direct_conversation_observation(&[scope()], &peer)
+            .app_storage()
+            .mirrored_direct_conversation_observation(&[scope()], &peer)
             .unwrap()
             .is_none()
     );
@@ -713,7 +723,8 @@ fn direct_peer_original_tail_failure_rolls_back_the_index_and_observation() {
         .unwrap();
     assert!(
         storage
-            .app_storage().mirrored_direct_conversation_observation(&[scope()], &peer)
+            .app_storage()
+            .mirrored_direct_conversation_observation(&[scope()], &peer)
             .unwrap()
             .is_some()
     );

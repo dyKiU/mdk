@@ -59,10 +59,14 @@ fn import(
         max_record_lifetime_seconds: None,
     };
     let storage = app.account_storage("alice").unwrap();
-    storage.app_storage().admit_synchronized_history(&manifest).unwrap();
+    storage
+        .app_storage()
+        .admit_synchronized_history(&manifest)
+        .unwrap();
     assert_eq!(
         storage
-            .app_storage().import_synchronized_history_chunk(&manifest, 0, &chunks[0], 120, &|| false)
+            .app_storage()
+            .import_synchronized_history_chunk(&manifest, 0, &chunks[0], 120, &|| false)
             .unwrap()
             .complete,
         complete
@@ -156,7 +160,8 @@ fn expiry_retention_fences_and_payload_free_tombstones_survive_reads() {
     );
     app.account_storage("alice")
         .unwrap()
-        .app_storage().prune_synchronized_history(&hex::encode(group.as_slice()), 101, 120)
+        .app_storage()
+        .prune_synchronized_history(&hex::encode(group.as_slice()), 101, 120)
         .unwrap();
     import(&app, &group, 10, vec![record(3)], true);
     let page = app

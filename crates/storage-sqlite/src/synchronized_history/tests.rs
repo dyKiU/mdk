@@ -1,5 +1,5 @@
-use crate::SqliteAccountStorage;
 use super::*;
+use crate::SqliteAccountStorage;
 use crate::{SqlCipherKey, StoredAppEvent};
 use std::cell::Cell;
 
@@ -31,7 +31,8 @@ fn history_archive_fragment_receipts_do_not_report_import_until_full_atomic_comp
     };
     for (ordinal, fragment) in fragments.iter().enumerate() {
         let receipt = storage
-            .app_storage().stage_synchronized_history_archive_fragment(
+            .app_storage()
+            .stage_synchronized_history_archive_fragment(
                 &scope,
                 ordinal as u32,
                 fragment,
@@ -54,7 +55,8 @@ fn history_archive_fragment_receipts_do_not_report_import_until_full_atomic_comp
             }
         );
         let rows = storage
-            .app_storage().synchronized_history_page(&manifest.binding.group_id_hex, None, 200, 120)
+            .app_storage()
+            .synchronized_history_page(&manifest.binding.group_id_hex, None, 200, 120)
             .unwrap();
         assert_eq!(rows.len(), if last { 2 } else { 0 });
         if last {
@@ -125,9 +127,13 @@ fn manifest(id: u8, chunks: &[Vec<SynchronizedHistoryRecord>]) -> SynchronizedHi
 fn import(storage: &SqliteAccountStorage, id: u8, records: Vec<SynchronizedHistoryRecord>) {
     let chunks = vec![records];
     let m = manifest(id, &chunks);
-    storage.app_storage().admit_synchronized_history(&m).unwrap();
     storage
-        .app_storage().import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
+        .app_storage()
+        .admit_synchronized_history(&m)
+        .unwrap();
+    storage
+        .app_storage()
+        .import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
         .unwrap();
 }
 
@@ -145,7 +151,8 @@ fn history_import_is_atomic_idempotent_and_never_creates_mls_evidence() {
         n == 3
     };
     assert!(matches!(
-        s.app_storage().import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &cancelled),
+        s.app_storage()
+            .import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &cancelled),
         Err(SynchronizedHistoryError::Cancelled)
     ));
     {
@@ -163,26 +170,31 @@ fn history_import_is_atomic_idempotent_and_never_creates_mls_evidence() {
         );
     }
     let p = s
-        .app_storage().import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
+        .app_storage()
+        .import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
         .unwrap();
     assert!(!p.complete);
     assert!(
-        s.app_storage().synchronized_history_page(&m.binding.group_id_hex, None, 200, 120)
+        s.app_storage()
+            .synchronized_history_page(&m.binding.group_id_hex, None, 200, 120)
             .unwrap()
             .is_empty()
     );
     let retry = s
-        .app_storage().import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
+        .app_storage()
+        .import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
         .unwrap();
     assert!(retry.replayed);
     assert_eq!(retry.next_chunk, 1);
     assert!(
-        s.app_storage().import_synchronized_history_chunk(&m, 1, &chunks[1], 120, &|| false)
+        s.app_storage()
+            .import_synchronized_history_chunk(&m, 1, &chunks[1], 120, &|| false)
             .unwrap()
             .complete
     );
     let rows = s
-        .app_storage().synchronized_history_page(&m.binding.group_id_hex, None, 200, 120)
+        .app_storage()
+        .synchronized_history_page(&m.binding.group_id_hex, None, 200, 120)
         .unwrap();
     assert_eq!(rows.len(), 3);
     assert_eq!(rows[0].record.payload, vec![0, 255, 4]);
@@ -218,13 +230,15 @@ fn integrity_account_recipient_order_and_total_are_bound() {
     ));
     s.app_storage().admit_synchronized_history(&m).unwrap();
     assert!(matches!(
-        s.app_storage().import_synchronized_history_chunk(&m, 1, &chunks[1], 120, &|| false),
+        s.app_storage()
+            .import_synchronized_history_chunk(&m, 1, &chunks[1], 120, &|| false),
         Err(SynchronizedHistoryError::OutOfOrder)
     ));
     let mut bad = chunks[0].clone();
     bad[0].payload.push(8);
     assert!(matches!(
-        s.app_storage().import_synchronized_history_chunk(&m, 0, &bad, 120, &|| false),
+        s.app_storage()
+            .import_synchronized_history_chunk(&m, 0, &bad, 120, &|| false),
         Err(SynchronizedHistoryError::IntegrityMismatch)
     ));
     for field in 0..4 {
@@ -247,7 +261,8 @@ fn integrity_account_recipient_order_and_total_are_bound() {
         Err(SynchronizedHistoryError::TransferConflict)
     ));
     assert!(matches!(
-        s.app_storage().import_synchronized_history_chunk(&changed, 0, &chunks[1], 120, &|| false),
+        s.app_storage()
+            .import_synchronized_history_chunk(&changed, 0, &chunks[1], 120, &|| false),
         Err(SynchronizedHistoryError::IntegrityMismatch)
     ));
 }
@@ -293,16 +308,24 @@ fn bounds_are_rejected_before_writes() {
         Err(SynchronizedHistoryError::LimitExceeded)
     ));
     assert!(matches!(
-        s.app_storage().synchronized_history_page(&m.binding.group_id_hex, None, 201, 120),
+        s.app_storage()
+            .synchronized_history_page(&m.binding.group_id_hex, None, 201, 120),
         Err(SynchronizedHistoryError::LimitExceeded)
     ));
     s.app_storage().admit_synchronized_history(&m).unwrap();
     assert!(matches!(
-        s.app_storage().import_synchronized_history_chunk(&m, 0, &chunks[0], i64::MAX as u64 + 1, &|| false),
+        s.app_storage().import_synchronized_history_chunk(
+            &m,
+            0,
+            &chunks[0],
+            i64::MAX as u64 + 1,
+            &|| false
+        ),
         Err(SynchronizedHistoryError::InvalidManifest)
     ));
     assert!(
-        s.app_storage().synchronized_history_page(&m.binding.group_id_hex, None, 200, 120)
+        s.app_storage()
+            .synchronized_history_page(&m.binding.group_id_hex, None, 200, 120)
             .unwrap()
             .is_empty()
     );
@@ -329,12 +352,16 @@ fn live_authenticated_events_shadow_archive_in_both_arrival_orders() {
     };
     s.app_storage().record_app_event(&event(4)).unwrap();
     import(&s, 9, vec![record(4), record(5)]);
-    let rows = s.app_storage().synchronized_history_page(&group, None, 200, 120).unwrap();
+    let rows = s
+        .app_storage()
+        .synchronized_history_page(&group, None, 200, 120)
+        .unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].record.message_id, [5; 32]);
     s.app_storage().record_app_event(&event(5)).unwrap();
     assert!(
-        s.app_storage().synchronized_history_page(&group, None, 200, 120)
+        s.app_storage()
+            .synchronized_history_page(&group, None, 200, 120)
             .unwrap()
             .is_empty()
     );
@@ -350,17 +377,26 @@ fn tombstones_and_retention_never_resurrect_on_new_transfer_or_retry() {
     dead.payload.clear();
     import(&s, 10, vec![dead]);
     import(&s, 11, vec![record(4)]);
-    let rows = s.app_storage().synchronized_history_page(&group, None, 200, 120).unwrap();
+    let rows = s
+        .app_storage()
+        .synchronized_history_page(&group, None, 200, 120)
+        .unwrap();
     assert_eq!(rows.len(), 1);
     assert!(rows[0].record.deleted);
     assert!(rows[0].record.payload.is_empty());
     let mut expires = record(5);
     expires.expires_at = Some(130);
     import(&s, 12, vec![expires]);
-    assert_eq!(s.app_storage().prune_synchronized_history(&group, 50, 131).unwrap(), 1);
+    assert_eq!(
+        s.app_storage()
+            .prune_synchronized_history(&group, 50, 131)
+            .unwrap(),
+        1
+    );
     import(&s, 13, vec![record(5)]);
     assert_eq!(
-        s.app_storage().synchronized_history_page(&group, None, 200, 131)
+        s.app_storage()
+            .synchronized_history_page(&group, None, 200, 131)
             .unwrap()
             .len(),
         1
@@ -370,7 +406,8 @@ fn tombstones_and_retention_never_resurrect_on_new_transfer_or_retry() {
     import(&s, 14, vec![old]);
     import(&s, 15, vec![record(6)]);
     assert_eq!(
-        s.app_storage().synchronized_history_page(&group, None, 200, 131)
+        s.app_storage()
+            .synchronized_history_page(&group, None, 200, 131)
             .unwrap()
             .len(),
         1
@@ -388,18 +425,23 @@ fn simultaneous_staging_cannot_publish_conflicting_archive_bodies() {
     let mb = manifest(10, &b);
     s.app_storage().admit_synchronized_history(&ma).unwrap();
     s.app_storage().admit_synchronized_history(&mb).unwrap();
-    s.app_storage().import_synchronized_history_chunk(&ma, 0, &a[0], 120, &|| false)
+    s.app_storage()
+        .import_synchronized_history_chunk(&ma, 0, &a[0], 120, &|| false)
         .unwrap();
-    s.app_storage().import_synchronized_history_chunk(&mb, 0, &b[0], 120, &|| false)
+    s.app_storage()
+        .import_synchronized_history_chunk(&mb, 0, &b[0], 120, &|| false)
         .unwrap();
-    s.app_storage().import_synchronized_history_chunk(&ma, 1, &a[1], 120, &|| false)
+    s.app_storage()
+        .import_synchronized_history_chunk(&ma, 1, &a[1], 120, &|| false)
         .unwrap();
     assert!(matches!(
-        s.app_storage().import_synchronized_history_chunk(&mb, 1, &b[1], 120, &|| false),
+        s.app_storage()
+            .import_synchronized_history_chunk(&mb, 1, &b[1], 120, &|| false),
         Err(SynchronizedHistoryError::RecordConflict)
     ));
     assert_eq!(
-        s.app_storage().synchronized_history_page(&ma.binding.group_id_hex, None, 200, 120)
+        s.app_storage()
+            .synchronized_history_page(&ma.binding.group_id_hex, None, 200, 120)
             .unwrap()[0]
             .record
             .payload,
@@ -419,17 +461,20 @@ fn progress_and_permanent_cancel_fence_survive_encrypted_reopen() {
     let chunks = vec![vec![record(4)], vec![record(5)]];
     let m = manifest(9, &chunks);
     s.app_storage().admit_synchronized_history(&m).unwrap();
-    s.app_storage().import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
+    s.app_storage()
+        .import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
         .unwrap();
     s.close().unwrap();
     drop(s);
     let s = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     assert!(
-        s.app_storage().import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
+        s.app_storage()
+            .import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
             .unwrap()
             .replayed
     );
-    s.app_storage().cancel_synchronized_history(&m.binding.transfer_id)
+    s.app_storage()
+        .cancel_synchronized_history(&m.binding.transfer_id)
         .unwrap();
     s.close().unwrap();
     drop(s);
@@ -439,11 +484,13 @@ fn progress_and_permanent_cancel_fence_survive_encrypted_reopen() {
         Err(SynchronizedHistoryError::Cancelled)
     ));
     assert!(matches!(
-        s.app_storage().import_synchronized_history_chunk(&m, 1, &chunks[1], 120, &|| false),
+        s.app_storage()
+            .import_synchronized_history_chunk(&m, 1, &chunks[1], 120, &|| false),
         Err(SynchronizedHistoryError::Cancelled)
     ));
     assert!(
-        s.app_storage().synchronized_history_page(&m.binding.group_id_hex, None, 200, 120)
+        s.app_storage()
+            .synchronized_history_page(&m.binding.group_id_hex, None, 200, 120)
             .unwrap()
             .is_empty()
     );
@@ -473,22 +520,26 @@ fn interrupted_transfer_resumes_to_completion_after_encrypted_reopen() {
             .ensure_account_projection_with_identity("test", &hex::encode([1; 32]))
             .unwrap();
         s.app_storage().admit_synchronized_history(&m).unwrap();
-        s.app_storage().import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
+        s.app_storage()
+            .import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
             .unwrap();
         s.close().unwrap();
     }
     let s = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     let p = s
-        .app_storage().import_synchronized_history_chunk(&m, 1, &chunks[1], 120, &|| false)
+        .app_storage()
+        .import_synchronized_history_chunk(&m, 1, &chunks[1], 120, &|| false)
         .unwrap();
     assert!(p.complete);
     assert_eq!(p.next_chunk, 2);
     let first = s
-        .app_storage().synchronized_history_page(&m.binding.group_id_hex, None, 1, 120)
+        .app_storage()
+        .synchronized_history_page(&m.binding.group_id_hex, None, 1, 120)
         .unwrap();
     assert_eq!(first[0].record.message_id, [4; 32]);
     let next = s
-        .app_storage().synchronized_history_page(
+        .app_storage()
+        .synchronized_history_page(
             &m.binding.group_id_hex,
             Some(&first[0].record.message_id),
             1,
@@ -506,12 +557,14 @@ fn receiving_retention_ceiling_does_not_trust_exporter_expiry() {
     m.max_record_lifetime_seconds = Some(20);
     s.app_storage().admit_synchronized_history(&m).unwrap();
     let p = s
-        .app_storage().import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
+        .app_storage()
+        .import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
         .unwrap();
     assert_eq!(p.skipped_records, 1);
     import(&s, 10, vec![record(4)]);
     assert!(
-        s.app_storage().synchronized_history_page(&m.binding.group_id_hex, None, 200, 120)
+        s.app_storage()
+            .synchronized_history_page(&m.binding.group_id_hex, None, 200, 120)
             .unwrap()
             .is_empty()
     );
@@ -533,39 +586,47 @@ fn incomplete_retention_intents_cannot_erase_completed_history() {
     let chunks = vec![vec![expired.clone()], vec![]];
     let m = manifest(10, &chunks);
     s.app_storage().admit_synchronized_history(&m).unwrap();
-    s.app_storage().import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
+    s.app_storage()
+        .import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
         .unwrap();
     assert_eq!(
-        s.app_storage().synchronized_history_page(&group, None, 200, 120)
+        s.app_storage()
+            .synchronized_history_page(&group, None, 200, 120)
             .unwrap()
             .len(),
         1
     );
-    s.app_storage().cancel_synchronized_history(&m.binding.transfer_id)
+    s.app_storage()
+        .cancel_synchronized_history(&m.binding.transfer_id)
         .unwrap();
     s.close().unwrap();
     drop(s);
     let s = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     assert_eq!(
-        s.app_storage().synchronized_history_page(&group, None, 200, 120)
+        s.app_storage()
+            .synchronized_history_page(&group, None, 200, 120)
             .unwrap()
             .len(),
         1
     );
     let done = manifest(11, &chunks);
     s.app_storage().admit_synchronized_history(&done).unwrap();
-    s.app_storage().import_synchronized_history_chunk(&done, 0, &chunks[0], 120, &|| false)
+    s.app_storage()
+        .import_synchronized_history_chunk(&done, 0, &chunks[0], 120, &|| false)
         .unwrap();
     assert_eq!(
-        s.app_storage().synchronized_history_page(&group, None, 200, 120)
+        s.app_storage()
+            .synchronized_history_page(&group, None, 200, 120)
             .unwrap()
             .len(),
         1
     );
-    s.app_storage().import_synchronized_history_chunk(&done, 1, &chunks[1], 120, &|| false)
+    s.app_storage()
+        .import_synchronized_history_chunk(&done, 1, &chunks[1], 120, &|| false)
         .unwrap();
     assert!(
-        s.app_storage().synchronized_history_page(&group, None, 200, 120)
+        s.app_storage()
+            .synchronized_history_page(&group, None, 200, 120)
             .unwrap()
             .is_empty()
     );
@@ -579,21 +640,30 @@ fn overlapping_snapshot_retention_only_tightens_without_content_conflict() {
     import(&s, 9, chunks[0].clone());
     let mut shorter = manifest(10, &chunks);
     shorter.max_record_lifetime_seconds = Some(30);
-    s.app_storage().admit_synchronized_history(&shorter).unwrap();
-    s.app_storage().import_synchronized_history_chunk(&shorter, 0, &chunks[0], 120, &|| false)
+    s.app_storage()
+        .admit_synchronized_history(&shorter)
         .unwrap();
-    let rows = s.app_storage().synchronized_history_page(&group, None, 200, 120).unwrap();
+    s.app_storage()
+        .import_synchronized_history_chunk(&shorter, 0, &chunks[0], 120, &|| false)
+        .unwrap();
+    let rows = s
+        .app_storage()
+        .synchronized_history_page(&group, None, 200, 120)
+        .unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].record.expires_at, Some(130));
     import(&s, 11, chunks[0].clone());
     assert_eq!(
-        s.app_storage().synchronized_history_page(&group, None, 200, 120).unwrap()[0]
+        s.app_storage()
+            .synchronized_history_page(&group, None, 200, 120)
+            .unwrap()[0]
             .record
             .expires_at,
         Some(130)
     );
     assert!(
-        s.app_storage().synchronized_history_page(&group, None, 200, 131)
+        s.app_storage()
+            .synchronized_history_page(&group, None, 200, 131)
             .unwrap()
             .is_empty()
     );
@@ -607,7 +677,9 @@ fn overlapping_snapshot_retention_only_tightens_without_content_conflict() {
         )
         .unwrap();
     assert!(before > 0);
-    s.app_storage().prune_synchronized_history(&group, 50, 131).unwrap();
+    s.app_storage()
+        .prune_synchronized_history(&group, 50, 131)
+        .unwrap();
     let after: i64 = s
         .lock()
         .unwrap()
@@ -630,19 +702,28 @@ fn retention_prune_cannot_publish_incomplete_expiry_policy() {
     let chunks = vec![vec![staged], vec![]];
     let m = manifest(10, &chunks);
     s.app_storage().admit_synchronized_history(&m).unwrap();
-    s.app_storage().import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
+    s.app_storage()
+        .import_synchronized_history_chunk(&m, 0, &chunks[0], 120, &|| false)
         .unwrap();
-    assert_eq!(s.app_storage().prune_synchronized_history(&group, 50, 140).unwrap(), 0);
     assert_eq!(
-        s.app_storage().synchronized_history_page(&group, None, 200, 140)
+        s.app_storage()
+            .prune_synchronized_history(&group, 50, 140)
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        s.app_storage()
+            .synchronized_history_page(&group, None, 200, 140)
             .unwrap()
             .len(),
         1
     );
-    s.app_storage().cancel_synchronized_history(&m.binding.transfer_id)
+    s.app_storage()
+        .cancel_synchronized_history(&m.binding.transfer_id)
         .unwrap();
     assert_eq!(
-        s.app_storage().synchronized_history_page(&group, None, 200, 140)
+        s.app_storage()
+            .synchronized_history_page(&group, None, 200, 140)
             .unwrap()
             .len(),
         1
@@ -654,16 +735,21 @@ fn capped_archive_admission_keeps_durable_cancel_receipts() {
     let s = storage();
     let chunks = vec![vec![]];
     for id in 0..128 {
-        s.app_storage().admit_synchronized_history(&manifest(id, &chunks))
+        s.app_storage()
+            .admit_synchronized_history(&manifest(id, &chunks))
             .unwrap();
     }
-    s.app_storage().cancel_synchronized_history(&[0; 32]).unwrap();
+    s.app_storage()
+        .cancel_synchronized_history(&[0; 32])
+        .unwrap();
     assert!(matches!(
-        s.app_storage().admit_synchronized_history(&manifest(0, &chunks)),
+        s.app_storage()
+            .admit_synchronized_history(&manifest(0, &chunks)),
         Err(SynchronizedHistoryError::Cancelled)
     ));
     assert!(matches!(
-        s.app_storage().admit_synchronized_history(&manifest(200, &chunks)),
+        s.app_storage()
+            .admit_synchronized_history(&manifest(200, &chunks)),
         Err(SynchronizedHistoryError::LimitExceeded)
     ));
 }
@@ -698,14 +784,15 @@ fn stage_archive_prefix(
 ) {
     let fragments: Vec<_> = encoded.chunks(MAX_HISTORY_ARCHIVE_FRAGMENT_BYTES).collect();
     for (ordinal, fragment) in fragments[..fragments.len() - 1].iter().enumerate() {
-        s.app_storage().stage_synchronized_history_archive_fragment(
-            scope,
-            ordinal as u32,
-            fragment,
-            120,
-            &|| false,
-        )
-        .unwrap();
+        s.app_storage()
+            .stage_synchronized_history_archive_fragment(
+                scope,
+                ordinal as u32,
+                fragment,
+                120,
+                &|| false,
+            )
+            .unwrap();
     }
 }
 
@@ -715,14 +802,17 @@ fn history_archive_exact_retries_context_order_size_and_sql_guards() {
     let (scope, encoded) = archive_fixture(64);
     let first = &encoded[..MAX_HISTORY_ARCHIVE_FRAGMENT_BYTES];
     assert!(matches!(
-        s.app_storage().stage_synchronized_history_archive_fragment(&scope, 1, first, 120, &|| false),
+        s.app_storage()
+            .stage_synchronized_history_archive_fragment(&scope, 1, first, 120, &|| false),
         Err(SynchronizedHistoryError::OutOfOrder)
     ));
     let receipt = s
-        .app_storage().stage_synchronized_history_archive_fragment(&scope, 0, first, 120, &|| false)
+        .app_storage()
+        .stage_synchronized_history_archive_fragment(&scope, 0, first, 120, &|| false)
         .unwrap();
     let retry = s
-        .app_storage().stage_synchronized_history_archive_fragment(&scope, 0, first, 120, &|| false)
+        .app_storage()
+        .stage_synchronized_history_archive_fragment(&scope, 0, first, 120, &|| false)
         .unwrap();
     assert!(retry.replayed);
     assert_eq!(retry.body_digest, receipt.body_digest);
@@ -730,7 +820,13 @@ fn history_archive_exact_retries_context_order_size_and_sql_guards() {
     let mut changed = first.to_vec();
     changed[0] ^= 1;
     assert!(matches!(
-        s.app_storage().stage_synchronized_history_archive_fragment(&scope, 0, &changed, 120, &|| false),
+        s.app_storage().stage_synchronized_history_archive_fragment(
+            &scope,
+            0,
+            &changed,
+            120,
+            &|| false
+        ),
         Err(SynchronizedHistoryError::IntegrityMismatch)
     ));
     for field in 0..7 {
@@ -745,12 +841,19 @@ fn history_archive_exact_retries_context_order_size_and_sql_guards() {
             _ => bad.binding.account_id = [8; 32],
         }
         assert!(matches!(
-            s.app_storage().stage_synchronized_history_archive_fragment(&bad, 0, first, 120, &|| false),
+            s.app_storage().stage_synchronized_history_archive_fragment(
+                &bad,
+                0,
+                first,
+                120,
+                &|| false
+            ),
             Err(SynchronizedHistoryError::TransferConflict | SynchronizedHistoryError::WrongAccount)
         ));
     }
     assert!(
-        s.app_storage().stage_synchronized_history_archive_fragment(&scope, 1, &first[..1535], 120, &|| false)
+        s.app_storage()
+            .stage_synchronized_history_archive_fragment(&scope, 1, &first[..1535], 120, &|| false)
             .is_err()
     );
     let conn = s.lock().unwrap();
@@ -783,7 +886,8 @@ fn history_archive_final_sql_failure_and_tail_cancellation_roll_back_all_effects
         let baseline = storage();
         stage_archive_prefix(&baseline, &scope, &encoded);
         baseline
-            .app_storage().stage_synchronized_history_archive_fragment(
+            .app_storage()
+            .stage_synchronized_history_archive_fragment(
                 &scope,
                 scope.fragment_count - 1,
                 last,
@@ -839,7 +943,8 @@ fn history_archive_final_sql_failure_and_tail_cancellation_roll_back_all_effects
         }
         drop(conn);
         let receipt = s
-            .app_storage().stage_synchronized_history_archive_fragment(
+            .app_storage()
+            .stage_synchronized_history_archive_fragment(
                 &scope,
                 scope.fragment_count - 1,
                 last,
@@ -853,15 +958,16 @@ fn history_archive_final_sql_failure_and_tail_cancellation_roll_back_all_effects
         );
         assert_eq!(receipt.imported_records, 2);
         assert!(
-            s.app_storage().stage_synchronized_history_archive_fragment(
-                &scope,
-                scope.fragment_count - 1,
-                last,
-                120,
-                &|| false
-            )
-            .unwrap()
-            .replayed
+            s.app_storage()
+                .stage_synchronized_history_archive_fragment(
+                    &scope,
+                    scope.fragment_count - 1,
+                    last,
+                    120,
+                    &|| false
+                )
+                .unwrap()
+                .replayed
         );
     }
 }
@@ -876,41 +982,55 @@ fn history_archive_encrypted_reopen_cancel_and_completed_receipts() {
         .ensure_account_projection_with_identity("test", &hex::encode([1; 32]))
         .unwrap();
     let (scope, encoded) = archive_fixture(66);
-    s.app_storage().stage_synchronized_history_archive_fragment(&scope, 0, &encoded[..1536], 120, &|| false)
+    s.app_storage()
+        .stage_synchronized_history_archive_fragment(&scope, 0, &encoded[..1536], 120, &|| false)
         .unwrap();
     s.close().unwrap();
     drop(s);
     let s = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     assert!(
-        s.app_storage().stage_synchronized_history_archive_fragment(&scope, 0, &encoded[..1536], 120, &|| false)
+        s.app_storage()
+            .stage_synchronized_history_archive_fragment(&scope, 0, &encoded[..1536], 120, &|| {
+                false
+            })
             .unwrap()
             .replayed
     );
-    s.app_storage().cancel_synchronized_history_archive(&scope).unwrap();
+    s.app_storage()
+        .cancel_synchronized_history_archive(&scope)
+        .unwrap();
     s.close().unwrap();
     drop(s);
     let s = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     assert!(matches!(
-        s.app_storage().stage_synchronized_history_archive_fragment(&scope, 0, &encoded[..1536], 120, &|| false),
+        s.app_storage().stage_synchronized_history_archive_fragment(
+            &scope,
+            0,
+            &encoded[..1536],
+            120,
+            &|| false
+        ),
         Err(SynchronizedHistoryError::Cancelled)
     ));
     let (complete, encoded) = archive_fixture(67);
     for (ordinal, body) in encoded.chunks(1536).enumerate() {
-        s.app_storage().stage_synchronized_history_archive_fragment(
-            &complete,
-            ordinal as u32,
-            body,
-            120,
-            &|| false,
-        )
-        .unwrap();
+        s.app_storage()
+            .stage_synchronized_history_archive_fragment(
+                &complete,
+                ordinal as u32,
+                body,
+                120,
+                &|| false,
+            )
+            .unwrap();
     }
     s.close().unwrap();
     drop(s);
     let s = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     let last = encoded.chunks(1536).last().unwrap();
     let receipt = s
-        .app_storage().stage_synchronized_history_archive_fragment(
+        .app_storage()
+        .stage_synchronized_history_archive_fragment(
             &complete,
             complete.fragment_count - 1,
             last,
@@ -923,9 +1043,14 @@ fn history_archive_encrypted_reopen_cancel_and_completed_receipts() {
         receipt.disposition,
         HistoryArchiveFragmentDisposition::Imported
     );
-    assert!(s.app_storage().cancel_synchronized_history_archive(&complete).is_err());
+    assert!(
+        s.app_storage()
+            .cancel_synchronized_history_archive(&complete)
+            .is_err()
+    );
     assert_eq!(
-        s.app_storage().synchronized_history_page(&complete.binding.group_id_hex, None, 200, 120)
+        s.app_storage()
+            .synchronized_history_page(&complete.binding.group_id_hex, None, 200, 120)
             .unwrap()
             .len(),
         2
@@ -953,21 +1078,23 @@ fn history_archive_recipient_retention_cannot_be_loosened_by_exporter() {
         let mut final_receipt = None;
         for (ordinal, body) in encoded.chunks(1536).enumerate() {
             final_receipt = Some(
-                s.app_storage().stage_synchronized_history_archive_fragment(
-                    &scope,
-                    ordinal as u32,
-                    body,
-                    120,
-                    &|| false,
-                )
-                .unwrap(),
+                s.app_storage()
+                    .stage_synchronized_history_archive_fragment(
+                        &scope,
+                        ordinal as u32,
+                        body,
+                        120,
+                        &|| false,
+                    )
+                    .unwrap(),
             );
         }
         let receipt = final_receipt.unwrap();
         assert_eq!(receipt.imported_records, 0);
         assert_eq!(receipt.skipped_records, 2);
         assert!(
-            s.app_storage().synchronized_history_page(&scope.binding.group_id_hex, None, 200, 120)
+            s.app_storage()
+                .synchronized_history_page(&scope.binding.group_id_hex, None, 200, 120)
                 .unwrap()
                 .is_empty()
         );
@@ -1009,14 +1136,15 @@ fn history_archive_integrity_canonical_version_and_count_refuse_final_commit() {
         stage_archive_prefix(&s, &scope, &encoded);
         let last = encoded.chunks(1536).last().unwrap();
         assert!(
-            s.app_storage().stage_synchronized_history_archive_fragment(
-                &scope,
-                scope.fragment_count - 1,
-                last,
-                120,
-                &|| false
-            )
-            .is_err()
+            s.app_storage()
+                .stage_synchronized_history_archive_fragment(
+                    &scope,
+                    scope.fragment_count - 1,
+                    last,
+                    120,
+                    &|| false
+                )
+                .is_err()
         );
         assert_eq!(
             s.lock()
@@ -1038,12 +1166,19 @@ fn history_archive_reservation_and_cancellation_fence_old_logical_import_api() {
         let s = storage();
         let (scope, encoded) = archive_fixture(70);
         let archive: SynchronizedHistoryArchive = serde_json::from_slice(&encoded).unwrap();
-        s.app_storage().stage_synchronized_history_archive_fragment(&scope, 0, &encoded[..1536], 120, &|| false)
+        s.app_storage()
+            .stage_synchronized_history_archive_fragment(&scope, 0, &encoded[..1536], 120, &|| {
+                false
+            })
             .unwrap();
         if cancelled {
-            s.app_storage().cancel_synchronized_history_archive(&scope).unwrap();
+            s.app_storage()
+                .cancel_synchronized_history_archive(&scope)
+                .unwrap();
         }
-        let result = s.app_storage().admit_synchronized_history(&archive.manifest);
+        let result = s
+            .app_storage()
+            .admit_synchronized_history(&archive.manifest);
         assert!(
             matches!(
                 result,
@@ -1053,17 +1188,19 @@ fn history_archive_reservation_and_cancellation_fence_old_logical_import_api() {
             "legacy admission must respect archive transfer fencing"
         );
         assert!(
-            s.app_storage().import_synchronized_history_chunk(
-                &archive.manifest,
-                0,
-                &archive.chunks[0],
-                120,
-                &|| false
-            )
-            .is_err()
+            s.app_storage()
+                .import_synchronized_history_chunk(
+                    &archive.manifest,
+                    0,
+                    &archive.chunks[0],
+                    120,
+                    &|| false
+                )
+                .is_err()
         );
         assert!(
-            s.app_storage().synchronized_history_page(&scope.binding.group_id_hex, None, 200, 120)
+            s.app_storage()
+                .synchronized_history_page(&scope.binding.group_id_hex, None, 200, 120)
                 .unwrap()
                 .is_empty()
         );

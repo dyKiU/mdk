@@ -65,7 +65,8 @@ fn exact_accepted_origin_cut_returns_typed_denial_without_import_receipt_or_prog
     intent.action_id = intent.identity();
     assert!(
         storage
-            .app_storage().apply_account_chat_departure(
+            .app_storage()
+            .apply_account_chat_departure(
                 &policy.local_device,
                 &intent,
                 &[policy.peer_device],
@@ -96,7 +97,8 @@ fn exact_accepted_origin_cut_returns_typed_denial_without_import_receipt_or_prog
     assert_no_import(&storage);
     assert!(
         storage
-            .app_storage().account_chat_departure_denies_source(
+            .app_storage()
+            .account_chat_departure_denies_source(
                 &policy.account,
                 &policy.local_device,
                 &group(),
@@ -125,7 +127,8 @@ fn missing_catalog_without_cut_is_not_typed_permanent_departure_denial() {
     assert_no_import(&storage);
     assert!(
         !storage
-            .app_storage().account_chat_departure_denies_source(
+            .app_storage()
+            .account_chat_departure_denies_source(
                 &fact().account,
                 &fact().local_device,
                 &missing_group,

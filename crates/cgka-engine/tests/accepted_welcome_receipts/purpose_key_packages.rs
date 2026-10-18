@@ -25,7 +25,8 @@ async fn purpose_factory_resolves_exact_package_and_rejects_scope_substitution()
     .unwrap();
     let account: [u8; 32] = pad32(ACCOUNT).try_into().unwrap();
     let generation = storage
-        .app_storage().reserve_device_linking_attempt(&account, &signer)
+        .app_storage()
+        .reserve_device_linking_attempt(&account, &signer)
         .unwrap();
     let scope = PurposeAttemptScope {
         account,
@@ -97,7 +98,8 @@ async fn reserve(
     .try_into()
     .unwrap();
     let generation = storage
-        .app_storage().reserve_device_linking_attempt(&account, &device)
+        .app_storage()
+        .reserve_device_linking_attempt(&account, &device)
         .unwrap();
     PurposeAttemptScope {
         account,
@@ -113,13 +115,16 @@ async fn cancelled_purpose_blocks_new_reservation_until_exact_cleanup() {
     let scope = reserve(&storage, &mut recipient).await;
     recipient.resolve_linking_key_package(&scope).await.unwrap();
     storage
-        .app_storage().finish_device_linking_attempt(
+        .app_storage()
+        .finish_device_linking_attempt(
             scope.generation,
             storage_sqlite::DeviceLinkingOutcome::Cancelled,
         )
         .unwrap();
     assert!(matches!(
-        storage.app_storage().reserve_device_linking_attempt(&scope.account, &scope.local_device),
+        storage
+            .app_storage()
+            .reserve_device_linking_attempt(&scope.account, &scope.local_device),
         Err(storage_sqlite::DeviceLinkingError::Busy)
     ));
     assert!(
@@ -188,7 +193,8 @@ async fn terminal_cleanup_retires_only_exact_private_package_and_allows_fresh_ge
     assert!(recipient.retire_linking_key_package(&scope).await.is_err());
     assert!(recipient.durably_owned_key_packages().unwrap() == before);
     storage
-        .app_storage().finish_device_linking_attempt(
+        .app_storage()
+        .finish_device_linking_attempt(
             scope.generation,
             storage_sqlite::DeviceLinkingOutcome::Cancelled,
         )
@@ -217,7 +223,8 @@ async fn terminal_cleanup_retires_only_exact_private_package_and_allows_fresh_ge
             .is_none()
     );
     let fresh = storage
-        .app_storage().reserve_device_linking_attempt(&scope.account, &scope.local_device)
+        .app_storage()
+        .reserve_device_linking_attempt(&scope.account, &scope.local_device)
         .unwrap();
     assert_eq!(fresh, scope.generation + 1);
     assert!(recipient.resolve_linking_key_package(&scope).await.is_err());
@@ -290,7 +297,8 @@ async fn expired_signed_private_package_can_be_retired_without_new_admission() {
         )
         .unwrap();
     storage
-        .app_storage().finish_device_linking_attempt(
+        .app_storage()
+        .finish_device_linking_attempt(
             scope.generation,
             storage_sqlite::DeviceLinkingOutcome::Expired,
         )
@@ -329,7 +337,10 @@ async fn startup_cleanup_retires_verified_but_unjoined_material_after_encrypted_
         nonce: [61; 32],
         context_digest: [62; 32],
     };
-    storage.app_storage().bind_device_linking_context(&binding).unwrap();
+    storage
+        .app_storage()
+        .bind_device_linking_context(&binding)
+        .unwrap();
     storage
         .device_linking_key_package_storage()
         .unwrap()
@@ -342,10 +353,12 @@ async fn startup_cleanup_retires_verified_but_unjoined_material_after_encrypted_
         )
         .unwrap();
     storage
-        .app_storage().bind_device_linking_flow(&binding, "verified-but-unjoined")
+        .app_storage()
+        .bind_device_linking_flow(&binding, "verified-but-unjoined")
         .unwrap();
     storage
-        .app_storage().finish_device_linking_attempt(
+        .app_storage()
+        .finish_device_linking_attempt(
             scope.generation,
             storage_sqlite::DeviceLinkingOutcome::PairingVerified,
         )
@@ -386,7 +399,8 @@ async fn startup_cleanup_retires_verified_but_unjoined_material_after_encrypted_
     );
     assert_eq!(
         reopened
-            .app_storage().reserve_device_linking_attempt(&scope.account, &scope.local_device)
+            .app_storage()
+            .reserve_device_linking_attempt(&scope.account, &scope.local_device)
             .unwrap(),
         scope.generation + 1
     );
