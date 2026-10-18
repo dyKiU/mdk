@@ -1,4 +1,4 @@
-//! Fixed, passive observations for the actual fifth recipient choice; never transport authority.
+//! Fixed, passive observations for the one exact fourth-join recipient choice; never transport authority.
 use super::*;
 use cgka_engine::account_chat_sharing::AccountSharingControl;
 use std::sync::TryLockError;
@@ -35,6 +35,28 @@ struct Slot {
     // final harvest success. None is unobserved, never false/zero.
     outcomes: [Option<bool>; 5],
     retry_prepared: u32,
+    proof: Option<Proof>,
+    // First policy call/success, proof eligibility, authenticated peer proof,
+    // and actual complete write; repeats are counted rather than overwritten.
+    progress: [Option<u64>; 5],
+    progress_repeats: [u32; 5],
+}
+struct Proof {
+    // Unbound until this SAME first attempt obtains an actual wrapped message.
+    key: Option<Key>,
+    times: [Option<u64>; 9],
+    outcomes: [Option<bool>; 5],
+    // Actual seal-before/after, wrap-before/after of first attempt only.
+    preparation: [Option<u64>; 4],
+    subsequent_attempts: u32,
+}
+impl Slot {
+    fn publication_mut(&mut self, proof: bool) -> Option<(&Key, &mut [Option<u64>; 9], &mut [Option<bool>; 5])> {
+        if proof {
+            let publication = self.proof.as_mut()?;
+            Some((publication.key.as_ref()?, &mut publication.times, &mut publication.outcomes))
+        } else { Some((&self.key, &mut self.times, &mut self.outcomes)) }
+    }
 }
 #[derive(Clone, Copy)]
 struct RpcRow {
@@ -204,6 +226,7 @@ pub(crate) struct Token {
     probe: Weak<Probe>,
     index: usize,
     key: Key,
+    proof: bool,
 }
 impl Token {
     pub(in super::super::super) fn stage(&self, index: usize, outcome: Option<(usize, bool)>) {
@@ -215,17 +238,18 @@ impl Token {
                 probe.loss(IDENTITY);
                 return;
             };
-            if !slot.key.same_attempt(&self.key) || index >= slot.times.len() {
+            let Some((key, times, outcomes)) = slot.publication_mut(self.proof) else { probe.loss(IDENTITY); return; };
+            if !key.same_attempt(&self.key) || index >= times.len() {
                 probe.loss(IDENTITY);
                 return;
             }
-            if slot.times[index].is_some() {
+            if times[index].is_some() {
                 probe.loss(DUPLICATE);
                 return;
             }
-            slot.times[index] = time;
+            times[index] = time;
             if let Some((field, value)) = outcome {
-                if let Some(destination) = slot.outcomes.get_mut(field) {
+                if let Some(destination) = outcomes.get_mut(field) {
                     *destination = Some(value);
                 } else {
                     probe.loss(IDENTITY);
@@ -234,31 +258,87 @@ impl Token {
         });
     }
     pub(in super::super::super) fn report(&self, ok: bool, met: Option<bool>) {
-        let Some(probe) = self.probe.upgrade() else {
-            return;
-        };
+        let Some(probe) = self.probe.upgrade() else { return; };
         probe.observe(|data, time| {
-            if let Some(slot) = data.slots.get_mut(self.index).and_then(Option::as_mut)
-                && slot.key.same_attempt(&self.key)
-            {
-                if slot.times[4].is_some() {
-                    probe.loss(DUPLICATE);
-                    return;
-                }
-                slot.times[4] = time;
-                slot.outcomes[0] = Some(ok);
-                slot.outcomes[1] = met;
-            } else {
-                probe.loss(IDENTITY);
-            }
+            let Some(slot) = data.slots.get_mut(self.index).and_then(Option::as_mut) else { probe.loss(IDENTITY); return; };
+            let Some((key, times, outcomes)) = slot.publication_mut(self.proof) else { probe.loss(IDENTITY); return; };
+            if !key.same_attempt(&self.key) { probe.loss(IDENTITY); return; }
+            if times[4].is_some() { probe.loss(DUPLICATE); return; }
+            times[4] = time; outcomes[0] = Some(ok); outcomes[1] = met;
         });
     }
 }
+// Weak-only correlation exists before sealing; it cannot create a control,
+// request, receipt or permission. Failed first attempts are never overwritten.
+#[derive(Clone)]
+pub(crate) struct ProofAttempt { probe: Weak<Probe>, index: usize, channel: Key }
+impl ProofAttempt {
+    pub(in super::super::super) fn boundary(&self, index: usize) {
+        let Some(probe) = self.probe.upgrade() else { return; };
+        probe.observe(|data, time| {
+            let Some(slot) = data.slots.get_mut(self.index).and_then(Option::as_mut) else { probe.loss(IDENTITY); return; };
+            if !slot.key.same_channel(&self.channel) { probe.loss(IDENTITY); return; }
+            let Some(proof) = slot.proof.as_mut() else { probe.loss(IDENTITY); return; };
+            let Some(field) = proof.preparation.get_mut(index) else { probe.loss(IDENTITY); return; };
+            if field.is_some() { probe.loss(DUPLICATE); } else { *field = time; }
+        });
+    }
+    fn prepared(&self, entry: &SiblingChannel, request: &cgka_traits::TransportPublishRequest) -> Option<Token> {
+        let probe = self.probe.upgrade()?; let mut selected = None;
+        probe.observe(|data, time| {
+            if !owned(data, entry) { probe.loss(IDENTITY); return; }
+            let Some(slot) = data.slots.get_mut(self.index).and_then(Option::as_mut) else { probe.loss(IDENTITY); return; };
+            if !same_entry(slot, entry) || !slot.key.same_channel(&self.channel) { probe.loss(IDENTITY); return; }
+            let Some(proof) = slot.proof.as_mut() else { probe.loss(IDENTITY); return; };
+            if proof.key.is_some() { probe.loss(DUPLICATE); return; }
+            let key = Key { state: self.channel.state.clone(), nonce: self.channel.nonce, message: request.message.id.clone() };
+            proof.key = Some(key.clone()); proof.times[0] = time;
+            selected = Some(Token { probe: Arc::downgrade(&probe), index: self.index, key, proof: true });
+        }); selected
+    }
+}
+fn same_entry(slot: &Slot, entry: &SiblingChannel) -> bool {
+    slot.key.state.ptr_eq(&Arc::downgrade(&entry.state)) && slot.key.nonce == entry.channel.scope().nonce
+}
+fn owned(data: &Data, entry: &SiblingChannel) -> bool {
+    entry.recipient && matches!(entry.original.as_ref(), SiblingOriginal::Recipient { choice, .. }
+        if data.owner.as_ref().is_some_and(|owner| owner.ptr_eq(&Arc::downgrade(choice))))
+}
+fn increment(value: &mut u32, probe: &Probe) {
+    if let Some(next) = value.checked_add(1) { *value = next; }
+    else { *value = u32::MAX; probe.loss(OVERFLOW); }
+}
+pub(in super::super::super) fn progress(entry: &SiblingChannel, index: usize) {
+    let Some(probe) = registry().get().and_then(Weak::upgrade) else { return; };
+    probe.observe(|data, time| {
+        if !owned(data, entry) { return; }
+        let Some(slot) = data.slots.iter_mut().flatten().find(|slot| same_entry(slot, entry)) else { probe.loss(IDENTITY); return; };
+        let Some(field) = slot.progress.get_mut(index) else { probe.loss(IDENTITY); return; };
+        if field.is_some() { increment(&mut slot.progress_repeats[index], &probe); }
+        else { *field = time; }
+    });
+}
+pub(in super::super::super) fn begin_proof(entry: &SiblingChannel) -> Option<ProofAttempt> {
+    let probe = registry().get()?.upgrade()?; let mut selected = None;
+    probe.observe(|data, time| {
+        if !owned(data, entry) { return; }
+        let Some(index) = data.slots.iter().position(|slot| slot.as_ref().is_some_and(|slot| same_entry(slot, entry))) else { probe.loss(IDENTITY); return; };
+        let Some(slot) = data.slots[index].as_mut() else { probe.loss(IDENTITY); return; };
+        if let Some(proof) = &mut slot.proof { increment(&mut proof.subsequent_attempts, &probe); return; }
+        slot.proof = Some(Proof { key: None, times: [None; 9], outcomes: [None; 5], preparation: [time, None, None, None], subsequent_attempts: 0 });
+        selected = Some(ProofAttempt { probe: Arc::downgrade(&probe), index, channel: slot.key.clone() });
+    }); selected
+}
+
 pub(in super::super::super) fn prepared(
     entry: &SiblingChannel,
     request: &cgka_traits::TransportPublishRequest,
     kind: AccountSharingControl,
+    proof_attempt: Option<&ProofAttempt>,
 ) -> Option<Token> {
+    if entry.recipient && kind == AccountSharingControl::Body(0) {
+        return proof_attempt.and_then(|attempt| attempt.prepared(entry, request));
+    }
     if !entry.recipient || kind != AccountSharingControl::Consent {
         return None;
     }
@@ -306,11 +386,15 @@ pub(in super::super::super) fn prepared(
             times,
             outcomes: [None; 5],
             retry_prepared: 0,
+            proof: None,
+            progress: [None; 5],
+            progress_repeats: [0; 5],
         });
         selected = Some(Token {
             probe: Arc::downgrade(&probe),
             index,
             key: key.clone(),
+            proof: false,
         });
     });
     selected
@@ -444,6 +528,9 @@ impl Guard {
                 }),
                 data.rpc,
                 data.rpc_count,
+                std::array::from_fn::<_, 3, _>(|index| data.slots[index].as_ref().and_then(|slot| slot.proof.as_ref().map(|proof|
+                    (proof.key.is_some(), proof.times, proof.outcomes, proof.preparation, proof.subsequent_attempts)))),
+                std::array::from_fn::<_, 3, _>(|index| data.slots[index].as_ref().map(|slot| (slot.progress, slot.progress_repeats))),
             )),
             Err(TryLockError::WouldBlock) => None,
             Err(TryLockError::Poisoned(_)) => None,
@@ -466,7 +553,7 @@ impl Guard {
             loss,
             snapshot.is_some()
         );
-        if let Some((before, after, outcome, observed, _bound, slots, rpc, rpc_count)) = snapshot {
+        if let Some((before, after, outcome, observed, _bound, slots, rpc, rpc_count, proofs, progress)) = snapshot {
             let lower = before.and_then(|value| value.checked_add(15_000_000));
             let upper = after.and_then(|value| value.checked_add(15_000_000));
             let _ = writeln!(
@@ -478,6 +565,12 @@ impl Guard {
                     &mut output,
                     "native5-consent-slot index={index} observation={slot:?}"
                 );
+            }
+            for (index, proof) in proofs.into_iter().enumerate() {
+                let _ = writeln!(&mut output, "native5-consent-proof index={index} observation={proof:?}");
+            }
+            for (index, row) in progress.into_iter().enumerate() {
+                let _ = writeln!(&mut output, "native5-consent-progress index={index} observation={row:?}");
             }
             let _ = writeln!(&mut output, "native5-consent-rpc-count count={rpc_count}");
             for (index, row) in rpc.into_iter().take(rpc_count).enumerate() {

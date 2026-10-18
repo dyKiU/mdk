@@ -11,8 +11,8 @@ from upstream_extraction_cohort import frozen_inputs
 import native5_timing_parser as timing_parser
 import qualify_upstream_composed_enrollment as rich
 BASE='77caba679ab5986df88fd7296b5446004fba8bb7' # Root MUST pin a reviewed pure, formatted product baseline before adoption.
-MANIFEST_SHA='4e83149ff56c8aaf32ddf3bb595b1d4b68fd981efa2c2b5175f5a3d16050ad95' # Root MUST pin exact reviewed/reformatted reversal manifest.
-PARSER_SHA='6207cf45a6915482c89a922baf3a323b5e6d5315490e2783195f2da88b305436' # Root MUST pin exact reviewed closed parser.
+MANIFEST_SHA='ae6e2371f509b4ad09ff1e12c1c9632642be4c81cd97beadca2a5ee97d3cd8c3' # Root MUST pin exact reviewed/reformatted reversal manifest.
+PARSER_SHA='fbffc87d4b75a151947d499068e1d111e878a739a8337801ca9ed2a299a768ea' # Root MUST pin exact reviewed closed parser.
 SELF='scripts/diagnose_upstream_native5_consent.py'
 MANIFEST='scripts/native5_consent_source_manifest.json'
 PARSER='scripts/native5_timing_parser.py'
@@ -67,7 +67,7 @@ def source_guard():
             before,rest=text.split(BEGIN);_,after=rest.split(END);data=(before+after).replace(OPTIONS,'options: [',1).encode()
         if blob is not None:ensure(hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==blob,'whole-baseline-byte-equality:'+path)
     ensure(not subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).strip(),'no-untracked-overlays')
-    return {'source':head,'baseline':BASE,'manifest_sha256':MANIFEST_SHA,'parser_sha256':PARSER_SHA,'whole_source_modes_reconstructed':True,'extra_polls_waits_or_authority':False,'only_one_native5_case':True,'passive_target_join_ordinal':4,'full_five_installation_scenario_retained':True,'original_strict15_duration_preserved':True,'exact_deadline_known':False}
+    return {'source':head,'baseline':BASE,'manifest_sha256':MANIFEST_SHA,'parser_sha256':PARSER_SHA,'whole_source_modes_reconstructed':True,'extra_polls_waits_or_authority':False,'only_one_native5_case':True,'passive_target_join_ordinal':4,'first_Body0_proof_and_authenticated_peer_completion_trace':True,'later_proof_attempts_not_merged':True,'full_five_installation_scenario_retained':True,'original_strict15_duration_preserved':True,'exact_deadline_known':False}
 
 def parse(raw,code):
     # Exact-name/count parser is unchanged shared infrastructure. Preserve original libtest prefix.
@@ -149,7 +149,7 @@ def closed_failure_observations(raw):
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--preflight',action='store_true');args=ap.parse_args()
     os.umask(0o077);OUT.mkdir(exist_ok=True)
-    report={'scope':'one-native5-scenario-fourth-join-passive-consent-and-same-operation-RPC-diagnostic','qualification_passed':False,'native_acceptance_claim':False,'promotion_eligible':False,'runtime_execution_attempted':False,'actual_counts_complete':False,'actual_passed':None,'actual_failed':None,'actual_ignored':None,'actual_executed_nonignored':None,'diagnostic_completed':False,'journey_passed':False}
+    report={'scope':'one-native5-scenario-fourth-join-passive-consent-proof-and-same-operation-RPC-diagnostic','qualification_passed':False,'native_acceptance_claim':False,'promotion_eligible':False,'runtime_execution_attempted':False,'actual_counts_complete':False,'actual_passed':None,'actual_failed':None,'actual_ignored':None,'actual_executed_nonignored':None,'diagnostic_completed':False,'journey_passed':False}
     frozen=None;binary=None;binary_sha=None
     def save():(OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     try:
