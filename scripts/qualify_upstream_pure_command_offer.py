@@ -15,11 +15,11 @@ import time
 import qualify_upstream_command_backlog_pair as pair
 red=pair.red
 ensure=red.ensure
-BASE='d9cef842e698f274530d0ffd71ec7cc77682e5b3'  # Root pins the final pure product+App-pin commit; never the diagnostic overlay.
+BASE='cbdbaf5a31f707de3c37509150e54d00f4f2b524'  # Root pins the final pure product+App-pin commit; never the diagnostic overlay.
 SELF='scripts/qualify_upstream_pure_command_offer.py'
 PEER_SELF='scripts/qualify_upstream_pure_native5.py'
 MANIFEST='scripts/pure_command_offer_source_manifest.json'
-MANIFEST_SHA='b3e03ef30c21f296befd201e19c48ddf6bba020bb254278f4a1733e932841e5c'  # Root pins the shared reviewed manifest after final formatting/source freeze.
+MANIFEST_SHA='76adf23102484ce8817515ddda948487e18670ba13a44f938103b4844d2dc65b'  # Root pins the shared reviewed manifest after final formatting/source freeze.
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
 REF='refs/heads/ci/upstream-command-offer-pure-20261018'
 OUT=Path('pure-command-offer-evidence')
@@ -148,7 +148,7 @@ def source_guard():
             continue
         if blob is not None:
             ensure(hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==blob,'whole-pure-content-no-Rust-exceptions:'+name)
-    allowed={'pure-command-offer-evidence/result.json','pure-native5-evidence/result.json','pure-watch-pressure-evidence/result.json'}
+    allowed={'pure-command-offer-evidence/result.json','pure-native5-evidence/result.json','pure-watch-pressure-evidence/result.json','pure-watch-offer-pfp-evidence/result.json'}
     ensure(set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())<=allowed,'no-untracked-source-overlay')
     return manifest,{'source':head,'baseline':BASE,'whole_source_modes_reconstructed':True,'no_Rust_exceptions':True,
         'owned_metadata_union':[SELF,PEER_SELF,MANIFEST],'baseline_owned_metadata_present':sorted(owned_metadata.intersection(baseline)),'metadata_controllers_commit_bound_by_GITHUB_SHA_and_pristine_HEAD':True,
@@ -522,7 +522,214 @@ def watch_main(options):
             ensure(report['watch_pressure_RED_verified'],'finally-watch-RED-and-source-binary-pristine')
 
 
+WATCH_PFP_OUT=Path('pure-watch-offer-pfp-evidence')
+
+
+def watch_pfp_manifest_guard(manifest):
+    witness=manifest.get('watch_product');prior=manifest.get('reviewed_watch_RED_control')
+    ensure(isinstance(witness,dict) and witness.get('path')=='crates/marmot-app/src/runtime/account_worker.rs'
+        and witness.get('git_mode')=='100644' and isinstance(witness.get('edits'),list) and len(witness['edits'])==3,
+        'reviewed-three-watch-offer-insertions-required')
+    data=Path(witness['path']).read_bytes();ensure(red.digest(data)==witness.get('after_sha256'),'exact-watch-candidate-worker')
+    old=data.decode()
+    for edit in reversed(witness['edits']):
+        ensure(set(edit)=={'before','after'} and all(isinstance(edit[k],str) for k in edit)
+            and edit['before']!=edit['after'] and old.count(edit['after'])==1,'one-exact-watch-insertion-witness')
+        old=old.replace(edit['after'],edit['before'],1)
+    ensure(red.digest(old.encode())==witness.get('before_sha256'),'exact-watch-omission-worker')
+    ensure(isinstance(prior,dict) and prior.get('watch_pressure_RED_verified') is True
+        and prior.get('all_required_prerequisites_and_cleanup') is True
+        and isinstance(prior.get('source'),str) and re.fullmatch('[0-9a-f]{40}',prior['source'])
+        and isinstance(prior.get('run_id'),str) and prior['run_id'].isdigit()
+        and isinstance(prior.get('artifact_sha256'),str) and re.fullmatch('[0-9a-f]{64}',prior['artifact_sha256'])
+        and all(type(prior.get(k)) is int and prior[k]==v for k,v in {
+            'actual_passed':1,'actual_failed':1,'actual_ignored':0,'actual_executed_nonignored':2}.items()),
+        'root-reviewed-genuine-watch-RED-plus-counterpart-pin-required')
+    subprocess.run(['git','merge-base','--is-ancestor',prior['source'],'HEAD'],check=True)
+    ensure(red.digest(subprocess.check_output(['git','show',prior['source']+':'+witness['path']]))==witness['before_sha256'],
+        'actual-RED-source-worker-equals-exact-watch-omission')
+    ensure(subprocess.check_output(['git','show',prior['source']+':'+WATCH_FIXTURE])==Path(WATCH_FIXTURE).read_bytes(),
+        'genuine-RED-watch-fixture-byte-exact')
+    return {'watch_product':witness,'root_reviewed_genuine_RED_control':prior,
+        'prior_artifact_verified_by_this_controller':False,'actual_prior_worker_equals_omission':True,
+        'current_baseline_whole_source_exact':True,'runtime_results_reused':False}
+
+
+def watch_original_green(row):
+    expected={'body_exit_code':0,'passed':1,'failed':0,'ignored':0,'executed_nonignored':1,
+        'compiler_error_count':0,'all_panic_header_count':0,'marker_header_count':1,'runtime_closes':3,'plane_shutdown_returns':3}
+    return (all(type(row.get(k)) is int and row[k]==v for k,v in expected.items())
+        and row.get('running_counts')==[1] and row.get('executed_case_names')==[WATCH_NAMES[WATCH_CASE]]
+        and all(row.get('facts',{}).get(key) is True for key in WATCH_FIELDS)
+        and type(row.get('completed_before')) is int and 0<=row['completed_before']<=1
+        and row.get('relay_closed') is True and row.get('attempt_completed') is True
+        and not row.get('watchdog_triggered') and not row.get('actual_count_unknown'))
+
+
+def watch_pfp_parser_controls():
+    inherited=watch_parser_controls();marker='watch-pressure facts=['+', '.join(['true']*13)+'] completed_before=Some(1) runtime_closes=3 plane_shutdown_returns=3 relay_closed=true attempt_completed=true'
+    raw='running 1 test\ntest '+WATCH_NAMES[WATCH_CASE]+' ... ok\n'+marker+'\ntest result: ok. 1 passed; 0 failed; 0 ignored;\n'
+    row=watch_parse(raw,0,WATCH_CASE);ensure(watch_original_green(row),'watch-original-GREEN-positive')
+    ensure(watch_original_green(watch_parse(raw.replace('Some(1)','Some(0)'),0,WATCH_CASE)),'watch-original-zero-services-positive')
+    negatives=0
+    for key in WATCH_FIELDS:
+        ensure(not watch_original_green({**row,'facts':{**row['facts'],key:False}}),'every-watch-GREEN-fact-required');negatives+=1
+    for delta in [{'completed_before':True},{'completed_before':2},{'completed_before':None},{'passed':True},
+        {'body_exit_code':True},{'ignored':1},{'all_panic_header_count':1},{'compiler_error_count':1},
+        {'runtime_closes':2},{'plane_shutdown_returns':2},{'relay_closed':False},{'attempt_completed':False},
+        {'executed_case_names':[WATCH_NAMES[WATCH_COUNTER]]},{'watchdog_triggered':True},{'actual_count_unknown':True}]:
+        ensure(not watch_original_green({**row,**delta}),'watch-non-GREEN-rejected');negatives+=1
+    return {'watch_RED_controls':inherited,'original_GREEN_positive':2,'original_GREEN_negative':negatives,'actual_runtime_bodies':0}
+
+
+def watch_pfp_phase(label,expected,modes,expected_cases,save,report):
+    phase={'label':label,'cases':[],'phase_verified':False};report['phases'].append(phase);save()
+    try:
+        ensure(red.freeze()==expected and red.layout()==modes,'phase-source-and-modes-before-compile')
+        compilation,cases=red.compile_cases([WATCH_CASE,WATCH_COUNTER])
+        headers=compilation.pop('compiler_headers',[])
+        compilation['compiler_codes']=sorted(set(re.findall(r'error\[(E[0-9]{4})\]','\n'.join(headers))))
+        compilation['compiler_sites']=[{'file':p,'line':int(n),'column':int(c)} for p,n,c in re.findall(r'--> (crates/[A-Za-z0-9_./-]+\.rs):([0-9]+):([0-9]+)','\n'.join(headers))]
+        phase['compilation']=compilation;save()
+        ensure(all(type(compilation.get(key)) is int and compilation[key]==0 for key in ['compile_exit_code','compiler_error_count'])
+            and compilation.get('compiled_fingerprints',{}).get('verified') is True
+            and set(cases)=={WATCH_CASE,WATCH_COUNTER} and cases[WATCH_CASE]['name']==WATCH_NAMES[WATCH_CASE]
+            and cases[WATCH_COUNTER]['name']==WATCH_NAMES[WATCH_COUNTER]
+            and cases[WATCH_CASE]['binary_sha256']==cases[WATCH_COUNTER]['binary_sha256'],'same-two-case-inventory-and-six-features')
+        phase['feature_identity']=red.feature_identity(compilation)
+        phase['source_manifest_sha256']=red.identity(expected);phase['binary_sha256']=cases[WATCH_CASE]['binary_sha256']
+        phase['binary_path']=cases[WATCH_CASE]['binary'];save()
+        for suffix in expected_cases:
+            name=WATCH_NAMES[WATCH_CASE] if suffix==WATCH_CASE else WATCH_NAMES[WATCH_COUNTER]
+            case_row={'name':name,'runtime_started':False};phase['cases'].append(case_row)
+            try:
+                ensure(red.freeze()==expected and red.layout()==modes and red.digest(Path(phase['binary_path']).read_bytes())==phase['binary_sha256'],'before-case-source-binary-pristine')
+                case_row['runtime_started']=True;save()
+                code,raw,seconds=red.bounded.capture([phase['binary_path'],'--exact',name,'--nocapture','--test-threads=1'],300,limit=4*1024*1024)
+                case_row['body']=dict(red.parse_body(raw,suffix),body_exit_code=code,seconds=seconds,
+                    compiler_error_count=len(re.findall(r'^error(?:\[E[0-9]+\])?:',raw,re.M)));save()
+                case_row['post_body_binary_sha256']=red.digest(Path(phase['binary_path']).read_bytes())
+                case_row['post_body_binary_pristine']=case_row['post_body_binary_sha256']==phase['binary_sha256'];save()
+                ensure(case_row['post_body_binary_pristine'],'actual-post-body-binary-pristine')
+                filtered,case_row['observations']=watch_extract(raw);save()
+                case_row['body']=dict(watch_parse(filtered,code,suffix),seconds=seconds);save()
+                if label=='mutant':outcome=watch_case_expected(case_row['body'],suffix)
+                elif suffix==WATCH_CASE:outcome=watch_original_green(case_row['body'])
+                else:outcome=watch_case_expected(case_row['body'],suffix)
+                case_row['expected_outcome_verified']=outcome and watch_observations_green(case_row['observations'],suffix==WATCH_CASE)
+            except red.bounded.GateFailure as error:
+                case_row['watchdog_triggered']=str(error)=='bounded-command-timeout';case_row['output_limit_triggered']=str(error)=='bounded-command-output-limit'
+                case_row['actual_count_unknown']=True;case_row['exception_type']=type(error).__name__
+            except Exception as error:case_row['exception_type']=type(error).__name__
+            finally:
+                case_row['source_after_sha256']=red.identity(red.freeze())
+                case_row['mode_layout_after_sha256']=red.digest(json.dumps(red.layout(),sort_keys=True).encode())
+                case_row['final_binary_sha256']=red.digest(Path(phase['binary_path']).read_bytes()) if Path(phase['binary_path']).is_file() else None
+                case_row['inputs_pristine']=red.freeze()==expected and red.layout()==modes
+                if not case_row['inputs_pristine'] or case_row['final_binary_sha256']!=phase['binary_sha256']:case_row['expected_outcome_verified']=False
+                report.update(totals(report['phases']));save()
+        phase['phase_verified']=len(phase['cases'])==len(expected_cases) and all(row.get('expected_outcome_verified') is True for row in phase['cases'])
+    except Exception as error:phase['exception_type']=type(error).__name__
+    finally:
+        phase['inputs_pristine']=red.freeze()==expected and red.layout()==modes
+        phase['final_binary_sha256']=red.digest(Path(phase['binary_path']).read_bytes()) if phase.get('binary_path') and Path(phase['binary_path']).is_file() else None
+        phase['binary_pristine']=phase['final_binary_sha256'] is not None and phase['final_binary_sha256']==phase.get('binary_sha256')
+        if not phase['inputs_pristine'] or not phase['binary_pristine']:phase['phase_verified']=False
+        save()
+    return phase
+
+
+def watch_pfp_main(options):
+    os.umask(0o077);WATCH_PFP_OUT.mkdir(exist_ok=True)
+    report={'component_PFP_verified':False,'qualification_passed':False,'default_qualified':False,'native_qualified':False,
+        'full_enrollment_qualified':False,'original_native_gates_waived':False,'phases':[],'automatic_retries':0,'component':'sibling_completion_watch_offer',
+        'expected_actual_bodies':5,'expected_passed':4,'expected_intended_failed':1}
+    report.update(totals([]));before=modes=None;product=None;candidate_bytes=None;candidate_mode=None
+    backup_dir=None;backup_path=None;baseline_binary=None;baseline_binary_sha=None;baseline_binary_mode=None
+    def save(): (WATCH_PFP_OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
+    try:
+        manifest,report['source_guard']=source_guard();report['watch_product_guard']=watch_pfp_manifest_guard(manifest);report['parser_controls']=parser_controls();report['watch_PFP_parser_controls']=watch_pfp_parser_controls();save()
+        if options.preflight:report['preflight_passed']=True;save();return
+        report['environment']=red.environment();before,modes=red.freeze(),red.layout()
+        product=Path(manifest['watch_product']['path']);candidate_bytes=product.read_bytes();candidate_mode=stat.S_IMODE(product.stat().st_mode)
+        old=candidate_bytes.decode()
+        for edit in reversed(manifest['watch_product']['edits']):
+            ensure(old.count(edit['after'])==1,'unique-exact-product-omission');old=old.replace(edit['after'],edit['before'],1)
+        old_bytes=old.encode();ensure(red.digest(old_bytes)==manifest['watch_product']['before_sha256'],'mutant-exact-worker-without-three-watch-inserts')
+        baseline=watch_pfp_phase('baseline',before,modes,[WATCH_CASE,WATCH_COUNTER],save,report)
+        ensure(baseline['phase_verified'],'fresh-two-body-GREEN-before-mutation')
+        baseline_binary=Path(baseline['binary_path']);baseline_binary_sha=baseline['binary_sha256']
+        baseline_binary_mode=stat.S_IMODE(baseline_binary.stat().st_mode)
+        ensure(0<baseline_binary.stat().st_size<=512*1024*1024,'bounded-baseline-binary-backup')
+        backup_dir=tempfile.TemporaryDirectory(prefix='watch-offer-binary-',dir=os.environ.get('RUNNER_TEMP'))
+        backup_path=Path(backup_dir.name)/'baseline-binary';shutil.copyfile(baseline_binary,backup_path)
+        ensure(red.digest(backup_path.read_bytes())==baseline_binary_sha,'exact-baseline-backup')
+        try:
+            write_fresh(product,old_bytes,candidate_mode)
+            mutant_expected=red.freeze()
+            ensure(red.layout()==modes and product.read_bytes()==old_bytes and set(mutant_expected)==set(before)
+                and {name for name in before if mutant_expected[name]!=before[name]}=={str(product)},'exact-worker-only-composite-input-change')
+            report['mutant_diff']={'path':str(product),'before_sha256':red.digest(candidate_bytes),'after_sha256':red.digest(old_bytes),
+                'exact_three_insertions_omitted':True,'exact_watch_offer_omission':True};save()
+            mutant=watch_pfp_phase('mutant',mutant_expected,modes,[WATCH_CASE],save,report)
+        finally:
+            write_fresh(product,candidate_bytes,candidate_mode)
+            restored=watch_pfp_phase('restored',before,modes,[WATCH_CASE,WATCH_COUNTER],save,report)
+        report['same_feature_identity']=baseline.get('feature_identity')==mutant.get('feature_identity')==restored.get('feature_identity')
+        report['baseline_restored_binary_equal']=baseline.get('binary_sha256')==restored.get('binary_sha256')
+        report['mutant_binary_differs']=mutant.get('binary_sha256') is not None and mutant['binary_sha256']!=baseline['binary_sha256']
+        report['component_PFP_verified']=(all(phase.get('phase_verified') is True for phase in [baseline,mutant,restored])
+            and report['same_feature_identity'] and report['baseline_restored_binary_equal'] and report['mutant_binary_differs']
+            and all(type(report.get(k)) is int and report[k]==v for k,v in {'actual_passed':4,'actual_failed':1,'actual_ignored':0,'actual_executed_nonignored':5}.items()))
+        save();ensure(report['component_PFP_verified'],'all-five-runtime-bodies-and-exact-restoration-required')
+    except Exception as error:report['exception_type']=type(error).__name__;raise
+    finally:
+        exception_in_flight=sys.exc_info()[0] is not None
+        if before is not None:
+            try:
+                if product is not None and candidate_bytes is not None:
+                    if product.is_symlink(): product.unlink()
+                    ensure(not product.exists() or product.is_file(),'owned-source-restoration-path')
+                    if not product.is_file() or product.read_bytes()!=candidate_bytes or stat.S_IMODE(product.stat().st_mode)!=candidate_mode:
+                        write_fresh(product,candidate_bytes,candidate_mode)
+            except Exception as error:
+                report['source_restoration_exception_type']=type(error).__name__;report['component_PFP_verified']=False
+            try:
+                source_after,layout_after=red.freeze(),red.layout()
+                report['source_after_sha256']=red.identity(source_after)
+                report['mode_layout_after_sha256']=red.digest(json.dumps(layout_after,sort_keys=True).encode())
+                report['inputs_pristine']=source_after==before and layout_after==modes
+            except Exception as error:
+                report['inputs_pristine']=False;report['source_snapshot_exception_type']=type(error).__name__
+            if baseline_binary is not None and baseline_binary_sha is not None:
+                report['binary_fallback_restoration_used']=False;report['binary_restored']=False
+                try:
+                    regular=baseline_binary.is_file() and not baseline_binary.is_symlink()
+                    matches=regular and red.digest(baseline_binary.read_bytes())==baseline_binary_sha and stat.S_IMODE(baseline_binary.stat().st_mode)==baseline_binary_mode
+                    if not matches and backup_path is not None:
+                        if baseline_binary.is_symlink():baseline_binary.unlink()
+                        ensure(not baseline_binary.exists() or baseline_binary.is_file(),'owned-binary-restoration-path')
+                        shutil.copyfile(backup_path,baseline_binary);os.chmod(baseline_binary,baseline_binary_mode)
+                        report['binary_fallback_restoration_used']=True
+                    regular=baseline_binary.is_file() and not baseline_binary.is_symlink()
+                    report['final_binary_sha256']=red.digest(baseline_binary.read_bytes()) if regular else None
+                    report['binary_restored']=regular and report['final_binary_sha256']==baseline_binary_sha and stat.S_IMODE(baseline_binary.stat().st_mode)==baseline_binary_mode
+                except Exception as error:report['binary_restoration_exception_type']=type(error).__name__
+                if report['binary_fallback_restoration_used'] or not report['binary_restored']:report['component_PFP_verified']=False
+            if not report['inputs_pristine']:report['component_PFP_verified']=False
+        if backup_dir is not None:
+            try:backup_dir.cleanup();report['binary_backup_removed']=True
+            except Exception as error:
+                report['binary_backup_removed']=False;report['backup_cleanup_exception_type']=type(error).__name__;report['component_PFP_verified']=False
+        report.update(totals(report['phases']));save()
+        if before is not None and not exception_in_flight:
+            ensure(report['inputs_pristine'],'finally-source-modes-pristine')
+            ensure(report['component_PFP_verified'],'finally-full-component-PFP-and-binary-restoration-required')
+
+
 def main(options):
+    ensure(not (options.watch_red and options.watch_pfp),'mutually-exclusive-watch-modes')
+    if options.watch_pfp:return watch_pfp_main(options)
     if options.watch_red:return watch_main(options)
     os.umask(0o077);OUT.mkdir(exist_ok=True)
     report={'component_PFP_verified':False,'qualification_passed':False,'default_qualified':False,'native_qualified':False,
@@ -611,4 +818,4 @@ def main(options):
             ensure(report['component_PFP_verified'],'finally-full-component-PFP-and-binary-restoration-required')
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--preflight',action='store_true');parser.add_argument('--watch-red',action='store_true');main(parser.parse_args())
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--preflight',action='store_true');parser.add_argument('--watch-red',action='store_true');parser.add_argument('--watch-pfp',action='store_true');main(parser.parse_args())

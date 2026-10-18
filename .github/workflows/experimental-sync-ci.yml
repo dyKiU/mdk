@@ -86,7 +86,7 @@ jobs:
       RUST_MIN_STACK: '4194304'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
-      UPSTREAM_PURE_QUALIFICATION_BASELINE: d9cef842e698f274530d0ffd71ec7cc77682e5b3
+      UPSTREAM_PURE_QUALIFICATION_BASELINE: cbdbaf5a31f707de3c37509150e54d00f4f2b524
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
@@ -98,7 +98,7 @@ jobs:
         env:
           CARGO_INCREMENTAL: '1'
         run: |
-          python3 scripts/qualify_upstream_pure_command_offer.py --preflight ${{ inputs.pressure_case == 'watch' && '--watch-red' || '' }}
+          python3 scripts/qualify_upstream_pure_command_offer.py --preflight ${{ inputs.pressure_case == 'watch-pfp' && '--watch-pfp' || (inputs.pressure_case == 'watch' && '--watch-red' || '') }}
           toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
           rustup toolchain install "$toolchain" --profile minimal --component rustfmt
           rustup default "$toolchain"
@@ -113,6 +113,7 @@ jobs:
           path: |
             pure-command-offer-evidence/result.json
             pure-watch-pressure-evidence/result.json
+            pure-watch-offer-pfp-evidence/result.json
             ${{ runner.temp }}/pure-command-offer-pfp-format.patch
             ${{ runner.temp }}/pure-command-offer-pfp-format.patch.sha256
           if-no-files-found: error
@@ -127,7 +128,7 @@ jobs:
       RUST_MIN_STACK: '4194304'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
-      UPSTREAM_PURE_QUALIFICATION_BASELINE: d9cef842e698f274530d0ffd71ec7cc77682e5b3
+      UPSTREAM_PURE_QUALIFICATION_BASELINE: cbdbaf5a31f707de3c37509150e54d00f4f2b524
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
@@ -149,7 +150,7 @@ jobs:
           CARGO_INCREMENTAL: '1'
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Bounded command offer fresh five-body PFP' --output "$RUNNER_TEMP/pure-command-offer-pfp-capacity.json"
-          python3 scripts/qualify_upstream_pure_command_offer.py ${{ inputs.pressure_case == 'watch' && '--watch-red' || '' }}
+          python3 scripts/qualify_upstream_pure_command_offer.py ${{ inputs.pressure_case == 'watch-pfp' && '--watch-pfp' || (inputs.pressure_case == 'watch' && '--watch-red' || '') }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -157,6 +158,7 @@ jobs:
           path: |
             pure-command-offer-evidence/result.json
             pure-watch-pressure-evidence/result.json
+            pure-watch-offer-pfp-evidence/result.json
             ${{ runner.temp }}/pure-command-offer-pfp-capacity.json
           if-no-files-found: error
           retention-days: 7
@@ -169,7 +171,7 @@ jobs:
     permissions:
       contents: read
     env:
-      UPSTREAM_PURE_QUALIFICATION_BASELINE: d9cef842e698f274530d0ffd71ec7cc77682e5b3
+      UPSTREAM_PURE_QUALIFICATION_BASELINE: cbdbaf5a31f707de3c37509150e54d00f4f2b524
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -209,7 +211,7 @@ jobs:
     permissions:
       contents: read
     env:
-      UPSTREAM_PURE_QUALIFICATION_BASELINE: d9cef842e698f274530d0ffd71ec7cc77682e5b3
+      UPSTREAM_PURE_QUALIFICATION_BASELINE: cbdbaf5a31f707de3c37509150e54d00f4f2b524
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'

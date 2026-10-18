@@ -1,5 +1,5 @@
 {
-  "baseline": "d9cef842e698f274530d0ffd71ec7cc77682e5b3",
+  "baseline": "cbdbaf5a31f707de3c37509150e54d00f4f2b524",
   "owned_metadata": [
     "scripts/qualify_upstream_pure_command_offer.py",
     "scripts/qualify_upstream_pure_native5.py",
@@ -34,8 +34,8 @@
   "product": {
     "path": "crates/marmot-app/src/runtime/account_worker.rs",
     "git_mode": "100644",
-    "before_sha256": "244a488d12fd828ede910346038aeb9882241cb4d5e1c1d8423426acfebcde30",
-    "after_sha256": "0d5356aff9da14971d406f9835a0569c446b3035c0dbae3f4c3134b870010071",
+    "before_sha256": "f818e93e2c8c2a05b81107905e9981d1e7817db861741fda27b87ce58c5a93cf",
+    "after_sha256": "1383983d43bd2849c352b5d21e66c2c6adefcd1a0097db55a4c4c14fdd9aaadd",
     "edits": [
       {
         "before": "    let mut yield_to_convergence = false;\n",
@@ -127,10 +127,47 @@
     "test_only": true,
     "real_hint_sends": 8,
     "actual_service_returns": 8,
-    "product_watch_offer_adopted": false,
+    "product_watch_offer_adopted": true,
     "shared_fixture_serialization": true,
     "source_patch_sha256": "6778202ece5804e8f6c66a2d29e820347d62d27b927d91411321e44eda0ec56d",
     "exact_hosted_format_patch_sha256": "2e3ecb2f0c63a27aedf633362c44d8b1462d2d46c3b8002c00a161ac989811c0",
-    "runtime_evidence_reused": false
+    "runtime_evidence_reused": false,
+    "product_source": "cbdbaf5a31f707de3c37509150e54d00f4f2b524",
+    "component_PFP_verified": false
+  },
+  "watch_product": {
+    "path": "crates/marmot-app/src/runtime/account_worker.rs",
+    "git_mode": "100644",
+    "before_sha256": "0d5356aff9da14971d406f9835a0569c446b3035c0dbae3f4c3134b870010071",
+    "after_sha256": "1383983d43bd2849c352b5d21e66c2c6adefcd1a0097db55a4c4c14fdd9aaadd",
+    "edits": [
+      {
+        "before": "    let mut sibling_completions_open = true;",
+        "after": "    let mut sibling_completions_open = true;\n    #[cfg(feature = \"experimental-device-sync\")]\n    let mut sibling_completion_input_service_owed = false;"
+      },
+      {
+        "before": "                        { sibling_completions.changed().await }",
+        "after": "                        {\n                            if sibling_completion_input_service_owed {\n                                // Offer other ready input without consuming a watch version.\n                                sibling_completion_input_service_owed = false;\n                                tokio::task::yield_now().await;\n                            }\n                            sibling_completions.changed().await\n                        }"
+      },
+      {
+        "before": "                                    tracing::debug!(target: \"marmot_app::device_linking\", method = \"worker_sibling_completion\", \"sibling publication completion deferred\");\n                                }\n",
+        "after": "                                    tracing::debug!(target: \"marmot_app::device_linking\", method = \"worker_sibling_completion\", \"sibling publication completion deferred\");\n                                }\n                                sibling_completion_input_service_owed = true;\n"
+      }
+    ]
+  },
+  "reviewed_watch_RED_control": {
+    "source": "b36fcf08e36c31a50cef5860012cbd36dbc08bd4",
+    "run_id": "39150421926",
+    "artifact_id": 12145366142,
+    "artifact_sha256": "45af8f5748cd6db317728a30c359af9595e1f67a8387951bb65ffc439434d1fa",
+    "receipt_sha256": "a912b0b1a337ceeb72a15c8ba352ee73b78886438dab4e9636d45597f80eb299",
+    "watch_pressure_RED_verified": true,
+    "all_required_prerequisites_and_cleanup": true,
+    "actual_passed": 1,
+    "actual_failed": 1,
+    "actual_ignored": 0,
+    "actual_executed_nonignored": 2,
+    "compiler_error_count": 0,
+    "same_binary_sha256": "cc93987e2ecf41462407eda2c9c38a130473ee0c1473860ef0322b5a16ccd118"
   }
 }
