@@ -288,3 +288,14 @@ impl DeviceLinkingApproval {
         Err(unavailable_enrollment())
     }
 }
+
+// OWNER_FIVE_PRODUCER_TEST_BEGIN
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+pub(crate) fn record_observation_transport_closed_producer_for_test(code: u8) {
+    enabled::terminal_diagnostic::producer(code);
+}
+#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+pub(crate) fn record_receive_before_reopen_for_test(client: &crate::AppClient, error: &crate::AppError) {
+    enabled::terminal_diagnostic::receive_before_reopen(client, error);
+}
+// OWNER_FIVE_PRODUCER_TEST_END

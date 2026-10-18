@@ -50,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      OWNER_FIVE_DIAGNOSTIC_BASELINE: c75d41ce5070f4d99d12e8c933cdc67733eb4aa6
+      OWNER_FIVE_DIAGNOSTIC_BASELINE: 4921a48afed8d96b7cbc6cbba2e2bf608af93dcc
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -86,7 +86,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      OWNER_FIVE_DIAGNOSTIC_BASELINE: c75d41ce5070f4d99d12e8c933cdc67733eb4aa6
+      OWNER_FIVE_DIAGNOSTIC_BASELINE: 4921a48afed8d96b7cbc6cbba2e2bf608af93dcc
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'

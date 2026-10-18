@@ -1,0 +1,617 @@
+{
+  "baseline": "4921a48afed8d96b7cbc6cbba2e2bf608af93dcc",
+  "files": {
+    "crates/marmot-app/src/native_device_linking/enabled/terminal_diagnostic.rs": {
+      "draft": "crates__marmot-app__src__native_device_linking__enabled__terminal_diagnostic.rs",
+      "baseline_sha256": "f0c071f6f4b91d19ec1b54717e3d92d083422ac681701d9bf538ab92f2bc6d60",
+      "draft_sha256": "ccc1147cf092f4caa13fc8ee35fac645b406eb05bc04da7b09a06cd126bfafad",
+      "reverse_edits": [
+        {
+          "before_start": 6,
+          "before_end": 7,
+          "after_start": 6,
+          "after_end": 7,
+          "before": [
+            "    atomic::{AtomicBool, Ordering},\n"
+          ],
+          "after": [
+            "    atomic::{AtomicBool, AtomicU64, Ordering},\n"
+          ]
+        },
+        {
+          "before_start": 14,
+          "before_end": 14,
+          "after_start": 14,
+          "after_end": 17,
+          "before": [],
+          "after": [
+            "    original_scope: super::PurposeAttemptScope,\n",
+            "    ordinal: AtomicU64,\n",
+            "    receive_before_reopen: Mutex<Option<([u8; 2], u64)>>,\n"
+          ]
+        },
+        {
+          "before_start": 15,
+          "before_end": 17,
+          "after_start": 18,
+          "after_end": 20,
+          "before": [
+            "    attempted_error: Mutex<Option<[u8; 3]>>,\n",
+            "    accepted_terminal: Mutex<Option<[u8; 2]>>,\n"
+          ],
+          "after": [
+            "    attempted_error: Mutex<Option<([u8; 3], u8, u64)>>,\n",
+            "    accepted_terminal: Mutex<Option<([u8; 2], u64)>>,\n"
+          ]
+        },
+        {
+          "before_start": 22,
+          "before_end": 22,
+          "after_start": 25,
+          "after_end": 28,
+          "before": [],
+          "after": [
+            "            original_scope: owner.scope.clone(),\n",
+            "            ordinal: AtomicU64::new(0),\n",
+            "            receive_before_reopen: Mutex::new(None),\n"
+          ]
+        },
+        {
+          "before_start": 43,
+          "before_end": 44,
+          "after_start": 49,
+          "after_end": 50,
+          "before": [
+            "            (Ok(error), Ok(transition)) => (!LOST.load(Ordering::Acquire), *error, *transition),\n"
+          ],
+          "after": [
+            "            (Ok(error), Ok(transition)) => (!LOST.load(Ordering::Acquire), error.as_ref().map(|v| v.0), transition.as_ref().map(|v| v.0)),\n"
+          ]
+        },
+        {
+          "before_start": 47,
+          "before_end": 47,
+          "after_start": 53,
+          "after_end": 71,
+          "before": [],
+          "after": [
+            "    pub(in super::super) fn producer_snapshot(&self) -> (bool, Option<[u64; 2]>, Option<[u64; 3]>, Option<u64>) {\n",
+            "        match (self.attempted_error.try_lock(), self.receive_before_reopen.try_lock(), self.accepted_terminal.try_lock()) {\n",
+            "            (Ok(error), Ok(receive), Ok(terminal)) => (\n",
+            "                !LOST.load(Ordering::Acquire),\n",
+            "                error.as_ref().map(|v| [u64::from(v.1), v.2]),\n",
+            "                receive.as_ref().map(|v| [u64::from(v.0[0]), u64::from(v.0[1]), v.1]),\n",
+            "                terminal.as_ref().map(|v| v.1),\n",
+            "            ),\n",
+            "            _ => (false, None, None, None),\n",
+            "        }\n",
+            "    }\n",
+            "    fn next_ordinal(&self) -> Option<u64> {\n",
+            "        match self.ordinal.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1)) {\n",
+            "            Ok(n) => Some(n + 1),\n",
+            "            Err(_) => { LOST.store(true, Ordering::Release); None }\n",
+            "        }\n",
+            "    }\n",
+            "\n"
+          ]
+        },
+        {
+          "before_start": 64,
+          "before_end": 72,
+          "after_start": 88,
+          "after_end": 92,
+          "before": [
+            "fn first<T: Copy>(slot: &Mutex<Option<T>>, value: T) {\n",
+            "    if let Ok(mut slot) = slot.try_lock() {\n",
+            "        if slot.is_none() {\n",
+            "            *slot = Some(value);\n",
+            "        }\n",
+            "    } else {\n",
+            "        LOST.store(true, Ordering::Release);\n",
+            "    }\n"
+          ],
+          "after": [
+            "fn first_error(probe: &Probe, value: [u8; 3], producer: u8) {\n",
+            "    if let Ok(mut slot) = probe.attempted_error.try_lock() {\n",
+            "        if slot.is_none() && let Some(ordinal) = probe.next_ordinal() { *slot = Some((value, producer, ordinal)); }\n",
+            "    } else { LOST.store(true, Ordering::Release); }\n"
+          ]
+        },
+        {
+          "before_start": 73,
+          "before_end": 74,
+          "after_start": 93,
+          "after_end": 94,
+          "before": [
+            "pub(super) fn refresh_error(owner: &SessionState, error: &ClientLinkingError) {\n"
+          ],
+          "after": [
+            "pub(super) fn refresh_error(owner: &SessionState, error: &ClientLinkingError, producer: u8) {\n"
+          ]
+        },
+        {
+          "before_start": 126,
+          "before_end": 127,
+          "after_start": 146,
+          "after_end": 147,
+          "before": [
+            "        first(&probe.attempted_error, [1, category, detail])\n"
+          ],
+          "after": [
+            "        first_error(probe, [1, category, detail], producer)\n"
+          ]
+        },
+        {
+          "before_start": 139,
+          "before_end": 140,
+          "after_start": 159,
+          "after_end": 160,
+          "before": [
+            "        first(&probe.attempted_error, [2, category, 0])\n"
+          ],
+          "after": [
+            "        first_error(probe, [2, category, 0], 0)\n"
+          ]
+        },
+        {
+          "before_start": 168,
+          "before_end": 169,
+          "after_start": 188,
+          "after_end": 191,
+          "before": [
+            "            first(&probe.accepted_terminal, [phase(before), phase(after)])\n"
+          ],
+          "after": [
+            "            if let Ok(mut slot) = probe.accepted_terminal.try_lock() {\n",
+            "                if slot.is_none() && let Some(ordinal) = probe.next_ordinal() { *slot = Some(([phase(before), phase(after)], ordinal)); }\n",
+            "            } else { LOST.store(true, Ordering::Release); }\n"
+          ]
+        },
+        {
+          "before_start": 172,
+          "before_end": 172,
+          "after_start": 194,
+          "after_end": 342,
+          "before": [],
+          "after": [
+            "\n",
+            "\n",
+            "struct ObservationContext {\n",
+            "    probe: Weak<Probe>,\n",
+            "    producer: std::cell::Cell<u8>,\n",
+            "}\n",
+            "tokio::task_local! { static OBSERVATION: ObservationContext; }\n",
+            "\n",
+            "pub(super) async fn observation<T>(owner: &SessionState, future: impl std::future::Future<Output = T>) -> (T, u8) {\n",
+            "    let mut selected = Weak::new();\n",
+            "    if let Some(registry) = PROBES.get() {\n",
+            "        if let Ok(entries) = registry.try_lock() {\n",
+            "            for entry in entries.iter() {\n",
+            "                if let Some(probe) = entry.upgrade() && std::ptr::eq(probe.owner.as_ptr(), owner) {\n",
+            "                    selected = Arc::downgrade(&probe);\n",
+            "                    break;\n",
+            "                }\n",
+            "            }\n",
+            "        } else { LOST.store(true, Ordering::Release); }\n",
+            "    }\n",
+            "    OBSERVATION.scope(ObservationContext { probe: selected, producer: std::cell::Cell::new(0) }, async move {\n",
+            "        let result = future.await;\n",
+            "        let producer = OBSERVATION.with(|context| context.producer.get());\n",
+            "        (result, producer)\n",
+            "    }).await\n",
+            "}\n",
+            "\n",
+            "// Called only on actual TransportClosed-producing branches. No new task/RPC.\n",
+            "pub(in super::super) fn producer(code: u8) {\n",
+            "    let _ = OBSERVATION.try_with(|context| {\n",
+            "        if context.probe.upgrade().is_some() {\n",
+            "            let old = context.producer.get();\n",
+            "            if old == 0 || old == code { context.producer.set(code); }\n",
+            "            else { context.producer.set(255); LOST.store(true, Ordering::Release); }\n",
+            "        }\n",
+            "    });\n",
+            "}\n",
+            "\n",
+            "pub(in super::super) fn receive_before_reopen(client: &crate::AppClient, error: &crate::AppError) {\n",
+            "    let Some(scope) = client.native_settlement_scope_for_terminal_diagnostic() else { return; };\n",
+            "    let Some(registry) = PROBES.get() else { return; };\n",
+            "    let Ok(entries) = registry.try_lock() else { LOST.store(true, Ordering::Release); return; };\n",
+            "    for entry in entries.iter() {\n",
+            "        if let Some(probe) = entry.upgrade() && &probe.original_scope == scope\n",
+            "            && probe.owner.upgrade().is_some_and(|owner| !owner.closed.load(Ordering::Acquire))\n",
+            "        {\n",
+            "            if let Ok(mut slot) = probe.receive_before_reopen.try_lock() {\n",
+            "                if slot.is_none() && let Some(ordinal) = probe.next_ordinal() {\n",
+            "                    *slot = Some(([storage_shape(error), receive_kind(error)], ordinal));\n",
+            "                }\n",
+            "            } else { LOST.store(true, Ordering::Release); }\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+            "\n",
+            "fn storage_shape(error: &crate::AppError) -> u8 {\n",
+            "    use crate::AppError;\n",
+            "    use cgka_session::SessionError;\n",
+            "    use cgka_traits::error::EngineError;\n",
+            "    use marmot_account::AccountError;\n",
+            "    match error {\n",
+            "        AppError::Storage(_) => 1,\n",
+            "        AppError::Session(SessionError::Storage(_)) => 2,\n",
+            "        AppError::Session(SessionError::Engine(EngineError::Storage(_))) => 3,\n",
+            "        AppError::Account(AccountError::Engine(EngineError::Storage(_))) => 4,\n",
+            "        AppError::Account(AccountError::Session(SessionError::Storage(_))) => 5,\n",
+            "        AppError::Account(AccountError::Session(SessionError::Engine(EngineError::Storage(_)))) => 6,\n",
+            "        AppError::Session(SessionError::Engine(_)) => 7,\n",
+            "        AppError::Account(AccountError::Engine(_)) => 8,\n",
+            "        AppError::Account(AccountError::Session(SessionError::Engine(_))) => 9,\n",
+            "        AppError::Sqlite(_) => 10,\n",
+            "        _ => 0,\n",
+            "    }\n",
+            "}\n",
+            "fn receive_kind(error: &crate::AppError) -> u8 {\n",
+            "    match error.privacy_safe_kind() {\n",
+            "        \"transport_closed\" => 1,\n",
+            "        \"account_worker_response_timed_out\" => 2,\n",
+            "        \"runtime_stopping\" => 3,\n",
+            "        \"runtime_busy\" => 4,\n",
+            "        \"account_worker_busy\" => 5,\n",
+            "        \"account_session_busy\" => 6,\n",
+            "        \"relay_directory\" => 7,\n",
+            "        \"onboarding_required\" => 8,\n",
+            "        \"account_setup_recovery_required\" => 9,\n",
+            "        \"storage_busy\" => 10,\n",
+            "        \"storage_closed\" => 11,\n",
+            "        \"storage_backend\" => 12,\n",
+            "        \"storage_serialization\" => 13,\n",
+            "        \"storage_capacity\" => 14,\n",
+            "        \"storage_corruption\" => 15,\n",
+            "        \"storage_not_found\" => 16,\n",
+            "        \"storage_already_exists\" => 17,\n",
+            "        \"storage_unsupported_schema_version\" => 18,\n",
+            "        \"sqlite\" => 19,\n",
+            "        \"io\" => 20,\n",
+            "        \"account_home_secret_not_found\" => 21,\n",
+            "        \"account_home_unknown_account\" => 22,\n",
+            "        \"unknown_group\" => 23,\n",
+            "        \"group_not_hydrated\" => 24,\n",
+            "        \"unknown_pending\" => 25,\n",
+            "        \"not_a_member\" => 26,\n",
+            "        \"not_group_admin\" => 27,\n",
+            "        \"unknown_member\" => 28,\n",
+            "        \"invalid_credential_identity\" => 29,\n",
+            "        \"admin_cannot_self_remove\" => 30,\n",
+            "        \"leave_already_requested\" => 31,\n",
+            "        \"admin_depletion\" => 32,\n",
+            "        \"missing_required_capabilities\" => 33,\n",
+            "        \"disbanding_unsupported_members\" => 34,\n",
+            "        \"disbanding_not_enabled\" => 35,\n",
+            "        \"unsupported_ciphersuite\" => 36,\n",
+            "        \"invalid_app_message_payload\" => 37,\n",
+            "        \"invalid_account_identity_proof\" => 38,\n",
+            "        \"invalid_key_package_lifetime\" => 39,\n",
+            "        \"invalid_key_package_capabilities\" => 40,\n",
+            "        \"app_message_epoch_mismatch\" => 41,\n",
+            "        \"app_message_epoch_unsettled\" => 42,\n",
+            "        \"forked_epoch\" => 43,\n",
+            "        \"queued_outbound_at_capacity\" => 44,\n",
+            "        \"group_unrecoverable_repair_required\" => 45,\n",
+            "        \"invalid_transition\" => 46,\n",
+            "        \"storage\" => 47,\n",
+            "        \"peeler\" => 48,\n",
+            "        \"serialize\" => 49,\n",
+            "        \"invalid_welcome\" => 50,\n",
+            "        \"linking_welcome_denied\" => 51,\n",
+            "        \"selected_chat_welcome_denied\" => 52,\n",
+            "        \"missing_welcome_key_package\" => 53,\n",
+            "        \"welcome_already_processed\" => 54,\n",
+            "        \"private_enrollment_intake_at_capacity\" => 55,\n",
+            "        \"backend\" => 56,\n",
+            "        \"other\" => 57,\n",
+            "        \"transport\" => 58,\n",
+            "        \"account_transport\" => 59,\n",
+            "        \"account_transport_routing\" => 60,\n",
+            "        \"account_key_package\" => 61,\n",
+            "        \"account_clock_skew_blocked\" => 62,\n",
+            "        \"account_key_package_rotation_in_progress\" => 63,\n",
+            "        \"account_public_key_package_publication_disabled\" => 64,\n",
+            "        \"account_wrong_delivery\" => 65,\n",
+            "        \"account_unknown\" => 66,\n",
+            "        \"storage_record_denied_by_departure\" => 67,\n",
+            "        \"storage_snapshot_missing\" => 68,\n",
+            "        \"storage_timeline_cursor_expired\" => 69,\n",
+            "        _ => 0, // Unclassified STATIC privacy kind: UNKNOWN, no payload printed.\n",
+            "    }\n",
+            "}\n"
+          ]
+        }
+      ]
+    },
+    "crates/marmot-app/src/native_device_linking/enabled.rs": {
+      "draft": "crates__marmot-app__src__native_device_linking__enabled.rs",
+      "baseline_sha256": "a1346c0e15ecfcb39899ffefe1c580b29fa4d5a570983274967c6258d9513975",
+      "draft_sha256": "122fb644258bdeec275b50e6afb4d0adf48472116f53fbafaf7bb5cc73a63507",
+      "reverse_edits": [
+        {
+          "before_start": 122,
+          "before_end": 127,
+          "after_start": 122,
+          "after_end": 130,
+          "before": [
+            "        match self\n",
+            "            .manager\n",
+            "            .linking_native_observation(&self.account, &self.scope)\n",
+            "            .await\n",
+            "        {\n"
+          ],
+          "after": [
+            "        let observation = self.manager.linking_native_observation(&self.account, &self.scope);\n",
+            "        // OWNER_FIVE_PRODUCER_TEST_BEGIN\n",
+            "        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n",
+            "        let (observation, producer) = terminal_diagnostic::observation(self, observation).await;\n",
+            "        #[cfg(not(all(test, feature = \"test-policy-overrides\")))]\n",
+            "        let observation = observation.await;\n",
+            "        // OWNER_FIVE_PRODUCER_TEST_END\n",
+            "        match observation {\n"
+          ]
+        },
+        {
+          "before_start": 147,
+          "before_end": 148,
+          "after_start": 150,
+          "after_end": 151,
+          "before": [
+            "                terminal_diagnostic::refresh_error(self, &error);\n"
+          ],
+          "after": [
+            "                terminal_diagnostic::refresh_error(self, &error, producer);\n"
+          ]
+        }
+      ]
+    },
+    "crates/marmot-app/src/native_device_linking.rs": {
+      "draft": "crates__marmot-app__src__native_device_linking.rs",
+      "baseline_sha256": "3553c4299718d836a19a0f27eea77b1502f749b3df9aa0e2c3747b7408512941",
+      "draft_sha256": "3598af72e661b61fea4ef5027635b85cf183ff0b46fcb50aff12f943dabad2e8",
+      "reverse_edits": [
+        {
+          "before_start": 290,
+          "before_end": 290,
+          "after_start": 290,
+          "after_end": 301,
+          "before": [],
+          "after": [
+            "\n",
+            "// OWNER_FIVE_PRODUCER_TEST_BEGIN\n",
+            "#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n",
+            "pub(crate) fn record_observation_transport_closed_producer_for_test(code: u8) {\n",
+            "    enabled::terminal_diagnostic::producer(code);\n",
+            "}\n",
+            "#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n",
+            "pub(crate) fn record_receive_before_reopen_for_test(client: &crate::AppClient, error: &crate::AppError) {\n",
+            "    enabled::terminal_diagnostic::receive_before_reopen(client, error);\n",
+            "}\n",
+            "// OWNER_FIVE_PRODUCER_TEST_END\n"
+          ]
+        }
+      ]
+    },
+    "crates/marmot-app/src/client/device_linking.rs": {
+      "draft": "crates__marmot-app__src__client__device_linking.rs",
+      "baseline_sha256": "96ed934115d5b798223177e8e415be7d6115c14198507d2cc458f3efebe2f636",
+      "draft_sha256": "d219c40053c72fb80783078e9214d4545bd5f94368c2df7d0cc5847bc9a7cfdf",
+      "reverse_edits": [
+        {
+          "before_start": 1640,
+          "before_end": 1640,
+          "after_start": 1640,
+          "after_end": 1649,
+          "before": [],
+          "after": [
+            "\n",
+            "// OWNER_FIVE_PRODUCER_TEST_BEGIN\n",
+            "#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n",
+            "impl AppClient {\n",
+            "    pub(crate) fn native_settlement_scope_for_terminal_diagnostic(&self) -> Option<&PurposeAttemptScope> {\n",
+            "        self.linking_owner.settlement_attempt.as_ref().map(|attempt| attempt.guard.scope())\n",
+            "    }\n",
+            "}\n",
+            "// OWNER_FIVE_PRODUCER_TEST_END\n"
+          ]
+        }
+      ]
+    },
+    "crates/marmot-app/src/runtime/device_linking.rs": {
+      "draft": "crates__marmot-app__src__runtime__device_linking.rs",
+      "baseline_sha256": "b28725df34c3fa7d9bd549576eabdafea7a72d37713a73285dc4fa2ae2152bd4",
+      "draft_sha256": "a3a8c3baeae89587542a3cacec4d7bae9584a7ba4dc88051f93da25bf7cf21db",
+      "reverse_edits": [
+        {
+          "before_start": 536,
+          "before_end": 538,
+          "after_start": 536,
+          "after_end": 552,
+          "before": [
+            "        Ok(Ok(result)) => result,\n",
+            "        Ok(Err(_)) => Err(runtime_error(AppError::TransportClosed)),\n"
+          ],
+          "after": [
+            "        Ok(Ok(result)) => {\n",
+            "            // OWNER_FIVE_PRODUCER_TEST_BEGIN\n",
+            "            #[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n",
+            "            if matches!(&result, Err(ClientLinkingError::Runtime(error)) if matches!(error.as_ref(), AppError::TransportClosed)) {\n",
+            "                crate::native_device_linking::record_observation_transport_closed_producer_for_test(4);\n",
+            "            }\n",
+            "            // OWNER_FIVE_PRODUCER_TEST_END\n",
+            "            result\n",
+            "        },\n",
+            "        Ok(Err(_)) => {\n",
+            "            // OWNER_FIVE_PRODUCER_TEST_BEGIN\n",
+            "            #[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n",
+            "            crate::native_device_linking::record_observation_transport_closed_producer_for_test(3);\n",
+            "            // OWNER_FIVE_PRODUCER_TEST_END\n",
+            "            Err(runtime_error(AppError::TransportClosed))\n",
+            "        },\n"
+          ]
+        },
+        {
+          "before_start": 570,
+          "before_end": 571,
+          "after_start": 584,
+          "after_end": 593,
+          "before": [
+            "            .map_err(runtime_error)?;\n"
+          ],
+          "after": [
+            "            .map_err(|error| {\n",
+            "                // OWNER_FIVE_PRODUCER_TEST_BEGIN\n",
+            "                #[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n",
+            "                if matches!(&error, AppError::TransportClosed) {\n",
+            "                    crate::native_device_linking::record_observation_transport_closed_producer_for_test(1);\n",
+            "                }\n",
+            "                // OWNER_FIVE_PRODUCER_TEST_END\n",
+            "                runtime_error(error)\n",
+            "            })?;\n"
+          ]
+        },
+        {
+          "before_start": 577,
+          "before_end": 578,
+          "after_start": 599,
+          "after_end": 606,
+          "before": [
+            "            .map_err(|_| runtime_error(AppError::TransportClosed))?;\n"
+          ],
+          "after": [
+            "            .map_err(|_| {\n",
+            "                // OWNER_FIVE_PRODUCER_TEST_BEGIN\n",
+            "                #[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n",
+            "                crate::native_device_linking::record_observation_transport_closed_producer_for_test(2);\n",
+            "                // OWNER_FIVE_PRODUCER_TEST_END\n",
+            "                runtime_error(AppError::TransportClosed)\n",
+            "            })?;\n"
+          ]
+        }
+      ]
+    },
+    "crates/marmot-app/src/runtime/account_worker.rs": {
+      "draft": "crates__marmot-app__src__runtime__account_worker.rs",
+      "baseline_sha256": "e47956684f59bac13e48db7618e65cede5baafdb43db446449523d0ede4cc422",
+      "draft_sha256": "76025f620017a256326f2fdb236c8cb3b821e49aa0d962541fd531c2fc3a7943",
+      "reverse_edits": [
+        {
+          "before_start": 2693,
+          "before_end": 2693,
+          "after_start": 2693,
+          "after_end": 2697,
+          "before": [],
+          "after": [
+            "                        // OWNER_FIVE_PRODUCER_TEST_BEGIN\n",
+            "                        #[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n",
+            "                        crate::native_device_linking::record_receive_before_reopen_for_test(&client, &err);\n",
+            "                        // OWNER_FIVE_PRODUCER_TEST_END\n"
+          ]
+        }
+      ]
+    },
+    "crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs": {
+      "draft": "crates__marmot-app__src__native_device_linking__tests__sequential_installations_acceptance.rs",
+      "baseline_sha256": "5b53c21843dfbe8712bdfb5298ba586505adc543c3ae55348adbdbafaa6a4c0a",
+      "draft_sha256": "9aed56003238460841d44cd84a966e5efd85312d9d01c1e6d00c266aa5f36c30",
+      "reverse_edits": [
+        {
+          "before_start": 251,
+          "before_end": 251,
+          "after_start": 251,
+          "after_end": 254,
+          "before": [],
+          "after": [
+            "                    let (producer_known, first_error_producer, receive_before_reopen, terminal_ordinal) = probe.producer_snapshot();\n",
+            "                    eprintln!(\"owner-five-producer side={} known={} first_error={:?} receive={:?} terminal_ordinal={:?}\",\n",
+            "                        side, producer_known, first_error_producer, receive_before_reopen, terminal_ordinal);\n"
+          ]
+        }
+      ]
+    }
+  },
+  "receive_kind_codes": {
+    "1": "transport_closed",
+    "2": "account_worker_response_timed_out",
+    "3": "runtime_stopping",
+    "4": "runtime_busy",
+    "5": "account_worker_busy",
+    "6": "account_session_busy",
+    "7": "relay_directory",
+    "8": "onboarding_required",
+    "9": "account_setup_recovery_required",
+    "10": "storage_busy",
+    "11": "storage_closed",
+    "12": "storage_backend",
+    "13": "storage_serialization",
+    "14": "storage_capacity",
+    "15": "storage_corruption",
+    "16": "storage_not_found",
+    "17": "storage_already_exists",
+    "18": "storage_unsupported_schema_version",
+    "19": "sqlite",
+    "20": "io",
+    "21": "account_home_secret_not_found",
+    "22": "account_home_unknown_account",
+    "23": "unknown_group",
+    "24": "group_not_hydrated",
+    "25": "unknown_pending",
+    "26": "not_a_member",
+    "27": "not_group_admin",
+    "28": "unknown_member",
+    "29": "invalid_credential_identity",
+    "30": "admin_cannot_self_remove",
+    "31": "leave_already_requested",
+    "32": "admin_depletion",
+    "33": "missing_required_capabilities",
+    "34": "disbanding_unsupported_members",
+    "35": "disbanding_not_enabled",
+    "36": "unsupported_ciphersuite",
+    "37": "invalid_app_message_payload",
+    "38": "invalid_account_identity_proof",
+    "39": "invalid_key_package_lifetime",
+    "40": "invalid_key_package_capabilities",
+    "41": "app_message_epoch_mismatch",
+    "42": "app_message_epoch_unsettled",
+    "43": "forked_epoch",
+    "44": "queued_outbound_at_capacity",
+    "45": "group_unrecoverable_repair_required",
+    "46": "invalid_transition",
+    "47": "storage",
+    "48": "peeler",
+    "49": "serialize",
+    "50": "invalid_welcome",
+    "51": "linking_welcome_denied",
+    "52": "selected_chat_welcome_denied",
+    "53": "missing_welcome_key_package",
+    "54": "welcome_already_processed",
+    "55": "private_enrollment_intake_at_capacity",
+    "56": "backend",
+    "57": "other",
+    "58": "transport",
+    "59": "account_transport",
+    "60": "account_transport_routing",
+    "61": "account_key_package",
+    "62": "account_clock_skew_blocked",
+    "63": "account_key_package_rotation_in_progress",
+    "64": "account_public_key_package_publication_disabled",
+    "65": "account_wrong_delivery",
+    "66": "account_unknown",
+    "67": "storage_record_denied_by_departure",
+    "68": "storage_snapshot_missing",
+    "69": "storage_timeline_cursor_expired"
+  },
+  "runtime_behavior_changed": false,
+  "draft_not_executed": true,
+  "workflow": {
+    "path": ".github/workflows/experimental-sync-ci.yml",
+    "before_literal": "OWNER_FIVE_DIAGNOSTIC_BASELINE: c75d41ce5070f4d99d12e8c933cdc67733eb4aa6",
+    "after_literal": "OWNER_FIVE_DIAGNOSTIC_BASELINE: 4921a48afed8d96b7cbc6cbba2e2bf608af93dcc",
+    "literal_count": 2,
+    "baseline_sha256": "5684ac974b6020908a25887e9c67c041148b14a70a0f93e742fb0fea0bc43688",
+    "draft_sha256": "dfb9a23521debb1e0c71a8191ce5117e4f31f623f595888578a5e9c1af98beee"
+  }
+}

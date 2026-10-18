@@ -249,6 +249,9 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
             if let Some((source_probe, recipient_probe)) = terminal_probes {
                 for (side, probe, session) in [("source", source_probe, &source), ("recipient", recipient_probe, &recipient)] {
                     let (known, error, transition) = probe.snapshot();
+                    let (producer_known, first_error_producer, receive_before_reopen, terminal_ordinal) = probe.producer_snapshot();
+                    eprintln!("owner-five-producer side={} known={} first_error={:?} receive={:?} terminal_ordinal={:?}",
+                        side, producer_known, first_error_producer, receive_before_reopen, terminal_ordinal);
                     eprintln!("owner-five-terminal side={} known={} pre_arm_unknown=true attempted_error={:?} accepted_terminal={:?} progress={:?}",
                         side, known, error, transition, session.enrollment_progress_for_test());
                 }

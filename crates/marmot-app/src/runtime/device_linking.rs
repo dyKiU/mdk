@@ -534,8 +534,22 @@ async fn response<T>(
     receiver: oneshot::Receiver<Result<T, ClientLinkingError>>,
 ) -> Result<T, ClientLinkingError> {
     match tokio::time::timeout(super::APP_RUNTIME_WORKER_RESPONSE_WAIT, receiver).await {
-        Ok(Ok(result)) => result,
-        Ok(Err(_)) => Err(runtime_error(AppError::TransportClosed)),
+        Ok(Ok(result)) => {
+            // OWNER_FIVE_PRODUCER_TEST_BEGIN
+            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            if matches!(&result, Err(ClientLinkingError::Runtime(error)) if matches!(error.as_ref(), AppError::TransportClosed)) {
+                crate::native_device_linking::record_observation_transport_closed_producer_for_test(4);
+            }
+            // OWNER_FIVE_PRODUCER_TEST_END
+            result
+        },
+        Ok(Err(_)) => {
+            // OWNER_FIVE_PRODUCER_TEST_BEGIN
+            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            crate::native_device_linking::record_observation_transport_closed_producer_for_test(3);
+            // OWNER_FIVE_PRODUCER_TEST_END
+            Err(runtime_error(AppError::TransportClosed))
+        },
         Err(_) => Err(runtime_error(AppError::AccountWorkerResponseTimedOut)),
     }
 }
@@ -568,14 +582,28 @@ impl AccountManager {
         let commands = self
             .worker_commands(account_ref)
             .await
-            .map_err(runtime_error)?;
+            .map_err(|error| {
+                // OWNER_FIVE_PRODUCER_TEST_BEGIN
+                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                if matches!(&error, AppError::TransportClosed) {
+                    crate::native_device_linking::record_observation_transport_closed_producer_for_test(1);
+                }
+                // OWNER_FIVE_PRODUCER_TEST_END
+                runtime_error(error)
+            })?;
         let (respond, receiver) = oneshot::channel();
         commands
             .send(AccountWorkerCommand::DeviceLinkingVerifier(Box::new(make(
                 respond,
             ))))
             .await
-            .map_err(|_| runtime_error(AppError::TransportClosed))?;
+            .map_err(|_| {
+                // OWNER_FIVE_PRODUCER_TEST_BEGIN
+                #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                crate::native_device_linking::record_observation_transport_closed_producer_for_test(2);
+                // OWNER_FIVE_PRODUCER_TEST_END
+                runtime_error(AppError::TransportClosed)
+            })?;
         response(receiver).await
     }
     pub(crate) async fn publish_private_device_invite_commit(

@@ -120,11 +120,14 @@ impl SessionState {
                 .expect("native observation lock")
                 .clone());
         }
-        match self
-            .manager
-            .linking_native_observation(&self.account, &self.scope)
-            .await
-        {
+        let observation = self.manager.linking_native_observation(&self.account, &self.scope);
+        // OWNER_FIVE_PRODUCER_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let (observation, producer) = terminal_diagnostic::observation(self, observation).await;
+        #[cfg(not(all(test, feature = "test-policy-overrides")))]
+        let observation = observation.await;
+        // OWNER_FIVE_PRODUCER_TEST_END
+        match observation {
             Ok((phase, decimals)) => Ok(self.update(phase, decimals)),
             Err(ClientLinkingError::Runtime(error))
                 if matches!(
@@ -145,7 +148,7 @@ impl SessionState {
             Err(error) => {
                 // OWNER_FIVE_TERMINAL_TEST_BEGIN
                 #[cfg(all(test, feature = "test-policy-overrides"))]
-                terminal_diagnostic::refresh_error(self, &error);
+                terminal_diagnostic::refresh_error(self, &error, producer);
                 // OWNER_FIVE_TERMINAL_TEST_END
                 let phase = match &error {
                     ClientLinkingError::Owner(OwnerError::Verifier(LinkError::Expired)) => {

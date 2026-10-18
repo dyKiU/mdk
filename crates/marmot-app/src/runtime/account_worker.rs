@@ -2691,6 +2691,10 @@ async fn run_app_runtime_account_worker(
                         // this leaves room for a one-shot client during a
                         // prolonged transport outage.
                         let transport_account = client.adapter.account_id().clone();
+                        // OWNER_FIVE_PRODUCER_TEST_BEGIN
+                        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+                        crate::native_device_linking::record_receive_before_reopen_for_test(&client, &err);
+                        // OWNER_FIVE_PRODUCER_TEST_END
                         drop(client);
                         client = loop {
                             let reconnect_wait = shared.app_performance_telemetry().observe(RuntimeOp::WorkerReconnectWait);
