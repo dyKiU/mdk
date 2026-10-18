@@ -31,14 +31,14 @@ def timing(raw,name):
     lines=[s for s in raw.splitlines() if s.startswith('native5-consent-')]
     if not lines:
         return {'observed':False,'known':False,'loss_mask':None,'snapshot_available':False,
-            'exact_prefix_normalizations':prefix,'wait':None,'slots':None,'proofs':None,'channel_progress':None,'rpc':None,
+            'exact_prefix_normalizations':prefix,'wait':None,'slots':None,'proofs':None,'channel_progress':None,'rpc':None,'terminal_validation_cost':None,
             'exact_deadline_known':False,'diagnostic_only':True,'physical_SDK_entry_observed':False,
             'missing_is_not_zero':True,'all_milestones_observed':False,'missing_reason':'NoOwnedProbeReport'}
-    require(len(lines)<=140 and all(len(s)<4096 for s in lines),'bounded-lines')
+    require(len(lines)<=141 and all(len(s)<4096 for s in lines),'bounded-lines')
     h=re.fullmatch(r'native5-consent-timing known=(true|false) loss_mask=('+N+r') snapshot_available=(true|false)',lines[0]);require(h is not None,'closed-header')
     known=h[1]=='true';loss=number(h[2],127);available=h[3]=='true'
     require(known==(loss==0) and (available or not known),'loss-unknown-semantics')
-    result={'observed':True,'known':known,'loss_mask':loss,'snapshot_available':available,'exact_prefix_normalizations':prefix,'wait':None,'slots':None,'proofs':None,'channel_progress':None,'rpc':None,'exact_deadline_known':False,'diagnostic_only':True,'physical_SDK_entry_observed':False,'missing_is_not_zero':True,'all_milestones_observed':False}
+    result={'observed':True,'known':known,'loss_mask':loss,'snapshot_available':available,'exact_prefix_normalizations':prefix,'wait':None,'slots':None,'proofs':None,'channel_progress':None,'rpc':None,'terminal_validation_cost':None,'exact_deadline_known':False,'diagnostic_only':True,'physical_SDK_entry_observed':False,'missing_is_not_zero':True,'all_milestones_observed':False}
     if not available:require(len(lines)==1,'no-invented-unavailable-rows');return result
     require(len(lines)>=12,'three-channel-phase-slots-and-rpc-count')
     w=re.fullmatch(r'native5-consent-wait constructed_before_us=('+ON+r') constructed_after_us=('+ON+r') deadline_lower_us=('+ON+r') deadline_upper_us=('+ON+r') outcome_ok=('+OB+r') observed_us=('+ON+r') exact_deadline_known=false',lines[1]);require(w is not None,'closed-wait')
@@ -101,10 +101,10 @@ def timing(raw,name):
             'subsequent_observation_counts':dict(zip(CHANNEL_PROGRESS,repeats)),
             'missing_peer_or_complete_is_unknown':True})
     result['channel_progress']=progress
-    c=re.fullmatch(r'native5-consent-rpc-count count=('+N+r')',lines[11]);require(c is not None,'closed-rpc-count');count=number(c[1],128);require(len(lines)==12+count,'all-rpc-rows-exact')
+    c=re.fullmatch(r'native5-consent-rpc-count count=('+N+r')',lines[11]);require(c is not None,'closed-rpc-count');count=number(c[1],128);require(len(lines)==13+count,'all-rpc-rows-and-terminal-cost-exact')
     pattern=r'native5-consent-rpc index=('+N+r') times=\['+', '.join(['('+ON+')']*5)+r'\] results=\['+', '.join(['('+ON+')']*2)+r'\] sent=('+OB+r')'
     result['rpc']=[]
-    for i,line in enumerate(lines[12:]):
+    for i,line in enumerate(lines[12:-1]):
         m=re.fullmatch(pattern,line);require(m is not None and number(m[1],127)==i,'unique-ordered-rpc-index')
         times=[opt(m[j]) for j in range(2,7)];categories=[opt(m[j],10) for j in (7,8)]
         if known:
@@ -113,6 +113,18 @@ def timing(raw,name):
             require(categories[1] is None or categories[1]>=9 or times[2] is not None,'successful-facade-has-worker-return')
         # Reply-send and facade can race after worker return: no invented total ordering.
         result['rpc'].append({'operation_ordinal':i,'stage_us':dict(zip(RPC_STAGES,times)),'deadline_relation':dict(zip(RPC_STAGES,[relation(t,lo,hi) for t in times])),'worker_result':None if categories[0] is None else RPC_RESULTS[categories[0]],'facade_result':None if categories[1] is None else RPC_RESULTS[categories[1]],'reply_send_accepted':boolean(m[9])})
+    terminal_pattern=r'native5-consent-terminal-cost observation=\(\['+', '.join(['('+N+')']*8)+r'\], ('+N+r'), \['+', '.join(['('+ON+')']*2)+r'\]\)'
+    terminal=re.fullmatch(terminal_pattern,lines[-1]);require(terminal is not None,'closed-terminal-cost')
+    values=[number(terminal[j]) for j in range(1,9)];inflight=number(terminal[9],1000000);first,last=[opt(terminal[j]) for j in (10,11)]
+    started,completed,errors,total,maximum,before_count,before_total,before_max=values
+    require(started<=1000000 and completed<=started and errors<=completed and before_count<=completed,'terminal-count-order')
+    require(started==completed+inflight and maximum<=total and before_total<=total and before_max<=maximum and before_max<=before_total,'terminal-cost-order')
+    require((started>0)==(first is not None) and (completed>0)==(last is not None),'terminal-observed-bounds')
+    require(first is None or after is not None and first>=after,'terminal-started-in-fourth-wait')
+    require(last is None or first is not None and last>=first,'terminal-monotonic-bounds')
+    require(completed>0 or total==maximum==errors==before_count==before_total==before_max==0,'terminal-empty-completions')
+    require(before_count>0 or before_total==before_max==0,'terminal-empty-deadline-subset')
+    result['terminal_validation_cost']={'known':known,'scope':'all-actors-terminal-no-publication-periodic-calls-started-during-fourth-wait','started':started,'completed':completed,'errors':errors,'in_flight_at_freeze':inflight,'completed_wall_total_us':total,'completed_wall_max_us':maximum,'first_start_us':first,'last_completion_us':last,'definitely_inside_deadline_completed_count':before_count,'definitely_inside_deadline_wall_total_us':before_total,'definitely_inside_deadline_wall_max_us':before_max,'wall_includes_preemption':True,'CPU_time_known':False,'inflight_duration_unknown':inflight>0,'overlapping_totals_are_not_exclusive_time':True}
     result['all_milestones_observed']=known and all(row is not None and all(t is not None for t in row['milestone_us'].values()) for row in rows)
     return result
 
@@ -123,7 +135,7 @@ def parser_controls():
     rpc='native5-consent-rpc index=0 times=[Some(0), Some(1), Some(2), Some(4), Some(3)] results=[Some(4), Some(4)] sent=Some(true)'
     proof='native5-consent-proof index=0 observation=None'
     progress='native5-consent-progress index=0 observation=Some(([None, None, None, None, None], [0, 0, 0, 0, 0]))'
-    sample='\n'.join([header,wait,slot,slot.replace('index=0','index=1'),slot.replace('index=0','index=2'),proof,proof.replace('index=0','index=1'),proof.replace('index=0','index=2'),progress,progress.replace('index=0','index=1'),progress.replace('index=0','index=2'),'native5-consent-rpc-count count=1',rpc])
+    sample='\n'.join([header,wait,slot,slot.replace('index=0','index=1'),slot.replace('index=0','index=2'),proof,proof.replace('index=0','index=1'),proof.replace('index=0','index=2'),progress,progress.replace('index=0','index=1'),progress.replace('index=0','index=2'),'native5-consent-rpc-count count=1',rpc,'native5-consent-terminal-cost observation=([0, 0, 0, 0, 0, 0, 0, 0], 0, [None, None])'])
     unavailable='native5-consent-timing known=false loss_mask=1 snapshot_available=false'
     positives=['', 'unrelated runtime output is discarded',sample,unavailable,sample.replace('known=true loss_mask=0','known=false loss_mask=2'),sample.replace(slot,'native5-consent-slot index=0 observation=None').replace(progress,'native5-consent-progress index=0 observation=None'),'test '+name+' ... '+sample,sample.replace('results=[Some(4), Some(4)]','results=[Some(9), Some(10)]')]
     for s in positives:timing(s,name)
@@ -153,5 +165,13 @@ def parser_controls():
         try:timing(value,name)
         except ValueError:continue
         raise ValueError('adversarial-proof-progress-shape-accepted')
-    return {'positive':len(positives)+3,'negative':len(bad)+len(extra_bad),'actual_runtime_bodies':0}
+    empty='native5-consent-terminal-cost observation=([0, 0, 0, 0, 0, 0, 0, 0], 0, [None, None])'
+    cost='native5-consent-terminal-cost observation=([2, 1, 1, 4, 4, 1, 4, 4], 1, [Some(3), Some(7)])'
+    timing(sample.replace(empty,cost),name)
+    terminal_bad=[sample.replace(empty,cost.replace('[2, 1, 1','[1, 1, 1')),sample.replace(empty,cost.replace('Some(3)','Some(2)')),sample.replace(empty,cost.replace('[2, 1, 1','[2, 1, 2')),sample.replace(empty,cost.replace('4, 4], 1','4, 5], 1')),sample.replace(empty,cost.replace('Some(7)','Some(secret)')),sample+'\n'+empty,sample.replace(empty,cost.replace('[2, 1, 1','[true, 1, 1'))]
+    for value in terminal_bad:
+        try:timing(value,name)
+        except ValueError:continue
+        raise ValueError('adversarial-terminal-cost-accepted')
+    return {'positive':len(positives)+4,'negative':len(bad)+len(extra_bad)+len(terminal_bad),'actual_runtime_bodies':0}
 

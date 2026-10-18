@@ -2441,7 +2441,18 @@ impl AppClient {
             return Ok(());
         }
         if entry.peer_committed {
-            self.validate_sibling_publication(entry)?;
+            // NATIVE5_TERMINAL_COST_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            let terminal_cost = peer_proof_probe::native5_timing::terminal_validation(
+                entry, mode == SiblingAdvanceMode::Periodic,
+            );
+            // NATIVE5_TERMINAL_COST_END
+            let validation = self.validate_sibling_publication(entry);
+            // NATIVE5_TERMINAL_COST_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(cost) = terminal_cost { cost.finish(validation.is_err()); }
+            // NATIVE5_TERMINAL_COST_END
+            validation?;
             Self::complete_sibling_sharing(entry);
         }
         Ok(())
@@ -2728,7 +2739,9 @@ impl AppClient {
 
         // NATIVE5_SPAWN_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(token) = &native5_timing { token.spawn_boundary(0); }
+        if let Some(token) = &native5_timing {
+            token.spawn_boundary(0);
+        }
         // NATIVE5_SPAWN_TIMING_END
         // PEER_NEGATIVE_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -2743,12 +2756,16 @@ impl AppClient {
 
         // NATIVE5_SPAWN_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(token) = &native5_timing { token.spawn_boundary(1); }
+        if let Some(token) = &native5_timing {
+            token.spawn_boundary(1);
+        }
         // NATIVE5_SPAWN_TIMING_END
         let consent = entry.recipient && !proof;
         // NATIVE5_SPAWN_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(token) = &native5_timing { token.spawn_boundary(2); }
+        if let Some(token) = &native5_timing {
+            token.spawn_boundary(2);
+        }
         // NATIVE5_SPAWN_TIMING_END
 
         #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -2760,10 +2777,11 @@ impl AppClient {
                 .expect("sibling publication") = Some(request.message.id.clone());
         }
 
-
         // NATIVE5_SPAWN_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(token) = &native5_timing { token.spawn_boundary(3); }
+        if let Some(token) = &native5_timing {
+            token.spawn_boundary(3);
+        }
         // NATIVE5_SPAWN_TIMING_END
         // COMPLETION_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -2782,7 +2800,9 @@ impl AppClient {
 
         // NATIVE5_SPAWN_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(token) = &native5_timing { token.spawn_boundary(4); }
+        if let Some(token) = &native5_timing {
+            token.spawn_boundary(4);
+        }
         // NATIVE5_SPAWN_TIMING_END
         let task = tokio::spawn(async move {
             // NATIVE5_TIMING_BEGIN
@@ -2909,7 +2929,9 @@ impl AppClient {
 
         // NATIVE5_SPAWN_TIMING_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
-        if let Some(token) = &native5_timing { token.spawn_boundary(5); }
+        if let Some(token) = &native5_timing {
+            token.spawn_boundary(5);
+        }
         // NATIVE5_SPAWN_TIMING_END
         entry.publication = Some(SiblingPublication {
             proof,
