@@ -1,0 +1,101 @@
+name: Target account isolation
+on:
+  push:
+    branches: [ci/upstream-account-isolation-20261018]
+  workflow_dispatch:
+    inputs:
+      scope:
+        type: choice
+        options: [preflight, runtime]
+        default: preflight
+      cohort:
+        type: choice
+        options: [default, experimental]
+        default: default
+      expected:
+        type: choice
+        options: [red, green]
+        default: red
+permissions:
+  contents: read
+concurrency:
+  group: account-isolation-${{ github.ref }}-${{ inputs.cohort || 'preflight' }}
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/ci/upstream-account-isolation-20261018' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UPSTREAM_ACCOUNT_ISOLATION_BASELINE: ebc97baf97d54e1162c6271e0862beb680febae0
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Whole source and closed parser controls; zero bodies
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: python3 scripts/qualify_upstream_account_isolation.py --preflight
+      - name: Hosted formatting; exact patch on failure
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup run "$toolchain" cargo fmt --all
+          git diff --binary > "$RUNNER_TEMP/account-isolation-format.patch"
+          git diff --exit-code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: account-isolation-preflight
+          path: |
+            account-isolation-evidence/result.json
+            ${{ runner.temp }}/account-isolation-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  runtime:
+    needs: preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'runtime' && github.ref == 'refs/heads/ci/upstream-account-isolation-20261018'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      UPSTREAM_ACCOUNT_ISOLATION_BASELINE: ebc97baf97d54e1162c6271e0862beb680febae0
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: experimental-sync-tests
+          cache-on-failure: true
+      - name: One real exact account ownership case; no retries
+        env:
+          CARGO_INCREMENTAL: '1'
+          CASE_COHORT: ${{ inputs.cohort }}
+          CASE_EXPECTED: ${{ inputs.expected }}
+        run: python3 scripts/qualify_upstream_account_isolation.py --cohort "$CASE_COHORT" --expected "$CASE_EXPECTED"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: account-isolation-${{ inputs.cohort }}-${{ inputs.expected }}
+          path: account-isolation-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
