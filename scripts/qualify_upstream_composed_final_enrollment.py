@@ -17,7 +17,7 @@ from upstream_completion_ci import compile_cases, digest
 from qualify_upstream_body_negative import feature_identity
 from upstream_extraction_cohort import frozen_inputs
 
-BASE = 'f994bc0fb5e54e25653986db89a4a2fc6d001a9b' # Root pins the exact reviewed formatted COMPOSED full baseline.
+BASE = '8b441d992832b73f74a3fba6e58a56edab1a4486' # Root pins the exact reviewed formatted COMPOSED full baseline.
 SELF = 'scripts/qualify_upstream_composed_final_enrollment.py'
 WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
 REF = 'refs/heads/ci/upstream-composed-enrollment-diagnostic-20261018'
