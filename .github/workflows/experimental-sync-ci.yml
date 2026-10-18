@@ -9,7 +9,7 @@ on:
       scope:
         description: Qualification scope (focused scopes are affected-component evidence)
         type: choice
-        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, automatic-body-regression, automatic-body-negative, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression, default-checkpoint-diagnostic, experimental-departure-diagnostic, default-checkpoint-regression]
+        options: [full, cli-only, core-regressions, experimental-inventory, connector-regression, campaign-regression, experimental-gap, revocation-regression, revocation-family, revocation-challenge-ordering, revocation-initial-peel-ordering, archive-recovery, pairing-regression, pairing-diagnostic, pairing-consent-fairness, pairing-restart-diagnostic, pairing-restart-higher-source, automatic-body-regression, automatic-body-negative, pairing-recovery-components, pairing-recovery-convergence, profile-edit-regression, default-checkpoint-diagnostic, experimental-departure-diagnostic, default-checkpoint-regression, public-third-device-deployment]
         default: full
       recovery_run:
         description: Completed immutable original run for archive-recovery only
@@ -572,10 +572,12 @@ jobs:
           if-no-files-found: error
 
   core-regressions:
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering","profile-edit-regression","default-checkpoint-diagnostic","experimental-departure-diagnostic"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["core-regressions","connector-regression","campaign-regression","revocation-regression","revocation-family","revocation-challenge-ordering","revocation-initial-peel-ordering","profile-edit-regression","default-checkpoint-diagnostic","experimental-departure-diagnostic","public-third-device-deployment"]'), inputs.scope)
     name: Focused regressions (${{ inputs.scope }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: ${{ inputs.scope == 'public-third-device-deployment' && '1' || '0' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -606,7 +608,16 @@ jobs:
           features=agent-connector/otlp-export,agent-connector/product-analytics-export,marmot-app/experimental-device-sync,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks
           filter='test(connector_relay_list_edit_preserves_entries_the_request_did_not_name) | test(account_sharing_peer_generation_uses_authenticated_role_and_live_original) | test(=confirmed_publish_retries_failed_inbound_replay_through_normal_advance) | binary(crash_recovery_sqlite)'
           args=(--locked -p agent-connector -p marmot-app -p cgka-engine --lib --test crash_recovery_sqlite --test publish_lifecycle --features "$features")
-          if [[ "$REGRESSION_SCOPE" == experimental-departure-diagnostic ]]; then
+          ignored_args=(--run-ignored default)
+          test_threads=6
+          if [[ "$REGRESSION_SCOPE" == public-third-device-deployment ]]; then
+            args=(--locked --workspace --features "$SYNC_FEATURES")
+            filter='package(marmot-app) & test(=native_device_linking::automatic_pairing_acceptance::public_third_device_enrollment_with_existing_chat)'
+            ignored_args=(--run-ignored only)
+            test_threads=1
+            export CARGO_BUILD_JOBS=2
+            export WN_PUBLIC_ENROLLMENT_RELAY=wss://relay.eu.whitenoise.chat
+          elif [[ "$REGRESSION_SCOPE" == experimental-departure-diagnostic ]]; then
             args=(--locked --workspace --features "$SYNC_FEATURES")
             filter='package(marmot-app) & test(=native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race)'
           elif [[ "$REGRESSION_SCOPE" == default-checkpoint-diagnostic ]]; then
@@ -636,14 +647,22 @@ jobs:
             args=(--locked -p cgka-conformance-simulator -p marmot-app -p cgka-engine --bin cgka-conformance-campaign --features "$features")
             filter='test(kills_and_reaps_a_worker_that_exceeds_its_timeout) | test(preserves_a_workers_nonzero_exit_code)'
           fi
-          cargo nextest list "${args[@]}" -E "$filter" --message-format json > core-regression-inventory.json
+          cargo nextest list "${args[@]}" "${ignored_args[@]}" -E "$filter" --message-format json > core-regression-inventory.json
           python3 - <<'PYGUARD'
           import json, os
           inventory = json.load(open("core-regression-inventory.json"))
-          selected = {name for suite in inventory["rust-suites"].values() for name, case in suite["testcases"].items() if case["filter-match"]["status"] == "matches" and not case["ignored"]}
+          public_deployment = os.environ["REGRESSION_SCOPE"] == "public-third-device-deployment"
+          selected = {name for suite in inventory["rust-suites"].values() for name, case in suite["testcases"].items()
+                      if case["filter-match"]["status"] == "matches" and case["ignored"] == public_deployment}
           required = ["connector_relay_list_edit_preserves_entries_the_request_did_not_name", "account_sharing_peer_generation_uses_authenticated_role_and_live_original", "confirmed_publish_retries_failed_inbound_replay_through_normal_advance", "h5_kill_before_historical_apply_commit_preserves_live_inputs", "h6_kill_after_retained_anchor_rewind_recovers_live_snapshot"]
           expected = 14
-          if os.environ["REGRESSION_SCOPE"] in ("default-checkpoint-diagnostic", "experimental-departure-diagnostic"):
+          if public_deployment:
+              required = ["native_device_linking::automatic_pairing_acceptance::public_third_device_enrollment_with_existing_chat"]
+              expected = 1
+              actual = {(suite_id, name, case["ignored"]) for suite_id, suite in inventory["rust-suites"].items()
+                        for name, case in suite["testcases"].items() if case["filter-match"]["status"] == "matches"}
+              assert actual == {("marmot-app", required[0], True)}, "exact ignored public deployment case required"
+          elif os.environ["REGRESSION_SCOPE"] in ("default-checkpoint-diagnostic", "experimental-departure-diagnostic"):
               required = (["native_device_linking::tests::automatic_account_departure_acceptance::account_departure_completes_when_source_branch_wins_same_epoch_race"]
                           if os.environ["REGRESSION_SCOPE"] == "experimental-departure-diagnostic"
                           else ["runtime::conversation_window::tests::hot_checkpoints_do_not_postpone_not_ready_retry"])
@@ -689,10 +708,10 @@ jobs:
           print("qualification-selected-core-regression-cases:", len(selected))
           PYGUARD
           output_args=()
-          if [[ "$REGRESSION_SCOPE" == revocation-challenge-ordering || "$REGRESSION_SCOPE" == revocation-regression || "$REGRESSION_SCOPE" == revocation-initial-peel-ordering || "$REGRESSION_SCOPE" == default-checkpoint-diagnostic || "$REGRESSION_SCOPE" == experimental-departure-diagnostic ]]; then
+          if [[ "$REGRESSION_SCOPE" == revocation-challenge-ordering || "$REGRESSION_SCOPE" == revocation-regression || "$REGRESSION_SCOPE" == revocation-initial-peel-ordering || "$REGRESSION_SCOPE" == default-checkpoint-diagnostic || "$REGRESSION_SCOPE" == experimental-departure-diagnostic || "$REGRESSION_SCOPE" == public-third-device-deployment ]]; then
             output_args=(--success-output immediate)
           fi
-          cargo nextest run "${args[@]}" -E "$filter" --profile m5-bounded --test-threads 6 --retries 0 --no-fail-fast "${output_args[@]}"
+          cargo nextest run "${args[@]}" "${ignored_args[@]}" -E "$filter" --profile m5-bounded --test-threads "$test_threads" --retries 0 --no-fail-fast "${output_args[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
