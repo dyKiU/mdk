@@ -406,6 +406,14 @@ impl DeviceLinkingSession {
             .map(|choice| choice.observation_results_for_test())
     }
 
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(super) fn native_persist_failures_for_test(
+        &self,
+    ) -> Option<crate::client::device_linking::sibling_sharing::NativePersistFailureSnapshot> {
+        self.inner.sharing_choice.lock().expect("sharing choice").as_ref()
+            .map(|choice| choice.persist_failures_for_test())
+    }
+
     // PEER_PROOF_TEST_BEGIN
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn arm_late_peer_proof_for_test(

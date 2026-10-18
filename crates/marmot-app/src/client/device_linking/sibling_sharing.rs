@@ -48,6 +48,40 @@ pub(crate) enum NativeObservationResult {
     AutomaticErr,
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum NativePersistFailure {
+    InitialCoreRoster,
+    LocalRole,
+    ContextDigest,
+    AccountStorage,
+    LegacyCapture,
+    PolicyCommit,
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) type NativePersistFailureSnapshot =
+    ([usize; 6], bool, Option<(NativePersistFailure, Option<&'static str>)>);
+// Same exhaustive variant-only classification as error.rs::storage_error_kind;
+// that helper is private to its module. Never inspect or retain Display text.
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(super) fn native_persist_storage_kind(error: &cgka_traits::storage::StorageError) -> &'static str {
+    use cgka_traits::storage::StorageError;
+    match error {
+        StorageError::NotFound => "storage_not_found",
+        StorageError::AlreadyExists => "storage_already_exists",
+        StorageError::MirroredRecordDeniedByDeparture => "storage_record_denied_by_departure",
+        StorageError::SnapshotMissing(_) => "storage_snapshot_missing",
+        StorageError::TimelineCursorExpired => "storage_timeline_cursor_expired",
+        StorageError::Busy(_) => "storage_busy",
+        StorageError::Corruption(_) => "storage_corruption",
+        StorageError::Capacity(_) => "storage_capacity",
+        StorageError::Closed(_) => "storage_closed",
+        StorageError::UnsupportedSchemaVersion { .. } => "storage_unsupported_schema_version",
+        StorageError::InvalidAttachmentBody(_) => "storage_invalid_attachment_body",
+        StorageError::Backend(_) => "storage_backend",
+        StorageError::Serialization(_) => "storage_serialization",
+    }
+}
+#[cfg(all(test, feature = "test-policy-overrides"))]
 pub(crate) type NativeObservationResultSnapshot = ([usize; 7], bool);
 #[cfg(all(test, feature = "test-policy-overrides"))]
 pub(crate) type NativeObservationSnapshot =
@@ -60,6 +94,9 @@ struct NativeObservationProbe {
     reason: Option<(NativeObservationReason, u64)>,
     result_counts: [usize; 7],
     result_overflow: bool,
+    persist_counts: [usize; 6],
+    persist_overflow: bool,
+    persist_last: Option<(NativePersistFailure, Option<&'static str>)>,
 }
 #[cfg(all(test, feature = "test-policy-overrides"))]
 impl Default for NativeObservationProbe {
@@ -71,6 +108,9 @@ impl Default for NativeObservationProbe {
             reason: None,
             result_counts: [0; 7],
             result_overflow: false,
+            persist_counts: [0; 6],
+            persist_overflow: false,
+            persist_last: None,
         }
     }
 }
@@ -446,6 +486,27 @@ impl OriginalEnrollmentSharingChoice {
             .lock()
             .expect("native observation probe");
         (probe.result_counts, probe.result_overflow)
+    }
+
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn record_persist_failure_for_test(
+        &self,
+        stage: NativePersistFailure,
+        kind: Option<&'static str>,
+    ) {
+        let mut probe = self.native_observation_probe.lock().expect("native observation probe");
+        let index = stage as usize;
+        if let Some(count) = probe.persist_counts[index].checked_add(1) {
+            probe.persist_counts[index] = count;
+        } else {
+            probe.persist_overflow = true;
+        }
+        probe.persist_last = Some((stage, kind));
+    }
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) fn persist_failures_for_test(&self) -> NativePersistFailureSnapshot {
+        let probe = self.native_observation_probe.lock().expect("native observation probe");
+        (probe.persist_counts, probe.persist_overflow, probe.persist_last)
     }
 
     // COMPLETION_TEST_BEGIN
