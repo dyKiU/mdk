@@ -15,13 +15,13 @@ import time
 import qualify_upstream_command_backlog_pair as pair
 red=pair.red
 ensure=red.ensure
-BASE='d2f9b701b98ed30be04e46acdcedfed931a1c8e5'  # Root pins the final pure product+App-pin commit; never the diagnostic overlay.
+BASE='e71eba6f07636951c924c111b35c3619a038c215'  # Root pins the final pure product+App-pin commit; never the diagnostic overlay.
 SELF='scripts/qualify_upstream_pure_command_offer.py'
 PEER_SELF='scripts/qualify_upstream_pure_native5.py'
 MANIFEST='scripts/pure_command_offer_source_manifest.json'
-MANIFEST_SHA='6c4b9bc09b21c96533f2bb123122c9b934bc4012103a8db9610b603be647c4e2'  # Root pins the shared reviewed manifest after final formatting/source freeze.
+MANIFEST_SHA='37ddb0c5f3953f617c903f416549d0cbe937d33b3161fccc301f727e92b942ad'  # Root pins the shared reviewed manifest after final formatting/source freeze.
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
-REF='refs/heads/ci/upstream-command-offer-pure-20261018'
+REF='refs/heads/ci/upstream-integration-refresh-20261018'
 OUT=Path('pure-command-offer-evidence')
 ORIGINAL_FIELDS=red.FIELDS
 HISTORICAL_RED='89326048c400e87671e2f66eb192547109265eae'
@@ -247,7 +247,7 @@ def parser_controls():
         ensure(not original_green(dict(row,**delta)),'non-GREEN-original-rejected');negatives+=1
     for field in ORIGINAL_FIELDS:
         ensure(not original_green(dict(row,facts=dict(row['facts'],**{field:False}))),'all-thirteen-original-facts-required');negatives+=1
-    return {'workflow_metadata_controls':workflow_controls,'ingress_controls':ingress_controls,'historical_pair_controls':inherited,'original_GREEN_positive':2,'original_GREEN_negative':negatives,'runtime_bodies':0}
+    return {'watch_avatar_transfer_controls':watch_avatar_transfer_controls(),'workflow_metadata_controls':workflow_controls,'ingress_controls':ingress_controls,'historical_pair_controls':inherited,'original_GREEN_positive':2,'original_GREEN_negative':negatives,'runtime_bodies':0}
 
 
 def write_fresh(path,data,mode):
@@ -525,6 +525,80 @@ def watch_main(options):
 WATCH_PFP_OUT=Path('pure-watch-offer-pfp-evidence')
 
 
+WATCH_AVATAR_UPSTREAM_OLD='5247c0846da5cd9fc4d3ce42158507dbe3c22c0a'
+WATCH_AVATAR_UPSTREAM_NEW='56d43f7d89938cadff448a03d79930f2c188af1b'
+WATCH_AVATAR_HISTORICAL_RED='b36fcf08e36c31a50cef5860012cbd36dbc08bd4'
+WATCH_AVATAR_EDITS=[{'before': '    let storage = client.app.account_storage(&client.state.label)?;\n    let transport = client.blossom_http_transport.clone();\n', 'after': '    let storage = client.app.account_storage(&client.state.label)?;\n    let transport = client.blossom_http_transport.clone();\n    let group_image_server = client\n        .app\n        .deployment()\n        .group_image_endpoint_or_fallback(None);\n'}, {'before': '            let transport = transport.clone();\n            async move { crate::media::avatar::fetch(&descriptor, &transport).await }\n', 'after': '            let transport = transport.clone();\n            let group_image_server = group_image_server.clone();\n            async move {\n                crate::media::avatar::fetch(&descriptor, &group_image_server, &transport).await\n            }\n'}]
+
+
+def watch_avatar_transfer(record,current_omission,historical,upstream_old,upstream_new,context):
+    keys={'path','git_mode','candidate_baseline','historical_source','upstream_old_source','upstream_new_source',
+        'historical_worker_sha256','old_upstream_worker_sha256','new_upstream_worker_sha256','new_omission_worker_sha256','edits'}
+    ensure(isinstance(record,dict) and set(record)==keys,'closed-reviewed-avatar-transfer-record')
+    ensure(record['path']=='crates/marmot-app/src/runtime/account_worker.rs' and record['git_mode']=='100644'
+        and record['edits']==WATCH_AVATAR_EDITS and len(record['edits'])==2,'only-exact-reviewed-avatar-hunk')
+    sources={'candidate_baseline':BASE,'historical_source':WATCH_AVATAR_HISTORICAL_RED,
+        'upstream_old_source':WATCH_AVATAR_UPSTREAM_OLD,'upstream_new_source':WATCH_AVATAR_UPSTREAM_NEW}
+    ensure(all(record[key]==value and context['sources'].get(key)==value for key,value in sources.items()),'exact-avatar-transfer-source-identities')
+    ensure(set(context['modes'])=={'candidate','historical','upstream_old','upstream_new'}
+        and all(mode=='100644' for mode in context['modes'].values()),'exact-avatar-transfer-modes')
+    for key,data in [('new_omission_worker_sha256',current_omission),('historical_worker_sha256',historical),
+        ('old_upstream_worker_sha256',upstream_old),('new_upstream_worker_sha256',upstream_new)]:
+        ensure(type(record[key]) is str and re.fullmatch('[0-9a-f]{64}',record[key]) and red.digest(data)==record[key],'exact-avatar-transfer-full-blob-digests')
+    forward=upstream_old.decode()
+    for edit in record['edits']:
+        ensure(forward.count(edit['before'])==1 and edit['before']!=edit['after'],'unique-upstream-avatar-before')
+        forward=forward.replace(edit['before'],edit['after'],1)
+    ensure(forward.encode()==upstream_new,'upstream-worker-diff-is-only-reviewed-avatar-hunk')
+    reverse=current_omission.decode()
+    for edit in reversed(record['edits']):
+        ensure(reverse.count(edit['after'])==1,'unique-current-avatar-after')
+        reverse=reverse.replace(edit['after'],edit['before'],1)
+    ensure(reverse.encode()==historical and red.digest(reverse.encode())==record['historical_worker_sha256'],'avatar-reversed-omission-exact-historical-bytes')
+    return {'actual_prior_worker_equals_omission':False,'historical_worker_equals_avatar_reversed_omission':True,
+        'historical_RED_retained_as_old_evidence':True,'source_transfer_only':True,'runtime_evidence_transferred':False,
+        'fresh_current_runtime_mutant_RED_and_restored_PASS_still_required':True,
+        'upstream_old_source':WATCH_AVATAR_UPSTREAM_OLD,'upstream_new_source':WATCH_AVATAR_UPSTREAM_NEW,
+        'historical_worker_sha256':record['historical_worker_sha256'],'current_omission_sha256':record['new_omission_worker_sha256']}
+
+
+def watch_avatar_transfer_controls():
+    # Synthetic byte proof only; no Git/source reads, compile or protocol body.
+    old='upstream fixture\n'+''.join(edit['before'] for edit in WATCH_AVATAR_EDITS)+'end\n'
+    historical='root fixture\n'+''.join(edit['before'] for edit in WATCH_AVATAR_EDITS)+'end\n'
+    new=old;current=historical
+    for edit in WATCH_AVATAR_EDITS:
+        new=new.replace(edit['before'],edit['after'],1);current=current.replace(edit['before'],edit['after'],1)
+    record={'path':'crates/marmot-app/src/runtime/account_worker.rs','git_mode':'100644','candidate_baseline':BASE,
+        'historical_source':WATCH_AVATAR_HISTORICAL_RED,'upstream_old_source':WATCH_AVATAR_UPSTREAM_OLD,
+        'upstream_new_source':WATCH_AVATAR_UPSTREAM_NEW,'edits':WATCH_AVATAR_EDITS,
+        'historical_worker_sha256':red.digest(historical.encode()),'old_upstream_worker_sha256':red.digest(old.encode()),
+        'new_upstream_worker_sha256':red.digest(new.encode()),'new_omission_worker_sha256':red.digest(current.encode())}
+    context={'sources':{key:record[key] for key in ['candidate_baseline','historical_source','upstream_old_source','upstream_new_source']},
+        'modes':dict.fromkeys(['candidate','historical','upstream_old','upstream_new'],'100644')}
+    def call(r=record,c=current,h=historical,o=old,n=new,ctx=context):
+        return watch_avatar_transfer(r,c.encode(),h.encode(),o.encode(),n.encode(),ctx)
+    ensure(call()['actual_prior_worker_equals_omission'] is False,'transfer-never-claims-original-exact-route')
+    bad=[]
+    extra=current+'unrelated actor change\n';bad.append((dict(record,new_omission_worker_sha256=red.digest(extra.encode())),extra,historical,old,new,context))
+    duplicate=current+WATCH_AVATAR_EDITS[0]['after'];bad.append((dict(record,new_omission_worker_sha256=red.digest(duplicate.encode())),duplicate,historical,old,new,context))
+    changed_new=new+'other upstream edit\n';bad.append((dict(record,new_upstream_worker_sha256=red.digest(changed_new.encode())),current,historical,old,changed_new,context))
+    for label in ['candidate','historical','upstream_old','upstream_new']:
+        bad.append((record,current,historical,old,new,{'sources':context['sources'],'modes':dict(context['modes'],**{label:'100755'})}))
+    for label in ['candidate_baseline','historical_source','upstream_old_source','upstream_new_source']:
+        bad.append((dict(record,**{label:'0'*40}),current,historical,old,new,context))
+        bad.append((record,current,historical,old,new,{'sources':dict(context['sources'],**{label:'0'*40}),'modes':context['modes']}))
+    bad.append((dict(record,edits=record['edits'][:1]),current,historical,old,new,context))
+    bad.append((dict(record,historical_worker_sha256='0'*64),current,historical,old,new,context))
+    bad.append((dict(record,unexpected=True),current,historical,old,new,context))
+    for args in bad:
+        rejected=False
+        try:call(*args)
+        except (ValueError,red.bounded.GateFailure):rejected=True
+        ensure(rejected,'malformed-avatar-transfer-rejected')
+    return {'positive':1,'negative':len(bad),'actual_runtime_bodies':0,'synthetic_byte_proof_not_Git_or_runtime_evidence':True}
+
+
 def watch_pfp_manifest_guard(manifest):
     witness=manifest.get('watch_product');prior=manifest.get('reviewed_watch_RED_control')
     ensure(isinstance(witness,dict) and witness.get('path')=='crates/marmot-app/src/runtime/account_worker.rs'
@@ -546,12 +620,33 @@ def watch_pfp_manifest_guard(manifest):
             'actual_passed':1,'actual_failed':1,'actual_ignored':0,'actual_executed_nonignored':2}.items()),
         'root-reviewed-genuine-watch-RED-plus-counterpart-pin-required')
     subprocess.run(['git','merge-base','--is-ancestor',prior['source'],'HEAD'],check=True)
-    ensure(red.digest(subprocess.check_output(['git','show',prior['source']+':'+witness['path']]))==witness['before_sha256'],
-        'actual-RED-source-worker-equals-exact-watch-omission')
+    historical=subprocess.check_output(['git','show',prior['source']+':'+witness['path']])
+    if historical==old.encode() and red.digest(historical)==witness['before_sha256']:
+        source_proof={'actual_prior_worker_equals_omission':True,'source_transfer_only':False,
+            'historical_RED_retained_as_old_evidence':True,'runtime_evidence_transferred':False,
+            'fresh_current_runtime_mutant_RED_and_restored_PASS_still_required':True}
+    else:
+        transfer=manifest.get('watch_source_transfer')
+        ensure(isinstance(transfer,dict),'reviewed-exact-avatar-transfer-required')
+        refs={'candidate_baseline':BASE,'historical_source':prior['source'],
+            'upstream_old_source':WATCH_AVATAR_UPSTREAM_OLD,'upstream_new_source':WATCH_AVATAR_UPSTREAM_NEW}
+        for ref in [WATCH_AVATAR_UPSTREAM_OLD,WATCH_AVATAR_UPSTREAM_NEW]:
+            subprocess.run(['git','merge-base','--is-ancestor',ref,BASE],check=True)
+        sources={key:subprocess.check_output(['git','rev-parse',ref],text=True).strip() for key,ref in refs.items()}
+        modes={'candidate':red.layout()[witness['path']]['git_mode']}
+        for label,ref in [('historical',prior['source']),('upstream_old',WATCH_AVATAR_UPSTREAM_OLD),('upstream_new',WATCH_AVATAR_UPSTREAM_NEW)]:
+            entry=subprocess.check_output(['git','ls-tree',ref,'--',witness['path']],text=True).split()
+            ensure(len(entry)==4 and entry[1]=='blob' and entry[3]==witness['path'],'exact-avatar-source-blob-mode')
+            modes[label]=entry[0]
+        ensure(transfer['new_omission_worker_sha256']==witness['before_sha256'],'transfer-binds-current-omission')
+        source_proof=watch_avatar_transfer(transfer,old.encode(),historical,
+            subprocess.check_output(['git','show',WATCH_AVATAR_UPSTREAM_OLD+':'+witness['path']]),
+            subprocess.check_output(['git','show',WATCH_AVATAR_UPSTREAM_NEW+':'+witness['path']]),
+            {'sources':sources,'modes':modes})
     ensure(subprocess.check_output(['git','show',prior['source']+':'+WATCH_FIXTURE])==Path(WATCH_FIXTURE).read_bytes(),
         'genuine-RED-watch-fixture-byte-exact')
     return {'watch_product':witness,'root_reviewed_genuine_RED_control':prior,
-        'prior_artifact_verified_by_this_controller':False,'actual_prior_worker_equals_omission':True,
+        'prior_artifact_verified_by_this_controller':False,**source_proof,
         'current_baseline_whole_source_exact':True,'runtime_results_reused':False}
 
 

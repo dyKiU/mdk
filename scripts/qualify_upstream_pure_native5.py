@@ -15,11 +15,11 @@ import qualify_upstream_storage_app_handles as counts
 from upstream_completion_ci import compile_cases, digest, ensure, parse_body as basic_parse_body
 from qualify_upstream_body_negative import feature_identity
 from upstream_extraction_cohort import frozen_inputs
-BASE='d2f9b701b98ed30be04e46acdcedfed931a1c8e5'
-MANIFEST_SHA='6c4b9bc09b21c96533f2bb123122c9b934bc4012103a8db9610b603be647c4e2'
+BASE='e71eba6f07636951c924c111b35c3619a038c215'
+MANIFEST_SHA='37ddb0c5f3953f617c903f416549d0cbe937d33b3161fccc301f727e92b942ad'
 SELF='scripts/qualify_upstream_pure_native5.py'
 MANIFEST='scripts/pure_command_offer_source_manifest.json'
-REF='refs/heads/ci/upstream-command-offer-pure-20261018'
+REF='refs/heads/ci/upstream-integration-refresh-20261018'
 OUT=Path('pure-native5-evidence')
 FIXTURE='crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'
 PARENT='crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs'

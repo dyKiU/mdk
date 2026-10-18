@@ -1,5 +1,5 @@
 {
-  "baseline": "d2f9b701b98ed30be04e46acdcedfed931a1c8e5",
+  "baseline": "e71eba6f07636951c924c111b35c3619a038c215",
   "owned_metadata": [
     "scripts/qualify_upstream_pure_command_offer.py",
     "scripts/qualify_upstream_pure_native5.py",
@@ -34,8 +34,8 @@
   "product": {
     "path": "crates/marmot-app/src/runtime/account_worker.rs",
     "git_mode": "100644",
-    "before_sha256": "f818e93e2c8c2a05b81107905e9981d1e7817db861741fda27b87ce58c5a93cf",
-    "after_sha256": "1383983d43bd2849c352b5d21e66c2c6adefcd1a0097db55a4c4c14fdd9aaadd",
+    "before_sha256": "bb68f37c54eb19d48b45728f9529eea94c02bf1e5a34b1ad1904e6a48c066a0a",
+    "after_sha256": "3c2d1f25bae154ff1fdb8c15cbe26a15dfd3791421c66c152129e1a040b11719",
     "edits": [
       {
         "before": "    let mut yield_to_convergence = false;\n",
@@ -138,8 +138,8 @@
   "watch_product": {
     "path": "crates/marmot-app/src/runtime/account_worker.rs",
     "git_mode": "100644",
-    "before_sha256": "0d5356aff9da14971d406f9835a0569c446b3035c0dbae3f4c3134b870010071",
-    "after_sha256": "1383983d43bd2849c352b5d21e66c2c6adefcd1a0097db55a4c4c14fdd9aaadd",
+    "before_sha256": "340064e1b1b843ddc0957049c2f415b3de04bea9af3202a5046e24035dccb517",
+    "after_sha256": "3c2d1f25bae154ff1fdb8c15cbe26a15dfd3791421c66c152129e1a040b11719",
     "edits": [
       {
         "before": "    let mut sibling_completions_open = true;",
@@ -202,5 +202,27 @@
     "none_are_owned_metadata_exemptions": true,
     "historic_guards_mains_globals_used": false,
     "runtime_evidence_reused": false
+  },
+  "watch_source_transfer": {
+    "path": "crates/marmot-app/src/runtime/account_worker.rs",
+    "git_mode": "100644",
+    "candidate_baseline": "e71eba6f07636951c924c111b35c3619a038c215",
+    "historical_source": "b36fcf08e36c31a50cef5860012cbd36dbc08bd4",
+    "upstream_old_source": "5247c0846da5cd9fc4d3ce42158507dbe3c22c0a",
+    "upstream_new_source": "56d43f7d89938cadff448a03d79930f2c188af1b",
+    "historical_worker_sha256": "0d5356aff9da14971d406f9835a0569c446b3035c0dbae3f4c3134b870010071",
+    "old_upstream_worker_sha256": "141b7b32b5e1b7597616b0ad876b3ff65ae0c3cfb484172cd3e7a87d7c06105a",
+    "new_upstream_worker_sha256": "31a3c3c620772a1fbf511765f98de9e0ff9a5db137270eb663077f083ceb29af",
+    "new_omission_worker_sha256": "340064e1b1b843ddc0957049c2f415b3de04bea9af3202a5046e24035dccb517",
+    "edits": [
+      {
+        "before": "    let storage = client.app.account_storage(&client.state.label)?;\n    let transport = client.blossom_http_transport.clone();\n",
+        "after": "    let storage = client.app.account_storage(&client.state.label)?;\n    let transport = client.blossom_http_transport.clone();\n    let group_image_server = client\n        .app\n        .deployment()\n        .group_image_endpoint_or_fallback(None);\n"
+      },
+      {
+        "before": "            let transport = transport.clone();\n            async move { crate::media::avatar::fetch(&descriptor, &transport).await }\n",
+        "after": "            let transport = transport.clone();\n            let group_image_server = group_image_server.clone();\n            async move {\n                crate::media::avatar::fetch(&descriptor, &group_image_server, &transport).await\n            }\n"
+      }
+    ]
   }
 }
