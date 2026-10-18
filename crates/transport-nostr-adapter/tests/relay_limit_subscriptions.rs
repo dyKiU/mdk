@@ -1862,6 +1862,12 @@ async fn replay_one_group_at(
         "[h] clamp={clamp:?} stored={stored} delivered={delivered} complete={complete} {}",
         stats.summary()
     );
+    let notification_loss = fx.sdk.notification_loss().ok().map(|receiver| {
+        let current = receiver.borrow();
+        current.as_ref().map(|loss| (loss.receiver_generation, loss.cumulative_skipped))
+    });
+    let forwarder_finished = fx.forwarder.is_finished();
+    eprintln!("[h-loss] clamp={clamp:?} stored={stored} loss={notification_loss:?} forwarder_finished={forwarder_finished}");
     fx.shutdown().await;
     (delivered, complete, stats)
 }
