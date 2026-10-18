@@ -14,7 +14,7 @@ from qualify_upstream_body_negative import freeze, layout, feature_identity
 BASE = 'c3939a775d81f6d9380a9318ca9f729a774ef990'
 SELF = 'scripts/qualify_upstream_command_backlog_red.py'
 MANIFEST = 'scripts/command_backlog_source_manifest.json'
-MANIFEST_SHA = 'e493e23876bbd04d6765b334600d4014b91c1ba453ad323e81c1735451980850'
+MANIFEST_SHA = 'a3170cbc79cc5d66d6c79c4e9a656847e6964095183dbb86c7995984a7b9ea9e'
 WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
 REF = 'refs/heads/ci/upstream-private-command-backlog-red-20261018'
 BEGIN = '  # COMMAND_BACKLOG_RED_JOBS_BEGIN\n'

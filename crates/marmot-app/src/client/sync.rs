@@ -3746,10 +3746,14 @@ impl AppClient {
         acquisition_deadline: Option<std::time::Instant>,
     ) -> Result<DeliveryIngest, AppError> {
         let client = receipts.into_client();
-// COMMAND_BACKLOG_TEST_BEGIN
-#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        // COMMAND_BACKLOG_TEST_BEGIN
+        #[cfg(all(
+            test,
+            feature = "experimental-device-sync",
+            feature = "test-policy-overrides"
+        ))]
         let _command_backlog_ingest = client.command_backlog_ingest_for_test(&delivery.message.id);
-// COMMAND_BACKLOG_TEST_END
+        // COMMAND_BACKLOG_TEST_END
         #[cfg(test)]
         if client.fail_ingest_of.as_ref() == Some(&delivery.message.id) {
             client.fail_ingest_of = None;

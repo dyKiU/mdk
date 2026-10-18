@@ -2420,7 +2420,11 @@ mod source_readiness_acceptance;
 mod request_retry_completion_acceptance;
 // REQUEST_RETRY_TEST_END
 // COMMAND_BACKLOG_TEST_BEGIN
-#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 #[path = "command_backlog_acceptance.rs"]
 mod command_backlog_acceptance;
 // COMMAND_BACKLOG_TEST_END

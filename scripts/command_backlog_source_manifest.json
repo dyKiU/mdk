@@ -5,86 +5,86 @@
   "changes": {
     "crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe.rs": {
       "before_sha256": "d901904302cc3ebe262d9a5bfb9298ec11a1ee03664fa042ef96838d308a2567",
-      "after_sha256": "e8e634fb4fe5effb6af0b1e54349c81804ee689da0545ec72194875d168e61dd",
+      "after_sha256": "eb2d29b772652152da8fb308996c495d7bb5611caf78f24d10900306f6877fc2",
       "git_mode": "100644",
       "edits": [
         {
-          "before": "//! Test-only passive snapshots and one original recipient's real publication hold.\n",
-          "after": "//! Test-only passive snapshots and one original recipient's real publication hold.\n// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\npub(crate) mod command_backlog;\n// COMMAND_BACKLOG_TEST_END\n"
+          "before": "//! Test-only passive snapshots and one original recipient's real publication hold.\n// NATIVE5_TIMING_BEGIN\npub(crate) mod native5_timing;\n// NATIVE5_TIMING_END\nuse super::*;\n// REQUEST_RETRY_TEST_BEGIN\n",
+          "after": "//! Test-only passive snapshots and one original recipient's real publication hold.\n// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(\n    test,\n    feature = \"experimental-device-sync\",\n    feature = \"test-policy-overrides\"\n))]\npub(crate) mod command_backlog;\n// COMMAND_BACKLOG_TEST_END\n// NATIVE5_TIMING_BEGIN\npub(crate) mod native5_timing;\n// NATIVE5_TIMING_END\nuse super::*;\n// REQUEST_RETRY_TEST_BEGIN\n"
         }
       ]
     },
     "crates/marmot-app/src/client/device_linking/sibling_sharing.rs": {
       "before_sha256": "c047da7a76adf16844abeb8ef3734449f3d3e3d67b211b804cea6102bf4ae671",
-      "after_sha256": "7ef3f0a5651d598de72130f811dce3808eb7e847dbf10732e5c8a0c9ed7b4220",
+      "after_sha256": "f944348614b7c9a90a7b41eab736b8e977535e5a00313e86cdc0b4ff30ee577c",
       "git_mode": "100644",
       "edits": [
         {
-          "before": "                    entry.peer_committed = true;\n",
-          "after": "                    entry.peer_committed = true;\n// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n                    if received.control == AccountSharingControl::Body(0) {\n                        peer_proof_probe::command_backlog::accepted(&entry);\n                    }\n// COMMAND_BACKLOG_TEST_END\n"
+          "before": "                        || proof.device.as_slice() != peer\n                    {\n                        return Err(Error::NotReady);\n                    }\n                    entry.peer_committed = true;\n                    // NATIVE5_RECIPROCAL_TIMING_BEGIN\n                    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n                    if let Some(token) = &native5_incoming {\n                        token.stage(3, None);\n                    }\n",
+          "after": "                        || proof.device.as_slice() != peer\n                    {\n                        return Err(Error::NotReady);\n                    }\n                    entry.peer_committed = true;\n                    // COMMAND_BACKLOG_TEST_BEGIN\n                    #[cfg(all(\n                        test,\n                        feature = \"experimental-device-sync\",\n                        feature = \"test-policy-overrides\"\n                    ))]\n                    if received.control == AccountSharingControl::Body(0) {\n                        peer_proof_probe::command_backlog::accepted(&entry);\n                    }\n                    // COMMAND_BACKLOG_TEST_END\n                    // NATIVE5_RECIPROCAL_TIMING_BEGIN\n                    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n                    if let Some(token) = &native5_incoming {\n                        token.stage(3, None);\n                    }\n"
         },
         {
-          "before": "        let proof = body.is_some();\n",
-          "after": "        let proof = body.is_some();\n// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n        if proof && entry.recipient { peer_proof_probe::command_backlog::prepared(entry, &request.message.id); }\n// COMMAND_BACKLOG_TEST_END\n"
+          "before": "        }\n        .ok_or_else(denied)?;\n        self.commit_policy_with_legacy_chats(&policy, &capture, &validate)\n            .map_err(|error| ClientLinkingError::Engine(error.into()))\n    }\n    async fn start_sibling_publication(\n        &mut self,\n        entry: &mut SiblingChannel,\n        body: Option<&[u8]>,\n    ) -> Result<(), ClientLinkingError> {\n",
+          "after": "        }\n        .ok_or_else(denied)?;\n        self.commit_policy_with_legacy_chats(&policy, &capture, &validate)\n            .map_err(|error| ClientLinkingError::Engine(error.into()))\n    }\n    // COMMAND_BACKLOG_TEST_BEGIN\n    #[cfg(all(\n        test,\n        feature = \"experimental-device-sync\",\n        feature = \"test-policy-overrides\"\n    ))]\n    pub(crate) fn command_backlog_pause_for_test(\n        &self,\n        receive: [bool; 5],\n    ) -> Option<peer_proof_probe::command_backlog::Pause> {\n        peer_proof_probe::command_backlog::pause(&self.linking_owner.sibling_channels, receive)\n    }\n    #[cfg(all(\n        test,\n        feature = \"experimental-device-sync\",\n        feature = \"test-policy-overrides\"\n    ))]\n    pub(crate) fn command_backlog_ingest_for_test(\n        &self,\n        message: &cgka_traits::MessageId,\n    ) -> Option<peer_proof_probe::command_backlog::Ingest> {\n        peer_proof_probe::command_backlog::begin(&self.linking_owner.sibling_channels, message)\n    }\n    // COMMAND_BACKLOG_TEST_END\n    async fn start_sibling_publication(\n        &mut self,\n        entry: &mut SiblingChannel,\n        body: Option<&[u8]>,\n    ) -> Result<(), ClientLinkingError> {\n"
         },
         {
-          "before": "    async fn start_sibling_publication(\n",
-          "after": "// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n    pub(crate) fn command_backlog_pause_for_test(&self, receive: [bool; 5]) -> Option<peer_proof_probe::command_backlog::Pause> {\n        peer_proof_probe::command_backlog::pause(&self.linking_owner.sibling_channels, receive)\n    }\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n    pub(crate) fn command_backlog_ingest_for_test(&self, message: &cgka_traits::MessageId) -> Option<peer_proof_probe::command_backlog::Ingest> {\n        peer_proof_probe::command_backlog::begin(&self.linking_owner.sibling_channels, message)\n    }\n// COMMAND_BACKLOG_TEST_END\n    async fn start_sibling_publication(\n"
+          "before": "        // REQUEST_RETRY_TEST_END\n        let original = entry.original.clone();\n        let state = entry.state.clone();\n        let mut shutdown = self.history_owner.runtime_shutdown.clone();\n        let proof = body.is_some();\n\n        // NATIVE5_SPAWN_TIMING_BEGIN\n        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n        if let Some(token) = &native5_timing {\n            token.spawn_boundary(0);\n",
+          "after": "        // REQUEST_RETRY_TEST_END\n        let original = entry.original.clone();\n        let state = entry.state.clone();\n        let mut shutdown = self.history_owner.runtime_shutdown.clone();\n        let proof = body.is_some();\n        // COMMAND_BACKLOG_TEST_BEGIN\n        #[cfg(all(\n            test,\n            feature = \"experimental-device-sync\",\n            feature = \"test-policy-overrides\"\n        ))]\n        if proof && entry.recipient {\n            peer_proof_probe::command_backlog::prepared(entry, &request.message.id);\n        }\n        // COMMAND_BACKLOG_TEST_END\n\n        // NATIVE5_SPAWN_TIMING_BEGIN\n        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n        if let Some(token) = &native5_timing {\n            token.spawn_boundary(0);\n"
         }
       ]
     },
     "crates/marmot-app/src/runtime/account_worker.rs": {
       "before_sha256": "79285a847b742cff939c33bb3e3d936e437236d01c8f7bb2dab37964e3de6bb2",
-      "after_sha256": "049e33503d790c366633a91763e07f33a7693ad8a8dd573a0d668bd4d7dbb034",
+      "after_sha256": "64d0cc8bc654a482d301031ce4c7876992713e094a3f90033561f231b864f744",
       "git_mode": "100644",
       "edits": [
         {
-          "before": "        let ready_command =\n            ready_command_index(&pending, &media_http, comparison_recovery.is_some());\n",
-          "after": "// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n        if let Some(pause) = client.command_backlog_pause_for_test([\n            !client.has_pending_effect_projections(), selected_welcome_retry.is_none(),\n            revoked_confirmation_retry.is_none(), enrollment_capacity_retry.is_none(), comparison_recovery.is_none(),\n        ]) { pause.wait().await; }\n// COMMAND_BACKLOG_TEST_END\n        let ready_command =\n            ready_command_index(&pending, &media_http, comparison_recovery.is_some());\n"
+          "before": "                    phase.finish(TelemetryOutcome::Success);\n                }\n                continue 'worker;\n            }\n        }\n        let ready_command =\n            ready_command_index(&pending, &media_http, comparison_recovery.is_some());\n        #[cfg(test)]\n        tests::secondary_retry_scheduler_tests::record_turn(\n            &account_id_hex,\n",
+          "after": "                    phase.finish(TelemetryOutcome::Success);\n                }\n                continue 'worker;\n            }\n        }\n        // COMMAND_BACKLOG_TEST_BEGIN\n        #[cfg(all(\n            test,\n            feature = \"experimental-device-sync\",\n            feature = \"test-policy-overrides\"\n        ))]\n        if let Some(pause) = client.command_backlog_pause_for_test([\n            !client.has_pending_effect_projections(),\n            selected_welcome_retry.is_none(),\n            revoked_confirmation_retry.is_none(),\n            enrollment_capacity_retry.is_none(),\n            comparison_recovery.is_none(),\n        ]) {\n            pause.wait().await;\n        }\n        // COMMAND_BACKLOG_TEST_END\n        let ready_command =\n            ready_command_index(&pending, &media_http, comparison_recovery.is_some());\n        #[cfg(test)]\n        tests::secondary_retry_scheduler_tests::record_turn(\n            &account_id_hex,\n"
         }
       ]
     },
     "crates/marmot-app/src/client/sync.rs": {
       "before_sha256": "5277e44698636a6c5ba4984c55b559f23d671cf10897f4719b5404b9771c6e09",
-      "after_sha256": "3f574b231502ac314db0d448a81b58793cdcb13e21a0b85316b08c6fd915291f",
+      "after_sha256": "de86847357f1706f35d3b1fc9ea14f11423a743c41b2753d5f0954ca902e0997",
       "git_mode": "100644",
       "edits": [
         {
-          "before": "        let client = receipts.into_client();\n",
-          "after": "        let client = receipts.into_client();\n// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n        let _command_backlog_ingest = client.command_backlog_ingest_for_test(&delivery.message.id);\n// COMMAND_BACKLOG_TEST_END\n"
+          "before": "        delivery: cgka_traits::TransportDelivery,\n        summary: &mut SyncSummary,\n        acquisition_deadline: Option<std::time::Instant>,\n    ) -> Result<DeliveryIngest, AppError> {\n        let client = receipts.into_client();\n        #[cfg(test)]\n        if client.fail_ingest_of.as_ref() == Some(&delivery.message.id) {\n            client.fail_ingest_of = None;\n            return Err(AppError::BlockingTask(\n                \"injected delivery ingest failure\".to_owned(),\n",
+          "after": "        delivery: cgka_traits::TransportDelivery,\n        summary: &mut SyncSummary,\n        acquisition_deadline: Option<std::time::Instant>,\n    ) -> Result<DeliveryIngest, AppError> {\n        let client = receipts.into_client();\n        // COMMAND_BACKLOG_TEST_BEGIN\n        #[cfg(all(\n            test,\n            feature = \"experimental-device-sync\",\n            feature = \"test-policy-overrides\"\n        ))]\n        let _command_backlog_ingest = client.command_backlog_ingest_for_test(&delivery.message.id);\n        // COMMAND_BACKLOG_TEST_END\n        #[cfg(test)]\n        if client.fail_ingest_of.as_ref() == Some(&delivery.message.id) {\n            client.fail_ingest_of = None;\n            return Err(AppError::BlockingTask(\n                \"injected delivery ingest failure\".to_owned(),\n"
         }
       ]
     },
     "crates/marmot-app/src/runtime/mod.rs": {
       "before_sha256": "47c66b6f1afcb207c3f88bb55d76f31e28a0d95d63dc494b482a20051f898eff",
-      "after_sha256": "7f4ae74eec7edc402775f2ddb0e17b1bf2039ee8f895d3898439f5eb6f9acbec",
+      "after_sha256": "cac6da76632e39b170a00e4b105ec584f30cd4eb6794d9ee05a497e693fc3fb2",
       "git_mode": "100644",
       "edits": [
         {
-          "before": "    async fn worker_commands(\n",
-          "after": "// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n    pub(crate) async fn enqueue_command_backlog_reads_for_test(&self, account_ref: &str) -> Result<Vec<oneshot::Receiver<Result<Vec<crate::HistoryNotice>, AppError>>>, AppError> {\n        let commands = self.existing_worker_commands(account_ref).await?\n            .ok_or_else(|| AppError::BlockingTask(\"existing bounded test worker missing\".into()))?;\n        let mut replies = Vec::with_capacity(8);\n        for _ in 0..8 {\n            let (respond, reply) = oneshot::channel();\n            commands.try_send(AccountWorkerCommand::HistoryNotices { respond })\n                .map_err(|_| AppError::BlockingTask(\"bounded test command enqueue failed\".into()))?;\n            replies.push(reply);\n        }\n        Ok(replies)\n    }\n// COMMAND_BACKLOG_TEST_END\n    async fn worker_commands(\n"
+          "before": "        self.app\n            .delete_key_package_event(&account.label, event_id_hex, relays)\n            .await\n    }\n\n    async fn worker_commands(\n        &self,\n        account_ref: &str,\n    ) -> Result<mpsc::Sender<AccountWorkerCommand>, AppError> {\n        self.shared.lifecycle().ensure_running()?;\n",
+          "after": "        self.app\n            .delete_key_package_event(&account.label, event_id_hex, relays)\n            .await\n    }\n\n    // COMMAND_BACKLOG_TEST_BEGIN\n    #[cfg(all(\n        test,\n        feature = \"experimental-device-sync\",\n        feature = \"test-policy-overrides\"\n    ))]\n    pub(crate) async fn enqueue_command_backlog_reads_for_test(\n        &self,\n        account_ref: &str,\n    ) -> Result<Vec<oneshot::Receiver<Result<Vec<crate::HistoryNotice>, AppError>>>, AppError> {\n        let commands = self\n            .existing_worker_commands(account_ref)\n            .await?\n            .ok_or_else(|| AppError::BlockingTask(\"existing bounded test worker missing\".into()))?;\n        let mut replies = Vec::with_capacity(8);\n        for _ in 0..8 {\n            let (respond, reply) = oneshot::channel();\n            commands\n                .try_send(AccountWorkerCommand::HistoryNotices { respond })\n                .map_err(|_| {\n                    AppError::BlockingTask(\"bounded test command enqueue failed\".into())\n                })?;\n            replies.push(reply);\n        }\n        Ok(replies)\n    }\n    // COMMAND_BACKLOG_TEST_END\n    async fn worker_commands(\n        &self,\n        account_ref: &str,\n    ) -> Result<mpsc::Sender<AccountWorkerCommand>, AppError> {\n        self.shared.lifecycle().ensure_running()?;\n"
         }
       ]
     },
     "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs": {
       "before_sha256": "563994be85f0fa8a5acf7dda32992aa7e2db18c06ec77beb8357a0c8941efc3e",
-      "after_sha256": "2cde3f0215c655180fc706efd7634d0d3b9c0e1b0c98bb47eab5363d08716b77",
+      "after_sha256": "516b123d21c218a185e92f854559f965d3f003d0417ca5c44a4193ac49cd7286",
       "git_mode": "100644",
       "edits": [
         {
-          "before": "// LATE_CONSENT_TEST_BEGIN\n",
-          "after": "// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(test, feature = \"experimental-device-sync\", feature = \"test-policy-overrides\"))]\n#[path = \"command_backlog_acceptance.rs\"]\nmod command_backlog_acceptance;\n// COMMAND_BACKLOG_TEST_END\n// LATE_CONSENT_TEST_BEGIN\n"
+          "before": "// REQUEST_RETRY_TEST_BEGIN\n#[cfg(all(test, feature = \"test-policy-overrides\"))]\n#[path = \"request_retry_completion_acceptance.rs\"]\nmod request_retry_completion_acceptance;\n// REQUEST_RETRY_TEST_END\n// LATE_CONSENT_TEST_BEGIN\n#[cfg(feature = \"test-policy-overrides\")]\n#[path = \"late_sibling_consent_acceptance.rs\"]\nmod late_sibling_consent_acceptance;\n// LATE_CONSENT_TEST_END\n",
+          "after": "// REQUEST_RETRY_TEST_BEGIN\n#[cfg(all(test, feature = \"test-policy-overrides\"))]\n#[path = \"request_retry_completion_acceptance.rs\"]\nmod request_retry_completion_acceptance;\n// REQUEST_RETRY_TEST_END\n// COMMAND_BACKLOG_TEST_BEGIN\n#[cfg(all(\n    test,\n    feature = \"experimental-device-sync\",\n    feature = \"test-policy-overrides\"\n))]\n#[path = \"command_backlog_acceptance.rs\"]\nmod command_backlog_acceptance;\n// COMMAND_BACKLOG_TEST_END\n// LATE_CONSENT_TEST_BEGIN\n#[cfg(feature = \"test-policy-overrides\")]\n#[path = \"late_sibling_consent_acceptance.rs\"]\nmod late_sibling_consent_acceptance;\n// LATE_CONSENT_TEST_END\n"
         }
       ]
     }
   },
   "new_files": {
     "crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/command_backlog.rs": {
-      "sha256": "c26a8ae429dcb354330c5f65718c4e141eb8a00f725f2fca75bd4c0f9471b1fb",
+      "sha256": "35ef54c1838769f915e4a15661071236eeede079933d0e72e41e384f8bc8fd4f",
       "git_mode": "100644"
     },
     "crates/marmot-app/src/native_device_linking/tests/command_backlog_acceptance.rs": {
-      "sha256": "b32ae9b0b4843e62f0bcea55305b313e6a440659a555d21ee6533a6486fdaac8",
+      "sha256": "ee8bdfac24ac9c684e75518b04a908260f66edaf0d0400470a9da91a52a3fab9",
       "git_mode": "100644"
     }
   }

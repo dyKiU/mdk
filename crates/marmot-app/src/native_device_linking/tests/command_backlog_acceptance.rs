@@ -149,16 +149,23 @@ async fn authenticated_body_is_serviced_before_eight_queued_history_reads() {
         .unwrap();
         let nonce = before.nonce;
         facts[1] = before.flags == [true, true, false, false, false, false, false, false];
-        let backlog = proof_gate.arm_command_backlog_for_test(owner.clone(), nonce)
+        let backlog = proof_gate
+            .arm_command_backlog_for_test(owner.clone(), nonce)
             .expect("exact real recipient proof gate and source original");
         drop(consent_release);
         let proof_nonce = tokio::time::timeout(Duration::from_secs(15), proof_gate.observed())
-            .await.unwrap().unwrap();
+            .await
+            .unwrap()
+            .unwrap();
         facts[2] = proof_nonce == nonce;
         let paused = tokio::time::timeout(Duration::from_secs(15), backlog.paused())
-            .await.unwrap().unwrap();
+            .await
+            .unwrap()
+            .unwrap();
         facts[3] = paused.into_iter().all(|value| value);
-        let message = backlog.message().expect("first actual peer Body0 transport ID");
+        let message = backlog
+            .message()
+            .expect("first actual peer Body0 transport ID");
         facts[4] = message.as_slice().len() == 32;
         // The exact target actor is parked BEFORE select. No receive, SQL/Core
         // query, or actor RPC is used to establish the queue witness.
@@ -167,22 +174,36 @@ async fn authenticated_body_is_serviced_before_eight_queued_history_reads() {
         let id = hex::encode(message.as_slice());
         let queue = tokio::time::timeout(Duration::from_secs(15), async {
             loop {
-                if let Some(row) = apps[1].relay_plane.account_notification_timing_for_test(&account, &id)
-                    && row.2[0] > 0 && (row.4.0.is_some() || row.4.3) { break row; }
+                if let Some(row) = apps[1]
+                    .relay_plane
+                    .account_notification_timing_for_test(&account, &id)
+                    && row.2[0] > 0
+                    && (row.4.0.is_some() || row.4.3)
+                {
+                    break row;
+                }
                 tokio::time::sleep(Duration::from_millis(25)).await;
             }
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
         facts[5] = queue.4 == (Some((0, 1)), 0, None, false);
-        let replies = managers[1].enqueue_command_backlog_reads_for_test("test").await.unwrap();
+        let replies = managers[1]
+            .enqueue_command_backlog_reads_for_test("test")
+            .await
+            .unwrap();
         facts[6] = backlog.install_replies(replies);
         backlog.release();
         let accepted = tokio::time::timeout(Duration::from_secs(15), backlog.accepted())
-            .await.unwrap().unwrap();
+            .await
+            .unwrap()
+            .unwrap();
         completed_before = Some(accepted.0);
         facts[7] = accepted.1 && accepted.0 <= 8;
         facts[11] = accepted.0 <= 1;
         facts[8] = tokio::time::timeout(Duration::from_secs(15), backlog.drain_replies())
-            .await.unwrap();
+            .await
+            .unwrap();
         wait_for_automatic_phase(&a, &c, DeviceLinkingPhase::EnrollmentComplete).await;
         facts[9] = true;
         a.cancel().await.unwrap();
@@ -210,11 +231,23 @@ async fn authenticated_body_is_serviced_before_eight_queued_history_reads() {
     relay.shutdown();
     let address = url.strip_prefix("ws://").unwrap().trim_end_matches('/');
     let relay_closed = owned_loopback_listener_is_closed(address).await;
-    eprintln!("command-backlog facts={:?} completed_before={:?} runtime_closes={} plane_shutdown_returns={} relay_closed={} attempt_completed={}",
-        facts, completed_before, runtime_closes, planes_shutdown, relay_closed, attempt.is_ok());
-    assert!(facts.into_iter().all(|value| value) && runtime_closes == 3
-        && planes_shutdown == 3 && relay_closed && attempt.is_ok(),
-        "authenticated_body_must_precede_second_queued_history_read");
+    eprintln!(
+        "command-backlog facts={:?} completed_before={:?} runtime_closes={} plane_shutdown_returns={} relay_closed={} attempt_completed={}",
+        facts,
+        completed_before,
+        runtime_closes,
+        planes_shutdown,
+        relay_closed,
+        attempt.is_ok()
+    );
+    assert!(
+        facts.into_iter().all(|value| value)
+            && runtime_closes == 3
+            && planes_shutdown == 3
+            && relay_closed
+            && attempt.is_ok(),
+        "authenticated_body_must_precede_second_queued_history_read"
+    );
 }
 
 // Probe only this fixture's owned loopback MockRelay listener.
