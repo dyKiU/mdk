@@ -1979,6 +1979,9 @@ async fn run_app_runtime_account_worker(
         TokioInstant,
     )> = None;
     'worker: loop {
+        // Cooperate between owner turns without splitting comparison admission.
+        #[cfg(feature = "experimental-device-sync")]
+        tokio::task::yield_now().await;
         #[cfg(feature = "experimental-device-sync")]
         {
             // Reopened clients inherit only terminal runtime observation, never
