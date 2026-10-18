@@ -26,7 +26,7 @@ async fn purpose_welcome_without_live_verifier_gate_is_denied_before_consumption
     .try_into()
     .unwrap();
     let generation = storage
-        .reserve_device_linking_attempt(&account, &device)
+        .app_storage().reserve_device_linking_attempt(&account, &device)
         .unwrap();
     let scope = PurposeAttemptScope {
         account,
@@ -39,7 +39,7 @@ async fn purpose_welcome_without_live_verifier_gate_is_denied_before_consumption
         nonce: [21; 32],
         context_digest: [22; 32],
     };
-    storage.bind_device_linking_context(&binding).unwrap();
+    storage.app_storage().bind_device_linking_context(&binding).unwrap();
     storage
         .device_linking_key_package_storage()
         .unwrap()
@@ -52,10 +52,10 @@ async fn purpose_welcome_without_live_verifier_gate_is_denied_before_consumption
         )
         .unwrap();
     storage
-        .bind_device_linking_flow(&binding, "isolated-verified-flow")
+        .app_storage().bind_device_linking_flow(&binding, "isolated-verified-flow")
         .unwrap();
     storage
-        .finish_device_linking_attempt(
+        .app_storage().finish_device_linking_attempt(
             generation,
             storage_sqlite::DeviceLinkingOutcome::PairingVerified,
         )
@@ -194,7 +194,7 @@ pub(super) async fn verified_package(
     .try_into()
     .unwrap();
     let generation = storage
-        .reserve_device_linking_attempt(&account, &device)
+        .app_storage().reserve_device_linking_attempt(&account, &device)
         .unwrap();
     let scope = PurposeAttemptScope {
         account,
@@ -207,7 +207,7 @@ pub(super) async fn verified_package(
         nonce: [31; 32],
         context_digest: [32; 32],
     };
-    storage.bind_device_linking_context(&binding).unwrap();
+    storage.app_storage().bind_device_linking_context(&binding).unwrap();
     storage
         .device_linking_key_package_storage()
         .unwrap()
@@ -220,10 +220,10 @@ pub(super) async fn verified_package(
         )
         .unwrap();
     storage
-        .bind_device_linking_flow(&binding, "policy-fixture-flow")
+        .app_storage().bind_device_linking_flow(&binding, "policy-fixture-flow")
         .unwrap();
     storage
-        .finish_device_linking_attempt(
+        .app_storage().finish_device_linking_attempt(
             generation,
             storage_sqlite::DeviceLinkingOutcome::PairingVerified,
         )

@@ -797,7 +797,7 @@ impl AppClient {
         }
         let content_digest = (!deleted).then(|| Sha256::digest(&payload).into());
         let accepted_origin = storage
-            .current_account_chat_source_origin(
+            .app_storage().current_account_chat_source_origin(
                 &entry.policy.account,
                 &entry.policy.local_device,
                 group,

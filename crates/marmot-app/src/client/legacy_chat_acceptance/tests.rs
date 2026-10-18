@@ -136,7 +136,7 @@ async fn seed_actual_pruned_legacy(app: &MarmotApp) -> (GroupId, [u8; 32], [u8; 
         .unwrap();
     assert!(
         store
-            .current_account_chat_source(&account, &local, &group)
+            .app_storage().current_account_chat_source(&account, &local, &group)
             .unwrap()
             .is_none()
     );
@@ -193,7 +193,7 @@ async fn exercise_original_legacy_acceptance(enrollment: bool) {
             apps[0]
                 .account_storage("test")
                 .unwrap()
-                .current_account_chat_source(&account, &local, &group)
+                .app_storage().current_account_chat_source(&account, &local, &group)
                 .unwrap()
                 .is_none()
         );
@@ -222,7 +222,7 @@ async fn exercise_original_legacy_acceptance(enrollment: bool) {
         let storage = apps[0].account_storage("test").unwrap();
         assert!(
             storage
-                .current_account_chat_source(&account, &local, &group)
+                .app_storage().current_account_chat_source(&account, &local, &group)
                 .unwrap()
                 .is_none()
         );
@@ -279,7 +279,7 @@ async fn exercise_original_legacy_acceptance(enrollment: bool) {
     let accepted = apps[0]
         .account_storage("test")
         .unwrap()
-        .current_account_chat_source(&account, &local, &group)
+        .app_storage().current_account_chat_source(&account, &local, &group)
         .unwrap();
     let visible = tokio::time::timeout(Duration::from_secs(45), async {
         loop {
@@ -366,7 +366,7 @@ fn actual_b_signed_broad_endorsement_accepts_its_own_pruned_legacy_for_c() {
             apps[1]
                 .account_storage("test")
                 .unwrap()
-                .current_account_chat_source(&account, &local, &group)
+                .app_storage().current_account_chat_source(&account, &local, &group)
                 .unwrap()
                 .is_none()
         );
@@ -494,7 +494,7 @@ fn actual_b_signed_broad_endorsement_accepts_its_own_pruned_legacy_for_c() {
         let accepted = apps[1]
             .account_storage("test")
             .unwrap()
-            .current_account_chat_source(&account, &local, &group)
+            .app_storage().current_account_chat_source(&account, &local, &group)
             .unwrap();
         for runtime in &runtimes {
             runtime.shutdown_and_close().await.unwrap();

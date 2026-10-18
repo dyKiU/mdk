@@ -144,7 +144,7 @@ impl AppClient {
         let storage = self.app.account_storage(&self.state.label)?;
         let mut additions = Vec::new();
         if storage
-            .current_account_chat_source(&change.account, &change.local_device, group)?
+            .app_storage().current_account_chat_source(&change.account, &change.local_device, group)?
             .is_none()
         {
             // The persisted real Welcome projection supplies pending lineage
@@ -233,7 +233,7 @@ impl AppClient {
         )?;
         let storage = self.app.account_storage(&self.state.label)?;
         let mut verdict =
-            storage.current_account_chat_source(&scope.account, &scope.local_device, group)?;
+            storage.app_storage().current_account_chat_source(&scope.account, &scope.local_device, group)?;
         if verdict.is_none() {
             let persisted = self
                 .app
@@ -274,7 +274,7 @@ impl AppClient {
                         explicitly_accepted: true,
                     },
                 )?;
-                storage.apply_account_chat_source_changes(
+                storage.app_storage().apply_account_chat_source_changes(
                     std::slice::from_ref(&observed),
                     &|change| {
                         self.validate_chat_source_change(change)?;
@@ -328,7 +328,7 @@ impl AppClient {
                         Ok(())
                     },
                 )?;
-                verdict = storage.current_account_chat_source(
+                verdict = storage.app_storage().current_account_chat_source(
                     &scope.account,
                     &scope.local_device,
                     group,
@@ -339,12 +339,12 @@ impl AppClient {
             return Ok(false);
         }
 
-        let accepted_origin = storage.current_account_chat_source_origin(
+        let accepted_origin = storage.app_storage().current_account_chat_source_origin(
             &scope.account,
             &scope.local_device,
             group,
         )?;
-        if storage.account_chat_departure_denies_source(
+        if storage.app_storage().account_chat_departure_denies_source(
             &scope.account,
             &scope.local_device,
             group,
@@ -370,16 +370,16 @@ impl AppClient {
         )?;
         let storage = self.app.account_storage(&self.state.label)?;
         let origin = storage
-            .current_account_chat_source_origin(&scope.account, &scope.local_device, group)?
-            .or(storage.current_account_chat_source_terminal_origin(
+            .app_storage().current_account_chat_source_origin(&scope.account, &scope.local_device, group)?
+            .or(storage.app_storage().current_account_chat_source_terminal_origin(
                 &scope.account,
                 &scope.local_device,
                 group,
             )?);
         Ok(
-            storage.current_account_chat_source(&scope.account, &scope.local_device, group)?
+            storage.app_storage().current_account_chat_source(&scope.account, &scope.local_device, group)?
                 == Some(AccountChatSourceVerdict::Denied)
-                || storage.account_chat_departure_denies_source(
+                || storage.app_storage().account_chat_departure_denies_source(
                     &scope.account,
                     &scope.local_device,
                     group,

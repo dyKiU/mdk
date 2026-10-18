@@ -4889,7 +4889,7 @@ impl MarmotApp {
             // This successful construction holds the exclusive account-session
             // guard. Competing or earlier failed opens never clear a live flow.
             let storage = Arc::new(self.account_storage(label)?);
-            storage.abandon_device_linking_on_startup()?;
+            storage.app_storage().abandon_device_linking_on_startup()?;
             // Exclusive account opening abandons unfinished local settlement
             // admission; completed facts remain subject to fresh MLS validation.
             if let Some(settlement) =

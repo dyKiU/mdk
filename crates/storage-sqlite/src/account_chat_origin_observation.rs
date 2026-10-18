@@ -1,6 +1,6 @@
 //! Retained, authenticated source-lineage metadata for negative target checks.
 //! Reading this metadata never grants sharing policy or ordinary MLS membership.
-use crate::{SqliteAccountStorage, SqliteResultExt};
+use crate::{SqliteAppStorage, SqliteResultExt};
 use cgka_traits::{
     GroupId,
     mirrored_chat_catalog::AcceptedChatOrigin,
@@ -86,7 +86,7 @@ fn invalid() -> StorageError {
     StorageError::Serialization("invalid account chat origin observation".into())
 }
 
-impl SqliteAccountStorage {
+impl SqliteAppStorage {
     /// Exact configured-owner/source/group observation, independent of whether
     /// the source is presently eligible. Callers must separately validate the
     /// actual approved policy and Core original before any state transition.
@@ -110,6 +110,7 @@ impl SqliteAccountStorage {
 
 #[cfg(test)]
 mod tests {
+    use crate::SqliteAccountStorage;
     use super::*;
     use cgka_traits::{
         MemberId,
@@ -129,13 +130,13 @@ mod tests {
         let group = GroupId::new(vec![8; 16]);
         assert!(
             storage
-                .current_mirrored_chat_origin_observation(&[1; 32], &[2; 32], &[3; 32], &group)
+                .app_storage().current_mirrored_chat_origin_observation(&[1; 32], &[2; 32], &[3; 32], &group)
                 .unwrap()
                 .is_none()
         );
         storage.lock().unwrap().execute("INSERT INTO mirrored_chat_origin_current(account,local_device,source_device,group_id,origin_id,origin_order,epoch) VALUES(?1,?2,?3,?4,?5,2,1)",params![[1u8;32].as_slice(),[2u8;32].as_slice(),[3u8;32].as_slice(),group.as_slice(),[4u8;32].as_slice()]).unwrap();
         let value = storage
-            .current_mirrored_chat_origin_observation(&[1; 32], &[2; 32], &[3; 32], &group)
+            .app_storage().current_mirrored_chat_origin_observation(&[1; 32], &[2; 32], &[3; 32], &group)
             .unwrap()
             .unwrap();
         assert!(
@@ -147,13 +148,13 @@ mod tests {
         );
         assert!(
             storage
-                .current_mirrored_chat_origin_observation(&[1; 32], &[2; 32], &[9; 32], &group)
+                .app_storage().current_mirrored_chat_origin_observation(&[1; 32], &[2; 32], &[9; 32], &group)
                 .unwrap()
                 .is_none()
         );
         assert!(
             storage
-                .current_mirrored_chat_origin_observation(
+                .app_storage().current_mirrored_chat_origin_observation(
                     &[1; 32],
                     &[2; 32],
                     &[3; 32],
@@ -164,17 +165,17 @@ mod tests {
         );
         assert!(
             storage
-                .current_mirrored_chat_origin_observation(&[9; 32], &[2; 32], &[3; 32], &group)
+                .app_storage().current_mirrored_chat_origin_observation(&[9; 32], &[2; 32], &[3; 32], &group)
                 .is_err()
         );
         assert!(
             storage
-                .current_mirrored_chat_origin_observation(&[1; 32], &[9; 32], &[3; 32], &group)
+                .app_storage().current_mirrored_chat_origin_observation(&[1; 32], &[9; 32], &[3; 32], &group)
                 .is_err()
         );
         assert!(
             storage
-                .current_mirrored_chat_origin_observation(
+                .app_storage().current_mirrored_chat_origin_observation(
                     &[1; 32],
                     &[2; 32],
                     &[3; 32],

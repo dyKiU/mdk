@@ -59,9 +59,9 @@ impl crate::MarmotApp {
                 crate::AppError::InvalidAppMessagePayload("invalid account signer".into())
             })?;
         let origin = storage
-            .current_account_chat_source_origin(&account, &local, group)?
-            .or(storage.current_account_chat_source_terminal_origin(&account, &local, group)?);
-        if storage.account_chat_departure_denies_source(&account, &local, group, &local, origin)? {
+            .app_storage().current_account_chat_source_origin(&account, &local, group)?
+            .or(storage.app_storage().current_account_chat_source_terminal_origin(&account, &local, group)?);
+        if storage.app_storage().account_chat_departure_denies_source(&account, &local, group, &local, origin)? {
             return Err(crate::AppError::AccountChatDepartureDenied);
         }
         Ok(())

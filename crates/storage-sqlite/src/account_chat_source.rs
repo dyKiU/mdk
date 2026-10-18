@@ -4,7 +4,7 @@
 //! projection checkpoint owns the outer transaction so acceptance cannot commit
 //! independently of its displayed pending state. Local hiding retains this ledger.
 
-use crate::{SqliteAccountStorage, SqliteResultExt};
+use crate::{SqliteAppStorage, SqliteResultExt};
 use cgka_traits::{
     GroupId, MessageId,
     storage::{StorageError, StorageResult},
@@ -95,7 +95,7 @@ pub(super) fn identity(change: &AccountChatSourceChange) -> StorageResult<([u8; 
     Ok((hash.finalize().into(), origin))
 }
 
-impl SqliteAccountStorage {
+impl SqliteAppStorage {
     /// Compose with the account projection save in the caller's transaction.
     /// The callback revalidates the actual event/action and fresh Core state;
     /// retained facts alone cannot authorize acceptance.
@@ -345,6 +345,7 @@ impl SqliteAccountStorage {
 
 #[cfg(test)]
 mod tests {
+    use crate::SqliteAccountStorage;
     use super::*;
     use cgka_traits::{
         MemberId,
@@ -387,7 +388,7 @@ mod tests {
     }
     fn verdict(storage: &SqliteAccountStorage) -> Option<AccountChatSourceVerdict> {
         storage
-            .current_account_chat_source(&[1; 32], &[2; 32], &GroupId::new(vec![8; 16]))
+            .app_storage().current_account_chat_source(&[1; 32], &[2; 32], &GroupId::new(vec![8; 16]))
             .unwrap()
     }
     #[test]
@@ -396,12 +397,12 @@ mod tests {
         let group = GroupId::new(vec![8; 16]);
         let read = || {
             storage
-                .current_account_chat_source_origin(&[1; 32], &[2; 32], &group)
+                .app_storage().current_account_chat_source_origin(&[1; 32], &[2; 32], &group)
                 .unwrap()
         };
         let apply = |origin, operation| {
             storage
-                .apply_account_chat_source_changes(&[change(origin, operation)], &|_| Ok(()))
+                .app_storage().apply_account_chat_source_changes(&[change(origin, operation)], &|_| Ok(()))
                 .unwrap()
         };
         assert!(read().is_none());
@@ -419,7 +420,7 @@ mod tests {
         assert!(read().is_none());
         assert!(
             storage
-                .current_account_chat_source_terminal_origin(&[1; 32], &[2; 32], &group)
+                .app_storage().current_account_chat_source_terminal_origin(&[1; 32], &[2; 32], &group)
                 .unwrap()
                 == Some(first)
         );
@@ -433,17 +434,17 @@ mod tests {
         assert!(second.id != first.id && second.order > first.order);
         assert!(
             storage
-                .account_chat_source_origin_was_accepted(&[1; 32], &[2; 32], &group, first)
+                .app_storage().account_chat_source_origin_was_accepted(&[1; 32], &[2; 32], &group, first)
                 .unwrap()
         );
         assert!(
             storage
-                .account_chat_source_origin_was_accepted(&[1; 32], &[2; 32], &group, second)
+                .app_storage().account_chat_source_origin_was_accepted(&[1; 32], &[2; 32], &group, second)
                 .unwrap()
         );
         assert!(
             !storage
-                .account_chat_source_origin_was_accepted(
+                .app_storage().account_chat_source_origin_was_accepted(
                     &[1; 32],
                     &[2; 32],
                     &group,
@@ -456,7 +457,7 @@ mod tests {
         );
         assert!(
             !storage
-                .account_chat_source_origin_was_accepted(
+                .app_storage().account_chat_source_origin_was_accepted(
                     &[1; 32],
                     &[2; 32],
                     &group,
@@ -470,12 +471,12 @@ mod tests {
 
         assert!(
             storage
-                .current_account_chat_source_origin(&[9; 32], &[2; 32], &group)
+                .app_storage().current_account_chat_source_origin(&[9; 32], &[2; 32], &group)
                 .is_err()
         );
         assert!(
             storage
-                .current_account_chat_source_origin(&[1; 32], &[9; 32], &group)
+                .app_storage().current_account_chat_source_origin(&[1; 32], &[9; 32], &group)
                 .is_err()
         );
     }
@@ -485,7 +486,7 @@ mod tests {
         let storage = configured();
         let apply = |origin, operation| {
             storage
-                .apply_account_chat_source_changes(&[change(origin, operation)], &|_| Ok(()))
+                .app_storage().apply_account_chat_source_changes(&[change(origin, operation)], &|_| Ok(()))
                 .unwrap()
         };
         apply(
@@ -513,7 +514,7 @@ mod tests {
         apply(joined(4), AccountChatSourceOperation::Deny);
         assert!(
             storage
-                .apply_account_chat_source_changes(
+                .app_storage().apply_account_chat_source_changes(
                     &[change(joined(4), AccountChatSourceOperation::Accept)],
                     &|_| Ok(())
                 )
@@ -545,7 +546,7 @@ mod tests {
                     [],
                 )
                 .storage()?;
-            storage.apply_account_chat_source_changes(&[source], &|_| {
+            storage.app_storage().apply_account_chat_source_changes(&[source], &|_| {
                 calls.set(calls.get() + 1);
                 if calls.get() == 2 {
                     Err(invalid())
@@ -577,10 +578,10 @@ mod tests {
             },
         );
         storage
-            .apply_account_chat_source_changes(std::slice::from_ref(&source), &|_| Ok(()))
+            .app_storage().apply_account_chat_source_changes(std::slice::from_ref(&source), &|_| Ok(()))
             .unwrap();
         storage
-            .apply_account_chat_source_changes(
+            .app_storage().apply_account_chat_source_changes(
                 &[change(joined(3), AccountChatSourceOperation::Deny)],
                 &|_| Ok(()),
             )
@@ -600,7 +601,7 @@ mod tests {
         wrong.local_device = [9; 32];
         assert!(
             storage
-                .apply_account_chat_source_changes(&[wrong], &|_| Ok(()))
+                .app_storage().apply_account_chat_source_changes(&[wrong], &|_| Ok(()))
                 .is_err()
         );
         assert!(verdict(&storage) == Some(AccountChatSourceVerdict::Denied));
@@ -623,7 +624,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
             storage
-                .apply_account_chat_source_changes(&changes, &|_| Ok(()))
+                .app_storage().apply_account_chat_source_changes(&changes, &|_| Ok(()))
                 .unwrap();
             let denied = changes
                 .iter()
@@ -640,14 +641,14 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
             storage
-                .apply_account_chat_source_changes(&denied, &|_| Ok(()))
+                .app_storage().apply_account_chat_source_changes(&denied, &|_| Ok(()))
                 .unwrap();
         }
         assert!(verdict(&storage) == Some(AccountChatSourceVerdict::Accepted));
         let last = AccountChatSourceOrigin::Joined {
             via_welcome: MessageId::new((8191u32).to_be_bytes().to_vec()),
         };
-        let rejected = storage.apply_account_chat_source_changes(
+        let rejected = storage.app_storage().apply_account_chat_source_changes(
             &[
                 change(last, AccountChatSourceOperation::Deny),
                 change(
@@ -693,7 +694,7 @@ mod tests {
         );
         pending.group = GroupId::new(vec![9; 16]);
         storage
-            .apply_account_chat_source_changes(&[accepted.clone(), pending.clone()], &|_| Ok(()))
+            .app_storage().apply_account_chat_source_changes(&[accepted.clone(), pending.clone()], &|_| Ok(()))
             .unwrap();
         for c in [&accepted, &pending] {
             storage
@@ -710,19 +711,19 @@ mod tests {
         }
         storage.close().unwrap();
         assert!(matches!(
-            storage.current_account_chat_source(&[1; 32], &[2; 32], &accepted.group),
+            storage.app_storage().current_account_chat_source(&[1; 32], &[2; 32], &accepted.group),
             Err(StorageError::Closed(_))
         ));
         let reopened = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
         assert!(
             reopened
-                .current_account_chat_source(&[1; 32], &[2; 32], &accepted.group)
+                .app_storage().current_account_chat_source(&[1; 32], &[2; 32], &accepted.group)
                 .unwrap()
                 == Some(AccountChatSourceVerdict::Accepted)
         );
         assert!(
             reopened
-                .current_account_chat_source(&[1; 32], &[2; 32], &pending.group)
+                .app_storage().current_account_chat_source(&[1; 32], &[2; 32], &pending.group)
                 .unwrap()
                 == Some(AccountChatSourceVerdict::Pending)
         );

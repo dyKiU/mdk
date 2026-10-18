@@ -114,7 +114,7 @@ impl AppClient {
                 .account_storage(&self.state.label)
                 .map_err(|_| HistoryTransferError::RuntimeUnavailable)?;
             if !storage
-                .observe_synchronized_history_request(
+                .app_storage().observe_synchronized_history_request(
                     &account,
                     &device,
                     &received.transfer,
@@ -592,7 +592,7 @@ impl AppClient {
                         .map_err(|_| HistoryTransferError::RuntimeUnavailable)
                         .and_then(|storage| {
                             storage
-                                .cancel_synchronized_history_archive(staging)
+                                .app_storage().cancel_synchronized_history_archive(staging)
                                 .map_err(|_| HistoryTransferError::RuntimeUnavailable)
                         });
                     if let Err(error) = cleanup {
@@ -726,7 +726,7 @@ impl AppClient {
                                 .is_err()
                     };
                     let receipt = storage
-                        .stage_synchronized_history_archive_fragment(
+                        .app_storage().stage_synchronized_history_archive_fragment(
                             &staging,
                             ordinal,
                             &opened.body,

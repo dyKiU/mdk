@@ -6309,7 +6309,7 @@ impl AppClient {
             let created_chat_list_row = {
                 let storage = self.app.account_storage(&self.state.label)?;
                 cgka_traits::StorageProvider::with_transaction(&storage, |_| {
-                    storage.apply_account_chat_source_changes(
+                    storage.app_storage().apply_account_chat_source_changes(
                         &self.pending_chat_source_changes,
                         &|change| self.validate_chat_source_change(change),
                     )?;

@@ -2,10 +2,9 @@
 use crate::account_chat_source::{
     AccountChatSourceChange, AccountChatSourceOperation, AccountChatSourceOrigin, identity,
 };
-use crate::{SqliteAccountStorage, SqliteResultExt};
+use crate::{SqliteAppStorage, SqliteResultExt};
 use cgka_traits::{
-    StorageProvider,
-    approved_account_sharing_policy::approved_account_sharing_identity,
+    approved_account_sharing_policy::{approved_account_sharing_identity, ApprovedAccountSharingPolicyStorage},
     storage::{StorageError, StorageResult},
 };
 use rusqlite::{OptionalExtension, params};
@@ -17,7 +16,7 @@ fn denied() -> StorageError {
     StorageError::Serialization("explicit legacy chat acceptance unavailable".into())
 }
 
-impl SqliteAccountStorage {
+impl SqliteAppStorage {
     /// Compose with the FIRST actual original approval-policy write in an outer
     /// transaction. The App validates its held human original and each captured
     /// existing nonpending Member group before/tail. A policy row is not that
@@ -31,10 +30,7 @@ impl SqliteAccountStorage {
         if changes.is_empty() || changes.len() > 128 {
             return Err(denied());
         }
-        let policies = self
-            .approved_account_sharing_policy_storage()
-            .ok_or_else(denied)?
-            .approved_account_sharing_policies()?;
+        let policies = self.approved_account_sharing_policies()?;
         let policy = policies
             .iter()
             .find(|policy| {

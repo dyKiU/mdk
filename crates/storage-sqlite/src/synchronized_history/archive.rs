@@ -174,7 +174,7 @@ fn check_cancelled(cancelled: &dyn Fn() -> bool) -> Result<()> {
     }
 }
 
-impl SqliteAccountStorage {
+impl SqliteAppStorage {
     /// Caller retains its live original authority through the SQL transaction.
     /// Only the final receipt attests a completed logical import in that transaction.
     pub fn stage_synchronized_history_archive_fragment(

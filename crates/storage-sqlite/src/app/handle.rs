@@ -2,6 +2,8 @@
 
 use crate::base::connection::{ConnectionGuard, SharedConnection};
 use cgka_traits::storage::StorageResult;
+#[cfg(feature = "experimental-device-sync")]
+use cgka_traits::storage::StorageError;
 
 /// The app side's handle on an account database. It shares the account's
 /// connection, so it opens nothing of its own, closes with the account
@@ -15,6 +17,18 @@ pub struct SqliteAppStorage {
 impl SqliteAppStorage {
     pub(crate) fn lock(&self) -> StorageResult<ConnectionGuard<'_>> {
         self.connection.lock()
+    }
+
+    /// A deferred, query-only snapshot over this same account connection.
+    /// Nested calls retain the caller's transaction and restore query-only state.
+    #[cfg(feature = "experimental-device-sync")]
+    pub(crate) fn with_read_snapshot<T, E, F>(&self, f: F) -> Result<T, E>
+    where
+        E: From<StorageError>,
+        F: FnOnce(&Self) -> Result<T, E>,
+    {
+        self.connection
+            .with_transaction_mode(true, || self.connection.with_query_only(|| f(self)))
     }
 
     /// Whether the shared account connection has been closed.

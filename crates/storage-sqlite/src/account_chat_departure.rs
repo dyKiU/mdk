@@ -1,5 +1,5 @@
 //! Negative user departure journal. Rows never supply membership or sharing authority.
-use crate::{SqliteAccountStorage, SqliteResultExt};
+use crate::{SqliteAppStorage, SqliteResultExt};
 use cgka_traits::{
     GroupId,
     mirrored_chat_catalog::AcceptedChatOrigin,
@@ -148,7 +148,7 @@ pub(crate) fn account_chat_departure_denies_source_on_connection(
     conn.query_row("SELECT EXISTS(SELECT 1 FROM account_chat_departures d JOIN account_chat_departure_cuts c USING(action_id) WHERE d.account=?1 AND d.local_device=?2 AND d.group_id=?3 AND c.source_device=?4 AND (?5=0 OR c.origin_id=?6 OR c.origin_order>=?5))", params![account.as_slice(),local.as_slice(),group.as_slice(),source.as_slice(),order as i64,id], |row| row.get(0)).storage()
 }
 
-impl SqliteAccountStorage {
+impl SqliteAppStorage {
     /// Compose the durable cuts/outbox with caller work; validate the same actual
     /// owner before mutation and at SQL tail. Duplicate exact controls are idempotent.
     pub fn apply_account_chat_departure(

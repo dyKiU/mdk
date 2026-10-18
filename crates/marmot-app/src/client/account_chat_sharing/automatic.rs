@@ -1578,21 +1578,21 @@ impl AppClient {
             (String::new(), String::new())
         };
         let accepted_origin = if state == MirroredChatState::Active {
-            storage.current_account_chat_source_origin(
+            storage.app_storage().current_account_chat_source_origin(
                 &entry.policy.account,
                 &entry.policy.local_device,
                 &group_id,
             )
         } else {
             storage
-                .current_account_chat_source_terminal_origin(
+                .app_storage().current_account_chat_source_terminal_origin(
                     &entry.policy.account,
                     &entry.policy.local_device,
                     &group_id,
                 )
                 .and_then(|origin| match origin {
                     Some(_) => Ok(origin),
-                    None => storage.current_account_chat_source_origin(
+                    None => storage.app_storage().current_account_chat_source_origin(
                         &entry.policy.account,
                         &entry.policy.local_device,
                         &group_id,

@@ -1,3 +1,4 @@
+use crate::SqliteAccountStorage;
 use super::*;
 use cgka_traits::{
     MemberId,
@@ -80,17 +81,17 @@ fn exact_negative_intent_is_idempotent_and_new_accepted_origin_is_not_denied() {
     let intent = fixture_intent();
     assert!(
         storage
-            .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+            .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
             .unwrap()
     );
     assert!(
         !storage
-            .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+            .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
             .unwrap()
     );
     assert!(
         storage
-            .account_chat_departure_denies_source(
+            .app_storage().account_chat_departure_denies_source(
                 &[1; 32],
                 &[2; 32],
                 &intent.group,
@@ -101,12 +102,12 @@ fn exact_negative_intent_is_idempotent_and_new_accepted_origin_is_not_denied() {
     );
     assert!(
         storage
-            .account_chat_departure_denies_source(&[1; 32], &[2; 32], &intent.group, &[3; 32], None)
+            .app_storage().account_chat_departure_denies_source(&[1; 32], &[2; 32], &intent.group, &[3; 32], None)
             .unwrap()
     );
     assert!(
         !storage
-            .account_chat_departure_denies_source(
+            .app_storage().account_chat_departure_denies_source(
                 &[1; 32],
                 &[2; 32],
                 &intent.group,
@@ -120,12 +121,12 @@ fn exact_negative_intent_is_idempotent_and_new_accepted_origin_is_not_denied() {
     );
     assert!(
         !storage
-            .account_chat_departure_denies_source(&[1; 32], &[2; 32], &intent.group, &[9; 32], None)
+            .app_storage().account_chat_departure_denies_source(&[1; 32], &[2; 32], &intent.group, &[9; 32], None)
             .unwrap()
     );
     assert!(
         storage
-            .account_chat_departure_denies_source(&[9; 32], &[2; 32], &intent.group, &[3; 32], None)
+            .app_storage().account_chat_departure_denies_source(&[9; 32], &[2; 32], &intent.group, &[3; 32], None)
             .is_err()
     );
 }
@@ -136,7 +137,7 @@ fn tail_failure_rolls_back_negative_cuts_and_outbox_together() {
     let calls = Cell::new(0);
     assert!(
         storage
-            .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| {
+            .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| {
                 calls.set(calls.get() + 1);
                 if calls.get() == 2 {
                     Err(StorageError::Busy("injected departure tail fault".into()))
@@ -148,18 +149,18 @@ fn tail_failure_rolls_back_negative_cuts_and_outbox_together() {
     );
     assert!(
         !storage
-            .account_chat_departure_denies_source(&[1; 32], &[2; 32], &intent.group, &[3; 32], None)
+            .app_storage().account_chat_departure_denies_source(&[1; 32], &[2; 32], &intent.group, &[3; 32], None)
             .unwrap()
     );
     assert!(
         storage
-            .account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 1)
+            .app_storage().account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 1)
             .unwrap()
             .is_empty()
     );
     assert!(
         storage
-            .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+            .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
             .unwrap()
     );
 }
@@ -168,11 +169,11 @@ fn only_exact_authenticated_peer_route_can_acknowledge_and_refusal_is_honest() {
     let storage = configured();
     let intent = fixture_intent();
     storage
-        .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
         .unwrap();
     assert!(
         storage
-            .acknowledge_account_chat_departure(
+            .app_storage().acknowledge_account_chat_departure(
                 &[1; 32],
                 &[2; 32],
                 &intent.action_id,
@@ -187,7 +188,7 @@ fn only_exact_authenticated_peer_route_can_acknowledge_and_refusal_is_honest() {
             .is_err()
     );
     storage
-        .acknowledge_account_chat_departure(
+        .app_storage().acknowledge_account_chat_departure(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -201,13 +202,13 @@ fn only_exact_authenticated_peer_route_can_acknowledge_and_refusal_is_honest() {
         )
         .unwrap();
     let progress = storage
-        .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+        .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
         .unwrap()
         .unwrap();
     assert_eq!(progress.pending_peers, 1);
     assert!(progress.needs_administrator);
     storage
-        .acknowledge_account_chat_departure(
+        .app_storage().acknowledge_account_chat_departure(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -221,7 +222,7 @@ fn only_exact_authenticated_peer_route_can_acknowledge_and_refusal_is_honest() {
         )
         .unwrap();
     let progress = storage
-        .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+        .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
         .unwrap()
         .unwrap();
     assert_eq!(progress.pending_peers, 0);
@@ -235,7 +236,7 @@ fn malformed_target_scope_and_received_transitive_routes_are_refused() {
     intent.action_id = intent.identity();
     assert!(
         storage
-            .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+            .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
             .is_err()
     );
     let mut received = fixture_intent();
@@ -243,7 +244,7 @@ fn malformed_target_scope_and_received_transitive_routes_are_refused() {
     received.action_id = received.identity();
     assert!(
         storage
-            .apply_account_chat_departure(&[2; 32], &received, &[[4; 32]], &|| Ok(()))
+            .app_storage().apply_account_chat_departure(&[2; 32], &received, &[[4; 32]], &|| Ok(()))
             .is_err()
     );
 }
@@ -253,10 +254,10 @@ fn offline_receipts_and_awaiting_sources_do_not_claim_completion() {
     let storage = configured();
     let intent = fixture_intent();
     storage
-        .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
         .unwrap();
     storage
-        .mark_account_chat_departure_local_state(
+        .app_storage().mark_account_chat_departure_local_state(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -265,14 +266,14 @@ fn offline_receipts_and_awaiting_sources_do_not_claim_completion() {
         )
         .unwrap();
     let progress = storage
-        .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+        .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
         .unwrap()
         .unwrap();
     assert!(progress.local_complete);
     assert!(!progress.global_complete);
     assert_eq!(progress.pending_peers, 1);
     storage
-        .acknowledge_account_chat_departure(
+        .app_storage().acknowledge_account_chat_departure(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -287,14 +288,14 @@ fn offline_receipts_and_awaiting_sources_do_not_claim_completion() {
         .unwrap();
     assert!(
         storage
-            .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+            .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
             .unwrap()
             .unwrap()
             .awaiting_sources
     );
     assert!(
         storage
-            .acknowledge_account_chat_departure(
+            .app_storage().acknowledge_account_chat_departure(
                 &[1; 32],
                 &[2; 32],
                 &intent.action_id,
@@ -309,7 +310,7 @@ fn offline_receipts_and_awaiting_sources_do_not_claim_completion() {
             .is_err()
     );
     storage
-        .acknowledge_account_chat_departure(
+        .app_storage().acknowledge_account_chat_departure(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -323,16 +324,16 @@ fn offline_receipts_and_awaiting_sources_do_not_claim_completion() {
         )
         .unwrap();
     storage
-        .finalize_account_chat_departure_coordinator(&[1; 32], &[2; 32], &|| Ok(()))
+        .app_storage().finalize_account_chat_departure_coordinator(&[1; 32], &[2; 32], &|| Ok(()))
         .unwrap();
     let progress = storage
-        .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+        .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
         .unwrap()
         .unwrap();
     assert!(progress.global_complete);
     assert!(!progress.awaiting_sources);
     let row = storage
-        .account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 1)
+        .app_storage().account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 1)
         .unwrap()
         .remove(0);
     assert!(row.kind == AccountChatDepartureDeliveryKind::CompletionNotice);
@@ -347,10 +348,10 @@ fn original_negative_operation_and_offline_outbox_survive_encrypted_reopen() {
     configure(&storage);
     let intent = fixture_intent();
     storage
-        .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
         .unwrap();
     storage
-        .mark_account_chat_departure_local_state(
+        .app_storage().mark_account_chat_departure_local_state(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -361,7 +362,7 @@ fn original_negative_operation_and_offline_outbox_survive_encrypted_reopen() {
     drop(storage);
     let reopened = SqliteAccountStorage::open_encrypted(&path, &key).unwrap();
     let progress = reopened
-        .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+        .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
         .unwrap()
         .unwrap();
     assert_eq!(progress.action_id, intent.action_id);
@@ -369,13 +370,13 @@ fn original_negative_operation_and_offline_outbox_survive_encrypted_reopen() {
     assert!(!progress.global_complete);
     assert_eq!(progress.pending_peers, 1);
     let row = reopened
-        .account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 1)
+        .app_storage().account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 1)
         .unwrap()
         .remove(0);
     assert!(row.intent == intent && row.kind == AccountChatDepartureDeliveryKind::Intent);
     assert!(
         reopened
-            .account_chat_departure_denies_source(
+            .app_storage().account_chat_departure_denies_source(
                 &[1; 32],
                 &[2; 32],
                 &intent.group,
@@ -391,10 +392,10 @@ fn published_leave_clears_local_actionable_refusal_but_waits_for_actual_removal(
     let storage = configured();
     let intent = fixture_intent();
     storage
-        .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
         .unwrap();
     storage
-        .mark_account_chat_departure_needs_administrator(
+        .app_storage().mark_account_chat_departure_needs_administrator(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -404,13 +405,13 @@ fn published_leave_clears_local_actionable_refusal_but_waits_for_actual_removal(
         .unwrap();
     assert!(
         storage
-            .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+            .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
             .unwrap()
             .unwrap()
             .needs_administrator
     );
     storage
-        .mark_account_chat_departure_local_state(
+        .app_storage().mark_account_chat_departure_local_state(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -419,12 +420,12 @@ fn published_leave_clears_local_actionable_refusal_but_waits_for_actual_removal(
         )
         .unwrap();
     let pending = storage
-        .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+        .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
         .unwrap()
         .unwrap();
     assert!(!pending.needs_administrator && !pending.local_complete && !pending.global_complete);
     storage
-        .acknowledge_account_chat_departure(
+        .app_storage().acknowledge_account_chat_departure(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -438,11 +439,11 @@ fn published_leave_clears_local_actionable_refusal_but_waits_for_actual_removal(
         )
         .unwrap();
     storage
-        .finalize_account_chat_departure_coordinator(&[1; 32], &[2; 32], &|| Ok(()))
+        .app_storage().finalize_account_chat_departure_coordinator(&[1; 32], &[2; 32], &|| Ok(()))
         .unwrap();
     assert!(
         !storage
-            .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+            .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
             .unwrap()
             .unwrap()
             .global_complete
@@ -454,10 +455,10 @@ fn fresh_accepted_lineage_admits_distinct_negative_operation_without_old_cut() {
     let storage = configured();
     let first = fixture_intent();
     storage
-        .apply_account_chat_departure(&[2; 32], &first, &[[3; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &first, &[[3; 32]], &|| Ok(()))
         .unwrap();
     storage
-        .mark_account_chat_departure_local_state(
+        .app_storage().mark_account_chat_departure_local_state(
             &[1; 32],
             &[2; 32],
             &first.action_id,
@@ -466,7 +467,7 @@ fn fresh_accepted_lineage_admits_distinct_negative_operation_without_old_cut() {
         )
         .unwrap();
     storage
-        .acknowledge_account_chat_departure(
+        .app_storage().acknowledge_account_chat_departure(
             &[1; 32],
             &[2; 32],
             &first.action_id,
@@ -480,7 +481,7 @@ fn fresh_accepted_lineage_admits_distinct_negative_operation_without_old_cut() {
         )
         .unwrap();
     storage
-        .finalize_account_chat_departure_coordinator(&[1; 32], &[2; 32], &|| Ok(()))
+        .app_storage().finalize_account_chat_departure_coordinator(&[1; 32], &[2; 32], &|| Ok(()))
         .unwrap();
     let mut fresh = first.clone();
     fresh.targets[0].accepted_origin = AcceptedChatOrigin {
@@ -492,7 +493,7 @@ fn fresh_accepted_lineage_admits_distinct_negative_operation_without_old_cut() {
     set_source_origin(&storage, [3; 32], fresh.targets[0].accepted_origin);
     assert!(
         !storage
-            .account_chat_departure_denies_source(
+            .app_storage().account_chat_departure_denies_source(
                 &[1; 32],
                 &[2; 32],
                 &fresh.group,
@@ -502,10 +503,10 @@ fn fresh_accepted_lineage_admits_distinct_negative_operation_without_old_cut() {
             .unwrap()
     );
     storage
-        .apply_account_chat_departure(&[2; 32], &fresh, &[[3; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &fresh, &[[3; 32]], &|| Ok(()))
         .unwrap();
     let current = storage
-        .account_chat_departure_progress(&[1; 32], &[2; 32], &fresh.group)
+        .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &fresh.group)
         .unwrap()
         .unwrap();
     assert_eq!(current.action_id, fresh.action_id);
@@ -517,10 +518,10 @@ fn local_publication_does_not_clear_authenticated_peer_awaiting_source_receipt()
     let storage = configured();
     let intent = fixture_intent();
     storage
-        .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32], [6; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32], [6; 32]], &|| Ok(()))
         .unwrap();
     storage
-        .mark_account_chat_departure_needs_administrator(
+        .app_storage().mark_account_chat_departure_needs_administrator(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -529,7 +530,7 @@ fn local_publication_does_not_clear_authenticated_peer_awaiting_source_receipt()
         )
         .unwrap();
     storage
-        .mark_account_chat_departure_awaiting_sources(
+        .app_storage().mark_account_chat_departure_awaiting_sources(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -538,7 +539,7 @@ fn local_publication_does_not_clear_authenticated_peer_awaiting_source_receipt()
         )
         .unwrap();
     storage
-        .acknowledge_account_chat_departure(
+        .app_storage().acknowledge_account_chat_departure(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -552,7 +553,7 @@ fn local_publication_does_not_clear_authenticated_peer_awaiting_source_receipt()
         )
         .unwrap();
     storage
-        .acknowledge_account_chat_departure(
+        .app_storage().acknowledge_account_chat_departure(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -566,7 +567,7 @@ fn local_publication_does_not_clear_authenticated_peer_awaiting_source_receipt()
         )
         .unwrap();
     storage
-        .mark_account_chat_departure_local_state(
+        .app_storage().mark_account_chat_departure_local_state(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -575,7 +576,7 @@ fn local_publication_does_not_clear_authenticated_peer_awaiting_source_receipt()
         )
         .unwrap();
     let pending = storage
-        .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+        .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
         .unwrap()
         .unwrap();
     assert!(!pending.needs_administrator);
@@ -585,7 +586,7 @@ fn local_publication_does_not_clear_authenticated_peer_awaiting_source_receipt()
     // Even our later genuine removal does not complete the coordinator while
     // that independently authenticated peer still reports unknown sources.
     storage
-        .mark_account_chat_departure_local_state(
+        .app_storage().mark_account_chat_departure_local_state(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -594,10 +595,10 @@ fn local_publication_does_not_clear_authenticated_peer_awaiting_source_receipt()
         )
         .unwrap();
     storage
-        .finalize_account_chat_departure_coordinator(&[1; 32], &[2; 32], &|| Ok(()))
+        .app_storage().finalize_account_chat_departure_coordinator(&[1; 32], &[2; 32], &|| Ok(()))
         .unwrap();
     let pending = storage
-        .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+        .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
         .unwrap()
         .unwrap();
     assert!(pending.local_complete && pending.awaiting_sources);
@@ -626,16 +627,16 @@ fn delayed_old_completed_intent_does_not_replace_fresh_pending_progress() {
     fresh.action_id = fresh.identity();
     set_source_origin(&storage, [3; 32], fresh.targets[0].accepted_origin);
     storage
-        .apply_account_chat_departure(&[2; 32], &fresh, &[[3; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &fresh, &[[3; 32]], &|| Ok(()))
         .unwrap();
     let mut old = fixture_intent();
     old.initiator = [3; 32];
     old.action_id = old.identity();
     storage
-        .apply_account_chat_departure(&[2; 32], &old, &[[3; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &old, &[[3; 32]], &|| Ok(()))
         .unwrap();
     storage
-        .mark_account_chat_departure_local_state(
+        .app_storage().mark_account_chat_departure_local_state(
             &[1; 32],
             &[2; 32],
             &old.action_id,
@@ -644,7 +645,7 @@ fn delayed_old_completed_intent_does_not_replace_fresh_pending_progress() {
         )
         .unwrap();
     storage
-        .account_chat_departure_completion(
+        .app_storage().account_chat_departure_completion(
             &[1; 32],
             &[2; 32],
             &old.action_id,
@@ -654,7 +655,7 @@ fn delayed_old_completed_intent_does_not_replace_fresh_pending_progress() {
         )
         .unwrap();
     let progress = storage
-        .account_chat_departure_progress(&[1; 32], &[2; 32], &fresh.group)
+        .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &fresh.group)
         .unwrap()
         .unwrap();
     assert_eq!(progress.action_id, fresh.action_id);
@@ -666,16 +667,16 @@ fn concurrent_current_lineage_pending_operation_takes_precedence_over_completed(
     let storage = configured();
     let pending = fixture_intent();
     storage
-        .apply_account_chat_departure(&[2; 32], &pending, &[[3; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &pending, &[[3; 32]], &|| Ok(()))
         .unwrap();
     let mut complete = pending.clone();
     complete.initiator = [3; 32];
     complete.action_id = complete.identity();
     storage
-        .apply_account_chat_departure(&[2; 32], &complete, &[[3; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &complete, &[[3; 32]], &|| Ok(()))
         .unwrap();
     storage
-        .mark_account_chat_departure_local_state(
+        .app_storage().mark_account_chat_departure_local_state(
             &[1; 32],
             &[2; 32],
             &complete.action_id,
@@ -684,7 +685,7 @@ fn concurrent_current_lineage_pending_operation_takes_precedence_over_completed(
         )
         .unwrap();
     storage
-        .account_chat_departure_completion(
+        .app_storage().account_chat_departure_completion(
             &[1; 32],
             &[2; 32],
             &complete.action_id,
@@ -694,7 +695,7 @@ fn concurrent_current_lineage_pending_operation_takes_precedence_over_completed(
         )
         .unwrap();
     let progress = storage
-        .account_chat_departure_progress(&[1; 32], &[2; 32], &pending.group)
+        .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &pending.group)
         .unwrap()
         .unwrap();
     assert_eq!(progress.action_id, pending.action_id);
@@ -706,7 +707,7 @@ fn missing_current_origin_and_fresh_origin_without_an_operation_supply_no_old_pr
     let storage = configured();
     let old = fixture_intent();
     storage
-        .apply_account_chat_departure(&[2; 32], &old, &[[3; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &old, &[[3; 32]], &|| Ok(()))
         .unwrap();
     // A separate bounded negative row whose source observation was never
     // recorded models missing metadata without deleting retained lineage.
@@ -715,11 +716,11 @@ fn missing_current_origin_and_fresh_origin_without_an_operation_supply_no_old_pr
     unknown.targets[0].source_device = [9; 32];
     unknown.action_id = unknown.identity();
     storage
-        .apply_account_chat_departure(&[2; 32], &unknown, &[[3; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &unknown, &[[3; 32]], &|| Ok(()))
         .unwrap();
     assert!(
         storage
-            .account_chat_departure_progress(&[1; 32], &[2; 32], &unknown.group)
+            .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &unknown.group)
             .unwrap()
             .is_none()
     );
@@ -733,13 +734,13 @@ fn missing_current_origin_and_fresh_origin_without_an_operation_supply_no_old_pr
     );
     assert!(
         storage
-            .account_chat_departure_progress(&[1; 32], &[2; 32], &old.group)
+            .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &old.group)
             .unwrap()
             .is_none()
     );
     assert!(
         !storage
-            .account_chat_departure_denies_source(
+            .app_storage().account_chat_departure_denies_source(
                 &[1; 32],
                 &[2; 32],
                 &old.group,
@@ -767,7 +768,7 @@ fn source_local_origin_orders_do_not_globally_supersede_other_sources() {
     intent.action_id = intent.identity();
     set_source_origin(&storage, [6; 32], intent.targets[1].accepted_origin);
     storage
-        .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32], [6; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32], [6; 32]], &|| Ok(()))
         .unwrap();
     set_source_origin(
         &storage,
@@ -778,14 +779,14 @@ fn source_local_origin_orders_do_not_globally_supersede_other_sources() {
         },
     );
     let progress = storage
-        .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+        .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
         .unwrap()
         .unwrap();
     assert_eq!(progress.action_id, intent.action_id);
     assert!(!progress.global_complete);
     assert!(
         storage
-            .account_chat_departure_denies_source(
+            .app_storage().account_chat_departure_denies_source(
                 &[1; 32],
                 &[2; 32],
                 &intent.group,
@@ -796,7 +797,7 @@ fn source_local_origin_orders_do_not_globally_supersede_other_sources() {
     );
     assert!(
         !storage
-            .account_chat_departure_denies_source(
+            .app_storage().account_chat_departure_denies_source(
                 &[1; 32],
                 &[2; 32],
                 &intent.group,
@@ -865,7 +866,7 @@ fn departure_cut_removes_live_disclosure_and_blocks_late_records_but_not_fresh_l
         .unwrap();
     assert_eq!(
         storage
-            .account_conversation_observation_window(
+            .app_storage().account_conversation_observation_window(
                 std::slice::from_ref(&scope),
                 &intent.group,
                 None,
@@ -877,17 +878,17 @@ fn departure_cut_removes_live_disclosure_and_blocks_late_records_but_not_fresh_l
         1
     );
     storage
-        .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
         .unwrap();
     assert!(
         storage
-            .mirrored_catalog_observation_page(std::slice::from_ref(&scope), None, 128)
+            .app_storage().mirrored_catalog_observation_page(std::slice::from_ref(&scope), None, 128)
             .unwrap()
             .is_empty()
     );
     assert!(
         storage
-            .account_conversation_observation_window(
+            .app_storage().account_conversation_observation_window(
                 std::slice::from_ref(&scope),
                 &intent.group,
                 None,
@@ -899,7 +900,7 @@ fn departure_cut_removes_live_disclosure_and_blocks_late_records_but_not_fresh_l
     );
     assert!(
         storage
-            .current_mirrored_chat_origin_observation(&[1; 32], &[2; 32], &[3; 32], &intent.group)
+            .app_storage().current_mirrored_chat_origin_observation(&[1; 32], &[2; 32], &[3; 32], &intent.group)
             .unwrap()
             == catalog.accepted_origin
     );
@@ -927,14 +928,14 @@ fn departure_cut_removes_live_disclosure_and_blocks_late_records_but_not_fresh_l
         .unwrap();
     assert_eq!(
         storage
-            .mirrored_catalog_observation_page(std::slice::from_ref(&scope), None, 128)
+            .app_storage().mirrored_catalog_observation_page(std::slice::from_ref(&scope), None, 128)
             .unwrap()
             .len(),
         1
     );
     assert!(
         storage
-            .account_conversation_observation_window(
+            .app_storage().account_conversation_observation_window(
                 std::slice::from_ref(&scope),
                 &intent.group,
                 None,
@@ -954,7 +955,7 @@ fn departure_cut_removes_live_disclosure_and_blocks_late_records_but_not_fresh_l
         .unwrap();
     assert_eq!(
         storage
-            .account_conversation_observation_window(&[scope], &intent.group, None, 128, 1)
+            .app_storage().account_conversation_observation_window(&[scope], &intent.group, None, 128, 1)
             .unwrap()
             .len(),
         1
@@ -967,10 +968,10 @@ fn immutable_departure_rows_refuse_raw_replace_and_upsert_without_recursive_trig
         let storage = configured();
         let intent = fixture_intent();
         storage
-            .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+            .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
             .unwrap();
         storage
-            .mark_account_chat_departure_local_state(
+            .app_storage().mark_account_chat_departure_local_state(
                 &[1; 32],
                 &[2; 32],
                 &intent.action_id,
@@ -979,7 +980,7 @@ fn immutable_departure_rows_refuse_raw_replace_and_upsert_without_recursive_trig
             )
             .unwrap();
         storage
-            .acknowledge_account_chat_departure(
+            .app_storage().acknowledge_account_chat_departure(
                 &[1; 32],
                 &[2; 32],
                 &intent.action_id,
@@ -993,10 +994,10 @@ fn immutable_departure_rows_refuse_raw_replace_and_upsert_without_recursive_trig
             )
             .unwrap();
         storage
-            .finalize_account_chat_departure_coordinator(&[1; 32], &[2; 32], &|| Ok(()))
+            .app_storage().finalize_account_chat_departure_coordinator(&[1; 32], &[2; 32], &|| Ok(()))
             .unwrap();
         storage
-            .account_chat_departure_completion(
+            .app_storage().account_chat_departure_completion(
                 &[1; 32],
                 &[2; 32],
                 &intent.action_id,
@@ -1112,12 +1113,12 @@ fn immutable_departure_rows_refuse_raw_replace_and_upsert_without_recursive_trig
         // stronger raw SQL guards do not break legitimate idempotence.
         assert!(
             !storage
-                .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+                .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
                 .unwrap()
         );
         assert!(
             storage
-                .account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
+                .app_storage().account_chat_departure_progress(&[1; 32], &[2; 32], &intent.group)
                 .unwrap()
                 .unwrap()
                 .global_complete
@@ -1133,16 +1134,16 @@ fn stale_reply_publication_preserves_newer_completion_receipt() {
         intent.initiator = [3; 32];
         intent.action_id = intent.identity();
         storage
-            .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+            .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
             .unwrap();
         let old = storage
-            .account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
+            .app_storage().account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
             .unwrap();
         assert_eq!(old.len(), 1);
         assert!(old[0].kind == AccountChatDepartureDeliveryKind::StatusReceipt);
         assert!(!old[0].complete);
         storage
-            .mark_account_chat_departure_local_state(
+            .app_storage().mark_account_chat_departure_local_state(
                 &[1; 32],
                 &[2; 32],
                 &intent.action_id,
@@ -1152,7 +1153,7 @@ fn stale_reply_publication_preserves_newer_completion_receipt() {
             .unwrap();
         if coordinator_completed {
             storage
-                .account_chat_departure_completion(
+                .app_storage().account_chat_departure_completion(
                     &[1; 32],
                     &[2; 32],
                     &intent.action_id,
@@ -1163,7 +1164,7 @@ fn stale_reply_publication_preserves_newer_completion_receipt() {
                 .unwrap();
         }
         storage
-            .account_chat_departure_reply_published(
+            .app_storage().account_chat_departure_reply_published(
                 &[1; 32],
                 &[2; 32],
                 &intent.action_id,
@@ -1177,7 +1178,7 @@ fn stale_reply_publication_preserves_newer_completion_receipt() {
             )
             .unwrap();
         let pending = storage
-            .account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
+            .app_storage().account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
             .unwrap();
         assert_eq!(
             pending.len(),
@@ -1203,7 +1204,7 @@ fn reply_publication_is_snapshot_and_phase_bound_and_tail_failure_rolls_back() {
     intent.initiator = [3; 32];
     intent.action_id = intent.identity();
     storage
-        .apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
+        .app_storage().apply_account_chat_departure(&[2; 32], &intent, &[[3; 32]], &|| Ok(()))
         .unwrap();
     let status = AccountChatDepartureReceiptStatus {
         complete: false,
@@ -1211,7 +1212,7 @@ fn reply_publication_is_snapshot_and_phase_bound_and_tail_failure_rolls_back() {
         awaiting_sources: false,
     };
     storage
-        .mark_account_chat_departure_awaiting_sources(
+        .app_storage().mark_account_chat_departure_awaiting_sources(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -1220,7 +1221,7 @@ fn reply_publication_is_snapshot_and_phase_bound_and_tail_failure_rolls_back() {
         )
         .unwrap();
     storage
-        .account_chat_departure_reply_published(
+        .app_storage().account_chat_departure_reply_published(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -1231,13 +1232,13 @@ fn reply_publication_is_snapshot_and_phase_bound_and_tail_failure_rolls_back() {
         .unwrap();
     assert_eq!(
         storage
-            .account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
+            .app_storage().account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
             .unwrap()
             .len(),
         1
     );
     storage
-        .mark_account_chat_departure_local_state(
+        .app_storage().mark_account_chat_departure_local_state(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -1251,7 +1252,7 @@ fn reply_publication_is_snapshot_and_phase_bound_and_tail_failure_rolls_back() {
         awaiting_sources: false,
     };
     storage
-        .account_chat_departure_completion(
+        .app_storage().account_chat_departure_completion(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -1261,7 +1262,7 @@ fn reply_publication_is_snapshot_and_phase_bound_and_tail_failure_rolls_back() {
         )
         .unwrap();
     storage
-        .account_chat_departure_reply_published(
+        .app_storage().account_chat_departure_reply_published(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -1271,14 +1272,14 @@ fn reply_publication_is_snapshot_and_phase_bound_and_tail_failure_rolls_back() {
         )
         .unwrap();
     let pending = storage
-        .account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
+        .app_storage().account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
         .unwrap();
     assert_eq!(pending.len(), 1);
     assert!(pending[0].kind == AccountChatDepartureDeliveryKind::CompletionAcknowledgement);
     let calls = Cell::new(0);
     assert!(
         storage
-            .account_chat_departure_reply_published(
+            .app_storage().account_chat_departure_reply_published(
                 &[1; 32],
                 &[2; 32],
                 &intent.action_id,
@@ -1298,13 +1299,13 @@ fn reply_publication_is_snapshot_and_phase_bound_and_tail_failure_rolls_back() {
     assert_eq!(calls.get(), 2);
     assert_eq!(
         storage
-            .account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
+            .app_storage().account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
             .unwrap()
             .len(),
         1
     );
     storage
-        .account_chat_departure_reply_published(
+        .app_storage().account_chat_departure_reply_published(
             &[1; 32],
             &[2; 32],
             &intent.action_id,
@@ -1315,7 +1316,7 @@ fn reply_publication_is_snapshot_and_phase_bound_and_tail_failure_rolls_back() {
         .unwrap();
     assert!(
         storage
-            .account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
+            .app_storage().account_chat_departure_outbox(&[1; 32], &[2; 32], &[3; 32], None, 16)
             .unwrap()
             .is_empty()
     );

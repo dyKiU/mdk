@@ -9,7 +9,7 @@ fn setup() -> (SqliteAccountStorage, PurposeKeyPackage) {
         .ensure_account_projection_with_identity("isolated-purpose-test", &hex::encode(ACCOUNT))
         .unwrap();
     let generation = storage
-        .reserve_device_linking_attempt(&ACCOUNT, &DEVICE)
+        .app_storage().reserve_device_linking_attempt(&ACCOUNT, &DEVICE)
         .unwrap();
     let package = PurposeKeyPackage {
         scope: PurposeAttemptScope {
@@ -39,7 +39,7 @@ fn context_freezes_only_against_current_durable_binding_and_never_grants_members
             .is_err()
     );
     storage
-        .bind_device_linking_context(&DeviceLinkingBinding {
+        .app_storage().bind_device_linking_context(&DeviceLinkingBinding {
             generation: package.scope.generation,
             nonce: binding.nonce,
             context_digest: binding.context_digest,
@@ -103,14 +103,14 @@ fn exact_retry_bounds_conflict_and_enclosing_rollback() {
     }
     assert!(storage.purpose_key_package().unwrap().unwrap() == package);
     storage
-        .finish_device_linking_attempt(package.scope.generation, DeviceLinkingOutcome::Cancelled)
+        .app_storage().finish_device_linking_attempt(package.scope.generation, DeviceLinkingOutcome::Cancelled)
         .unwrap();
     assert!(storage.check_purpose_reservation(&package.scope).is_err());
     storage.retire_purpose_key_package(&package.scope).unwrap();
     assert!(storage.purpose_key_package().unwrap().is_none());
     assert_eq!(
         storage
-            .reserve_device_linking_attempt(&ACCOUNT, &DEVICE)
+            .app_storage().reserve_device_linking_attempt(&ACCOUNT, &DEVICE)
             .unwrap(),
         package.scope.generation + 1
     );

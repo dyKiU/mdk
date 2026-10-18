@@ -26,14 +26,14 @@ async fn dropping_runtime_owner_terminalizes_its_active_generation() {
     drop(owner);
     assert!(
         matches!(
-            storage.bind_device_linking_context(&binding),
+            storage.app_storage().bind_device_linking_context(&binding),
             Err(storage_sqlite::DeviceLinkingError::Terminal)
         ),
         "dropping the runtime owner must persist shutdown before releasing session ownership"
     );
     assert_eq!(
         storage
-            .reserve_device_linking_attempt(&[2; 32], &[7; 32])
+            .app_storage().reserve_device_linking_attempt(&[2; 32], &[7; 32])
             .unwrap(),
         2
     );
@@ -66,7 +66,7 @@ async fn dropping_runtime_owner_after_storage_close_leaves_restart_fence_as_fall
     let reopened = Arc::new(SqliteAccountStorage::open_encrypted(&path, &key).unwrap());
     let mut restarted = LinkingOwner::startup(reopened.clone(), [2; 32], [7; 32]).unwrap();
     assert!(matches!(
-        reopened.bind_device_linking_context(&binding),
+        reopened.app_storage().bind_device_linking_context(&binding),
         Err(storage_sqlite::DeviceLinkingError::Terminal)
     ));
     assert_eq!(restarted.reserve().unwrap(), 2);
@@ -234,7 +234,7 @@ async fn genuine_verification_releases_result_only_after_done_delivery_and_termi
     assert_eq!(verified.context.digest().unwrap(), binding.context_digest);
     assert!(matches!(verified.role, Role::NewDevice));
     assert!(matches!(
-        a.storage.check_device_linking_flow(&binding, &flow),
+        a.storage.app_storage().check_device_linking_flow(&binding, &flow),
         Err(storage_sqlite::DeviceLinkingError::Terminal)
     ));
     assert!(a.take_verified(now).await.is_err());
@@ -252,7 +252,7 @@ async fn externally_terminal_storage_fact_cannot_create_a_verified_result() {
         drain(&mut b, &mut a, now).await;
     }
     a.storage
-        .finish_device_linking_attempt(1, DeviceLinkingOutcome::PairingVerified)
+        .app_storage().finish_device_linking_attempt(1, DeviceLinkingOutcome::PairingVerified)
         .unwrap();
     assert!(matches!(
         a.take_verified(now).await,
@@ -325,7 +325,7 @@ async fn shutdown_and_competing_local_reservation_persist_terminal_fences() {
     ));
     assert_eq!(
         a.storage
-            .reserve_device_linking_attempt(&[2; 32], &[7; 32])
+            .app_storage().reserve_device_linking_attempt(&[2; 32], &[7; 32])
             .unwrap(),
         3
     );
@@ -336,9 +336,9 @@ async fn exact_sdk_flow_is_durable_before_request_frame_release() {
     let (mut a, _b) = ready(now).await;
     let binding = a.binding.as_ref().unwrap();
     let flow = a.linker.attempt.as_ref().unwrap().flow.as_ref().unwrap();
-    a.storage.check_device_linking_flow(binding, flow).unwrap();
+    a.storage.app_storage().check_device_linking_flow(binding, flow).unwrap();
     a.storage
-        .finish_device_linking_attempt(1, DeviceLinkingOutcome::Cancelled)
+        .app_storage().finish_device_linking_attempt(1, DeviceLinkingOutcome::Cancelled)
         .unwrap();
     assert!(matches!(a.outgoing(now), Err(OwnerError::Storage)));
 }
@@ -441,7 +441,7 @@ async fn maintenance_expires_original_reservation_without_sdk_input() {
         context_digest: [2; 32],
     };
     assert!(matches!(
-        storage.bind_device_linking_context(&binding),
+        storage.app_storage().bind_device_linking_context(&binding),
         Err(storage_sqlite::DeviceLinkingError::Terminal)
     ));
     assert_eq!(
@@ -502,7 +502,7 @@ async fn maintenance_retries_failed_cancellation_without_waiting_for_expiry() {
         "maintenance must retry the cancelled terminal fact before the original deadline"
     );
     assert!(matches!(
-        storage.bind_device_linking_context(&binding),
+        storage.app_storage().bind_device_linking_context(&binding),
         Err(storage_sqlite::DeviceLinkingError::Terminal)
     ));
     assert_eq!(

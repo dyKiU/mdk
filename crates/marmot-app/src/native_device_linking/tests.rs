@@ -1210,7 +1210,7 @@ pub(super) mod actual {
                 tokio::time::timeout(std::time::Duration::from_secs(40),async {
                     loop {
                         let store=apps[2].account_storage("test").unwrap();
-                        let witnessed=source_devices.iter().filter(|source|store.current_mirrored_chat_origin_observation(&c_round.anchor.account,&c_round.anchor.local_device,source,&peer.group).unwrap().is_some()).count();
+                        let witnessed=source_devices.iter().filter(|source|store.app_storage().current_mirrored_chat_origin_observation(&c_round.anchor.account,&c_round.anchor.local_device,source,&peer.group).unwrap().is_some()).count();
                         if witnessed==2 {eprintln!("account_departure_precheck_broad_policies=2 source_origin_witnesses=2 committed_history=true");break;}
                         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                     }

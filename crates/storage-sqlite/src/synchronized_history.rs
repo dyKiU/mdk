@@ -6,7 +6,7 @@
 //! Staged records are invisible until the final chunk commits. Imported records
 //! cannot authorize moderation, change membership or advance recovery cursors.
 
-use crate::{SqliteAccountStorage, SqliteResultExt};
+use crate::{SqliteAppStorage, SqliteResultExt};
 use cgka_traits::storage::StorageError;
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -224,7 +224,7 @@ fn refresh_history_byte_accounting(conn: &rusqlite::Connection, group: &str) -> 
     Ok(())
 }
 
-impl SqliteAccountStorage {
+impl SqliteAppStorage {
     /// Persist an authenticated transfer manifest. Re-admission is idempotent
     /// only for an identical manifest; no existing transfer can be overwritten.
     pub fn admit_synchronized_history(&self, manifest: &SynchronizedHistoryManifest) -> Result<()> {

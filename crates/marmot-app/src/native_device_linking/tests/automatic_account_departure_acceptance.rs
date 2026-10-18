@@ -241,7 +241,7 @@ pub(super) async fn verify(
                     loop {
                         let store = reopened_app.account_storage("test").unwrap();
                         let round = store.private_roster_settlement_storage().unwrap().read_round().unwrap().unwrap();
-                        let work = store.pending_local_account_chat_departures(&round.anchor.account,&round.anchor.local_device,None,16).unwrap();
+                        let work = store.app_storage().pending_local_account_chat_departures(&round.anchor.account,&round.anchor.local_device,None,16).unwrap();
                         if work.iter().any(|(_,state)|*state==storage_sqlite::account_chat_departure::AccountChatDepartureLocalState::Published) {
                             let current = store.get_group(&peer.group).unwrap().epoch;
                             let proposed = store.leave_request(&peer.group).unwrap().unwrap().last_proposed_epoch;
@@ -434,7 +434,7 @@ pub(super) async fn verify(
                     .unwrap()
                     .unwrap();
                 let progress = store
-                    .account_chat_departure_progress(
+                    .app_storage().account_chat_departure_progress(
                         &round.anchor.account,
                         &round.anchor.local_device,
                         &peer.group,
@@ -457,7 +457,7 @@ pub(super) async fn verify(
                         let round = storage.private_roster_settlement_storage()?.read_round().ok()??;
                         (round.anchor.local_device==policy.peer_device).then_some(candidate)
                     });
-                    let outbox = store.account_chat_departure_outbox(&round.anchor.account,&round.anchor.local_device,&policy.peer_device,None,16);
+                    let outbox = store.app_storage().account_chat_departure_outbox(&round.anchor.account,&round.anchor.local_device,&policy.peer_device,None,16);
                     eprintln!("account_departure_timeout_peer={index} target_peer={actual_peer_index:?} outbox={:?}",outbox.map(|rows| {
                         let mut kinds=[0usize;4];
                         let(mut complete,mut needs_administrator,mut awaiting_sources)=(0,0,0);
@@ -477,7 +477,7 @@ pub(super) async fn verify(
                     }).map_err(|_|"Unknown"));
                 }
                 let pending = store
-                    .pending_local_account_chat_departures(
+                    .app_storage().pending_local_account_chat_departures(
                         &round.anchor.account,
                         &round.anchor.local_device,
                         None,

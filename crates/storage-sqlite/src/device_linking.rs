@@ -2,7 +2,7 @@
 //! The runtime supplies its independent device identity and the verifier's facts.
 //! Before constructing a verifier on startup it must abandon pending attempts;
 //! ephemeral verifier secrets are never persisted or restored by this module.
-use crate::{SqliteAccountStorage, SqliteResultExt};
+use crate::{SqliteAppStorage, SqliteResultExt};
 use cgka_traits::storage::{StorageError, StorageResult};
 use rusqlite::{OptionalExtension, params};
 
@@ -97,7 +97,7 @@ fn check_binding(attempt: &CurrentAttempt, binding: &DeviceLinkingBinding) -> Re
     Ok(())
 }
 
-impl SqliteAccountStorage {
+impl SqliteAppStorage {
     /// Reserve before exchanging verifier offers. Remote frames cannot allocate
     /// rows. The trusted runtime supplies the account and its local MLS identity.
     pub fn reserve_device_linking_attempt(

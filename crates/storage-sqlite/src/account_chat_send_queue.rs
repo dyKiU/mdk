@@ -1,6 +1,6 @@
 //! Exact event retry across independent actual members; no live grant reconstruction.
 use crate::{
-    SqliteAccountStorage, SqliteResultExt, approved_account_sharing_policy::check_configured_owner,
+    SqliteAppStorage, SqliteResultExt, approved_account_sharing_policy::check_configured_owner,
 };
 use cgka_traits::{
     GroupId,
@@ -150,7 +150,7 @@ fn same_identity(a: &AccountChatSendIntent, b: &AccountChatSendIntent) -> bool {
         && a.created_at == b.created_at
 }
 fn receipt_transition(
-    storage: &SqliteAccountStorage,
+    storage: &SqliteAppStorage,
     account: &[u8; 32],
     receipt: &AccountChatSendReceipt,
     outgoing: bool,
@@ -191,7 +191,7 @@ fn receipt_transition(
         drop(conn);validate_original()?;Ok(())
     })
 }
-impl AccountChatSendQueueStorage for SqliteAccountStorage {
+impl AccountChatSendQueueStorage for SqliteAppStorage {
     fn account_chat_send_intent(
         &self,
         account: &[u8; 32],

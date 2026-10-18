@@ -1,6 +1,6 @@
 //! Bounded source-attested records; no app_events, Group rows or MLS writes.
 use crate::{
-    SqliteAccountStorage, SqliteResultExt,
+    SqliteAppStorage, SqliteResultExt,
     mirrored_chat_catalog::{check_owner, scope_bytes},
 };
 use cgka_traits::{
@@ -164,7 +164,7 @@ fn write(
     Ok(())
 }
 
-impl MirroredChatMessageStorage for SqliteAccountStorage {
+impl MirroredChatMessageStorage for SqliteAppStorage {
     fn apply_mirrored_chat_messages(
         &self,
         scope: &MirroredChatScope,

@@ -1,5 +1,5 @@
 //! Bounded read-only union of caller-validated source scopes. No permission or MLS writes.
-use crate::{SqliteAccountStorage, SqliteResultExt, mirrored_chat_catalog, mirrored_chat_messages};
+use crate::{SqliteAppStorage, SqliteResultExt, mirrored_chat_catalog, mirrored_chat_messages};
 use cgka_traits::{
     GroupId,
     mirrored_chat_catalog::{MAX_MIRRORED_CHAT_SCOPES, MirroredChatEntry, MirroredChatScope},
@@ -67,7 +67,7 @@ fn selection(keys: &[Vec<u8>]) -> (String, Vec<Value>) {
     )
 }
 
-impl SqliteAccountStorage {
+impl SqliteAppStorage {
     /// Scope inputs are observations supplied by a freshly validating App worker.
     /// One total bound applies across all scopes. Existing ordinary groups win.
     pub fn mirrored_catalog_observation_page(
@@ -240,7 +240,7 @@ impl SqliteAccountStorage {
         {
             return Err(invalid());
         }
-        cgka_traits::StorageProvider::with_read_snapshot(self, |store| {
+        self.with_read_snapshot(|store| {
             let selected = {
                 let conn = store.lock()?;
                 for scope in scopes {
@@ -294,11 +294,10 @@ impl SqliteAccountStorage {
             for (paired, position, event) in selected {
                 if !paired {
                     let row = store
-                        .app_storage()
                         .timeline_message(&hex::encode(group.as_slice()), &event)?
                         .ok_or_else(invalid)?;
                     observed.push(AccountConversationObservation::LocalMls(Box::new(
-                        store.app_storage().scrub_paired_timeline_record(row, now)?,
+                        store.scrub_paired_timeline_record(row, now)?,
                     )));
                 } else {
                     let scope = scopes.get(position).ok_or_else(invalid)?;

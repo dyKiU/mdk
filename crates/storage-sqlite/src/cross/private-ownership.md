@@ -62,7 +62,7 @@ does not claim that it proves live authorization.
 
 ## Why the retained crossings exist
 
-The new allow-list lines record existing checks rather than remove them:
+The retained allow-list lines record existing checks rather than remove them:
 
 - `device_linking` reads the Protocol purpose bundle and unresolved invite
   helper before allocating another verifier generation, so a verified but
@@ -77,12 +77,12 @@ The new allow-list lines record existing checks rather than remove them:
   alone for that signer check.
 - `mirrored_chat_presentation` reads `cgka_groups` to exclude mirrors of groups
   already present as local MLS groups.
-- `account_chat_legacy_acceptance` calls the policy capability implemented by
-  the Protocol aggregate provider to read App-owned approval metadata. The
-  checkpoint remains App-owned: it rejects revoked or mismatched approvals,
-  requires explicitly accepted source changes and retains the original-owner
-  callbacks before and after its transaction. The allowance records the
-  existing provider seam, not a grant of consent or a second implementation.
+- `account_chat_legacy_acceptance` reads App-owned approval metadata directly
+  through `ApprovedAccountSharingPolicyStorage` on `SqliteAppStorage`. It rejects
+  revoked or mismatched approvals, requires explicitly accepted source changes
+  and retains original-owner callbacks before and after its transaction. The
+  obsolete aggregate-provider method allowance is removed; no consent is granted
+  and no second policy implementation is introduced.
 - `synchronized_history/request_observation` reads the Protocol signer binding
   inside the observation transaction. It requires the configured App account
   and the actual signer account/device to match before recording an immutable,
@@ -100,3 +100,24 @@ cohorts at `234c9b064bf6c3702a08898b2ea0ab25aa62265d`, run `39055385890`
 (six actual bodies: two passed, four failed, none ignored). This adaptation
 requires fresh remote GREEN and mutation evidence; historical passes do not
 qualify the adapted source.
+
+## App-handle receivers after the protocol-handle move
+
+The twelve App-owned root modules retain their public module/type paths and use
+`SqliteAppStorage` for their SQL operations. Callers obtain it through the account
+handle's `app_storage()`; it clones the same SharedConnection and opens nothing.
+The five App capabilities retain their existing borrowed StorageProvider slots
+through the named `MirroredChatCatalogStorage`,
+`ApprovedAccountSharingPolicyStorage`, `MirroredChatMessageStorage`,
+`AccountChatRecordStreamStorage` and `AccountChatSendQueueStorage` delegates in
+`cross/private_app_capabilities.rs`. All sixteen provider slots still return
+`Some(self)`. Those delegates
+forward every argument and original-owner callback without adding transactions,
+permissions, retries or a second implementation. The eleven Protocol capability
+implementations remain on the account handle.
+
+Legacy acceptance reads the App-owned policy trait directly on the App handle;
+its former aggregate-provider method crossing is removed. Its outer transaction
+and both original validations remain. Paired conversation presentation uses the
+same deferred SharedConnection read transaction and query-only protection as
+the original protocol snapshot, without giving the App handle StorageProvider.

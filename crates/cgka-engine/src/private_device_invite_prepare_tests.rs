@@ -57,7 +57,7 @@ pub(crate) fn install(engine: &mut Engine<SqliteAccountStorage>, origin: u64) ->
         .unwrap();
     let generation = engine
         .storage
-        .reserve_device_linking_attempt(&account, &device)
+        .app_storage().reserve_device_linking_attempt(&account, &device)
         .unwrap();
     let binding = DeviceLinkingBinding {
         generation,
@@ -66,15 +66,15 @@ pub(crate) fn install(engine: &mut Engine<SqliteAccountStorage>, origin: u64) ->
     };
     engine
         .storage
-        .bind_device_linking_context(&binding)
+        .app_storage().bind_device_linking_context(&binding)
         .unwrap();
     engine
         .storage
-        .bind_device_linking_flow(&binding, "isolated-engine-policy")
+        .app_storage().bind_device_linking_flow(&binding, "isolated-engine-policy")
         .unwrap();
     engine
         .storage
-        .finish_device_linking_attempt(generation, DeviceLinkingOutcome::PairingVerified)
+        .app_storage().finish_device_linking_attempt(generation, DeviceLinkingOutcome::PairingVerified)
         .unwrap();
     let live = Arc::new(AtomicBool::new(true));
     engine.install_trusted_private_invite_policy(Arc::new(Policy {

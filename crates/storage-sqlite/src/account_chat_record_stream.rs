@@ -1,5 +1,5 @@
 //! Durable canonical batches and committed receipts, without channel restoration.
-use crate::{SqliteAccountStorage, SqliteResultExt, approved_account_sharing_policy::load};
+use crate::{SqliteAppStorage, SqliteResultExt, approved_account_sharing_policy::load};
 use cgka_traits::{
     GroupId,
     account_chat_record_stream::*,
@@ -192,7 +192,7 @@ WHERE policy_id=?1 AND group_id=?2 AND digest=?3 AND peer_generation=?4",
         .transpose()
 }
 
-impl AccountChatRecordStreamStorage for SqliteAccountStorage {
+impl AccountChatRecordStreamStorage for SqliteAppStorage {
     fn reserve_account_chat_record_sequence(
         &self,
         id: &[u8; 32],

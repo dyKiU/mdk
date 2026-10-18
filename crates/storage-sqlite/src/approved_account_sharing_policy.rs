@@ -1,5 +1,5 @@
 //! Durable facts and monotonic source observations. Never a live policy owner.
-use crate::{SqliteAccountStorage, SqliteResultExt};
+use crate::{SqliteAppStorage, SqliteResultExt};
 use cgka_traits::{
     GroupId,
     approved_account_sharing_policy::*,
@@ -109,7 +109,7 @@ pub(crate) fn load(
     Ok(policy)
 }
 
-impl ApprovedAccountSharingPolicyStorage for SqliteAccountStorage {
+impl ApprovedAccountSharingPolicyStorage for SqliteAppStorage {
     fn put_approved_account_sharing_policy(
         &self,
         policy: &ApprovedAccountSharingPolicy,

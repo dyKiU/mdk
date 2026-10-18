@@ -98,7 +98,7 @@ impl AppClient {
                 let page = catalog.mirrored_chat_catalog_page(&scope, after.as_ref(), 128)?;
                 if let Some(row) = page.iter().find(|row| &row.group_id == group) {
                     if row.state == MirroredChatState::Active
-                        && !storage.account_chat_departure_denies_source(
+                        && !storage.app_storage().account_chat_departure_denies_source(
                             &scope.account,
                             &scope.local_device,
                             group,
@@ -131,7 +131,7 @@ impl AppClient {
                     .as_slice()
                     .try_into()
                     .map_err(|_| unavailable())?;
-                if storage.has_account_chat_departure(&account, &local, group)? {
+                if storage.app_storage().has_account_chat_departure(&account, &local, group)? {
                     return Err(crate::AppError::AccountChatDepartureDenied);
                 }
             }

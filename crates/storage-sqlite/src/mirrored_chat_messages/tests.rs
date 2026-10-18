@@ -1,4 +1,5 @@
 //! Synthetic logical-store acceptance. Actual source authentication stays Core-owned.
+use crate::SqliteAccountStorage;
 use super::*;
 use cgka_traits::{
     MemberId,

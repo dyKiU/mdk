@@ -1,5 +1,5 @@
 //! Account-private source-attested catalog. No live Group or MLS mutations.
-use crate::{SqliteAccountStorage, SqliteResultExt};
+use crate::{SqliteAppStorage, SqliteResultExt};
 use cgka_traits::{
     GroupId,
     mirrored_chat_catalog::*,
@@ -200,7 +200,7 @@ pub(crate) fn decode_entry(
     Ok(entry)
 }
 
-impl MirroredChatCatalogStorage for SqliteAccountStorage {
+impl MirroredChatCatalogStorage for SqliteAppStorage {
     fn apply_mirrored_chat_catalog(
         &self,
         scope: &MirroredChatScope,

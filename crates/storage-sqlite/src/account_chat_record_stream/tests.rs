@@ -1,4 +1,5 @@
 //! Synthetic SQL acceptance; original channel authentication remains Core-owned.
+use crate::SqliteAccountStorage;
 #[path = "cut_refusal.rs"]
 mod cut_refusal;
 #[path = "generation_receipts.rs"]

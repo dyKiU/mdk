@@ -2244,19 +2244,19 @@ async fn exercise_local_enrollment_proposal(control: LocalProposalOwnerControl) 
         let device = a.identity.signer.public().try_into().unwrap();
         let generation = a
             .storage
-            .reserve_device_linking_attempt(&account, &device)
+            .app_storage().reserve_device_linking_attempt(&account, &device)
             .unwrap();
         let binding = storage_sqlite::DeviceLinkingBinding {
             generation,
             nonce: [11; 32],
             context_digest: [10; 32],
         };
-        a.storage.bind_device_linking_context(&binding).unwrap();
+        a.storage.app_storage().bind_device_linking_context(&binding).unwrap();
         a.storage
-            .bind_device_linking_flow(&binding, "isolated-core-enrollment-handoff")
+            .app_storage().bind_device_linking_flow(&binding, "isolated-core-enrollment-handoff")
             .unwrap();
         a.storage
-            .finish_device_linking_attempt(
+            .app_storage().finish_device_linking_attempt(
                 generation,
                 storage_sqlite::DeviceLinkingOutcome::PairingVerified,
             )
