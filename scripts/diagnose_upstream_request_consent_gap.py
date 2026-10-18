@@ -6,7 +6,7 @@ import diagnose_upstream_post_watch_native5 as previous
 frozen=previous.frozen
 ensure=previous.ensure
 digest=previous.digest
-BASE='01389dcfe37e0c22afa804aeed0a321d2554b15f' # Signed read-only prefix observer; all existing files remain BASE-exact.
+BASE='f444bc1b2747bda199ee334fc8d213cc0f9c5482' # Signed fixture-only existing-runtime snapshot; no source exceptions.
 DIAGNOSTIC_PARENT='0b02a07916c17f8240c65f83ad2d916357c7f5fa'
 SELF='scripts/diagnose_upstream_request_consent_gap.py'
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
@@ -110,18 +110,21 @@ def request_gap_windows(raw,name,windows):
     raw=re.sub(r'\x1b\[[0-9;]*m','',raw)
     raw,prefix=re.subn(r'(?m)^test '+re.escape(name)+r' \.\.\. (?=native5-join-window begin ordinal=)','',raw)
     ensure(prefix<=1 and not re.search(r'(?m)^test [A-Za-z0-9_:]+ \.\.\. native5-join-window',raw),'exact-Request-shared-test-prefix')
-    frames=[];active=None;lines=[];prefix_lines=[]
+    ensure(not re.search(r'(?m)^test [A-Za-z0-9_:]+ \.\.\. native5-runtime',raw),'foreign-runtime-prefix')
+    frames=[];active=None;lines=[];prefix_lines=[];runtime_lines=[]
     for line in raw.splitlines():
         if line.startswith('native5-join-window'):
             m=re.fullmatch(r'native5-join-window (begin|end) ordinal=([45])',line);ensure(m is not None,'closed-Request-window-marker')
             ordinal=int(m[2])
             if m[1]=='begin':
-                ensure(active is None and ordinal==4+len(frames) and len(frames)<2,'ordered-Request-window-begin');active=ordinal;lines=[];prefix_lines=[]
+                ensure(active is None and ordinal==4+len(frames) and len(frames)<2,'ordered-Request-window-begin');active=ordinal;lines=[];prefix_lines=[];runtime_lines=[]
             else:
                 ensure(active==ordinal and len(windows['windows'])>len(frames),'matching-Request-window-end')
                 original=windows['windows'][len(frames)]
                 ensure(original['actual_join_ordinal']==ordinal,'same-original-native-window')
-                frames.append({'actual_join_ordinal':ordinal,'request_gap':request_gap_rows(lines,original['timing']),'prefix_summary':prefix_summary(prefix_lines,ordinal,original['timing'],original.get('notification_dispositions'))});active=None
+                frames.append({'actual_join_ordinal':ordinal,'request_gap':request_gap_rows(lines,original['timing']),'prefix_summary':prefix_summary(prefix_lines,ordinal,original['timing'],original.get('notification_dispositions')),'runtime_summary':runtime_summary(runtime_lines)});active=None
+        elif line.startswith('native5-runtime'):
+            ensure(active is not None,'no-orphan-runtime-summary');runtime_lines.append(line)
         elif line.startswith('native5-prefix'):
             ensure(active is not None,'no-orphan-prefix-rows');prefix_lines.append(line)
         elif line.startswith('native5-request'):
@@ -280,8 +283,64 @@ def prefix_parser_controls():
         'combined_maximum_width_bytes':old+extra,'cap_bytes':65536,'capacity_fixture_is_not_runtime_evidence':True}
 
 
+RUNTIME_OPS=['WorkerReceive','Ingest','WorkerMaintenance','IngestEngine']
+RUNTIME_FIELDS=['started','completed','in_flight','completed_wall_sum_ms','oldest_tracked_in_flight_ms','untracked_in_flight']
+
+def runtime_summary(lines):
+    if not lines:return {'observed':False,'schema_complete':False,'missing_is_unknown':True}
+    ensure(len(lines)==1 and len(lines[0].encode())<=715,'one-bounded-runtime-summary')
+    n=r'(?:0|[1-9][0-9]{0,19})'
+    def array(count):return r'(?:None|Some\(\['+n+(r', '+n)*(count-1)+r'\]\))'
+    pattern=r'native5-runtime observation=\(\[('+array(6)+r'), ('+array(6)+r'), ('+array(6)+r'), ('+array(6)+r')\], ('+array(3)+r')\)'
+    m=re.fullmatch(pattern,lines[0]);ensure(m is not None,'closed-runtime-summary')
+    def values(text,count):
+        if text=='None':return None
+        result=[int(v) for v in text[6:-2].split(', ')]
+        ensure(len(result)==count and all(0<=v<=18446744073709551615 for v in result),'runtime-u64-bounds')
+        return result
+    rows=[values(m[j],6) for j in range(1,5)];projection=values(m[5],3)
+    # No arithmetic equality across independently sampled atomics/operations.
+    return {'observed':True,'schema_complete':True,'operations':dict(zip(RUNTIME_OPS,[None if row is None else dict(zip(RUNTIME_FIELDS,row)) for row in rows])),
+        'inbound_delivery_projection':None if projection is None else dict(zip(['attempts','failures','completed_wall_sum_ms'],projection)),
+        'scope':'selected recipient RuntimeShared; all its accounts; cumulative since runtime creation',
+        'not_join_or_deadline_scoped':True,'snapshots_are_not_joint_atomic':True,'durations_are_wall_not_CPU':True,
+        'Core_phase_completed_only_zero_active_cannot_exclude_work':True,'WorkerReceive_ends_before_later_history_tail':True,
+        'oldest_age_zero_may_mean_no_tracked_start_or_submillisecond':True,'missing_operation_is_unknown_not_zero':True}
+
+def runtime_parser_controls():
+    zero='Some([0, 0, 0, 0, 0, 0])';proj='Some([0, 0, 0])'
+    def line(ops,projection):return 'native5-runtime observation=(['+', '.join(ops)+'], '+projection+')'
+    good=[line([zero]*4,proj),line(['None',zero,'None',zero],proj),line(['None']*4,'None'),line(['Some([10, 3, 7, 4, 9, 1])']*4,proj)]
+    for value in good:runtime_summary([value])
+    ensure(runtime_summary([])['schema_complete'] is False,'missing-runtime-summary-not-invented')
+    bad=[[good[0],good[0]],[good[0]+' PRIVATE'],[good[0].replace('native5-runtime','foreign-runtime')],
+        [good[0].replace('[0, 0, 0, 0, 0, 0]','[true, 0, 0, 0, 0, 0]',1)],
+        [good[0].replace('[0, 0, 0, 0, 0, 0]','[-1, 0, 0, 0, 0, 0]',1)],
+        [good[0].replace('[0, 0, 0, 0, 0, 0]','[18446744073709551616, 0, 0, 0, 0, 0]',1)],
+        [good[0].replace('[0, 0, 0, 0, 0, 0]','[00, 0, 0, 0, 0, 0]',1)],
+        [line([zero]*3,proj)],[line([zero]*5,proj)],[line([zero]*4,'Some([0, 0])')],
+        [good[0].replace('None','false')+'\n'],['native5-runtime observation=None']]
+    for value in bad:
+        rejected=False
+        try:runtime_summary(value)
+        except (ValueError,frozen.bounded.GateFailure):rejected=True
+        ensure(rejected,'runtime-invalid-closed-row-rejected')
+    maximum=line(['Some(['+', '.join(['18446744073709551615']*6)+'])']*4,'Some(['+', '.join(['18446744073709551615']*3)+'])')
+    runtime_summary([maximum]);extra=len((maximum+'\n').encode());old=prefix_parser_controls()['combined_maximum_width_bytes']
+    ensure(extra<=715 and old+extra<=65536,'unchanged-whole-window-cap-with-runtime-summary')
+    # Collector must reject orphan and foreign-prefixed rows before raw data is discarded.
+    for raw in [good[0],'test foreign::case ... '+good[0]]:
+        rejected=False
+        try:request_gap_windows(raw,'closed::case',{'windows':[]})
+        except (ValueError,frozen.bounded.GateFailure):rejected=True
+        ensure(rejected,'orphan-runtime-summary-rejected')
+    return {'positive':len(good),'negative':len(bad)+2,'missing_unknown':1,'runtime_bodies':0,
+        'runtime_maximum_bytes':extra,'combined_maximum_width_bytes':old+extra,'cap_bytes':65536,
+        'capacity_fixture_is_not_runtime_evidence':True}
+
+
 def controls():
-    return {'legacy':previous.controls(),'Request_gap':request_parser_controls(),'prefix':prefix_parser_controls(),'worker':frozen.timing_parser.worker_parser_controls()} # Data/parsers only; no legacy guard or main.
+    return {'legacy':previous.controls(),'Request_gap':request_parser_controls(),'prefix':prefix_parser_controls(),'runtime_summary':runtime_parser_controls(),'worker':frozen.timing_parser.worker_parser_controls()} # Data/parsers only; no legacy guard or main.
 
 
 def compile_one(report,save):
@@ -349,6 +408,8 @@ def main(args):
         report['Request_gap_schema_complete']=report['Request_gap_windows']['schema_complete']
         report['prefix_schemas_complete']=bool(report['Request_gap_windows']['windows']) and all(w['prefix_summary']['schema_complete'] for w in report['Request_gap_windows']['windows'])
         report['diagnostic_completed']=report['diagnostic_completed'] and report['prefix_schemas_complete']
+        report['runtime_summary_schemas_complete']=bool(report['Request_gap_windows']['windows']) and all(w['runtime_summary']['schema_complete'] for w in report['Request_gap_windows']['windows'])
+        report['diagnostic_completed']=report['diagnostic_completed'] and report['runtime_summary_schemas_complete']
         report['Request_candidate_owner_requires_actual_authenticated_channel_link']=True
         report['missing_fifth_is_not_zero_or_pass']=True
         report['plane_shutdown_semantics']='returned shutdown calls; internal task quiescence not established';save()
@@ -358,6 +419,7 @@ def main(args):
         ensure(report['diagnostic_completed'],'closed-known-native-windows-and-supplemental-schemas-required')
         ensure(report['Request_gap_schema_complete'],'closed-Request-gap-rows-required')
         ensure(report['prefix_schemas_complete'],'closed-prefix-summary-required')
+        ensure(report['runtime_summary_schemas_complete'],'closed-runtime-summary-required')
     except frozen.bounded.GateFailure as error:
         report['watchdog_triggered']=str(error)=='bounded-command-timeout';report['output_limit_triggered']=str(error)=='bounded-command-output-limit'
         report['exception_type']=type(error).__name__
