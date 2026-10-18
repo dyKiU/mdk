@@ -369,6 +369,7 @@ jobs:
             ensure(0<member.file_size<=128*1024*1024 and not stat.S_ISLNK(member.external_attr>>16),'bounded-regular-archive-member')
             archive=tmp/'tests.tar.zst';archive.write_bytes(z.read(member));archive.chmod(0o600)
            report['archive_sha256']=hashlib.sha256(archive.read_bytes()).hexdigest();report['archive_ZIP_digest_verified']=True;save()
+           (tmp/'extract').mkdir(mode=0o700,exist_ok=False)
            common=['--archive-file',str(archive),'--extract-to',str(tmp/'extract'),'--workspace-remap',str(Path.cwd())]
            c,raw,seconds=bounded.capture(['cargo-nextest','nextest','list',*common,'--message-format','json','-E',FILTER],120,limit=4*1024*1024)
            report['archive_inventory']=inventory_diagnostics(raw,c,seconds);save()
