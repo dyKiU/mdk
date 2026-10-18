@@ -396,7 +396,8 @@ impl DeviceLinkingSession {
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(super) fn native_observation_results_for_test(
         &self,
-    ) -> Option<crate::client::device_linking::sibling_sharing::NativeObservationResultSnapshot> {
+    ) -> Option<crate::client::device_linking::sibling_sharing::NativeObservationResultSnapshot>
+    {
         self.inner
             .sharing_choice
             .lock()

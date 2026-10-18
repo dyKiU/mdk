@@ -428,7 +428,10 @@ impl OriginalEnrollmentSharingChoice {
 
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn record_observation_result_for_test(&self, result: NativeObservationResult) {
-        let mut probe = self.native_observation_probe.lock().expect("native observation probe");
+        let mut probe = self
+            .native_observation_probe
+            .lock()
+            .expect("native observation probe");
         let index = result as usize;
         if let Some(count) = probe.result_counts[index].checked_add(1) {
             probe.result_counts[index] = count;
@@ -438,7 +441,10 @@ impl OriginalEnrollmentSharingChoice {
     }
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) fn observation_results_for_test(&self) -> NativeObservationResultSnapshot {
-        let probe = self.native_observation_probe.lock().expect("native observation probe");
+        let probe = self
+            .native_observation_probe
+            .lock()
+            .expect("native observation probe");
         (probe.result_counts, probe.result_overflow)
     }
 
