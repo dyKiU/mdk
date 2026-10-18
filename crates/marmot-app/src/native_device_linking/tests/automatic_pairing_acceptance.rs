@@ -698,6 +698,10 @@ async fn four_device_enrollment(held_publication: HeldPublication) {
     d.continue_automatic_linking(d.snapshot().await.unwrap().revision, true)
         .await
         .unwrap();
+// STRESS0_CONSENT_TIMING_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    let _consent_timing_guard = d.arm_consent_timing_for_test();
+// STRESS0_CONSENT_TIMING_END
     a.continue_automatic_linking(a.snapshot().await.unwrap().revision, true)
         .await
         .unwrap();
@@ -1445,6 +1449,11 @@ async fn wait_for_automatic_phase_with_approvals(
     approvals: &[DeviceLinkingApproval],
 ) {
     let mut observed = None;
+// STRESS0_CONSENT_TIMING_BEGIN
+    #[cfg(feature = "test-policy-overrides")]
+    let consent_timing_wait = b.consent_timing_wait_for_test();
+    let consent_timing_timeout =
+// STRESS0_CONSENT_TIMING_END
     tokio::time::timeout(std::time::Duration::from_secs(15), async {
         loop {
             let ap = a.snapshot().await.unwrap().phase;
@@ -1474,8 +1483,24 @@ async fn wait_for_automatic_phase_with_approvals(
             tokio::time::sleep(std::time::Duration::from_millis(25)).await;
         }
     })
+// STRESS0_CONSENT_TIMING_BEGIN
+    ;
+    #[cfg(feature = "test-policy-overrides")]
+    if let Some(wait) = &consent_timing_wait { wait.constructed(); }
+    consent_timing_timeout
+// STRESS0_CONSENT_TIMING_END
     .await
+// STRESS0_CONSENT_TIMING_BEGIN
+    .inspect(|_| {
+        #[cfg(feature = "test-policy-overrides")]
+        if let Some(wait) = &consent_timing_wait { wait.observed(true); }
+    })
+// STRESS0_CONSENT_TIMING_END
     .unwrap_or_else(|_| {
+// STRESS0_CONSENT_TIMING_BEGIN
+        #[cfg(feature = "test-policy-overrides")]
+        if let Some(wait) = &consent_timing_wait { wait.observed(false); }
+// STRESS0_CONSENT_TIMING_END
         #[cfg(feature = "test-policy-overrides")]
         for (side, original) in [("left", a), ("right", b)] {
             eprintln!(

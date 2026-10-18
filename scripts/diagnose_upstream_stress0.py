@@ -8,10 +8,22 @@ from pathlib import Path
 import re
 import subprocess
 import qualify_upstream_request_retry_ack as ack
+from stress0_consent_timing_parser import parse_consent_timing, timing_parser_controls
 
 BASE='2b5cca339e5fcfe520d58e275238e5fbac40937d'
 SELF='scripts/diagnose_upstream_stress0.py'
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
+TIMING_PARSER='scripts/stress0_consent_timing_parser.py'
+TIMING_MANIFEST='scripts/stress0_consent_timing_manifest.json'
+TIMING_MODULE='crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/consent_timing.rs'
+TIMING_MANIFEST_SHA256='c62456fdeeb647e20592dcb58c011bceaf02f1ecc732e86900e263c09ebd5af5'
+TIMING_PARSER_SHA256='1555ca2cc7d99a41ad0420bf7c39b022beb5372201745d43c300f873c7363865'
+HOOK_PATHS={
+    'crates/marmot-app/src/client/device_linking/sibling_sharing.rs',
+    'crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe.rs',
+    'crates/marmot-app/src/native_device_linking/enabled.rs',
+    'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs',
+}
 REF='refs/heads/ci/upstream-stress0-diagnostic-20261018'
 BEGIN='  # STRESS0_DIAGNOSTIC_JOBS_BEGIN\n'
 END='  # STRESS0_DIAGNOSTIC_JOBS_END\n'
@@ -149,13 +161,36 @@ def source_guard():
             metadata,name=entry.split(b'\t',1);mode,kind,blob=metadata.decode().split()
             ensure(kind=='blob' and mode in {'100644','100755','120000'},'ordinary-final-baseline-layout')
             baseline[os.fsdecode(name)]=(mode,blob)
+    manifest_bytes=Path(TIMING_MANIFEST).read_bytes()
+    ensure(ack.digest(manifest_bytes)==TIMING_MANIFEST_SHA256,'exact-reviewed-passive-source-manifest')
+    manifest=json.loads(manifest_bytes)
+    ensure(manifest.get('baseline')==BASE and set(manifest.get('paths',{}))==HOOK_PATHS
+        and sum(len(row.get('exact_substitutions',[])) for row in manifest['paths'].values())==14,
+        'exact-four-path-fourteen-substitution-reconstruction')
+    module=manifest['new_module']
+    ensure(module['path']==TIMING_MODULE and module['mode']=='100644'
+        and manifest['support_pins']=={TIMING_PARSER:{'mode':'100644','sha256':TIMING_PARSER_SHA256}},
+        'exact-leaf-and-parser-pins')
+    ensure(ack.digest(Path(TIMING_PARSER).read_bytes())==TIMING_PARSER_SHA256,'closed-parser-module-pin')
     current=ack.layout()
-    ensure(SELF not in baseline and set(current)==set(baseline)|{SELF},'whole-final-cohort-inventory')
+    additions={SELF,TIMING_PARSER,TIMING_MANIFEST,TIMING_MODULE}
+    ensure(not additions.intersection(baseline) and set(current)==set(baseline)|additions,'whole-final-cohort-inventory')
     for name,value in current.items():
         mode,blob=baseline.get(name,('100644',None))
         ensure(value['git_mode']==mode and value['symlink']==(mode=='120000')
             and (value['symlink'] or value['actual_executable']==(mode=='100755')),'whole-final-cohort-mode')
         data=os.fsencode(os.readlink(name)) if value['symlink'] else Path(name).read_bytes()
+        if name in HOOK_PATHS:
+            reviewed=manifest['paths'][name]
+            ensure(mode==reviewed['mode'] and ack.digest(data)==reviewed['draft_sha256'],'exact-passive-hook-source:'+name)
+            text=data.decode()
+            for change in reversed(reviewed['exact_substitutions']):
+                ensure(change['before'] and change['after'] and text.count(change['after'])==1,'one-reviewed-passive-source-substitution:'+name)
+                text=text.replace(change['after'],change['before'],1)
+            data=text.encode()
+            ensure(ack.digest(data)==reviewed['baseline_sha256'],'original-hook-file-reconstructed:'+name)
+        elif name==TIMING_MODULE:
+            ensure(ack.digest(data)==module['sha256'],'exact-test-only-timing-leaf')
         if name==WORKFLOW:
             text=data.decode();ensure(text.count(BEGIN)==text.count(END)==text.count(OPTIONS)==1,'one-isolated-final-workflow-overlay')
             before,rest=text.split(BEGIN);_,after=rest.split(END)
@@ -163,10 +198,10 @@ def source_guard():
         if blob is not None: ensure(hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==blob,'exact-final-source:'+name)
     ensure(set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines()) <= {str(OUT/'result.json')},'no-untracked-source-overlay')
     ensure(len([row for row in ack.CASES if row[0]=='stress_0' and row[1]==CASE and row[2]==NAME])==1,'exact-existing-required-serial-case')
-    return {'source':head,'reviewed_final_baseline':BASE,'all_product_tests_helpers_contents_and_modes_exact':True,
+    return {'source':head,'reviewed_final_baseline':BASE,'all_original_contents_and_modes_reconstructed_exact':True,'passive_hook_manifest_sha256':TIMING_MANIFEST_SHA256,'timing_parser_sha256':TIMING_PARSER_SHA256,
         'historical_ACK_controller_preserved':True,'historical_ACK_source_guard_invoked':False,
         'explicit_wrapper_guard_substitution':True,'historical_runtime_evidence_reused':False,
-        'Rust_fixtures_oracles_runtime_flavors_deadlines_unchanged':True,'one_existing_required_stress_case_only':True}
+        'Rust_assertions_oracles_runtime_flavors_Duration15_and_original_future_reconstructed_exact':True,'passive_only_four_hook_files_and_one_leaf':True,'one_existing_required_stress_case_only':True}
 
 
 def main(preflight):
@@ -178,7 +213,7 @@ def main(preflight):
     before=None;modes=None
     def save(): (OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     try:
-        report['source_guard']=source_guard();report['parser_controls']=parser_controls();save()
+        report['source_guard']=source_guard();report['parser_controls']=parser_controls();report['timing_parser_controls']=timing_parser_controls();save()
         if preflight:report['preflight_passed']=True;save();return
         report['environment']=ack.environment();before,modes=ack.freeze(),ack.layout()
         report['input_manifest_sha256']=ack.identity(before)
@@ -190,21 +225,35 @@ def main(preflight):
         report['compiled_binary_sha256']=case['binary_sha256']
         ensure(ack.freeze()==before and ack.layout()==modes and ack.digest(Path(case['binary']).read_bytes())==case['binary_sha256'],'before-runtime-pristine')
         code,raw,seconds=ack.bounded.capture([case['binary'],'--exact',NAME,'--nocapture','--test-threads=1'],300,limit=8*1024*1024)
-        row=dict(ack.parse_body(raw,CASE),body_exit_code=code)
-        report['body']=row;report['body_seconds']=seconds;save()
-        report['existing_timeout_diagnostics']=diagnostics(raw);save()
-        row=ack.parse_case('stress_0',raw,code);report['body']=row
+        row=dict(ack.parse_body(raw,CASE),body_exit_code=code,compiler_error_count=len(re.findall(r'^error(?:\[E[0-9]+\])?:',raw,re.M)))
+        report['body']=row;report['body_seconds']=seconds
+        # Preserve every observed actual count BEFORE either diagnostic parser.
         report['actual_counts_complete']=ack.alignment.complete_counts(row)
         for key in ['passed','failed','ignored','executed_nonignored']:
             report['actual_'+key]=row.get(key) if type(row.get(key)) is int else None
         save()
+        report['existing_timeout_diagnostics']=diagnostics(raw);save()
+        report['consent_timing_diagnostics']=parse_consent_timing(raw);save()
+        row=ack.parse_case('stress_0',raw,code);report['body']=row
+        report['actual_counts_complete']=ack.alignment.complete_counts(row)
+        save()
         data=report['existing_timeout_diagnostics']
         report['failure_observed']=code==101 and row.get('failed')==1
         report['failure_localization_complete']=(report['failure_observed'] and not data['missing_required_timeout_rows'] and len(data['phase_failures'])==1)
+        timing=report['consent_timing_diagnostics']
+        report['timing_observation_available']=(timing['known'] and timing['snapshot_available']
+            and timing['wait'] is not None and timing['slots'] is not None
+            and all(row is not None for row in timing['slots'])
+            and all(timing['wait'][key] is not None for key in ['constructed_before_us','constructed_after_us','observed_us','outcome_ok']))
+        report['timing_missing_later_milestones_are_not_a_gate']=True
+        # Even useful FAIL observations may have unobserved later stages. No
+        # all_milestones_observed prerequisite or inferred ACK/completion exists.
+
         report['test_green']=ack.case_green('stress_0',row)
         report['diagnostic_execution_completed']=report['actual_counts_complete'] and row.get('compiler_error_count')==0 and code in {0,101}
         report['binary_pristine']=ack.digest(Path(case['binary']).read_bytes())==case['binary_sha256'];save()
         ensure(report['diagnostic_execution_completed'] and report['binary_pristine'],'actual-one-case-or-pristine-failure')
+        ensure(report['timing_observation_available'],'loss-or-missing-timing-context-cannot-green')
         # Preserve the actual product regression, even when its diagnostics were complete.
         ensure(report['test_green'],'unchanged-required-serial-stress-failure-preserved')
     except Exception as error:

@@ -1377,6 +1377,10 @@ struct SiblingPublication {
     result: tokio::sync::oneshot::Receiver<Result<(), ClientLinkingError>>,
     outcome: Option<Result<(), ClientLinkingError>>,
     task: tokio::task::JoinHandle<()>,
+// STRESS0_CONSENT_TIMING_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    consent_timing: Option<peer_proof_probe::consent_timing::Token>,
+// STRESS0_CONSENT_TIMING_END
 }
 impl Drop for SiblingPublication {
     fn drop(&mut self) {
@@ -2155,7 +2159,13 @@ impl AppClient {
         if let Some(pending) = entry.publication.as_mut() {
             if pending.outcome.is_none() {
                 pending.outcome = Some(match pending.result.try_recv() {
-                    Ok(result) => result,
+                    Ok(result) => {
+// STRESS0_CONSENT_TIMING_BEGIN
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        if let Some(token) = &pending.consent_timing { token.stage(7, Some((3, result.is_ok()))); }
+// STRESS0_CONSENT_TIMING_END
+                        result
+                    },
                     Err(tokio::sync::oneshot::error::TryRecvError::Empty) => return Ok(false),
                     Err(tokio::sync::oneshot::error::TryRecvError::Closed) => Err(denied()),
                 });
@@ -2198,6 +2208,10 @@ impl AppClient {
                 entry.handshake_published = true;
                 entry.handshake_retry_at = retry_at;
             }
+// STRESS0_CONSENT_TIMING_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(token) = &pending.consent_timing { token.stage(8, Some((4, true))); }
+// STRESS0_CONSENT_TIMING_END
             return Ok(true);
         }
         Ok(false)
@@ -2569,10 +2583,18 @@ impl AppClient {
                 .expect("sibling diagnostics")
                 .publication_stage = Some(Stage::BeforeRelayPublication);
         }
+// STRESS0_CONSENT_TIMING_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let consent_timing = peer_proof_probe::consent_timing::prepared(entry, &request, kind);
+// STRESS0_CONSENT_TIMING_END
         self.runtime
             .session()
             .validate_account_sharing_channel(&entry.channel)
             .map_err(ClientLinkingError::Engine)?;
+// STRESS0_CONSENT_TIMING_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        if let Some(token) = &consent_timing { token.stage(1, None); }
+// STRESS0_CONSENT_TIMING_END
         let adapter = self.adapter.clone();
         // REQUEST_RETRY_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
@@ -2604,7 +2626,15 @@ impl AppClient {
         // PEER_PROOF_TEST_END
         let completion = self.linking_owner.sibling_publication_completions.clone();
         let (result_tx, result) = tokio::sync::oneshot::channel();
+// STRESS0_CONSENT_TIMING_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        let consent_timing_task = consent_timing.clone();
+// STRESS0_CONSENT_TIMING_END
         let task = tokio::spawn(async move {
+// STRESS0_CONSENT_TIMING_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(token) = &consent_timing_task { token.stage(2, None); }
+// STRESS0_CONSENT_TIMING_END
             let outcome = async {
             let revoked = state.revoked.notified();
             tokio::pin!(revoked);
@@ -2642,13 +2672,30 @@ impl AppClient {
                         peer_proof_probe::recipient_admission::hold_request(&original, peer_proof_nonce, &request).await;
                     }
 // RECIPIENT_ADMISSION_TEST_END
-                    if consent { adapter.publish_sibling_consent(request).await }
+                    if consent {
+// STRESS0_CONSENT_TIMING_BEGIN
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        if let Some(token) = &consent_timing_task { token.stage(3, None); }
+// STRESS0_CONSENT_TIMING_END
+                        let consent_result = adapter.publish_sibling_consent(request).await;
+// STRESS0_CONSENT_TIMING_BEGIN
+                        #[cfg(all(test, feature = "test-policy-overrides"))]
+                        if let Some(token) = &consent_timing_task {
+                            token.report(consent_result.is_ok(), consent_result.as_ref().ok().map(|report| report.met_required_acks()));
+                        }
+// STRESS0_CONSENT_TIMING_END
+                        consent_result
+                    }
                     else { adapter.publish_selected_chat(request).await }
                 } => report.map_err(|error| ClientLinkingError::Runtime(Box::new(error.into())))?,
             };
             if !original.live() || !state.live() || !report.met_required_acks() {
                 return Err(denied());
             }
+// STRESS0_CONSENT_TIMING_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(token) = &consent_timing_task { token.stage(5, None); }
+// STRESS0_CONSENT_TIMING_END
             #[cfg(all(test, feature = "test-policy-overrides"))]
             {
                 use crate::account_chat_sharing::enabled::SiblingPublicationStage as Stage;
@@ -2681,7 +2728,12 @@ impl AppClient {
             let success = outcome.is_ok();
             // Queue the actual result before signalling; a JoinHandle may not
             // yet be marked finished when the account worker receives a wake.
-            if result_tx.send(outcome).is_ok() && success {
+            let sent = result_tx.send(outcome).is_ok();
+// STRESS0_CONSENT_TIMING_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            if let Some(token) = &consent_timing_task { token.stage(6, Some((2, sent))); }
+// STRESS0_CONSENT_TIMING_END
+            if sent && success {
                 completion.send_replace(());
             }
         });
@@ -2690,6 +2742,10 @@ impl AppClient {
             result,
             outcome: None,
             task,
+// STRESS0_CONSENT_TIMING_BEGIN
+            #[cfg(all(test, feature = "test-policy-overrides"))]
+            consent_timing,
+// STRESS0_CONSENT_TIMING_END
         });
         // PEER_NEGATIVE_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]

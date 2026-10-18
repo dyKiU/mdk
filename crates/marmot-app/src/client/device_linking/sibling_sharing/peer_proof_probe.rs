@@ -1,4 +1,7 @@
 //! Test-only passive snapshots and one original recipient's real publication hold.
+// STRESS0_CONSENT_TIMING_BEGIN
+pub(crate) mod consent_timing;
+// STRESS0_CONSENT_TIMING_END
 use super::*;
 // REQUEST_RETRY_TEST_BEGIN
 #[cfg(all(test, feature = "test-policy-overrides"))]

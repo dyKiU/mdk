@@ -1,0 +1,106 @@
+{
+  "baseline": "2b5cca339e5fcfe520d58e275238e5fbac40937d",
+  "reconstruction": "Reverse exact unique substitutions in reverse order; all other tracked bytes/modes remain baseline. No generic marker deletion.",
+  "paths": {
+    "crates/marmot-app/src/client/device_linking/sibling_sharing.rs": {
+      "draft_file": "sibling_sharing.rs",
+      "mode": "100644",
+      "baseline_sha256": "30005542329cccf6fd5776722241fbbc06ac502aa5f12cb1a7b6cd9ca7ae0ac8",
+      "draft_sha256": "ab6c779e27294e3e072960f5b4f031286b14331324e8f38cb6abdd0ad3af39eb",
+      "exact_substitutions": [
+        {
+          "before": "    task: tokio::task::JoinHandle<()>,\n}\nimpl Drop for SiblingPublication",
+          "after": "    task: tokio::task::JoinHandle<()>,\n// STRESS0_CONSENT_TIMING_BEGIN\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    consent_timing: Option<peer_proof_probe::consent_timing::Token>,\n// STRESS0_CONSENT_TIMING_END\n}\nimpl Drop for SiblingPublication"
+        },
+        {
+          "before": "                    Ok(result) => result,\n",
+          "after": "                    Ok(result) => {\n// STRESS0_CONSENT_TIMING_BEGIN\n                        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n                        if let Some(token) = &pending.consent_timing { token.stage(7, Some((3, result.is_ok()))); }\n// STRESS0_CONSENT_TIMING_END\n                        result\n                    },\n"
+        },
+        {
+          "before": "            return Ok(true);\n        }\n        Ok(false)\n    }\n\n    fn validate_sibling_publication(",
+          "after": "// STRESS0_CONSENT_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            if let Some(token) = &pending.consent_timing { token.stage(8, Some((4, true))); }\n// STRESS0_CONSENT_TIMING_END\n            return Ok(true);\n        }\n        Ok(false)\n    }\n\n    fn validate_sibling_publication("
+        },
+        {
+          "before": "        self.runtime\n            .session()\n            .validate_account_sharing_channel(&entry.channel)\n            .map_err(ClientLinkingError::Engine)?;\n        let adapter = self.adapter.clone();",
+          "after": "// STRESS0_CONSENT_TIMING_BEGIN\n        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n        let consent_timing = peer_proof_probe::consent_timing::prepared(entry, &request, kind);\n// STRESS0_CONSENT_TIMING_END\n        self.runtime\n            .session()\n            .validate_account_sharing_channel(&entry.channel)\n            .map_err(ClientLinkingError::Engine)?;\n// STRESS0_CONSENT_TIMING_BEGIN\n        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n        if let Some(token) = &consent_timing { token.stage(1, None); }\n// STRESS0_CONSENT_TIMING_END\n        let adapter = self.adapter.clone();"
+        },
+        {
+          "before": "        let (result_tx, result) = tokio::sync::oneshot::channel();\n        let task = tokio::spawn(async move {\n            let outcome = async {",
+          "after": "        let (result_tx, result) = tokio::sync::oneshot::channel();\n// STRESS0_CONSENT_TIMING_BEGIN\n        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n        let consent_timing_task = consent_timing.clone();\n// STRESS0_CONSENT_TIMING_END\n        let task = tokio::spawn(async move {\n// STRESS0_CONSENT_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            if let Some(token) = &consent_timing_task { token.stage(2, None); }\n// STRESS0_CONSENT_TIMING_END\n            let outcome = async {"
+        },
+        {
+          "before": "                    if consent { adapter.publish_sibling_consent(request).await }\n                    else { adapter.publish_selected_chat(request).await }",
+          "after": "                    if consent {\n// STRESS0_CONSENT_TIMING_BEGIN\n                        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n                        if let Some(token) = &consent_timing_task { token.stage(3, None); }\n// STRESS0_CONSENT_TIMING_END\n                        let consent_result = adapter.publish_sibling_consent(request).await;\n// STRESS0_CONSENT_TIMING_BEGIN\n                        #[cfg(all(test, feature = \"test-policy-overrides\"))]\n                        if let Some(token) = &consent_timing_task {\n                            token.report(consent_result.is_ok(), consent_result.as_ref().ok().map(|report| report.met_required_acks()));\n                        }\n// STRESS0_CONSENT_TIMING_END\n                        consent_result\n                    }\n                    else { adapter.publish_selected_chat(request).await }"
+        },
+        {
+          "before": "            if !original.live() || !state.live() || !report.met_required_acks() {\n                return Err(denied());\n            }\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]",
+          "after": "            if !original.live() || !state.live() || !report.met_required_acks() {\n                return Err(denied());\n            }\n// STRESS0_CONSENT_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            if let Some(token) = &consent_timing_task { token.stage(5, None); }\n// STRESS0_CONSENT_TIMING_END\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]"
+        },
+        {
+          "before": "            if result_tx.send(outcome).is_ok() && success {\n                completion.send_replace(());\n            }",
+          "after": "            let sent = result_tx.send(outcome).is_ok();\n// STRESS0_CONSENT_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            if let Some(token) = &consent_timing_task { token.stage(6, Some((2, sent))); }\n// STRESS0_CONSENT_TIMING_END\n            if sent && success {\n                completion.send_replace(());\n            }"
+        },
+        {
+          "before": "            outcome: None,\n            task,\n        });",
+          "after": "            outcome: None,\n            task,\n// STRESS0_CONSENT_TIMING_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            consent_timing,\n// STRESS0_CONSENT_TIMING_END\n        });"
+        }
+      ]
+    },
+    "crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe.rs": {
+      "draft_file": "peer_proof_probe.rs",
+      "mode": "100644",
+      "baseline_sha256": "7c05429876cd4e7566a5496213ffc950c031e2a668c9cd9e6caf2ca861fc60d1",
+      "draft_sha256": "dedc4b599ad88d00b876d85609c8d4879e31756e12a7c9b41abc709e22f92e31",
+      "exact_substitutions": [
+        {
+          "before": "//! Test-only passive snapshots and one original recipient's real publication hold.\n",
+          "after": "//! Test-only passive snapshots and one original recipient's real publication hold.\n// STRESS0_CONSENT_TIMING_BEGIN\npub(crate) mod consent_timing;\n// STRESS0_CONSENT_TIMING_END\n"
+        }
+      ]
+    },
+    "crates/marmot-app/src/native_device_linking/enabled.rs": {
+      "draft_file": "enabled.rs",
+      "mode": "100644",
+      "baseline_sha256": "7000cf0f9e9ea94c1652f8091205fba3232c4cfb7ddd7470ba841acf22c8d96f",
+      "draft_sha256": "ac50ac2c95db3d4cc04f3eb99cc6d5aac5adb67f8f0f3370a1f760e100042727",
+      "exact_substitutions": [
+        {
+          "before": "    // PEER_PROOF_TEST_BEGIN\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    pub(crate) fn arm_late_peer_proof_for_test(",
+          "after": "    // STRESS0_CONSENT_TIMING_BEGIN\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    pub(super) fn arm_consent_timing_for_test(&self) -> crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Guard {\n        let owner = self.inner.sharing_choice.try_lock().ok()\n            .and_then(|choice| choice.as_ref().map(Arc::downgrade));\n        crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::arm(owner)\n    }\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    pub(super) fn consent_timing_wait_for_test(&self) -> Option<crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::Wait> {\n        if !crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::armed() { return None; }\n        let owner = self.inner.sharing_choice.try_lock().ok()\n            .and_then(|choice| choice.as_ref().map(Arc::downgrade));\n        crate::client::device_linking::sibling_sharing::peer_proof_probe::consent_timing::wait_before(owner)\n    }\n    // STRESS0_CONSENT_TIMING_END\n    // PEER_PROOF_TEST_BEGIN\n    #[cfg(all(test, feature = \"test-policy-overrides\"))]\n    pub(crate) fn arm_late_peer_proof_for_test("
+        }
+      ]
+    },
+    "crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs": {
+      "draft_file": "automatic_pairing_acceptance.rs",
+      "mode": "100644",
+      "baseline_sha256": "c8bdd643dc4e7e81ea90741fc3a68aebcfd2d47b3fcd16e402ea2fec3ca73731",
+      "draft_sha256": "984046f55972b489a50515970d52a7b0311661e3c7b4b22f5a94693827e02b96",
+      "exact_substitutions": [
+        {
+          "before": "    d.continue_automatic_linking(d.snapshot().await.unwrap().revision, true)\n        .await\n        .unwrap();\n    a.continue_automatic_linking(a.snapshot().await.unwrap().revision, true)",
+          "after": "    d.continue_automatic_linking(d.snapshot().await.unwrap().revision, true)\n        .await\n        .unwrap();\n// STRESS0_CONSENT_TIMING_BEGIN\n    #[cfg(feature = \"test-policy-overrides\")]\n    let _consent_timing_guard = d.arm_consent_timing_for_test();\n// STRESS0_CONSENT_TIMING_END\n    a.continue_automatic_linking(a.snapshot().await.unwrap().revision, true)"
+        },
+        {
+          "before": "    let mut observed = None;\n    tokio::time::timeout(std::time::Duration::from_secs(15), async {",
+          "after": "    let mut observed = None;\n// STRESS0_CONSENT_TIMING_BEGIN\n    #[cfg(feature = \"test-policy-overrides\")]\n    let consent_timing_wait = b.consent_timing_wait_for_test();\n    let consent_timing_timeout =\n// STRESS0_CONSENT_TIMING_END\n    tokio::time::timeout(std::time::Duration::from_secs(15), async {"
+        },
+        {
+          "before": "    })\n    .await\n    .unwrap_or_else(|_| {\n        #[cfg(feature = \"test-policy-overrides\")]\n        for (side, original) in [(\"left\", a), (\"right\", b)] {",
+          "after": "    })\n// STRESS0_CONSENT_TIMING_BEGIN\n    ;\n    #[cfg(feature = \"test-policy-overrides\")]\n    if let Some(wait) = &consent_timing_wait { wait.constructed(); }\n    consent_timing_timeout\n// STRESS0_CONSENT_TIMING_END\n    .await\n// STRESS0_CONSENT_TIMING_BEGIN\n    .inspect(|_| {\n        #[cfg(feature = \"test-policy-overrides\")]\n        if let Some(wait) = &consent_timing_wait { wait.observed(true); }\n    })\n// STRESS0_CONSENT_TIMING_END\n    .unwrap_or_else(|_| {\n// STRESS0_CONSENT_TIMING_BEGIN\n        #[cfg(feature = \"test-policy-overrides\")]\n        if let Some(wait) = &consent_timing_wait { wait.observed(false); }\n// STRESS0_CONSENT_TIMING_END\n        #[cfg(feature = \"test-policy-overrides\")]\n        for (side, original) in [(\"left\", a), (\"right\", b)] {"
+        }
+      ]
+    }
+  },
+  "new_module": {
+    "path": "crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/consent_timing.rs",
+    "mode": "100644",
+    "draft_file": "consent_timing.rs",
+    "sha256": "8a418d337a9325ea7d5202b5ab1f3789535c357374892268995ce9f663cbdad6"
+  },
+  "support_pins": {
+    "scripts/stress0_consent_timing_parser.py": {
+      "mode": "100644",
+      "sha256": "1555ca2cc7d99a41ad0420bf7c39b022beb5372201745d43c300f873c7363865"
+    }
+  }
+}
