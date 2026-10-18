@@ -23,7 +23,7 @@ WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
 REF = 'refs/heads/ci/upstream-composed-enrollment-diagnostic-20261018'
 BEGIN = '  # COMPOSED_FINAL_ENROLLMENT_JOBS_BEGIN\n'
 END = '  # COMPOSED_FINAL_ENROLLMENT_JOBS_END\n'
-OPTIONS = 'options: [composed-diagnostic-preflight, composed-experimental-static-diagnostic, composed-ordinary-diagnostic, '
+OPTIONS = 'options: [composed-diagnostic-preflight, composed-experimental-static-diagnostic, composed-ordinary-diagnostic, composed-stress0-diagnostic, '
 OUT = Path('composed-enrollment-diagnostic-evidence')
 ensure = ack.ensure
 FIXTURE='crates/marmot-app/src/native_device_linking/tests/sequential_installations_acceptance.rs'
@@ -304,9 +304,13 @@ def diagnostic_capture(command,*args,**kwargs):
 
 
 
-def ordinary_diagnostic_main(args):
+def selected_case_diagnostic_main(args):
     os.umask(0o077);OUT.mkdir(exist_ok=True)
-    report={'scope':'one-unchanged-original_0-diagnostic','required_case_count':1,'full_sixteen_executed':False,
+    choices={'ordinary-diagnostic':('original_0','third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts'),
+        'stress0-diagnostic':('stress_0','single_thread_stress_four_device_enrollment')}
+    ensure(args.mode in choices,'one-allowlisted-diagnostic-mode')
+    selected_label,selected_suffix=choices[args.mode]
+    report={'scope':'one-unchanged-'+selected_label+'-diagnostic','required_case_count':1,'full_sixteen_executed':False,
         'qualification_passed':False,'promotion_eligible':False,'native_acceptance_claim':False,
         'actual_counts_complete':False,'actual_executed_nonignored':None,'actual_passed':None,'actual_failed':None,'actual_ignored':None}
     before=None;modes=None;binary=None;binary_sha=None
@@ -314,9 +318,10 @@ def ordinary_diagnostic_main(args):
     try:
         report['source_guard']=source_guard();report['parser_controls']=ack.parser_controls();save()
         report['environment']=ack.environment();before,modes=ack.freeze(),ack.layout()
-        selected=[row for row in ack.CASES if row[0]=='original_0'];ensure(len(selected)==1,'one-frozen-original-selector')
+        selected=[row for row in ack.CASES if row[0]==selected_label];ensure(len(selected)==1,'one-frozen-allowlisted-selector')
         label,suffix,name,oracle=selected[0]
-        ensure(name=='native_device_linking::automatic_pairing_acceptance::third_and_later_device_enrollment_need_no_extra_qr_or_manual_artifacts','exact-ordinary-name')
+        ensure(suffix==selected_suffix and name=='native_device_linking::automatic_pairing_acceptance::'+selected_suffix
+            and oracle=='original_0','exact-allowlisted-name-suffix-and-original-oracle')
         report.update(actual_required_name=name,historical_oracle_label=oracle,input_manifest_sha256=ack.identity(before));save()
         compilation,cases=ack.compile_cases([suffix]);report['compilation']=compilation;save()
         ensure(compilation.get('compile_exit_code')==compilation.get('compiler_error_count')==0
@@ -353,7 +358,7 @@ def ordinary_diagnostic_main(args):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--preflight',action='store_true')
-    parser.add_argument('--mode',choices=['full','static','native-five','readiness','ordinary-diagnostic'],default='full')
+    parser.add_argument('--mode',choices=['full','static','native-five','readiness','ordinary-diagnostic','stress0-diagnostic'],default='full')
     parser.add_argument('--cohort',choices=['default','experimental'])
     parser.add_argument('--mutation',choices=['consume','permit'])
     args=parser.parse_args()
@@ -366,8 +371,8 @@ def main():
     ack.source_guard=source_guard
     ack.OUT=OUT
     try:
-        if args.mode=='ordinary-diagnostic' and not args.preflight:
-            ordinary_diagnostic_main(args)
+        if args.mode in {'ordinary-diagnostic','stress0-diagnostic'} and not args.preflight:
+            selected_case_diagnostic_main(args)
         elif args.mode=='readiness' and not args.preflight:
             readiness.source_guard=source_guard
             readiness.OUT=OUT
