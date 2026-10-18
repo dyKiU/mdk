@@ -6,7 +6,7 @@ import diagnose_upstream_post_watch_native5 as previous
 frozen=previous.frozen
 ensure=previous.ensure
 digest=previous.digest
-BASE='e784219fd1fea66415f6748a8386bf5a71dd169f' # Signed passive Request hooks; all existing files remain BASE-exact.
+BASE='fdbc9d3f3a7391c1612a5b70202ae19385142d70' # Signed passive Request hooks; all existing files remain BASE-exact.
 DIAGNOSTIC_PARENT='0b02a07916c17f8240c65f83ad2d916357c7f5fa'
 SELF='scripts/diagnose_upstream_request_consent_gap.py'
 WORKFLOW='.github/workflows/experimental-sync-ci.yml'
