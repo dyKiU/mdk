@@ -2444,13 +2444,16 @@ impl AppClient {
             // NATIVE5_TERMINAL_COST_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
             let terminal_cost = peer_proof_probe::native5_timing::terminal_validation(
-                entry, mode == SiblingAdvanceMode::Periodic,
+                entry,
+                mode == SiblingAdvanceMode::Periodic,
             );
             // NATIVE5_TERMINAL_COST_END
             let validation = self.validate_sibling_publication(entry);
             // NATIVE5_TERMINAL_COST_BEGIN
             #[cfg(all(test, feature = "test-policy-overrides"))]
-            if let Some(cost) = terminal_cost { cost.finish(validation.is_err()); }
+            if let Some(cost) = terminal_cost {
+                cost.finish(validation.is_err());
+            }
             // NATIVE5_TERMINAL_COST_END
             validation?;
             Self::complete_sibling_sharing(entry);

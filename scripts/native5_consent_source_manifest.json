@@ -7,7 +7,7 @@
       "draft_file": "sibling_sharing.rs",
       "mode": "100644",
       "before_sha256": "9aabb6dec76aaa79a8fee990973983cce3c0b4cf9fd7056fe35d13040179fd98",
-      "after_sha256": "ce68f1b3594ac9edacc9d5557d3a3d51e610d504917d0663fb1e06bcc1bdf4d3",
+      "after_sha256": "57a88392424043d8f571cd62ac85464c5c6ab6279f8321af854c2fed19661c92",
       "exact_substitutions": [
         {
           "before": "    result: tokio::sync::oneshot::Receiver<Result<(), ClientLinkingError>>,\n    outcome: Option<Result<(), ClientLinkingError>>,\n    task: tokio::task::JoinHandle<()>,\n}\nimpl Drop for SiblingPublication {\n    fn drop(&mut self) {\n",
@@ -35,7 +35,7 @@
         },
         {
           "before": "            return Ok(());\n        }\n        if entry.peer_committed {\n            self.validate_sibling_publication(entry)?;\n            Self::complete_sibling_sharing(entry);\n        }\n        Ok(())\n",
-          "after": "            return Ok(());\n        }\n        if entry.peer_committed {\n            // NATIVE5_TERMINAL_COST_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            let terminal_cost = peer_proof_probe::native5_timing::terminal_validation(\n                entry, mode == SiblingAdvanceMode::Periodic,\n            );\n            // NATIVE5_TERMINAL_COST_END\n            let validation = self.validate_sibling_publication(entry);\n            // NATIVE5_TERMINAL_COST_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            if let Some(cost) = terminal_cost { cost.finish(validation.is_err()); }\n            // NATIVE5_TERMINAL_COST_END\n            validation?;\n            Self::complete_sibling_sharing(entry);\n        }\n        Ok(())\n"
+          "after": "            return Ok(());\n        }\n        if entry.peer_committed {\n            // NATIVE5_TERMINAL_COST_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            let terminal_cost = peer_proof_probe::native5_timing::terminal_validation(\n                entry,\n                mode == SiblingAdvanceMode::Periodic,\n            );\n            // NATIVE5_TERMINAL_COST_END\n            let validation = self.validate_sibling_publication(entry);\n            // NATIVE5_TERMINAL_COST_BEGIN\n            #[cfg(all(test, feature = \"test-policy-overrides\"))]\n            if let Some(cost) = terminal_cost {\n                cost.finish(validation.is_err());\n            }\n            // NATIVE5_TERMINAL_COST_END\n            validation?;\n            Self::complete_sibling_sharing(entry);\n        }\n        Ok(())\n"
         },
         {
           "before": "            if !progress.complete {\n                progress.complete = true;\n                progress.revision += 1;\n            }\n        }\n    }\n",
@@ -204,7 +204,7 @@
     "crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/native5_timing.rs": {
       "draft_file": "native5_timing.rs",
       "mode": "100644",
-      "sha256": "7283576cd5cd49555de1e739581fcad1423df3bc04e36fac9eb18f8561aa1359"
+      "sha256": "61d84b754894f780a60f7e4753a07d2265b2a186ededc901a9090fb5d0c7a34f"
     }
   }
 }

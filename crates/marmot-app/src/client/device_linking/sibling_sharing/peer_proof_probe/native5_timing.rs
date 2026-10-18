@@ -155,39 +155,80 @@ pub(in super::super::super) struct TerminalValidation {
     started: u64,
 }
 pub(in super::super::super) fn terminal_validation(
-    entry: &SiblingChannel, periodic: bool,
+    entry: &SiblingChannel,
+    periodic: bool,
 ) -> Option<TerminalValidation> {
-    if !periodic || entry.publication.is_some() { return None; }
+    if !periodic || entry.publication.is_some() {
+        return None;
+    }
     let probe = registry().get()?.upgrade()?;
     let mut active = false;
-    probe.observe(|data, _| { active = data.after.is_some() && data.wait_observed.is_none(); });
-    if !active { return None; }
+    probe.observe(|data, _| {
+        active = data.after.is_some() && data.wait_observed.is_none();
+    });
+    if !active {
+        return None;
+    }
     let complete = match entry.state.progress.try_lock() {
         Ok(progress) => progress.complete,
-        Err(TryLockError::WouldBlock) => { probe.loss(LOCK_BUSY); return None; }
-        Err(TryLockError::Poisoned(_)) => { probe.loss(LOCK_POISONED); return None; }
+        Err(TryLockError::WouldBlock) => {
+            probe.loss(LOCK_BUSY);
+            return None;
+        }
+        Err(TryLockError::Poisoned(_)) => {
+            probe.loss(LOCK_POISONED);
+            return None;
+        }
     };
-    if !complete { return None; }
+    if !complete {
+        return None;
+    }
     let mut started = None;
     probe.observe(|data, time| {
-        if data.after.is_none() || data.wait_observed.is_some() { return; }
-        let Some(time) = time else { return; };
-        if data.terminal_cost[0] >= 1_000_000 { probe.loss(OVERFLOW); return; }
+        if data.after.is_none() || data.wait_observed.is_some() {
+            return;
+        }
+        let Some(time) = time else {
+            return;
+        };
+        if data.terminal_cost[0] >= 1_000_000 {
+            probe.loss(OVERFLOW);
+            return;
+        }
         data.terminal_cost[0] += 1;
         data.terminal_inflight += 1;
         data.terminal_bounds[0].get_or_insert(time);
         started = Some(time);
     });
-    started.map(|started| TerminalValidation { probe: Arc::downgrade(&probe), started })
+    started.map(|started| TerminalValidation {
+        probe: Arc::downgrade(&probe),
+        started,
+    })
 }
 impl TerminalValidation {
     pub(in super::super::super) fn finish(self, error: bool) {
-        let Some(probe) = self.probe.upgrade() else { return; };
+        let Some(probe) = self.probe.upgrade() else {
+            return;
+        };
         probe.observe(|data, time| {
-            let Some(end) = time else { return; };
-            let Some(duration) = end.checked_sub(self.started) else { probe.loss(OVERFLOW); return; };
-            let Some(total) = data.terminal_cost[3].checked_add(duration).filter(|v| *v <= MAX_US) else { probe.loss(OVERFLOW); return; };
-            if data.terminal_inflight == 0 { probe.loss(IDENTITY); return; }
+            let Some(end) = time else {
+                return;
+            };
+            let Some(duration) = end.checked_sub(self.started) else {
+                probe.loss(OVERFLOW);
+                return;
+            };
+            let Some(total) = data.terminal_cost[3]
+                .checked_add(duration)
+                .filter(|v| *v <= MAX_US)
+            else {
+                probe.loss(OVERFLOW);
+                return;
+            };
+            if data.terminal_inflight == 0 {
+                probe.loss(IDENTITY);
+                return;
+            }
             data.terminal_inflight -= 1;
             data.terminal_cost[1] += 1;
             data.terminal_cost[2] += u64::from(error);
@@ -197,7 +238,10 @@ impl TerminalValidation {
             // Entire call definitely between constructed timeout and its
             // earliest possible deadline, not an inferred exact deadline.
             if data.after.is_some_and(|after| self.started >= after)
-                && data.before.and_then(|before| before.checked_add(15_000_000)).is_some_and(|lower| end < lower)
+                && data
+                    .before
+                    .and_then(|before| before.checked_add(15_000_000))
+                    .is_some_and(|lower| end < lower)
             {
                 data.terminal_cost[5] += 1;
                 data.terminal_cost[6] += duration;
@@ -783,7 +827,11 @@ impl Guard {
                         .as_ref()
                         .map(|slot| (slot.progress, slot.progress_repeats))
                 }),
-                (data.terminal_cost, data.terminal_inflight, data.terminal_bounds),
+                (
+                    data.terminal_cost,
+                    data.terminal_inflight,
+                    data.terminal_bounds,
+                ),
             )),
             Err(TryLockError::WouldBlock) => None,
             Err(TryLockError::Poisoned(_)) => None,
@@ -854,7 +902,10 @@ impl Guard {
                     );
                 }
             }
-            let _ = writeln!(&mut output, "native5-consent-terminal-cost observation={terminal_cost:?}");
+            let _ = writeln!(
+                &mut output,
+                "native5-consent-terminal-cost observation={terminal_cost:?}"
+            );
         }
         if output.len() > 65536 {
             return "native5-consent-timing known=false loss_mask=4 snapshot_available=false\n"
