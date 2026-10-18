@@ -91,7 +91,7 @@ jobs:
       RUST_MIN_STACK: '4194304'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
-      UPSTREAM_PURE_QUALIFICATION_BASELINE: cbdbaf5a31f707de3c37509150e54d00f4f2b524
+      UPSTREAM_PURE_QUALIFICATION_BASELINE: 212d1b90df2c658eb02178b625aa21b97bf544b2
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
@@ -133,7 +133,7 @@ jobs:
       RUST_MIN_STACK: '4194304'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
-      UPSTREAM_PURE_QUALIFICATION_BASELINE: cbdbaf5a31f707de3c37509150e54d00f4f2b524
+      UPSTREAM_PURE_QUALIFICATION_BASELINE: 212d1b90df2c658eb02178b625aa21b97bf544b2
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
@@ -176,7 +176,7 @@ jobs:
     permissions:
       contents: read
     env:
-      UPSTREAM_PURE_QUALIFICATION_BASELINE: cbdbaf5a31f707de3c37509150e54d00f4f2b524
+      UPSTREAM_PURE_QUALIFICATION_BASELINE: 212d1b90df2c658eb02178b625aa21b97bf544b2
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -191,7 +191,7 @@ jobs:
       - name: Exact reviewed source and closed parser preflight
         run: |
           python3 -m py_compile scripts/qualify_upstream_pure_native5.py
-          python3 scripts/qualify_upstream_pure_native5.py --preflight
+          python3 scripts/qualify_upstream_pure_native5.py --preflight ${{ inputs.native_case == 'sixteen' && '--full16' || (inputs.native_case == 'static' && '--static-cohort experimental' || '') }}
       - name: Hosted unchanged pure Rust formatting and exact patch only
         run: |
           toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
@@ -202,7 +202,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: pure-native5-preflight
+          name: pure-native5-preflight-${{ inputs.native_case || 'five' }}
           path: |
             pure-native5-evidence/result.json
             ${{ runner.temp }}/pure-native5-format.patch
@@ -210,13 +210,13 @@ jobs:
           retention-days: 7
   pure-native5-green:
     needs: pure-native5-preflight
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'pure-native5-green'
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'pure-native5-green' && inputs.native_case != 'static'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: ${{ inputs.native_case == 'sixteen' && 150 || 60 }}
     permissions:
       contents: read
     env:
-      UPSTREAM_PURE_QUALIFICATION_BASELINE: cbdbaf5a31f707de3c37509150e54d00f4f2b524
+      UPSTREAM_PURE_QUALIFICATION_BASELINE: 212d1b90df2c658eb02178b625aa21b97bf544b2
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -245,11 +245,53 @@ jobs:
       - name: One compile, one exact required real SDK body and positive owned cleanup
         env:
           CARGO_INCREMENTAL: '1'
-        run: python3 scripts/qualify_upstream_pure_native5.py
+        run: python3 scripts/qualify_upstream_pure_native5.py ${{ inputs.native_case == 'sixteen' && '--full16' || '' }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: pure-native5-green
+          name: pure-native5-green-${{ inputs.native_case || 'five' }}
+          path: pure-native5-evidence/result.json
+          if-no-files-found: error
+          retention-days: 7
+  pure-native5-static:
+    needs: pure-native5-preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'pure-native5-green' && inputs.native_case == 'static'
+    strategy:
+      fail-fast: false
+      matrix:
+        cohort: [default, experimental]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      UPSTREAM_PURE_QUALIFICATION_BASELINE: 212d1b90df2c658eb02178b625aa21b97bf544b2
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source toolchain and clippy
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component clippy
+          rustup default "$toolchain"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: experimental-sync-tests
+          cache-on-failure: true
+      - name: Strict all-targets App static, zero runtime bodies
+        run: python3 scripts/qualify_upstream_pure_native5.py --static-cohort ${{ matrix.cohort }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pure-native5-static-${{ matrix.cohort }}
           path: pure-native5-evidence/result.json
           if-no-files-found: error
           retention-days: 7

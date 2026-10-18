@@ -1,5 +1,5 @@
 {
-  "baseline": "cbdbaf5a31f707de3c37509150e54d00f4f2b524",
+  "baseline": "212d1b90df2c658eb02178b625aa21b97bf544b2",
   "owned_metadata": [
     "scripts/qualify_upstream_pure_command_offer.py",
     "scripts/qualify_upstream_pure_native5.py",
@@ -169,5 +169,22 @@
     "actual_executed_nonignored": 2,
     "compiler_error_count": 0,
     "same_binary_sha256": "cc93987e2ecf41462407eda2c9c38a130473ee0c1473860ef0322b5a16ccd118"
+  },
+  "native16": {
+    "source": "2ba362f3e8cb41a91088f3d011e734218cbe0b7c",
+    "immutable_inventory_helper": "scripts/qualify_upstream_request_retry_ack.py",
+    "case_count": 16,
+    "includes_serial_stress": 3,
+    "includes_paused_clock": 1,
+    "runtime_result_reused": false,
+    "same_strict_oracles": true
+  },
+  "strict_App_statics": {
+    "cohorts": [
+      "default",
+      "experimental"
+    ],
+    "runtime_bodies": 0,
+    "requested_features_and_unbound_cached_unit_features_distinguished": true
   }
 }

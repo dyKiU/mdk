@@ -9,13 +9,14 @@ import re
 import shutil
 import subprocess
 import qualify_upstream_pure_command_offer as offer
+import qualify_upstream_request_retry_ack as ack
 import qualify_upstream_storage_boundary as bounded
 import qualify_upstream_storage_app_handles as counts
-from upstream_completion_ci import compile_cases, digest, ensure
+from upstream_completion_ci import compile_cases, digest, ensure, parse_body as basic_parse_body
 from qualify_upstream_body_negative import feature_identity
 from upstream_extraction_cohort import frozen_inputs
-BASE='cbdbaf5a31f707de3c37509150e54d00f4f2b524'
-MANIFEST_SHA='76adf23102484ce8817515ddda948487e18670ba13a44f938103b4844d2dc65b'
+BASE='212d1b90df2c658eb02178b625aa21b97bf544b2'
+MANIFEST_SHA='1d22bca9b35434bf18ea50255c510d9e4804ed956d50cbad72f2144b41817f42'
 SELF='scripts/qualify_upstream_pure_native5.py'
 MANIFEST='scripts/pure_command_offer_source_manifest.json'
 REF='refs/heads/ci/upstream-command-offer-pure-20261018'
@@ -168,6 +169,164 @@ def execute_one(report,save):
         if binary is not None:ensure(report['binary_pristine'],'final-native5-binary-pristine')
 
 
+def full16_cases():
+    selected=list(ack.CASES)
+    ensure(len(selected)==16 and all(isinstance(row,(list,tuple)) and len(row)==4 for row in selected)
+        and all(len({row[i] for row in selected})==16 for i in [0,1,2])
+        and {'policy','stress_0','stress_1','stress_2','paused_clock'}<={row[0] for row in selected},'frozen-exact-sixteen-required-cases')
+    return selected
+
+
+def full16_totals(report):
+    report.update(ack.alignment.aggregate_counts(report['cases']))
+    report['actual_counts_complete']=all(row.get('actual_counts_complete') is True for row in report['cases'].values())
+
+
+def execute_full16(report,save):
+    selected=full16_cases();frozen=frozen_inputs();binary=None;before_sha=None
+    report.update(scope='sixteen-original-composed-controls',full16_qualification=False,runtime_execution_attempted=False,
+        required_case_count=16,cases={label:{'actual_counts_complete':False,'green':False,'actual_required_name':name,
+            'suffix':suffix,'historical_oracle_label':oracle} for label,suffix,name,oracle in selected})
+    report['input_manifest_sha256']=digest(json.dumps(frozen,sort_keys=True).encode());full16_totals(report);save()
+    try:
+        ensure(shutil.disk_usage('.').free>=8*1024**3,'remote-capacity')
+        compilation,cases=compile_cases([suffix for _,suffix,_,_ in selected]);report['compilation']=safe_compilation(compilation);save()
+        ensure(all(type(compilation.get(k)) is int and compilation[k]==0 for k in ['compile_exit_code','compiler_error_count'])
+            and compilation.get('compiled_fingerprints',{}).get('verified') is True
+            and set(cases)=={suffix for _,suffix,_,_ in selected}
+            and all(cases[suffix]['name']==name for _,suffix,name,_ in selected)
+            and len({case['binary_sha256'] for case in cases.values()})==1,'actual-sixteen-exact-fullnames-one-binary')
+        binary=Path(next(iter(cases.values()))['binary']);before_sha=next(iter(cases.values()))['binary_sha256']
+        report['binary_before_sha256']=before_sha;report['feature_identity']=feature_identity(compilation)
+        ensure(set(report['feature_identity']['nodes'])==NODES,'six-actual-full16-feature-fingerprints');save()
+        for label,suffix,name,_ in selected:
+            row=report['cases'][label]
+            for ignored in [False,True]:
+                command=[str(binary),'--exact',name]+(['--ignored'] if ignored else [])+['--list','--format','terse']
+                code,raw,_=bounded.capture(command,60,limit=1024*1024)
+                inventory=counts.parse_inventory(raw,name,ignored)
+                row.setdefault('inventory',{})['ignored' if ignored else 'normal']=inventory;save()
+                ensure(code==0 and inventory['passed'],'each-full16-normal-one-ignored-zero-inventory')
+        ensure(frozen_inputs()==frozen and digest(binary.read_bytes())==before_sha,'full16-after-compile-pristine')
+        for label,suffix,name,_ in selected:
+            row=report['cases'][label];row['runtime_started']=False;save()
+            try:
+                ensure(frozen_inputs()==frozen and binary.is_file() and not binary.is_symlink()
+                    and digest(binary.read_bytes())==before_sha,'full16-before-body-pristine')
+                row['runtime_started']=True;report['runtime_execution_attempted']=True;save()
+                code,raw,seconds=bounded.capture([str(binary),'--exact',name,'--nocapture','--test-threads=1'],300,limit=8*1024*1024)
+                row['body']=dict(basic_parse_body(raw,suffix),body_exit_code=code,
+                    compiler_error_count=len(re.findall(r'^error(?:\[E[0-9]+\])?:',raw,re.M)))
+                row['seconds']=seconds;row['actual_counts_complete']=ack.alignment.complete_counts(row['body'])
+                row['binary_after_body_sha256']=digest(binary.read_bytes()) if binary.is_file() and not binary.is_symlink() else None
+                row['inputs_after_body_pristine']=frozen_inputs()==frozen
+                row['binary_after_body_pristine']=row['binary_after_body_sha256']==before_sha
+                full16_totals(report);save() # Preserve actual counts and physical checks before strict classification.
+                parsed=ack.parse_case(label,raw,code)
+                row['body']=parsed;row['actual_counts_complete']=ack.alignment.complete_counts(parsed)
+                row['green']=(row['actual_counts_complete'] and ack.case_green(label,parsed)
+                    and type(parsed.get('compiler_error_count')) is int and parsed['compiler_error_count']==0
+                    and type(parsed.get('all_panic_header_count')) is int and parsed['all_panic_header_count']==0)
+            except bounded.GateFailure as error:
+                row['watchdog_triggered']=str(error)=='bounded-command-timeout'
+                row['output_limit_triggered']=str(error)=='bounded-command-output-limit';row['exception_type']=type(error).__name__
+            except Exception as error:
+                row['exception_type']=type(error).__name__;row['parser_or_case_gate_rejected']=True
+            finally:
+                row['inputs_pristine']=frozen_inputs()==frozen
+                row['binary_final_sha256']=digest(binary.read_bytes()) if binary.is_file() and not binary.is_symlink() else None
+                row['binary_pristine']=row['binary_final_sha256']==before_sha
+                if not row['inputs_pristine'] or not row['binary_pristine']:row['green']=False
+                full16_totals(report);save()
+        report['full16_qualification']=(report['actual_counts_complete'] and all(row.get('green') is True for row in report['cases'].values())
+            and all(type(report.get(k)) is int and report[k]==v for k,v in {
+                'actual_passed':16,'actual_failed':0,'actual_ignored':0,'actual_executed_nonignored':16}.items()))
+        save();ensure(report['full16_qualification'],'all-sixteen-original-controls-required')
+    finally:
+        report['inputs_pristine']=frozen_inputs()==frozen
+        report['source_after_sha256']=digest(json.dumps(frozen_inputs(),sort_keys=True).encode())
+        if binary is not None:
+            report['binary_final_sha256']=digest(binary.read_bytes()) if binary.is_file() and not binary.is_symlink() else None
+            report['binary_pristine']=report['binary_final_sha256']==before_sha
+        if not report['inputs_pristine'] or (binary is not None and not report['binary_pristine']):report['full16_qualification']=False
+        full16_totals(report);save()
+        ensure(report['inputs_pristine'],'final-full16-source-modes-pristine')
+        if binary is not None:ensure(report['binary_pristine'],'final-full16-binary-pristine')
+
+
+def static_diagnostics(raw,tracked):
+    raw=re.sub(r'\x1b\[[0-9;]*m','',raw)
+    errors=re.findall(r'^error(?:\[E[0-9]+\])?:',raw,re.M)
+    codes=sorted(set(re.findall(r'\berror\[(E[0-9]{4})\]',raw)))
+    sites=[{'file':file,'line':int(line),'column':int(column)}
+        for file,line,column in re.findall(r'(?m)^\s*--> (crates/[A-Za-z0-9_./-]+\.rs):([0-9]{1,7}):([0-9]{1,7})\s*$',raw) if file in tracked]
+    return {'compiler_error_count':len(errors),'compiler_codes':codes[:32],'compiler_code_count':len(codes),
+        'compiler_sites':sites[:32],'compiler_site_count':len(sites),
+        'closed_diagnostics_truncated':len(codes)>32 or len(sites)>32,'raw_diagnostics_retained':False}
+
+
+def static_unit_candidate(path):
+    return any(re.fullmatch(re.escape(node.replace('_','-'))+r'-[0-9a-f]{16}',path.parent.name)
+        and path.name in {'lib-'+node+'.json','test-lib-'+node+'.json'} for node in NODES)
+
+
+def static_artifact_features():
+    # Cargo cache candidates are observations, not an identified runtime binary
+    # or proof that every listed unit was rebuilt by this invocation.
+    root=Path(os.environ.get('CARGO_TARGET_DIR','target'))/'debug'/'.fingerprint'
+    paths=sorted(path for path in root.glob('*/*.json') if static_unit_candidate(path))
+    rows=[];rejected=0
+    for path in paths[:256]:
+        try:
+            ensure(path.is_file() and not path.is_symlink() and path.stat().st_size<=128*1024,'bounded-unit-fingerprint')
+            raw=path.read_bytes();data=json.loads(raw);features=data.get('features')
+            if isinstance(features,str):features=json.loads(features)
+            ensure(isinstance(features,list) and len(features)<=128 and all(isinstance(value,str) and re.fullmatch('[A-Za-z0-9_./:-]{1,100}',value) for value in features),'closed-unit-features')
+            rows.append({'path':str(path.relative_to(root)),'sha256':digest(raw),'observed_features':sorted(features)})
+        except Exception:rejected+=1
+    return {'observed_unit_candidates':rows,'candidate_count':len(paths),'bounded_candidate_count':len(rows),
+        'rejected_candidate_count':rejected,'candidate_list_truncated':len(paths)>256,
+        'bound_to_current_command':False,'runtime_six_node_feature_verification':False,'cache_reuse_possible':True}
+
+
+def static_parser_controls():
+    row=static_diagnostics('error[E0001]: private is discarded\n --> crates/closed.rs:1:2\n',{'crates/closed.rs'})
+    ensure(row['compiler_error_count']==1 and row['compiler_codes']==['E0001'] and row['compiler_sites']==[{'file':'crates/closed.rs','line':1,'column':2}],'static-closed-error-positive')
+    ensure(static_diagnostics('error: hidden\n --> /private/path.rs:1:2\n',set())['compiler_sites']==[],'static-private-location-omitted')
+    ensure(static_diagnostics('',set())['compiler_error_count']==0,'static-zero-error-positive')
+    colored=static_diagnostics('\x1b[31merror[E0001]\x1b[0m: discarded\n\x1b[34m --> crates/closed.rs:1:2\x1b[0m\n',{'crates/closed.rs'})
+    ensure(colored['compiler_error_count']==1 and colored['compiler_codes']==['E0001'] and colored['compiler_sites']==[{'file':'crates/closed.rs','line':1,'column':2}],'static-colored-header-and-site-positive')
+    many=static_diagnostics(''.join('error[E'+str(1000+i)+']: discarded\n --> crates/closed.rs:'+str(i+1)+':1\n' for i in range(40)),{'crates/closed.rs'})
+    ensure(many['closed_diagnostics_truncated'] and len(many['compiler_codes'])==len(many['compiler_sites'])==32,'static-closed-truncation')
+    ensure(static_unit_candidate(Path('marmot-app-0123456789abcdef/lib-marmot_app.json')),'static-allowlisted-unit-path-positive')
+    for value in ['marmot-app-PRIVATE0123456789/lib-marmot_app.json','marmot-app-0123456789abcdef/lib-private.json',
+        'marmot-app-private-0123456789abcdef/lib-marmot_app.json','marmot-app-0123456789abcde/lib-marmot_app.json']:
+        ensure(not static_unit_candidate(Path(value)),'static-unbound-label-not-exported')
+    return {'positive':4,'privacy_or_bounds_controls':6,'actual_runtime_bodies':0}
+
+
+def execute_static(report,save,cohort):
+    ensure(cohort in {'default','experimental'},'allowlisted-strict-static-cohort')
+    frozen=frozen_inputs();report.update(scope='strict-App-all-targets-static',static_cohort=cohort,static_passed=False,
+        runtime_execution_attempted=False,actual_passed=0,actual_failed=0,actual_ignored=0,actual_executed_nonignored=0)
+    command=ack.alignment.static_command(cohort)
+    report['command']=command;report['requested_features']=command[command.index('--features')+1].split(',')
+    report['artifact_features_before']=static_artifact_features();save()
+    try:
+        code,raw,seconds=bounded.capture(command,1800,limit=8*1024*1024)
+        report.update(exit_code=code,seconds=seconds,**static_diagnostics(raw,set(frozen)))
+        report['artifact_features_after']=static_artifact_features();save()
+        report['static_passed']=(type(code) is int and code==0 and type(report['compiler_error_count']) is int and report['compiler_error_count']==0)
+        save();ensure(report['static_passed'],'strict-App-all-targets-clippy-required')
+    except bounded.GateFailure as error:
+        report['watchdog_triggered']=str(error)=='bounded-command-timeout';report['output_limit_triggered']=str(error)=='bounded-command-output-limit';save();raise
+    finally:
+        report['inputs_pristine']=frozen_inputs()==frozen
+        report['source_after_sha256']=digest(json.dumps(frozen_inputs(),sort_keys=True).encode())
+        if not report['inputs_pristine']:report['static_passed']=False
+        save();ensure(report['inputs_pristine'],'final-static-source-modes-pristine')
+
+
 def main(args):
     os.umask(0o077);OUT.mkdir(exist_ok=True)
     report={'baseline':BASE,'scope':'one-strict-real-SDK-five-installation-component','qualification_passed':False,
@@ -175,13 +334,26 @@ def main(args):
         'native5_component_control_passed':False,'automatic_retries':0,'stack_bytes':4194304,'Tokio_workers':2}
     def save():(OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     try:
-        report['source_guard']=source_guard();report['parser_controls']=parser_controls();save()
+        report['source_guard']=source_guard();report['parser_controls']=parser_controls()
+        report['requested_mode']='sixteen' if args.full16 else ('static' if args.static_cohort else 'five')
+        if args.full16:
+            report['scope']='sixteen-original-composed-controls'
+            report['Tokio_workers']=None;report['runtime_flavor_semantics']='unchanged source-defined mixed cases, including three current-thread stress cases and paused clock; policy is synchronous'
+            report['full16_parser_controls']=ack.parser_controls()
+            report['required_case_inventory']=[{'label':label,'suffix':suffix,'name':name,'oracle':oracle} for label,suffix,name,oracle in full16_cases()]
+        elif args.static_cohort:
+            report['scope']='strict-App-all-targets-static'
+            report['Tokio_workers']=None;report['runtime_flavor_semantics']='zero runtime executions; no Tokio worker count asserted'
+            report['static_parser_controls']=static_parser_controls();report['static_cohort']=args.static_cohort
+        save()
         if args.preflight:report['preflight_passed']=True;save();return
-        execute_one(report,save)
+        if args.full16:execute_full16(report,save)
+        elif args.static_cohort:execute_static(report,save,args.static_cohort)
+        else:execute_one(report,save)
     except Exception as error:
         report['exception_type']=type(error).__name__
         if isinstance(error,ValueError):report['failure_gate']=str(error) if re.fullmatch('[A-Za-z0-9_.:/-]{1,140}',str(error)) else 'closed-gate-rejected'
         save();raise
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--preflight',action='store_true');main(parser.parse_args())
+    parser=argparse.ArgumentParser();parser.add_argument('--preflight',action='store_true');mode=parser.add_mutually_exclusive_group();mode.add_argument('--full16',action='store_true');mode.add_argument('--static-cohort',choices=['default','experimental']);main(parser.parse_args())
