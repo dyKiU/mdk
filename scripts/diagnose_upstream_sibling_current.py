@@ -70,7 +70,7 @@ STAGES = {
     91: 'ExistingAccountStorageEnter', 92: 'ExistingAccountStorageResult',
 }
 HOOK_FILE_HASHES = {'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': '8714f00c456ad57134c45c359a1349c9f4a1c706c2261afbe3c6c05354f622f8', 'crates/marmot-app/src/client/device_linking.rs': '7da356dfaa48bf9ca3dc1e75a8e8f0cd85d8a3538aabd5678c8c252b10670dac', 'crates/marmot-app/src/client/account_chat_sharing/automatic.rs': 'b1051f4d3f222cd6fb1dc8a65d6bfd44610fe5f190a4e43fd81050f4b5e6b1e1', 'crates/marmot-app/src/native_device_linking/enabled.rs': '17383b799ae0505646f6fe33eb9253988376d6592d8198ab230fd33b1ce2207b', 'crates/marmot-app/src/client/private_enrollment_proposal.rs': 'd0a7a8d3fd9c69433e604cce36aaf8f63659c9a3517839d7b676d1d92bd32c5c', 'crates/marmot-app/src/native_device_linking/tests/automatic_pairing_acceptance.rs': '1b7e0bd7c60da0fc726c4c9a848f34c60796a9a6c446e8b2f3b7b78daf22d623', 'crates/marmot-app/src/client/private_enrollment_proposal/sibling_sharing.rs': '9744d3283b134b302524f44eec206d10fd668abb4175d7acdb2b8c912ef3f6c5'}
-MODULE_SHA256 = '6c72f45eb1bf040035db68dacc2aa7839ccfdfa5cda84411662ef468eec1d051'
+MODULE_SHA256 = '45b9f2b98fb042e44bedc8adbdb7306a8e58b8b1f9fc7f5fd527a796f2517dc1'
 LOSS_REASONS = {1: 'TimestampOverflow', 2: 'EventCapacity', 4: 'KeyCapacity', 8: 'RecordWouldBlock', 16: 'RecordPoisoned', 32: 'ChildWouldBlock', 64: 'ChildPoisoned', 128: 'RepeatedWindowBegin', 256: 'WindowBeginWouldBlock', 512: 'WindowBeginPoisoned'}
 TERMINAL_REASONS = {0: 'None', 1: 'NoActiveWindow', 2: 'SnapshotWouldBlock', 3: 'SnapshotPoisoned', 4: 'TerminalTimestampOverflow', 5: 'TerminalEventCapacity'}
 STRIP = re.compile(rb'(?m)^[ \t]*// BROAD_TRACE_BEGIN\n.*?^[ \t]*// BROAD_TRACE_END\n', re.S)

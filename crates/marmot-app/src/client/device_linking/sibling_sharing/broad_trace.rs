@@ -14,17 +14,30 @@ static STATUS: AtomicU32 = AtomicU32::new(0);
 #[derive(Clone, Copy)]
 #[repr(u32)]
 enum Loss {
-    Timestamp = 1, EventCapacity = 2, KeyCapacity = 4,
-    RecordWouldBlock = 8, RecordPoisoned = 16,
-    ChildWouldBlock = 32, ChildPoisoned = 64,
-    RepeatedBegin = 128, BeginWouldBlock = 256, BeginPoisoned = 512,
+    Timestamp = 1,
+    EventCapacity = 2,
+    KeyCapacity = 4,
+    RecordWouldBlock = 8,
+    RecordPoisoned = 16,
+    ChildWouldBlock = 32,
+    ChildPoisoned = 64,
+    RepeatedBegin = 128,
+    BeginWouldBlock = 256,
+    BeginPoisoned = 512,
 }
 fn unknown(reason: Loss) {
     let _ = STATUS.fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
-        if old & 2 == 0 { Some(old | 1 | ((reason as u32) << 3)) } else { None }
+        if old & 2 == 0 {
+            Some(old | 1 | ((reason as u32) << 3))
+        } else {
+            None
+        }
     });
 }
-enum EventLoss { Timestamp, Capacity }
+enum EventLoss {
+    Timestamp,
+    Capacity,
+}
 static TRACE: LazyLock<Mutex<Trace>> = LazyLock::new(|| {
     Mutex::new(Trace {
         origin: Instant::now(),
@@ -82,8 +95,14 @@ fn record(key: Option<Key>, stage: u64, value: u64) {
     }
     let mut trace = match TRACE.try_lock() {
         Ok(trace) => trace,
-        Err(TryLockError::WouldBlock) => { unknown(Loss::RecordWouldBlock); return; }
-        Err(TryLockError::Poisoned(_)) => { unknown(Loss::RecordPoisoned); return; }
+        Err(TryLockError::WouldBlock) => {
+            unknown(Loss::RecordWouldBlock);
+            return;
+        }
+        Err(TryLockError::Poisoned(_)) => {
+            unknown(Loss::RecordPoisoned);
+            return;
+        }
     };
     if STATUS.load(Ordering::Acquire) & 6 != 4 {
         return;
@@ -116,8 +135,14 @@ pub(crate) fn child(choice: &OriginalEnrollmentSharingChoice, state: &Arc<State>
     }
     let mut trace = match TRACE.try_lock() {
         Ok(trace) => trace,
-        Err(TryLockError::WouldBlock) => { unknown(Loss::ChildWouldBlock); return; }
-        Err(TryLockError::Poisoned(_)) => { unknown(Loss::ChildPoisoned); return; }
+        Err(TryLockError::WouldBlock) => {
+            unknown(Loss::ChildWouldBlock);
+            return;
+        }
+        Err(TryLockError::Poisoned(_)) => {
+            unknown(Loss::ChildPoisoned);
+            return;
+        }
     };
     if STATUS.load(Ordering::Acquire) & 6 != 4 {
         return;
@@ -125,7 +150,9 @@ pub(crate) fn child(choice: &OriginalEnrollmentSharingChoice, state: &Arc<State>
     let parent = trace.key(Key::Choice(Arc::downgrade(&choice.lifetime)));
     let child = trace.key(Key::Channel(Arc::downgrade(state)));
     match (parent, child) {
-        (Some(parent), Some(child)) => { let _ = trace.event(parent, 31, child); }
+        (Some(parent), Some(child)) => {
+            let _ = trace.event(parent, 31, child);
+        }
         _ => unknown(Loss::KeyCapacity),
     }
 }
@@ -175,8 +202,14 @@ pub(crate) fn window_begin() {
     }
     let mut trace = match TRACE.try_lock() {
         Ok(trace) => trace,
-        Err(TryLockError::WouldBlock) => { unknown(Loss::BeginWouldBlock); return; }
-        Err(TryLockError::Poisoned(_)) => { unknown(Loss::BeginPoisoned); return; }
+        Err(TryLockError::WouldBlock) => {
+            unknown(Loss::BeginWouldBlock);
+            return;
+        }
+        Err(TryLockError::Poisoned(_)) => {
+            unknown(Loss::BeginPoisoned);
+            return;
+        }
     };
     let _ = trace.event(0, 40, 0);
     drop(trace);
@@ -206,10 +239,12 @@ impl Drop for Dump {
         let mut trace = match TRACE.try_lock() {
             Ok(trace) => trace,
             Err(TryLockError::WouldBlock) => {
-                eprintln!("broad-trace unavailable loss_mask={loss_mask} terminal=2"); return;
+                eprintln!("broad-trace unavailable loss_mask={loss_mask} terminal=2");
+                return;
             }
             Err(TryLockError::Poisoned(_)) => {
-                eprintln!("broad-trace unavailable loss_mask={loss_mask} terminal=3"); return;
+                eprintln!("broad-trace unavailable loss_mask={loss_mask} terminal=3");
+                return;
             }
         };
         // Terminal append happens after freeze; return its typed failure locally
