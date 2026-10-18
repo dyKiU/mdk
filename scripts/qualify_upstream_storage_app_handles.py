@@ -10,13 +10,13 @@ import subprocess
 import qualify_upstream_storage_boundary as old
 from upstream_extraction_cohort import frozen_inputs
 
-BASE = 'e517d6cccdbcc1b29ded8f3ebf4f617d318847ac'
+BASE = 'd5c848ab55860034dbdcf5be5da32d790fd79c95'
 SELF = 'scripts/qualify_upstream_storage_app_handles.py'
 WORKFLOW = '.github/workflows/upstream-boundary-regressions.yml'
 REF = 'refs/heads/ci/upstream-storage-app-handles-20261018'
 BEGIN = '  # STORAGE_APP_HANDLES_JOBS_BEGIN\n'
 END = '  # STORAGE_APP_HANDLES_JOBS_END\n'
-OPTIONS = 'options: [storage-app-handles-preflight, storage-app-handles-controls, '
+OPTIONS = 'options: [storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, '
 OUT = Path('storage-app-handles-evidence')
 BOUNDARY = sorted('base::boundary_tests::' + n for n in [
     'table_registry_names_every_table', 'storage_boundary_matches_the_allow_list',
@@ -135,6 +135,26 @@ def compile_storage(cohort, frozen, phase, save):
     ensure(frozen_inputs()==frozen,'after-storage-compile-pristine'); save()
     return binary
 
+def compile_app_only(frozen, report, save):
+    requested=['marmot-app/test-policy-overrides','cgka-engine/test-policy-overrides','cgka-engine/test-crash-hooks','experimental-device-sync']
+    command=['cargo','test','--locked','-p','marmot-app','--all-targets','--no-run','--message-format=json','--features',','.join(requested)]
+    code,raw,seconds=old.capture(command,1800)
+    events=[json.loads(line) for line in raw.splitlines() if line.startswith('{')]
+    errors=[v for v in events if v.get('reason')=='compiler-message' and v.get('message',{}).get('level')=='error']
+    artifacts=[v for v in events if v.get('reason')=='compiler-artifact']
+    own=[v for v in artifacts if ('/marmot-app#' in v['package_id'] or v['package_id'].split('#')[-1].startswith('marmot-app@') or v['package_id'].startswith('marmot-app '))]
+    row={'package':'marmot-app','command':command,'features_requested':requested,'exit_code':code,
+        'compiler_error_count':len(errors),'wall_seconds':seconds,'safe_errors':[old.safe_compiler_diagnostic(v,frozen) for v in errors[:32]],
+        'errors_truncated':len(errors)>32,'artifact_count':len(artifacts),'selected_package_artifact_count':len(own),
+        'selected_package_features':[sorted(v['features']) for v in own],
+        'feature_manifest_sha256':old.digest(json.dumps([{'package':v['package_id'],'target':v['target']['name'],'features':sorted(v['features']),'profile':v['profile']} for v in artifacts],sort_keys=True).encode()),
+        'passed':code==0 and not errors and bool(own) and all({'experimental-device-sync','test-policy-overrides'} <= set(v['features']) for v in own)
+            and any(v['target']['name']=='cgka_engine' and {'experimental-device-sync','test-policy-overrides','test-crash-hooks'} <= set(v['features']) for v in artifacts)}
+    report['all_target_compilations'].append(row); save()
+    ensure(frozen_inputs()==frozen,'app-only-inputs-pristine')
+    report['app_compile_only_passed']=row['passed']; save()
+    ensure(row['passed'],'finite-experimental-App-alltargets-required')
+
 def main(args):
     os.umask(0o077); OUT.mkdir(exist_ok=True)
     report = {'cohort':args.cohort,'qualification_passed':False,'full_MDK_qualified':False,'native_qualified':False,'bodies':{},'all_target_compilations':[]}
@@ -144,6 +164,12 @@ def main(args):
         report['source_guard']=source_guard(); report['parser_controls']=parser_controls(); save()
         if args.preflight: report['preflight_passed']=True; save(); return
         frozen=frozen_inputs(); report['input_manifest_sha256']=old.digest(json.dumps(frozen,sort_keys=True).encode())
+        if args.app_compile_only:
+            ensure(args.cohort=='experimental','app-only-is-experimental')
+            report.update(scope='experimental-App-alltargets-compile-only',actual_counts_complete=True,
+                actual_passed=0,actual_failed=0,actual_ignored=0,actual_executed_nonignored=0,
+                runtime_bodies=0,qualification_passed=False,prior_runtime_evidence_reused=False)
+            save(); compile_app_only(frozen,report,save); return
         phase={}; report['storage_compile']=phase
         binary=compile_storage(args.cohort,frozen,phase,save)
         binary_hash=old.digest(binary.read_bytes())
@@ -207,4 +233,4 @@ def main(args):
         save()
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(); parser.add_argument('--preflight',action='store_true'); parser.add_argument('--cohort',choices=['default','experimental'],default='experimental'); main(parser.parse_args())
+    parser=argparse.ArgumentParser(); parser.add_argument('--preflight',action='store_true'); parser.add_argument('--app-compile-only',action='store_true'); parser.add_argument('--cohort',choices=['default','experimental'],default='experimental'); main(parser.parse_args())
