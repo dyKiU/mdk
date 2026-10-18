@@ -8,13 +8,13 @@ import upstream_completion_ci as completion
 import qualify_upstream_pure_native5 as native
 import qualify_upstream_request_retry_ack as ack
 ensure=bounded.ensure
-BASE='4d48ddd9648535e906029884695f07d9abf4f366'
+BASE='ff9d0aad36daebb37d74f33c189566e39e1bcbf7'
 SOURCE_PARENT='2565b3e5e8860678e1f4c8dce33119c1a4599c2b'
 RAW_SOURCE='4d48ddd9648535e906029884695f07d9abf4f366'
-RESULT_SOURCE_PATHS={'crates/marmot-app/src/client/device_linking/native_enrollment.rs': {'before': 'af418979f8ab87c002890b5426600cd20cfff9028bb452548ec60f22820d5387', 'raw': 'bd99b26a259f65a7f4bda44cf814034e2d5c446f2f433ca7634ac28d45771919', 'canonical': 'bd99b26a259f65a7f4bda44cf814034e2d5c446f2f433ca7634ac28d45771919', 'mode': '100644'}, 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': {'before': 'a0d487a6a653a61de16d3fa44eec9f787a5181658011fb75c6c09e157905c215', 'raw': 'cd54cc5d1b81e350e3789f77cef2258a3ffcd9b818a8dc261144ad3a859e51d5', 'canonical': 'cd54cc5d1b81e350e3789f77cef2258a3ffcd9b818a8dc261144ad3a859e51d5', 'mode': '100644'}}
+RESULT_SOURCE_PATHS={'crates/marmot-app/src/client/device_linking/native_enrollment.rs': {'before': 'af418979f8ab87c002890b5426600cd20cfff9028bb452548ec60f22820d5387', 'raw': 'bd99b26a259f65a7f4bda44cf814034e2d5c446f2f433ca7634ac28d45771919', 'canonical': 'bd99b26a259f65a7f4bda44cf814034e2d5c446f2f433ca7634ac28d45771919', 'mode': '100644'}, 'crates/marmot-app/src/client/device_linking/sibling_sharing.rs': {'before': 'a0d487a6a653a61de16d3fa44eec9f787a5181658011fb75c6c09e157905c215', 'raw': 'cd54cc5d1b81e350e3789f77cef2258a3ffcd9b818a8dc261144ad3a859e51d5', 'canonical': '54ae78e686702be2783fc040d58e453078566c333b51bfdd82fc4b01d47b7da6', 'mode': '100644'}}
 FAILURE_LABELS=('original_2','stress_0','stress_1','stress_2')
 HANDOFF_LABELS=('original_2','stress_1')
-WORKFLOW_SHA='9bff6ffce4909d2f7437097330ab837cad550224f31d80e77dbb3401ab038ca1'
+WORKFLOW_SHA='4bafb5969d33c4fa6bab98f721ac6f0e65af06eb2b3aea56af6bc0b69c4e2bb9'
 SELF='scripts/qualify_upstream_current_enrollment.py'
 WORKFLOW='.github/workflows/current-enrollment.yml'
 REF='refs/heads/ci/upstream-current-enrollment-20261018'
