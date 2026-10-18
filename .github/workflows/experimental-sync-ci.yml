@@ -71,7 +71,7 @@ env:
   SYNC_FEATURES: marmot-app/otlp-export,marmot-uniffi/otlp-export,marmot-c/otlp-export,wn-cli/otlp-export,agent-connector/otlp-export,marmot-app/product-analytics-export,marmot-uniffi/product-analytics-export,marmot-c/product-analytics-export,wn-cli/product-analytics-export,agent-connector/product-analytics-export,wn-cli/test-policy-overrides,cgka-engine/test-policy-overrides,cgka-engine/test-crash-hooks,experimental-device-sync
 
 jobs:
-  # COMPOSED_ENROLLMENT_JOBS_BEGIN
+  # COMPOSED_FINAL_ENROLLMENT_JOBS_BEGIN
   composed-final-preflight:
     if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["composed-final-preflight","composed-final-controls","composed-final-native-five","composed-enrollment-mutations"]'), inputs.scope)
     runs-on: ubuntu-latest
@@ -91,8 +91,8 @@ jobs:
           persist-credentials: false
       - name: Frozen final cohort and unchanged sixteen-case parser controls
         run: |
-          python3 -m py_compile scripts/qualify_upstream_composed_enrollment.py
-          python3 scripts/qualify_upstream_composed_enrollment.py --preflight
+          python3 -m py_compile scripts/qualify_upstream_composed_final_enrollment.py
+          python3 scripts/qualify_upstream_composed_final_enrollment.py --preflight
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -131,7 +131,7 @@ jobs:
           CARGO_INCREMENTAL: '1'
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Final sixteen enrollment and ACK controls' --output "$RUNNER_TEMP/composed-enrollment-capacity.json"
-          python3 scripts/qualify_upstream_composed_enrollment.py --mode full
+          python3 scripts/qualify_upstream_composed_final_enrollment.py --mode full
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -173,7 +173,7 @@ jobs:
           CARGO_INCREMENTAL: '1'
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Final enrollment strict App static cohort' --output "$RUNNER_TEMP/composed-enrollment-capacity.json"
-          python3 scripts/qualify_upstream_composed_enrollment.py --mode static --cohort '${{ matrix.cohort }}'
+          python3 scripts/qualify_upstream_composed_final_enrollment.py --mode static --cohort '${{ matrix.cohort }}'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -218,7 +218,7 @@ jobs:
       - name: One compile, one exact required real SDK body and positive owned cleanup
         env:
           CARGO_INCREMENTAL: '1'
-        run: python3 scripts/qualify_upstream_composed_enrollment.py --mode native-five
+        run: python3 scripts/qualify_upstream_composed_final_enrollment.py --mode native-five
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -261,7 +261,7 @@ jobs:
           CARGO_INCREMENTAL: '1'
         run: |
           python3 scripts/qualification_build_preflight.py --label 'Source readiness independent omission' --output "$RUNNER_TEMP/source-readiness-capacity.json"
-          python3 scripts/qualify_upstream_composed_enrollment.py --mode readiness --mutation '${{ matrix.mutation }}'
+          python3 scripts/qualify_upstream_composed_final_enrollment.py --mode readiness --mutation '${{ matrix.mutation }}'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -271,7 +271,7 @@ jobs:
             ${{ runner.temp }}/source-readiness-capacity.json
           if-no-files-found: error
           retention-days: 7
-  # COMPOSED_ENROLLMENT_JOBS_END
+  # COMPOSED_FINAL_ENROLLMENT_JOBS_END
   workflow-union-preflight:
     if: github.event_name != 'workflow_dispatch' || contains(fromJSON('["workflow-union-preflight","full","pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","archive-recovery","profile-edit-regression"]'), inputs.scope)
     name: Recovery provenance and pairing dispatch metadata tests
