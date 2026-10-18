@@ -1,0 +1,21 @@
+{
+  "baseline": "66f643d9bd3616d5172efb106462b3b77ec43e5e",
+  "parent": "a839cabf5a401f81bba53f22344e62346d6c4070",
+  "reviewed_source": "66f643d9bd3616d5172efb106462b3b77ec43e5e",
+  "paths": {
+    "crates/transport-nostr-adapter/tests/relay_limit_subscriptions.rs": {
+      "before": "87381c813c764c0500daf28cb1a9092710ff594f2ffc485de1751071dcaaf5fc",
+      "reviewed_after": "67560a2b7d6b8e413713d924f0e49fe7d6e491dbe160d60c08f620e4f136315a",
+      "baseline_after": "67560a2b7d6b8e413713d924f0e49fe7d6e491dbe160d60c08f620e4f136315a",
+      "mode": "100644"
+    }
+  },
+  "source_only_unexecuted": true,
+  "default_stack_unset": true,
+  "requested_features": [
+    "sdk",
+    "test-policy-overrides"
+  ],
+  "empty_default_marker_allowed": true,
+  "old_App_compile_guards_main_globals_used": false
+}
