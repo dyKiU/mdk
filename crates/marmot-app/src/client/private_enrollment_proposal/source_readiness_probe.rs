@@ -94,9 +94,12 @@ fn observe_prerequisites(snapshot: Option<Snapshot>, none_code: u16) -> Option<S
     use std::sync::atomic::{AtomicU16, Ordering};
     static LAST: AtomicU16 = AtomicU16::new(u16::MAX);
     let code = snapshot.as_ref().map_or(none_code, |row| {
-        row.facts.iter().enumerate().fold(0u16, |bits, (index, fact)| {
-            bits | (u16::from(*fact) << index)
-        })
+        row.facts
+            .iter()
+            .enumerate()
+            .fold(0u16, |bits, (index, fact)| {
+                bits | (u16::from(*fact) << index)
+            })
     });
     if LAST.swap(code, Ordering::Relaxed) != code {
         eprintln!("source-readiness-prerequisite code={code}");
