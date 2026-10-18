@@ -2538,10 +2538,15 @@ impl AppClient {
     ) -> Option<peer_proof_probe::command_backlog::Ingest> {
         peer_proof_probe::command_backlog::begin(&self.linking_owner.sibling_channels, message)
     }
-    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    #[cfg(all(
+        test,
+        feature = "experimental-device-sync",
+        feature = "test-policy-overrides"
+    ))]
     pub(crate) fn note_watch_pressure_service_for_test(&self, ok: bool) {
         peer_proof_probe::command_backlog::watch_pressure::service(
-            &self.linking_owner.sibling_channels, ok,
+            &self.linking_owner.sibling_channels,
+            ok,
         );
     }
     // COMMAND_BACKLOG_TEST_END

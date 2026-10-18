@@ -241,7 +241,8 @@ async fn run_watch_scenario(mode: ScenarioMode) -> ScenarioOutcome {
         let backlog = proof_gate
             .arm_command_backlog_for_test(owner.clone(), nonce)
             .expect("exact real recipient proof gate and source original")
-            .into_watch_pressure().expect("fresh pressure attachment");
+            .into_watch_pressure()
+            .expect("fresh pressure attachment");
         // Dormant: the actual fully-ready B preselect hook activates this
         // single-router arrival schedule. Nothing is withheld before that.
         ingress_schedule = apps[1]
@@ -299,17 +300,19 @@ async fn run_watch_scenario(mode: ScenarioMode) -> ScenarioOutcome {
             completed_before = Some(accepted.0);
             facts[7] = accepted.1 && accepted.0 <= 8;
             facts[11] = accepted.0 <= 1;
-            facts[8] = tokio::time::timeout(Duration::from_secs(15), backlog.finish_watch_pressure())
-                .await
-                .unwrap();
+            facts[8] =
+                tokio::time::timeout(Duration::from_secs(15), backlog.finish_watch_pressure())
+                    .await
+                    .unwrap();
         } else {
             // C's genuine proof remains held while eight actual service calls
             // return. The fixture supplies wake hints, never fake ACKs/results.
             facts[6] = backlog.start_watch_pressure();
             backlog.release();
-            facts[8] = tokio::time::timeout(Duration::from_secs(15), backlog.finish_watch_pressure())
-                .await
-                .unwrap();
+            facts[8] =
+                tokio::time::timeout(Duration::from_secs(15), backlog.finish_watch_pressure())
+                    .await
+                    .unwrap();
             drop(proof_gate);
             let accepted = tokio::time::timeout(Duration::from_secs(15), backlog.accepted())
                 .await

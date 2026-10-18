@@ -201,7 +201,9 @@ pub(in super::super) fn pause(
     if queue_len != 0 {
         return None;
     }
-    if let Some(pressure) = probe.watch_pressure.get() { pressure.capture_sender(completion); }
+    if let Some(pressure) = probe.watch_pressure.get() {
+        pressure.capture_sender(completion);
+    }
     if probe.fired.swap(true, Ordering::AcqRel) {
         return None;
     }

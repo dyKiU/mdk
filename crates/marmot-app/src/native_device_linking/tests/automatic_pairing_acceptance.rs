@@ -2406,10 +2406,18 @@ mod request_retry_completion_acceptance;
 mod command_backlog_acceptance;
 // COMMAND_BACKLOG_TEST_END
 // WATCH_PRESSURE_TEST_BEGIN
-#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 #[path = "watch_pressure_acceptance.rs"]
 mod watch_pressure_acceptance;
-#[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+#[cfg(all(
+    test,
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 async fn finite_sibling_input_scenario_lock() -> tokio::sync::MutexGuard<'static, ()> {
     static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     SERIAL.lock().await
