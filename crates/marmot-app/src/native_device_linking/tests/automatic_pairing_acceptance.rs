@@ -1056,7 +1056,15 @@ async fn four_device_enrollment_with_relay(
                 tokio::time::sleep(std::time::Duration::from_millis(25)).await;
             }
         })
-        .await;
+        .await
+        .inspect_err(|_| {
+            #[cfg(feature = "test-policy-overrides")]
+            observe_enrollment_hold_timeout(
+                EnrollmentHoldTimeoutStage::SiblingConsentPeerProgress,
+                &a,
+                &d,
+            );
+        });
         release.notify_one();
         assert!(
             result.is_ok(),
@@ -1075,6 +1083,14 @@ async fn four_device_enrollment_with_relay(
         let release = HeldPublicationRelease(release);
         tokio::time::timeout(std::time::Duration::from_secs(10), observed)
             .await
+            .inspect_err(|_| {
+                #[cfg(feature = "test-policy-overrides")]
+                observe_enrollment_hold_timeout(
+                    EnrollmentHoldTimeoutStage::AutomaticPublicationHold,
+                    &a,
+                    &d,
+                );
+            })
             .expect("the actual automatic publication must be held before completion")
             .expect("the actual automatic publication must be observed");
         eprintln!(
@@ -1639,6 +1655,30 @@ async fn automatic_comparison_trial(pairing_relays: Vec<String>) {
     eprintln!(
         "pairing_native_comparison display_directions=2 bilateral_explicit=true runtime_closes=4"
     );
+}
+
+// Post-timeout independent samples only; no deadline snapshot or RPC-call
+// attribution. These getters read existing in-memory aggregate observations.
+#[cfg(feature = "test-policy-overrides")]
+#[derive(Clone, Copy, Debug)]
+enum EnrollmentHoldTimeoutStage {
+    AutomaticPublicationHold,
+    SiblingConsentPeerProgress,
+}
+
+#[cfg(feature = "test-policy-overrides")]
+fn observe_enrollment_hold_timeout(
+    stage: EnrollmentHoldTimeoutStage,
+    source: &DeviceLinkingSession,
+    recipient: &DeviceLinkingSession,
+) {
+    for (side, original) in [("source", source), ("recipient", recipient)] {
+        eprintln!(
+            "automatic-hold-timeout stage={stage:?} side={side} completion={:?} native_rpc={:?}",
+            original.sibling_completion_aggregates_for_test(),
+            original.native_observation_snapshot_for_test(),
+        );
+    }
 }
 
 async fn wait_for_automatic_phase(
