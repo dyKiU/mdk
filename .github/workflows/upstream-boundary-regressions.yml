@@ -11,7 +11,7 @@ on:
       case:
         description: Select one scoped mutation gate or all gates
         type: choice
-        options: [rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
+        options: [settlement-read-preflight, settlement-read-red, settlement-read-green, settlement-read-mutations, rotating-sponsor-candidate-preflight, rotating-sponsor-candidate-green, rotating-sponsor-candidate-mutations, rotating-sponsor-red-preflight, rotating-sponsor-red, storage-app-handles-preflight, storage-app-handles-controls, storage-app-handles-app-compile, storage-handle-preflight, storage-handle-red, storage-ownership-mutations, storage-ownership-crossings, storage-ownership-green, storage-ownership-diagnostics, storage-ownership-boundary, source-format, all, departure, worker-reap, relay-acquisition, fixture-adaptations, migration-cohorts, upload-fixture, migration-default, migration-experimental, worker-spawn-stack, automatic-publication, sibling-publication, sibling-retry-priority, outbound-mailbox-kind]
         default: all
       storage_controls_run_id:
         description: Successful eight-control run on this exact helper SHA (mutations only)
@@ -25,6 +25,122 @@ env:
   UPSTREAM_EXTRACTION_COHORT_BASELINE: ${{ github.event_name == 'pull_request' && '0c9065255fa16292e84e12b32fb920db0494b9aa' || inputs.extraction_cohort_baseline }}
 
 jobs:
+  # SNAPSHOT_READ_JOBS_BEGIN
+  settlement-read-preflight:
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["settlement-read-preflight","settlement-read-red","settlement-read-green","settlement-read-mutations"]'), inputs.case)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SETTLEMENT_READ_BASELINE: 2043e9f137fffdfd1ee7143d8c3a9d6ce25acf5e
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact source and closed runtime RED/parser preflight
+        run: |
+          python3 -m py_compile scripts/qualify_upstream_settlement_read_snapshot.py
+          python3 scripts/qualify_upstream_settlement_read_snapshot.py --preflight
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt
+          rustup run "$toolchain" rustfmt --edition 2024 --config skip_children=true crates/storage-sqlite/src/private_roster_settlement/tests.rs
+          git diff --binary -- crates/storage-sqlite/src/private_roster_settlement/tests.rs > "$RUNNER_TEMP/settlement-read-format.patch"
+          git diff --exit-code -- crates/storage-sqlite/src/private_roster_settlement/tests.rs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: settlement-read-preflight
+          path: |
+            settlement-read-snapshot-evidence/result.json
+            ${{ runner.temp }}/settlement-read-format.patch
+          if-no-files-found: error
+          retention-days: 7
+  settlement-read-controls:
+    needs: settlement-read-preflight
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["settlement-read-red","settlement-read-green","settlement-read-mutations"]'), inputs.case)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SETTLEMENT_READ_BASELINE: 2043e9f137fffdfd1ee7143d8c3a9d6ce25acf5e
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Both exact deterministic snapshot cases, no runtime retry
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Protocol read snapshot two-case controls' --output "$RUNNER_TEMP/settlement-read-capacity.json"
+          python3 scripts/qualify_upstream_settlement_read_snapshot.py --mode '${{ inputs.case == 'settlement-read-red' && 'red' || 'green' }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: settlement-read-controls
+          path: |
+            settlement-read-snapshot-evidence/result.json
+            ${{ runner.temp }}/settlement-read-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  settlement-read-mutations:
+    needs: settlement-read-controls
+    if: github.event_name == 'workflow_dispatch' && inputs.case == 'settlement-read-mutations'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        mutation: [round, facts]
+    env:
+      SETTLEMENT_READ_BASELINE: 2043e9f137fffdfd1ee7143d8c3a9d6ce25acf5e
+      CARGO_INCREMENTAL: '1'
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      RUST_MIN_STACK: '4194304'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          shared-key: core-regressions
+          cache-on-failure: 'true'
+      - name: Independent exact snapshot omission and restored source controls
+        env:
+          CARGO_INCREMENTAL: '1'
+        run: |
+          python3 scripts/qualification_build_preflight.py --label 'Protocol read snapshot omission' --output "$RUNNER_TEMP/settlement-read-capacity.json"
+          python3 scripts/qualify_upstream_settlement_read_snapshot.py --mode mutation --mutation '${{ matrix.mutation }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: settlement-read-mutation-${{ matrix.mutation }}
+          path: |
+            settlement-read-snapshot-evidence/result.json
+            ${{ runner.temp }}/settlement-read-capacity.json
+          if-no-files-found: error
+          retention-days: 7
+  # SNAPSHOT_READ_JOBS_END
   # ROTATING_SPONSOR_CANDIDATE_JOBS_BEGIN
   rotating-sponsor-candidate-preflight:
     if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["rotating-sponsor-candidate-preflight","rotating-sponsor-candidate-green","rotating-sponsor-candidate-mutations"]'), inputs.case)
