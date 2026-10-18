@@ -6,6 +6,13 @@ use crate::device_linking::{LinkError, OwnerError};
 use cgka_traits::{GroupId, device_linking_key_package::PurposeAttemptScope};
 
 pub(crate) enum SetupCommand {
+    // SOURCE_READINESS_TEST_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    SourceReadinessSnapshot {
+        owner: std::sync::Weak<crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval>,
+        respond: Reply<Option<crate::client::private_enrollment_proposal::source_readiness_probe::Snapshot>>,
+    },
+    // SOURCE_READINESS_TEST_END
     // PEER_PROOF_TEST_BEGIN
     #[cfg(all(test, feature = "test-policy-overrides"))]
     PeerProofSnapshot {
@@ -133,6 +140,12 @@ pub(super) async fn handle(
     publication_control: &crate::runtime::private_commit::PublicationControl,
 ) {
     match command {
+        // SOURCE_READINESS_TEST_BEGIN
+        #[cfg(all(test, feature = "test-policy-overrides"))]
+        SetupCommand::SourceReadinessSnapshot { owner, respond } => {
+            let _ = respond.send(client.source_readiness_snapshot_for_test(&owner));
+        }
+        // SOURCE_READINESS_TEST_END
         // PEER_PROOF_TEST_BEGIN
         #[cfg(all(test, feature = "test-policy-overrides"))]
         SetupCommand::PeerProofSnapshot { owner, respond } => {
@@ -293,6 +306,15 @@ pub(super) async fn handle(
 }
 
 impl AccountManager {
+    // SOURCE_READINESS_TEST_BEGIN
+    #[cfg(all(test, feature = "test-policy-overrides"))]
+    pub(crate) async fn source_readiness_snapshot_for_test(
+        &self, account: &str,
+        owner: std::sync::Weak<crate::client::private_enrollment_proposal::OriginalSiblingSharingApproval>,
+    ) -> Result<Option<crate::client::private_enrollment_proposal::source_readiness_probe::Snapshot>, ClientLinkingError> {
+        self.verifier_command(account, |respond| VerifierCommand::Setup(SetupCommand::SourceReadinessSnapshot { owner, respond })).await
+    }
+    // SOURCE_READINESS_TEST_END
     // PEER_PROOF_TEST_BEGIN
     #[cfg(all(test, feature = "test-policy-overrides"))]
     pub(crate) async fn peer_proof_snapshot_for_test(

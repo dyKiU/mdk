@@ -2091,6 +2091,10 @@ async fn run_app_runtime_account_worker(
                         #[cfg(feature = "experimental-device-sync")]
                         {
 
+        // SOURCE_READINESS_TEST_BEGIN
+        #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+        shared.wait_sibling_only_periodic_for_test(&account_label).await;
+        // SOURCE_READINESS_TEST_END
         // COMPLETION_TEST_BEGIN
         #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
         shared.wait_periodic_linking_for_test(&account_label).await;

@@ -447,6 +447,11 @@ pub struct RuntimeSharedServices {
     ))]
     linking_periodic_test_gates:
         Arc<StdMutex<HashMap<String, Arc<test_linking_periodic_gate::PeriodicGate>>>>,
+    // SOURCE_READINESS_TEST_BEGIN
+    #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+    sibling_periodic_only_test_gates:
+        Arc<StdMutex<HashMap<String, Arc<test_linking_periodic_gate::PeriodicGate>>>>,
+    // SOURCE_READINESS_TEST_END
     // COMPLETION_TEST_END
     /// Every production runtime points at the same process capacity. The
     /// indirection permits explicit isolation of capacity-sensitive fixtures.
@@ -595,6 +600,10 @@ impl Default for RuntimeSharedServices {
                 feature = "test-policy-overrides"
             ))]
             linking_periodic_test_gates: Arc::new(StdMutex::new(HashMap::new())),
+            // SOURCE_READINESS_TEST_BEGIN
+            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            sibling_periodic_only_test_gates: Arc::new(StdMutex::new(HashMap::new())),
+            // SOURCE_READINESS_TEST_END
             // COMPLETION_TEST_END
             attachment_transfer: Arc::new(tokio::sync::Semaphore::new(1)),
             local_submission_wakeups: watch::channel(()).0,
@@ -769,6 +778,10 @@ impl RuntimeSharedServices {
                 feature = "test-policy-overrides"
             ))]
             linking_periodic_test_gates: Arc::new(StdMutex::new(HashMap::new())),
+            // SOURCE_READINESS_TEST_BEGIN
+            #[cfg(all(test, feature = "experimental-device-sync", feature = "test-policy-overrides"))]
+            sibling_periodic_only_test_gates: Arc::new(StdMutex::new(HashMap::new())),
+            // SOURCE_READINESS_TEST_END
             // COMPLETION_TEST_END
             attachment_transfer: Arc::new(tokio::sync::Semaphore::new(1)),
             attachment_updates: watch::channel(()).0,

@@ -2175,6 +2175,11 @@ mod late_peer_proof_negative_acceptance;
 #[path = "request_retry_ack_acceptance.rs"]
 mod request_retry_ack_acceptance;
 // REQUEST_RETRY_ACK_TEST_END
+// SOURCE_READINESS_TEST_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+#[path = "source_readiness_acceptance.rs"]
+mod source_readiness_acceptance;
+// SOURCE_READINESS_TEST_END
 // REQUEST_RETRY_TEST_BEGIN
 #[cfg(all(test, feature = "test-policy-overrides"))]
 #[path = "request_retry_completion_acceptance.rs"]

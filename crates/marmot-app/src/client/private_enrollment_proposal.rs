@@ -11,6 +11,10 @@ use std::sync::Arc;
 
 mod publication;
 mod sibling_sharing;
+// SOURCE_READINESS_TEST_BEGIN
+#[cfg(all(test, feature = "test-policy-overrides"))]
+pub(crate) mod source_readiness_probe;
+// SOURCE_READINESS_TEST_END
 
 const MAX_PART_BYTES: usize = 16 * 1024;
 pub(super) struct ValidatedProposalParts {
