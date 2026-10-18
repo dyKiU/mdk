@@ -174,10 +174,11 @@ impl Router {
         };
         if state.released.load(Ordering::Acquire) {
             self.flush(control, &mut route);
-        } else if state.requested.load(Ordering::Acquire) && state.target.get().is_some() {
-            if !state.armed.swap(true, Ordering::AcqRel) {
-                state.changed.notify_one();
-            }
+        } else if state.requested.load(Ordering::Acquire)
+            && state.target.get().is_some()
+            && !state.armed.swap(true, Ordering::AcqRel)
+        {
+            state.changed.notify_one();
         }
     }
     pub(super) fn delivery(

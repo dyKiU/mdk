@@ -287,20 +287,36 @@ struct NotificationQueueObservation {
     feature = "experimental-device-sync",
     feature = "test-policy-overrides"
 ))]
+type NotificationDispositionEntry = (
+    [u64; 8],
+    [Option<std::time::Instant>; 8],
+    [u64; 6],
+    [Option<std::time::Instant>; 6],
+    NotificationQueueObservation,
+);
+
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
+#[doc(hidden)]
+pub type AccountNotificationTimingForTest = (
+    [u64; 8],
+    [Option<std::time::Instant>; 8],
+    [u64; 6],
+    [Option<std::time::Instant>; 6],
+    (Option<(usize, usize)>, u64, Option<std::time::Instant>, bool),
+);
+
+#[cfg(all(
+    any(test, feature = "test-support"),
+    feature = "experimental-device-sync",
+    feature = "test-policy-overrides"
+))]
 #[derive(Default)]
 struct NotificationDispositionObserver(
-    std::sync::Mutex<
-        HashMap<
-            String,
-            (
-                [u64; 8],
-                [Option<std::time::Instant>; 8],
-                [u64; 6],
-                [Option<std::time::Instant>; 6],
-                NotificationQueueObservation,
-            ),
-        >,
-    >,
+    std::sync::Mutex<HashMap<String, NotificationDispositionEntry>>,
 );
 
 #[cfg(all(
@@ -2064,18 +2080,7 @@ impl MarmotRelayPlane {
         &self,
         account: &MemberId,
         id: &str,
-    ) -> Option<(
-        [u64; 8],
-        [Option<std::time::Instant>; 8],
-        [u64; 6],
-        [Option<std::time::Instant>; 6],
-        (
-            Option<(usize, usize)>,
-            u64,
-            Option<std::time::Instant>,
-            bool,
-        ),
-    )> {
+    ) -> Option<AccountNotificationTimingForTest> {
         let observers = self
             .inner
             .transport
