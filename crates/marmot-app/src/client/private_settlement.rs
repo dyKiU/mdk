@@ -168,8 +168,14 @@ impl AppClient {
                     attempt.guard.clone(),
                 )
                 // BROAD_TRACE_BEGIN
-                .inspect(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(94, 4); })
-                .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(94, 5); })
+                .inspect(|_| {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    primary_trace.event(94, 4);
+                })
+                .inspect_err(|_| {
+                    #[cfg(all(test, feature = "test-policy-overrides"))]
+                    primary_trace.event(94, 5);
+                })
                 // BROAD_TRACE_END
                 .map_err(ClientLinkingError::Engine)?;
             attempt.selected = true;
@@ -186,8 +192,15 @@ impl AppClient {
             .session()
             .private_roster_settlement_publication_ready(attempt.guard.group())
             // BROAD_TRACE_BEGIN
-            .inspect(|ready| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(94, if *ready { 8 } else { 7 }); let _ = ready; })
-            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(94, 9); })
+            .inspect(|ready| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                primary_trace.event(94, if *ready { 8 } else { 7 });
+                let _ = ready;
+            })
+            .inspect_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                primary_trace.event(94, 9);
+            })
             // BROAD_TRACE_END
             .map_err(ClientLinkingError::Engine)?
             .then(|| *attempt.guard.binding()))
@@ -402,7 +415,10 @@ impl cgka_engine::private_roster_settlement::TrustedPrivateSettlementPublisher
             })
             .await
             // BROAD_TRACE_BEGIN
-            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] self.trace.event(96, 3); })
+            .inspect_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.trace.event(96, 3);
+            })
             // BROAD_TRACE_END
             .map_err(|_| {
                 cgka_traits::EngineError::Other("private confirmation publication uncertain".into())

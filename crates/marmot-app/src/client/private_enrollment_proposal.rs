@@ -419,8 +419,14 @@ impl AppClient {
             .session()
             .arm_original_existing_enrollment_transition(&action.owned, packet)
             // BROAD_TRACE_BEGIN
-            .inspect(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(93, 2); })
-            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(93, 3); })
+            .inspect(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                primary_trace.event(93, 2);
+            })
+            .inspect_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                primary_trace.event(93, 3);
+            })
             // BROAD_TRACE_END
             .map_err(ClientLinkingError::Engine)?;
         if self.linking_owner.existing_settlement_attempt.is_none() {

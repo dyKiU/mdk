@@ -196,8 +196,12 @@ impl AppClient {
 pub(crate) struct PublicationTrace(Vec<Key>);
 impl PublicationTrace {
     pub(crate) fn event(&self, stage: u64, value: u64) {
-        if self.0.is_empty() { record(None, stage, value); }
-        for key in &self.0 { record(Some(key.clone()), stage, value); }
+        if self.0.is_empty() {
+            record(None, stage, value);
+        }
+        for key in &self.0 {
+            record(Some(key.clone()), stage, value);
+        }
     }
 }
 impl AppClient {

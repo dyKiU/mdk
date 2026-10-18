@@ -1114,8 +1114,14 @@ impl AppClient {
             .dispatch_prepared_private_device_invite(prepared, &publisher)
             .await
             // BROAD_TRACE_BEGIN
-            .inspect(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(97, 1); })
-            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(97, 2); })
+            .inspect(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                primary_trace.event(97, 1);
+            })
+            .inspect_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                primary_trace.event(97, 2);
+            })
             // BROAD_TRACE_END
             .map_err(ClientLinkingError::PrivateInvite);
         // Success means only an attempted network publication, never membership
@@ -1205,8 +1211,14 @@ impl AppClient {
             .dispatch_confirmed_private_welcomes(prepared, &publisher)
             .await
             // BROAD_TRACE_BEGIN
-            .inspect(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(97, 5); })
-            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] primary_trace.event(97, 6); })
+            .inspect(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                primary_trace.event(97, 5);
+            })
+            .inspect_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                primary_trace.event(97, 6);
+            })
             // BROAD_TRACE_END
             .map_err(ClientLinkingError::PrivateInvite);
         if result.is_ok() {
@@ -1545,7 +1557,10 @@ impl cgka_engine::private_device_invite::TrustedPrivateInvitePublisher for Priva
             })
             .await
             // BROAD_TRACE_BEGIN
-            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] self.trace.event(96, 7); })
+            .inspect_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.trace.event(96, 7);
+            })
             // BROAD_TRACE_END
             .map_err(|_| {
                 cgka_traits::EngineError::Other("private commit publication uncertain".into())
@@ -1794,7 +1809,10 @@ impl cgka_engine::private_device_invite::TrustedPrivateWelcomePublisher
             })
             .await
             // BROAD_TRACE_BEGIN
-            .inspect_err(|_| { #[cfg(all(test, feature = "test-policy-overrides"))] self.trace.event(96, 11); })
+            .inspect_err(|_| {
+                #[cfg(all(test, feature = "test-policy-overrides"))]
+                self.trace.event(96, 11);
+            })
             // BROAD_TRACE_END
             .map_err(|_| {
                 cgka_traits::EngineError::Other("private Welcome publication uncertain".into())
