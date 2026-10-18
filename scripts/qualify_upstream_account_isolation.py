@@ -5,14 +5,14 @@ from pathlib import Path
 import qualify_upstream_storage_boundary as bounded
 import qualify_upstream_storage_app_handles as counts
 ensure=bounded.ensure
-BASE='ff76aaba0eeffc0c84a1b9b59923ac165400c8fc'
+BASE='3c40ff3cfefcd225062cc4e3c9dea789c9ffa190'
 CANONICAL_TEST='1b5628e6e4d83f6ce1e24d3b5115d2ba288c8e41'
 RAW_PRODUCT='ff76aaba0eeffc0c84a1b9b59923ac165400c8fc'
 PRODUCT='crates/marmot-app/src/runtime/mod.rs'
 PRODUCT_BEFORE_SHA='9b783b85368bac715855782f86ecab67f8af640cdaa4cbb837c3e8e3f78c9a21'
 RAW_PRODUCT_SHA='1051628fc165c481344ab59f3c6ecdb0f82c13725d3909614da54e031bea8cec'
-PRODUCT_SHA='1051628fc165c481344ab59f3c6ecdb0f82c13725d3909614da54e031bea8cec'
-FILTER_INSERTION='                .filter(|account| {\n                    target_account_id\n                        .is_none_or(|target| account.account_id_hex == target)\n                })\n'
+PRODUCT_SHA='a2e2c23df7ba45dbab13ba00500e5862cc3f3881afdb0d4cc95ac89d9becf84f'
+FILTER_INSERTION='                .filter(|account| {\n                    target_account_id.is_none_or(|target| account.account_id_hex == target)\n                })\n'
 RAW_FILTER_INSERTION='                .filter(|account| {\n                    target_account_id\n                        .is_none_or(|target| account.account_id_hex == target)\n                })\n'
 PRIOR_RED_SOURCE='ce112f33fcf5b263a44a17eebd8c8ebcc193c72c'
 PRIOR_RED_RUN=39164409153
@@ -22,7 +22,7 @@ BATCH_NAME='runtime::tests::explicit_batch_reconcile_still_owns_all_eligible_acc
 PARENT='a839cabf5a401f81bba53f22344e62346d6c4070'
 REVIEWED_SOURCE='ebc97baf97d54e1162c6271e0862beb680febae0'
 REVIEWED_FIXTURE_SHA='4d6da976cbf61415af5c299376b83a735bfc4decbe06e44f6f48927ed61e29e1'
-WORKFLOW_SHA='ac3844a8632663ffa8516dcf7fd43446d535947d694fe8afaafdc77686bdc52b'
+WORKFLOW_SHA='9ca332f1c8e9e13d5c57bde7b9c4a620c4e9a80cf9f99c0e5377bc2854ff0ba9'
 FIXTURE_SHA='5a9a0d629c7bb54264a526a8d5001c1aaf82465ed1842e2896f5e1148f8e861e'
 SELF='scripts/qualify_upstream_account_isolation.py'
 WORKFLOW='.github/workflows/account-isolation.yml'
