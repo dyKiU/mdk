@@ -8,7 +8,7 @@ import re
 import subprocess
 import zipfile
 
-from recover_experimental_coverage import ANSI, make_plan, recover
+from recover_experimental_coverage import ANSI, TERMINAL as ORIGINAL_TERMINAL, make_plan, recover
 
 REPOSITORY = "dyKiU/mdk"
 COHORTS = {
@@ -143,8 +143,29 @@ def fetch(args):
     archive.unlink()
 
 
+def without_failure_recap(log):
+    """Keep progress outcomes; validate but do not count nextest's failed footer twice."""
+    clean = ANSI.sub("", log)
+    summary = re.search(r"^\S+\s+Summary\s+\[[^\]\n]+\]\s+\d+(?:/\d+)? tests run:", clean, re.M)
+    if summary is None:
+        return clean
+    progress, footer = clean[:summary.start()], clean[summary.start():]
+    original = {match.group(0).split(maxsplit=1)[1]
+                for match in ORIGINAL_TERMINAL.finditer(progress)}
+    recapped = set()
+
+    def remove(match):
+        outcome = match.group(0).split(maxsplit=1)[1]
+        if match.group(1) == "PASS" or outcome not in original or outcome in recapped:
+            raise ValueError("Unexpected, changed or duplicate nextest footer outcome")
+        recapped.add(outcome)
+        return ""
+
+    return progress + ORIGINAL_TERMINAL.sub(remove, footer)
+
+
 def prepare_plan(inventory, logs, partitions):
-    passed, remaining = recover(inventory, logs)
+    passed, remaining = recover(inventory, {job: without_failure_recap(log) for job, log in logs.items()})
     missing = [row for row in remaining if row["status"] == "uncompleted"]
     failures = [row for row in remaining if row["status"] != "uncompleted"]
     plan, replacements = make_plan(missing, partitions, replace_known=False)

@@ -5,7 +5,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from recover_archive_gaps import fetch, prepare_plan, validate_origin, validate_pr_checkout, verify_selection
+from recover_archive_gaps import (fetch, prepare_plan, validate_origin, validate_pr_checkout,
+                                  verify_selection, without_failure_recap)
 from test_recover_experimental_coverage import inventory, line
 
 
@@ -37,6 +38,32 @@ def simulator_origin():
 
 
 class ArchiveGapTests(unittest.TestCase):
+    def test_original_nextest_failed_summary_recap_is_one_retained_failure(self):
+        failed = line(status="FAIL")
+        summary = "2026-10-18T21:59:35Z Summary [10.0s] 1/2 tests run: 0 passed, 1 failed\n"
+        passed, failures, plan = prepare_plan(inventory(), {"1": failed + summary + failed}, 2)
+        self.assertEqual(passed, [])
+        self.assertEqual([(r["test"], r["status"]) for r in failures], [("complete", "FAIL")])
+        self.assertEqual([r["test"] for p in plan for r in p["cases"]], ["missing"])
+
+    def test_only_identical_failed_summary_recap_is_allowed(self):
+        summary = "2026-10-18T21:59:35Z Summary [10.0s] 1/2 tests run: 0 passed, 1 failed\n"
+        for status in ("FAIL", "TIMEOUT", "LEAK"):
+            failed = line(status=status)
+            passed, failures, _ = prepare_plan(inventory(), {"1": failed + summary + failed}, 2)
+            self.assertEqual((passed, [r["status"] for r in failures]), ([], [status]))
+        failed = line(status="FAIL")
+        for changed in (failed + failed, failed + summary + failed + failed,
+                        failed + summary + line(), line() + summary + failed,
+                        failed + summary + line("unknown", "FAIL"),
+                        failed + summary + failed.replace("0.01s", "0.02s"),
+                        failed + summary + failed.replace("1/2", "2/2")):
+            with self.subTest(log=changed), self.assertRaises(ValueError):
+                prepare_plan(inventory(), {"1": changed}, 2)
+        with self.assertRaises(ValueError):
+            prepare_plan(inventory(), {"1": failed, "2": failed}, 2)
+        self.assertEqual(without_failure_recap(line()), line())
+
     def test_simulator_requires_exact_two_smoke_partitions_and_own_producer(self):
         run, jobs, artifact = simulator_origin()
         self.assertEqual([j["id"] for j in validate_origin(run, jobs, artifact, "simulator", 7, "a" * 40)],
