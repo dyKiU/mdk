@@ -278,7 +278,7 @@ jobs:
           retention-days: 7
   # PURE_SOURCE_FORMAT_JOB_END
   workflow-union-preflight:
-    if: github.event_name != 'workflow_dispatch' || contains(fromJSON('["workflow-union-preflight","full","pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","archive-recovery","profile-edit-regression"]'), inputs.scope)
+    if: github.event_name != 'workflow_dispatch' || contains(fromJSON('["workflow-union-preflight","full","pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source","archive-recovery","profile-edit-regression"]'), inputs.scope)
     name: Recovery provenance and pairing dispatch metadata tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -292,7 +292,7 @@ jobs:
       - name: Exercise closed archive planner and pairing selectors without protocol compilation
         run: |
           python3 -m unittest discover -s scripts -p 'test_recover*py' -v
-          python3 scripts/test_pairing_replay_dispatch.py
+          python3 scripts/qualify_pairing_replay_dispatch_pfp.py
       - name: Format merged Rust source remotely and export exact patch
         if: always()
         run: |
@@ -305,13 +305,15 @@ jobs:
         if: always()
         with:
           name: reconcile-format-preflight
-          path: ${{ runner.temp }}/reconcile-format.patch
+          path: |
+            ${{ runner.temp }}/reconcile-format.patch
+            pairing-dispatch-pfp-evidence/result.json
           if-no-files-found: error
           retention-days: 7
 
   pairing-replay:
     needs: workflow-union-preflight
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness"]'), inputs.scope)
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["pairing-replay-regression","pairing-diagnostic","pairing-consent-fairness","pairing-restart-diagnostic","pairing-restart-higher-source"]'), inputs.scope)
     name: Pairing replay (${{ matrix.slots }} slots)
     runs-on: ubuntu-latest
     timeout-minutes: 30
