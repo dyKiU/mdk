@@ -126,6 +126,30 @@ impl AppClient {
                 eprintln!("pending_restart_ready_role_original_nonce_live_core_valid={observations:?} same_nonce={same_nonce:?}");
             };
             observation();
+            if delivery.is_err() {
+                // Post-timeout observations only. Failed reads stay unknown and
+                // never replace the original recovery-deadline failure.
+                let projection = (|| {
+                    let storage = apps[1].account_storage("test").ok()?;
+                    let recipient = clients[1].as_ref()?;
+                    let scope = recipient.presentation_scope(&pair[1]).ok()?;
+                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+                    let catalog = storage.mirrored_chat_catalog_storage()?
+                        .mirrored_chat_catalog_page(&scope, None, 128).ok()
+                        .map(|rows| rows.iter().any(|row| row.group_id == *ordinary_group && row.state == MirroredChatState::Active));
+                    let record = storage.mirrored_chat_message_storage()?
+                        .mirrored_chat_message_page(&scope, ordinary_group, None, 128, now).ok()
+                        .map(|rows| rows.iter().any(|row| hex::encode(row.event_id) == *witness && !row.deleted && !row.payload.is_empty()));
+                    Some((catalog, record))
+                })();
+                let progress = [0, 1].map(|i| clients[i].as_ref()
+                    .and_then(|client| client.account_sharing_owner.automatic.get(&ids[i]))
+                    .map(|entry| (entry.policy.local_device < entry.policy.peer_device,
+                        entry.pending.len(), entry.pending_catalog.is_some(),
+                        entry.records.has_pending(), entry.sent.contains_key(ordinary_group.as_slice()),
+                        entry.renew)));
+                eprintln!("pending_restart_post_timeout_catalog_record={projection:?} lower_pending_bodies_catalog_records_sent_renew={progress:?}");
+            }
             delivery.expect("actual restarted peers must deliver genuine ordinary catalog and canonical record within the unchanged recovery deadline");
             eprintln!("pending_restart_functional_catalog_and_new_record_delivered=true");
         }).catch_unwind().await;

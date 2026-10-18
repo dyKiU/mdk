@@ -17,6 +17,9 @@ CONSENT = PREFIX + "blocked_sibling_consent_does_not_starve_another_approved_pee
 EXPECTED = {
     "pairing-diagnostic": {FOURTH},
     "pairing-consent-fairness": {CONSENT},
+    "pairing-restart-diagnostic": {
+        "native_device_linking::tests::pending_lower_request_recovers_after_higher_restarts_before_consent"
+    },
     "pairing-regression": {
         FOURTH,
         CONSENT,
