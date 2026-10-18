@@ -1814,7 +1814,9 @@ impl Guard {
     // values. Only the recognized test fixture emits this returned text.
     pub(crate) fn freeze(
         self,
-        observe_notifications: impl FnOnce([Option<cgka_traits::MessageId>; 3]) -> [[Option<[u64; 8]>; 3]; 5],
+        observe_notifications: impl FnOnce(
+            [Option<cgka_traits::MessageId>; 3],
+        ) -> [[Option<[u64; 8]>; 3]; 5],
     ) -> String {
         use std::fmt::Write as _;
         let worker_report = self.0.worker.report();
@@ -1836,88 +1838,88 @@ impl Guard {
                         .map(|key| key.message.clone())
                 });
                 Some((
-                data.before,
-                data.after,
-                data.wait_outcome,
-                data.wait_observed,
-                data.owner.is_some(),
-                std::array::from_fn::<_, 3, _>(|index| {
-                    data.slots[index]
-                        .as_ref()
-                        .map(|slot| (slot.times, slot.outcomes, slot.retry_prepared))
-                }),
-                data.rpc,
-                data.rpc_count,
-                std::array::from_fn::<_, 3, _>(|index| {
-                    data.slots[index].as_ref().and_then(|slot| {
-                        slot.proof.as_ref().map(|proof| {
-                            (
-                                proof.key.is_some(),
-                                proof.times,
-                                proof.outcomes,
-                                proof.preparation,
-                                proof.subsequent_attempts,
-                                proof.spawn_boundaries,
-                            )
+                    data.before,
+                    data.after,
+                    data.wait_outcome,
+                    data.wait_observed,
+                    data.owner.is_some(),
+                    std::array::from_fn::<_, 3, _>(|index| {
+                        data.slots[index]
+                            .as_ref()
+                            .map(|slot| (slot.times, slot.outcomes, slot.retry_prepared))
+                    }),
+                    data.rpc,
+                    data.rpc_count,
+                    std::array::from_fn::<_, 3, _>(|index| {
+                        data.slots[index].as_ref().and_then(|slot| {
+                            slot.proof.as_ref().map(|proof| {
+                                (
+                                    proof.key.is_some(),
+                                    proof.times,
+                                    proof.outcomes,
+                                    proof.preparation,
+                                    proof.subsequent_attempts,
+                                    proof.spawn_boundaries,
+                                )
+                            })
                         })
-                    })
-                }),
-                std::array::from_fn::<_, 3, _>(|index| {
-                    data.slots[index]
-                        .as_ref()
-                        .map(|slot| (slot.progress, slot.progress_repeats))
-                }),
-                (
-                    data.terminal_cost,
-                    data.terminal_inflight,
-                    data.terminal_bounds,
-                ),
-                std::array::from_fn::<_, 3, _>(|index| {
-                    data.slots[index]
-                        .as_ref()
-                        .and_then(|slot| slot.peer.as_ref())
-                        .and_then(|peer| peer.proof.as_ref())
-                        .map(|proof| {
-                            (
-                                proof.key.is_some(),
-                                proof.times,
-                                proof.outcomes,
-                                proof.preparation,
-                                proof.subsequent_attempts,
-                                proof.spawn_boundaries,
-                            )
-                        })
-                }),
-                std::array::from_fn::<_, 3, _>(|index| {
-                    data.slots[index]
-                        .as_ref()
-                        .and_then(|slot| slot.peer.as_ref())
-                        .map(|peer| {
-                            (
-                                peer.progress,
-                                peer.repeats,
-                                peer.bind_results,
-                                peer.validation_results,
-                            )
-                        })
-                }),
-                std::array::from_fn::<_, 9, _>(|index| {
-                    data.slots[index / 3]
-                        .as_ref()
-                        .and_then(|slot| slot.incoming[index % 3].as_ref())
-                        .map(|row| {
-                            (
-                                row.times,
-                                row.opened_ok,
-                                row.disposition,
-                                row.later_routes,
-                                row.first_successful_accept,
-                            )
-                        })
-                }),
-                data.worker.deliveries.map(|row| {
-                    row.map(|row| (row.worker, row.before, row.after, row.ok, row.later))
-                }),
+                    }),
+                    std::array::from_fn::<_, 3, _>(|index| {
+                        data.slots[index]
+                            .as_ref()
+                            .map(|slot| (slot.progress, slot.progress_repeats))
+                    }),
+                    (
+                        data.terminal_cost,
+                        data.terminal_inflight,
+                        data.terminal_bounds,
+                    ),
+                    std::array::from_fn::<_, 3, _>(|index| {
+                        data.slots[index]
+                            .as_ref()
+                            .and_then(|slot| slot.peer.as_ref())
+                            .and_then(|peer| peer.proof.as_ref())
+                            .map(|proof| {
+                                (
+                                    proof.key.is_some(),
+                                    proof.times,
+                                    proof.outcomes,
+                                    proof.preparation,
+                                    proof.subsequent_attempts,
+                                    proof.spawn_boundaries,
+                                )
+                            })
+                    }),
+                    std::array::from_fn::<_, 3, _>(|index| {
+                        data.slots[index]
+                            .as_ref()
+                            .and_then(|slot| slot.peer.as_ref())
+                            .map(|peer| {
+                                (
+                                    peer.progress,
+                                    peer.repeats,
+                                    peer.bind_results,
+                                    peer.validation_results,
+                                )
+                            })
+                    }),
+                    std::array::from_fn::<_, 9, _>(|index| {
+                        data.slots[index / 3]
+                            .as_ref()
+                            .and_then(|slot| slot.incoming[index % 3].as_ref())
+                            .map(|row| {
+                                (
+                                    row.times,
+                                    row.opened_ok,
+                                    row.disposition,
+                                    row.later_routes,
+                                    row.first_successful_accept,
+                                )
+                            })
+                    }),
+                    data.worker.deliveries.map(|row| {
+                        row.map(|row| (row.worker, row.before, row.after, row.ok, row.later))
+                    }),
                 ))
             }
             Err(TryLockError::WouldBlock) => None,

@@ -167,7 +167,7 @@
       "draft_file": "sequential_installations_acceptance.rs",
       "mode": "100644",
       "before_sha256": "a81cc692c9864d9cdf2ff7fe8d533d3115c7eb7958fa7a22df783850fea520ca",
-      "after_sha256": "702baa8c554afa6155c880f94510325695a9e0f24e0340bcedfcc17cbc5b314e",
+      "after_sha256": "44c6ad98ddce8c4fc212ca791716744b386d5663bda7e0ec331250354f9f5136",
       "exact_substitutions": [
         {
           "before": "    managers: &[AccountManager],\n    account: &MemberId,\n    sponsor: usize,\n    newcomer: usize,\n) -> (\n    DeviceLinkingSession,\n    DeviceLinkingSession,\n    Vec<DeviceLinkingApproval>,\n",
@@ -183,7 +183,7 @@
         },
         {
           "before": "            recipient.cancel().await.unwrap(); public_cancels += 1;\n            for approval in approvals { approval.cancel().await.unwrap(); public_cancels += 1; }\n        }\n    }).catch_unwind().await;\n    let mut runtime_closes = 0usize;\n    for runtime in &runtimes {\n        if runtime.shutdown_and_close().await.is_ok() && runtime.storage_is_closed() {\n            runtime_closes += 1;\n",
-          "after": "            recipient.cancel().await.unwrap(); public_cancels += 1;\n            for approval in approvals { approval.cancel().await.unwrap(); public_cancels += 1; }\n        }\n    }).catch_unwind().await;\n    // NATIVE5_TIMING_BEGIN\n    #[cfg(feature = \"test-policy-overrides\")]\n    if let Some((ordinal, guard)) = native5_timing.take() {\n        native5_timing_reports.push((ordinal, guard.freeze(|peer_outer_ids| {\n                    std::array::from_fn(|plane| {\n                        std::array::from_fn(|channel| {\n                            peer_outer_ids[channel].as_ref().and_then(|message| {\n                                apps[plane].relay_plane.account_notification_disposition_for_test(\n                                    &account,\n                                    &hex::encode(message.as_slice()),\n                                )\n                            })\n                        })\n                    })\n                })));\n    }\n    // NATIVE5_TIMING_END\n    let mut runtime_closes = 0usize;\n    for runtime in &runtimes {\n        if runtime.shutdown_and_close().await.is_ok() && runtime.storage_is_closed() {\n            runtime_closes += 1;\n"
+          "after": "            recipient.cancel().await.unwrap(); public_cancels += 1;\n            for approval in approvals { approval.cancel().await.unwrap(); public_cancels += 1; }\n        }\n    }).catch_unwind().await;\n    // NATIVE5_TIMING_BEGIN\n    #[cfg(feature = \"test-policy-overrides\")]\n    if let Some((ordinal, guard)) = native5_timing.take() {\n        native5_timing_reports.push((\n            ordinal,\n            guard.freeze(|peer_outer_ids| {\n                std::array::from_fn(|plane| {\n                    std::array::from_fn(|channel| {\n                        peer_outer_ids[channel].as_ref().and_then(|message| {\n                            apps[plane]\n                                .relay_plane\n                                .account_notification_disposition_for_test(\n                                    &account,\n                                    &hex::encode(message.as_slice()),\n                                )\n                        })\n                    })\n                })\n            }),\n        ));\n    }\n    // NATIVE5_TIMING_END\n    let mut runtime_closes = 0usize;\n    for runtime in &runtimes {\n        if runtime.shutdown_and_close().await.is_ok() && runtime.storage_is_closed() {\n            runtime_closes += 1;\n"
         },
         {
           "before": "    }\n    relay.shutdown();\n    let address = url.strip_prefix(\"ws://\").unwrap().trim_end_matches('/');\n    let listener_closed = owned_listener_closed(address).await;\n    eprintln!(\n        \"sequential-installations completed_steps={} final_device_count={} final_roster_and_policies={} public_cancels={} runtime_closes={} storages_closed={} plane_shutdown_returns={} listener_closed={} attempt_completed={}\",\n        completed_steps,\n        if final_roster_and_policies { 5 } else { 0 },\n",
@@ -320,7 +320,7 @@
     "crates/marmot-app/src/client/device_linking/sibling_sharing/peer_proof_probe/native5_timing.rs": {
       "draft_file": "native5_timing.rs",
       "mode": "100644",
-      "sha256": "f3cd6c4985ca8f86824d934ee3149a0c85ad1f883dd03af2e83d8846b76beca3"
+      "sha256": "48efaec62dd4495ddbdd0aae2c04dec133fd167add715bf0c9c9560e62be7635"
     },
     "crates/transport-nostr-adapter/src/sdk_publication_timing.rs": {
       "mode": "100644",
