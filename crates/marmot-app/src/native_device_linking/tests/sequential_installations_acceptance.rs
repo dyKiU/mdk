@@ -118,9 +118,10 @@ async fn join_installation(
     sponsor: usize,
     newcomer: usize,
     // NATIVE5_TIMING_BEGIN
-    #[cfg(feature = "test-policy-overrides")] timing: &mut Option<
+    #[cfg(feature = "test-policy-overrides")] timing: &mut Option<(
+        usize,
         crate::client::device_linking::sibling_sharing::peer_proof_probe::native5_timing::Guard,
-    >,
+    )>,
     // NATIVE5_TIMING_END
 ) -> (
     DeviceLinkingSession,
@@ -159,8 +160,8 @@ async fn join_installation(
     compare_and_confirm_pair(&source, &recipient).await;
     // NATIVE5_TIMING_BEGIN
     #[cfg(feature = "test-policy-overrides")]
-    if newcomer == 3 {
-        *timing = Some(recipient.arm_native5_timing_for_test());
+    if newcomer == 3 || newcomer == 4 {
+        *timing = Some((newcomer + 1, recipient.arm_native5_timing_for_test()));
     }
     // NATIVE5_TIMING_END
     recipient
@@ -239,6 +240,8 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     // NATIVE5_TIMING_BEGIN
     #[cfg(feature = "test-policy-overrides")]
     let mut native5_timing = None;
+    #[cfg(feature = "test-policy-overrides")]
+    let mut native5_timing_reports = Vec::with_capacity(2);
     // NATIVE5_TIMING_END
     let attempt = std::panic::AssertUnwindSafe(async {
         for runtime in &runtimes { runtime.reconcile_accounts().await.unwrap(); }
@@ -254,6 +257,12 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
             // Reuse the integration helper:15s for every phase;
             // no deadline override, packets or extra host finalization calls.
             wait_for_automatic_phase(&source, &recipient, DeviceLinkingPhase::EnrollmentComplete).await;
+// NATIVE5_TIMING_BEGIN
+            #[cfg(feature = "test-policy-overrides")]
+            if let Some((ordinal, guard)) = native5_timing.take() {
+                native5_timing_reports.push((ordinal, guard.freeze()));
+            }
+// NATIVE5_TIMING_END
             tokio::time::timeout(Duration::from_secs(20), async {
                 loop {
                     if complete_roster_and_bilateral_policies(&apps[..=newcomer], &account) { break; }
@@ -275,7 +284,9 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     }).catch_unwind().await;
     // NATIVE5_TIMING_BEGIN
     #[cfg(feature = "test-policy-overrides")]
-    let native5_timing_report = native5_timing.take().map(|guard| guard.freeze());
+    if let Some((ordinal, guard)) = native5_timing.take() {
+        native5_timing_reports.push((ordinal, guard.freeze()));
+    }
     // NATIVE5_TIMING_END
     let mut runtime_closes = 0usize;
     for runtime in &runtimes {
@@ -294,8 +305,10 @@ async fn five_installations_join_with_rotating_existing_sponsors_and_explicit_sh
     let listener_closed = owned_listener_closed(address).await;
     // NATIVE5_TIMING_BEGIN
     #[cfg(feature = "test-policy-overrides")]
-    if let Some(report) = native5_timing_report {
+    for (ordinal, report) in native5_timing_reports {
+        eprintln!("native5-join-window begin ordinal={ordinal}");
         eprint!("{report}");
+        eprintln!("native5-join-window end ordinal={ordinal}");
     }
     // NATIVE5_TIMING_END
     eprintln!(

@@ -11,8 +11,8 @@ from upstream_extraction_cohort import frozen_inputs
 import native5_timing_parser as timing_parser
 import qualify_upstream_composed_enrollment as rich
 BASE='77caba679ab5986df88fd7296b5446004fba8bb7' # Root MUST pin a reviewed pure, formatted product baseline before adoption.
-MANIFEST_SHA='0564d5b060e73745d8d71b8a89390546fbc18bd983692a4350bd1c8294804a16' # Root MUST pin exact reviewed/reformatted reversal manifest.
-PARSER_SHA='08eb7fe9bed96cd54be363817eccaf7f21be276a444cd062d40c14e2de5d0390' # Root MUST pin exact reviewed closed parser.
+MANIFEST_SHA='93e2fbab1ecd1173bad65ea61abd7b65e7d654696a895a7cc9958348120de53b' # Root MUST pin exact reviewed/reformatted reversal manifest.
+PARSER_SHA='efd8ac43e47dd18b88f294b2d9a80309c7f8725adb43434ddfd5766c24a357d8' # Root MUST pin exact reviewed closed parser.
 SELF='scripts/diagnose_upstream_native5_consent.py'
 MANIFEST='scripts/native5_consent_source_manifest.json'
 PARSER='scripts/native5_timing_parser.py'
@@ -67,7 +67,7 @@ def source_guard():
             before,rest=text.split(BEGIN);_,after=rest.split(END);data=(before+after).replace(OPTIONS,'options: [',1).encode()
         if blob is not None:ensure(hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==blob,'whole-baseline-byte-equality:'+path)
     ensure(not subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).strip(),'no-untracked-overlays')
-    return {'source':head,'baseline':BASE,'manifest_sha256':MANIFEST_SHA,'parser_sha256':PARSER_SHA,'whole_source_modes_reconstructed':True,'extra_polls_waits_or_authority':False,'only_one_native5_case':True,'passive_target_join_ordinal':4,'first_Body0_proof_and_authenticated_peer_completion_trace':True,'later_proof_attempts_not_merged':True,'full_five_installation_scenario_retained':True,'original_strict15_duration_preserved':True,'exact_deadline_known':False}
+    return {'source':head,'baseline':BASE,'manifest_sha256':MANIFEST_SHA,'parser_sha256':PARSER_SHA,'whole_source_modes_reconstructed':True,'extra_polls_waits_or_authority':False,'only_one_native5_case':True,'passive_target_join_ordinals':[4,5],'first_Body0_proof_and_authenticated_peer_completion_trace':True,'later_proof_attempts_not_merged':True,'full_five_installation_scenario_retained':True,'original_strict15_duration_preserved':True,'exact_deadline_known':False}
 
 def parse(raw,code):
     # Exact-name/count parser is unchanged shared infrastructure. Preserve original libtest prefix.
@@ -149,11 +149,11 @@ def closed_failure_observations(raw):
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--preflight',action='store_true');args=ap.parse_args()
     os.umask(0o077);OUT.mkdir(exist_ok=True)
-    report={'scope':'one-native5-scenario-fourth-join-passive-consent-proof-and-same-operation-RPC-diagnostic','qualification_passed':False,'native_acceptance_claim':False,'promotion_eligible':False,'runtime_execution_attempted':False,'actual_counts_complete':False,'actual_passed':None,'actual_failed':None,'actual_ignored':None,'actual_executed_nonignored':None,'diagnostic_completed':False,'journey_passed':False}
+    report={'scope':'one-native5-scenario-fourth-and-fifth-independent-passive-publication-diagnostic','qualification_passed':False,'native_acceptance_claim':False,'promotion_eligible':False,'runtime_execution_attempted':False,'actual_counts_complete':False,'actual_passed':None,'actual_failed':None,'actual_ignored':None,'actual_executed_nonignored':None,'diagnostic_completed':False,'journey_passed':False}
     frozen=None;binary=None;binary_sha=None
     def save():(OUT/'result.json').write_text(json.dumps(report,indent=2)+'\n')
     try:
-        report['source_guard']=source_guard();report['parser_controls']=parser_controls();report['timing_parser_controls']=timing_parser.parser_controls();report['sdk_parser_controls']=timing_parser.sdk_parser_controls();report['rich_parser_controls']=rich.diagnostic_parser_controls();report['panic_location_parser_controls']=panic_location_parser_controls();save()
+        report['source_guard']=source_guard();report['parser_controls']=parser_controls();report['timing_parser_controls']=timing_parser.parser_controls();report['sdk_parser_controls']=timing_parser.sdk_parser_controls();report['window_parser_controls']=timing_parser.window_parser_controls();report['rich_parser_controls']=rich.diagnostic_parser_controls();report['panic_location_parser_controls']=panic_location_parser_controls();save()
         if args.preflight:
             code,raw,wall=bounded.capture(['cargo','fmt','--all'],180,limit=8*1024*1024)
             report['format']={'exit_code':code,'wall_seconds':wall};patch=subprocess.check_output(['git','diff','--binary'])
@@ -186,9 +186,14 @@ def main():
         save();report['body']=parse(raw,code);report['journey_passed']=green(report['body']);report['panic_observations']=safe_panic_locations(raw,frozen);save()
         if code!=0:
             report['closed_failure_observations']=closed_failure_observations(raw);save()
-        report['timing']=timing_parser.timing(raw,NAME)
-        wait=report['timing'].get('wait')
-        report['diagnostic_completed']=(report['timing']['known'] is True and isinstance(wait,dict) and all(type(wait.get(k)) is int for k in ['constructed_before_us','constructed_after_us','observed_us']) and type(wait.get('outcome_ok')) is bool);save()
+        report['timing_windows']=timing_parser.timing_windows(raw,NAME)
+        windows=report['timing_windows']['windows']
+        def known_window(window):
+            timing=window['timing'];wait=timing.get('wait')
+            return (timing['known'] is True and isinstance(wait,dict) and all(type(wait.get(k)) is int for k in ['constructed_before_us','constructed_after_us','observed_us']) and type(wait.get('outcome_ok')) is bool)
+        report['diagnostic_completed']=bool(windows) and all(known_window(window) for window in windows)
+        report['native_and_SDK_known_are_independent']=True
+        report['missing_fifth_window_is_not_zero_or_pass']=True;save()
         # A valid observed FAIL remains an actual FAIL. Missing later milestones
         # do not reject useful observations or become invented false/zero facts.
         ensure(row['actual_counts_complete'] is True and row.get('executed_nonignored')==1 and row.get('ignored')==0 and row.get('compiler_error_count')==0,'one-actual-body-no-ignore-or-compiler-error')

@@ -125,7 +125,7 @@ def timing(raw,name):
     require(last is None or first is not None and last>=first,'terminal-monotonic-bounds')
     require(completed>0 or total==maximum==errors==before_count==before_total==before_max==0,'terminal-empty-completions')
     require(before_count>0 or before_total==before_max==0,'terminal-empty-deadline-subset')
-    result['terminal_validation_cost']={'known':known,'scope':'all-actors-terminal-no-publication-periodic-calls-started-during-fourth-wait','started':started,'completed':completed,'errors':errors,'in_flight_at_freeze':inflight,'completed_wall_total_us':total,'completed_wall_max_us':maximum,'first_start_us':first,'last_completion_us':last,'definitely_inside_deadline_completed_count':before_count,'definitely_inside_deadline_wall_total_us':before_total,'definitely_inside_deadline_wall_max_us':before_max,'wall_includes_preemption':True,'CPU_time_known':False,'inflight_duration_unknown':inflight>0,'overlapping_totals_are_not_exclusive_time':True}
+    result['terminal_validation_cost']={'known':known,'scope':'all-actors-terminal-no-publication-periodic-calls-started-during-current-join-wait','started':started,'completed':completed,'errors':errors,'in_flight_at_freeze':inflight,'completed_wall_total_us':total,'completed_wall_max_us':maximum,'first_start_us':first,'last_completion_us':last,'definitely_inside_deadline_completed_count':before_count,'definitely_inside_deadline_wall_total_us':before_total,'definitely_inside_deadline_wall_max_us':before_max,'wall_includes_preemption':True,'CPU_time_known':False,'inflight_duration_unknown':inflight>0,'overlapping_totals_are_not_exclusive_time':True}
     result['sdk_publication']=sdk_timing(raw,name,lo,hi,rows,proofs)
     result['all_milestones_observed']=known and all(row is not None and all(t is not None for t in row['milestone_us'].values()) for row in rows)
     return result
@@ -233,3 +233,57 @@ def sdk_parser_controls():
         except ValueError:continue
         raise ValueError('adversarial-sdk-observation-accepted')
     return {'positive':8,'negative':len(negatives),'actual_runtime_bodies':0}
+
+
+def timing_windows(raw,name):
+    require(len(raw.encode())<=8*1024*1024,'bounded-two-window-output')
+    raw=re.sub(r'\x1b\[[0-9;]*m','',raw)
+    raw,prefix=re.subn(r'(?m)^test '+re.escape(name)+r' \.\.\. (?=native5-join-window begin ordinal=)','',raw)
+    require(prefix<=1 and not re.search(r'(?m)^test [A-Za-z0-9_:]+ \.\.\. native5-join-window',raw),'exact-two-window-test-prefix')
+    frames=[];active=None;data=[]
+    for line in raw.splitlines():
+        if line.startswith('native5-join-window'):
+            marker=re.fullmatch(r'native5-join-window (begin|end) ordinal=([45])',line);require(marker is not None,'closed-actual-join-ordinal')
+            ordinal=int(marker[2])
+            if marker[1]=='begin':
+                require(active is None and len(frames)<2 and ordinal==4+len(frames),'two-ordered-independent-window-begins')
+                active=ordinal;data=[]
+            else:
+                require(active==ordinal,'same-window-end')
+                parsed=timing('\n'.join(data),name)
+                frames.append({'actual_join_ordinal':ordinal,'timing':parsed,'independent_origin_and_snapshot':True})
+                active=None;data=[]
+        elif active is not None:data.append(line)
+        elif line.startswith('native5-consent-') or line.startswith('native5-sdk-'):raise ValueError('orphan-unframed-native-sdk-observation')
+    require(active is None,'closed-window-before-end-of-output')
+    return {'observed':bool(frames),'exact_prefix_normalizations':prefix,'windows':frames,
+        'fourth':{'reached_diagnostic_arm':bool(frames),'timing':frames[0]['timing'] if frames else None},
+        'fifth':{'reached_diagnostic_arm':len(frames)==2,'timing':frames[1]['timing'] if len(frames)==2 else None,'missing_reason':None if len(frames)==2 else 'NotReachedDiagnosticArm'},
+        'no_cross_window_clock_or_state_merge':True,'no_joint_snapshot_claim':True}
+
+def window_parser_controls():
+    name='native::exact'
+    report='\n'.join(['native5-consent-timing known=true loss_mask=0 snapshot_available=true',
+        'native5-consent-wait constructed_before_us=Some(1) constructed_after_us=Some(3) deadline_lower_us=Some(15000001) deadline_upper_us=Some(15000003) outcome_ok=Some(true) observed_us=Some(5)',
+        *['native5-consent-slot index='+str(i)+' observation=None' for i in range(3)],
+        *['native5-consent-proof index='+str(i)+' observation=None' for i in range(3)],
+        *['native5-consent-progress index='+str(i)+' observation=None' for i in range(3)],
+        'native5-consent-rpc-count count=0',
+        'native5-consent-terminal-cost observation=([0, 0, 0, 0, 0, 0, 0, 0], 0, [None, None])',
+        'native5-sdk-timing known=true loss_mask=0 snapshot_available=true',
+        *['native5-sdk-slot index='+str(i)+' observation=None' for i in range(6)]])
+    # Keep the immutable existing wait wire suffix, not a changed runtime deadline.
+    report=report.replace('observed_us=Some(5)','observed_us=Some(5) exact_deadline_known=false')
+    fourth='native5-join-window begin ordinal=4\n'+report+'\nnative5-join-window end ordinal=4'
+    fifth='native5-join-window begin ordinal=5\n'+report+'\nnative5-join-window end ordinal=5'
+    both=fourth+'\n'+fifth
+    unknown=fourth.replace(report,'native5-consent-timing known=false loss_mask=1 snapshot_available=false')
+    for sample in ['',fourth,both,'test '+name+' ... '+both,unknown,unknown+'\n'+fifth]:timing_windows(sample,name)
+    require(timing_windows(fourth,name)['fifth']['timing'] is None and timing_windows(fourth,name)['fifth']['missing_reason']=='NotReachedDiagnosticArm','absent-fifth-is-unknown-not-zero')
+    require(timing_windows(unknown,name)['windows'][0]['timing']['known'] is False,'old-window-loss-remains-unknown')
+    bad=[fifth,both+'\n'+fifth,fourth.replace('ordinal=4','ordinal=3'),fourth.replace('ordinal=4','ordinal=6'),fourth.replace('end ordinal=4','end ordinal=5'),fourth.replace('native5-join-window end ordinal=4',''),fourth.replace('begin ordinal=4','begin ordinal=true'),fourth+'\n'+report,'test foreign::case ... '+both,fourth.replace(report,'native5-join-window begin ordinal=5\n'+report),both.replace('begin ordinal=5','begin ordinal=4'),both.replace('native5-join-window end ordinal=5','native5-join-window end ordinal=5 private')]
+    for sample in bad:
+        try:timing_windows(sample,name)
+        except ValueError:continue
+        raise ValueError('adversarial-window-frame-accepted')
+    return {'positive':6,'negative':len(bad),'actual_runtime_bodies':0}

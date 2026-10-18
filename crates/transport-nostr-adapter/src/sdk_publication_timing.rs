@@ -24,10 +24,36 @@ struct Probe {
     status: AtomicU32,
     rows: Mutex<[Option<Row>; 6]>,
 }
-fn registry() -> &'static OnceLock<Weak<Probe>> {
-    static R: OnceLock<Weak<Probe>> = OnceLock::new();
-    &R
+struct Registry {
+    slots: [OnceLock<Weak<Probe>>; 2],
+    next: std::sync::atomic::AtomicUsize,
+    active: std::sync::atomic::AtomicUsize,
 }
+fn registry() -> &'static Registry {
+    static REGISTRY: OnceLock<Registry> = OnceLock::new();
+    REGISTRY.get_or_init(|| Registry {
+        slots: [OnceLock::new(), OnceLock::new()],
+        next: std::sync::atomic::AtomicUsize::new(0),
+        active: std::sync::atomic::AtomicUsize::new(2),
+    })
+}
+fn active_probe() -> Option<Arc<Probe>> {
+    let registry = registry();
+    let index = registry.active.load(Ordering::Acquire);
+    let probe = registry.slots.get(index)?.get()?.upgrade()?;
+    (probe.status.load(Ordering::Acquire) & FROZEN == 0).then_some(probe)
+}
+fn register(probe: &Arc<Probe>) {
+    let registry = registry();
+    let index = registry.next.fetch_update(Ordering::AcqRel, Ordering::Acquire, |next| {
+        if next < 2 { Some(next + 1) } else { None }
+    }).unwrap_or(2);
+    let Some(slot) = registry.slots.get(index) else { probe.loss(4); return; };
+    if slot.set(Arc::downgrade(probe)).is_err() { probe.loss(64); return; }
+    // Publish only after this immutable weak slot is initialized. No reuse/wrap.
+    registry.active.store(index, Ordering::Release);
+}
+
 impl Probe {
     fn loss(&self, bit: u32) {
         let _ = self
@@ -66,12 +92,7 @@ impl Guard {
             status: AtomicU32::new(0),
             rows: Mutex::new(std::array::from_fn(|_| None)),
         });
-        if registry().set(Arc::downgrade(&probe)).is_err() {
-            probe.loss(64);
-            if let Some(old) = registry().get().and_then(Weak::upgrade) {
-                old.loss(64);
-            }
-        }
+        register(&probe);
         Self(probe)
     }
     pub fn bind(&self, index: usize, actual_message_id: &[u8]) {
@@ -234,7 +255,7 @@ impl Drop for FirstCall {
     }
 }
 pub(crate) fn begin(dto_id: &str, endpoint_count: usize) -> Option<FirstCall> {
-    let p = registry().get()?.upgrade()?;
+    let p = active_probe()?;
     let id = EventId::from_hex(dto_id).ok()?.to_bytes();
     let mut token = None;
     p.observe(|rows, time| {

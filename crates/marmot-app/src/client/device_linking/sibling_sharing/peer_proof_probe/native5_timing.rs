@@ -114,10 +114,36 @@ struct Probe {
     status: AtomicU32,
     data: Mutex<Data>,
 }
-fn registry() -> &'static OnceLock<Weak<Probe>> {
-    static REGISTRY: OnceLock<Weak<Probe>> = OnceLock::new();
-    &REGISTRY
+struct Registry {
+    slots: [OnceLock<Weak<Probe>>; 2],
+    next: std::sync::atomic::AtomicUsize,
+    active: std::sync::atomic::AtomicUsize,
 }
+fn registry() -> &'static Registry {
+    static REGISTRY: OnceLock<Registry> = OnceLock::new();
+    REGISTRY.get_or_init(|| Registry {
+        slots: [OnceLock::new(), OnceLock::new()],
+        next: std::sync::atomic::AtomicUsize::new(0),
+        active: std::sync::atomic::AtomicUsize::new(2),
+    })
+}
+fn active_probe() -> Option<Arc<Probe>> {
+    let registry = registry();
+    let index = registry.active.load(Ordering::Acquire);
+    let probe = registry.slots.get(index)?.get()?.upgrade()?;
+    (probe.status.load(Ordering::Acquire) & FROZEN == 0).then_some(probe)
+}
+fn register(probe: &Arc<Probe>) {
+    let registry = registry();
+    let index = registry.next.fetch_update(Ordering::AcqRel, Ordering::Acquire, |next| {
+        if next < 2 { Some(next + 1) } else { None }
+    }).unwrap_or(2);
+    let Some(slot) = registry.slots.get(index) else { probe.loss(4); return; };
+    if slot.set(Arc::downgrade(probe)).is_err() { probe.loss(64); return; }
+    // Publish only after this immutable weak slot is initialized. No reuse/wrap.
+    registry.active.store(index, Ordering::Release);
+}
+
 impl Probe {
     fn loss(&self, reason: u32) {
         let _ = self
@@ -162,7 +188,7 @@ pub(in super::super::super) fn terminal_validation(
     if !periodic || entry.publication.is_some() {
         return None;
     }
-    let probe = registry().get()?.upgrade()?;
+    let probe = active_probe()?;
     let mut active = false;
     probe.observe(|data, _| {
         active = data.after.is_some() && data.wait_observed.is_none();
@@ -260,12 +286,7 @@ pub(crate) fn arm() -> (Guard, Pending) {
         origin,
         data: Mutex::new(Data::default()),
     });
-    if registry().set(Arc::downgrade(&probe)).is_err() {
-        probe.loss(DUPLICATE);
-        if let Some(old) = registry().get().and_then(Weak::upgrade) {
-            old.loss(DUPLICATE);
-        }
-    }
+    register(&probe);
     let pending = Pending(Arc::downgrade(&probe));
     (Guard(probe), pending)
 }
@@ -340,7 +361,7 @@ impl Pending {
     }
 }
 pub(crate) fn registration_unavailable(poisoned: bool) {
-    if let Some(probe) = registry().get().and_then(Weak::upgrade) {
+    if let Some(probe) = active_probe() {
         probe.loss(if poisoned { LOCK_POISONED } else { LOCK_BUSY });
     }
 }
@@ -557,7 +578,7 @@ fn increment(value: &mut u32, probe: &Probe) {
     }
 }
 pub(in super::super::super) fn progress(entry: &SiblingChannel, index: usize) {
-    let Some(probe) = registry().get().and_then(Weak::upgrade) else {
+    let Some(probe) = active_probe() else {
         return;
     };
     probe.observe(|data, time| {
@@ -585,7 +606,7 @@ pub(in super::super::super) fn progress(entry: &SiblingChannel, index: usize) {
     });
 }
 pub(in super::super::super) fn begin_proof(entry: &SiblingChannel) -> Option<ProofAttempt> {
-    let probe = registry().get()?.upgrade()?;
+    let probe = active_probe()?;
     let mut selected = None;
     probe.observe(|data, time| {
         if !owned(data, entry) {
@@ -639,7 +660,7 @@ pub(in super::super::super) fn prepared(
     let SiblingOriginal::Recipient { choice, .. } = entry.original.as_ref() else {
         return None;
     };
-    let probe = registry().get()?.upgrade()?;
+    let probe = active_probe()?;
     let key = Key {
         state: Arc::downgrade(&entry.state),
         nonce: entry.channel.scope().nonce,
@@ -697,7 +718,7 @@ pub(in super::super::super) fn prepared(
     })
 }
 pub(crate) fn armed() -> bool {
-    registry().get().and_then(Weak::upgrade).is_some()
+    active_probe().is_some()
 }
 pub(crate) struct Wait(Weak<Probe>);
 impl Wait {
