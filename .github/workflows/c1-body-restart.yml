@@ -6,7 +6,7 @@ on:
     inputs:
       scope:
         type: choice
-        options: [preflight, runtime]
+        options: [preflight, runtime, higher-diagnostic]
         default: preflight
       expected:
         type: choice
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      UPSTREAM_C1_BODY_BASELINE: adef3a12b6a8ffa3ed8db16cdd8851e14e57abf8
+      UPSTREAM_C1_BODY_BASELINE: 4408cfd961567059ac313350fc1ab76cd8ddfc88
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -57,11 +57,11 @@ jobs:
           retention-days: 7
   runtime:
     needs: preflight
-    if: github.event_name == 'workflow_dispatch' && inputs.scope == 'runtime' && github.ref == 'refs/heads/ci/upstream-c1-body-restart-20261018'
+    if: github.event_name == 'workflow_dispatch' && (inputs.scope == 'runtime' || inputs.scope == 'higher-diagnostic') && github.ref == 'refs/heads/ci/upstream-c1-body-restart-20261018'
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.expected == 'pfp' && 170 || 90 }}
     env:
-      UPSTREAM_C1_BODY_BASELINE: adef3a12b6a8ffa3ed8db16cdd8851e14e57abf8
+      UPSTREAM_C1_BODY_BASELINE: 4408cfd961567059ac313350fc1ab76cd8ddfc88
       CARGO_INCREMENTAL: '1'
       CARGO_BUILD_JOBS: '2'
       CARGO_PROFILE_DEV_DEBUG: '0'
@@ -86,11 +86,17 @@ jobs:
         env:
           CARGO_INCREMENTAL: '1'
           CASE_EXPECTED: ${{ inputs.expected }}
-        run: python3 scripts/qualify_upstream_c1_body_restart.py --expected "$CASE_EXPECTED"
+          CASE_SCOPE: ${{ inputs.scope }}
+        run: |
+          if [ "$CASE_SCOPE" = 'higher-diagnostic' ]; then
+            python3 scripts/qualify_upstream_c1_body_restart.py --higher-diagnostic --expected "$CASE_EXPECTED"
+          else
+            python3 scripts/qualify_upstream_c1_body_restart.py --expected "$CASE_EXPECTED"
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: c1-body-restart-${{ inputs.expected }}
+          name: c1-body-restart-${{ inputs.scope }}-${{ inputs.expected }}
           path: c1-body-restart-evidence/result.json
           if-no-files-found: error
           retention-days: 7

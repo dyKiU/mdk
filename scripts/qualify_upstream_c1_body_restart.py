@@ -8,13 +8,20 @@ import qualify_upstream_automatic_body as held
 import qualify_upstream_body_late_ack as late
 import upstream_completion_ci as completion
 ensure=bounded.ensure
-BASE='adef3a12b6a8ffa3ed8db16cdd8851e14e57abf8'
-WORKFLOW_SHA='c6a07753dd7e35770b23a712b778c2ecb26d3484abe6a591bbb70b30b013d32b'
+BASE='4408cfd961567059ac313350fc1ab76cd8ddfc88'
+OWNER_SOURCE='11eb96f4f72d17d0b40136bdfb6749acf6b676c4'
+FRONTIER_PARENT='288544fe2d9dc3323cb1df3b99f35cc017375e13'
+FRONTIER_SOURCE='adef3a12b6a8ffa3ed8db16cdd8851e14e57abf8'
+PRE_BODY_SOURCE='79d04efe4957ec2db2f3f02ef9ce6f97292ef869'
+RAW_SOURCE='4408cfd961567059ac313350fc1ab76cd8ddfc88'
+FRONTIER_PATHS={'crates/marmot-app/src/client/account_chat_sharing/automatic/tests/pending_restart_acceptance.rs': {'before': 'b69632ce6c94e18e7ebf02b518d2eaed50c83bd1c87be15ab12ea7ca90ed8c0c', 'after': '0b58fde3834d61a21f22afb34f4a9ac23fadf8c42a1b0a0fdca520ff9718068c', 'mode': '100644'}, 'crates/marmot-app/src/client/explicit_sync_frontier.rs': {'before': None, 'after': 'f4a73ac1995134480f6398006ad3af4ddeb2f4a48cce37109df4b18356349dd7', 'mode': '100644'}, 'crates/marmot-app/src/client/mod.rs': {'before': '434a971bf57ed402253cad7cf58c76f5be66ba46f28892bcf5a6456a978c5e7e', 'after': '3eb116d2771a0aa8827dd78f44ac4d4ab806eb397265748cd83192d353836686', 'mode': '100644'}, 'crates/marmot-app/src/client/sync.rs': {'before': '2491c5c9a56de4034bf88de33083cebb13e65e05147ae6aff2a102d5f0a2dc96', 'after': '04b5c0360ff97151ee7882100d0b9eae6d10951916cd6907672347f23f1907ce', 'mode': '100644'}, 'crates/marmot-app/src/client/sync/comparison_job.rs': {'before': '44a286cd7e1721ba3483c44742161a8cbe24c0063bcad02b632330e3e6e564bd', 'after': 'e99ce8660c45a26efb515107606ebe4b8d040ec4924c1ab17fe5b933bbf6e6b9', 'mode': '100644'}, 'crates/marmot-app/src/lib.rs': {'before': '37b1567aec1b88e484b2093108ff420e16afe326126f460be4a52d67dff35113', 'after': 'c68c15414ccdfffd9f5576f5334a876f8b01af19dae193ff844f41cccb2f221c', 'mode': '100644'}}
+BODY_STATE_PATHS={'crates/marmot-app/src/client/account_chat_sharing/automatic/records.rs': {'before': 'f433c23c32115850168fac6ee682992aa359da145655facec08e20a833c9b6d8', 'raw': 'acf29d2b57289ce1f4b4a486e9a7e415333cb86c3d266bffc01c4c5140171578', 'canonical': 'acf29d2b57289ce1f4b4a486e9a7e415333cb86c3d266bffc01c4c5140171578', 'mode': '100644'}, 'crates/marmot-app/src/client/account_chat_sharing/automatic/tests/pending_restart_acceptance.rs': {'before': '0b58fde3834d61a21f22afb34f4a9ac23fadf8c42a1b0a0fdca520ff9718068c', 'raw': 'fbe456a032b4c8ff7fe5b83af0d97b24e5adaa089b4e7dd2b3be598edee4ba0b', 'canonical': 'fbe456a032b4c8ff7fe5b83af0d97b24e5adaa089b4e7dd2b3be598edee4ba0b', 'mode': '100644'}}
+WORKFLOW_SHA='0954c3a35a338c1c0936c97cf9f3cb139ed5da90f411585c71d2e5d317689ae8'
 SELF='scripts/qualify_upstream_c1_body_restart.py'
 WORKFLOW='.github/workflows/c1-body-restart.yml'
 REF='refs/heads/ci/upstream-c1-body-restart-20261018'
 SYNC_FRONTIER_PARSER_SOURCE='aa6c24ff73b43622b4094915e5a1b4d28028b759'
-SYNC_FRONTIER_SOURCE_PINS={'crates/marmot-app/src/client/explicit_sync_frontier.rs': 'f4a73ac1995134480f6398006ad3af4ddeb2f4a48cce37109df4b18356349dd7', 'crates/marmot-app/src/client/account_chat_sharing/automatic/tests/pending_restart_acceptance.rs': '0b58fde3834d61a21f22afb34f4a9ac23fadf8c42a1b0a0fdca520ff9718068c'}
+SYNC_FRONTIER_SOURCE_PINS={'crates/marmot-app/src/client/explicit_sync_frontier.rs': 'f4a73ac1995134480f6398006ad3af4ddeb2f4a48cce37109df4b18356349dd7', 'crates/marmot-app/src/client/account_chat_sharing/automatic/tests/pending_restart_acceptance.rs': 'fbe456a032b4c8ff7fe5b83af0d97b24e5adaa089b4e7dd2b3be598edee4ba0b'}
 PRODUCT='crates/marmot-app/src/client/account_chat_sharing/automatic.rs'
 PRODUCT_SHA='0fde8d14ceea74cd2dd998cd4bfd4e516d61f3704e682931fc42f2460b95d117'
 OMISSION='                    self.collect_finished_automatic_publication(&mut entry);\n                    if entry.publication.as_ref().is_some_and(|publication| {\n                        publication.body_context.is_some()\n                            && publication.outcome.as_ref().is_some_and(Result::is_ok)\n                    }) && self.harvest_automatic_publication(&mut entry)?\n                    {\n                        self.finish_automatic_body_effects(&mut entry)?;\n                    }\n'
@@ -61,6 +68,23 @@ def source_guard(preflight=False):
         and all(os.environ.get(k)=='0' for k in ['CARGO_PROFILE_DEV_DEBUG','CARGO_PROFILE_TEST_DEBUG'])
         and all(not os.environ.get(k) for k in ['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTC_BOOTSTRAP','CARGO_PROFILE_DEV_OPT_LEVEL','CARGO_PROFILE_TEST_OPT_LEVEL']),'exact-build-cohort')
     ensure(subprocess.run(['git','merge-base','--is-ancestor',BASE,head]).returncode==0,'BASE-ancestor')
+    for value in [PRE_BODY_SOURCE,RAW_SOURCE]:
+        ensure(type(value)is str and re.fullmatch('[0-9a-f]{40}',value),'root-reviewed-body-source-required')
+    links=[(FRONTIER_PARENT,OWNER_SOURCE),(FRONTIER_PARENT,FRONTIER_SOURCE),(OWNER_SOURCE,PRE_BODY_SOURCE),(FRONTIER_SOURCE,PRE_BODY_SOURCE),(PRE_BODY_SOURCE,RAW_SOURCE),(RAW_SOURCE,BASE)]
+    ensure(all(subprocess.run(['git','merge-base','--is-ancestor',a,b]).returncode==0 for a,b in links),'reviewed-owner-frontier-body-source-ancestry')
+    ensure(set(git('diff','--name-only',FRONTIER_PARENT,FRONTIER_SOURCE).decode().splitlines())==set(FRONTIER_PATHS),'exact-reviewed-six-frontier-paths')
+    owner=layout(OWNER_SOURCE);frontier=layout(FRONTIER_SOURCE);expected_merge=dict(owner)
+    for path,pins in FRONTIER_PATHS.items():
+        for commit,key in [(FRONTIER_PARENT,'before'),(FRONTIER_SOURCE,'after')]:
+            if pins[key] is None:ensure(path not in layout(commit),'reviewed-new-frontier-path-absent')
+            else:ensure(layout(commit)[path][0]==pins['mode'] and digest(git('show',commit+':'+path))==pins[key],'reviewed-six-frontier-full-source-mode')
+        expected_merge[path]=frontier[path]
+    ensure(layout(PRE_BODY_SOURCE)==expected_merge,'exact-owner-with-six-reviewed-frontier-blobs-no-other-change')
+    ensure(set(git('diff','--name-only',PRE_BODY_SOURCE,RAW_SOURCE).decode().splitlines())==set(BODY_STATE_PATHS)
+        and set(git('diff','--name-only',RAW_SOURCE,BASE).decode().splitlines())<=set(BODY_STATE_PATHS),'exact-two-body-snapshot-paths-then-hosted-format-only')
+    for path,pins in BODY_STATE_PATHS.items():
+        for commit,key in [(PRE_BODY_SOURCE,'before'),(RAW_SOURCE,'raw'),(BASE,'canonical')]:
+            ensure(layout(commit)[path][0]==pins['mode'] and digest(git('show',commit+':'+path))==pins[key],'reviewed-body-snapshot-full-source-mode')
     baseline=layout(BASE);current=layout('HEAD')
     ensure(SELF not in baseline and WORKFLOW not in baseline and set(current)==set(baseline)|{SELF,WORKFLOW},'only-two-owned-metadata')
     ensure(subprocess.run(['git','diff','--quiet','HEAD']).returncode==0,'HEAD-pristine')
@@ -288,6 +312,56 @@ def aggregate(cases,expected_count):
         result['known_partial_'+key]=sum(known) if known else None
     return result
 
+
+def body_state_rows(raw,needed):
+    lines=[line for line in clean(raw).splitlines() if 'pending_restart_body_state' in line]
+    result={'schema_known':False,'records':[],'post_timeout_current_policy_channel':True,'joint_with_earlier_ledgers':False,'task_polled':False,'current_original_X_identity_proven':False}
+    if not needed:
+        ensure(not lines,'no-body-state-on-success');result['schema_known']=True;return result
+    ensure(len(lines)==2 and sum(len(line)+1 for line in lines)<=1024,'exact-two-bounded-body-state-rows')
+    boolean=r'(?:true|false)';publication=r'(?:None|Some\(\([123], '+boolean+', '+boolean+r', [012]\)\))'
+    clock=r'(?:None|Some\('+boolean+r'\))';number=r'(?:0|[1-9][0-9]{0,2})';assembly=r'(?:None|Some\(\('+number+', '+number+r'\)\))'
+    for slot,line in enumerate(lines):
+        header=re.fullmatch(r'pending_restart_body_state slot=([01]) row=(.*)',line)
+        ensure(header is not None and int(header[1])==slot,'ordered-body-state-slot')
+        if header[2]=='None':result['records'].append({'slot':slot,'channel_observed':False,'publication':None,'record_clock':None,'assembly':None});continue
+        row=re.fullmatch(r'Some\(\(('+publication+'), ('+clock+'), ('+assembly+r')\)\)',header[2]);ensure(row is not None,'closed-body-state-tuple')
+        pub=None
+        if row[1]!='None':
+            match=re.fullmatch(r'Some\(\(([123]), (true|false), (true|false), ([012])\)\)',row[1]);ensure(match is not None,'closed-publication-tuple')
+            kind=int(match[1]);context=match[2]=='true';ensure(context==(kind==3),'publication-kind-context-consistency')
+            pub={'kind':{1:'Request',2:'Consent',3:'Body'}[kind],'body_context_present':context,'task_is_finished':match[3]=='true','retained_outcome':{0:'Uncollected',1:'Ok',2:'Err'}[int(match[4])]}
+        parts=None
+        if row[3]!='None':
+            match=re.fullmatch(r'Some\(\(('+number+'), ('+number+r')\)\)',row[3]);ensure(match is not None,'closed-assembly-tuple')
+            expected,present=(unsigned(match[i],64) for i in [1,2]);ensure(1<=expected<=128 and present<=expected,'bounded-current-assembly-counts')
+            parts={'expected':expected,'present':present,'count_equality_is_not_commit':True}
+        result['records'].append({'slot':slot,'channel_observed':True,'publication':pub,'record_clock':optional_bool(row[2]),'assembly':parts})
+    result['schema_known']=True;return result
+
+def body_state_controls():
+    pair=lambda a,b:'pending_restart_body_state slot=0 row='+a+'\npending_restart_body_state slot=1 row='+b+'\n'
+    pending='Some((Some((3, true, false, 0)), Some(false), Some((8, 6))))'
+    empty='Some((None, None, None))';good=pair(pending,empty)
+    row=body_state_rows(good,True);ensure(row['records'][0]['publication']['retained_outcome']=='Uncollected' and row['records'][0]['assembly']['present']==6,'source-shaped-pending-body-state')
+    ensure(body_state_rows(pair('None',empty),True)['records'][0]['channel_observed'] is False,'missing-channel-is-unknown')
+    for kind,context in [(1,'false'),(2,'false'),(3,'true')]:
+        for outcome in [0,1,2]:
+            item='Some((Some(('+str(kind)+', '+context+', true, '+str(outcome)+')), Some(true), Some((128, 128))))'
+            ensure(body_state_rows(pair(item,empty),True)['schema_known'],'finite-kind-outcome-complete-assembly')
+    ensure(body_state_rows(pair(pending.replace('false, 0','true, 0'),empty),True)['schema_known'],'finished-uncollected-result-unknown')
+    ensure(body_state_rows('',False)['schema_known'],'no-timeout-no-supplement')
+    bad=[good.replace('slot=1 row='+empty,'slot=1 row='+empty+' PRIVATE'),good+good,good.splitlines()[0],good.replace('slot=1','slot=0'),good.replace('slot=1','slot=2'),good.replace('Some((3,','Some(3,'),good.replace('Some((8, 6))','Some((0, 0))'),good.replace('Some((8, 6))','Some((129, 6))'),good.replace('Some((8, 6))','Some((8, 9))'),good.replace('true, false, 0','false, false, 0'),good.replace('3, true','4, true'),good.replace('false, 0','false, 3'),good.replace('Some(false)','Some(PRIVATE)'),good.replace('Some((8, 6))','Some((-1, 0))'),good.replace('row=Some','foreign row=Some',1)]
+    for text in bad:
+        try:body_state_rows(text,True)
+        except (ValueError,TypeError,OverflowError):continue
+        raise ValueError('invalid-body-state-accepted')
+    try:body_state_rows(good,False)
+    except ValueError:pass
+    else:raise ValueError('unexpected-success-body-state-accepted')
+    ensure('PRIVATE' not in json.dumps(row),'no-private-body-state-export')
+    return {'positive':13,'negative':len(bad)+1,'runtime_bodies':0}
+
 def execute_case(root,row,binary,before,mode,expected_inputs,name,expected):
     row.update(name=name,expected=expected,runtime_attempted=False,actual_executed_nonignored=0,expected_outcome_verified=False)
     save(root)
@@ -322,8 +396,14 @@ def execute_case(root,row,binary,before,mode,expected_inputs,name,expected):
         except (ValueError,TypeError,OverflowError) as error:
             row['sync_frontier']={'schema_known':False,'closed_parser_failure_type':type(error).__name__}
         save(root)
+        try:
+            ensure(type(recovered)is bool,'higher-body-state-timeout-mode-known')
+            row['body_state']=body_state_rows(raw,not recovered)
+        except (ValueError,TypeError,OverflowError) as error:
+            row['body_state']={'schema_known':False,'closed_parser_failure_type':type(error).__name__}
+        save(root)
     row['outcome']=verdict(raw,code,basic,name,expected)
-    row['expected_outcome_verified']=row['outcome']['expected_outcome_verified'] and (name not in NAMES[3:] or row['restart_ledgers'].get('schema_known') is True) and (name!=NAMES[4] or row['sync_frontier'].get('schema_known') is True);save(root)
+    row['expected_outcome_verified']=row['outcome']['expected_outcome_verified'] and (name not in NAMES[3:] or row['restart_ledgers'].get('schema_known') is True) and (name!=NAMES[4] or (row['sync_frontier'].get('schema_known') is True and row['body_state'].get('schema_known') is True));save(root)
 
 def phase(root,label,cohort,expected_inputs,specs,different_from=None):
     row={'cases':[],'phase_passed':False,'expected_case_count':len(specs)};root.setdefault('phases',{})[label]=row;save(root)
@@ -419,6 +499,30 @@ def runtime(report,cohort,expected):
             ensure(report.get('expected_outcome_verified') is True and not report['fallback_source_restore_used'] and not report['fallback_binary_copy_used'],'final-outcome-without-fallback-required')
             if expected=='pfp':ensure(report['component_PFP_verified'],'final-PFP-must-remain-qualified')
 
+def higher_diagnostic(report):
+    frozen=physical();binary=None;before=None;mode=None
+    report.update(runtime_attempted=False,mutation_attempted=False,component_PFP_verified=False,qualification_passed=False,higher_diagnostic_completed=False)
+    try:
+        report['free_bytes']=shutil.disk_usage('.').free;save(report);ensure(report['free_bytes']>=8*1024**3,'remote-disk-reserve')
+        binary,before,mode=phase(report,'higher_diagnostic','experimental',frozen,[(NAMES[4],'green')])
+    finally:
+        cases=report.get('phases',{}).get('higher_diagnostic',{}).get('cases',[])
+        report['runtime_attempted']=any(case.get('runtime_attempted') is True for case in cases)
+        report['actual_body_counts']=aggregate(cases,1)
+        for key in ['passed','failed','ignored','executed_nonignored']:report['actual_'+key]=report['actual_body_counts']['actual_'+key]
+        if not report['runtime_attempted']:report['actual_executed_nonignored']=0
+        report['source_final_pristine']=physical()==frozen
+        report['baseline_binary_final_pristine']=None if binary is None else binary.is_file() and not binary.is_symlink() and digest(binary.read_bytes())==before and stat.S_IMODE(binary.stat().st_mode)==mode
+        case=cases[0] if len(cases)==1 else {};basic=case.get('basic_counts',{})
+        report['higher_diagnostic_completed']=(len(cases)==1 and basic.get('actual_counts_complete') is True and type(basic.get('executed_nonignored'))is int and basic['executed_nonignored']==1
+            and basic.get('ignored')==0 and basic.get('compiler_error_count')==0 and case.get('outcome',{}).get('closed_prerequisites') is True
+            and case.get('restart_ledgers',{}).get('schema_known') is True and case.get('sync_frontier',{}).get('schema_known') is True and case.get('body_state',{}).get('schema_known') is True
+            and report['source_final_pristine'] and report['baseline_binary_final_pristine'] is True)
+        report['component_PFP_verified']=False;report['qualification_passed']=False;save(report)
+        ensure(report['source_final_pristine'] and report['baseline_binary_final_pristine'] is not False,'diagnostic-final-source-binary-mode')
+    ensure(report['higher_diagnostic_completed'],'one-original-higher-closed-diagnostic-required')
+    ensure(case.get('expected_outcome_verified') is True,'original-higher-runtime-failure-remains-failure')
+
 def controls():
     helper=Path(RESTART_HELPER).read_text();composed=Path(COMPOSED_HELPER).read_text();a,b=restart_sites(helper,composed)
     marker='pending_restart_required_higher_source=true source_is_lower=false\npending_restart_first_higher_positive_close=true\npending_restart_authenticated_y_retained_exact_live_x=true\npending_restart_delivery_observation recovered=false source_is_lower=false elapsed_millis=30001 completed_syncs=[1, 2] sync_millis=[1, 2] completed_ticks=[1, 2] tick_millis=[1, 2] waiting_at=(1, "sync") waiting_millis=1\npending_restart_post_timeout_catalog_record=Some((Some(true), Some(false))) lower_pending_bodies_catalog_records_sent_renew=[None, Some((false, 1, false, true, true, false))]\npending_restart_final_positive_closes=true\ndelayed_request_cleanup_d_closed=true abc_closed=true\n'
@@ -486,13 +590,15 @@ def prefix_and_ledger_controls():
     return {'attached_marker_positive':3,'prefix_closed_negative':9,'ledger_positive':3,'ledger_negative':7,'runtime_bodies':0,'old_receipt_reclassified':False}
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--preflight',action='store_true');p.add_argument('--expected',choices=['green','pfp'],default='green');args=p.parse_args()
-    report={'scope':'C1 positive-receipt ordering and five unchanged existing controls','preflight':args.preflight,'expected':args.expected,'runtime_attempted':False,
+    p=argparse.ArgumentParser();p.add_argument('--preflight',action='store_true');p.add_argument('--expected',choices=['green','pfp'],default='green');p.add_argument('--higher-diagnostic',action='store_true');args=p.parse_args();ensure(not args.higher_diagnostic or args.expected=='green','diagnostic-cannot-request-PFP')
+    report={'scope':'one original higher restart diagnostic; no mutation' if args.higher_diagnostic else 'C1 positive-receipt ordering and five unchanged existing controls','preflight':args.preflight,'expected':args.expected,'higher_diagnostic':args.higher_diagnostic,'runtime_attempted':False,
         'actual_executed_nonignored':0,'qualification_passed':False,'native_global_qualification':False,'automatic_retries':0,'environment_RUST_MIN_STACK':4194304,
         'restart_composed_driver_and_worker_stack_bytes':8388608,'Tokio_workers':2,'raw_output_retained':False}
     try:
-        report['source_guard']=source_guard(args.preflight);save(report);report['parser_controls']=controls();report['prefix_and_restart_ledger_controls']=prefix_and_ledger_controls();report['sync_frontier_controls']=sync_frontier_controls();save(report)
-        if not args.preflight:runtime(report,'experimental',args.expected)
+        report['source_guard']=source_guard(args.preflight);save(report);report['parser_controls']=controls();report['prefix_and_restart_ledger_controls']=prefix_and_ledger_controls();report['sync_frontier_controls']=sync_frontier_controls();report['body_state_controls']=body_state_controls();save(report)
+        if not args.preflight:
+            if args.higher_diagnostic:higher_diagnostic(report)
+            else:runtime(report,'experimental',args.expected)
         report['controller_completed']=True;save(report)
     except Exception as error:report['controller_failure_type']=type(error).__name__;save(report);raise
     finally:report['final_HEAD_git_pristine']=subprocess.run(['git','diff','--quiet','HEAD']).returncode==0;save(report)
