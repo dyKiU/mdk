@@ -10,7 +10,7 @@ import subprocess
 import sys
 import qualify_upstream_source_readiness_red as red
 
-BASE = 'c0303bcc28640c0854f34b03cd573fa4779c1b3d'
+BASE = '30157e8af92a62911e4e12ba9b7800f902e913d4'
 SELF = 'scripts/qualify_upstream_source_readiness_candidate.py'
 WORKFLOW = '.github/workflows/experimental-sync-ci.yml'
 REF = 'refs/heads/ci/upstream-source-readiness-green-20261018'
